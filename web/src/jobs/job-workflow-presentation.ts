@@ -451,7 +451,7 @@ function responsibilityFor(
       return {
         role: null,
         title: 'Geçersiz',
-        description: 'İş kaydı geçersiz kılındı ve yeniden açılamaz.',
+        description: 'Bu kayıt artık operasyonel akışta kullanılamaz ve yeniden açılamaz.',
         consequence: null,
         submission: null,
       };

@@ -185,6 +185,7 @@ describe('filter sheets and active counts', () => {
       ['REVISION_REQUESTED', 'Düzeltme istendi'],
       ['COMPLETED', 'Tamamlandı'],
       ['CANCELLED', 'İptal edildi'],
+      ['INVALIDATED', 'Geçersiz'],
     ]);
   });
 

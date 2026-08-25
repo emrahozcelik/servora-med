@@ -7,11 +7,13 @@ import { ApiError, type CurrentUser } from './services/api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, getFollowUpSuggestion, getJobCard,
   getMeetingDetails, listDeliveryItems,
+  invalidateJobCard,
   patchDeliveryItem, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type ApproveFollowUpInput, type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
+  type JobCardInvalidationInput,
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
   type StartJobCardInput,
   type AvailableSlot,
@@ -59,6 +61,11 @@ import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
+import {
+  JobInvalidationAction,
+  type JobInvalidationAttempt,
+  type JobInvalidationMutationState,
+} from './jobs/JobInvalidationAction';
 import { useReassignmentConversationSync } from './jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from './jobs/ReassignmentSyncPrompt';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
@@ -426,7 +433,7 @@ export function JobDetailPanel({
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
   pendingLabel, continuity, onCreateFollowUp, existingChildrenCount, messagingAction,
-  messagingActionVisible = false,
+  messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -458,6 +465,8 @@ export function JobDetailPanel({
   existingChildrenCount?: number | null;
   messagingAction?: ReactNode;
   messagingActionVisible?: boolean;
+  invalidationAction?: ReactNode;
+  mutationLocked?: boolean;
 }) {
   const presentation = deriveJobWorkflowPresentation({
     job,
@@ -534,6 +543,7 @@ export function JobDetailPanel({
     && job.status === 'COMPLETED'
     && onCreateFollowUp !== undefined
     && !showFollowUpRecommendation;
+  const localMutationPending = pending || mutationLocked;
   const showRequirements = !managementReview
     && presentation.terminalState === null
     && presentation.requirements.length > 0;
@@ -550,7 +560,7 @@ export function JobDetailPanel({
       primary={presentation.primaryTransition}
       secondary={presentation.secondaryTransitions}
       recordEditAction={presentation.recordEditAction}
-      pending={pending}
+      pending={localMutationPending}
       pendingLabel={pendingLabel}
       startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
       onCommand={onCommand}
@@ -558,7 +568,9 @@ export function JobDetailPanel({
     />
   ) : null;
   const hasWorkflowMain = Boolean(requirements || decision);
-  const hasRail = Boolean(managementReview || hasWorkflowMain || notes || messagingActionVisible);
+  const hasRail = Boolean(
+    managementReview || hasWorkflowMain || notes || messagingActionVisible || invalidationAction,
+  );
 
   return (
     <main className="job-detail" data-job-detail="true">
@@ -577,7 +589,7 @@ export function JobDetailPanel({
           className="secondary-button detail-back-button"
           type="button"
           onClick={onBack}
-          disabled={pending}
+          disabled={pending && !mutationLocked}
         >
           Listeye dön
         </button>
@@ -607,10 +619,19 @@ export function JobDetailPanel({
 
       <FollowUpSourcePanel job={job} />
       {showFollowUpRecommendation && onCreateFollowUp && (
-        <FollowUpRecommendation job={job} details={meetingDetails} onCreate={onCreateFollowUp} />
+        <FollowUpRecommendation
+          job={job}
+          details={meetingDetails}
+          onCreate={onCreateFollowUp}
+          disabled={localMutationPending}
+        />
       )}
       {showFollowUpCreateAction && onCreateFollowUp && (
-        <FollowUpCreateAction onCreate={onCreateFollowUp} existingChildrenCount={existingChildrenCount} />
+        <FollowUpCreateAction
+          onCreate={onCreateFollowUp}
+          existingChildrenCount={existingChildrenCount}
+          disabled={localMutationPending}
+        />
       )}
       {presentation.revisionLoop && (
         <div data-job-detail-section="revision">
@@ -645,7 +666,7 @@ export function JobDetailPanel({
             <JobScheduleEditForm
               job={job}
               scheduleEdit={presentation.scheduleEdit}
-              pending={pending}
+              pending={localMutationPending}
               user={user}
               onSave={onSaveSchedule}
             />
@@ -681,7 +702,7 @@ export function JobDetailPanel({
                     {canEditDelivery && onSaveDeliveredAt && (
                       <DeliveryItemActualTimeForm
                         item={entry}
-                        pending={pending}
+                        pending={localMutationPending}
                         onSave={onSaveDeliveredAt}
                       />
                     )}
@@ -726,6 +747,7 @@ export function JobDetailPanel({
               </div>
             )}
 
+            {invalidationAction}
             {messagingAction}
 
             {notes && (
@@ -865,6 +887,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
   const [messagingActionVisible, setMessagingActionVisible] = useState(false);
   const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
+  const [invalidationMutation, setInvalidationMutation] = useState<JobInvalidationMutationState>({ kind: 'idle' });
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
@@ -982,6 +1005,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     setMessage('');
     setMessageIsError(false);
     setMeetingSubmissionError(null);
+    setInvalidationMutation({ kind: 'idle' });
     setDialog(null);
     setStartPendingPhase(null);
   }, [jobId]);
@@ -1029,6 +1053,157 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     markReconciledThrough(generationAtStart);
     return true;
   }
+
+  async function reconcileInvalidationAttempt(
+    attempt: JobInvalidationAttempt,
+    waitingMessage: string,
+    allowSameVersionRetry = true,
+  ) {
+    setInvalidationMutation({
+      kind: 'reconciling', attempt, message: waitingMessage, checking: true,
+    });
+    const operationJobId = jobId;
+    const operationSession = sessionLifetime.current.token;
+    const generationAtStart = realtimeInvalidationGeneration.current;
+    try {
+      const detail = await loadJobDetail(operationJobId);
+      if (!isOperationCurrent(operationSession, operationJobId)) return;
+      setState({ kind: 'ready', detail });
+      setTimelineKey((value) => value + 1);
+      setLifecycleNoteKey((value) => value + 1);
+      markReconciledThrough(generationAtStart);
+      onChanged();
+      if (detail.job.status === 'INVALIDATED') {
+        setInvalidationMutation({ kind: 'idle' });
+        setMessage('Kayıt zaten geçersiz durumda.');
+        setMessageIsError(false);
+        setFeedbackFocusRequest((value) => value + 1);
+        return;
+      }
+      if (allowSameVersionRetry
+        && detail.job.status === attempt.sourceStatus
+        && detail.job.version === attempt.expectedVersion) {
+        setInvalidationMutation({
+          kind: 'retry-ready',
+          attempt,
+          message: 'Kayıt aynı durumda. Sonucu doğrulamak için aynı işlemi yeniden deneyebilirsiniz.',
+        });
+        return;
+      }
+      setInvalidationMutation({ kind: 'error', message: 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.' });
+      setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+      setMessageIsError(true);
+      setFeedbackFocusRequest((value) => value + 1);
+    } catch {
+      if (!isOperationCurrent(operationSession, operationJobId)) return;
+      setInvalidationMutation({
+        kind: 'reconciling',
+        attempt,
+        message: 'Güncel iş durumu alınamadı. Önce durumu yeniden kontrol edin.',
+        checking: false,
+      });
+      setMessage('İşlem sonucu doğrulanamadı.');
+      setMessageIsError(true);
+      setFeedbackFocusRequest((value) => value + 1);
+    }
+  }
+
+  async function recheckInvalidation() {
+    const current = invalidationMutation;
+    if (current.kind !== 'reconciling' && current.kind !== 'retry-ready') return;
+    if (current.kind === 'reconciling' && current.checking) return;
+    await reconcileInvalidationAttempt(current.attempt, 'Durum yeniden kontrol ediliyor…');
+  }
+
+  async function submitInvalidation(attempt: JobInvalidationAttempt) {
+    if (state.kind !== 'ready'
+      || state.detail.job.status === 'INVALIDATED'
+      || user.role !== 'ADMIN'
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
+    setInvalidationMutation({ kind: 'submitting', attempt });
+    setPending(true);
+    setMessage('');
+    setMessageIsError(false);
+    try {
+      const input: JobCardInvalidationInput = {
+        clientActionId: attempt.clientActionId,
+        expectedVersion: attempt.expectedVersion,
+        reasonCode: attempt.reasonCode,
+        note: attempt.note,
+      };
+      const updated = await invalidateJobCard(operationJobId, input, attempt.sourceStatus);
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      const updatedDetail: LoadedJobDetail = state.detail.kind === 'SALES_MEETING'
+        ? {
+            ...state.detail,
+            job: updated as JobCard & { type: 'SALES_MEETING' },
+            meetingDetails: state.detail.meetingDetails === null
+              ? null
+              : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
+          }
+        : { ...state.detail, job: updated } as LoadedJobDetail;
+      setState({ kind: 'ready', detail: updatedDetail });
+      setInvalidationMutation({ kind: 'idle' });
+      setTimelineKey((value) => value + 1);
+      setLifecycleNoteKey((value) => value + 1);
+      setMessage('İş kaydı geçersiz kılındı.');
+      setMessageIsError(false);
+      setFeedbackFocusRequest((value) => value + 1);
+      onChanged();
+      if (hasPendingRealtimeInvalidation()) {
+        if (!(await requestRealtimeDrain())) return;
+      }
+    } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      const error = caught instanceof ApiError ? caught : null;
+      const ambiguous = error !== null && (
+        error.code === 'ACTION_IN_PROGRESS'
+        || error.code === 'NETWORK_ERROR'
+        || error.code === 'INVALID_RESPONSE'
+        || error.retryable
+      );
+      if (ambiguous) {
+        setInvalidationMutation({
+          kind: 'reconciling',
+          attempt,
+          message: error.code === 'ACTION_IN_PROGRESS'
+            ? 'İşlem sonucu henüz kesinleşmedi. Önce kaydın durumunu kontrol edin.'
+            : 'İşlem sonucu doğrulanamadı. Önce kaydın durumunu kontrol edin.',
+          checking: false,
+        });
+        setMessage('İşlem sonucu doğrulanamadı.');
+        setMessageIsError(true);
+        setFeedbackFocusRequest((value) => value + 1);
+      } else if (error?.code === 'VERSION_CONFLICT' || error?.code === 'JOB_ALREADY_INVALIDATED') {
+        await reconcileInvalidationAttempt(
+          attempt,
+          error.code === 'JOB_ALREADY_INVALIDATED'
+            ? 'Kayıt zaten geçersiz olabilir. Güncel durum kontrol ediliyor…'
+            : 'İş güncellendi. Güncel durum kontrol ediliyor…',
+        );
+      } else if (error?.code === 'CLIENT_ACTION_REUSED') {
+        await reconcileInvalidationAttempt(
+          attempt,
+          'İşlem kimliği daha önce kullanılmış. Güncel durum kontrol ediliyor…',
+          false,
+        );
+      } else {
+        setInvalidationMutation({
+          kind: 'error',
+          message: error?.message ?? 'İş kaydı geçersiz kılınamadı. Lütfen tekrar deneyin.',
+        });
+        setMessageIsError(true);
+        setFeedbackFocusRequest((value) => value + 1);
+      }
+    } finally {
+      endMutationOperation(owner);
+    }
+  }
+
   async function reconcileRealtimeTruth() {
     if (editing) {
       setRealtimeStale(true);
@@ -1811,23 +1986,27 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const showMeetingResult = detail.kind === 'SALES_MEETING'
     && viewMeeting && detail.meetingDetails !== null
     && (detail.job.status !== 'CANCELLED' || hasMeetingResult);
+  const invalidationMutationLocked = invalidationMutation.kind === 'submitting'
+    || invalidationMutation.kind === 'reconciling'
+    || invalidationMutation.kind === 'retry-ready';
+  const invalidationLocked = pending || invalidationMutationLocked;
 
   const recordContent = editing && detail.kind === 'SALES_MEETING'
     ? <SalesMeetingEditForm job={detail.job} user={user}
-      pending={pending} onCancel={() => setEditing(false)} onSave={saveJob} />
+      pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveJob} />
     : editing && detail.kind === 'PRODUCT_DELIVERY'
       ? <DeliveryAssigneeEditForm job={detail.job}
-        pending={pending} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
+        pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
       : editing && detail.kind === 'GENERAL_TASK'
         ? <GeneralTaskEditForm job={detail.job} user={user}
-          pending={pending} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
+          pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
         : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
         ? <MeetingDetailsSection
           job={detail.job}
           details={detail.meetingDetails}
           user={user}
           canEdit={editMeeting}
-          mutationPending={pending}
+          mutationPending={invalidationLocked}
           submissionError={meetingSubmissionError}
           onSave={saveMeeting}
         />
@@ -1862,12 +2041,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
+    mutationLocked={invalidationMutationLocked}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes
         jobId={jobId}
         jobType={detail.job.type}
-        canAdd={addNote}
+        canAdd={addNote && !invalidationLocked}
         hideWhenEmpty={detail.job.status === 'CANCELLED'}
         refreshKey={lifecycleNoteKey}
         realtimeKey={notesRealtimeKey}
@@ -1878,11 +2058,30 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       <JobConversationAction
         job={detail.job}
         user={user}
+        disabled={invalidationLocked}
         onOpenMessaging={onOpenMessaging}
         onVisibilityChange={setMessagingActionVisible}
       />
     ) : undefined}
     messagingActionVisible={messagingActionVisible}
+    invalidationAction={user.role === 'ADMIN' && detail.job.status !== 'INVALIDATED' ? (
+      <JobInvalidationAction
+        job={detail.job}
+        mutationState={invalidationMutation}
+        onSubmit={(attempt) => { void submitInvalidation(attempt); }}
+        onRecheck={() => { void recheckInvalidation(); }}
+        onRetry={() => {
+          if (invalidationMutation.kind === 'retry-ready') {
+            void submitInvalidation(invalidationMutation.attempt);
+          }
+        }}
+        onReset={() => {
+          setInvalidationMutation({ kind: 'idle' });
+          setMessage('');
+          setMessageIsError(false);
+        }}
+      />
+    ) : undefined}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
     {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} onCountChange={setFollowUpChildrenCount} />}

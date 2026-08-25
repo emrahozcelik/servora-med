@@ -62,6 +62,15 @@ describe('canonical JobCard URL state', () => {
     expect(canonicalJobSearchParams(params).toString()).toBe('status=closed');
   });
 
+  it('keeps the explicit invalidated filter in list mode and preserves the Tümü aggregate', () => {
+    const params = new URLSearchParams('view=board&status=INVALIDATED&offset=50');
+    expect(parseJobSearch(params)).toEqual({ status: 'INVALIDATED', view: 'list', offset: 50 });
+    expect(canonicalJobSearchParams(params).toString()).toBe('status=INVALIDATED&offset=50');
+    expect(parseJobSearch(new URLSearchParams('status=all'))).toEqual({
+      status: 'all', view: 'list', offset: 0,
+    });
+  });
+
   it('resets offset when filters change and omits default values', () => {
     const current = new URLSearchParams('status=closed&view=list&offset=50&priority=urgent');
     expect(updateJobSearch(current, { priority: 'normal', status: 'active' }).toString())

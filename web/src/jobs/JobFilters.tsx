@@ -40,6 +40,7 @@ function JobStatusOptions() {
     ))}
     <option value="COMPLETED">Tamamlandı</option>
     <option value="CANCELLED">İptal edildi</option>
+    <option value="INVALIDATED">Geçersiz</option>
   </>;
 }
 

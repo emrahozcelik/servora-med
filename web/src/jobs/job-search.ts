@@ -47,7 +47,7 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   const overdue = scalar(params, 'overdue') === 'true';
   const status = scalar(params, 'status');
   const requestedView = overdue ? 'list' : (scalar(params, 'view') === 'board' ? 'board' : 'list');
-  const view = status === 'closed' ? 'list' : requestedView;
+  const view = status === 'closed' || status === 'INVALIDATED' ? 'list' : requestedView;
   const state: JobSearchState = { view, offset: 0 };
   const q = scalar(params, 'q')?.trim();
   if (q && Array.from(q).length <= 200) state.q = q;

@@ -1,6 +1,7 @@
 import type {
   JobCardActivityStatus,
   JobCardEngagementKind,
+  JobCardInvalidationReasonCode,
   JobCardStatus,
   JobCardType,
 } from './jobs-api';
@@ -54,6 +55,20 @@ export const historicalJobStatusLabels: Record<JobCardActivityStatus, string> = 
 
 export function jobCardStatusLabel(status: JobCardStatus): string {
   return jobStatusLabels[status];
+}
+
+export const jobCardInvalidationReasonLabels: Record<JobCardInvalidationReasonCode, string> = {
+  DUPLICATE: 'Yinelenen kayıt',
+  WRONG_CUSTOMER: 'Yanlış müşteriye bağlı',
+  CREATED_BY_MISTAKE: 'Yanlışlıkla oluşturuldu',
+  TRAINING_OR_TEST_RECORD: 'Eğitim / test kaydı',
+  OTHER: 'Diğer',
+};
+
+export function jobCardInvalidationReasonLabel(
+  code: JobCardInvalidationReasonCode | null | undefined,
+): string {
+  return code ? jobCardInvalidationReasonLabels[code] : 'Bilgi kaydedilmemiş';
 }
 
 export const JOB_CARD_ACTIVITY_EVENTS = [

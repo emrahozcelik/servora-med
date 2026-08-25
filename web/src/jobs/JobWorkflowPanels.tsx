@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
 import type { SubmissionRequirement } from './jobs-api';
+import { jobCardInvalidationReasonLabel } from './job-labels';
 
 const REQUIREMENT_STATE_TEXT: Record<SubmissionRequirement['state'], string> = {
   met: 'Tamam',
@@ -163,7 +164,7 @@ export function TerminalJobBanner(props: {
       data-job-workflow-panel="terminal-invalidated"
     >
       <h2 id="invalidated-job-title">Geçersiz</h2>
-      <p>İş kaydı geçersiz kılındı ve yeniden açılamaz.</p>
+      <p>Bu kayıt artık operasyonel akışta kullanılamaz ve yeniden açılamaz.</p>
       <dl className="cancelled-job-facts">
         <div>
           <dt>Geçersiz kılma öncesi aşama</dt>
@@ -178,8 +179,8 @@ export function TerminalJobBanner(props: {
           <dd>{details.at ? <time dateTime={details.at}>{formatInstant(details.at)}</time> : 'Bilgi kaydedilmemiş'}</dd>
         </div>
         <div>
-          <dt>Neden kodu</dt>
-          <dd>{details.reasonCode ?? 'Bilgi kaydedilmemiş'}</dd>
+          <dt>Geçersiz kılma nedeni</dt>
+          <dd>{jobCardInvalidationReasonLabel(details.reasonCode)}</dd>
         </div>
       </dl>
     </section>;
