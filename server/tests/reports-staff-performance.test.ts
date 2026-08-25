@@ -500,6 +500,9 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
       ],
     });
     const sql = query.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain('jc.staff_completed_by');
+    expect(sql).toContain('requested.staff_user_id');
+    expect(sql).not.toContain('jc.assigned_to = requested.staff_user_id');
     expect(sql).toContain('jc.manager_approved_at');
     expect(sql).toContain('COUNT(DISTINCT completion_date)');
     expect(sql).toContain('GROUP BY requested.staff_user_id, work_types.type');
@@ -527,7 +530,8 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     expect(query).toHaveBeenCalledTimes(2);
     const correctionSql = query.mock.calls[0]?.[0] ?? '';
     expect(correctionSql).toContain("event_type = 'JOB_REVISION_REQUESTED'");
-    expect(correctionSql).toContain('jc.assigned_to = requested.staff_user_id');
+    expect(correctionSql).toContain('jc.staff_completed_by = requested.staff_user_id');
+    expect(correctionSql).not.toContain('jc.assigned_to = requested.staff_user_id');
     expect(correctionSql).toContain('GROUP BY requested.staff_user_id');
     const noteSql = query.mock.calls[1]?.[0] ?? '';
     expect(noteSql).toContain('n.author_id = requested.staff_user_id');
@@ -564,6 +568,7 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     ]]));
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain("jc.status = 'COMPLETED'");
+    expect(sql).toContain('JOIN requested ON requested.staff_user_id = jc.staff_completed_by');
     expect(sql).toContain('jc.staff_completed_at IS NOT NULL');
     expect(sql).toContain('jc.staff_completed_by');
     expect(sql).toContain('recorded_submission_counts AS');
@@ -634,6 +639,7 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     ]]));
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain("jc.type = 'SALES_MEETING'");
+    expect(sql).toContain('JOIN requested ON requested.staff_user_id = jc.staff_completed_by');
     expect(sql).toContain('completed.staff_completed_at <= completed.effective_deadline_at');
     expect(sql).toContain('completed.staff_completed_at > completed.effective_deadline_at');
     expect(sql).not.toContain('due_date');

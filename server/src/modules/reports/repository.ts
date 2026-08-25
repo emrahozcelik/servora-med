@@ -294,14 +294,18 @@ SELECT requested.staff_user_id,
         ${OVERDUE_JOB_CARD_CLAUSE}
       )
   )::int AS overdue_job_cards,
-  COUNT(jc.id) FILTER (
-    WHERE jc.status = 'COMPLETED'
-      AND jc.manager_approved_at >=
+  (
+    SELECT COUNT(completed_job.id)::int
+    FROM job_cards completed_job
+    WHERE completed_job.organization_id = $1
+      AND completed_job.staff_completed_by = requested.staff_user_id
+      AND completed_job.status = 'COMPLETED'
+      AND completed_job.manager_approved_at >=
         (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
-      AND jc.manager_approved_at <
+      AND completed_job.manager_approved_at <
         ((organization_range.to_date + 1)::timestamp
           AT TIME ZONE organization_range.timezone)
-  )::int AS completed_in_period,
+  ) AS completed_in_period,
   COALESCE((
     SELECT json_agg(json_build_object(
       'type', workload.type,
@@ -510,12 +514,12 @@ GROUP BY organization_range.from_date, organization_range.to_date,
 const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), completed AS (
-  SELECT jc.assigned_to AS staff_user_id,
+  SELECT jc.staff_completed_by AS staff_user_id,
     (jc.manager_approved_at AT TIME ZONE organization_range.timezone)::date
       AS completion_date,
     jc.type
   FROM job_cards jc
-  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
@@ -558,12 +562,12 @@ ORDER BY requested.staff_user_id`;
 const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), executed AS (
-  SELECT jc.assigned_to AS staff_user_id,
+  SELECT jc.staff_completed_by AS staff_user_id,
     jc.staff_completed_at,
     (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
       AS staff_completion_date
   FROM job_cards jc
-  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
@@ -635,7 +639,7 @@ ORDER BY requested.staff_user_id`;
 const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), completed AS (
-  SELECT jc.assigned_to AS staff_user_id, jc.type, jc.staff_completed_at,
+  SELECT jc.staff_completed_by AS staff_user_id, jc.type, jc.staff_completed_at,
     jc.scheduled_at, jc.scheduled_ends_at,
     CASE
       WHEN jc.scheduled_ends_at IS NOT NULL THEN jc.scheduled_ends_at
@@ -643,7 +647,7 @@ const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
       ELSE jc.scheduled_at
     END AS effective_deadline_at
   FROM job_cards jc
-  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
@@ -682,7 +686,7 @@ const STAFF_CORRECTION_EVENTS_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested A
 SELECT requested.staff_user_id, COUNT(activity.id)::int AS count
 FROM requested
 JOIN job_cards jc ON jc.organization_id = $1
-  AND jc.assigned_to = requested.staff_user_id
+  AND jc.staff_completed_by = requested.staff_user_id
   AND jc.status <> 'INVALIDATED'
 JOIN job_card_activity_logs activity ON activity.organization_id = jc.organization_id
   AND activity.job_card_id = jc.id
@@ -737,7 +741,7 @@ SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
 FROM days
 CROSS JOIN organization_range
 LEFT JOIN job_cards jc ON jc.organization_id = $1
-  AND jc.assigned_to = $2
+  AND jc.staff_completed_by = $2
   AND jc.status = 'COMPLETED'
   AND jc.manager_approved_at >=
     (days.day::timestamp AT TIME ZONE organization_range.timezone)
@@ -763,7 +767,7 @@ JOIN job_cards jc ON jc.organization_id = di.organization_id
   AND jc.id = di.job_card_id
 CROSS JOIN organization_range
 WHERE jc.organization_id = $1
-  AND jc.assigned_to = $2
+  AND jc.staff_completed_by = $2
   AND jc.type = 'PRODUCT_DELIVERY'
   AND jc.status = 'COMPLETED'
   AND jc.manager_approved_at IS NOT NULL
@@ -803,7 +807,7 @@ const STAFF_MEETINGS_BY_OUTCOME_SQL = `WITH organization_range AS (
     AND jc.id = md.job_card_id
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
-    AND jc.assigned_to = $2
+    AND jc.staff_completed_by = $2
     AND jc.type = 'SALES_MEETING'
     AND jc.status = 'COMPLETED'
     AND md.meeting_at >=
@@ -1239,13 +1243,13 @@ function deliveryGroupedSql(
   const staffJoins = input.groupBy === 'staff'
     ? `
 JOIN users u ON u.organization_id = jc.organization_id
-  AND u.id = jc.assigned_to AND u.role = 'STAFF'
+  AND u.id = jc.staff_completed_by AND u.role = 'STAFF'
 JOIN staff_profiles sp ON sp.organization_id = u.organization_id
   AND sp.user_id = u.id`
     : '';
   const staffFilter = input.staffUserId === null
     ? ''
-    : '\n  AND jc.assigned_to = $5';
+    : '\n  AND jc.staff_completed_by = $5';
 
   return `WITH ${ORGANIZATION_RANGE_CTE}
 SELECT ${definition.select}
