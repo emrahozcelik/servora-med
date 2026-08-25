@@ -29,6 +29,122 @@ function event(id: bigint): RealtimeEventRecord {
 }
 
 describe('RealtimeService', () => {
+  it('disconnects only the exact organization and user subscription', async () => {
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    const closed: string[] = [];
+    const service = new RealtimeService(
+      repository,
+      new InMemoryRealtimeEventBus(),
+    );
+
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closed.push('target'); } },
+    );
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-2', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closed.push('same-org'); } },
+    );
+    await service.open(
+      { organizationId: 'org-2', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closed.push('other-org'); } },
+    );
+
+    expect(service.disconnectUser('org-1', 'staff-1')).toBe(1);
+    expect(closed).toEqual(['target']);
+  });
+
+  it('closes every matching stream once and removes it from future delivery', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    const closed: string[] = [];
+    const sent: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    for (const stream of ['one', 'two', 'three']) {
+      await service.open(
+        { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+        null,
+        {
+          send: async (value) => { sent.push(`${stream}:${value.id}`); },
+          close: () => { closed.push(stream); },
+        },
+      );
+    }
+
+    expect(service.disconnectUser('org-1', 'staff-1')).toBe(3);
+    expect(closed).toEqual(['one', 'two', 'three']);
+    bus.publish(event(1n));
+    await new Promise(process.nextTick);
+    expect(sent).toEqual(['one:0', 'two:0', 'three:0']);
+    expect(service.disconnectUser('org-1', 'staff-1')).toBe(0);
+  });
+
+  it('continues closing matching subscriptions when one sink close fails', async () => {
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    const closed: string[] = [];
+    const service = new RealtimeService(
+      repository,
+      new InMemoryRealtimeEventBus(),
+    );
+
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      {
+        send: async () => {},
+        close: () => { throw new Error('socket already closed'); },
+      },
+    );
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closed.push('second'); } },
+    );
+
+    expect(service.disconnectUser('org-1', 'staff-1')).toBe(2);
+    expect(closed).toEqual(['second']);
+    expect(service.disconnectUser('org-1', 'staff-1')).toBe(0);
+  });
+
+  it('keeps global shutdown closing subscriptions after one sink close fails', async () => {
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    const closed: string[] = [];
+    const service = new RealtimeService(
+      repository,
+      new InMemoryRealtimeEventBus(),
+    );
+
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { throw new Error('socket already closed'); } },
+    );
+    await service.open(
+      { organizationId: 'org-1', userId: 'staff-2', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closed.push('second'); } },
+    );
+
+    expect(() => service.close()).not.toThrow();
+    expect(closed).toEqual(['second']);
+  });
+
   it('sends sync.required at visible high-water on first connect', async () => {
     const repository = {
       visibleHighWater: async () => 12n,
