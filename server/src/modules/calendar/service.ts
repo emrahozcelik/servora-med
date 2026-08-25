@@ -30,6 +30,13 @@ export class CalendarService {
     return user;
   }
 
+  private async requireReadableAssignee(actor: CalendarActor, userId: string) {
+    if (actor.role === 'STAFF' && actor.id !== userId) throw forbidden();
+    const user = await this.repository.getCalendarUser(actor, userId);
+    if (!user || user.role !== 'STAFF') throw forbidden();
+    return user;
+  }
+
   private present(actor: CalendarActor, item: CalendarEvent): CalendarEvent {
     const reachesAssignee = actor.role !== 'STAFF' || item.assignedUser.id === actor.id;
     if (item.source === 'JOB') {
@@ -46,7 +53,7 @@ export class CalendarService {
   async list(actor: CalendarActor, query: CalendarQuery) {
     this.requireEnabled();
     const assignedTo = actor.role === 'STAFF' ? actor.id : query.assignedTo;
-    if (assignedTo) await this.requireAssignable(actor, assignedTo);
+    if (assignedTo) await this.requireReadableAssignee(actor, assignedTo);
     const items = await this.repository.list(actor, { ...query, assignedTo });
     return { items: items.map((item) => this.present(actor, item)) };
   }
@@ -60,7 +67,7 @@ export class CalendarService {
     this.requireEnabled();
     const current = await this.repository.getManualEvent(actor, eventId);
     if (!current || current.source !== 'MANUAL') throw unavailable();
-    await this.requireAssignable(actor, current.assignedUser.id);
+    await this.requireReadableAssignee(actor, current.assignedUser.id);
     return this.present(actor, current);
   }
 

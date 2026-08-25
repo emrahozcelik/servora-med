@@ -164,6 +164,7 @@ export interface CalendarRepository {
   list(actor: CalendarActor, query: CalendarQuery): Promise<CalendarEvent[]>;
   listAssignableUsers(actor: CalendarActor): Promise<CalendarUser[]>;
   getAssignableUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
+  getCalendarUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
   getManualEvent(actor: CalendarActor, eventId: string): Promise<CalendarEvent | null>;
   createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date): Promise<CalendarEvent>;
   patchManual(actor: CalendarActor, eventId: string, input: ManualEventPatchInput, now: Date): Promise<CalendarEvent>;
@@ -209,6 +210,25 @@ export class PostgresCalendarRepository implements CalendarRepository {
   async getAssignableUser(actor: CalendarActor, userId: string) {
     const users = await this.listAssignableUsers(actor);
     return users.find((user) => user.id === userId) ?? null;
+  }
+
+  async getCalendarUser(actor: CalendarActor, userId: string) {
+    const result = await this.pool.query<{
+      id: string; organization_id: string; name: string; role: CalendarUser['role']; is_active: boolean;
+    }>(
+      `SELECT id, organization_id, name, role, is_active
+         FROM users
+        WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, userId],
+    );
+    const row = result.rows[0];
+    return row ? {
+      id: row.id,
+      organizationId: row.organization_id,
+      name: row.name,
+      role: row.role,
+      isActive: row.is_active,
+    } : null;
   }
 
   async getManualEvent(actor: CalendarActor, eventId: string) {
@@ -269,6 +289,10 @@ export class PostgresCalendarRepository implements CalendarRepository {
     return this.transaction(async (client) => {
       const replay = await this.findReplay(client, actor, input.clientActionId, 'UPDATED');
       if (replay) return replay;
+      const initial = await this.readManual(client, actor, eventId);
+      if (!initial) throw new AppError('NOT_FOUND', 404, 'Takvim kaydı bulunamadı.');
+      const assignedUserId = input.assignedUserId ?? initial.assigned_user_id;
+      await this.lockUser(client, actor.organizationId, assignedUserId);
       const current = await this.lockManual(client, actor, eventId);
       if (!current) throw new AppError('NOT_FOUND', 404, 'Takvim kaydı bulunamadı.');
       if (current.status !== 'ACTIVE') {
@@ -277,13 +301,11 @@ export class PostgresCalendarRepository implements CalendarRepository {
       if (current.version !== input.expectedVersion) {
         throw new AppError('VERSION_CONFLICT', 409, 'Takvim kaydı başka bir işlem tarafından güncellendi.');
       }
-      const assignedUserId = input.assignedUserId ?? current.assigned_user_id;
       const startsAt = input.startsAt ?? current.starts_at.toISOString();
       const endsAt = input.endsAt ?? current.ends_at.toISOString();
       if (Date.parse(endsAt) <= Date.parse(startsAt)) {
         throw new AppError('VALIDATION_ERROR', 400, 'Bitiş zamanı başlangıç zamanından sonra olmalıdır.');
       }
-      await this.lockUser(client, actor.organizationId, assignedUserId);
       await this.assertNoConflict(
         client, actor.organizationId, assignedUserId, startsAt, endsAt, eventId,
       );
@@ -375,17 +397,44 @@ export class PostgresCalendarRepository implements CalendarRepository {
     return result.rows[0] ?? null;
   }
 
+  private async readManual(client: PoolClient, actor: CalendarActor, eventId: string) {
+    const result = await client.query<{
+      id: string; assigned_user_id: string; title: string; description: string | null;
+      starts_at: Date; ends_at: Date; timezone: string; status: string; version: number;
+    }>(
+      `SELECT id, assigned_user_id, title, description, starts_at, ends_at,
+        timezone, status, version FROM calendar_events
+       WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, eventId],
+    );
+    return result.rows[0] ?? null;
+  }
+
   /**
-   * Serializes MANUAL calendar mutations against JobCard create/patch: the
-   * assignee user row is locked FOR UPDATE before the availability check so a
-   * concurrent JobCard create for the same assignee cannot slip in between the
-   * conflict SELECT and the INSERT/UPDATE.
+   * Calendar writers use User -> Calendar rows -> effects. The user row is
+   * locked and revalidated before availability or mutation so JobCard/create,
+   * future Staff lifecycle work, and Calendar writes share one serialization
+   * seam without allowing an inactive Staff assignment.
    */
   private async lockUser(client: PoolClient, organizationId: string, userId: string) {
-    await client.query(
-      `SELECT id FROM users WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+    const result = await client.query<{
+      id: string;
+      organization_id: string;
+      role: CalendarUser['role'];
+      is_active: boolean;
+    }>(
+      `SELECT id, organization_id, role, is_active
+         FROM users
+        WHERE organization_id = $1 AND id = $2
+        FOR UPDATE`,
       [organizationId, userId],
     );
+    const user = result.rows[0];
+    if (!user || user.organization_id !== organizationId
+      || user.role !== 'STAFF' || !user.is_active) {
+      throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+    }
+    return user;
   }
 
   private async assertNoConflict(
