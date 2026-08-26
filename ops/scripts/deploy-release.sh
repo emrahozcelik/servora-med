@@ -43,6 +43,13 @@ fi
 
 echo "Deploying release $SHA from $NEW_RELEASE"
 
+# Require SERVORA_FQDN for mandatory health verification (fail preflight before destructive work)
+# FQDN is an internal shell variable derived from SERVORA_FQDN; do not set FQDN directly
+if [[ -z "${FQDN:-}" ]]; then
+  echo "SERVORA_FQDN is required for deployment health verification" >&2
+  exit 1
+fi
+
 # 1) Pre-deploy backup — failure aborts deploy.
 if ! systemctl start "$BACKUP_UNIT"; then
   echo "Pre-deploy backup failed; aborting deploy (current symlink unchanged)." >&2
@@ -61,25 +68,35 @@ set +a
 # 4) Migrate from NEW release only. Failure must not switch symlink.
 if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
   echo "Migration failed; leaving current symlink unchanged and restarting previous service." >&2
-  systemctl start "$SERVICE_NAME" || true
+  if ! systemctl start "$SERVICE_NAME"; then
+    echo "Previous service restart attempt also failed; manual recovery required." >&2
+  fi
   exit 1
 fi
 
-# 5) Switch release pointer only after successful migration.
+# 5) Verify schema compatibility from NEW release (read-only, no auto-migrate).
+#    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch.
+if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"; then
+  echo "Schema check failed; leaving current symlink unchanged and restarting previous service." >&2
+  if ! systemctl start "$SERVICE_NAME"; then
+    echo "Previous service restart attempt also failed; manual recovery required." >&2
+  fi
+  exit 1
+fi
+
+# 6) Switch release pointer only after successful migration AND schema check.
 ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"
 
-# 6) Start application against new current.
+# 7) Start application against new current.
 if ! systemctl start "$SERVICE_NAME"; then
   echo "Service start failed after symlink switch." >&2
   exit 1
 fi
 
-# 7) Readiness smoke (optional FQDN).
-if [[ -n "$FQDN" ]]; then
-  if ! curl -fsS "https://${FQDN}/api/health" | grep -q '"status":"ok"'; then
-    echo "Health check failed for https://${FQDN}/api/health" >&2
-    exit 1
-  fi
+# 8) Readiness smoke (mandatory health verification).
+if ! curl -fsS "https://${FQDN}/api/health" | grep -q '"status":"ok"'; then
+  echo "Health check failed for https://${FQDN}/api/health" >&2
+  exit 1
 fi
 
 echo "Deploy complete: $SHA"

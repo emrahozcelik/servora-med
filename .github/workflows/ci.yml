@@ -154,7 +154,9 @@ jobs:
           node --input-type=module -e "import '@aws-sdk/client-s3'; import 'fastify'; import 'pg'; console.log('deps-ok')"
           test -f dist/index.js
           test -f dist/db/migrate.js
+          test -f dist/db/schema-check.js
       - run: npx tsx src/db/migrate.ts
+      - run: npm run schema:check
       - run: npm test -- --run
         env:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
