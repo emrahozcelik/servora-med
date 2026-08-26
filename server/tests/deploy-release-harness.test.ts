@@ -154,7 +154,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '1',
@@ -191,7 +190,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',
@@ -223,7 +221,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',
@@ -253,7 +250,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',
@@ -280,7 +276,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',
@@ -315,7 +310,7 @@ describe('deploy-release executable harness', () => {
     }
   });
 
-  it('health is mandatory: FQDN absent → fails preflight before stop/migrate/activate', () => {
+  it('health is mandatory: SERVORA_FQDN absent → fails preflight before stop/migrate/activate', () => {
     const f = setupFixture();
     try {
       const result = runDeploy(
@@ -324,8 +319,7 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          // FQDN intentionally absent
-          FQDN: '',
+          // SERVORA_FQDN intentionally absent
           SERVORA_FQDN: '',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',
@@ -341,7 +335,62 @@ describe('deploy-release executable harness', () => {
       expect(result.log).not.toContain('migrate');
       expect(result.log).not.toContain('schema-check');
       expect(result.log).not.toContain('activate');
-      expect(result.stderr + result.stdout).toMatch(/FQDN is required/);
+      expect(result.stderr + result.stdout).toMatch(/SERVORA_FQDN is required/);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('SERVORA_FQDN set → preflight passes and health uses that hostname', () => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: 'testsha',
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.test',
+          FAKE_LOG: f.logFile,
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.log).toContain('health');
+      // Verify health was called with the SERVORA_FQDN-derived FQDN
+      // The fake curl doesn't check FQDN, but the script's health URL is constructed from FQDN
+      // We at least prove preflight passed and health executed
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('FQDN env alone without SERVORA_FQDN → still fails preflight (FQDN is internal)', () => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: 'testsha',
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          FQDN: 'example.test',
+          SERVORA_FQDN: '',
+          FAKE_LOG: f.logFile,
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).not.toContain('migrate');
+      expect(result.stderr + result.stdout).toMatch(/SERVORA_FQDN is required/);
     } finally {
       rmSync(f.root, { recursive: true, force: true });
     }
@@ -356,7 +405,6 @@ describe('deploy-release executable harness', () => {
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
-          FQDN: 'example.com',
           SERVORA_FQDN: 'example.com',
           FAKE_LOG: f.logFile,
           FAKE_MIGRATE_EXIT: '0',

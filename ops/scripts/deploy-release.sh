@@ -43,9 +43,10 @@ fi
 
 echo "Deploying release $SHA from $NEW_RELEASE"
 
-# Require FQDN for mandatory health verification (fail preflight before destructive work)
+# Require SERVORA_FQDN for mandatory health verification (fail preflight before destructive work)
+# FQDN is an internal shell variable derived from SERVORA_FQDN; do not set FQDN directly
 if [[ -z "${FQDN:-}" ]]; then
-  echo "FQDN is required for deployment health verification (set SERVORA_FQDN or FQDN)" >&2
+  echo "SERVORA_FQDN is required for deployment health verification" >&2
   exit 1
 fi
 

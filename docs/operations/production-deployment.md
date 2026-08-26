@@ -209,7 +209,7 @@ sudo SHA=<git-sha> SERVORA_FQDN=app.example.com \
   /opt/servora-med/releases/<git-sha>/ops/scripts/deploy-release.sh
 ```
 
-`SERVORA_FQDN` (`FQDN`) is **required** — deployment `health` (`https://<FQDN>/api/health → 200`) is mandatory and the script fails preflight **before** stopping the service or migrating if `FQDN` is empty. No `migrate → schema-check → activate → restart → success` without verified health.
+`SERVORA_FQDN` is **required** — deployment `health` (`https://${SERVORA_FQDN}/api/health → 200`) is mandatory and the script fails preflight **before** stopping the service or migrating if `SERVORA_FQDN` is empty. The script stores `SERVORA_FQDN` in its internal `FQDN` shell variable; do not set `FQDN` directly. No `migrate → schema-check → activate → restart → success` without verified health.
 
 Equivalent expanded sequence (`set -Eeuo pipefail` semantics):
 
