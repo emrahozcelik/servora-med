@@ -152,6 +152,23 @@ export type DemoDatasetPurgeResponse = Readonly<{
   completedAt: string;
 }>;
 
+export type DemoDatasetCreateRequest = Readonly<{
+  clientActionId: string;
+}>;
+
+export type DemoDatasetCreateCounts = Readonly<{
+  users: number;
+  customers: number;
+  products: number;
+  jobCards: number;
+}>;
+
+export type DemoDatasetCreateResponse = Readonly<{
+  dataset: DemoDatasetDto;
+  counts: DemoDatasetCreateCounts;
+  replayed: boolean;
+}>;
+
 export interface DemoDatasetRepository {
   listDatasets(organizationId: string): Promise<readonly DemoDatasetRecord[]>;
   findDataset(organizationId: string, datasetId: string): Promise<DemoDatasetRecord | null>;
@@ -162,4 +179,9 @@ export interface DemoDatasetRepository {
     actorUserId: string,
     request: DemoDatasetPurgeRequest,
   ): Promise<DemoDatasetPurgeResponse>;
+  create(
+    organizationId: string,
+    actorUserId: string,
+    request: DemoDatasetCreateRequest,
+  ): Promise<DemoDatasetCreateResponse>;
 }

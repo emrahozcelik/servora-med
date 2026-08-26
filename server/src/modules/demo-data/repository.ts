@@ -1,9 +1,14 @@
+import { randomBytes } from 'node:crypto';
+
 import type { Pool, PoolClient } from 'pg';
 
+import { hashPassword } from '../auth/crypto.js';
 import { DemoDatasetImpactAnalyzer } from './analyzer.js';
 import { demoDatasetPlanHash } from './plan.js';
 import type {
   DemoDatasetBlocker,
+  DemoDatasetCreateRequest,
+  DemoDatasetCreateResponse,
   DemoDatasetPurgePlan,
   DemoDatasetPurgeRequest,
   DemoDatasetPurgeResponse,
@@ -13,6 +18,18 @@ import type {
 } from './types.js';
 
 import { AppError } from '../../errors/index.js';
+
+const DEMO_SEED_VERSION = 'demo-standard-v1' as const;
+const DATASET_KEY_PREFIX = 'standard-v1-' as const;
+
+function demoDatasetKeyForAction(clientActionId: string): string {
+  return `${DATASET_KEY_PREFIX}${clientActionId.toLowerCase()}`;
+}
+
+function createSyntheticPassword(): string {
+  // 20 url-safe chars, always within 12..128 and passes validatePassword
+  return randomBytes(15).toString('base64url');
+}
 
 type DemoDatasetRow = {
   id: string;
@@ -764,5 +781,399 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
     } finally {
       client.release();
     }
+  }
+
+  async create(
+    organizationId: string,
+    actorUserId: string,
+    request: DemoDatasetCreateRequest,
+  ): Promise<DemoDatasetCreateResponse> {
+    const client = await this.pool.connect();
+    let inTransaction = false;
+    try {
+      const rawClientActionId = request.clientActionId?.trim() ?? '';
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRe.test(rawClientActionId)) {
+        throw new AppError('VALIDATION_ERROR', 400, 'clientActionId UUID olmalıdır.');
+      }
+      const datasetKey = demoDatasetKeyForAction(rawClientActionId);
+      if (datasetKey.length < 1 || datasetKey.length > 120) {
+        throw new AppError('VALIDATION_ERROR', 400, 'datasetKey uzunluğu geçersiz.');
+      }
+
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      inTransaction = true;
+
+      // Serialize per-organization: lock organization row
+      const orgLock = await client.query(
+        `SELECT id FROM organizations WHERE id = $1 FOR UPDATE`,
+        [organizationId],
+      );
+      if (orgLock.rows.length === 0) {
+        throw new AppError('DEMO_DATASET_NOT_FOUND', 404, 'Organizasyon bulunamadı.');
+      }
+
+      // Idempotency: deterministic key lookup first (before cardinality check)
+      const existingByKey = await client.query<DemoDatasetRow>(
+        `SELECT ${DATASET_COLUMNS}
+          ${DATASET_FROM}
+          WHERE d.organization_id = $1 AND d.dataset_key = $2`,
+        [organizationId, datasetKey],
+      );
+      if (existingByKey.rows[0]) {
+        const existing = mapDataset(existingByKey.rows[0]!);
+        const counts = await this.fetchCreateCounts(client, organizationId, existing.id);
+        await client.query('COMMIT');
+        inTransaction = false;
+        return {
+          dataset: datasetDto(existing),
+          counts,
+          replayed: true,
+        };
+      }
+
+      // Cardinality: at most one ACTIVE
+      const activeResult = await client.query<{ id: string }>(
+        `SELECT id FROM demo_datasets
+          WHERE organization_id = $1 AND status = 'ACTIVE'
+          FOR UPDATE`,
+        [organizationId],
+      );
+      if (activeResult.rows.length > 0) {
+        throw new AppError('DEMO_DATASET_ALREADY_EXISTS', 409,
+          'Bu organizasyon için zaten aktif bir demo veri kümesi var.');
+      }
+
+      // Create dataset row
+      const datasetInsert = await client.query<DemoDatasetRow>(
+        `INSERT INTO demo_datasets
+            (organization_id, dataset_key, seed_version, status, created_by)
+          VALUES ($1, $2, $3, 'ACTIVE', $4)
+          RETURNING id`,
+        [organizationId, datasetKey, DEMO_SEED_VERSION, actorUserId],
+      );
+      // enrich with org name via join
+      const insertedRow = datasetInsert.rows[0]!;
+      // Need organization_name for mapDataset? Our DATASET_COLUMNS expects join; but insert returns without org name.
+      // Re-fetch with join to get complete row.
+      const insertedFetch = await client.query<DemoDatasetRow>(
+        `SELECT ${DATASET_COLUMNS}
+          ${DATASET_FROM}
+          WHERE d.id = $1`,
+        [insertedRow.id],
+      );
+      const datasetRecord = mapDataset(insertedFetch.rows[0]!);
+      const datasetId = datasetRecord.id;
+
+      // --- fixture generation ---
+      // Users: 1 MANAGER, 2 STAFF
+      const syntheticDomain = 'demo.synthetic';
+      const demoUsers: Array<{ id: string; name: string; email: string; role: 'MANAGER' | 'STAFF'; passwordHash: string }> = [];
+      const roles: Array<'MANAGER' | 'STAFF'> = ['MANAGER', 'STAFF', 'STAFF'];
+      const names = ['Demo Yönetici', 'Demo Satış 1', 'Demo Satış 2'];
+      for (let i = 0; i < 3; i++) {
+        const role = roles[i]!;
+        const name = names[i]!;
+        const email = `demo-${role.toLowerCase()}-${rawClientActionId.slice(0, 8)}-${i + 1}-${randomBytes(2).toString('hex')}@${syntheticDomain}`;
+        const passwordHash = await hashPassword(createSyntheticPassword());
+        const userRow = await client.query<{ id: string }>(
+          `INSERT INTO users
+              (organization_id, name, email, password_hash, role, must_change_password, is_active, data_class, demo_dataset_id)
+            VALUES ($1, $2, $3, $4, $5, FALSE, TRUE, 'DEMO', $6)
+            RETURNING id`,
+          [organizationId, name, email.toLowerCase(), passwordHash, role, datasetId],
+        );
+        demoUsers.push({ id: userRow.rows[0]!.id, name, email, role, passwordHash });
+      }
+      const demoManager = demoUsers.find((u) => u.role === 'MANAGER')!;
+      const demoStaff = demoUsers.filter((u) => u.role === 'STAFF');
+
+      // Staff profiles: all demo users get profile; STAFF manager is demoManager
+      for (const user of demoUsers) {
+        const managerUserId = user.role === 'STAFF' ? demoManager.id : null;
+        await client.query(
+          `INSERT INTO staff_profiles
+              (organization_id, user_id, title, phone, region, manager_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+          [organizationId, user.id, user.role === 'MANAGER' ? 'Demo Bölge Müdürü' : 'Demo Satış Temsilcisi',
+            `+90 5${String(300 + demoUsers.indexOf(user)).padStart(3, '0')} 000 00 0${demoUsers.indexOf(user) + 1}`,
+            user.role === 'MANAGER' ? 'Marmara' : 'Ege',
+            managerUserId],
+        );
+      }
+
+      // Customers: 5 DEMO customers
+      const demoCustomers: string[] = [];
+      const customerNames = [
+        'Demo Klinik A', 'Demo Hastane B', 'Demo Bayi C', 'Demo Klinik D', 'Demo Laboratuvar E',
+      ];
+      const customerTypes: Array<'clinic' | 'hospital' | 'dealer' | 'company' | 'other'> = ['clinic', 'hospital', 'dealer', 'clinic', 'company'];
+      for (let i = 0; i < 5; i++) {
+        const assigned = i < 2 ? demoStaff[0]!.id : i === 2 ? demoStaff[1]!.id : null;
+        const row = await client.query<{ id: string }>(
+          `INSERT INTO customers
+              (organization_id, name, customer_type, assigned_staff_user_id, status, data_class, demo_dataset_id)
+            VALUES ($1, $2, $3, $4, 'active', 'DEMO', $5)
+            RETURNING id`,
+          [organizationId, customerNames[i], customerTypes[i], assigned, datasetId],
+        );
+        demoCustomers.push(row.rows[0]!.id);
+      }
+
+      // Products: 5 DEMO products
+      const demoProducts: Array<{ id: string; name: string; sku: string }> = [];
+      const productNames = ['Demo Implant A', 'Demo Abutment B', 'Demo Ölçü C', 'Demo Kompozit D', 'Demo Frez E'];
+      for (let i = 0; i < 5; i++) {
+        const sku = `DEMO-${rawClientActionId.slice(0, 4).toUpperCase()}-${String(i + 1).padStart(2, '0')}-${randomBytes(2).toString('hex').toUpperCase()}`;
+        const row = await client.query<{ id: string }>(
+          `INSERT INTO products
+              (organization_id, sku, name, brand, category, model, unit, default_price, is_active, data_class, demo_dataset_id)
+            VALUES ($1, $2, $3, $4, $5, $6, 'adet', $7, TRUE, 'DEMO', $8)
+            RETURNING id`,
+          [organizationId, sku, productNames[i], 'DemoBrand', 'Dental', `M-${i + 1}`, (100 + i * 50).toFixed(2), datasetId],
+        );
+        demoProducts.push({ id: row.rows[0]!.id, name: productNames[i]!, sku });
+      }
+
+      // Jobs: 8 DEMO jobs, distribution NEW 2, ACCEPTED 1, IN_PROGRESS 1, WAITING_APPROVAL 1, COMPLETED 2, CANCELLED 1
+      const jobDefinitions: Array<{
+        title: string;
+        status: 'NEW' | 'ACCEPTED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'COMPLETED' | 'CANCELLED';
+        type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING';
+        customerIdx: number;
+        assignedIdx: number;
+      }> = [
+        { title: 'Demo Görev — Yeni 1', status: 'NEW', type: 'GENERAL_TASK', customerIdx: 0, assignedIdx: 0 },
+        { title: 'Demo Teslimat — Yeni 2', status: 'NEW', type: 'PRODUCT_DELIVERY', customerIdx: 1, assignedIdx: 1 },
+        { title: 'Demo Kabul Edildi', status: 'ACCEPTED', type: 'GENERAL_TASK', customerIdx: 2, assignedIdx: 0 },
+        { title: 'Demo Devam Ediyor', status: 'IN_PROGRESS', type: 'SALES_MEETING', customerIdx: 3, assignedIdx: 1 },
+        { title: 'Demo Onay Bekliyor', status: 'WAITING_APPROVAL', type: 'PRODUCT_DELIVERY', customerIdx: 0, assignedIdx: 0 },
+        { title: 'Demo Tamamlandı 1', status: 'COMPLETED', type: 'PRODUCT_DELIVERY', customerIdx: 1, assignedIdx: 0 },
+        { title: 'Demo Tamamlandı 2', status: 'COMPLETED', type: 'SALES_MEETING', customerIdx: 4, assignedIdx: 1 },
+        { title: 'Demo İptal Edildi', status: 'CANCELLED', type: 'GENERAL_TASK', customerIdx: 2, assignedIdx: 1 },
+      ];
+
+      const demoJobIds: string[] = [];
+      const now = new Date();
+      for (const def of jobDefinitions) {
+        const customerId = demoCustomers[def.customerIdx]!;
+        const assignedTo = demoStaff[def.assignedIdx]!.id;
+        const createdBy = demoManager.id;
+        let acceptedAt: Date | null = null;
+        let acceptedBy: string | null = null;
+        let startedAt: Date | null = null;
+        let staffCompletedAt: Date | null = null;
+        let staffCompletedBy: string | null = null;
+        let managerApprovedAt: Date | null = null;
+        let managerApprovedBy: string | null = null;
+        let revisionRequestedAt: Date | null = null;
+        let revisionRequestedBy: string | null = null;
+        let revisionReason: string | null = null;
+        let cancelledAt: Date | null = null;
+        let cancelledBy: string | null = null;
+        let cancelReason: string | null = null;
+
+        if (def.status === 'ACCEPTED') {
+          acceptedAt = now;
+          acceptedBy = assignedTo;
+        } else if (def.status === 'IN_PROGRESS') {
+          startedAt = now;
+          acceptedAt = new Date(now.getTime() - 60_000);
+          acceptedBy = assignedTo;
+        } else if (def.status === 'WAITING_APPROVAL') {
+          startedAt = new Date(now.getTime() - 120_000);
+          staffCompletedAt = now;
+          staffCompletedBy = assignedTo;
+          acceptedAt = new Date(now.getTime() - 180_000);
+          acceptedBy = assignedTo;
+        } else if (def.status === 'COMPLETED') {
+          startedAt = new Date(now.getTime() - 240_000);
+          staffCompletedAt = new Date(now.getTime() - 120_000);
+          staffCompletedBy = assignedTo;
+          managerApprovedAt = now;
+          managerApprovedBy = demoManager.id;
+          acceptedAt = new Date(now.getTime() - 300_000);
+          acceptedBy = assignedTo;
+        } else if (def.status === 'CANCELLED') {
+          cancelledAt = now;
+          cancelledBy = demoManager.id;
+          cancelReason = 'Demo iptal senaryosu';
+        }
+
+        const row = await client.query<{ id: string }>(
+          `INSERT INTO job_cards
+              (organization_id, type, status, title, description, customer_id, assigned_to, created_by,
+               priority, due_date, version, planned_at, started_at,
+               engagement_kind,
+               accepted_at, accepted_by,
+               staff_completed_at, staff_completed_by,
+               manager_approved_at, manager_approved_by,
+               revision_requested_at, revision_requested_by, revision_reason,
+               cancelled_at, cancelled_by, cancel_reason,
+               data_class, demo_dataset_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                    'normal', NULL, 1, NULL, $9,
+                    $10,
+                    $11, $12,
+                    $13, $14,
+                    $15, $16,
+                    $17, $18, $19,
+                    $20, $21, $22,
+                    'DEMO', $23)
+            RETURNING id`,
+          [organizationId, def.type, def.status, def.title, `${def.title} açıklaması`, customerId, assignedTo, createdBy,
+            startedAt,
+            def.type === 'SALES_MEETING' ? 'SALES_MEETING' : null,
+            acceptedAt, acceptedBy,
+            staffCompletedAt, staffCompletedBy,
+            managerApprovedAt, managerApprovedBy,
+            revisionRequestedAt, revisionRequestedBy, revisionReason,
+            cancelledAt, cancelledBy, cancelReason,
+            datasetId],
+        );
+        const jobId = row.rows[0]!.id;
+        demoJobIds.push(jobId);
+
+        // Create minimal activity log for coherence (JOB_CREATED)
+        await client.query(
+          `INSERT INTO job_card_activity_logs
+              (organization_id, job_card_id, actor_id, event_type, new_value, client_action_id)
+            VALUES ($1, $2, $3, 'JOB_CREATED', '{}'::jsonb, $4)`,
+          [organizationId, jobId, createdBy, rawClientActionId],
+        );
+      }
+
+      // Delivery items: small number, e.g. 2 jobs (WAITING_APPROVAL and first COMPLETED)
+      const deliveryTargets = [demoJobIds[4]!, demoJobIds[5]!]; // indices for WAITING_APPROVAL and COMPLETED 1
+      for (let idx = 0; idx < deliveryTargets.length; idx++) {
+        const jobId = deliveryTargets[idx]!;
+        const product = demoProducts[idx]!;
+        await client.query(
+          `INSERT INTO job_card_delivery_items
+              (organization_id, job_card_id, product_id, delivery_purpose, delivered_at,
+               quantity, unit, product_name_snapshot, product_sku_snapshot, product_model_snapshot, delivery_note, sort_order)
+            VALUES ($1, $2, $3, 'SALE', NOW(), 2, 'adet', $4, $5, $6, 'Demo teslimat notu', $7)`,
+          [organizationId, jobId, product.id, product.name, product.sku, `M-${idx + 1}`, idx],
+        );
+        await client.query(
+          `INSERT INTO job_card_activity_logs
+              (organization_id, job_card_id, actor_id, event_type, new_value, client_action_id)
+            VALUES ($1, $2, $3, 'DELIVERY_ITEM_ADDED', $4::jsonb, $5)`,
+          [organizationId, jobId, demoStaff[0]!.id, JSON.stringify({ productId: product.id, quantity: 2 }), rawClientActionId],
+        );
+      }
+
+      // Notes: small number, e.g. 4 jobs (first 4)
+      for (let i = 0; i < 4; i++) {
+        const jobId = demoJobIds[i]!;
+        const authorId = demoStaff[i % 2]!.id;
+        await client.query(
+          `INSERT INTO job_card_notes
+              (organization_id, job_card_id, author_id, note, record_version)
+            VALUES ($1, $2, $3, $4, 0)`,
+          [organizationId, jobId, authorId, `Demo not ${i + 1} — operasyonel takip`],
+        );
+      }
+
+      // Creation audit: one meaningful audit row (actor is BUSINESS ADMIN, remains after purge)
+      // Use existing allowed type USER_CREATED with subject being the manager demo user creation context,
+      // but metadata carries dataset creation provenance.
+      try {
+        await client.query(
+          `INSERT INTO audit_events
+              (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+            VALUES ($1, $2, 'USER', $3, 'USER_CREATED', $4)`,
+          [organizationId, actorUserId, demoManager.id, JSON.stringify({
+            demoDatasetId: datasetId,
+            datasetKey,
+            seedVersion: DEMO_SEED_VERSION,
+            counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
+            source: 'DEMO_DATASET_CREATED',
+            clientActionId: rawClientActionId,
+          })],
+        );
+      } catch {
+        // audit best-effort: do not fail creation if audit insert violates constraint; rollback would hide dataset
+        // but spec requires atomicity: audit should be within same tx. If audit fails, we should still fail creation
+        // to keep requirement visible. Re-throw as unexpected.
+        throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 500, 'Demo veri kümesi audit kaydı oluşturulamadı.');
+      }
+
+      const counts = await this.fetchCreateCounts(client, organizationId, datasetId);
+
+      await client.query('COMMIT');
+      inTransaction = false;
+      return {
+        dataset: datasetDto(datasetRecord),
+        counts,
+        replayed: false,
+      };
+    } catch (error) {
+      if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
+      const code = databaseCode(error);
+      if (error instanceof AppError) throw error;
+      if (code === '23505') {
+        // Unique violation: likely dataset_key race; treat as idempotent replay
+        // Re-fetch by key if possible
+        try {
+          const retryKey = demoDatasetKeyForAction(request.clientActionId);
+          const retryResult = await this.pool.query<DemoDatasetRow>(
+            `SELECT ${DATASET_COLUMNS} ${DATASET_FROM} WHERE d.organization_id = $1 AND d.dataset_key = $2`,
+            [organizationId, retryKey],
+          );
+          if (retryResult.rows[0]) {
+            const existing = mapDataset(retryResult.rows[0]!);
+            // Need a client to fetch counts; use pool
+            const tempClient = await this.pool.connect();
+            try {
+              const c = await this.fetchCreateCounts(tempClient, organizationId, existing.id);
+              return { dataset: datasetDto(existing), counts: c, replayed: true };
+            } finally { tempClient.release(); }
+          }
+        } catch { /* fallthrough */ }
+        throw new AppError('DEMO_DATASET_ALREADY_EXISTS', 409, 'Bu organizasyon için zaten aktif bir demo veri kümesi var.');
+      }
+      if (code === '55P03') {
+        throw new AppError('DEMO_DATASET_PURGE_IN_PROGRESS', 409, 'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
+      }
+      if (code === '40001') {
+        throw new AppError('DEMO_DATASET_PLAN_STALE', 409, 'Demo veri kümesi planı eşzamanlı bir değişiklik nedeniyle güncel değil.');
+      }
+      if (code === '23503' || code === '23514') {
+        throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409, 'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle oluşturulamadı.', { code });
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async fetchCreateCounts(
+    client: Pick<PoolClient, 'query'>,
+    organizationId: string,
+    datasetId: string,
+  ): Promise<{ users: number; customers: number; products: number; jobCards: number }> {
+    const users = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM users WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2`,
+      [organizationId, datasetId],
+    );
+    const customers = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM customers WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2`,
+      [organizationId, datasetId],
+    );
+    const products = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM products WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2`,
+      [organizationId, datasetId],
+    );
+    const jobCards = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM job_cards WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2`,
+      [organizationId, datasetId],
+    );
+    return {
+      users: Number(users.rows[0]?.count ?? 0),
+      customers: Number(customers.rows[0]?.count ?? 0),
+      products: Number(products.rows[0]?.count ?? 0),
+      jobCards: Number(jobCards.rows[0]?.count ?? 0),
+    };
   }
 }

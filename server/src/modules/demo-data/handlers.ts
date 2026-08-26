@@ -2,7 +2,7 @@ import type { FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import type { DemoDatasetService } from './service.js';
-import type { DemoDatasetPurgeRequest } from './types.js';
+import type { DemoDatasetCreateRequest, DemoDatasetPurgeRequest } from './types.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -41,6 +41,19 @@ function purgeBody(request: FastifyRequest): DemoDatasetPurgeRequest {
   return { clientActionId: body.clientActionId, planHash: body.planHash };
 }
 
+function createBody(request: FastifyRequest): DemoDatasetCreateRequest {
+  if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+    validation('Geçerli bir oluşturma isteği gövdesi gönderin.');
+  }
+  const body = request.body as Record<string, unknown>;
+  const unknown = Object.keys(body).find((key) => !['clientActionId'].includes(key));
+  if (unknown) validation(`Bilinmeyen alan: ${unknown}.`);
+  if (typeof body.clientActionId !== 'string' || !UUID.test(body.clientActionId)) {
+    validation('clientActionId UUID olmalıdır.');
+  }
+  return { clientActionId: body.clientActionId };
+}
+
 export function createDemoDatasetHandlers(service: DemoDatasetService) {
   return {
     list: (request: FastifyRequest) => {
@@ -54,6 +67,10 @@ export function createDemoDatasetHandlers(service: DemoDatasetService) {
     preview: (request: FastifyRequest) => {
       exactQuery(request);
       return service.preview(request.currentUser!, datasetId(request));
+    },
+    create: (request: FastifyRequest) => {
+      exactQuery(request);
+      return service.create(request.currentUser!, createBody(request));
     },
     purge: (request: FastifyRequest) => {
       exactQuery(request);
