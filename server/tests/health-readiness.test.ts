@@ -1,3 +1,8 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app.js';
@@ -6,6 +11,7 @@ import type { HealthReadinessPort } from '../src/modules/health/service.js';
 import type { BackupHealthReadinessPort } from '../src/modules/health/service.js';
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
 import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
+import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 
 const testConfig: AppConfig = {
   nodeEnv: 'test',
@@ -68,7 +74,10 @@ describe('GET /api/health readiness', () => {
         throw new Error('ECONNREFUSED secret-db-host');
       },
     };
-    const readiness = createPostgresReadiness(pool as never, '007_sales_meeting');
+    const catalog = await loadMigrationCatalog(
+      fileURLToPath(new URL('../src/db/migrations', import.meta.url)),
+    );
+    const readiness = createPostgresReadiness(pool as never, catalog as never);
     const app = await buildApp(testConfig, { healthReadiness: readiness });
     apps.push(app);
 
@@ -78,24 +87,58 @@ describe('GET /api/health readiness', () => {
     expect(JSON.stringify(response.json())).not.toContain('secret-db-host');
   });
 
-  it('requires exact schema version when HEALTH_SCHEMA_VERSION is set', async () => {
-    const pool = {
-      query: async (sql: string, values?: unknown[]) => {
-        if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
-        if (sql.includes('schema_migrations WHERE version')) {
-          return {
-            rows: values?.[0] === '007_sales_meeting'
-              ? [{ version: '007_sales_meeting' }]
-              : [],
-          };
-        }
-        return { rows: [] };
-      },
-    };
-    const ready = createPostgresReadiness(pool as never, '007_sales_meeting');
-    const missing = createPostgresReadiness(pool as never, '008_missing');
-    await expect(ready.check()).resolves.toBe('ok');
-    await expect(missing.check()).resolves.toBe('unavailable');
+  it('requires exact catalog history for readiness', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'health-cat-'));
+    try {
+      await writeFile(path.join(dir, '001_first.sql'), 'SELECT 1;');
+      await writeFile(path.join(dir, '002_second.sql'), 'SELECT 2;');
+      const catalog = await loadMigrationCatalog(dir);
+
+      const okPool = {
+        query: async (sql: string) => {
+          if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
+          if (sql.includes('schema_migrations')) return { rows: [{ version: '001_first' }, { version: '002_second' }] };
+          return { rows: [] };
+        },
+      };
+      const behindPool = {
+        query: async (sql: string) => {
+          if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
+          if (sql.includes('schema_migrations')) return { rows: [{ version: '001_first' }] };
+          return { rows: [] };
+        },
+      };
+      const emptyPool = {
+        query: async (sql: string) => {
+          if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
+          if (sql.includes('schema_migrations')) return { rows: [] };
+          return { rows: [] };
+        },
+      };
+      const aheadPool = {
+        query: async (sql: string) => {
+          if (sql === 'SELECT 1') return { rows: [{ '?column?': 1 }] };
+          if (sql.includes('schema_migrations')) return { rows: [{ version: '001_first' }, { version: '002_second' }, { version: '003_future' }] };
+          return { rows: [] };
+        },
+      };
+
+      const ok = createPostgresReadiness(okPool as never, catalog as never);
+      const behind = createPostgresReadiness(behindPool as never, catalog as never);
+      const empty = createPostgresReadiness(emptyPool as never, catalog as never);
+      const ahead = createPostgresReadiness(aheadPool as never, catalog as never);
+
+      await expect(ok.check()).resolves.toBe('ok');
+      await expect(behind.check()).resolves.toBe('unavailable');
+      await expect(empty.check()).resolves.toBe('unavailable');
+      await expect(ahead.check()).resolves.toBe('unavailable');
+
+      // Regression: stale expected version must not authorize DB with extra future row
+      // (old string path would have returned ok for 001..002 + 003_future when checking 002_second)
+      await expect(ahead.check()).resolves.toBe('unavailable');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('surfaces safe backup worker evidence without changing the generic status contract', async () => {

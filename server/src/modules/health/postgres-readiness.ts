@@ -1,31 +1,40 @@
 import type { Pool } from 'pg';
 
+import { compareMigrationState, type MigrationCatalog } from '../../db/migration-catalog.js';
 import type { HealthReadinessPort } from './service.js';
 
 /**
- * Production always supplies an exact HEALTH_SCHEMA_VERSION.
- * Development/test may omit it; then any applied migration row is enough.
- * Production must never use a "count >= 1" fallback.
+ * SD2: readiness now uses the SD1 migration catalog as the sole authoritative
+ * expected history. It is loaded once at bootstrap and reused; each check
+ * re-reads DB applied versions read-only (no initialize(), no advisory lock).
+ * Any incompatibility (BEHIND, EMPTY, AHEAD, DIVERGED, missing table, DB down)
+ * => unavailable (503) without exposing migration internals publicly.
+ *
+ * HEALTH_SCHEMA_VERSION is NOT used as expected head; it is an optional
+ * config assertion validated at startup (see db/schema-compatibility).
  */
-export function createPostgresReadiness(
-  pool: Pool,
-  healthSchemaVersion: string | null = null,
-): HealthReadinessPort {
+
+export function createPostgresReadiness(pool: Pool, catalog: MigrationCatalog): HealthReadinessPort {
   return {
     async check() {
       try {
+        // Liveness probe; if this fails we are unavailable regardless.
         await pool.query('SELECT 1');
-        if (healthSchemaVersion) {
-          const exact = await pool.query<{ version: string }>(
-            'SELECT version FROM schema_migrations WHERE version = $1 LIMIT 1',
-            [healthSchemaVersion],
-          );
-          return exact.rows[0] ? 'ok' : 'unavailable';
+        if (!catalog.head || catalog.count === 0) {
+          return 'unavailable';
         }
-        const count = await pool.query<{ count: string }>(
-          'SELECT COUNT(*)::text AS count FROM schema_migrations',
-        );
-        return Number(count.rows[0]?.count ?? 0) >= 1 ? 'ok' : 'unavailable';
+        let appliedVersions: string[];
+        try {
+          const result = await pool.query<{ version: string }>(
+            'SELECT version FROM schema_migrations ORDER BY version',
+          );
+          appliedVersions = result.rows.map((row) => row.version);
+        } catch {
+          // Missing table, permission, or connection error inside history read => unavailable
+          return 'unavailable';
+        }
+        const result = compareMigrationState(catalog, appliedVersions);
+        return result.status === 'COMPATIBLE' ? 'ok' : 'unavailable';
       } catch {
         return 'unavailable';
       }
