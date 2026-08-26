@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,33 +101,54 @@ exit $?
 }
 
 function setupFixture() {
-  const root = mkdtempSync(path.join(tmpdir(), 'deploy-harness-'));
-  const newRelease = path.join(root, 'new-release');
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'deploy-harness-')));
+  const releaseRoot = path.join(root, 'releases');
+  const newRelease = path.join(releaseRoot, TEST_SHA);
   const currentLink = path.join(root, 'current');
   const envFile = path.join(root, 'servora.env');
   const fakeBin = path.join(root, 'fake-bin');
   const logFile = path.join(root, 'event.log');
   mkdirSync(newRelease + '/server/dist/db', { recursive: true });
+  mkdirSync(newRelease + '/server/node_modules', { recursive: true });
+  mkdirSync(newRelease + '/web/dist', { recursive: true });
+  mkdirSync(newRelease + '/ops/scripts', { recursive: true });
   mkdirSync(fakeBin, { recursive: true });
   // Required files for deploy pre-checks
   writeFileSync(path.join(newRelease, 'server', 'dist', 'dummy'), 'x');
   // Ensure server/dist exists (already)
+  writeFileSync(path.join(newRelease, 'server', 'package.json'), '{}');
   writeFileSync(path.join(newRelease, 'server', 'package-lock.json'), '{}');
-  mkdirSync(path.join(newRelease, 'server', 'node_modules'), { recursive: true });
+  writeFileSync(path.join(newRelease, 'web', 'dist', 'index.html'), '<!doctype html>');
   writeFileSync(envFile, 'DATABASE_URL=postgresql://dummy\n');
   // Create dummy migrate and schema-check files (not executed, fake node intercepts)
   writeFileSync(path.join(newRelease, 'server', 'dist', 'db', 'migrate.js'), '// dummy');
   writeFileSync(path.join(newRelease, 'server', 'dist', 'db', 'schema-check.js'), '// dummy');
+  writeFileSync(path.join(newRelease, 'ops', 'scripts', 'backup-postgres.sh'), '#!/usr/bin/env bash\nexit 0\n', {
+    mode: 0o755,
+  });
   writeFileSync(logFile, '');
   writeFileSync(logFile + '.details', '');
   makeFakeBin(fakeBin, logFile);
-  return { root, newRelease, currentLink, envFile, fakeBin, logFile };
+
+  // The production entrypoint is fixed to /opt/servora-med. Copy the exact
+  // source into the disposable fixture and rewrite only those fixed roots so
+  // this harness never mutates /opt while still exercising the real script.
+  const fixtureScript = path.join(root, 'deploy-release.sh');
+  const fixtureSource = readFileSync(deployScript, 'utf8')
+    .replaceAll('/opt/servora-med/releases', releaseRoot)
+    .replaceAll('/opt/servora-med/current', currentLink);
+  writeFileSync(fixtureScript, fixtureSource, { mode: 0o755 });
+  chmodSync(fixtureScript, 0o755);
+
+  return { root, newRelease, currentLink, envFile, fakeBin, logFile, fixtureScript };
 }
 
 function runDeploy(env: NodeJS.ProcessEnv, fakeBin: string): { exitCode: number; stdout: string; stderr: string; log: string } {
   const logFile = env.FAKE_LOG as string;
+  const fixtureScript = path.join(path.dirname(logFile), 'deploy-release.sh');
+  const script = existsSync(fixtureScript) ? fixtureScript : deployScript;
   try {
-    const stdout = execFileSync('bash', [deployScript], {
+    const stdout = execFileSync('bash', [script], {
       env: {
         ...process.env,
         ...env,
@@ -482,6 +503,7 @@ describe('deploy-release executable harness', () => {
       expect(result.log).toContain(`backup:servora-med-predeploy-backup@${TEST_SHA}.service`);
       expect(result.log).not.toContain('stop');
       expect(result.log).not.toContain('migrate');
+      expect(result.log).not.toContain('schema-check');
       expect(result.log).not.toContain('activate');
     } finally {
       rmSync(f.root, { recursive: true, force: true });
@@ -526,7 +548,80 @@ describe('deploy-release executable harness', () => {
       );
       expect(result.exitCode).not.toBe(0);
       expect(result.log).toBe('');
-      expect(result.stdout + result.stderr).toMatch(/NEW_RELEASE must match the SHA release root/);
+      expect(result.stdout + result.stderr).toMatch(/NEW_RELEASE must exactly match/);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['temporary root', (f: ReturnType<typeof setupFixture>) => path.join(tmpdir(), TEST_SHA)],
+    ['alternate release root', (f: ReturnType<typeof setupFixture>) => path.join(f.root, 'releases-alt', TEST_SHA)],
+    ['lexical parent alias', (f: ReturnType<typeof setupFixture>) => `${f.newRelease}/..`],
+    ['empty path', () => ''],
+  ])('rejects %s before any release action', (_label, releasePath) => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: releasePath(f),
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).toBe('');
+      expect(result.stdout + result.stderr).toMatch(/NEW_RELEASE must exactly match/);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['short', 'ABCDEF0123456789ABCDEF0123456789ABCDEF01', 'not-a-sha/with-slash', 'sha with whitespace', 'sha;touch'])
+    ('rejects invalid SHA instance %s before any action', (sha) => {
+      const f = setupFixture();
+      try {
+        const result = runDeploy(
+          {
+            SHA: sha,
+            NEW_RELEASE: f.newRelease,
+            ENV_FILE: f.envFile,
+            SERVORA_FQDN: 'example.com',
+            FAKE_LOG: f.logFile,
+          },
+          f.fakeBin,
+        );
+        expect(result.exitCode).not.toBe(0);
+        expect(result.log).toBe('');
+        expect(result.stdout + result.stderr).toMatch(/SHA must be a 40-character/);
+      } finally {
+        rmSync(f.root, { recursive: true, force: true });
+      }
+    });
+
+  it('rejects a SHA release entry that is itself a symlink before backup or migration', () => {
+    const f = setupFixture();
+    const outside = path.join(f.root, 'outside-release');
+    try {
+      mkdirSync(outside, { recursive: true });
+      rmSync(f.newRelease, { recursive: true, force: true });
+      symlinkSync(outside, f.newRelease);
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).toBe('');
+      expect(result.stdout + result.stderr).toMatch(/SHA release must be a physical directory/);
     } finally {
       rmSync(f.root, { recursive: true, force: true });
     }

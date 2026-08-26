@@ -18,12 +18,17 @@ describe('operations scripts', () => {
     const deployScript = fileURLToPath(
       new URL('../../ops/scripts/deploy-release.sh', import.meta.url),
     );
+    const predeployLauncher = fileURLToPath(
+      new URL('../../ops/scripts/predeploy-backup-launcher.sh', import.meta.url),
+    );
     expect(existsSync(backupScript)).toBe(true);
     expect(existsSync(restoreScript)).toBe(true);
     expect(existsSync(deployScript)).toBe(true);
+    expect(existsSync(predeployLauncher)).toBe(true);
     execFileSync('bash', ['-n', backupScript], { stdio: 'pipe' });
     execFileSync('bash', ['-n', restoreScript], { stdio: 'pipe' });
     execFileSync('bash', ['-n', deployScript], { stdio: 'pipe' });
+    execFileSync('bash', ['-n', predeployLauncher], { stdio: 'pipe' });
   });
 
   it('restore script refuses production database name', () => {
@@ -118,9 +123,9 @@ describe('operations scripts', () => {
     const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
     const content = readFileSync(deployScript, 'utf8');
     const backupIdx = content.indexOf('systemctl start "$PREDEPLOY_BACKUP_UNIT"');
-    const migrateIdx = content.indexOf('server/dist/db/migrate.js');
-    const schemaIdx = content.indexOf('server/dist/db/schema-check.js');
-    const activateIdx = content.indexOf('ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"');
+    const migrateIdx = content.indexOf('if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"');
+    const schemaIdx = content.indexOf('if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"');
+    const activateIdx = content.indexOf('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
     const restartIdx = content.indexOf('systemctl start "$SERVICE_NAME"', activateIdx);
     const healthIdx = content.indexOf('/api/health', restartIdx);
 
@@ -156,7 +161,7 @@ describe('operations scripts', () => {
     // both should restart previous service and exit 1 before activation
     const migrateFailIdx = content.indexOf('Migration failed');
     const schemaFailIdx = content.indexOf('Schema check failed');
-    const activateIdx = content.indexOf('ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"');
+    const activateIdx = content.indexOf('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
     expect(migrateFailIdx).toBeLessThan(activateIdx);
     expect(schemaFailIdx).toBeLessThan(activateIdx);
   });
@@ -182,11 +187,54 @@ describe('operations scripts', () => {
     expect(content).toContain('User=servora-med');
     expect(content).toContain('Group=servora-med');
     expect(content).toContain('EnvironmentFile=/etc/servora-med/servora-med-backup.env');
-    expect(content).toContain('ExecStart=/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh');
+    expect(content).toContain('ExecStart=/usr/local/libexec/servora-med/predeploy-backup-launcher %i');
+    expect(content).not.toContain('/opt/servora-med/releases/%i/');
     expect(content).not.toContain('/opt/servora-med/current/ops/scripts/backup-postgres.sh');
     expect(content).toContain('NoNewPrivileges=true');
     expect(content).toContain('ProtectSystem=strict');
   });
+
+  it('release provenance is fixed to the validated SHA path', () => {
+    const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
+    const content = readFileSync(deployScript, 'utf8');
+    expect(content).toContain('readonly RELEASE_ROOT="/opt/servora-med/releases"');
+    expect(content).toContain('readonly EXPECTED_RELEASE="${RELEASE_ROOT}/${SHA}"');
+    expect(content).toContain('NEW_RELEASE="${NEW_RELEASE-${EXPECTED_RELEASE}}"');
+    expect(content).toContain('if [[ "$NEW_RELEASE" != "$EXPECTED_RELEASE" ]]');
+    expect(content).toContain('assert_release_dir "$EXPECTED_RELEASE"');
+    expect(content).toContain('assert_release_file "$required_file"');
+    expect(content).toContain('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
+    expect(content).not.toContain('RELEASE_ROOT="${RELEASE_ROOT:-');
+    expect(content).not.toContain('CURRENT_LINK="${CURRENT_LINK:-');
+  });
+
+  it('pre-deploy launcher validates the instance before deriving a release path', () => {
+    const launcher = fileURLToPath(
+      new URL('../../ops/scripts/predeploy-backup-launcher.sh', import.meta.url),
+    );
+    const content = readFileSync(launcher, 'utf8');
+    expect(content).toContain('readonly RELEASE_ROOT="/opt/servora-med/releases"');
+    expect(content).toMatch(/\[\[ ! "\$SHA" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+    expect(content).toContain('assert_physical_dir "$RELEASE_DIR"');
+    expect(content).toContain('assert_physical_file "$BACKUP_SCRIPT"');
+    expect(content).toContain('exec "$BACKUP_SCRIPT"');
+    expect(content).not.toMatch(/\$\{1\}.*\/opt\/servora-med/);
+  });
+
+  it.each(['', 'short', 'ABCDEF0123456789ABCDEF0123456789ABCDEF01', '../escape', 'sha with whitespace'])
+    ('pre-deploy launcher rejects unsafe instance %s before filesystem access', (instance) => {
+      const launcher = fileURLToPath(
+        new URL('../../ops/scripts/predeploy-backup-launcher.sh', import.meta.url),
+      );
+      try {
+        execFileSync('bash', [launcher, instance], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        expect.unreachable('unsafe instance must fail');
+      } catch (error) {
+        const err = error as { status?: number; stderr?: string };
+        expect(err.status).toBe(64);
+        expect(String(err.stderr ?? '')).toMatch(/release instance|exactly one/);
+      }
+    });
 
   it('schema-check is read-only and uses catalog authority', () => {
     const schemaCheck = fileURLToPath(new URL('../../server/src/db/schema-check.ts', import.meta.url));

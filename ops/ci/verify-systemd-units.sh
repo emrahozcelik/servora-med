@@ -17,7 +17,7 @@ mkdir -p \
   "$TMP/var/backups/servora-med/br-workspaces" \
   "$TMP/var/lib/servora-med-alerting" \
   "$TMP/var/log/servora-med" \
-  "$TMP/opt/servora-med/releases/%i/ops/scripts" \
+  "$TMP/usr/local/libexec/servora-med" \
   "$TMP/units"
 
 # Stubs for binaries referenced by units.
@@ -25,8 +25,8 @@ printf '#!/bin/sh\nexit 0\n' >"$TMP/usr/bin/node"
 chmod +x "$TMP/usr/bin/node"
 printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/ops/scripts/backup-postgres.sh"
 chmod +x "$TMP/opt/servora-med/current/ops/scripts/backup-postgres.sh"
-printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh"
-chmod +x "$TMP/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh"
+printf '#!/bin/sh\nexit 0\n' >"$TMP/usr/local/libexec/servora-med/predeploy-backup-launcher"
+chmod +x "$TMP/usr/local/libexec/servora-med/predeploy-backup-launcher"
 printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
 chmod +x "$TMP/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
 : >"$TMP/opt/servora-med/current/server/dist-index-stub"
@@ -51,7 +51,7 @@ rewrite_unit() {
     -e "s|WorkingDirectory=/opt/servora-med/current/server|WorkingDirectory=${TMP}/opt/servora-med/current/server|g" \
     -e "s|EnvironmentFile=/etc/servora-med/|EnvironmentFile=${TMP}/etc/servora-med/|g" \
     -e "s|ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh|ExecStart=${TMP}/opt/servora-med/current/ops/scripts/backup-postgres.sh|g" \
-    -e "s|ExecStart=/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh|ExecStart=${TMP}/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh|g" \
+    -e "s|ExecStart=/usr/local/libexec/servora-med/predeploy-backup-launcher|ExecStart=${TMP}/usr/local/libexec/servora-med/predeploy-backup-launcher|g" \
     -e "s|ExecStart=/usr/bin/node /opt/servora-med/current/ops/scripts/operator-alerting.mjs|ExecStart=${TMP}/usr/bin/node ${TMP}/opt/servora-med/current/ops/scripts/operator-alerting.mjs|g" \
     -e "s|ExecStart=/usr/bin/node /opt/servora-med/current/server/dist/backup-worker.js|ExecStart=${TMP}/usr/bin/node ${TMP}/opt/servora-med/current/server/dist-backup-worker.js|g" \
     -e "s|ReadWritePaths=/var/backups/servora-med /var/log/servora-med|ReadWritePaths=${TMP}/var/backups/servora-med ${TMP}/var/log/servora-med|g" \

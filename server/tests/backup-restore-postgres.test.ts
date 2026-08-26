@@ -12,6 +12,9 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresMigrationStore } from '../src/db/index.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
+if (process.env.CI === 'true' && !databaseUrl) {
+  throw new Error('CI PostgreSQL acceptance requires TEST_DATABASE_URL; refusing to skip database tests.');
+}
 const backupScript = fileURLToPath(
   new URL('../../ops/scripts/backup-postgres.sh', import.meta.url),
 );
@@ -39,7 +42,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
         ...process.env,
         BACKUP_DIR: backupDir,
         OPS_LOG: opsLog,
-        PGHOST: parsed.hostname || '127.0.0.1',
+        PGHOST: process.env.PGHOST || parsed.hostname || '127.0.0.1',
         PGPORT: parsed.port || '5432',
         PGUSER: parsed.username ? decodeURIComponent(parsed.username) : (process.env.USER ?? 'postgres'),
         PGDATABASE: sourceDb,
@@ -62,9 +65,16 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
         })(),
       });
       try {
-        await expect(
-          sourcePool.query("SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables WHERE schemaname = 'public'"),
-        ).resolves.toMatchObject({ rows: [{ count: '0' }] });
+        const version = await sourcePool.query<{ server_version_num: string }>('SHOW server_version_num');
+        expect(version.rows[0]?.server_version_num).toMatch(/^17/);
+        const tables = await sourcePool.query<{ count: string }>(
+          "SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables WHERE schemaname = 'public'",
+        );
+        expect(tables.rows[0]?.count).toBe('0');
+        const migrationTable = await sourcePool.query<{ count: string }>(
+          "SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'schema_migrations'",
+        );
+        expect(migrationTable.rows[0]?.count).toBe('0');
       } finally {
         await sourcePool.end();
       }
@@ -132,7 +142,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
 
         // Prefer peer auth when possible: rewrite env from DATABASE_URL if needed
         const parsed = new URL(databaseUrl!);
-        if (parsed.hostname) env.PGHOST = parsed.hostname;
+        if (parsed.hostname && !process.env.PGHOST) env.PGHOST = parsed.hostname;
         if (parsed.port) env.PGPORT = parsed.port;
         if (parsed.username) env.PGUSER = decodeURIComponent(parsed.username);
         if (parsed.password) {
@@ -240,7 +250,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
           OFFSITE_COPY_HOOK: hook,
         };
         const parsed = new URL(databaseUrl!);
-        env.PGHOST = parsed.hostname || '127.0.0.1';
+        env.PGHOST = process.env.PGHOST || parsed.hostname || '127.0.0.1';
         env.PGPORT = parsed.port || '5432';
         env.PGUSER = parsed.username
           ? decodeURIComponent(parsed.username)

@@ -7,7 +7,9 @@ Type=oneshot
 User=servora-med
 Group=servora-med
 EnvironmentFile=/etc/servora-med/servora-med-backup.env
-ExecStart=/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh
+# The root-installed launcher validates %i and derives the fixed SHA release
+# path independently of the deploy caller.
+ExecStart=/usr/local/libexec/servora-med/predeploy-backup-launcher %i
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

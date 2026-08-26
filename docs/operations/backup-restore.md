@@ -40,6 +40,10 @@ Script: `ops/scripts/backup-postgres.sh`
   release is active. Production deployment uses the separate
   `ops/systemd/servora-med-predeploy-backup@.service` template so the mandatory
   first-deploy backup runs from the exact SHA release before `current` exists.
+  The template invokes the root-installed
+  `ops/scripts/predeploy-backup-launcher.sh`, which validates the 40-character
+  instance and rejects symlink/path escapes before executing the release
+  backup script as `servora-med`.
 - Example: `ops/examples/servora-med-backup.env.example`
 - Timer: daily **02:30 UTC**
 - Always take a **pre-deploy** backup before migrate/release switch
