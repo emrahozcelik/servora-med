@@ -6,8 +6,10 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { PostgresDemoDatasetRepository } from '../src/modules/demo-data/repository.js';
 import { DemoDatasetService } from '../src/modules/demo-data/service.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
+import { assertDemoDestructiveTestDatabaseSafe } from './support/demo-destructive-guard.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
+if (databaseUrl) assertDemoDestructiveTestDatabaseSafe(databaseUrl);
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: 8 }) : null;
 const organizationIds: string[] = [];
 

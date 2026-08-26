@@ -145,6 +145,7 @@ describe('loadConfig', () => {
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
       backupEncryption: { recipient: null },
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
+      demoDataCreationEnabled: false,
     });
   });
 
@@ -189,6 +190,7 @@ describe('loadConfig', () => {
       backupLocalEngine: { tempRoot: null, filesRoot: null },
       backupEncryption: { recipient: null },
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
+      demoDataCreationEnabled: false,
     });
   });
 
@@ -655,4 +657,31 @@ describe('loadConfig', () => {
       );
     },
   );
+
+  it('defaults DEMO_DATA_CREATION_ENABLED to false in all environments', () => {
+    expect(loadConfig(validEnvironment).demoDataCreationEnabled).toBe(false);
+    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'development' }).demoDataCreationEnabled).toBe(false);
+    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'test' }).demoDataCreationEnabled).toBe(false);
+    expect(loadConfig({ ...productionBase, DEMO_DATA_CREATION_ENABLED: undefined }).demoDataCreationEnabled).toBe(false);
+  });
+
+  it('parses DEMO_DATA_CREATION_ENABLED true/false explicitly', () => {
+    expect(loadConfig({ ...validEnvironment, DEMO_DATA_CREATION_ENABLED: 'true' }).demoDataCreationEnabled).toBe(true);
+    expect(loadConfig({ ...validEnvironment, DEMO_DATA_CREATION_ENABLED: 'false' }).demoDataCreationEnabled).toBe(false);
+    expect(loadConfig({ ...validEnvironment, DEMO_DATA_CREATION_ENABLED: '' }).demoDataCreationEnabled).toBe(false);
+  });
+
+  it('rejects invalid DEMO_DATA_CREATION_ENABLED values', () => {
+    expect(() => loadConfig({ ...validEnvironment, DEMO_DATA_CREATION_ENABLED: 'yes' })).toThrow(
+      'DEMO_DATA_CREATION_ENABLED must be true or false',
+    );
+    expect(() => loadConfig({ ...validEnvironment, DEMO_DATA_CREATION_ENABLED: '1' })).toThrow(
+      'DEMO_DATA_CREATION_ENABLED must be true or false',
+    );
+  });
+
+  it('keeps DEMO_DATA_CREATION_ENABLED false in development when not explicitly enabled', () => {
+    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'development' }).demoDataCreationEnabled).toBe(false);
+    expect(loadConfig({ ...validEnvironment, NODE_ENV: 'development', DEMO_DATA_CREATION_ENABLED: 'false' }).demoDataCreationEnabled).toBe(false);
+  });
 });
