@@ -103,10 +103,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     const admin = new Pool({ connectionString: databaseUrl });
     const schema = `sc_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await admin.query(`CREATE SCHEMA ${schema}`);
-    const url = new URL(databaseUrl);
     // Use search_path to isolate migrations to this schema
     const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
-    const dbUrl = `${url.protocol}//${url.host}${url.pathname}?options=${encodeURIComponent(`-c search_path=${schema}`)}`;
+    const urlObj = new URL(databaseUrl);
+    urlObj.searchParams.set('options', `-c search_path=${schema}`);
+    const dbUrl = urlObj.toString();
     // For CLI, we need a DATABASE_URL that points to this schema. Use the same connection string with options.
     // The CLI will be invoked with DATABASE_URL=dbUrl
     try {
