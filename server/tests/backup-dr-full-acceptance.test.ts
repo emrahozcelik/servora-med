@@ -19,7 +19,9 @@ import { describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import { PostgresMigrationStore } from '../src/db/index.js';
+import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
+import { getMigrationsDirectory } from '../src/db/schema-compatibility.js';
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
 import { PostgresAuthRepository } from '../src/modules/auth/repository.js';
 import { hashPassword } from '../src/modules/auth/crypto.js';
@@ -578,15 +580,20 @@ describe.skipIf(
 
       if (evidence) evidence.failureGate = 'ISOLATED_API_VALIDATION';
       const apiStartedAt = Date.now();
+      const catalog = await loadMigrationCatalog(getMigrationsDirectory());
+      expect(catalog.head).not.toBeNull();
+      // BR7 contract: backup evidence metadata stays as separate assertion,
+      // but runtime readiness authority is the current application MigrationCatalog.
+      expect(restored.evidence.schemaVersion).toBe(catalog.head!.version);
       app = await buildApp(
         {
           ...testConfig,
           databaseUrl: targetUrl.toString(),
-          healthSchemaVersion: restored.evidence.schemaVersion,
+          healthSchemaVersion: catalog.head!.version,
         },
         {
           authRepository: new PostgresAuthRepository(targetPool),
-          healthReadiness: createPostgresReadiness(targetPool, restored.evidence.schemaVersion),
+          healthReadiness: createPostgresReadiness(targetPool, catalog),
         },
       );
       const apiAddress = await app.listen({ host: '127.0.0.1', port: 0 });
