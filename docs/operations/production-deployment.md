@@ -237,28 +237,62 @@ if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
   exit 1
 fi
 
-# 5) Switch release pointer only after successful migration
+# 5) Verify schema compatibility from NEW release (read-only, no auto-migrate)
+#    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch
+if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"; then
+  echo "Schema check failed; current symlink unchanged" >&2
+  systemctl start servora-med || true
+  exit 1
+fi
+
+# 6) Switch release pointer only after successful migration AND schema check
 ln -sfn "$NEW_RELEASE" /opt/servora-med/current
 
-# 6) Start application
+# 7) Start application
 systemctl start servora-med
 
-# 7) Readiness + smoke
+# 8) Readiness + smoke
 curl -fsS "https://${SERVORA_FQDN}/api/health"
 # Expect: {"status":"ok"}
 ```
 
+### Schema check (`npm run schema:check`)
+
+```bash
+# Development (tsx)
+npm run schema:check        # tsx src/db/schema-check.ts (uses .env)
+
+# Production (built artifact, NEW release)
+node dist/db/schema-check.js
+# or via script
+npm run schema:check:prod
+```
+
+- **Read-only**: never migrates, never creates `schema_migrations`, never acquires migration lock.
+- **Exit 0** only for `COMPATIBLE`; all other states (`BEHIND`/`EMPTY`/`AHEAD`/`DIVERGED`/missing table/`HEALTH_SCHEMA_VERSION` mismatch/catalog invalid/DB unavailable) → nonzero.
+- **Operator messages** distinguish: `BEHIND`/`EMPTY` → `Run npm run migrate`, `AHEAD` → newer DB than release, `DIVERGED` → incompatible history, `missing schema_migrations` → explicit migration required.
+- **Privacy**: never prints `DATABASE_URL`, credentials, or full config.
+
 Do **not**:
 
-- run migrate from `/opt/servora-med/current/...` before `ln -sfn`
-- continue deploy after backup or migration failure
+- run migrate or schema check from `/opt/servora-med/current/...` before `ln -sfn` (must use NEW release artifacts)
+- continue deploy after backup, migration, or schema-check failure
 - put passwords on the command line
-- run migrations on every process start (`start:prod` never migrates)
+- run migrations on every process start (`start:prod` never migrates; deployment is explicit)
+
+Deployment gates are complementary, not duplicated:
+
+- **Deployment**: actively migrates (`migrate` → `schema:check`) then activates
+- **Startup guard**: never migrates; refuses incompatible DB (`BEHIND`/`EMPTY`/`AHEAD`/`DIVERGED`/missing)
+- **Readiness**: continuously reports incompatible DB as `503 unavailable`
+
+Migration failure reality: runner is transaction-per-migration. If `030` and `031` succeed and `032` fails, the earlier migrations remain committed. Deployment must still stop and **not** activate the new release. No automatic rollback/down migrations are added.
 
 ### Rollback
 
-- Application: repoint `current` to previous release **only if** schema is still compatible.
+- Application: repoint `current` to previous release **only if** schema is still compatible with that release.
 - Database: forward-only; no automated destructive rollback.
+- If post-activation health fails, report failure per operations policy — automatic application/database rollback is a separate design decision.
 
 ## systemd
 

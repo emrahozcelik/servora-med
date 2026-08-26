@@ -20,6 +20,8 @@
     "backup:real-r2-acceptance": "../ops/scripts/restore-dr-acceptance.sh --i-accept-real-r2-test",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
     "migrate:prod": "node dist/db/migrate.js",
+    "schema:check": "tsx --env-file=.env src/db/schema-check.ts",
+    "schema:check:prod": "node dist/db/schema-check.js",
     "products:import:pilot": "tsx --env-file=.env src/db/import-pilot-products.ts",
     "bootstrap:admin": "tsx --env-file=.env src/db/bootstrap-admin.ts",
     "bootstrap:admin:prod": "node dist/db/bootstrap-admin.js",

@@ -65,16 +65,24 @@ if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
   exit 1
 fi
 
-# 5) Switch release pointer only after successful migration.
+# 5) Verify schema compatibility from NEW release (read-only, no auto-migrate).
+#    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch.
+if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"; then
+  echo "Schema check failed; leaving current symlink unchanged and restarting previous service." >&2
+  systemctl start "$SERVICE_NAME" || true
+  exit 1
+fi
+
+# 6) Switch release pointer only after successful migration AND schema check.
 ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"
 
-# 6) Start application against new current.
+# 7) Start application against new current.
 if ! systemctl start "$SERVICE_NAME"; then
   echo "Service start failed after symlink switch." >&2
   exit 1
 fi
 
-# 7) Readiness smoke (optional FQDN).
+# 8) Readiness smoke (optional FQDN).
 if [[ -n "$FQDN" ]]; then
   if ! curl -fsS "https://${FQDN}/api/health" | grep -q '"status":"ok"'; then
     echo "Health check failed for https://${FQDN}/api/health" >&2
