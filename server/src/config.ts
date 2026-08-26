@@ -77,6 +77,7 @@ export type AppConfig = {
   backupR2: BackupR2Config;
   /** Optional so existing API-only config fixtures remain source-compatible. */
   backupWorker?: BackupWorkerConfig;
+  demoDataCreationEnabled: boolean;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -555,6 +556,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bucketAlias: readOptionalSafeLabel(env.BACKUP_R2_BUCKET_ALIAS, 'BACKUP_R2_BUCKET_ALIAS', 200),
       instanceId: readOptionalInstanceId(env.BACKUP_INSTANCE_ID, 'BACKUP_INSTANCE_ID'),
     },
+    demoDataCreationEnabled: readBoolean(env.DEMO_DATA_CREATION_ENABLED, 'DEMO_DATA_CREATION_ENABLED'),
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
   };
 }

@@ -38,6 +38,7 @@ Required production highlights:
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
 - `HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `DEMO_DATA_CREATION_ENABLED=false` (default false all environments; creation DISABLED, list/preview/purge remain AVAILABLE; enable explicitly only for staging/dev where disposable `TEST_DATABASE_URL` is used)
 
 ### HEALTH_SCHEMA_VERSION verification
 
