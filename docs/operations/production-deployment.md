@@ -212,6 +212,25 @@ sudo SHA=<git-sha> SERVORA_FQDN=app.example.com \
 
 `SERVORA_FQDN` is **required** — deployment `health` (`https://${SERVORA_FQDN}/api/health → 200`) is mandatory and the script fails preflight **before** stopping the service or migrating if `SERVORA_FQDN` is empty. The script stores `SERVORA_FQDN` in its internal `FQDN` shell variable; do not set `FQDN` directly. No `migrate → schema-check → activate → restart → success` without verified health.
 
+### Pre-deploy backup contract
+
+The scheduled/operator backup unit (`servora-med-backup.service`) intentionally
+follows the active `current` release. Deployment cannot use that unit before the
+first activation because `current` is absent on a first deploy. The deployment
+helper therefore starts the SHA-scoped template unit instead:
+
+```text
+servora-med-predeploy-backup@<sha>.service
+→ /opt/servora-med/releases/<sha>/ops/scripts/backup-postgres.sh
+```
+
+The template runs as `servora-med:servora-med`, uses the protected
+`/etc/servora-med/servora-med-backup.env`, and never creates or depends on a
+temporary `current` symlink. The backup remains mandatory for both first and
+update deployments; a failure stops the sequence before service stop or
+migration. Install `ops/systemd/servora-med-predeploy-backup@.service` before
+using the deployment helper.
+
 Equivalent expanded sequence (`set -Eeuo pipefail` semantics):
 
 ```bash
@@ -221,7 +240,7 @@ NEW_RELEASE="/opt/servora-med/releases/${SHA}"
 ENV_FILE="/etc/servora-med/servora-med.env"
 
 # 1) Pre-deploy backup — failure aborts (no further deploy steps)
-systemctl start servora-med-backup.service
+systemctl start "servora-med-predeploy-backup@${SHA}.service"
 
 # 2) Stop accepting traffic
 systemctl stop servora-med
@@ -302,6 +321,7 @@ Migration failure reality: runner is transaction-per-migration. If `030` and `03
 ```bash
 sudo cp ops/systemd/servora-med.service /etc/systemd/system/
 sudo cp ops/systemd/servora-med-backup.service /etc/systemd/system/
+sudo cp ops/systemd/servora-med-predeploy-backup@.service /etc/systemd/system/
 sudo cp ops/systemd/servora-med-backup.timer /etc/systemd/system/
 sudo cp ops/systemd/servora-med-backup-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
+const TEST_SHA = '0123456789abcdef0123456789abcdef01234567';
 
 function makeFakeBin(dir: string, logFile: string) {
   // node fake: distinguishes migrate vs schema-check
@@ -41,7 +42,7 @@ log="${logFile}"
 cmd="$1"
 svc="$2"
 if [[ "$cmd" == "start" && "$svc" == *backup* ]]; then
-  echo "backup" >> "$log"
+  echo "backup:$svc" >> "$log"
   exit \${FAKE_BACKUP_EXIT:-0}
 elif [[ "$cmd" == "stop" ]]; then
   echo "stop" >> "$log"
@@ -150,7 +151,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -186,7 +187,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -217,7 +218,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -246,7 +247,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -272,7 +273,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -315,7 +316,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -346,7 +347,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -374,7 +375,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -401,7 +402,7 @@ describe('deploy-release executable harness', () => {
     try {
       const result = runDeploy(
         {
-          SHA: 'testsha',
+          SHA: TEST_SHA,
           NEW_RELEASE: f.newRelease,
           ENV_FILE: f.envFile,
           CURRENT_LINK: f.currentLink,
@@ -423,6 +424,139 @@ describe('deploy-release executable harness', () => {
       expect(schemaLine).toContain(f.newRelease);
       expect(migrateLine).not.toContain('/current/');
       expect(schemaLine).not.toContain('/current/');
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('first deploy (current absent) runs SHA-scoped mandatory backup before migration', () => {
+    const f = setupFixture();
+    try {
+      expect(existsSync(f.currentLink)).toBe(false);
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      const lines = result.log.split('\n').filter(Boolean);
+      const backupIdx = lines.findIndex((line) => line.startsWith('backup:'));
+      const migrateIdx = lines.indexOf('migrate');
+      expect(lines[backupIdx]).toBe(`backup:servora-med-predeploy-backup@${TEST_SHA}.service`);
+      expect(backupIdx).toBeGreaterThanOrEqual(0);
+      expect(migrateIdx).toBeGreaterThan(backupIdx);
+      expect(lines.indexOf('schema-check')).toBeGreaterThan(migrateIdx);
+      expect(lines.indexOf('activate')).toBeGreaterThan(lines.indexOf('schema-check'));
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('backup failure blocks stop, migration, and activation', () => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '1',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).toContain(`backup:servora-med-predeploy-backup@${TEST_SHA}.service`);
+      expect(result.log).not.toContain('stop');
+      expect(result.log).not.toContain('migrate');
+      expect(result.log).not.toContain('activate');
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an invalid SHA before any operational action', () => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: '../../evil',
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).toBe('');
+      expect(result.stdout + result.stderr).toMatch(/SHA must be a 40-character/);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a production release path that is not the validated SHA root', () => {
+    const f = setupFixture();
+    try {
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: `/opt/servora-med/releases/${'f'.repeat(40)}`,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.log).toBe('');
+      expect(result.stdout + result.stderr).toMatch(/NEW_RELEASE must match the SHA release root/);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('update deploy keeps the existing current release until activation succeeds', () => {
+    const f = setupFixture();
+    const previous = path.join(f.root, 'previous-release');
+    try {
+      mkdirSync(previous, { recursive: true });
+      symlinkSync(previous, f.currentLink);
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          CURRENT_LINK: f.currentLink,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(readlinkSync(f.currentLink)).toBe(f.newRelease);
+      expect(result.log.indexOf('backup:')).toBeLessThan(result.log.indexOf('migrate'));
     } finally {
       rmSync(f.root, { recursive: true, force: true });
     }

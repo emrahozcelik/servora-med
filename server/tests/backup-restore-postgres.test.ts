@@ -23,6 +23,69 @@ const migrationsDirectory = fileURLToPath(
 );
 
 describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => {
+  it('backs up a clean empty database before migrations', async () => {
+    chmodSync(backupScript, 0o755);
+
+    const work = mkdtempSync(path.join(tmpdir(), 'servora-empty-backup-'));
+    const backupDir = path.join(work, 'backups');
+    const opsLog = path.join(work, 'ops.log');
+    const sourceDb = `servora_bak_empty_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const admin = new Pool({ connectionString: databaseUrl });
+
+    try {
+      await admin.query(`CREATE DATABASE ${sourceDb}`);
+      const parsed = new URL(databaseUrl!);
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        BACKUP_DIR: backupDir,
+        OPS_LOG: opsLog,
+        PGHOST: parsed.hostname || '127.0.0.1',
+        PGPORT: parsed.port || '5432',
+        PGUSER: parsed.username ? decodeURIComponent(parsed.username) : (process.env.USER ?? 'postgres'),
+        PGDATABASE: sourceDb,
+      };
+      if (parsed.password) {
+        const pgpass = path.join(work, 'pgpass');
+        writeFileSync(
+          pgpass,
+          `${env.PGHOST}:${env.PGPORT}:*:${env.PGUSER}:${decodeURIComponent(parsed.password)}\n`,
+          { mode: 0o600 },
+        );
+        env.PGPASSFILE = pgpass;
+      }
+
+      const sourcePool = new Pool({
+        connectionString: (() => {
+          const url = new URL(databaseUrl!);
+          url.pathname = `/${sourceDb}`;
+          return url.toString();
+        })(),
+      });
+      try {
+        await expect(
+          sourcePool.query("SELECT COUNT(*)::text AS count FROM pg_catalog.pg_tables WHERE schemaname = 'public'"),
+        ).resolves.toMatchObject({ rows: [{ count: '0' }] });
+      } finally {
+        await sourcePool.end();
+      }
+
+      execFileSync('bash', [backupScript], { env, stdio: 'pipe' });
+
+      const dumps = readdirSync(backupDir).filter((name) => name.endsWith('.dump'));
+      expect(dumps).toHaveLength(1);
+      const dumpPath = path.join(backupDir, dumps[0]!);
+      expect(existsSync(`${dumpPath}.sha256`)).toBe(true);
+      execFileSync(process.env.PG_RESTORE_BIN ?? 'pg_restore', ['--list', dumpPath], {
+        env,
+        stdio: 'pipe',
+      });
+      expect(readFileSync(opsLog, 'utf8')).toMatch(/result=success/);
+    } finally {
+      await admin.query(`DROP DATABASE IF EXISTS ${sourceDb}`);
+      await admin.end();
+    }
+  }, 120_000);
+
   it('backs up, checksums, restores, and verifies fixture data', async () => {
     chmodSync(backupScript, 0o755);
     chmodSync(restoreScript, 0o755);

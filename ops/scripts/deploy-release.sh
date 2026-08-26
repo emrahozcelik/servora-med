@@ -7,6 +7,8 @@
 # Requires: NEW release already copied to /opt/servora-med/releases/$SHA
 # including server/dist, server/package.json, server/package-lock.json,
 # server/node_modules, web/dist, and ops/.
+# The host must also install servora-med-predeploy-backup@.service; the
+# scheduled servora-med-backup.service remains current-release based.
 #
 # Build order contract (never swap these two steps):
 #   server: npm ci (full, dev deps included) -> npm run build -> npm ci --omit=dev
@@ -17,12 +19,24 @@
 set -Eeuo pipefail
 
 SHA="${SHA:?SHA is required}"
+if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "SHA must be a 40-character lowercase hexadecimal git commit" >&2
+  exit 1
+fi
 NEW_RELEASE="${NEW_RELEASE:-/opt/servora-med/releases/${SHA}}"
 ENV_FILE="${ENV_FILE:-/etc/servora-med/servora-med.env}"
 SERVICE_NAME="${SERVICE_NAME:-servora-med}"
-BACKUP_UNIT="${BACKUP_UNIT:-servora-med-backup.service}"
+PREDEPLOY_BACKUP_UNIT="servora-med-predeploy-backup@${SHA}.service"
 CURRENT_LINK="${CURRENT_LINK:-/opt/servora-med/current}"
 FQDN="${SERVORA_FQDN:-}"
+
+# A production release path must remain tied to the validated SHA. Test and
+# staging harnesses may provide an isolated NEW_RELEASE path, but the backup
+# unit never derives an executable path from that override.
+if [[ "$NEW_RELEASE" == /opt/servora-med/releases/* && "$NEW_RELEASE" != "/opt/servora-med/releases/${SHA}" ]]; then
+  echo "NEW_RELEASE must match the SHA release root" >&2
+  exit 1
+fi
 
 if [[ ! -d "$NEW_RELEASE/server/dist" ]]; then
   echo "Missing release build: $NEW_RELEASE/server/dist" >&2
@@ -50,8 +64,9 @@ if [[ -z "${FQDN:-}" ]]; then
   exit 1
 fi
 
-# 1) Pre-deploy backup — failure aborts deploy.
-if ! systemctl start "$BACKUP_UNIT"; then
+# 1) Pre-deploy backup — failure aborts deploy. The template unit executes the
+# exact SHA release path and does not depend on the current symlink.
+if ! systemctl start "$PREDEPLOY_BACKUP_UNIT"; then
   echo "Pre-deploy backup failed; aborting deploy (current symlink unchanged)." >&2
   exit 1
 fi

@@ -36,6 +36,10 @@ Script: `ops/scripts/backup-postgres.sh`
 
 - Unit: `ops/systemd/servora-med-backup.service` with **required**
   `EnvironmentFile=/etc/servora-med/servora-med-backup.env`
+- This scheduled/operator unit follows `/opt/servora-med/current` after a
+  release is active. Production deployment uses the separate
+  `ops/systemd/servora-med-predeploy-backup@.service` template so the mandatory
+  first-deploy backup runs from the exact SHA release before `current` exists.
 - Example: `ops/examples/servora-med-backup.env.example`
 - Timer: daily **02:30 UTC**
 - Always take a **pre-deploy** backup before migrate/release switch

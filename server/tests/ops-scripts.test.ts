@@ -117,18 +117,21 @@ describe('operations scripts', () => {
   it('deploy-release enforces migrate → schema-check → activate → restart → health order', () => {
     const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
     const content = readFileSync(deployScript, 'utf8');
+    const backupIdx = content.indexOf('systemctl start "$PREDEPLOY_BACKUP_UNIT"');
     const migrateIdx = content.indexOf('server/dist/db/migrate.js');
     const schemaIdx = content.indexOf('server/dist/db/schema-check.js');
     const activateIdx = content.indexOf('ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"');
     const restartIdx = content.indexOf('systemctl start "$SERVICE_NAME"', activateIdx);
     const healthIdx = content.indexOf('/api/health', restartIdx);
 
+    expect(backupIdx).toBeGreaterThan(-1);
     expect(migrateIdx).toBeGreaterThan(-1);
     expect(schemaIdx).toBeGreaterThan(-1);
     expect(activateIdx).toBeGreaterThan(-1);
     expect(restartIdx).toBeGreaterThan(-1);
     expect(healthIdx).toBeGreaterThan(-1);
 
+    expect(backupIdx).toBeLessThan(migrateIdx);
     expect(migrateIdx).toBeLessThan(schemaIdx);
     expect(schemaIdx).toBeLessThan(activateIdx);
     expect(activateIdx).toBeLessThan(restartIdx);
@@ -169,6 +172,20 @@ describe('operations scripts', () => {
     expect(systemdContent).not.toMatch(/migrate/);
     expect(systemdContent).not.toMatch(/ExecStartPre/);
     expect(systemdContent).toContain('ExecStart=/usr/bin/node dist/index.js');
+  });
+
+  it('first-deploy backup unit is SHA-scoped, release-rooted, and least-privilege', () => {
+    const unitPath = fileURLToPath(
+      new URL('../../ops/systemd/servora-med-predeploy-backup@.service', import.meta.url),
+    );
+    const content = readFileSync(unitPath, 'utf8');
+    expect(content).toContain('User=servora-med');
+    expect(content).toContain('Group=servora-med');
+    expect(content).toContain('EnvironmentFile=/etc/servora-med/servora-med-backup.env');
+    expect(content).toContain('ExecStart=/opt/servora-med/releases/%i/ops/scripts/backup-postgres.sh');
+    expect(content).not.toContain('/opt/servora-med/current/ops/scripts/backup-postgres.sh');
+    expect(content).toContain('NoNewPrivileges=true');
+    expect(content).toContain('ProtectSystem=strict');
   });
 
   it('schema-check is read-only and uses catalog authority', () => {
