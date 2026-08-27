@@ -348,6 +348,7 @@ Artifacts:
 ```text
 ops/systemd/servora-med.service
 ops/systemd/servora-med-backup.service
+ops/systemd/servora-med-predeploy-backup@.service
 ops/systemd/servora-med-backup.timer
 ops/examples/servora-med.env.example
 ```
@@ -377,6 +378,9 @@ Logging: journald (`StandardOutput=journal`). No secrets in unit files.
 ### 12.2 Backup oneshot + timer
 
 - `servora-med-backup.service`: `Type=oneshot`, runs `ops/scripts/backup-postgres.sh`
+- `servora-med-predeploy-backup@.service`: SHA-scoped `Type=oneshot` used by
+  deployment before `current` exists; runs the exact staged release backup
+  executable as `servora-med:servora-med`
 - `servora-med-backup.timer`: daily `OnCalendar=*-*-* 02:30:00 UTC` (adjustable)
 
 ---

@@ -2,7 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 function resolveTestDatabaseUrl() {
-  if (process.env.TEST_DATABASE_URL?.trim()) return process.env.TEST_DATABASE_URL;
+  const configuredTestUrl = process.env.TEST_DATABASE_URL?.trim();
+  if (configuredTestUrl) return configuredTestUrl;
+
+  // CI must execute the real PostgreSQL acceptance suite. The Vitest files
+  // retain a local convenience skip when no database is configured, but the
+  // npm test entrypoint is fail-closed in CI rather than silently skipping it.
+  if (process.env.CI === 'true') {
+    throw new Error('CI requires TEST_DATABASE_URL; refusing to skip PostgreSQL acceptance tests.');
+  }
 
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) {

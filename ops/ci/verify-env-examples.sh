@@ -21,7 +21,7 @@ test -f "$PROD_EXAMPLE"
 test -f "$STAGING_EXAMPLE"
 test -d "$MIGRATIONS_DIR"
 
-# Latest canonical migration identifier, e.g. 026_messaging_participant_lifecycle.
+# Latest canonical migration identifier, e.g. 037_staff_offboarding_audit.
 LATEST_MIGRATION="$(
   find "$MIGRATIONS_DIR" -maxdepth 1 -name '[0-9][0-9][0-9]_*.sql' -type f -print 2>/dev/null \
     | sed 's#.*/\([0-9][0-9][0-9]_[^/]*\)\.sql$#\1#' \

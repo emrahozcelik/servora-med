@@ -19,7 +19,7 @@ Internet → Caddy :443 (TLS)
 
 | Path | Purpose |
 |------|---------|
-| `/opt/servora-med/releases/<sha>` | Immutable release |
+| `/opt/servora-med/releases/<sha>` | Immutable release; `<sha>` is exactly 40 lowercase hex characters |
 | `/opt/servora-med/current` | Symlink to active release |
 | `/etc/servora-med/servora-med.env` | App environment (root:servora-med, mode 0640) |
 | `/etc/servora-med/servora-med-backup.env` | Backup identity (required by backup unit) |
@@ -106,6 +106,13 @@ server/node_modules/          # from npm ci --omit=dev
 web/dist/
 ops/
 ```
+
+The release directory is provenance-bound to the approved commit. The
+production deploy helper accepts only the literal
+`/opt/servora-med/releases/<sha>` path, rejects alternate roots, `..` aliases,
+and symlinked release entries, and derives migration/schema/activation paths
+from that validated directory. Do not stage the same content under a second
+path or replace a release entry with a symlink.
 
 `node dist/index.js` must resolve `fastify`, `pg`, and other runtime packages from
 `server/node_modules` in that release directory. Do **not** omit `package-lock.json`
@@ -210,31 +217,86 @@ sudo SHA=<git-sha> SERVORA_FQDN=app.example.com \
   /opt/servora-med/releases/<git-sha>/ops/scripts/deploy-release.sh
 ```
 
+Use the exact 40-character lowercase SHA in both `SHA` and the executable
+path. The helper starts `servora-med-predeploy-backup@<sha>.service`; that
+unit invokes a root-installed, fixed-path launcher which independently
+validates the systemd instance and then executes only
+`/opt/servora-med/releases/<sha>/ops/scripts/backup-postgres.sh` as
+`servora-med`. Install the launcher and unit before the first deployment:
+
+```bash
+sudo install -d -o root -g root -m 0755 /usr/local/libexec/servora-med
+sudo install -o root -g root -m 0755 \
+  ops/scripts/predeploy-backup-launcher.sh \
+  /usr/local/libexec/servora-med/predeploy-backup-launcher
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-predeploy-backup@.service \
+  /etc/systemd/system/servora-med-predeploy-backup@.service
+```
+
+The operator invocation is intentionally narrow: use the exact command above
+with `sudo env`/`sudo SHA=...`; never add `ALL=(ALL) NOPASSWD: ALL` or an
+operator-controlled arbitrary release-root override to sudoers. If a host
+sudoers rule is required, it must point to a separately reviewed, root-owned
+fixed wrapper and constrain the allowed environment/arguments. This repository
+does not mutate sudoers.
+
 `SERVORA_FQDN` is **required** — deployment `health` (`https://${SERVORA_FQDN}/api/health → 200`) is mandatory and the script fails preflight **before** stopping the service or migrating if `SERVORA_FQDN` is empty. The script stores `SERVORA_FQDN` in its internal `FQDN` shell variable; do not set `FQDN` directly. No `migrate → schema-check → activate → restart → success` without verified health.
+
+### Pre-deploy backup contract
+
+The scheduled/operator backup unit (`servora-med-backup.service`) intentionally
+follows the active `current` release. Deployment cannot use that unit before the
+first activation because `current` is absent on a first deploy. The deployment
+helper therefore starts the SHA-scoped template unit instead:
+
+```text
+servora-med-predeploy-backup@<sha>.service
+→ /usr/local/libexec/servora-med/predeploy-backup-launcher <sha>
+→ /opt/servora-med/releases/<sha>/ops/scripts/backup-postgres.sh
+```
+
+The template runs as `servora-med:servora-med`, uses the protected
+`/etc/servora-med/servora-med-backup.env`, and never creates or depends on a
+temporary `current` symlink. The backup remains mandatory for both first and
+update deployments; a failure stops the sequence before service stop or
+migration. Install `ops/systemd/servora-med-predeploy-backup@.service` before
+using the deployment helper.
 
 Equivalent expanded sequence (`set -Eeuo pipefail` semantics):
 
 ```bash
 set -Eeuo pipefail
 SHA="<git-sha>"
-NEW_RELEASE="/opt/servora-med/releases/${SHA}"
+RELEASE_ROOT="/opt/servora-med/releases"
+EXPECTED_RELEASE="${RELEASE_ROOT}/${SHA}"
+NEW_RELEASE="${EXPECTED_RELEASE}"
 ENV_FILE="/etc/servora-med/servora-med.env"
+DEPLOY_SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$DEPLOY_SAFE_PATH"
 
 # 1) Pre-deploy backup — failure aborts (no further deploy steps)
-systemctl start servora-med-backup.service
+systemctl start "servora-med-predeploy-backup@${SHA}.service"
 
 # 2) Stop accepting traffic
 systemctl stop servora-med
 
-# 3) Load production environment without printing secrets
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# 3) Keep deployment control state in the parent shell. The application env is
+#    loaded only inside each release-node subprocess below.
+run_release_node() (
+  local entrypoint="$1"
+  local app_env_file="$ENV_FILE"
+  readonly entrypoint app_env_file
+  set -a
+  source "$app_env_file"
+  set +a
+  export PATH="$DEPLOY_SAFE_PATH"
+  exec /usr/bin/node "$entrypoint"
+)
 
-# 4) Migrate using the NEW release binaries only
+# 4) Migrate using the NEW release binary only; subprocess loads application env
 #    On failure: do NOT change symlink; restart previous service
-if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
+if ! run_release_node "${EXPECTED_RELEASE}/server/dist/db/migrate.js"; then
   echo "Migration failed; current symlink unchanged" >&2
   systemctl start servora-med || true
   exit 1
@@ -242,14 +304,14 @@ fi
 
 # 5) Verify schema compatibility from NEW release (read-only, no auto-migrate)
 #    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch
-if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"; then
+if ! run_release_node "${EXPECTED_RELEASE}/server/dist/db/schema-check.js"; then
   echo "Schema check failed; current symlink unchanged" >&2
   systemctl start servora-med || true
   exit 1
 fi
 
 # 6) Switch release pointer only after successful migration AND schema check
-ln -sfn "$NEW_RELEASE" /opt/servora-med/current
+ln -sfn "$EXPECTED_RELEASE" /opt/servora-med/current
 
 # 7) Start application
 systemctl start servora-med
@@ -300,10 +362,10 @@ Migration failure reality: runner is transaction-per-migration. If `030` and `03
 ## systemd
 
 ```bash
-sudo cp ops/systemd/servora-med.service /etc/systemd/system/
-sudo cp ops/systemd/servora-med-backup.service /etc/systemd/system/
-sudo cp ops/systemd/servora-med-backup.timer /etc/systemd/system/
-sudo cp ops/systemd/servora-med-backup-worker.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/servora-med.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup.timer /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now servora-med
 sudo systemctl enable --now servora-med-backup.timer
@@ -311,6 +373,10 @@ sudo systemctl enable --now servora-med-backup.timer
 ```
 
 `EnvironmentFile=` paths are **required** (no optional `-` prefix). Missing env files fail the unit.
+
+The pre-deploy template and its launcher are installed separately as shown in
+the deploy section. The template runs as `servora-med:servora-med`; the
+launcher is root-owned and is not writable by that service user.
 
 ### BR5 worker cutover checklist (documentation only)
 
@@ -327,6 +393,59 @@ authorization points.
 
 Example: `ops/caddy/Caddyfile.example`.
 API responses use `Cache-Control: no-store`. Hashed Vite assets under `/assets/*` are immutable; SPA app-shell routes use `no-cache`.
+
+### Static-file access ACL (Ubuntu VPS)
+
+The reference release tree is intentionally `root:servora-med` with no broad
+world-read permission. Caddy therefore needs a targeted POSIX ACL to traverse
+the release parents and read only `web/dist`; do not add Caddy to the
+`servora-med` group and do not use `chmod -R 755`.
+
+One-time host prerequisite (official Ubuntu package):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y acl
+command -v setfacl
+command -v getfacl
+dpkg-query -W -f='${Version}\n' acl
+```
+
+For every new release, after copying the immutable tree and before switching
+`current`, apply only these explicit ACLs. There is deliberately no default
+ACL on the releases root; this staging step must be repeated for each SHA:
+
+```bash
+SHA=<40-lowercase-hex-sha>
+RELEASE_DIR="/opt/servora-med/releases/${SHA}"
+test -d "$RELEASE_DIR/web/dist"
+test ! -L "$RELEASE_DIR"
+
+sudo setfacl -m u:caddy:--x /opt/servora-med
+sudo setfacl -m u:caddy:--x /opt/servora-med/releases
+sudo setfacl -m u:caddy:--x "$RELEASE_DIR"
+sudo setfacl -m u:caddy:--x "$RELEASE_DIR/web"
+sudo find "$RELEASE_DIR/web/dist" -type d -exec setfacl -m u:caddy:r-x {} +
+sudo find "$RELEASE_DIR/web/dist" -type f -exec setfacl -m u:caddy:r-- {} +
+```
+
+Validate the positive static read and the negative secret/write boundaries as
+the Caddy identity without printing file contents:
+
+```bash
+ASSET="$RELEASE_DIR/web/dist/index.html"
+sudo -u caddy test -x /opt/servora-med
+sudo -u caddy test -x /opt/servora-med/releases
+sudo -u caddy test -r "$ASSET"
+sudo -u caddy test ! -r /etc/servora-med/servora-med.env
+sudo -u caddy test ! -w "$ASSET"
+getfacl -p /opt/servora-med /opt/servora-med/releases "$RELEASE_DIR" \
+  "$RELEASE_DIR/web" "$RELEASE_DIR/web/dist" "$ASSET"
+```
+
+This ACL gate changes neither Caddy routing/TLS nor application state. It does
+not grant Caddy access to `server`, `node_modules`, `ops`, the application
+environment, or any write path.
 
 ## Health
 
