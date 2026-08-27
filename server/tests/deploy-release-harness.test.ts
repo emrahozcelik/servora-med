@@ -45,15 +45,15 @@ if [[ "$cmd" == "start" && "$svc" == *backup* ]]; then
   echo "backup:$svc" >> "$log"
   exit \${FAKE_BACKUP_EXIT:-0}
 elif [[ "$cmd" == "stop" ]]; then
-  echo "stop" >> "$log"
+  echo "stop:$svc" >> "$log"
   exit \${FAKE_STOP_EXIT:-0}
 elif [[ "$cmd" == "start" ]]; then
   # service start (post-activation or recovery)
   # distinguish by checking if activation already logged
   if grep -q "activate" "$log" 2>/dev/null; then
-    echo "start" >> "$log"
+    echo "start:$svc" >> "$log"
   else
-    echo "start-recovery" >> "$log"
+    echo "start-recovery:$svc" >> "$log"
   fi
   # Use FAKE_START_EXIT for post-activation start, FAKE_RECOVERY_EXIT for recovery if set
   if grep -q "activate" "$log" 2>/dev/null; then
@@ -74,7 +74,7 @@ fi
     path.join(dir, 'curl'),
     `#!/usr/bin/env bash
 log="${logFile}"
-echo "health" >> "$log"
+echo "health:$*" >> "$log"
 if [[ "\${FAKE_CURL_EXIT:-0}" == "0" ]]; then
   echo '{"status":"ok"}'
   exit 0
@@ -134,9 +134,15 @@ function setupFixture() {
   // source into the disposable fixture and rewrite only those fixed roots so
   // this harness never mutates /opt while still exercising the real script.
   const fixtureScript = path.join(root, 'deploy-release.sh');
+  const productionSafePath = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
   const fixtureSource = readFileSync(deployScript, 'utf8')
     .replaceAll('/opt/servora-med/releases', releaseRoot)
-    .replaceAll('/opt/servora-med/current', currentLink);
+    .replaceAll('/opt/servora-med/current', currentLink)
+    .replaceAll('/usr/bin/node', path.join(fakeBin, 'node'))
+    .replaceAll(
+      `readonly DEPLOY_SAFE_PATH="${productionSafePath}"`,
+      `readonly DEPLOY_SAFE_PATH="${fakeBin}:${productionSafePath}"`,
+    );
   writeFileSync(fixtureScript, fixtureSource, { mode: 0o755 });
   chmodSync(fixtureScript, 0o755);
 
@@ -192,8 +198,8 @@ describe('deploy-release executable harness', () => {
       expect(result.log).not.toContain('schema-check');
       expect(result.log).not.toContain('activate');
       // new service start should not run (only recovery attempt)
-      expect(result.log).not.toContain('\nstart\n'); // post-activation start
-      expect(result.log).toContain('start-recovery');
+      expect(result.log).not.toContain('start:servora-med\n'); // post-activation start
+      expect(result.log).toContain('start-recovery:servora-med');
       expect(result.stdout + result.stderr).not.toContain('Deploy complete');
       // proof NEW_RELEASE artifact
       const details = readFileSync(f.logFile + '.details', 'utf8');
@@ -225,8 +231,8 @@ describe('deploy-release executable harness', () => {
       expect(result.log).toContain('migrate');
       expect(result.log).toContain('schema-check');
       expect(result.log).not.toContain('activate');
-      expect(result.log).not.toContain('\nstart\n');
-      expect(result.log).toContain('start-recovery');
+      expect(result.log).not.toContain('start:servora-med\n');
+      expect(result.log).toContain('start-recovery:servora-med');
       const details = readFileSync(f.logFile + '.details', 'utf8');
       expect(details).toContain(`${f.newRelease}/server/dist/db/schema-check.js`);
     } finally {
@@ -312,7 +318,7 @@ describe('deploy-release executable harness', () => {
       const migrateIdx = log.indexOf('migrate');
       const schemaIdx = log.indexOf('schema-check');
       const activateIdx = log.indexOf('activate');
-      const startIdx = log.indexOf('\nstart\n') !== -1 ? log.indexOf('\nstart\n') : log.indexOf('start');
+      const startIdx = log.indexOf('start:servora-med');
       const healthIdx = log.indexOf('health');
       expect(migrateIdx).toBeGreaterThan(-1);
       expect(schemaIdx).toBeGreaterThan(-1);
@@ -386,6 +392,170 @@ describe('deploy-release executable harness', () => {
       // Verify health was called with the SERVORA_FQDN-derived FQDN
       // The fake curl doesn't check FQDN, but the script's health URL is constructed from FQDN
       // We at least prove preflight passed and health executed
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('application NEW_RELEASE cannot redirect migration, schema-check, or activation', () => {
+    const f = setupFixture();
+    try {
+      writeFileSync(f.envFile, 'DATABASE_URL=postgresql://dummy\nNEW_RELEASE=/tmp/evil\n');
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      const details = readFileSync(f.logFile + '.details', 'utf8');
+      expect(details).toContain(`${f.newRelease}/server/dist/db/migrate.js`);
+      expect(details).toContain(`${f.newRelease}/server/dist/db/schema-check.js`);
+      expect(details).not.toContain('/tmp/evil');
+      expect(readlinkSync(f.currentLink)).toBe(f.newRelease);
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('application SERVICE_NAME cannot redirect service control to another unit', () => {
+    const f = setupFixture();
+    try {
+      writeFileSync(f.envFile, 'DATABASE_URL=postgresql://dummy\nSERVICE_NAME=ssh.service\n');
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.log).not.toContain('ssh.service');
+      expect(result.log).toContain('stop:servora-med');
+      expect(result.log).toContain('start:servora-med');
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('application FQDN cannot redirect mandatory health verification', () => {
+    const f = setupFixture();
+    try {
+      writeFileSync(f.envFile, 'DATABASE_URL=postgresql://dummy\nFQDN=evil.example\n');
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'dunyadentalapp.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.log).toContain('health:-fsS https://dunyadentalapp.com/api/health');
+      expect(result.log).not.toContain('evil.example');
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('application PATH cannot redirect deployment executables', () => {
+    const f = setupFixture();
+    const evilBin = path.join(f.root, 'evil-bin');
+    try {
+      mkdirSync(evilBin, { recursive: true });
+      writeFileSync(
+        path.join(evilBin, 'node'),
+        `#!/usr/bin/env bash\necho "evil-node" >> "${f.logFile}"\nexit 99\n`,
+        { mode: 0o755 },
+      );
+      writeFileSync(f.envFile, `DATABASE_URL=postgresql://dummy\nPATH=${evilBin}\n`);
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'example.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.log).not.toContain('evil-node');
+      expect(result.log).toContain('migrate');
+      expect(result.log).toContain('schema-check');
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it('combined hostile application env cannot alter deployment control state', () => {
+    const f = setupFixture();
+    try {
+      writeFileSync(
+        f.envFile,
+        [
+          'DATABASE_URL=postgresql://dummy',
+          'NEW_RELEASE=/tmp/evil',
+          'SERVICE_NAME=ssh.service',
+          'FQDN=evil.example',
+          'PATH=/tmp/malicious',
+          '',
+        ].join('\n'),
+      );
+      const result = runDeploy(
+        {
+          SHA: TEST_SHA,
+          NEW_RELEASE: f.newRelease,
+          ENV_FILE: f.envFile,
+          SERVORA_FQDN: 'dunyadentalapp.com',
+          FAKE_LOG: f.logFile,
+          FAKE_BACKUP_EXIT: '0',
+          FAKE_MIGRATE_EXIT: '0',
+          FAKE_SCHEMA_EXIT: '0',
+          FAKE_START_EXIT: '0',
+          FAKE_CURL_EXIT: '0',
+        },
+        f.fakeBin,
+      );
+      expect(result.exitCode).toBe(0);
+      const details = readFileSync(f.logFile + '.details', 'utf8');
+      expect(details).toContain(`${f.newRelease}/server/dist/db/migrate.js`);
+      expect(details).toContain(`${f.newRelease}/server/dist/db/schema-check.js`);
+      expect(result.log).not.toContain('ssh.service');
+      expect(result.log).not.toContain('evil.example');
+      expect(result.log).toContain('stop:servora-med');
+      expect(result.log).toContain('start:servora-med');
+      expect(result.log).toContain('health:-fsS https://dunyadentalapp.com/api/health');
+      expect(readlinkSync(f.currentLink)).toBe(f.newRelease);
     } finally {
       rmSync(f.root, { recursive: true, force: true });
     }

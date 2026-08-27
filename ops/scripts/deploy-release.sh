@@ -18,32 +18,35 @@
 # dependency set (npm ci --omit=dev run AFTER a successful server build).
 set -Eeuo pipefail
 
-SHA="${SHA:?SHA is required}"
-if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+readonly DEPLOY_SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$DEPLOY_SAFE_PATH"
+
+DEPLOY_SHA="${SHA:?SHA is required}"
+if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "SHA must be a 40-character lowercase hexadecimal git commit" >&2
   exit 1
 fi
-readonly RELEASE_ROOT="/opt/servora-med/releases"
-readonly EXPECTED_RELEASE="${RELEASE_ROOT}/${SHA}"
-readonly CURRENT_LINK="/opt/servora-med/current"
+readonly DEPLOY_RELEASE_ROOT="/opt/servora-med/releases"
+readonly DEPLOY_RELEASE="${DEPLOY_RELEASE_ROOT}/${DEPLOY_SHA}"
+readonly DEPLOY_CURRENT_LINK="/opt/servora-med/current"
 
 # NEW_RELEASE is retained as a compatibility input for the operator wrapper
 # and test harness, but it is not a path selector. It must be the exact
 # canonical SHA path; lexical aliases such as /tmp, releases-alt, or .. are
 # rejected before any service, backup, migration, or activation action.
-NEW_RELEASE="${NEW_RELEASE-${EXPECTED_RELEASE}}"
-ENV_FILE="${ENV_FILE:-/etc/servora-med/servora-med.env}"
-SERVICE_NAME="${SERVICE_NAME:-servora-med}"
-PREDEPLOY_BACKUP_UNIT="servora-med-predeploy-backup@${SHA}.service"
-FQDN="${SERVORA_FQDN:-}"
+REQUESTED_RELEASE="${NEW_RELEASE-${DEPLOY_RELEASE}}"
+readonly DEPLOY_APP_ENV_FILE="${ENV_FILE:-/etc/servora-med/servora-med.env}"
+readonly DEPLOY_SERVICE="servora-med"
+readonly DEPLOY_PREDEPLOY_BACKUP_UNIT="servora-med-predeploy-backup@${DEPLOY_SHA}.service"
+readonly DEPLOY_FQDN="${SERVORA_FQDN:-}"
 
 # The production release root and active pointer are fixed constants. Resolve
 # both the root and the SHA entry with physical paths so parent/release
 # symlinks and path escapes fail closed. The check is intentionally lexical
 # first, so a path containing SHA/.. is rejected even when it resolves back to
 # the expected directory.
-if [[ "$NEW_RELEASE" != "$EXPECTED_RELEASE" ]]; then
-  echo "NEW_RELEASE must exactly match ${EXPECTED_RELEASE}" >&2
+if [[ "$REQUESTED_RELEASE" != "$DEPLOY_RELEASE" ]]; then
+  echo "NEW_RELEASE must exactly match ${DEPLOY_RELEASE}" >&2
   exit 1
 fi
 
@@ -69,20 +72,20 @@ assert_release_file() {
   [[ "$canonical" == "$path" ]]
 }
 
-if ! assert_release_dir "$RELEASE_ROOT"; then
-  echo "Release root must be a physical directory: $RELEASE_ROOT" >&2
+if ! assert_release_dir "$DEPLOY_RELEASE_ROOT"; then
+  echo "Release root must be a physical directory: $DEPLOY_RELEASE_ROOT" >&2
   exit 1
 fi
-if ! assert_release_dir "$EXPECTED_RELEASE"; then
-  echo "SHA release must be a physical directory: $EXPECTED_RELEASE" >&2
+if ! assert_release_dir "$DEPLOY_RELEASE"; then
+  echo "SHA release must be a physical directory: $DEPLOY_RELEASE" >&2
   exit 1
 fi
 
 for required_dir in \
-  "$EXPECTED_RELEASE/server/dist" \
-  "$EXPECTED_RELEASE/server/node_modules" \
-  "$EXPECTED_RELEASE/web/dist" \
-  "$EXPECTED_RELEASE/ops/scripts"; do
+  "$DEPLOY_RELEASE/server/dist" \
+  "$DEPLOY_RELEASE/server/node_modules" \
+  "$DEPLOY_RELEASE/web/dist" \
+  "$DEPLOY_RELEASE/ops/scripts"; do
   if ! assert_release_dir "$required_dir"; then
     echo "Missing or escaped release directory: $required_dir" >&2
     exit 1
@@ -90,65 +93,70 @@ for required_dir in \
 done
 
 for required_file in \
-  "$EXPECTED_RELEASE/server/package.json" \
-  "$EXPECTED_RELEASE/server/package-lock.json" \
-  "$EXPECTED_RELEASE/server/dist/db/migrate.js" \
-  "$EXPECTED_RELEASE/server/dist/db/schema-check.js" \
-  "$EXPECTED_RELEASE/ops/scripts/backup-postgres.sh"; do
+  "$DEPLOY_RELEASE/server/package.json" \
+  "$DEPLOY_RELEASE/server/package-lock.json" \
+  "$DEPLOY_RELEASE/server/dist/db/migrate.js" \
+  "$DEPLOY_RELEASE/server/dist/db/schema-check.js" \
+  "$DEPLOY_RELEASE/ops/scripts/backup-postgres.sh"; do
   if ! assert_release_file "$required_file"; then
     echo "Missing or escaped release artifact: $required_file" >&2
     exit 1
   fi
 done
 
-if [[ ! -x "$EXPECTED_RELEASE/ops/scripts/backup-postgres.sh" ]]; then
-  echo "Backup script must be executable: $EXPECTED_RELEASE/ops/scripts/backup-postgres.sh" >&2
+if [[ ! -x "$DEPLOY_RELEASE/ops/scripts/backup-postgres.sh" ]]; then
+  echo "Backup script must be executable: $DEPLOY_RELEASE/ops/scripts/backup-postgres.sh" >&2
   exit 1
 fi
 
-if [[ -e "$CURRENT_LINK" && ! -L "$CURRENT_LINK" ]]; then
-  echo "Active release pointer must be absent or a symlink: $CURRENT_LINK" >&2
+if [[ -e "$DEPLOY_CURRENT_LINK" && ! -L "$DEPLOY_CURRENT_LINK" ]]; then
+  echo "Active release pointer must be absent or a symlink: $DEPLOY_CURRENT_LINK" >&2
   exit 1
 fi
 
-# All runtime paths below are derived from EXPECTED_RELEASE after the exact
-# path and physical-tree checks above; NEW_RELEASE cannot redirect them.
-NEW_RELEASE="$EXPECTED_RELEASE"
-
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing environment file: $ENV_FILE" >&2
+if [[ ! -f "$DEPLOY_APP_ENV_FILE" ]]; then
+  echo "Missing environment file: $DEPLOY_APP_ENV_FILE" >&2
   exit 1
 fi
 
-echo "Deploying release $SHA from $NEW_RELEASE"
+echo "Deploying release $DEPLOY_SHA from $DEPLOY_RELEASE"
 
 # Require SERVORA_FQDN for mandatory health verification (fail preflight before destructive work)
 # FQDN is an internal shell variable derived from SERVORA_FQDN; do not set FQDN directly
-if [[ -z "${FQDN:-}" ]]; then
+if [[ -z "${DEPLOY_FQDN:-}" ]]; then
   echo "SERVORA_FQDN is required for deployment health verification" >&2
   exit 1
 fi
 
 # 1) Pre-deploy backup — failure aborts deploy. The template unit executes the
 # exact SHA release path and does not depend on the current symlink.
-if ! systemctl start "$PREDEPLOY_BACKUP_UNIT"; then
+if ! systemctl start "$DEPLOY_PREDEPLOY_BACKUP_UNIT"; then
   echo "Pre-deploy backup failed; aborting deploy (current symlink unchanged)." >&2
   exit 1
 fi
 
 # 2) Stop accepting traffic.
-systemctl stop "$SERVICE_NAME"
+systemctl stop "$DEPLOY_SERVICE"
 
-# 3) Load production environment without printing secrets.
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+run_release_node() (
+  local entrypoint="$1"
+  local app_env_file="$DEPLOY_APP_ENV_FILE"
+  readonly entrypoint app_env_file
+
+  # Load application configuration only in this child scope. Deployment
+  # control variables in the parent remain authoritative and untouched.
+  set -a
+  # shellcheck disable=SC1090
+  source "$app_env_file"
+  set +a
+  export PATH="$DEPLOY_SAFE_PATH"
+  exec /usr/bin/node "$entrypoint"
+)
 
 # 4) Migrate from NEW release only. Failure must not switch symlink.
-if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
+if ! run_release_node "${DEPLOY_RELEASE}/server/dist/db/migrate.js"; then
   echo "Migration failed; leaving current symlink unchanged and restarting previous service." >&2
-  if ! systemctl start "$SERVICE_NAME"; then
+  if ! systemctl start "$DEPLOY_SERVICE"; then
     echo "Previous service restart attempt also failed; manual recovery required." >&2
   fi
   exit 1
@@ -156,9 +164,9 @@ fi
 
 # 5) Verify schema compatibility from NEW release (read-only, no auto-migrate).
 #    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch.
-if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"; then
+if ! run_release_node "${DEPLOY_RELEASE}/server/dist/db/schema-check.js"; then
   echo "Schema check failed; leaving current symlink unchanged and restarting previous service." >&2
-  if ! systemctl start "$SERVICE_NAME"; then
+  if ! systemctl start "$DEPLOY_SERVICE"; then
     echo "Previous service restart attempt also failed; manual recovery required." >&2
   fi
   exit 1
@@ -166,18 +174,18 @@ fi
 
 # 6) Switch the fixed release pointer only after successful migration AND
 # schema check. The target is the validated SHA path, never a caller path.
-ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"
+ln -sfn "$DEPLOY_RELEASE" "$DEPLOY_CURRENT_LINK"
 
 # 7) Start application against new current.
-if ! systemctl start "$SERVICE_NAME"; then
+if ! systemctl start "$DEPLOY_SERVICE"; then
   echo "Service start failed after symlink switch." >&2
   exit 1
 fi
 
 # 8) Readiness smoke (mandatory health verification).
-if ! curl -fsS "https://${FQDN}/api/health" | grep -q '"status":"ok"'; then
-  echo "Health check failed for https://${FQDN}/api/health" >&2
+if ! curl -fsS "https://${DEPLOY_FQDN}/api/health" | grep -q '"status":"ok"'; then
+  echo "Health check failed for https://${DEPLOY_FQDN}/api/health" >&2
   exit 1
 fi
 
-echo "Deploy complete: $SHA"
+echo "Deploy complete: $DEPLOY_SHA"

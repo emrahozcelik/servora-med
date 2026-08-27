@@ -122,11 +122,11 @@ describe('operations scripts', () => {
   it('deploy-release enforces migrate → schema-check → activate → restart → health order', () => {
     const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
     const content = readFileSync(deployScript, 'utf8');
-    const backupIdx = content.indexOf('systemctl start "$PREDEPLOY_BACKUP_UNIT"');
-    const migrateIdx = content.indexOf('if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"');
-    const schemaIdx = content.indexOf('if ! node "${NEW_RELEASE}/server/dist/db/schema-check.js"');
-    const activateIdx = content.indexOf('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
-    const restartIdx = content.indexOf('systemctl start "$SERVICE_NAME"', activateIdx);
+    const backupIdx = content.indexOf('systemctl start "$DEPLOY_PREDEPLOY_BACKUP_UNIT"');
+    const migrateIdx = content.indexOf('if ! run_release_node "${DEPLOY_RELEASE}/server/dist/db/migrate.js"');
+    const schemaIdx = content.indexOf('if ! run_release_node "${DEPLOY_RELEASE}/server/dist/db/schema-check.js"');
+    const activateIdx = content.indexOf('ln -sfn "$DEPLOY_RELEASE" "$DEPLOY_CURRENT_LINK"');
+    const restartIdx = content.indexOf('systemctl start "$DEPLOY_SERVICE"', activateIdx);
     const healthIdx = content.indexOf('/api/health', restartIdx);
 
     expect(backupIdx).toBeGreaterThan(-1);
@@ -143,8 +143,8 @@ describe('operations scripts', () => {
     expect(restartIdx).toBeLessThan(healthIdx);
 
     // Must use NEW_RELEASE for both migration and schema check, not current
-    expect(content).toContain('"${NEW_RELEASE}/server/dist/db/migrate.js"');
-    expect(content).toContain('"${NEW_RELEASE}/server/dist/db/schema-check.js"');
+    expect(content).toContain('run_release_node "${DEPLOY_RELEASE}/server/dist/db/migrate.js"');
+    expect(content).toContain('run_release_node "${DEPLOY_RELEASE}/server/dist/db/schema-check.js"');
     expect(content).not.toContain('/current/server/dist/db/migrate.js');
     expect(content).not.toContain('/current/server/dist/db/schema-check.js');
   });
@@ -154,14 +154,14 @@ describe('operations scripts', () => {
     const content = readFileSync(deployScript, 'utf8');
     // migrate failure block
     expect(content).toContain('Migration failed; leaving current symlink unchanged');
-    expect(content).toContain('node "${NEW_RELEASE}/server/dist/db/migrate.js"');
+    expect(content).toContain('run_release_node "${DEPLOY_RELEASE}/server/dist/db/migrate.js"');
     // schema check failure block
     expect(content).toContain('Schema check failed; leaving current symlink unchanged');
-    expect(content).toContain('node "${NEW_RELEASE}/server/dist/db/schema-check.js"');
+    expect(content).toContain('run_release_node "${DEPLOY_RELEASE}/server/dist/db/schema-check.js"');
     // both should restart previous service and exit 1 before activation
     const migrateFailIdx = content.indexOf('Migration failed');
     const schemaFailIdx = content.indexOf('Schema check failed');
-    const activateIdx = content.indexOf('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
+    const activateIdx = content.indexOf('ln -sfn "$DEPLOY_RELEASE" "$DEPLOY_CURRENT_LINK"');
     expect(migrateFailIdx).toBeLessThan(activateIdx);
     expect(schemaFailIdx).toBeLessThan(activateIdx);
   });
@@ -197,15 +197,28 @@ describe('operations scripts', () => {
   it('release provenance is fixed to the validated SHA path', () => {
     const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
     const content = readFileSync(deployScript, 'utf8');
-    expect(content).toContain('readonly RELEASE_ROOT="/opt/servora-med/releases"');
-    expect(content).toContain('readonly EXPECTED_RELEASE="${RELEASE_ROOT}/${SHA}"');
-    expect(content).toContain('NEW_RELEASE="${NEW_RELEASE-${EXPECTED_RELEASE}}"');
-    expect(content).toContain('if [[ "$NEW_RELEASE" != "$EXPECTED_RELEASE" ]]');
-    expect(content).toContain('assert_release_dir "$EXPECTED_RELEASE"');
+    expect(content).toContain('readonly DEPLOY_RELEASE_ROOT="/opt/servora-med/releases"');
+    expect(content).toContain('readonly DEPLOY_RELEASE="${DEPLOY_RELEASE_ROOT}/${DEPLOY_SHA}"');
+    expect(content).toContain('REQUESTED_RELEASE="${NEW_RELEASE-${DEPLOY_RELEASE}}"');
+    expect(content).toContain('if [[ "$REQUESTED_RELEASE" != "$DEPLOY_RELEASE" ]]');
+    expect(content).toContain('assert_release_dir "$DEPLOY_RELEASE"');
     expect(content).toContain('assert_release_file "$required_file"');
-    expect(content).toContain('ln -sfn "$EXPECTED_RELEASE" "$CURRENT_LINK"');
+    expect(content).toContain('ln -sfn "$DEPLOY_RELEASE" "$DEPLOY_CURRENT_LINK"');
     expect(content).not.toContain('RELEASE_ROOT="${RELEASE_ROOT:-');
     expect(content).not.toContain('CURRENT_LINK="${CURRENT_LINK:-');
+  });
+
+  it('deployment control plane is isolated from application env', () => {
+    const deployScript = fileURLToPath(new URL('../../ops/scripts/deploy-release.sh', import.meta.url));
+    const content = readFileSync(deployScript, 'utf8');
+    expect(content).toContain('readonly DEPLOY_SERVICE="servora-med"');
+    expect(content).toContain('readonly DEPLOY_FQDN="${SERVORA_FQDN:-}"');
+    expect(content).toContain('readonly DEPLOY_SAFE_PATH=');
+    expect(content).toContain('run_release_node() (');
+    expect(content).toContain('source "$app_env_file"');
+    expect(content).toContain('export PATH="$DEPLOY_SAFE_PATH"');
+    expect(content).toContain('exec /usr/bin/node "$entrypoint"');
+    expect(content).not.toContain('source "$ENV_FILE"');
   });
 
   it('pre-deploy launcher validates the instance before deriving a release path', () => {

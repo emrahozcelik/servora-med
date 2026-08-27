@@ -272,6 +272,8 @@ RELEASE_ROOT="/opt/servora-med/releases"
 EXPECTED_RELEASE="${RELEASE_ROOT}/${SHA}"
 NEW_RELEASE="${EXPECTED_RELEASE}"
 ENV_FILE="/etc/servora-med/servora-med.env"
+DEPLOY_SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$DEPLOY_SAFE_PATH"
 
 # 1) Pre-deploy backup — failure aborts (no further deploy steps)
 systemctl start "servora-med-predeploy-backup@${SHA}.service"
@@ -279,15 +281,22 @@ systemctl start "servora-med-predeploy-backup@${SHA}.service"
 # 2) Stop accepting traffic
 systemctl stop servora-med
 
-# 3) Load production environment without printing secrets
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# 3) Keep deployment control state in the parent shell. The application env is
+#    loaded only inside each release-node subprocess below.
+run_release_node() (
+  local entrypoint="$1"
+  local app_env_file="$ENV_FILE"
+  readonly entrypoint app_env_file
+  set -a
+  source "$app_env_file"
+  set +a
+  export PATH="$DEPLOY_SAFE_PATH"
+  exec /usr/bin/node "$entrypoint"
+)
 
-# 4) Migrate using the NEW release binaries only
+# 4) Migrate using the NEW release binary only; subprocess loads application env
 #    On failure: do NOT change symlink; restart previous service
-if ! node "${EXPECTED_RELEASE}/server/dist/db/migrate.js"; then
+if ! run_release_node "${EXPECTED_RELEASE}/server/dist/db/migrate.js"; then
   echo "Migration failed; current symlink unchanged" >&2
   systemctl start servora-med || true
   exit 1
@@ -295,7 +304,7 @@ fi
 
 # 5) Verify schema compatibility from NEW release (read-only, no auto-migrate)
 #    Must succeed before activation — proves pending=0, detects AHEAD/DIVERGED, catalog/config mismatch
-if ! node "${EXPECTED_RELEASE}/server/dist/db/schema-check.js"; then
+if ! run_release_node "${EXPECTED_RELEASE}/server/dist/db/schema-check.js"; then
   echo "Schema check failed; current symlink unchanged" >&2
   systemctl start servora-med || true
   exit 1
