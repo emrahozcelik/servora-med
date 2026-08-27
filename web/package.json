@@ -16,6 +16,7 @@
     "acceptance:r3b-invalidation": "node scripts/r3b-jobcard-invalidation-acceptance.mjs",
     "acceptance:r4b-offboarding": "node scripts/r4b-staff-offboarding-acceptance.mjs",
     "smoke:responsive": "node scripts/responsive-smoke.mjs && node scripts/calendar-responsive-smoke.mjs",
+    "smoke:production-dist": "node scripts/production-dist-smoke.mjs",
     "bundle:report": "node scripts/report-bundle-sizes.mjs",
     "bundle:check": "BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs",
     "audit:high": "node scripts/audit-high-policy.mjs"

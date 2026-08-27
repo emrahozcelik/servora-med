@@ -80,15 +80,12 @@ describe('route code-splitting contract', () => {
       'BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs',
     );
     expect(ciWorkflow).toContain('- run: npm run bundle:check');
+    expect(ciWorkflow).toContain('- run: npm run smoke:production-dist');
   });
 
-  it('uses the Vite 8 Rolldown chunking API without hiding the budget', () => {
-    expect(viteConfigSource).toContain('rolldownOptions');
-    expect(viteConfigSource).toContain('codeSplitting');
-    expect(viteConfigSource).toContain("name: 'vendor'");
-    expect(viteConfigSource).toContain('entriesAware: true');
-    expect(viteConfigSource).toContain('maxSize: 450_000');
-
+  it('leaves the vendor graph to Rolldown defaults', () => {
+    expect(viteConfigSource).not.toContain('rolldownOptions');
+    expect(viteConfigSource).not.toContain('codeSplitting');
     expect(viteConfigSource).not.toContain('manualChunks');
     expect(viteConfigSource).not.toContain('rollupOptions');
     expect(viteConfigSource).not.toContain('chunkSizeWarningLimit');
