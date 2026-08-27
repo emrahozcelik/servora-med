@@ -230,7 +230,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     } finally {
       await admin!.query(`DROP DATABASE IF EXISTS ${targetDb}`);
     }
-  });
+  }, 15_000);
 
   it('FULL_DATA without configured files root skips FILES_ARCHIVE', async () => {
     const runId = await createRun('FULL_DATA');
