@@ -30,13 +30,21 @@ Every source staff ID referenced by a customer must map to an active production
   IDs are never written into `organization_id` or staff foreign keys.
 - Each customer and all of its contacts are inserted in one transaction. A
   contact or audit failure rolls back that customer together with its contacts.
-- The approved source graph may contain an existing active primary contact under
-  an inactive customer. The importer preserves that historical graph atomically;
-  the normal CRM rule that blocks adding contacts to inactive customers remains
-  in force for subsequent UI/API mutations.
 - Customer and contact creation emits the same `CUSTOMER_CREATED` and
   `CONTACT_CREATED` audit event types as the normal CRM flow. Metadata contains
   only importer provenance and a one-way source fingerprint.
+- The standalone CLI converts parser, domain, and PostgreSQL failures into safe
+  categories and never prints raw database detail, SQL, stack traces, or source
+  values.
+- For an approved inactive customer with contacts, the importer creates the
+  customer as `active`, creates contacts, then performs the existing
+  `active -> inactive` transition and emits `CUSTOMER_DEACTIVATED` in the same
+  transaction. An existing inactive customer with missing contacts is a hard
+  conflict; contacts are never added by bypassing the domain rule.
+
+The `customers:import:onboarding` script in `server/package.json` is the
+intentional CLI entrypoint for this controlled workflow. It uses the existing
+`tsx` toolchain; no dependency or lockfile changes are required.
 
 ## Invocation
 

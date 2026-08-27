@@ -65,6 +65,12 @@ export type CustomerImportResult = {
   dryRun: boolean;
 };
 
+export type SafeCustomerImportError = {
+  category: string;
+  code: string;
+  message: string;
+};
+
 type ExistingCustomer = {
   id: string;
   name: string;
@@ -124,6 +130,40 @@ type ImportPlan = {
 
 function importError(code: string, message: string) {
   return new AppError(code, 409, message);
+}
+
+/**
+ * Converts parser/domain/PostgreSQL failures into operator-safe output.
+ * Never include an Error message or detail because PostgreSQL can echo values.
+ */
+export function formatCustomerImportError(error: unknown): SafeCustomerImportError {
+  const value = error as { code?: unknown; constraint?: unknown } | null;
+  const code = typeof value?.code === 'string' ? value.code : 'INTERNAL_ERROR';
+  if (error instanceof SyntaxError) {
+    return { category: 'INPUT_ERROR', code: 'INVALID_JSON', message: 'An input file is not valid JSON.' };
+  }
+  if (code === 'CUSTOMER_IMPORT_INVALID') {
+    return { category: 'INVALID_CUSTOMER', code, message: 'Manifest or staff mapping validation failed.' };
+  }
+  if (code === 'CUSTOMER_IMPORT_FORBIDDEN') {
+    return { category: 'ACTOR_NOT_AUTHORIZED', code, message: 'Import actor is not authorized.' };
+  }
+  if (code === 'CUSTOMER_IMPORT_BLOCKED') {
+    return { category: 'CONFLICT', code, message: 'Import is blocked by a conflict or unresolved staff mapping.' };
+  }
+  if (code === '23505' && value?.constraint === 'customers_organization_tax_number_unique') {
+    return { category: 'TAX_NUMBER_CONFLICT', code, message: 'A customer tax-number identity conflict occurred.' };
+  }
+  if (code === '23505' && value?.constraint === 'contacts_one_active_primary_per_customer') {
+    return { category: 'CONTACT_VALIDATION_FAILED', code, message: 'The contact primary invariant rejected the import.' };
+  }
+  if (code === '23505' || code === '23514' || code === '23503') {
+    return { category: 'DATABASE_CONSTRAINT_FAILURE', code, message: 'A database constraint rejected the import.' };
+  }
+  if (code === 'ENOENT' || code === 'EACCES' || code === 'ERR_INVALID_ARG_TYPE') {
+    return { category: 'INPUT_ERROR', code, message: 'An input file could not be read.' };
+  }
+  return { category: 'DATABASE_FAILURE', code, message: 'The import failed safely; no raw database details were emitted.' };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -329,7 +369,8 @@ async function readState(client: PoolClient, organizationId: string, productionS
 }
 
 function fingerprintSubject(state: ExistingState, subjectType: ExistingFingerprint['subjectType'], fingerprint: string) {
-  return state.fingerprints.filter((entry) => entry.subjectType === subjectType && entry.fingerprint === fingerprint);
+  const matches = state.fingerprints.filter((entry) => entry.subjectType === subjectType && entry.fingerprint === fingerprint);
+  return [...new Map(matches.map((entry) => [entry.subjectId, entry])).values()];
 }
 
 function buildPlan(
@@ -369,7 +410,10 @@ function buildPlan(
     const destinationStaffUserId = source.assignedSourceStaffUserId
       ? destinationStaff.get(source.assignedSourceStaffUserId) ?? null : null;
     if (source.taxNumber) {
-      if (seenSourceTax.has(source.taxNumber)) taxConflicts += 1;
+      if (seenSourceTax.has(source.taxNumber)) {
+        taxConflicts += 1;
+        conflictCount += 1;
+      }
       seenSourceTax.add(source.taxNumber);
     }
     const fingerprint = customerFingerprint(source);
@@ -402,6 +446,7 @@ function buildPlan(
     if (source.contacts.some((contact) => contact.isPrimary && contact.isActive)
       && existingContacts.some((contact) => contact.isPrimary && contact.isActive)
       && contacts.every((contact) => !contact.existing || !contact.isPrimary)) conflict = true;
+    if (existing?.status === 'inactive' && contacts.some((contact) => !contact.existing)) conflict = true;
     if (conflict) conflictCount += 1;
     plans.push({ source, destinationStaffUserId, customerFingerprint: fingerprint, existing, contacts, conflict });
   }
@@ -428,13 +473,14 @@ async function insertCustomerWithContacts(
   actorUserId: string,
   plan: CustomerPlan,
 ) {
+  const initialStatus = plan.source.status === 'inactive' ? 'active' : plan.source.status;
   const customerResult = await client.query<{ id: string }>(
     `INSERT INTO customers
       (organization_id,name,customer_type,tax_number,phone,email,city,district,address,assigned_staff_user_id,status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [organizationId, plan.source.name, plan.source.customerType, plan.source.taxNumber, plan.source.phone,
       plan.source.email, plan.source.city, plan.source.district, plan.source.address,
-      plan.destinationStaffUserId, plan.source.status],
+      plan.destinationStaffUserId, initialStatus],
   );
   const customerId = customerResult.rows[0]!.id;
   await client.query(
@@ -442,7 +488,7 @@ async function insertCustomerWithContacts(
       (organization_id,actor_user_id,subject_type,subject_id,event_type,old_value,new_value,metadata)
      VALUES ($1,$2,'CUSTOMER',$3,'CUSTOMER_CREATED',NULL,$4,$5)`,
     [organizationId, actorUserId, customerId,
-      { customerType: plan.source.customerType, status: plan.source.status,
+      { customerType: plan.source.customerType, status: initialStatus,
         assignedStaffUserId: plan.destinationStaffUserId },
       { source: IMPORT_SOURCE, importVersion: IMPORT_VERSION, sourceFingerprint: plan.customerFingerprint }],
   );
@@ -464,6 +510,24 @@ async function insertCustomerWithContacts(
         { source: IMPORT_SOURCE, importVersion: IMPORT_VERSION, sourceFingerprint: contact.fingerprint }],
     );
   }
+  if (plan.source.status === 'inactive') {
+    const deactivated = await client.query(
+      `UPDATE customers SET status='inactive', version=version+1, updated_at=NOW()
+       WHERE organization_id=$1 AND id=$2 AND status IN ('active','prospect')
+       RETURNING id`,
+      [organizationId, customerId],
+    );
+    if (deactivated.rowCount !== 1) {
+      throw importError('CUSTOMER_IMPORT_BLOCKED', 'Inactive customer transition was rejected');
+    }
+    await client.query(
+      `INSERT INTO audit_events
+        (organization_id,actor_user_id,subject_type,subject_id,event_type,old_value,new_value,metadata)
+       VALUES ($1,$2,'CUSTOMER',$3,'CUSTOMER_DEACTIVATED',$4,$5,$6)`,
+      [organizationId, actorUserId, customerId, { status: initialStatus }, { status: 'inactive' },
+        { source: IMPORT_SOURCE, importVersion: IMPORT_VERSION, sourceFingerprint: plan.customerFingerprint }],
+    );
+  }
 }
 
 async function insertContactsForExistingCustomer(
@@ -475,6 +539,9 @@ async function insertContactsForExistingCustomer(
   if (!plan.existing) return;
   const missing = plan.contacts.filter((contact) => !contact.existing);
   if (missing.length === 0) return;
+  if (plan.existing.status === 'inactive') {
+    throw importError('CUSTOMER_IMPORT_BLOCKED', 'Contacts cannot be added to an inactive customer');
+  }
   const primary = await client.query<{ id: string }>(
     `SELECT id FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND is_primary=TRUE AND is_active=TRUE FOR UPDATE`,
     [organizationId, plan.existing.id],

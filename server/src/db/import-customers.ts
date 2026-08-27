@@ -4,6 +4,7 @@ import path from 'node:path';
 import { loadConfig } from '../config.js';
 import { closeDatabase, createDatabase } from './index.js';
 import {
+  formatCustomerImportError,
   importCustomers,
   parseCustomerOnboardingManifest,
   parseStaffMappings,
@@ -30,25 +31,31 @@ function argumentsFrom(argv: string[]) {
   };
 }
 
-const args = argumentsFrom(process.argv.slice(2));
-const manifest = parseCustomerOnboardingManifest(JSON.parse(
-  await readFile(path.resolve(args.manifest), 'utf8'),
-));
-const mappings = parseStaffMappings(JSON.parse(
-  await readFile(path.resolve(args['staff-map']), 'utf8'),
-));
-const config = loadConfig();
-const database = createDatabase(config.databaseUrl, { max: 1, applicationName: 'customer-onboarding-import' });
-
-try {
-  const result = await importCustomers(database.pool, {
-    organizationId: args['organization-id'],
-    actorUserId: args['actor-user-id'],
-    manifest,
-    mappings,
-    apply: args.apply,
-  });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-} finally {
-  await closeDatabase(database);
+async function main() {
+  const args = argumentsFrom(process.argv.slice(2));
+  const manifest = parseCustomerOnboardingManifest(JSON.parse(
+    await readFile(path.resolve(args.manifest), 'utf8'),
+  ));
+  const mappings = parseStaffMappings(JSON.parse(
+    await readFile(path.resolve(args['staff-map']), 'utf8'),
+  ));
+  const config = loadConfig();
+  const database = createDatabase(config.databaseUrl, { max: 1, applicationName: 'customer-onboarding-import' });
+  try {
+    const result = await importCustomers(database.pool, {
+      organizationId: args['organization-id'],
+      actorUserId: args['actor-user-id'],
+      manifest,
+      mappings,
+      apply: args.apply,
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+  } finally {
+    await closeDatabase(database);
+  }
 }
+
+await main().catch((error: unknown) => {
+  process.stderr.write(`${JSON.stringify({ error: formatCustomerImportError(error) })}\n`);
+  process.exitCode = 1;
+});

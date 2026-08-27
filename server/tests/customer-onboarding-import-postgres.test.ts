@@ -7,6 +7,7 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { getMigrationsDirectory } from '../src/db/schema-compatibility.js';
 import {
+  formatCustomerImportError,
   importCustomers,
   parseCustomerOnboardingManifest,
   parseStaffMappings,
@@ -68,6 +69,13 @@ async function runPool(
         taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null, contacts: [],
       },
+      {
+        sourceId: randomUUID(), name: 'Dental C', customerType: 'clinic', status: 'inactive',
+        taxNumber: '56 78', phone: null, email: null, city: null, district: null, address: null,
+        assignedSourceStaffUserId: null,
+        contacts: [{ sourceId: randomUUID(), name: 'Dr. C', title: null, phone: null,
+          email: null, isPrimary: true, isActive: true }],
+      },
     ],
   });
   const mappings = parseStaffMappings([{ sourceUserId: sourceStaffId, productionUserId: staffId }]);
@@ -75,8 +83,8 @@ async function runPool(
   const dryRun = await importCustomers(pool, {
     organizationId, actorUserId: adminId, manifest, mappings, apply: false,
   });
-  expect(dryRun).toMatchObject({ inputCustomers: 2, inputContacts: 1, createCount: 2,
-    existingCount: 0, createContactCount: 1, staffMappingsResolved: 1,
+  expect(dryRun).toMatchObject({ inputCustomers: 3, inputContacts: 2, createCount: 3,
+    existingCount: 0, createContactCount: 2, staffMappingsResolved: 1,
     staffMappingsUnresolved: 0, conflictCount: 0, taxConflicts: 0, dryRun: true });
   expect((await pool.query(`SELECT count(*)::int AS count FROM customers`)).rows[0].count).toBe(0);
   expect((await pool.query(`SELECT count(*)::int AS count FROM contacts`)).rows[0].count).toBe(0);
@@ -84,19 +92,21 @@ async function runPool(
   const applied = await importCustomers(pool, {
     organizationId, actorUserId: adminId, manifest, mappings, apply: true,
   });
-  expect(applied).toMatchObject({ createCount: 2, existingCount: 0, createContactCount: 1, dryRun: false });
-  expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(2);
+  expect(applied).toMatchObject({ createCount: 3, existingCount: 0, createContactCount: 2, dryRun: false });
+  expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(3);
   expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [sourceOrganizationId])).rows[0].count).toBe(0);
-  expect((await pool.query(`SELECT count(*)::int AS count FROM contacts WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
-  expect((await pool.query(`SELECT count(*)::int AS count FROM contacts WHERE is_primary AND is_active`)).rows[0].count).toBe(1);
-  expect((await pool.query(`SELECT count(*)::int AS count FROM audit_events WHERE event_type IN ('CUSTOMER_CREATED','CONTACT_CREATED')`)).rows[0].count).toBe(3);
+  expect((await pool.query(`SELECT count(*)::int AS count FROM contacts WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(2);
+  expect((await pool.query(`SELECT count(*)::int AS count FROM contacts WHERE is_primary AND is_active`)).rows[0].count).toBe(2);
+  expect((await pool.query(`SELECT count(*)::int AS count FROM audit_events WHERE event_type IN ('CUSTOMER_CREATED','CONTACT_CREATED')`)).rows[0].count).toBe(5);
+  expect((await pool.query(`SELECT status,version FROM customers WHERE name='Dental C'`)).rows[0]).toMatchObject({ status: 'inactive', version: 2 });
+  expect((await pool.query(`SELECT count(*)::int AS count FROM audit_events WHERE event_type='CUSTOMER_DEACTIVATED'`)).rows[0].count).toBe(1);
   expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE assigned_staff_user_id=$1`, [staffId])).rows[0].count).toBe(1);
 
   const repeated = await importCustomers(pool, {
     organizationId, actorUserId: adminId, manifest, mappings, apply: false,
   });
-  expect(repeated).toMatchObject({ createCount: 0, existingCount: 2, createContactCount: 0,
-    existingContactCount: 1, conflictCount: 0, dryRun: true });
+  expect(repeated).toMatchObject({ createCount: 0, existingCount: 3, createContactCount: 0,
+    existingContactCount: 2, conflictCount: 0, dryRun: true });
 }
 
 describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract', () => {
@@ -143,6 +153,69 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
       expect((await pool.query(`SELECT count(*)::int AS count FROM contacts`)).rows[0].count).toBe(0);
       expect((await pool.query(`SELECT count(*)::int AS count FROM audit_events`)).rows[0].count).toBe(0);
     });
+  });
+
+  it('reports duplicate source tax identities and blocks apply', async () => {
+    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
+      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [
+        { sourceId: randomUUID(), name: 'Tax duplicate A', customerType: 'clinic', status: 'active',
+          taxNumber: 'DUP-1', phone: null, email: null, city: null, district: null, address: null,
+          assignedSourceStaffUserId: null, contacts: [] },
+        { sourceId: randomUUID(), name: 'Tax duplicate B', customerType: 'clinic', status: 'active',
+          taxNumber: 'DUP 1', phone: null, email: null, city: null, district: null, address: null,
+          assignedSourceStaffUserId: null, contacts: [] },
+      ] });
+      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: false });
+      expect(dryRun).toMatchObject({ taxConflicts: 1, conflictCount: 1, createCount: 2 });
+      await expect(importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: true })).rejects.toMatchObject({ code: 'CUSTOMER_IMPORT_BLOCKED' });
+      expect((await pool.query(`SELECT count(*)::int AS count FROM customers`)).rows[0].count).toBe(0);
+    });
+  });
+
+  it('blocks adding a missing contact to an existing inactive customer', async () => {
+    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
+      const customerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id,name,customer_type,status,tax_number)
+         VALUES ($1,'Inactive target','clinic','inactive','INACTIVE-1') RETURNING id`, [organizationId],
+      )).rows[0]!.id;
+      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
+        sourceId: randomUUID(), name: 'Inactive target', customerType: 'clinic', status: 'inactive',
+        taxNumber: 'INACTIVE 1', phone: null, email: null, city: null, district: null, address: null,
+        assignedSourceStaffUserId: null,
+        contacts: [{ sourceId: randomUUID(), name: 'New contact', title: null, phone: null,
+          email: null, isPrimary: true, isActive: true }],
+      }] });
+      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: false });
+      expect(dryRun).toMatchObject({ existingCount: 1, createContactCount: 1, conflictCount: 1 });
+      await expect(importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: true })).rejects.toMatchObject({ code: 'CUSTOMER_IMPORT_BLOCKED' });
+      expect((await pool.query(`SELECT count(*)::int AS count FROM contacts WHERE customer_id=$1`, [customerId])).rows[0].count).toBe(0);
+    });
+  });
+});
+
+describe('customer onboarding importer error boundary', () => {
+  it('sanitizes PostgreSQL constraint details before operator output', () => {
+    const raw = {
+      code: '23505',
+      constraint: 'customers_organization_tax_number_unique',
+      detail: 'Key (organization_id, tax_number)=(target, TAX-SECRET-123) already exists. phone=555 email=secret@example.test address=Sensitive',
+    };
+    const safe = formatCustomerImportError(raw);
+    const output = JSON.stringify(safe);
+    expect(safe).toMatchObject({ category: 'TAX_NUMBER_CONFLICT', code: '23505' });
+    expect(output).not.toContain('TAX-SECRET-123');
+    expect(output).not.toContain('secret@example.test');
+    expect(output).not.toContain('Sensitive');
+    expect(output).not.toContain('Key (organization_id');
+  });
+
+  it('classifies invalid JSON without exposing parser details', () => {
+    const safe = formatCustomerImportError(new SyntaxError('secret value at position 42'));
+    expect(safe).toEqual({ category: 'INPUT_ERROR', code: 'INVALID_JSON', message: 'An input file is not valid JSON.' });
   });
 });
 
