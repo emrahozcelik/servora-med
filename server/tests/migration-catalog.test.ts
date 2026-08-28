@@ -236,7 +236,7 @@ describe('compareMigrationState', () => {
     }
   });
 
-  it('G: order-independent: shuffled applied still COMPATIBLE', async () => {
+  it('G: shuffled applied history is DIVERGED', async () => {
     const catalog = await fixtureCatalog();
     const result = compareMigrationState(catalog, [
       '004_fourth',
@@ -244,7 +244,8 @@ describe('compareMigrationState', () => {
       '001_first',
       '003_third',
     ]);
-    expect(result.status).toBe('COMPATIBLE');
+    expect(result.status).toBe('DIVERGED');
+    if (result.status === 'DIVERGED') expect(result.reason).toBe('NON_PREFIX_HISTORY');
   });
 
   it('duplicate applied version is DIVERGED fail-closed', async () => {

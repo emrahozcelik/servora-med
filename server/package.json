@@ -23,6 +23,8 @@
     "schema:check": "tsx --env-file-if-exists=.env src/db/schema-check.ts",
     "schema:check:prod": "node dist/db/schema-check.js",
     "products:import:pilot": "tsx --env-file=.env src/db/import-pilot-products.ts",
+    "customers:import:onboarding": "tsx --env-file=.env src/db/import-customers.ts",
+    "personnel:import:onboarding": "tsx --env-file=.env src/db/import-personnel.ts",
     "bootstrap:admin": "tsx --env-file=.env src/db/bootstrap-admin.ts",
     "bootstrap:admin:prod": "node dist/db/bootstrap-admin.js",
     "db:seed:dev": "tsx --env-file=.env src/db/seed-dev.ts",

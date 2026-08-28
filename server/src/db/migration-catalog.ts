@@ -205,9 +205,9 @@ function catalogHeadVersion(catalog: MigrationCatalog): string | null {
 /**
  * Pure, read-only comparison of applied DB history vs repository catalog.
  *
- * Normalizes by catalog order (deterministic) and set membership, not by
- * input array order, so a shuffled DB order does not hide divergences.
- * Duplicate applied versions are treated as DIVERGED (fail-closed).
+ * Compares the ordered database history against the ordered catalog. A
+ * shuffled, missing-middle, or otherwise non-prefix history is DIVERGED;
+ * duplicate applied versions are also treated as DIVERGED (fail-closed).
  */
 export function compareMigrationState(
   catalog: MigrationCatalog,
@@ -284,6 +284,22 @@ export function compareMigrationState(
   const expectedHead = catalog.head ? catalog.head.version : '';
 
   if (allCatalogApplied && noUnexpected) {
+    const ordered = appliedVersions.every(
+      (version, index) => version === catalogVersions[index],
+    );
+    if (!ordered) {
+      return {
+        status: 'DIVERGED',
+        catalog,
+        appliedVersions: [...appliedVersions],
+        unexpectedVersions: [],
+        missingVersions: [],
+        duplicateVersions: [],
+        pendingVersions: [],
+        pendingEntries: [],
+        reason: 'NON_PREFIX_HISTORY',
+      };
+    }
     // Sets equal (duplicates already excluded, pending 0, unexpected 0 => sizes equal)
     return {
       status: 'COMPATIBLE',
@@ -294,12 +310,9 @@ export function compareMigrationState(
 
   if (!allCatalogApplied && noUnexpected) {
     // Check prefix: applied must be exactly first N catalog versions.
-    const expectedPrefix = new Set(catalogVersions.slice(0, appliedVersions.length));
-    const isPrefix =
-      appliedVersions.length === expectedPrefix.size &&
-      [...appliedVersions].every((v) => expectedPrefix.has(v)) &&
-      // Also ensure size matches (no missing within prefix) — already implied
-      expectedPrefix.size === appliedSet.size;
+    const isPrefix = appliedVersions.every(
+      (version, index) => version === catalogVersions[index],
+    );
 
     if (isPrefix) {
       return {
