@@ -491,6 +491,8 @@ describe('controlled production deployment automation contract', () => {
     const artifact = join(root, 'fixture.tar.gz');
     mkdirSync(join(root, 'ops'), { recursive: true });
     mkdirSync(join(root, 'server', 'dist'), { recursive: true });
+    mkdirSync(join(root, 'server', 'dist', 'modules', 'crm'), { recursive: true });
+    mkdirSync(join(root, 'server', 'src'), { recursive: true });
     mkdirSync(join(root, 'server', 'node_modules'), { recursive: true });
     mkdirSync(join(root, 'web', 'dist'), { recursive: true });
     writeFileSync(join(root, 'server', 'package.json'), '{}');
@@ -498,6 +500,11 @@ describe('controlled production deployment automation contract', () => {
     copyFileSync(runner, join(root, 'ops', 'deploy-production.sh'));
     chmodSync(join(root, 'ops', 'deploy-production.sh'), 0o755);
     writeFileSync(join(root, 'server', 'dist', 'index.js'), 'fixture');
+    writeFileSync(
+      join(root, 'server', 'dist', 'modules', 'crm', 'customer-onboarding-import.d.ts.map'),
+      '{}',
+    );
+    writeFileSync(join(root, 'server', 'src', 'credentials.ts'), 'export const safe = true;');
     writeFileSync(join(root, 'web', 'dist', 'index.html'), '<div id="root"></div>');
     const secretNames = [
       'servora-med-shared-temporary-password',
@@ -527,11 +534,29 @@ describe('controlled production deployment automation contract', () => {
       for (const name of secretNames) expect(inventory).not.toContain(name);
       expect(inventory).toContain('ops/credentials.ts');
 
-      const malicious = join(root, 'malicious.tar.gz');
-      execFileSync('tar', ['-czf', malicious, '-C', root, 'ops/servora-med-shared-temporary-password']);
-      const rejected = runSourced(hostHelper, 'ARTIFACT="$2"; verify_archive_entries', [malicious]);
-      expect(rejected.status).not.toBe(0);
-      expect(`${rejected.stdout}${rejected.stderr}`).toContain('ARTIFACT_FORBIDDEN_CONTENT');
+      const legitimateHostArchive = join(root, 'legitimate-host.tar.gz');
+      execFileSync('tar', [
+        '-czf',
+        legitimateHostArchive,
+        '-C',
+        root,
+        'server/dist/modules/crm/customer-onboarding-import.d.ts.map',
+        'server/src/credentials.ts',
+      ]);
+      const legitimateHostResult = runSourced(
+        hostHelper,
+        'ARTIFACT="$2"; verify_archive_entries',
+        [legitimateHostArchive],
+      );
+      expect(legitimateHostResult.status).toBe(0);
+
+      for (const name of secretNames) {
+        const malicious = join(root, `malicious-${name.replace(/[^A-Za-z0-9_.-]/g, '_')}.tar.gz`);
+        execFileSync('tar', ['-czf', malicious, '-C', root, `ops/${name}`]);
+        const rejected = runSourced(hostHelper, 'ARTIFACT="$2"; verify_archive_entries', [malicious]);
+        expect(rejected.status).not.toBe(0);
+        expect(`${rejected.stdout}${rejected.stderr}`).toContain('ARTIFACT_FORBIDDEN_CONTENT');
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
