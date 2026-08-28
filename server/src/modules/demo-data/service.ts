@@ -3,6 +3,8 @@ import type { SafeUser } from '../auth/types.js';
 import { demoDatasetPlanHash } from './plan.js';
 import type {
   DemoDatasetBlocker,
+  DemoDatasetCreateRequest,
+  DemoDatasetCreateResponse,
   DemoDatasetDto,
   DemoDatasetPurgeRequest,
   DemoDatasetPurgeResponse,
@@ -76,7 +78,21 @@ function previewDto(data: DemoDatasetPreviewData): DemoDatasetPreviewDto {
 }
 
 export class DemoDatasetService {
-  constructor(private readonly repository: DemoDatasetRepository) {}
+  constructor(
+    private readonly repository: DemoDatasetRepository,
+    private readonly creationEnabled: () => boolean = () => false,
+  ) {}
+
+  async create(
+    actor: SafeUser,
+    request: DemoDatasetCreateRequest,
+  ): Promise<DemoDatasetCreateResponse> {
+    requireAdmin(actor);
+    if (!this.creationEnabled()) {
+      throw new AppError('DEMO_DATASET_NOT_FOUND', 404, 'Demo veri kümesi bulunamadı.');
+    }
+    return this.repository.create(actor.organizationId, actor.id, request);
+  }
 
   async list(actor: SafeUser): Promise<readonly DemoDatasetDto[]> {
     requireAdmin(actor);

@@ -6,6 +6,7 @@ import type { SafeUser } from '../src/modules/auth/types.js';
 import { demoDatasetRoutes } from '../src/modules/demo-data/routes.js';
 import { DemoDatasetService } from '../src/modules/demo-data/service.js';
 import type {
+  DemoDatasetCreateResponse,
   DemoDatasetPurgeResponse,
   DemoDatasetPreviewData,
   DemoDatasetRepository,
@@ -27,6 +28,7 @@ const dataset: DemoDatasetPreviewData = {
 };
 
 class MemoryRepository implements DemoDatasetRepository {
+  private createdKey: string | null = null;
   async listDatasets() { return [dataset.dataset]; }
   async findDataset(organizationId: string) {
     return organizationId === dataset.dataset.organizationId ? dataset.dataset : null;
@@ -56,6 +58,24 @@ class MemoryRepository implements DemoDatasetRepository {
       completedAt: '2026-08-24T11:00:00.000Z',
     };
   }
+  create(_organizationId: string, _actorUserId: string, request: { clientActionId: string }): Promise<DemoDatasetCreateResponse> {
+    const replay = request.clientActionId === this.createdKey;
+    this.createdKey = request.clientActionId;
+    return Promise.resolve({
+      dataset: {
+        id: dataset.dataset.id,
+        organizationId: dataset.dataset.organizationId,
+        datasetKey: dataset.dataset.datasetKey,
+        seedVersion: dataset.dataset.seedVersion,
+        status: 'ACTIVE',
+        createdAt: dataset.dataset.createdAt.toISOString(),
+        createdBy: dataset.dataset.createdBy,
+        purgedAt: null,
+      },
+      counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
+      replayed: replay,
+    });
+  }
 }
 
 function actor(role: SafeUser['role']): SafeUser {
@@ -68,7 +88,7 @@ function actor(role: SafeUser['role']): SafeUser {
 
 const apps: FastifyInstance[] = [];
 
-async function createApp(currentUser: SafeUser) {
+async function createApp(currentUser: SafeUser, creationEnabled = false) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
     const response = toErrorResponse(error);
@@ -79,7 +99,7 @@ async function createApp(currentUser: SafeUser) {
   };
   await app.register(demoDatasetRoutes, {
     prefix: '/api/admin',
-    service: new DemoDatasetService(new MemoryRepository()),
+    service: new DemoDatasetService(new MemoryRepository(), () => creationEnabled),
     authenticate,
   });
   apps.push(app);
@@ -135,5 +155,74 @@ describe('Demo data HTTP routes', () => {
     });
     expect(invalid.statusCode).toBe(400);
     expect(invalid.json().code).toBe('VALIDATION_ERROR');
+  });
+
+  it('creates a managed demo dataset as Admin when the creation flag is enabled', async () => {
+    const app = await createApp(actor('ADMIN'), true);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: '11111111-1111-4111-8111-111111111111' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      dataset: { status: 'ACTIVE', organizationId: 'org-1' },
+      counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
+      replayed: false,
+    });
+
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: '11111111-1111-4111-8111-111111111111' },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().replayed).toBe(true);
+  });
+
+  it('applies RBAC and the creation flag to the create route', async () => {
+    const forStaff = await createApp(actor('STAFF'), true);
+    const staffResponse = await forStaff.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: '11111111-1111-4111-8111-111111111111' },
+    });
+    expect(staffResponse.statusCode).toBe(403);
+    expect(staffResponse.json().code).toBe('FORBIDDEN');
+
+    const flagDisabled = await createApp(actor('ADMIN'), false);
+    const disabled = await flagDisabled.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: '11111111-1111-4111-8111-111111111111' },
+    });
+    expect(disabled.statusCode).toBe(404);
+  });
+
+  it('rejects a malformed create body', async () => {
+    const app = await createApp(actor('ADMIN'), true);
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: {},
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().code).toBe('VALIDATION_ERROR');
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: 'not-a-uuid' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().code).toBe('VALIDATION_ERROR');
+
+    const extra = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets',
+      payload: { clientActionId: '11111111-1111-4111-8111-111111111111', extra: 1 },
+    });
+    expect(extra.statusCode).toBe(400);
   });
 });

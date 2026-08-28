@@ -6,6 +6,10 @@ export type DemoDatasetStatus = (typeof DEMO_DATASET_STATUSES)[number];
 
 export const DEMO_DATASET_PURGE_PLAN_SCHEMA_VERSION = 2 as const;
 
+/** First-class audit semantics for Demo Dataset creation (migration 038). */
+export const DEMO_DATASET_AUDIT_EVENT_TYPE = 'DEMO_DATASET_CREATED' as const;
+export const DEMO_DATASET_AUDIT_SUBJECT_TYPE = 'DEMO_DATASET' as const;
+
 export type DemoDatasetRecord = Readonly<{
   id: string;
   organizationId: string;
@@ -152,6 +156,23 @@ export type DemoDatasetPurgeResponse = Readonly<{
   completedAt: string;
 }>;
 
+export type DemoDatasetCreateRequest = Readonly<{
+  clientActionId: string;
+}>;
+
+export type DemoDatasetCreateCounts = Readonly<{
+  users: number;
+  customers: number;
+  products: number;
+  jobCards: number;
+}>;
+
+export type DemoDatasetCreateResponse = Readonly<{
+  dataset: DemoDatasetDto;
+  counts: DemoDatasetCreateCounts;
+  replayed: boolean;
+}>;
+
 export interface DemoDatasetRepository {
   listDatasets(organizationId: string): Promise<readonly DemoDatasetRecord[]>;
   findDataset(organizationId: string, datasetId: string): Promise<DemoDatasetRecord | null>;
@@ -162,4 +183,9 @@ export interface DemoDatasetRepository {
     actorUserId: string,
     request: DemoDatasetPurgeRequest,
   ): Promise<DemoDatasetPurgeResponse>;
+  create(
+    organizationId: string,
+    actorUserId: string,
+    request: DemoDatasetCreateRequest,
+  ): Promise<DemoDatasetCreateResponse>;
 }
