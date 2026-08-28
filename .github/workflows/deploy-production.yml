@@ -1,0 +1,72 @@
+name: Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      main_ref:
+        description: Deploy the current canonical main branch
+        required: true
+        type: choice
+        default: main
+        options:
+          - main
+      allow_migrations:
+        description: Explicitly authorize tracked production migrations
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Controlled production deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      SERVORA_PROD_HOST: ${{ secrets.SERVORA_PROD_HOST }}
+      SERVORA_PROD_SSH_USER: ${{ secrets.SERVORA_PROD_SSH_USER }}
+      SERVORA_PROD_SSH_KEY: ${{ secrets.SERVORA_PROD_SSH_KEY }}
+      SERVORA_PROD_KNOWN_HOSTS: ${{ secrets.SERVORA_PROD_KNOWN_HOSTS }}
+      SERVORA_PROD_FQDN: ${{ vars.SERVORA_PROD_FQDN }}
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.main_ref }}
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web/package-lock.json
+
+      - name: Install Chromium for production browser smoke
+        working-directory: web
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build, transfer, activate, smoke, and back up exact main SHA
+        run: |
+          set -Eeuo pipefail
+          deploy_args=(--sha "$GITHUB_SHA")
+          if [[ "${{ inputs.allow_migrations }}" == "true" ]]; then
+            deploy_args+=(--allow-migrations)
+          fi
+          bash ops/deploy-production.sh "${deploy_args[@]}"

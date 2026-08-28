@@ -26,7 +26,7 @@ export function createPostgresReadiness(pool: Pool, catalog: MigrationCatalog): 
         let appliedVersions: string[];
         try {
           const result = await pool.query<{ version: string }>(
-            'SELECT version FROM schema_migrations ORDER BY version',
+            'SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC',
           );
           appliedVersions = result.rows.map((row) => row.version);
         } catch {

@@ -206,6 +206,166 @@ Worker activation requires a separate deployment gate:
   satisfy it. Keep the single operator-alerting monitor in legacy mode until
   the gate approves `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`.
 
+## Controlled production automation (R1/R2)
+
+The repository now contains a reusable, fail-closed production deployment
+entrypoint at `ops/deploy-production.sh` and the manually dispatched
+`.github/workflows/deploy-production.yml` workflow. A merge to `main` runs the
+normal CI workflow only; it never deploys production by itself.
+
+The approved operator flow is:
+
+```text
+merge PR to main
+→ exact main CI push is green
+→ Actions → Production Deploy (manual start)
+→ production environment required-reviewer approval
+→ exact main SHA build/package/transfer
+→ preflight → predeploy backup → migration gate
+→ atomic current switch → servora-med restart → health
+→ public Playwright browser smoke
+→ one postdeploy backup → summary
+```
+
+The workflow accepts only the `main` choice and re-resolves
+`origin/main` at deployment start. The checked-out commit, remote main SHA, and
+the successful `push` CI run (including `server` and `web` jobs) must be the
+same 40-character SHA. The workflow has `contents: read` and `actions: read`
+permissions, uses the `production-deploy` concurrency group, and does not
+cancel an in-flight deployment.
+
+### GitHub Environment configuration
+
+Repository settings must create an environment named `production` and configure
+the required reviewers before the workflow is considered production-ready.
+Configure the following names only; values remain in the protected GitHub
+Environment and are never committed:
+
+```text
+Secrets:
+SERVORA_PROD_HOST
+SERVORA_PROD_SSH_USER
+SERVORA_PROD_SSH_KEY
+SERVORA_PROD_KNOWN_HOSTS
+
+Variables:
+SERVORA_PROD_FQDN
+```
+
+`SERVORA_PROD_SSH_KEY` is the `servora-deploy` private key, not a root key.
+`SERVORA_PROD_KNOWN_HOSTS` is an independently verified pinned entry; the
+workflow refuses `StrictHostKeyChecking=no` and never runs a blind runtime
+`ssh-keyscan`. Temporary key files are mode `0600` and removed on exit.
+
+### Host bootstrap boundary
+
+The source gate does not mutate the VPS. Before the first unattended run, an
+operator must install the reviewed host helper as a root-owned fixed-purpose
+program and grant `servora-deploy` only that helper. This is the explicit
+`HOST_BOOTSTRAP_REQUIRED=YES` boundary; it is not a broad shell or
+`systemctl` permission:
+
+```bash
+sudo install -d -o root -g root -m 0755 /usr/local/libexec/servora-med
+sudo install -o root -g root -m 0755 \
+  ops/scripts/deploy-production-host.sh \
+  /usr/local/libexec/servora-med/deploy-production-host
+```
+
+The helper's sudoers entry must be reviewed on the host and limited to
+`/usr/local/libexec/servora-med/deploy-production-host` (with validated
+arguments). Do not grant `NOPASSWD: ALL`, arbitrary `systemctl`, arbitrary
+shell, or wildcard destructive filesystem access. Verify the existing
+predeploy launcher/unit hashes before enabling the new rule; drift stops the
+deployment with `PREDEPLOY_HOST_CONTRACT_DRIFT`.
+
+The helper stages `/opt/servora-med/releases/<sha>` without overwriting an
+existing SHA directory, verifies the transferred archive checksum and every
+release boundary, applies only the targeted Caddy read ACL for `web/dist`, and
+keeps `/opt/servora-med/current` as the sole live pointer. It never performs a
+`git pull` on the VPS and never packages `.git`, `host.md`, environment files,
+credential/password artifacts, business-data manifests, database dumps, or
+temporary metadata.
+
+The artifact checksum sidecar is a single canonical text record:
+
+```text
+<64 lowercase hexadecimal digest>  <exact artifact basename>
+```
+
+The runner and root helper parse this record before verification. Absolute or
+slash-containing paths, traversal, multiple records, extra tokens, malformed
+digests, and device/FIFO targets are rejected with
+`ARTIFACT_CHECKSUM_SIDECAR_INVALID`; the sidecar cannot select a different
+verification target. Temporary-password, credential, onboarding-manifest, and
+production-mapping artifacts are excluded by explicit data-file/name rules;
+legitimate source files such as `credentials.ts` are not excluded by a generic
+glob.
+
+The manual runner also requires an exact source tree before any build starts:
+tracked/index cleanliness is checked globally, and untracked files under the
+server/web build inputs or packaged `ops/` tree fail with
+`SOURCE_TREE_NOT_EXACT`. Unrelated root notes and generated `.codebase-memory/`
+state remain preserved because they are outside those inputs. The runner never
+deletes, cleans, stashes, or resets a worktree.
+
+### Migration, rollback, and backup policy
+
+`allow_migrations` defaults to `false`. The helper compares the candidate
+catalog with production `schema_migrations` before invoking the tracked
+`dist/db/migrate.js` runner using an ordered history contract. Production must
+be either `EXACT` or an exact ordered prefix (`PREFIX_WITH_PENDING`) of the
+candidate catalog. Prefix migrations stop with
+`PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION` unless a reviewer
+deliberately enables the workflow boolean. `DIVERGENT`, `DATABASE_AHEAD`,
+`DUPLICATE_HISTORY`, and `INVALID_CATALOG` states always stop, even when
+migrations are explicitly allowed. It records aggregate organization, admin,
+staff, customer, product, job, and demo-data counts before and after the runner
+and fails if they move unexpectedly. No arbitrary SQL or automatic database
+restore is available.
+
+If activation/health/browser smoke fails and zero migrations were applied, the
+old release may be switched back atomically and the application restarted. A
+migration-applied deployment never receives an automatic application or
+database rollback. A healthy application with a failed postdeploy backup is
+reported as `LIVE_BUT_POSTDEPLOY_BACKUP_FAILED` and is not rolled back solely
+for that backup failure.
+
+The deployment path contains no personnel/customer importer, seed, demo-data,
+or admin-bootstrap invocation. No business-data import occurs during
+deployment; onboarding remains a separate, operator-authorized workflow.
+
+The R2 remediation changes the reviewed root helper source. `HOST_BOOTSTRAP_REQUIRED=YES`
+therefore remains in force: the installed root-owned helper must be updated by
+a separate, one-time host bootstrap before the first automated run of this
+contract. The deployment detects a mismatch between the installed helper and
+the staged candidate and fails closed; it never self-updates the privileged
+helper.
+
+For a local contract-only check (no network, SSH, or production contact):
+
+```bash
+bash ops/deploy-production.sh --check
+```
+
+The deployment safety suite executes isolated checksum, migration, source
+purity, artifact, backup-order, activation/rollback, and postdeploy-failure
+fixtures without contacting production:
+
+```bash
+cd server
+npx vitest run tests/production-deploy-automation.test.ts
+```
+
+An authorized operator may run the normal entrypoint manually from a clean
+`main` checkout after exporting the protected names above:
+
+```bash
+bash ops/deploy-production.sh --sha <40-character-main-sha>
+# only when explicitly approved:
+bash ops/deploy-production.sh --sha <40-character-main-sha> --allow-migrations
+```
+
 ## Deploy sequence (fail-closed)
 
 Migration **must** run from the **new release directory**, never from the still-active
