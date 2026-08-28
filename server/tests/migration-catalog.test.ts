@@ -122,17 +122,17 @@ describe('loadMigrationCatalog', () => {
     expect(catalog.head?.version).toBe('003_c');
   });
 
-  it('proves real repository catalog: count 37, first 001_auth_foundation, last 037_staff_offboarding_audit', async () => {
+  it('proves real repository catalog: count 38, first 001_auth_foundation, last 038_demo_dataset_audit_types', async () => {
     const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.count).toBe(37);
+    expect(catalog.count).toBe(38);
     expect(catalog.entries[0]?.version).toBe('001_auth_foundation');
     expect(catalog.entries[0]?.number).toBe(1);
-    expect(catalog.head?.version).toBe('037_staff_offboarding_audit');
-    expect(catalog.head?.number).toBe(37);
+    expect(catalog.head?.version).toBe('038_demo_dataset_audit_types');
+    expect(catalog.head?.number).toBe(38);
     // No throw means validation PASS, contiguity enforced from 001
     expect(catalog.entries.map((e) => e.number)).toEqual(
-      Array.from({ length: 37 }, (_, i) => i + 1),
+      Array.from({ length: 38 }, (_, i) => i + 1),
     );
   });
 
@@ -262,7 +262,7 @@ describe('compareMigrationState', () => {
     }
   });
 
-  it('BEHIND models real incident: catalog 001..037 vs DB 001..029', async () => {
+  it('BEHIND models real incident: catalog 001..038 vs DB 001..029', async () => {
     const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     const applied = catalog.entries.filter((e) => e.number <= 29).map((e) => e.version);
@@ -270,7 +270,7 @@ describe('compareMigrationState', () => {
     expect(result.status).toBe('BEHIND');
     if (result.status === 'BEHIND') {
       expect(result.appliedHead).toBe('029_messaging_conversation_archive');
-      expect(result.expectedHead).toBe('037_staff_offboarding_audit');
+      expect(result.expectedHead).toBe('038_demo_dataset_audit_types');
       expect(result.pendingVersions).toEqual([
         '030_backup_domain_foundation',
         '031_backup_engine_failure_taxonomy_and_dump_version',
@@ -280,6 +280,7 @@ describe('compareMigrationState', () => {
         '035_demo_data_purge_foundation',
         '036_job_card_invalidated',
         '037_staff_offboarding_audit',
+        '038_demo_dataset_audit_types',
       ]);
     }
   });
@@ -330,9 +331,9 @@ describe('parseMigrationVersion / parseMigrationFilename', () => {
 });
 
 describe('compareMigrationState strict AHEAD (SD1 repair)', () => {
-  it('full catalog + 038_future → AHEAD', async () => {
+  it('full catalog + 039_future → AHEAD', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
-    const applied = [...catalog.entries.map((e) => e.version), '038_future'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_future'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('AHEAD');
   });
@@ -380,25 +381,25 @@ describe('compareMigrationState strict AHEAD (SD1 repair)', () => {
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
   });
-  it('full catalog + 038_alpha + 038_beta (duplicate number) → DIVERGED', async () => {
+  it('full catalog + 039_alpha + 039_beta (duplicate number) → DIVERGED', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
-    const applied = [...catalog.entries.map((e) => e.version), '038_alpha', '038_beta'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_alpha', '039_beta'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
     if (result.status === 'DIVERGED') expect(result.reason).toBe('DUPLICATE_APPLIED_MIGRATION_NUMBER');
   });
-  it('full catalog + 038_future + garbage → DIVERGED', async () => {
+  it('full catalog + 039_future + garbage → DIVERGED', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
-    const applied = [...catalog.entries.map((e) => e.version), '038_future', 'garbage'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_future', 'garbage'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
   });
-  it('full catalog + 038_future + 039_future → AHEAD', async () => {
+  it('full catalog + 039_future + 040_future → AHEAD', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
-    const applied = [...catalog.entries.map((e) => e.version), '038_future_a', '039_future_b'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_future_a', '040_future_b'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('AHEAD');
-    if (result.status === 'AHEAD') expect(result.unexpectedVersions).toEqual(['038_future_a', '039_future_b']);
+    if (result.status === 'AHEAD') expect(result.unexpectedVersions).toEqual(['039_future_a', '040_future_b']);
   });
   it('full catalog + 036_other_branch (lower than head) → DIVERGED', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
@@ -406,9 +407,9 @@ describe('compareMigrationState strict AHEAD (SD1 repair)', () => {
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
   });
-  it('full catalog + 038_future_a 039 mix + 037_other_branch → DIVERGED', async () => {
+  it('full catalog + 039_future_a 040 mix + 037_other_branch → DIVERGED', async () => {
     const catalog = await loadMigrationCatalog(fileURLToPath(new URL('../src/db/migrations', import.meta.url)));
-    const applied = [...catalog.entries.map((e) => e.version), '038_future', '037_other_branch'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_future', '037_other_branch'];
     const result = compareMigrationState(catalog, applied);
     expect(result.status).toBe('DIVERGED');
   });

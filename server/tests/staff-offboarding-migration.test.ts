@@ -90,9 +90,9 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
   it('freshly applies the full chain, preserves the audit allowlist, adds only USER_OFFBOARDED, and rejects unknown events', async () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-      expect(result.appliedVersions).toHaveLength(37);
-      expect(result.appliedVersions.at(-1)).toBe('037_staff_offboarding_audit');
-      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED']));
+      expect(result.appliedVersions).toHaveLength(38);
+      expect(result.appliedVersions.at(-1)).toBe('038_demo_dataset_audit_types');
+      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED']));
 
       const { organizationId, actorId } = await createAuditActor(pool);
       for (const eventType of [...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED']) {
@@ -111,9 +111,9 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
       await insertAuditEvent(pool, organizationId, actorId, 'USER_DEACTIVATED');
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit'] });
+      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types'] });
       expect((await pool.query(`SELECT event_type FROM audit_events WHERE event_type = 'USER_DEACTIVATED'`)).rows).toHaveLength(1);
-      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED']));
+      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED']));
       await insertAuditEvent(pool, organizationId, actorId, 'USER_OFFBOARDED');
       await expect(insertAuditEvent(pool, organizationId, actorId, 'R4A_UNKNOWN_EVENT')).rejects.toMatchObject({ code: '23514' });
     });

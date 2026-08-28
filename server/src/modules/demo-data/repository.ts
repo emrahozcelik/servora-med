@@ -16,6 +16,7 @@ import type {
   DemoDatasetRecord,
   DemoDatasetRepository,
 } from './types.js';
+import { DEMO_DATASET_AUDIT_EVENT_TYPE, DEMO_DATASET_AUDIT_SUBJECT_TYPE } from './types.js';
 
 import { AppError } from '../../errors/index.js';
 
@@ -1076,21 +1077,17 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       }
 
       // Creation audit: one meaningful audit row (actor is BUSINESS ADMIN, remains after purge)
-      // Use existing allowed type USER_CREATED with subject being the manager demo user creation context,
-      // but metadata carries dataset creation provenance.
       try {
         await client.query(
           `INSERT INTO audit_events
               (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
-            VALUES ($1, $2, 'USER', $3, 'USER_CREATED', $4)`,
-          [organizationId, actorUserId, demoManager.id, JSON.stringify({
-            demoDatasetId: datasetId,
-            datasetKey,
-            seedVersion: DEMO_SEED_VERSION,
-            counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
-            source: 'DEMO_DATASET_CREATED',
-            clientActionId: rawClientActionId,
-          })],
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+          [organizationId, actorUserId, DEMO_DATASET_AUDIT_SUBJECT_TYPE, datasetId,
+            DEMO_DATASET_AUDIT_EVENT_TYPE, JSON.stringify({
+              datasetKey,
+              seedVersion: DEMO_SEED_VERSION,
+              counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
+            })],
         );
       } catch {
         // audit best-effort: do not fail creation if audit insert violates constraint; rollback would hide dataset

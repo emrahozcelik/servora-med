@@ -6,6 +6,10 @@ export type DemoDatasetStatus = (typeof DEMO_DATASET_STATUSES)[number];
 
 export const DEMO_DATASET_PURGE_PLAN_SCHEMA_VERSION = 2 as const;
 
+/** First-class audit semantics for Demo Dataset creation (migration 038). */
+export const DEMO_DATASET_AUDIT_EVENT_TYPE = 'DEMO_DATASET_CREATED' as const;
+export const DEMO_DATASET_AUDIT_SUBJECT_TYPE = 'DEMO_DATASET' as const;
+
 export type DemoDatasetRecord = Readonly<{
   id: string;
   organizationId: string;
