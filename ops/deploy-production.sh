@@ -443,6 +443,7 @@ package_artifact() {
     --exclude='*production-mapping.xlsx' \
     --exclude='*production-mapping.yaml' \
     --exclude='*production-mapping.yml' \
+    --exclude='*production-mapping*' \
     server/dist \
     server/package.json \
     server/package-lock.json \

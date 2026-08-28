@@ -199,16 +199,7 @@ is_forbidden_artifact_path() {
         *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
       esac
       ;;
-    servora-med-personnel-onboarding-credentials|*/servora-med-personnel-onboarding-credentials|servora-med-personnel-onboarding-credentials.*|*/servora-med-personnel-onboarding-credentials.*|personnel-onboarding-credentials|*/personnel-onboarding-credentials|personnel-onboarding-credentials.*|*/personnel-onboarding-credentials.*)
-      return 0
-      ;;
-    servora-med-personnel-onboarding-manifest|*/servora-med-personnel-onboarding-manifest|servora-med-personnel-onboarding-manifest.*|*/servora-med-personnel-onboarding-manifest.*|personnel-onboarding-manifest|*/personnel-onboarding-manifest|personnel-onboarding-manifest.*|*/personnel-onboarding-manifest.*)
-      return 0
-      ;;
-    servora-med-customer-onboarding-manifest|*/servora-med-customer-onboarding-manifest|servora-med-customer-onboarding-manifest.*|*/servora-med-customer-onboarding-manifest.*|customer-onboarding-manifest|*/customer-onboarding-manifest|customer-onboarding-manifest.*|*/customer-onboarding-manifest.*)
-      return 0
-      ;;
-    *customer-onboarding.json|*customer-onboarding.csv|*customer-onboarding.xlsx|*customer-onboarding.yaml|*customer-onboarding.yml)
+    *personnel-onboarding-credentials*|*personnel-onboarding-manifest*|*customer-onboarding*|*production-mapping*)
       return 0
       ;;
     *credential|*credentials)
@@ -218,9 +209,6 @@ is_forbidden_artifact_path() {
       case "$clean" in
         *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
       esac
-      ;;
-    *production-mapping|*production-mapping.json|*production-mapping.csv|*production-mapping.xlsx|*production-mapping.yaml|*production-mapping.yml)
-      return 0
       ;;
   esac
   return 1
