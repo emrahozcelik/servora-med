@@ -158,6 +158,8 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(staff, assignedNew)).toEqual(['ACCEPT_ASSIGNMENT', 'CANCEL']);
     expect(getAllowedLifecycleCommands(manager, assignedNew)).toEqual(['CANCEL']);
     expect(getAllowedLifecycleCommands(staff, accepted)).toEqual(['START', 'CANCEL']);
+    expect(getAllowedLifecycleCommands(manager, accepted)).toEqual(['CANCEL']);
+    expect(getAllowedLifecycleCommands(admin, accepted)).toEqual(['CANCEL']);
   });
 
   it('hides time-gated acceptance and start commands before scheduledAt', () => {
@@ -267,7 +269,6 @@ it('keeps action projection and write/read guards in parity', () => {
   it.each([
     ['ACCEPT_ASSIGNMENT', 'NEW', staff],
     ['START', 'ACCEPTED', staff],
-    ['START', 'ACCEPTED', manager], ['START', 'ACCEPTED', admin],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', staff],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', manager],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', admin],
