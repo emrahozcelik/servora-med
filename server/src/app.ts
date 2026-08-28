@@ -394,6 +394,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new DemoDatasetService(
           dependencies.demoDatasetRepository
             ?? new PostgresDemoDatasetRepository(dependencies.pool!),
+          () => config.demoDataCreationEnabled,
         ),
         authenticate: authenticateDomain,
       });

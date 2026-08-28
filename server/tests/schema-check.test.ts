@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('037_staff_offboarding_audit');
+      expect(cmp.pendingVersions).toContain('038_demo_dataset_audit_types');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '038_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '039_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -138,10 +138,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
 
   it('one behind → nonzero BEHIND and pending shown', async () => {
     await withSchema(async (_pool, _schema, dbUrl) => {
-      const preDir = await mkdtemp(path.join(tmpdir(), 'sc-pre36-'));
+      const preDir = await mkdtemp(path.join(tmpdir(), 'sc-pre37-'));
       try {
         const catalog = await loadMigrationCatalog(migrationsDirectory);
-        for (const e of catalog.entries.filter((e) => e.number <= 36)) {
+        for (const e of catalog.entries.filter((e) => e.number <= 37)) {
           const sql = await readFile(path.join(migrationsDirectory, e.filename), 'utf8');
           await writeFile(path.join(preDir, e.filename), sql, 'utf8');
         }
@@ -163,10 +163,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
 
   it('after migrate behind → passes', async () => {
     await withSchema(async (_pool, _schema, dbUrl) => {
-      const preDir = await mkdtemp(path.join(tmpdir(), 'sc-pre36-2-'));
+      const preDir = await mkdtemp(path.join(tmpdir(), 'sc-pre37-2-'));
       try {
         const catalog = await loadMigrationCatalog(migrationsDirectory);
-        for (const e of catalog.entries.filter((e) => e.number <= 36)) {
+        for (const e of catalog.entries.filter((e) => e.number <= 37)) {
           const sql = await readFile(path.join(migrationsDirectory, e.filename), 'utf8');
           await writeFile(path.join(preDir, e.filename), sql, 'utf8');
         }
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('038_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('039_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -258,10 +258,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 37 head 037', async () => {
+  it('produces dist catalog 38 head 038', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(37);
-    expect(distCatalog.head?.version).toBe('037_staff_offboarding_audit');
+    expect(distCatalog.count).toBe(38);
+    expect(distCatalog.head?.version).toBe('038_demo_dataset_audit_types');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {
