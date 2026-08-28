@@ -97,7 +97,7 @@ async function main() {
     console.log(`catalog_head=${catalog.at(-1)?.version ?? ''}`);
     console.log(`catalog_versions=${formatMigrationVersions(catalogVersions)}`);
     console.log(`applied_count=${applied.length}`);
-    console.log(`applied_head=${appliedHead}`);
+    console.log(`applied_head=${formatMigrationVersions([appliedHead])}`);
     console.log(`applied_versions=${formatMigrationVersions(applied)}`);
     console.log(`pending_versions=${formatMigrationVersions(pending)}`);
     console.log(`pending_count=${pending.length}`);

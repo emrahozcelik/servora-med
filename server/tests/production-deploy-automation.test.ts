@@ -430,6 +430,7 @@ describe('controlled production deployment automation contract', () => {
     expect(output).toBe('001_safe,INVALID,INVALID');
     expect(output).not.toContain('secret-password');
     expect(output).not.toContain('INJECTED');
+    expect(formatMigrationVersions(['secret-password'])).toBe('INVALID');
   });
 
   it('executes the manual source-purity gate without rejecting safe root notes', () => {
