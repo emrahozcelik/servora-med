@@ -57,6 +57,7 @@ describe('loadConfig', () => {
       calendar: false,
       messaging: false,
       backup: false,
+      demoDatasetCreation: false,
     });
   });
 
@@ -130,6 +131,7 @@ describe('loadConfig', () => {
         calendar: false,
         messaging: false,
         backup: false,
+        demoDatasetCreation: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',
@@ -175,6 +177,7 @@ describe('loadConfig', () => {
         calendar: false,
         messaging: false,
         backup: false,
+        demoDatasetCreation: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',
