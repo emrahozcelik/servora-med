@@ -198,6 +198,8 @@ class MemoryJobCardRepository implements JobCardRepository {
 }
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
+const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
+const admin: JobCardActor = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' };
 const input = { expectedVersion: 1, clientActionId: 'action-1' };
 
 describe('JobCardService critical command foundation', () => {
@@ -246,6 +248,32 @@ describe('JobCardService critical command foundation', () => {
     const repository = new MemoryJobCardRepository();
     await expect(new JobCardService(repository).start({ ...staff, organizationId: 'org-2' }, 'job-1', input))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+  });
+
+  it.each([manager, admin] as const)('rejects %s START when geolocation is disabled without mutation', async (actor) => {
+    const repository = new MemoryJobCardRepository();
+
+    await expect(new JobCardService(repository).start(actor, 'job-1', input))
+      .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.realtimeEvents).toHaveLength(0);
+    expect(repository.notificationAppends).toHaveLength(0);
+    expect(repository.locationAppends).toHaveLength(0);
+    expect(repository.completed.size).toBe(0);
+  });
+
+  it('rejects an unassigned Staff START without mutation when geolocation is disabled', async () => {
+    const repository = new MemoryJobCardRepository();
+
+    await expect(new JobCardService(repository).start({ ...staff, id: 'staff-2' }, 'job-1', input))
+      .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.realtimeEvents).toHaveLength(0);
+    expect(repository.notificationAppends).toHaveLength(0);
   });
 });
 
@@ -367,8 +395,29 @@ describe('JobCardService action-scoped start location', () => {
       })).rejects.toBeDefined();
       expect(quota.reserve).not.toHaveBeenCalled();
       expect(reverse).not.toHaveBeenCalled();
+      expect(repository.job).toMatchObject({ status: scenario.status ?? 'ACCEPTED', version: 1 });
+      expect(repository.activities).toHaveLength(0);
+      expect(repository.realtimeEvents).toHaveLength(0);
+      expect(repository.notificationAppends).toHaveLength(0);
       expect(repository.locationAppends).toEqual([]);
     }
+  });
+
+  it.each([manager, admin] as const)('rejects %s START when geolocation is enabled without mutation', async (actor) => {
+    const { repository, reverse, service, quota } = enabledService();
+
+    await expect(service.start(actor, 'job-1', {
+      ...input,
+      locationCapture: captured,
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+
+    expect(quota.reserve).not.toHaveBeenCalled();
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.realtimeEvents).toHaveLength(0);
+    expect(repository.notificationAppends).toHaveLength(0);
+    expect(repository.locationAppends).toHaveLength(0);
   });
 
   it('returns a completed replay before calling provider again', async () => {

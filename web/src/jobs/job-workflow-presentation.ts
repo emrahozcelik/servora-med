@@ -490,6 +490,16 @@ function viewerOwnsPrimary(
   return false;
 }
 
+export function isLifecycleCommandVisible(
+  user: CurrentUser,
+  status: JobCardStatus,
+  assignedTo: string,
+  command: LifecycleCommand,
+): boolean {
+  if (command !== 'START') return true;
+  return status === 'ACCEPTED' && user.role === 'STAFF' && assignedTo === user.id;
+}
+
 export function scheduleFieldLabel(type: JobCard['type']): string {
   switch (type) {
     case 'PRODUCT_DELIVERY':
@@ -591,7 +601,7 @@ function deriveTransitions(
   const opts = { revisionActive, user, job };
   const allowed = workflowContext.allowedCommands.filter((command) => {
     if (hideWithdraw && command === 'WITHDRAW_FROM_APPROVAL') return false;
-    return true;
+    return isLifecycleCommandVisible(user, job.status, job.assignedTo, command);
   });
 
   let primary: TransitionPresentation | null = null;

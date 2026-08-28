@@ -58,7 +58,11 @@ export function getAllowedLifecycleCommands(
     if (job.status === 'NEW') {
       return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
     }
-    if (job.status === 'ACCEPTED') return ['START', 'CANCEL'];
+    if (job.status === 'ACCEPTED') {
+      return actor.role === 'STAFF' && actor.id === job.assignedTo
+        ? ['START', 'CANCEL']
+        : ['CANCEL'];
+    }
     if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
     if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
     return actor.role === 'STAFF'

@@ -14,6 +14,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const staff: CurrentUser = { id: '11111111-1111-4111-8111-111111111111', organizationId: 'org-1', name: 'Ayşe Personel', email: 'ayse@example.com', role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 };
 const manager: CurrentUser = { ...staff, id: '22222222-2222-4222-8222-222222222222', name: 'Murat Yönetici', role: 'MANAGER' };
+const admin: CurrentUser = { ...manager, id: '33333333-3333-4333-8333-333333333333', name: 'Sistem yöneticisi', role: 'ADMIN' };
 const item: JobCardListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
   engagementKind: null,
@@ -143,6 +144,30 @@ describe('structured JobCard list', () => {
     // Only the owned primary command uses primary fill; REQUEST_REVISION stays secondary.
     expect(html).toMatch(/class="[^"]*primary-button[^"]*"[^>]*data-job-command="APPROVE"/);
     expect(html).toMatch(/class="[^"]*secondary-button[^"]*"[^>]*data-job-command="REQUEST_REVISION"/);
+  });
+
+  it.each([
+    ['ADMIN', admin],
+    ['MANAGER', manager],
+    ['unassigned STAFF', { ...staff, id: '44444444-4444-4444-8444-444444444444' }],
+  ] as const)('does not render START for %s on an ACCEPTED row', (_label, user) => {
+    const html = renderListJob(listJob({
+      status: 'ACCEPTED',
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['START', 'CANCEL'],
+    }), user);
+
+    expect(html).not.toContain('data-job-command="START"');
+  });
+
+  it('keeps START visible for the assigned eligible STAFF on an ACCEPTED row', () => {
+    const html = renderListJob(listJob({
+      status: 'ACCEPTED',
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['START', 'CANCEL'],
+    }), staff);
+
+    expect(html).toContain('data-job-command="START"');
   });
 
   it('keeps scannable information order: title, type, customer, then metadata and actions', () => {

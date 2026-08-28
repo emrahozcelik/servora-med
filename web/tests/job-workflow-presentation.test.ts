@@ -215,6 +215,54 @@ describe('deriveJobWorkflowPresentation', () => {
       .toEqual(['CANCEL']);
   });
 
+  it.each([
+    ['ADMIN', admin],
+    ['MANAGER', manager],
+    ['unassigned STAFF', { ...staff, id: 's2' }],
+  ] as const)('hides START from %s on an ACCEPTED JobCard', (_label, user) => {
+    const accepted = jobWith({
+      status: 'ACCEPTED',
+      assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          startedAt: null,
+        },
+        submissionReadiness: null,
+      }),
+    });
+
+    const model = derive(accepted, user);
+
+    expect(model.primaryTransition).toBeNull();
+    expect(model.secondaryTransitions.map(({ command }) => command)).toEqual(['CANCEL']);
+  });
+
+  it('keeps START as the primary action for the assigned eligible STAFF user', () => {
+    const accepted = jobWith({
+      status: 'ACCEPTED',
+      assignedTo: staff.id,
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: staff.id, name: staff.name },
+          startedAt: null,
+        },
+        submissionReadiness: null,
+      }),
+    });
+
+    const model = derive(accepted, staff);
+
+    expect(model.primaryTransition?.command).toBe('START');
+    expect(model.secondaryTransitions.map(({ command }) => command)).toEqual(['CANCEL']);
+  });
+
   it('shows a revision loop until the work is submitted again', () => {
     const lifecycle = {
       ...workflowContext.lifecycle,
