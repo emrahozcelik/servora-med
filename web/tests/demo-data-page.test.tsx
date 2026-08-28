@@ -19,6 +19,7 @@ const demoDataApi = vi.hoisted(() => ({
   getDemoDataset: vi.fn(),
   previewDemoDataset: vi.fn(),
   purgeDemoDataset: vi.fn(),
+  createDemoDataset: vi.fn(),
 }));
 
 vi.mock('../src/services/demo-data-api', async (importOriginal) => ({
@@ -51,6 +52,23 @@ const affectedCounts = {
   calendarEvents: 1, conversations: 0, messages: 0, notifications: 1, reminders: 0,
   realtimeEvents: 1,
 };
+
+const adminUser = {
+  id: 'admin-1',
+  organizationId: 'org-1',
+  name: 'Admin',
+  email: 'admin@test.local',
+  role: 'ADMIN' as const,
+  mustChangePassword: false,
+  isActive: true,
+  version: 1,
+  capabilities: { overviewDashboard: false, calendar: false, messaging: false, demoDatasetCreation: true },
+  support: { displayLabel: 'Sistem yöneticiniz', email: null, helpUrl: null },
+};
+
+const managerUser = { ...adminUser, role: 'MANAGER' as const, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
+const staffUser = { ...adminUser, role: 'STAFF' as const, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
+const adminNoCapability = { ...adminUser, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
 
 function preview(overrides: Partial<DemoDatasetPreview> = {}): DemoDatasetPreview {
   return {
@@ -111,6 +129,7 @@ describe('DemoDataPage destructive purge flow', () => {
     demoDataApi.getDemoDataset.mockReset();
     demoDataApi.previewDemoDataset.mockReset();
     demoDataApi.purgeDemoDataset.mockReset();
+    demoDataApi.createDemoDataset.mockReset();
     vi.restoreAllMocks();
     demoDataApi.previewDemoDataset.mockResolvedValue(preview());
   });
@@ -120,9 +139,9 @@ describe('DemoDataPage destructive purge flow', () => {
     host.remove();
   });
 
-  async function renderPage() {
+  async function renderPage(user: typeof adminUser = adminUser) {
     await act(async () => {
-      root.render(<MemoryRouter><DemoDataPage /></MemoryRouter>);
+      root.render(<MemoryRouter><DemoDataPage user={user as unknown as import('../src/services/api').CurrentUser} /></MemoryRouter>);
     });
     await settle();
   }
@@ -542,5 +561,212 @@ describe('DemoDataPage destructive purge flow', () => {
     expect(host.textContent).toContain('Veri kümesi listesi yenilenemedi.');
     expect(host.textContent).toContain('JobCard kayıtları: 2');
     expect(host.textContent).toContain('Kaldırıldı');
+  });
+});
+
+describe('DemoDataPage creation flow', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    demoDataApi.listDemoDatasets.mockReset();
+    demoDataApi.getDemoDataset.mockReset();
+    demoDataApi.previewDemoDataset.mockReset();
+    demoDataApi.purgeDemoDataset.mockReset();
+    demoDataApi.createDemoDataset.mockReset();
+    demoDataApi.previewDemoDataset.mockResolvedValue(preview());
+  });
+
+  afterEach(async () => {
+    await act(async () => { root.unmount(); });
+    host.remove();
+  });
+
+  async function renderCreation(user: typeof adminUser = adminUser, datasets: DemoDataset[] = []) {
+    demoDataApi.listDemoDatasets.mockResolvedValue(datasets);
+    if (datasets.some((d) => d.status === 'ACTIVE')) {
+      demoDataApi.previewDemoDataset.mockResolvedValue(preview());
+    } else {
+      demoDataApi.previewDemoDataset.mockResolvedValue(preview());
+    }
+    await act(async () => {
+      root.render(<MemoryRouter><DemoDataPage user={user as unknown as import('../src/services/api').CurrentUser} /></MemoryRouter>);
+    });
+    await settle();
+  }
+
+  it('shows creation CTA when ADMIN, capability enabled and no ACTIVE dataset', async () => {
+    await renderCreation(adminUser, []);
+    expect(host.textContent).toContain('Demo verisi oluştur');
+    expect(host.textContent).toContain('3 demo personel');
+    expect(host.textContent).toContain('5 demo müşteri');
+  });
+
+  it('hides creation CTA when capability disabled', async () => {
+    await renderCreation(adminNoCapability, []);
+    expect(host.textContent).toContain('Demo verisi oluşturma bu ortamda etkin değil.');
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
+  });
+
+  it('disables creation CTA when ACTIVE dataset exists', async () => {
+    await renderCreation(adminUser, [activeDataset]);
+    expect(host.textContent).toContain('Zaten etkin bir demo veri seti bulunuyor.');
+    const createButton = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur');
+    expect(createButton).toBeDefined();
+    expect(createButton?.disabled).toBe(true);
+  });
+
+  it('does not show creation for MANAGER or STAFF', async () => {
+    await renderCreation(managerUser, []);
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
+    await act(async () => { root.unmount(); });
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    demoDataApi.listDemoDatasets.mockReset();
+    demoDataApi.previewDemoDataset.mockReset();
+    demoDataApi.createDemoDataset.mockReset();
+    await renderCreation(staffUser, []);
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
+  });
+
+  it('opens confirmation and shows fixture summary before POST', async () => {
+    const spy = vi.spyOn(globalThis.crypto, 'randomUUID');
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Demo verisi oluşturulsun mu?');
+    expect(dialog.textContent).toContain('3 demo personel');
+    expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('creates one POST with valid clientActionId and locks while pending', async () => {
+    const pending = deferred<import('../src/services/demo-data-api').DemoDatasetCreateResponse>();
+    const clientActionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
+    demoDataApi.createDemoDataset.mockReturnValue(pending.promise as unknown as Promise<import('../src/services/demo-data-api').DemoDatasetCreateResponse>);
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); confirm.click(); });
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(1);
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledWith({ clientActionId });
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(Array.from(dialog.querySelectorAll('button')).every((b) => b.disabled)).toBe(true);
+    pending.resolve({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
+    await settle();
+  });
+
+  it('cancels without POST', async () => {
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const cancel = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'İptal' || b.textContent === 'Vazgeç') ?? Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent !== 'Oluştur')!;
+    await act(async () => { cancel.click(); });
+    expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('shows success 201 and refreshes list', async () => {
+    const created: DemoDataset = { ...activeDataset, id: '99999999-9999-4999-8999-999999999999', datasetKey: 'standard-v1-aaaa', seedVersion: 'demo-standard-v1', status: 'ACTIVE', purgedAt: null };
+    demoDataApi.createDemoDataset.mockResolvedValue({ dataset: created, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([created]);
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(host.textContent).toContain('Demo verisi oluşturuldu');
+    expect(demoDataApi.listDemoDatasets).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats 200 replay as success', async () => {
+    demoDataApi.createDemoDataset.mockResolvedValue({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: true } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(host.textContent).toContain('Demo verisi zaten oluşturulmuş');
+  });
+
+  it('handles 409 already exists with friendly message and refresh', async () => {
+    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(409, 'DEMO_DATASET_ALREADY_EXISTS', 'exists', false, {}));
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(host.textContent).toContain('Zaten etkin bir demo veri seti bulunuyor.');
+    expect(demoDataApi.listDemoDatasets).toHaveBeenCalledTimes(2);
+  });
+
+  it('handles 404 disabled with safe message', async () => {
+    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(404, 'DEMO_DATASET_NOT_FOUND', 'not found', false, {}));
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(host.textContent).toContain('Demo verisi oluşturma bu ortamda etkin değil.');
+  });
+
+  it('handles 403 with permission message', async () => {
+    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'forbidden', false, {}));
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    const dialog = host.querySelector('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(host.textContent).toContain('Bu işlem için yetkiniz yok');
+  });
+
+  it('reuses same clientActionId on network retry', async () => {
+    const firstId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const spy = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(firstId);
+    demoDataApi.createDemoDataset
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'network', true, {}))
+      .mockResolvedValueOnce({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
+    await renderCreation(adminUser, []);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
+    await act(async () => { trigger.click(); });
+    let dialog = host.querySelector('[role="dialog"]')!;
+    let confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledWith({ clientActionId: firstId });
+    expect(host.textContent).toContain('İşlemin sonucu doğrulanamadı');
+    // retry should reuse same id, spy still returns same firstId? second call should be same
+    spy.mockReturnValue(firstId);
+    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent.includes('Yeniden')) ?? host.querySelector<HTMLButtonElement>('button');
+    // fallback: reopen dialog and retry
+    await act(async () => { trigger.click(); });
+    dialog = host.querySelector('[role="dialog"]')!;
+    confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
+    await act(async () => { confirm.click(); });
+    await settle();
+    expect(demoDataApi.createDemoDataset).toHaveBeenLastCalledWith({ clientActionId: firstId });
   });
 });

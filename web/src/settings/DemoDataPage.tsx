@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
-import { ApiError } from '../services/api';
+import { ApiError, type CurrentUser } from '../services/api';
 import {
+  createDemoDataset,
   getDemoDataset,
   listDemoDatasets,
   previewDemoDataset,
@@ -208,6 +209,22 @@ function suppressesPreviewAction(operation: PurgeOperationState, datasetId: stri
   return true;
 }
 
+type CreateOperationState =
+  | { kind: 'idle' }
+  | { kind: 'submitting'; clientActionId: string }
+  | { kind: 'success'; dataset: DemoDataset; replayed: boolean }
+  | { kind: 'error'; title: string; description: string };
+
+const DEMO_FIXTURE_SUMMARY: readonly string[] = [
+  '3 demo personel (1 yönetici, 2 satış)',
+  '5 demo müşteri',
+  '5 demo ürün',
+  '8 demo iş kaydı',
+] as const;
+
+const DEMO_FIXTURE_EXPLANATION =
+  'Oluşturulacak veriler sentetiktir. Mevcut iş verileriniz değişmez. Aynı anda yalnızca bir aktif demo veri kümesi bulunabilir; daha sonra Demo verisi yönetimi üzerinden kaldırılabilir.';
+
 function queryErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback;
   if (error.code === 'NETWORK_ERROR') {
@@ -353,7 +370,7 @@ function PreviewDetails({
   </div>;
 }
 
-export function DemoDataPage() {
+export function DemoDataPage({ user }: { user: CurrentUser }) {
   const [datasets, setDatasets] = useState<DemoDataset[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<DemoDatasetPreview | null>(null);
@@ -364,6 +381,11 @@ export function DemoDataPage() {
   const [operation, setOperation] = useState<PurgeOperationState>({ kind: 'idle' });
   const purgeTriggerRef = useRef<HTMLButtonElement>(null);
   const submitGateRef = useRef(false);
+  const [createConfirmationOpen, setCreateConfirmationOpen] = useState(false);
+  const [createOperation, setCreateOperation] = useState<CreateOperationState>({ kind: 'idle' });
+  const createTriggerRef = useRef<HTMLButtonElement>(null);
+  const createClientActionRef = useRef<string | null>(null);
+  const createSubmitGateRef = useRef(false);
 
   const interactionLocked = operation.kind === 'submitting' || operation.kind === 'reconciling';
 
@@ -566,6 +588,75 @@ export function DemoDataPage() {
     }
   }
 
+  const canCreate = user.role === 'ADMIN' && user.capabilities?.demoDatasetCreation === true;
+  const hasActiveDataset = datasets?.some((dataset) => dataset.status === 'ACTIVE') ?? false;
+  const createAvailable = canCreate && !hasActiveDataset && datasets !== null;
+  const isCreating = createOperation.kind === 'submitting';
+
+  async function submitCreate() {
+    if (createSubmitGateRef.current) return;
+    createSubmitGateRef.current = true;
+    const clientActionId = createClientActionRef.current ?? crypto.randomUUID();
+    createClientActionRef.current = clientActionId;
+    setCreateOperation({ kind: 'submitting', clientActionId });
+    try {
+      const response = await createDemoDataset({ clientActionId });
+      setCreateConfirmationOpen(false);
+      setCreateOperation({ kind: 'success', dataset: response.dataset, replayed: response.replayed });
+      createClientActionRef.current = null;
+      const refreshed = await listDemoDatasets();
+      setDatasets(refreshed);
+      setSelectedId(response.dataset.id);
+    } catch (caught) {
+      if (isAmbiguousMutationError(caught)) {
+        // keep same clientActionId for retry
+        setCreateOperation({
+          kind: 'error',
+          title: 'İşlemin sonucu doğrulanamadı',
+          description: 'Ağ bağlantısı kesildi. Aynı işlem kimliğiyle yeniden deneyebilirsiniz.',
+        });
+      } else if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_ALREADY_EXISTS') {
+        setCreateOperation({
+          kind: 'error',
+          title: 'Zaten etkin bir demo veri seti bulunuyor.',
+          description: 'Yeni bir demo veri kümesi oluşturmadan önce mevcut etkin kümenin kaldırılması gerekir.',
+        });
+        try {
+          const refreshed = await listDemoDatasets();
+          setDatasets(refreshed);
+        } catch { /* keep datasets */ }
+        createClientActionRef.current = null;
+      } else if (caught instanceof ApiError && caught.status === 404) {
+        setCreateOperation({
+          kind: 'error',
+          title: 'Demo verisi oluşturma bu ortamda etkin değil.',
+          description: 'Sunucu demo verisi oluşturmayı bu ortam için kapalı tutuyor.',
+        });
+        createClientActionRef.current = null;
+      } else if (caught instanceof ApiError && caught.status === 403) {
+        setCreateOperation({
+          kind: 'error',
+          title: 'Bu işlem için yetkiniz yok',
+          description: 'Demo verisi oluşturma yalnızca yönetici hesapları tarafından yapılabilir.',
+        });
+        createClientActionRef.current = null;
+      } else {
+        const message = caught instanceof ApiError ? caught.message : 'Bilinmeyen hata';
+        setCreateOperation({
+          kind: 'error',
+          title: 'Demo verisi oluşturulamadı',
+          description: message,
+        });
+        // keep clientActionId for retry on 5xx/network, clear on validation
+        if (caught instanceof ApiError && caught.status >= 400 && caught.status < 500 && caught.code !== 'NETWORK_ERROR') {
+          createClientActionRef.current = null;
+        }
+      }
+    } finally {
+      createSubmitGateRef.current = false;
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
     void listDemoDatasets().then((items) => {
@@ -627,6 +718,77 @@ export function DemoDataPage() {
       </div>
       <Link className="ghost-button" to={paths.settings}>Ayarlar</Link>
     </header>
+    {canCreate && datasets !== null && (
+      <OperationalCard title="Demo verisi oluştur">
+        <p className="demo-data-preview-message">
+          Standart demo veri kümesi oluşturur. Mevcut iş verileriniz etkilenmez.
+        </p>
+        <ul className="demo-data-fixture-list" aria-label="Demo fixture içeriği">
+          {DEMO_FIXTURE_SUMMARY.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <p className="demo-data-preview-message" style={{ marginTop: '0.75rem' }}>
+          {DEMO_FIXTURE_EXPLANATION}
+        </p>
+        {hasActiveDataset && createOperation.kind !== 'success' && createOperation.kind !== 'error' && (
+          <p className="demo-data-preview-message" style={{ marginTop: '0.75rem' }}>
+            Zaten etkin bir demo veri seti bulunuyor. Yeni bir küme oluşturmadan önce mevcut etkin kümenin Demo verisi yönetimi üzerinden kaldırılması gerekir.
+          </p>
+        )}
+        {createOperation.kind === 'success' && (
+          <ResultState
+            status="success"
+            title={createOperation.replayed ? 'Demo verisi zaten oluşturulmuş' : 'Demo verisi oluşturuldu'}
+            description={
+              createOperation.replayed
+                ? 'Bu oluşturma isteği daha önce tamamlanmıştı. Mevcut aktif veri kümesi gösteriliyor.'
+                : 'Standart demo veri kümesi başarıyla oluşturuldu.'
+            }
+            headingLevel={3}
+          />
+        )}
+        {createOperation.kind === 'error' && (
+          <ResultState
+            status="warning"
+            title={createOperation.title}
+            description={createOperation.description}
+            headingLevel={3}
+          />
+        )}
+        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            ref={createTriggerRef}
+            type="button"
+            className="primary-button"
+            disabled={isCreating || hasActiveDataset}
+            aria-busy={isCreating}
+            onClick={() => setCreateConfirmationOpen(true)}
+          >
+            {isCreating ? 'Demo verisi oluşturuluyor…' : 'Demo verisi oluştur'}
+          </button>
+          {createOperation.kind === 'error' && (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={isCreating}
+              onClick={() => {
+                setCreateOperation({ kind: 'idle' });
+              }}
+            >
+              Kapat
+            </button>
+          )}
+        </div>
+      </OperationalCard>
+    )}
+    {!canCreate && datasets !== null && (
+      <OperationalCard title="Demo verisi oluşturma">
+        <p className="demo-data-preview-message">
+          Demo verisi oluşturma bu ortamda etkin değil.
+        </p>
+      </OperationalCard>
+    )}
     <div className="demo-data-layout">
       <OperationalCard title="Demo veri kümeleri">
         <DatasetList
@@ -747,6 +909,18 @@ export function DemoDataPage() {
       onConfirm={() => { void submitApprovedPurge(); }}
       onCancel={() => setConfirmation(null)}
       returnFocusRef={purgeTriggerRef}
+    />
+    <ConfirmationAction
+      open={createConfirmationOpen}
+      title="Demo verisi oluşturulsun mu?"
+      description="Bu işlem standart demo veri kümesini oluşturur. Mevcut iş verileriniz değişmez."
+      details={[...DEMO_FIXTURE_SUMMARY, DEMO_FIXTURE_EXPLANATION]}
+      confirmLabel="Oluştur"
+      pending={isCreating}
+      pendingLabel="Oluşturuluyor…"
+      onConfirm={() => { void submitCreate(); }}
+      onCancel={() => setCreateConfirmationOpen(false)}
+      returnFocusRef={createTriggerRef}
     />
   </main>;
 }

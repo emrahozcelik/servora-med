@@ -21,6 +21,7 @@ export type AuthenticatedCapabilities = {
   calendar: boolean;
   messaging: boolean;
   backup?: boolean;
+  demoDatasetCreation?: boolean;
 };
 export type AuthenticatedSupport = {
   displayLabel: string;
@@ -140,6 +141,7 @@ function parseCurrentUser(value: unknown): CurrentUser {
       calendar: rawCapabilities.calendar === true,
       messaging: rawCapabilities.messaging === true,
       ...(typeof rawCapabilities.backup === 'boolean' ? { backup: rawCapabilities.backup } : {}),
+      ...(typeof rawCapabilities.demoDatasetCreation === 'boolean' ? { demoDatasetCreation: rawCapabilities.demoDatasetCreation } : {}),
     },
     support: {
       displayLabel: typeof rawSupport.displayLabel === 'string' && rawSupport.displayLabel.trim()

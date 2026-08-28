@@ -9,6 +9,7 @@ const DEFAULT_CAPABILITIES: AuthenticatedCapabilities = {
   calendar: false,
   messaging: false,
   backup: false,
+  demoDatasetCreation: false,
 };
 const DEFAULT_SUPPORT: AuthenticatedSupport = {
   displayLabel: 'Sistem yöneticiniz',

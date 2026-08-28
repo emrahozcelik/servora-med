@@ -518,6 +518,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       // configuration is optional; present values are validated, but the app
       // must keep starting while this flag is off and those values are absent.
       backup: readBoolean(env.BACKUP_ENABLED, 'BACKUP_ENABLED'),
+      demoDatasetCreation: readBoolean(env.DEMO_DATA_CREATION_ENABLED, 'DEMO_DATA_CREATION_ENABLED'),
     },
     calendarReminderLeadMinutes: readIntegerInRange(
       env.CALENDAR_REMINDER_LEAD_MINUTES,
