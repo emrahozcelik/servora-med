@@ -32,7 +32,9 @@ export class PostgresMigrationStore implements MigrationStore {
   }
 
   async getAppliedVersions() {
-    const result = await this.pool.query('SELECT version FROM schema_migrations ORDER BY version');
+    const result = await this.pool.query(
+      'SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC',
+    );
     return result.rows.map((row) => (row as { version: string }).version);
   }
 

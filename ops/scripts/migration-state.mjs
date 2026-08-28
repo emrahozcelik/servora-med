@@ -11,6 +11,10 @@ import { createRequire } from 'node:module';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  classifyMigrationState,
+  formatMigrationVersions,
+} from './migration-reconciliation.mjs';
 
 const releaseDirectory = process.argv[2] ?? '';
 const versionPattern = /^(\d{3})_([A-Za-z0-9_]+)\.sql$/;
@@ -18,10 +22,6 @@ const versionPattern = /^(\d{3})_([A-Za-z0-9_]+)\.sql$/;
 function fail() {
   console.error('Migration state unavailable.');
   process.exitCode = 1;
-}
-
-function csv(values) {
-  return values.join(',');
 }
 
 function countValue(row, key) {
@@ -79,29 +79,33 @@ async function main() {
   });
 
   try {
-    const result = await pool.query('SELECT version FROM schema_migrations ORDER BY version');
+    // Preserve application order so a reordered history cannot be normalized
+    // into a harmless set comparison. The version tie-breaker is deterministic
+    // for rows written within the same timestamp tick.
+    const result = await pool.query(
+      'SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC',
+    );
     const applied = result.rows.map((row) => String(row.version));
     const catalogVersions = catalog.map((entry) => entry.version);
-    const catalogSet = new Set(catalogVersions);
-    const appliedSet = new Set(applied);
-    const pending = catalogVersions.filter((version) => !appliedSet.has(version));
-    const unexpected = applied.filter((version) => !catalogSet.has(version));
-    const appliedHead = [...catalogVersions].reverse().find((version) => appliedSet.has(version)) ?? '';
-    const exactCatalog = pending.length === 0
-      && unexpected.length === 0
-      && applied.length === catalogVersions.length
-      && new Set(applied).size === applied.length;
+    const reconciliation = classifyMigrationState(catalogVersions, applied);
+    const pending = reconciliation.pendingVersions;
+    const unexpected = reconciliation.unexpectedVersions;
+    const appliedHead = applied.at(-1) ?? '';
+    const exactCatalog = reconciliation.status === 'EXACT';
 
     console.log(`catalog_count=${catalog.length}`);
     console.log(`catalog_head=${catalog.at(-1)?.version ?? ''}`);
-    console.log(`catalog_versions=${csv(catalogVersions)}`);
+    console.log(`catalog_versions=${formatMigrationVersions(catalogVersions)}`);
     console.log(`applied_count=${applied.length}`);
     console.log(`applied_head=${appliedHead}`);
-    console.log(`applied_versions=${csv(applied)}`);
-    console.log(`pending_versions=${csv(pending)}`);
+    console.log(`applied_versions=${formatMigrationVersions(applied)}`);
+    console.log(`pending_versions=${formatMigrationVersions(pending)}`);
     console.log(`pending_count=${pending.length}`);
-    console.log(`unexpected_versions=${csv(unexpected)}`);
+    console.log(`unexpected_versions=${formatMigrationVersions(unexpected)}`);
     console.log(`unexpected_count=${unexpected.length}`);
+    console.log(`migration_status=${reconciliation.status}`);
+    console.log(`migration_reason=${reconciliation.reason}`);
+    console.log(`duplicate_versions=${formatMigrationVersions(reconciliation.duplicateVersions)}`);
     console.log(`exact_catalog=${exactCatalog ? 'true' : 'false'}`);
 
     // These are aggregate, non-sensitive invariants used to prove that a

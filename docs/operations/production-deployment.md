@@ -206,7 +206,7 @@ Worker activation requires a separate deployment gate:
   satisfy it. Keep the single operator-alerting monitor in legacy mode until
   the gate approves `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`.
 
-## Controlled production automation (R1)
+## Controlled production automation (R1/R2)
 
 The repository now contains a reusable, fail-closed production deployment
 entrypoint at `ops/deploy-production.sh` and the manually dispatched
@@ -284,19 +284,45 @@ existing SHA directory, verifies the transferred archive checksum and every
 release boundary, applies only the targeted Caddy read ACL for `web/dist`, and
 keeps `/opt/servora-med/current` as the sole live pointer. It never performs a
 `git pull` on the VPS and never packages `.git`, `host.md`, environment files,
-credentials, password files, business-data manifests, database dumps, or
+credential/password artifacts, business-data manifests, database dumps, or
 temporary metadata.
+
+The artifact checksum sidecar is a single canonical text record:
+
+```text
+<64 lowercase hexadecimal digest>  <exact artifact basename>
+```
+
+The runner and root helper parse this record before verification. Absolute or
+slash-containing paths, traversal, multiple records, extra tokens, malformed
+digests, and device/FIFO targets are rejected with
+`ARTIFACT_CHECKSUM_SIDECAR_INVALID`; the sidecar cannot select a different
+verification target. Temporary-password, credential, onboarding-manifest, and
+production-mapping artifacts are excluded by explicit data-file/name rules;
+legitimate source files such as `credentials.ts` are not excluded by a generic
+glob.
+
+The manual runner also requires an exact source tree before any build starts:
+tracked/index cleanliness is checked globally, and untracked files under the
+server/web build inputs or packaged `ops/` tree fail with
+`SOURCE_TREE_NOT_EXACT`. Unrelated root notes and generated `.codebase-memory/`
+state remain preserved because they are outside those inputs. The runner never
+deletes, cleans, stashes, or resets a worktree.
 
 ### Migration, rollback, and backup policy
 
 `allow_migrations` defaults to `false`. The helper compares the candidate
 catalog with production `schema_migrations` before invoking the tracked
-`dist/db/migrate.js` runner. Any pending migration stops with
-`PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION`; a reviewer must deliberately
-enable the workflow boolean to continue. It records aggregate organization,
-admin, staff, customer, product, job, and demo-data counts before and after the
-runner and fails if they move unexpectedly. No arbitrary SQL or automatic
-database restore is available.
+`dist/db/migrate.js` runner using an ordered history contract. Production must
+be either `EXACT` or an exact ordered prefix (`PREFIX_WITH_PENDING`) of the
+candidate catalog. Prefix migrations stop with
+`PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION` unless a reviewer
+deliberately enables the workflow boolean. `DIVERGENT`, `DATABASE_AHEAD`,
+`DUPLICATE_HISTORY`, and `INVALID_CATALOG` states always stop, even when
+migrations are explicitly allowed. It records aggregate organization, admin,
+staff, customer, product, job, and demo-data counts before and after the runner
+and fails if they move unexpectedly. No arbitrary SQL or automatic database
+restore is available.
 
 If activation/health/browser smoke fails and zero migrations were applied, the
 old release may be switched back atomically and the application restarted. A
@@ -309,10 +335,26 @@ The deployment path contains no personnel/customer importer, seed, demo-data,
 or admin-bootstrap invocation. No business-data import occurs during
 deployment; onboarding remains a separate, operator-authorized workflow.
 
+The R2 remediation changes the reviewed root helper source. `HOST_BOOTSTRAP_REQUIRED=YES`
+therefore remains in force: the installed root-owned helper must be updated by
+a separate, one-time host bootstrap before the first automated run of this
+contract. The deployment detects a mismatch between the installed helper and
+the staged candidate and fails closed; it never self-updates the privileged
+helper.
+
 For a local contract-only check (no network, SSH, or production contact):
 
 ```bash
 bash ops/deploy-production.sh --check
+```
+
+The deployment safety suite executes isolated checksum, migration, source
+purity, artifact, backup-order, activation/rollback, and postdeploy-failure
+fixtures without contacting production:
+
+```bash
+cd server
+npx vitest run tests/production-deploy-automation.test.ts
 ```
 
 An authorized operator may run the normal entrypoint manually from a clean

@@ -65,6 +65,7 @@ jobs:
             ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example
           node --check ../ops/scripts/migration-state.mjs
+          node --check ../ops/scripts/migration-reconciliation.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
       - name: shellcheck ops scripts
         run: |

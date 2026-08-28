@@ -11,8 +11,16 @@ umask 077
 readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH="$SAFE_PATH"
 
-readonly RELEASE_ROOT="/opt/servora-med/releases"
-readonly CURRENT_LINK="/opt/servora-med/current"
+if [[ "${BASH_SOURCE[0]}" != "$0" && "${SERVORA_DEPLOY_TEST_MODE:-}" == 1 ]]; then
+  # Source-only fixture hook. Direct production execution can never select a
+  # different release root or current link through this branch.
+  RELEASE_ROOT="${SERVORA_TEST_RELEASE_ROOT:-/tmp/servora-med-test/releases}"
+  CURRENT_LINK="${SERVORA_TEST_CURRENT_LINK:-/tmp/servora-med-test/current}"
+else
+  RELEASE_ROOT="/opt/servora-med/releases"
+  CURRENT_LINK="/opt/servora-med/current"
+fi
+readonly RELEASE_ROOT CURRENT_LINK
 readonly SERVICE="servora-med.service"
 readonly APP_ENV_FILE="/etc/servora-med/servora-med.env"
 readonly BACKUP_DIR="/var/backups/servora-med"
@@ -65,7 +73,9 @@ cleanup() {
     rm -rf -- "$STAGING_DIR" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  trap cleanup EXIT
+fi
 
 on_error() {
   local code=$?
@@ -80,12 +90,14 @@ on_error() {
   echo "PRODUCTION_DEPLOYMENT_FAILED phase=${PHASE:-UNKNOWN} sha=${SHA:-UNKNOWN} reason=unexpected_error_${code}" >&2
   exit "$code"
 }
-trap on_error ERR
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  trap on_error ERR
+fi
 
 require_commands() {
   [[ "$(id -u)" -eq 0 ]] || fail ROOT_REQUIRED
   local command_name
-  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep; do
+  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep od; do
     command -v "$command_name" >/dev/null 2>&1 || fail "HOST_BOOTSTRAP_REQUIRED_${command_name}"
   done
   [[ -x "$NODE_BIN" ]] || fail HOST_BOOTSTRAP_REQUIRED_node
@@ -173,6 +185,47 @@ assert_service_and_health() {
   health_gate || fail CURRENT_HEALTH_FAILED
 }
 
+is_forbidden_artifact_path() {
+  local clean="$1"
+  case "$clean" in
+    ..|../*|*/../*|*/..|.git|.git/*|*/.git|*/.git/*|.worktrees|.worktrees/*|*/.worktrees|*/.worktrees/*|host.md|*/host.md|.env|.env.*|*/.env|*/.env.*|credentials|*/credentials|credentials/*|*/credentials/*|password|*/password|passwords|*/passwords|passwords/*|*/passwords/*|customer-manifest*|*/customer-manifest*|personnel-manifest*|*/personnel-manifest*|*/db-dumps/*|*/private/tmp/*|*.pem|*.key|id_rsa|*/id_rsa|id_ed25519|*/id_ed25519|._*|*/._*)
+      return 0
+      ;;
+    servora-med-shared-temporary-password|*/servora-med-shared-temporary-password|servora-med-shared-temporary-password.*|*/servora-med-shared-temporary-password.*|temporary-password|*/temporary-password|temporary-password.*|*/temporary-password.*|*temporary-password|*temporary-password.*)
+      return 0
+      ;;
+    *password.*|*passwords.*)
+      case "$clean" in
+        *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
+      esac
+      ;;
+    servora-med-personnel-onboarding-credentials|*/servora-med-personnel-onboarding-credentials|servora-med-personnel-onboarding-credentials.*|*/servora-med-personnel-onboarding-credentials.*|personnel-onboarding-credentials|*/personnel-onboarding-credentials|personnel-onboarding-credentials.*|*/personnel-onboarding-credentials.*)
+      return 0
+      ;;
+    servora-med-personnel-onboarding-manifest|*/servora-med-personnel-onboarding-manifest|servora-med-personnel-onboarding-manifest.*|*/servora-med-personnel-onboarding-manifest.*|personnel-onboarding-manifest|*/personnel-onboarding-manifest|personnel-onboarding-manifest.*|*/personnel-onboarding-manifest.*)
+      return 0
+      ;;
+    servora-med-customer-onboarding-manifest|*/servora-med-customer-onboarding-manifest|servora-med-customer-onboarding-manifest.*|*/servora-med-customer-onboarding-manifest.*|customer-onboarding-manifest|*/customer-onboarding-manifest|customer-onboarding-manifest.*|*/customer-onboarding-manifest.*)
+      return 0
+      ;;
+    *customer-onboarding.json|*customer-onboarding.csv|*customer-onboarding.xlsx|*customer-onboarding.yaml|*customer-onboarding.yml)
+      return 0
+      ;;
+    *credential|*credentials)
+      return 0
+      ;;
+    *credential.*|*credentials.*)
+      case "$clean" in
+        *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
+      esac
+      ;;
+    *production-mapping|*production-mapping.json|*production-mapping.csv|*production-mapping.xlsx|*production-mapping.yaml|*production-mapping.yml)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 verify_archive_entries() {
   local entry clean
   tar -tzf "$ARTIFACT" >/dev/null || fail ARTIFACT_INVALID_ARCHIVE
@@ -181,11 +234,7 @@ verify_archive_entries() {
     clean="${entry#./}"
     [[ "$clean" != /* ]] || fail ARTIFACT_PATH_TRAVERSAL
     [[ "$clean" != *$'\n'* && "$clean" != *$'\r'* ]] || fail ARTIFACT_PATH_INVALID
-    case "$clean" in
-      ..|../*|*/../*|*/..|.git|.git/*|*/.git|*/.git/*|.worktrees|.worktrees/*|*/.worktrees|*/.worktrees/*|host.md|*/host.md|.env|.env.*|*/.env|*/.env.*|credentials|credentials.*|*/credentials|*/credentials.*|*/credentials/*|password|password.*|*/password|*/password.*|passwords|passwords.*|*/passwords|*/passwords.*|*/passwords/*|customer-manifest*|*/customer-manifest*|personnel-manifest*|*/personnel-manifest*|*/db-dumps/*|*/private/tmp/*|*.pem|*.key|id_rsa|*/id_rsa|id_ed25519|*/id_ed25519|._*|*/._*)
-        fail ARTIFACT_FORBIDDEN_CONTENT
-        ;;
-    esac
+    is_forbidden_artifact_path "$clean" && fail ARTIFACT_FORBIDDEN_CONTENT
   done < <(tar -tzf "$ARTIFACT")
 
   # The helper extracts as root. Reject device nodes, FIFOs, and hard links so
@@ -200,14 +249,41 @@ verify_archive_entries() {
   done < <(tar -tvzf "$ARTIFACT" | awk '{print $1}')
 }
 
+verify_checksum_sidecar() {
+  local target="$1"
+  local sidecar="$2"
+  local invalid_reason="$3"
+  local mismatch_reason="$4"
+  local line expected filename actual checksum_pattern line_count byte
+  [[ -f "$sidecar" && ! -L "$sidecar" ]] || fail "$invalid_reason"
+  while IFS= read -r byte; do
+    case "$byte" in
+      0a|2[0-9a-f]|[3-6][0-9a-f]|7[0-9a-e]) ;;
+      *) fail "$invalid_reason" ;;
+    esac
+  done < <(od -An -v -t x1 "$sidecar" | tr -s '[:space:]' '\n' | sed '/^$/d')
+  line_count="$(awk 'END { print NR }' "$sidecar")" || fail "$invalid_reason"
+  [[ "$line_count" == 1 ]] || fail "$invalid_reason"
+  line="$(sed -n '1p' "$sidecar")" || fail "$invalid_reason"
+  checksum_pattern='^([0-9a-f]{64})[ ][ ]([^[:space:]]+)$'
+  [[ "$line" =~ $checksum_pattern ]] || fail "$invalid_reason"
+  expected="${BASH_REMATCH[1]}"
+  filename="${BASH_REMATCH[2]}"
+  [[ "$filename" != */* && "$filename" == "$(basename -- "$target")" ]] \
+    || fail "$invalid_reason"
+  actual="$(sha256sum -- "$target" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || fail "$mismatch_reason"
+}
+
 verify_artifact_checksum() {
   local actual
-  actual="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
+  actual="$(sha256sum -- "$ARTIFACT" | awk '{print $1}')"
   [[ "$actual" == "$ARTIFACT_SHA" ]] || fail ARTIFACT_CHECKSUM_MISMATCH
-  if [[ -f "${ARTIFACT}.sha256" ]]; then
-    (cd -- "$(dirname -- "$ARTIFACT")" && sha256sum --check --strict "$(basename -- "${ARTIFACT}.sha256")") \
-      >/dev/null 2>&1 || fail ARTIFACT_CHECKSUM_SIDECAR_MISMATCH
-  fi
+  verify_checksum_sidecar \
+    "$ARTIFACT" \
+    "${ARTIFACT}.sha256" \
+    ARTIFACT_CHECKSUM_SIDECAR_INVALID \
+    ARTIFACT_CHECKSUM_SIDECAR_MISMATCH
 }
 
 validate_extracted_links() {
@@ -238,6 +314,7 @@ validate_release_tree() {
     "$root/server/dist/db/schema-check.js" \
     "$root/ops/scripts/backup-postgres.sh" \
     "$root/ops/scripts/migration-state.mjs" \
+    "$root/ops/scripts/migration-reconciliation.mjs" \
     "$root/ops/scripts/deploy-production-host.sh" \
     "$root/ops/scripts/predeploy-backup-launcher.sh" \
     "$root/ops/systemd/servora-med-predeploy-backup@.service"; do
@@ -393,6 +470,9 @@ STATE_PENDING_VERSIONS=""
 STATE_PENDING_COUNT=""
 STATE_UNEXPECTED_VERSIONS=""
 STATE_UNEXPECTED_COUNT=""
+STATE_MIGRATION_STATUS=""
+STATE_MIGRATION_REASON=""
+STATE_DUPLICATE_VERSIONS=""
 STATE_EXACT_CATALOG=""
 STATE_ORGANIZATIONS=""
 STATE_ADMINS=""
@@ -426,6 +506,9 @@ read_migration_state() {
   STATE_PENDING_COUNT=""
   STATE_UNEXPECTED_VERSIONS=""
   STATE_UNEXPECTED_COUNT=""
+  STATE_MIGRATION_STATUS=""
+  STATE_MIGRATION_REASON=""
+  STATE_DUPLICATE_VERSIONS=""
   STATE_EXACT_CATALOG=""
   STATE_ORGANIZATIONS=""
   STATE_ADMINS=""
@@ -444,6 +527,9 @@ read_migration_state() {
       pending_count) STATE_PENDING_COUNT="$value" ;;
       unexpected_versions) STATE_UNEXPECTED_VERSIONS="$value" ;;
       unexpected_count) STATE_UNEXPECTED_COUNT="$value" ;;
+      migration_status) STATE_MIGRATION_STATUS="$value" ;;
+      migration_reason) STATE_MIGRATION_REASON="$value" ;;
+      duplicate_versions) STATE_DUPLICATE_VERSIONS="$value" ;;
       exact_catalog) STATE_EXACT_CATALOG="$value" ;;
       organizations) STATE_ORGANIZATIONS="$value" ;;
       admins) STATE_ADMINS="$value" ;;
@@ -459,6 +545,8 @@ read_migration_state() {
   [[ "$STATE_PENDING_COUNT" =~ ^[0-9]+$ && "$STATE_UNEXPECTED_COUNT" =~ ^[0-9]+$ ]] \
     || fail MIGRATION_STATE_INVALID
   [[ -n "$STATE_CATALOG_HEAD" && -n "$STATE_EXACT_CATALOG" ]] || fail MIGRATION_STATE_INVALID
+  [[ "$STATE_MIGRATION_STATUS" =~ ^(EXACT|PREFIX_WITH_PENDING|DIVERGENT|DATABASE_AHEAD|DUPLICATE_HISTORY|INVALID_CATALOG)$ ]] \
+    || fail MIGRATION_STATE_INVALID
   for value in "$STATE_ORGANIZATIONS" "$STATE_ADMINS" "$STATE_STAFF" "$STATE_CUSTOMERS" \
     "$STATE_PRODUCTS" "$STATE_JOBS" "$STATE_DEMO_DATA"; do
     [[ "$value" =~ ^[0-9]+$ ]] || fail MIGRATION_STATE_INVALID
@@ -518,7 +606,7 @@ verify_backup_artifact() {
   [[ "$(stat -c '%Y' "$candidate")" -ge "$before_epoch" ]] || fail BACKUP_ARTIFACT_NOT_NEW
   checksum="${candidate}.sha256"
   [[ -f "$checksum" && ! -L "$checksum" ]] || fail BACKUP_CHECKSUM_MISSING
-  sha256sum --check --strict "$checksum" >/dev/null 2>&1 || fail BACKUP_CHECKSUM_FAILED
+  verify_checksum_sidecar "$candidate" "$checksum" BACKUP_CHECKSUM_INVALID BACKUP_CHECKSUM_FAILED
   command -v pg_restore >/dev/null 2>&1 || fail HOST_BOOTSTRAP_REQUIRED_pg_restore
   pg_restore -l "$candidate" >/dev/null 2>&1 || fail BACKUP_ARCHIVE_INVALID
   mode="$(stat -c '%a' "$candidate")"
@@ -644,13 +732,19 @@ deploy_phase() {
   read_migration_state "$release"
   local before_applied="$STATE_APPLIED_COUNT"
   capture_data_invariants
-  if [[ -n "$STATE_UNEXPECTED_VERSIONS" \
-    || ( -z "$STATE_PENDING_VERSIONS" && "$STATE_EXACT_CATALOG" != true ) ]]; then
-    fail MIGRATION_HISTORY_DIVERGED
-  fi
-  if [[ -n "$STATE_PENDING_VERSIONS" && "$ALLOW_MIGRATIONS" != true ]]; then
-    fail PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION
-  fi
+  case "$STATE_MIGRATION_STATUS" in
+    EXACT)
+      ;;
+    PREFIX_WITH_PENDING)
+      [[ "$ALLOW_MIGRATIONS" == true ]] || fail PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION
+      ;;
+    DIVERGENT|DATABASE_AHEAD|DUPLICATE_HISTORY|INVALID_CATALOG)
+      fail MIGRATION_HISTORY_DIVERGED
+      ;;
+    *)
+      fail MIGRATION_STATE_INVALID
+      ;;
+  esac
   systemctl stop "$SERVICE" >/dev/null 2>&1
   SERVICE_STOPPED=true
   local migration_log
@@ -680,7 +774,8 @@ deploy_phase() {
   [[ "$STATE_PENDING_COUNT" == 0 && "$STATE_UNEXPECTED_COUNT" == 0 \
     && -z "$STATE_PENDING_VERSIONS" && -z "$STATE_UNEXPECTED_VERSIONS" ]] \
     || fail MIGRATION_RESULT_INCOMPATIBLE
-  [[ "$STATE_EXACT_CATALOG" == true ]] || fail MIGRATION_HISTORY_DIVERGED
+  [[ "$STATE_EXACT_CATALOG" == true && "$STATE_MIGRATION_STATUS" == EXACT ]] \
+    || fail MIGRATION_HISTORY_DIVERGED
   if ! run_schema_check "$release"; then
     if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
       systemctl start "$SERVICE" >/dev/null 2>&1 || true
@@ -699,6 +794,9 @@ deploy_phase() {
   echo "MIGRATION_AFTER_HEAD=$STATE_APPLIED_HEAD"
   echo "MIGRATION_PENDING_AFTER=$STATE_PENDING_VERSIONS"
   echo "MIGRATION_PENDING_AFTER_COUNT=$STATE_PENDING_COUNT"
+  echo "MIGRATION_STATUS=$STATE_MIGRATION_STATUS"
+  echo "MIGRATION_REASON=$STATE_MIGRATION_REASON"
+  echo "MIGRATION_DUPLICATE_VERSIONS=$STATE_DUPLICATE_VERSIONS"
   echo "MIGRATIONS_APPLIED=${MIGRATIONS_APPLIED}"
   echo "PRE_MIGRATION_ORGANIZATIONS=$BEFORE_ORGANIZATIONS"
   echo "PRE_MIGRATION_ADMINS=$BEFORE_ADMINS"
@@ -801,6 +899,7 @@ rollback_phase() {
   echo "ROLLBACK=COMPLETE"
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --phase) PHASE="${2:-}"; shift 2 ;;
@@ -829,3 +928,4 @@ case "$PHASE" in
     ;;
   *) usage; fail INVALID_PHASE ;;
 esac
+fi

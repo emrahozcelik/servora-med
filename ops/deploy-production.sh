@@ -8,7 +8,7 @@
 set -Eeuo pipefail
 umask 077
 
-REPO_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly REPO_ROOT
 readonly HOST_HELPER="/usr/local/libexec/servora-med/deploy-production-host"
 readonly DEFAULT_SSH_USER="servora-deploy"
@@ -142,7 +142,9 @@ on_exit() {
   cleanup_local
   exit "$code"
 }
-trap on_exit EXIT
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  trap on_exit EXIT
+fi
 
 validate_sha() {
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail INVALID_SHA
@@ -160,7 +162,7 @@ validate_host_identity() {
 
 check_commands() {
   local command_name
-  for command_name in bash git node npm tar ssh scp curl gh jq awk sed grep rm mktemp basename dirname; do
+  for command_name in bash git node npm tar ssh scp curl gh jq awk sed grep rm mktemp basename dirname od tr; do
     command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
   done
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
@@ -186,6 +188,7 @@ check_only() {
   bash -n "$REPO_ROOT/ops/deploy-production.sh"
   bash -n "$REPO_ROOT/ops/scripts/deploy-production-host.sh"
   node --check "$REPO_ROOT/ops/scripts/migration-state.mjs"
+  node --check "$REPO_ROOT/ops/scripts/migration-reconciliation.mjs"
   node --check "$REPO_ROOT/web/scripts/production-browser-smoke.mjs"
   [[ -f "$REPO_ROOT/.github/workflows/deploy-production.yml" ]] || fail WORKFLOW_MISSING
   [[ -f "$REPO_ROOT/docs/operations/production-deployment.md" ]] || fail DEPLOYMENT_DOC_MISSING
@@ -207,6 +210,29 @@ verify_source() {
 
   git -C "$REPO_ROOT" diff --quiet HEAD -- || fail TRACKED_WORKTREE_DIRTY
   git -C "$REPO_ROOT" diff --cached --quiet || fail STAGED_WORKTREE_DIRTY
+  local -a build_inputs=(
+    server/src
+    server/scripts
+    server/package.json
+    server/package-lock.json
+    server/tsconfig.json
+    web/src
+    web/scripts
+    web/public
+    web/index.html
+    web/package.json
+    web/package-lock.json
+    web/tsconfig.json
+    web/tsconfig.node.json
+    web/vite.config.ts
+    ops
+  )
+  local untracked_build_inputs
+  # Do not pass --exclude-standard: ignored files under build inputs are still
+  # untracked and can influence an artifact, so they must fail closed too.
+  untracked_build_inputs="$(git -C "$REPO_ROOT" ls-files --others -- "${build_inputs[@]}")" \
+    || fail SOURCE_TREE_SCAN_FAILED
+  [[ -z "$untracked_build_inputs" ]] || fail SOURCE_TREE_NOT_EXACT
   remote_sha="$(git -C "$REPO_ROOT" ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')" \
     || fail REMOTE_MAIN_LOOKUP_FAILED
   [[ "$remote_sha" == "$SHA" ]] || fail REMOTE_MAIN_MISMATCH
@@ -238,6 +264,47 @@ verify_exact_main_ci() {
   CI_STATUS=PASS
 }
 
+is_forbidden_artifact_path() {
+  local clean="$1"
+  case "$clean" in
+    ..|../*|*/../*|*/..|.git|.git/*|*/.git|*/.git/*|.worktrees|.worktrees/*|*/.worktrees|*/.worktrees/*|host.md|*/host.md|.env|.env.*|*/.env|*/.env.*|credentials|*/credentials|credentials/*|*/credentials/*|password|*/password|passwords|*/passwords|passwords/*|*/passwords/*|customer-manifest*|*/customer-manifest*|personnel-manifest*|*/personnel-manifest*|*/db-dumps/*|*/private/tmp/*|*.pem|*.key|id_rsa|*/id_rsa|id_ed25519|*/id_ed25519|._*|*/._*)
+      return 0
+      ;;
+    servora-med-shared-temporary-password|*/servora-med-shared-temporary-password|servora-med-shared-temporary-password.*|*/servora-med-shared-temporary-password.*|temporary-password|*/temporary-password|temporary-password.*|*/temporary-password.*|*temporary-password|*temporary-password.*)
+      return 0
+      ;;
+    *password.*|*passwords.*)
+      case "$clean" in
+        *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
+      esac
+      ;;
+    servora-med-personnel-onboarding-credentials|*/servora-med-personnel-onboarding-credentials|servora-med-personnel-onboarding-credentials.*|*/servora-med-personnel-onboarding-credentials.*|personnel-onboarding-credentials|*/personnel-onboarding-credentials|personnel-onboarding-credentials.*|*/personnel-onboarding-credentials.*)
+      return 0
+      ;;
+    servora-med-personnel-onboarding-manifest|*/servora-med-personnel-onboarding-manifest|servora-med-personnel-onboarding-manifest.*|*/servora-med-personnel-onboarding-manifest.*|personnel-onboarding-manifest|*/personnel-onboarding-manifest|personnel-onboarding-manifest.*|*/personnel-onboarding-manifest.*)
+      return 0
+      ;;
+    servora-med-customer-onboarding-manifest|*/servora-med-customer-onboarding-manifest|servora-med-customer-onboarding-manifest.*|*/servora-med-customer-onboarding-manifest.*|customer-onboarding-manifest|*/customer-onboarding-manifest|customer-onboarding-manifest.*|*/customer-onboarding-manifest.*)
+      return 0
+      ;;
+    *customer-onboarding.json|*customer-onboarding.csv|*customer-onboarding.xlsx|*customer-onboarding.yaml|*customer-onboarding.yml)
+      return 0
+      ;;
+    *credential|*credentials)
+      return 0
+      ;;
+    *credential.*|*credentials.*)
+      case "$clean" in
+        *.json|*.csv|*.txt|*.yaml|*.yml|*.xlsx|*.xls|*.ods|*.tsv|*.toml|*.ini|*.conf|*.xml) return 0 ;;
+      esac
+      ;;
+    *production-mapping|*production-mapping.json|*production-mapping.csv|*production-mapping.xlsx|*production-mapping.yaml|*production-mapping.yml)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 verify_archive_entries() {
   local entry clean
   tar -tzf "$ARTIFACT" >/dev/null || fail ARTIFACT_INVALID_ARCHIVE
@@ -246,11 +313,7 @@ verify_archive_entries() {
     clean="${entry#./}"
     [[ "$clean" != /* ]] || fail ARTIFACT_PATH_TRAVERSAL
     [[ "$clean" != *$'\n'* && "$clean" != *$'\r'* ]] || fail ARTIFACT_PATH_INVALID
-    case "$clean" in
-      ..|../*|*/../*|*/..|.git|.git/*|*/.git|*/.git/*|.worktrees|.worktrees/*|*/.worktrees|*/.worktrees/*|host.md|*/host.md|.env|.env.*|*/.env|*/.env.*|credentials|credentials.*|*/credentials|*/credentials.*|*/credentials/*|password|password.*|*/password|*/password.*|passwords|passwords.*|*/passwords|*/passwords.*|*/passwords/*|customer-manifest*|*/customer-manifest*|personnel-manifest*|*/personnel-manifest*|*/db-dumps/*|*/private/tmp/*|*.pem|*.key|id_rsa|*/id_rsa|id_ed25519|*/id_ed25519|._*|*/._*)
-        fail ARTIFACT_FORBIDDEN_CONTENT
-        ;;
-    esac
+    is_forbidden_artifact_path "$clean" && fail ARTIFACT_FORBIDDEN_CONTENT
   done < <(tar -tzf "$ARTIFACT")
   local mode
   while IFS= read -r mode; do
@@ -263,12 +326,129 @@ verify_archive_entries() {
 
 verify_artifact_sidecar() {
   local sidecar="${ARTIFACT}.sha256"
-  local expected filename actual
-  read -r expected filename _ <"$sidecar" || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
-  [[ "$expected" =~ ^[0-9a-f]{64}$ && "$filename" == "$(basename -- "$ARTIFACT")" ]] \
+  local line expected filename actual checksum_pattern line_count
+  [[ -f "$sidecar" && ! -L "$sidecar" ]] || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
+  validate_checksum_sidecar_bytes "$sidecar"
+  line_count="$(awk 'END { print NR }' "$sidecar")" || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
+  [[ "$line_count" == 1 ]] || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
+  line="$(sed -n '1p' "$sidecar")" || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
+  checksum_pattern='^([0-9a-f]{64})[ ][ ]([^[:space:]]+)$'
+  [[ "$line" =~ $checksum_pattern ]] \
+    || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
+  expected="${BASH_REMATCH[1]}"
+  filename="${BASH_REMATCH[2]}"
+  [[ "$filename" != */* && "$filename" == "$(basename -- "$ARTIFACT")" ]] \
     || fail ARTIFACT_CHECKSUM_SIDECAR_INVALID
   actual="$(sha256_file "$ARTIFACT")"
   [[ "$actual" == "$expected" ]] || fail ARTIFACT_CHECKSUM_SIDECAR_MISMATCH
+}
+
+validate_checksum_sidecar_bytes() {
+  local byte
+  while IFS= read -r byte; do
+    case "$byte" in
+      0a|2[0-9a-f]|[3-6][0-9a-f]|7[0-9a-e]) ;;
+      *) fail ARTIFACT_CHECKSUM_SIDECAR_INVALID ;;
+    esac
+  done < <(od -An -v -t x1 "$1" | tr -s '[:space:]' '\n' | sed '/^$/d')
+}
+
+package_artifact() {
+  local output="$1"
+  tar --create --gzip --file "$output" \
+    --directory "$REPO_ROOT" \
+    --exclude='./.git' \
+    --exclude='./host.md' \
+    --exclude='*/.env' \
+    --exclude='*/.env.*' \
+    --exclude='*/credentials/*' \
+    --exclude='*/passwords/*' \
+    --exclude='*/customer-manifests/*' \
+    --exclude='*/personnel-manifests/*' \
+    --exclude='*/db-dumps/*' \
+    --exclude='*/private/tmp/*' \
+    --exclude='*/.worktrees/*' \
+    --exclude='*/._*' \
+    --exclude='*servora-med-shared-temporary-password*' \
+    --exclude='*temporary-password*' \
+    --exclude='*password' \
+    --exclude='*passwords' \
+    --exclude='*password.json' \
+    --exclude='*password.csv' \
+    --exclude='*password.txt' \
+    --exclude='*password.yaml' \
+    --exclude='*password.yml' \
+    --exclude='*password.xlsx' \
+    --exclude='*passwords.json' \
+    --exclude='*passwords.csv' \
+    --exclude='*passwords.txt' \
+    --exclude='*passwords.yaml' \
+    --exclude='*passwords.yml' \
+    --exclude='*passwords.xlsx' \
+    --exclude='*password.xls' \
+    --exclude='*password.ods' \
+    --exclude='*password.tsv' \
+    --exclude='*password.toml' \
+    --exclude='*password.ini' \
+    --exclude='*password.conf' \
+    --exclude='*password.xml' \
+    --exclude='*passwords.xls' \
+    --exclude='*passwords.ods' \
+    --exclude='*passwords.tsv' \
+    --exclude='*passwords.toml' \
+    --exclude='*passwords.ini' \
+    --exclude='*passwords.conf' \
+    --exclude='*passwords.xml' \
+    --exclude='*servora-med-personnel-onboarding-credentials*' \
+    --exclude='*personnel-onboarding-credentials*' \
+    --exclude='*servora-med-personnel-onboarding-manifest*' \
+    --exclude='*personnel-onboarding-manifest*' \
+    --exclude='*servora-med-customer-onboarding-manifest*' \
+    --exclude='*customer-onboarding-manifest*' \
+    --exclude='*customer-onboarding.json' \
+    --exclude='*customer-onboarding.csv' \
+    --exclude='*customer-onboarding.xlsx' \
+    --exclude='*customer-onboarding.yaml' \
+    --exclude='*customer-onboarding.yml' \
+    --exclude='*credential.json' \
+    --exclude='*credential.csv' \
+    --exclude='*credential.txt' \
+    --exclude='*credential.yaml' \
+    --exclude='*credential.yml' \
+    --exclude='*credential.xlsx' \
+    --exclude='*credentials.json' \
+    --exclude='*credentials.csv' \
+    --exclude='*credentials.txt' \
+    --exclude='*credentials.yaml' \
+    --exclude='*credentials.yml' \
+    --exclude='*credentials.xlsx' \
+    --exclude='*credential' \
+    --exclude='*credentials' \
+    --exclude='*credential.xls' \
+    --exclude='*credential.ods' \
+    --exclude='*credential.tsv' \
+    --exclude='*credential.toml' \
+    --exclude='*credential.ini' \
+    --exclude='*credential.conf' \
+    --exclude='*credential.xml' \
+    --exclude='*credentials.xls' \
+    --exclude='*credentials.ods' \
+    --exclude='*credentials.tsv' \
+    --exclude='*credentials.toml' \
+    --exclude='*credentials.ini' \
+    --exclude='*credentials.conf' \
+    --exclude='*credentials.xml' \
+    --exclude='*production-mapping.json' \
+    --exclude='*production-mapping.csv' \
+    --exclude='*production-mapping.xlsx' \
+    --exclude='*production-mapping.yaml' \
+    --exclude='*production-mapping.yml' \
+    server/dist \
+    server/package.json \
+    server/package-lock.json \
+    server/node_modules \
+    web/dist \
+    ops
 }
 
 build_artifact() {
@@ -301,26 +481,7 @@ build_artifact() {
   (cd "$REPO_ROOT/web" && npm run smoke:responsive)
 
   ARTIFACT="$WORK_DIR/servora-med-${SHA}.tar.gz"
-  tar --create --gzip --file "$ARTIFACT" \
-    --directory "$REPO_ROOT" \
-    --exclude='./.git' \
-    --exclude='./host.md' \
-    --exclude='*/.env' \
-    --exclude='*/.env.*' \
-    --exclude='*/credentials/*' \
-    --exclude='*/passwords/*' \
-    --exclude='*/customer-manifests/*' \
-    --exclude='*/personnel-manifests/*' \
-    --exclude='*/db-dumps/*' \
-    --exclude='*/private/tmp/*' \
-    --exclude='*/.worktrees/*' \
-    --exclude='*/._*' \
-    server/dist \
-    server/package.json \
-    server/package-lock.json \
-    server/node_modules \
-    web/dist \
-    ops
+  package_artifact "$ARTIFACT"
   verify_archive_entries
   ARTIFACT_SHA="$(sha256_file "$ARTIFACT")"
   printf '%s  %s\n' "$ARTIFACT_SHA" "$(basename -- "$ARTIFACT")" >"${ARTIFACT}.sha256"
@@ -464,6 +625,7 @@ postdeploy_remote() {
   rm -f -- "$output_file"
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --sha) SHA="${2:-}"; shift 2 ;;
@@ -506,3 +668,4 @@ fi
 
 PHASE=COMPLETE
 echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS}"
+fi
