@@ -58,6 +58,14 @@ describe('buildNavigationModel', () => {
     expect(model.destinations.find((d) => d.label === 'Kullanıcılar')?.section).toBe('Ekip');
   });
 
+  it('keeps Veri Yönetimi under Settings instead of adding a top-level destination', () => {
+    const model = buildNavigationModel(admin);
+    expect(model.destinations.map((item) => item.label)).not.toContain('Veri Yönetimi');
+    expect(resolveShellTitle('/settings/data-management', 'ADMIN')).toBe('Veri Yönetimi');
+    expect(resolveShellBackTo('/settings/data-management')).toBe('/settings');
+    expect(resolveShellTitle('/settings/data-management/demo-data', 'ADMIN')).toBe('Demo verileri');
+  });
+
   it('shows Backup & Recovery only for an ADMIN when the backup capability is enabled', () => {
     const enabled = buildNavigationModel({
       ...admin,

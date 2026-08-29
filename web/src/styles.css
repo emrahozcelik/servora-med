@@ -3533,6 +3533,27 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .settings-card-link:hover .servora-operational-card { border-color: var(--accent); box-shadow: var(--shadow-raised); }
 .settings-card-grid small { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
 .settings-panel { display: grid; gap: 1rem; max-width: 44rem; }
+.data-management-workspace { max-width: 72rem; min-width: 0; }
+.data-management-workspace .workspace-heading { width: 100%; min-width: 0; }
+.data-management-workspace .workspace-heading > div { min-width: 0; max-width: 100%; }
+.data-management-workspace .servora-operational-card__title { white-space: normal; overflow: visible; text-overflow: clip; }
+.data-management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; }
+.data-management-grid > article { min-width: 0; }
+.data-management-grid > article .servora-operational-card { height: 100%; }
+.data-management-card-title { margin: 0; font-size: 1rem; line-height: 1.35; overflow-wrap: anywhere; }
+.data-management-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.55rem; margin: 0; }
+.data-management-counts > div { min-width: 0; padding: 0.55rem; border: 1px solid var(--rule); border-radius: var(--radius-control); background: var(--canvas); }
+.data-management-counts dt { color: var(--muted); font-size: 0.75rem; line-height: 1.3; overflow-wrap: anywhere; }
+.data-management-counts dd { margin: 0.2rem 0 0; font-size: 1.25rem; font-weight: 760; line-height: 1.1; }
+.data-management-card-copy { margin: 0.9rem 0 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+.data-management-grid .secondary-button,
+.data-management-infrastructure .secondary-button { margin-top: 0.9rem; max-width: 100%; }
+.data-management-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 0.9rem; }
+.data-management-card-actions .secondary-button,
+.data-management-card-actions .inline-action { margin-top: 0; }
+.data-management-empty { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.data-management-infrastructure { margin-top: 1rem; }
+.data-management-infrastructure .servora-operational-card { border-inline-start: 3px solid var(--info); }
 .demo-data-layout { display: grid; grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.6fr); gap: 1rem; align-items: start; }
 .demo-data-layout > *, .demo-data-preview-stack > *, .demo-data-detail-region { min-width: 0; }
 .demo-data-preview-stack, .demo-data-detail-region { display: grid; gap: 1rem; }
@@ -3671,7 +3692,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .overview-main-grid,
-  .settings-card-grid { grid-template-columns: 1fr; }
+  .settings-card-grid,
+  .data-management-grid { grid-template-columns: 1fr; }
+  .data-management-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profile-details > div { grid-template-columns: 1fr; gap: 0.25rem; }
   .backup-overview-grid, .backup-overview-lower-grid { grid-template-columns: 1fr; }
   .backup-form-grid, .backup-form-grid--retention { grid-template-columns: 1fr; }
