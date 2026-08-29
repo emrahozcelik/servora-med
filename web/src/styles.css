@@ -3536,6 +3536,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .data-management-workspace { max-width: 72rem; min-width: 0; }
 .data-management-workspace .workspace-heading { width: 100%; min-width: 0; }
 .data-management-workspace .workspace-heading > div { min-width: 0; max-width: 100%; }
+.data-management-workspace .servora-operational-card__title { white-space: normal; overflow: visible; text-overflow: clip; }
 .data-management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; }
 .data-management-grid > article { min-width: 0; }
 .data-management-grid > article .servora-operational-card { height: 100%; }
