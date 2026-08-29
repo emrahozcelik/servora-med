@@ -97,6 +97,7 @@ describe('runMigrations', () => {
       '035_demo_data_purge_foundation.sql',
       '036_job_card_invalidated.sql',
       '037_staff_offboarding_audit.sql',
+      '038_demo_dataset_audit_types.sql',
       '039_contact_deleted_audit.sql',
     ]);
     expect(migrations.at(-1)?.name).toBe('039_contact_deleted_audit.sql');
