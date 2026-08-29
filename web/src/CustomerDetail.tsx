@@ -7,12 +7,13 @@ import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   customerStatusLabels, customerTypeLabels,
-  getCustomer, listCustomerJobs, updateCustomer,
+  deleteCustomer, getCustomer, listCustomerJobs, updateCustomer,
   type Customer, type CustomerDetail, type JobHistoryItem, type CustomerType, type Paginated,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
+import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { ResultState } from './ui/antd/ResultState';
 
 function nullable(data: FormData, name: string) { return String(data.get(name) ?? '').trim() || null; }
@@ -41,6 +42,13 @@ function CustomerFacts({ customer }: { customer: CustomerDetail }) {
     <div><dt>Telefon</dt><dd>{customer.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{customer.email ?? 'Belirtilmedi'}</dd></div>
     <div><dt>Konum</dt><dd>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Belirtilmedi'}</dd></div><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
     <div className="record-fact-wide"><dt>Adres</dt><dd>{customer.address ?? 'Belirtilmedi'}</dd></div></dl>;
+}
+
+function customerDeleteDescription(customer: CustomerDetail) {
+  const contactText = customer.contacts.length > 0
+    ? ` Bağlı ${customer.contacts.length} ilgili kişi de kalıcı olarak silinecek.`
+    : '';
+  return `Bu işlem geri alınamaz. Bu müşteri için operasyon geçmişi bulunmuyor.${contactText}`;
 }
 
 type CustomerHistoryStatus = 'open' | 'completed' | 'all';
@@ -107,18 +115,23 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {} }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   historyStatus?: CustomerHistoryStatus; historyPage?: Paginated<JobHistoryItem> | null; historyLoading?: boolean; historyError?: string;
   onHistoryStatusChange?: (status: CustomerHistoryStatus) => void; onHistoryPageChange?: (offset: number) => void;
   errorRef?: RefObject<HTMLDivElement | null>;
   createContactButtonRef?: RefObject<HTMLButtonElement | null>;
+  deleteConfirmOpen?: boolean; deletePending?: boolean;
+  deleteTriggerRef?: RefObject<HTMLButtonElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCreateContact: () => void;
   onOpenContact?: (customerId: string, contactId: string) => void;
   onReloadCurrent?: () => void;
+  onRequestDelete?: () => void; onConfirmDelete?: () => void; onCancelDelete?: () => void;
 }) {
   const canManage = user.role !== 'STAFF';
+  const canDelete = user.role === 'ADMIN' && customer.hasOperationHistory === false;
+  const isReferenced = user.role === 'ADMIN' && customer.hasOperationHistory === true;
   return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>Müşterilere dön</button>
     <div className="detail-heading"><div><p className="eyebrow">Müşteri</p><h1>{customer.name}</h1></div><div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
@@ -128,8 +141,30 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
     <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef}
       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
+    {canDelete && <section className="record-section record-commands" aria-labelledby="customer-delete-title">
+      <h2 id="customer-delete-title">Kalıcı silme</h2>
+      <p>Bu müşteri için operasyon geçmişi bulunmadığı için kalıcı olarak silinebilir.</p>
+      <div><button ref={deleteTriggerRef} className="destructive-button" type="button" onClick={onRequestDelete} disabled={pending || deletePending}>Kalıcı olarak sil</button></div>
+    </section>}
+    {isReferenced && <section className="record-section" aria-labelledby="customer-delete-blocked-title">
+      <h2 id="customer-delete-blocked-title">Kalıcı silme</h2>
+      <p>Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.</p>
+    </section>}
     <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
       onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
+    <ConfirmationAction
+      open={deleteConfirmOpen && canDelete}
+      title="Müşteri kalıcı olarak silinsin mi?"
+      description={customerDeleteDescription(customer)}
+      details={[`Müşteri: ${customer.name}`, `Sürüm: ${customer.version}`]}
+      confirmLabel="Kalıcı olarak sil"
+      pending={deletePending}
+      pendingLabel="Siliniyor…"
+      destructive
+      onConfirm={onConfirmDelete}
+      onCancel={onCancelDelete}
+      returnFocusRef={deleteTriggerRef}
+    />
   </main>;
 }
 
@@ -137,11 +172,12 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   const navigate = useNavigate(); const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false); const [deletePending, setDeletePending] = useState(false);
   const [historyStatus, setHistoryStatus] = useState<CustomerHistoryStatus>('all'); const [historyPage, setHistoryPage] = useState<Paginated<JobHistoryItem> | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true); const [historyError, setHistoryError] = useState('');
-  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate()); const historyGate = useRef(createRequestGate());
+  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const deleteTriggerRef = useRef<HTMLButtonElement>(null); const deleteInFlightRef = useRef(false); const requestGate = useRef(createRequestGate()); const historyGate = useRef(createRequestGate());
   async function load() {
-    const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false);
+    const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false);
     try {
       const [record, profiles] = await Promise.all([getCustomer(customerId), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')]);
       if (!requestGate.current.isCurrent(generation)) return;
@@ -192,12 +228,42 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (requestGate.current.isCurrent(generation)) setContactError(caught instanceof Error ? caught.message : 'İlgili kişi eklenemedi.');
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
+  async function deleteCurrentCustomer() {
+    if (!customer || deletePending || deleteInFlightRef.current) return;
+    deleteInFlightRef.current = true;
+    const target = customer;
+    setDeletePending(true); setError(''); setNotice('');
+    try {
+      await deleteCustomer(customerId, target.version);
+      const message = `${target.name} kalıcı olarak silindi.`;
+      setDeleteConfirmOpen(false); setNotice(message);
+      navigate(paths.customers, { state: { customerNotice: message } });
+    } catch (caught) {
+      const isHistoryConflict = caught instanceof ApiError && caught.code === 'CUSTOMER_HAS_OPERATION_HISTORY';
+      const isVersionConflict = caught instanceof ApiError && caught.code === 'VERSION_CONFLICT';
+      const message = isHistoryConflict
+        ? 'Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.'
+        : customerMutationErrorMessage(caught);
+      setDeleteConfirmOpen(false);
+      if (isHistoryConflict || isVersionConflict) {
+        await load();
+        setError(message);
+      } else {
+        setError(message);
+      }
+    } finally {
+      deleteInFlightRef.current = false;
+      setDeletePending(false);
+    }
+  }
   return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
     errorRef={errorRef} createContactButtonRef={createContactButtonRef}
     onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
     onOpenContact={(customerIdValue, contactIdValue) => navigate(paths.contact(customerIdValue, contactIdValue))}
-    onReloadCurrent={() => void load()} />
+    onReloadCurrent={() => void load()} deleteConfirmOpen={deleteConfirmOpen} deletePending={deletePending} deleteTriggerRef={deleteTriggerRef}
+    onRequestDelete={() => { setError(''); setNotice(''); setDeleteConfirmOpen(true); }} onConfirmDelete={() => void deleteCurrentCustomer()}
+    onCancelDelete={() => { if (!deletePending) setDeleteConfirmOpen(false); }} />
     {creatingContact && <div className="customer-detail"><ContactCreateForm pending={pending} error={contactError} onCancel={() => { setCreatingContact(false); window.setTimeout(() => createContactButtonRef.current?.focus(), 0); }} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
 }

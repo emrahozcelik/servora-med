@@ -33,7 +33,7 @@ export type CustomerSummary = Customer & {
   primaryContact: Pick<Contact, 'id' | 'name' | 'title'> | null;
 };
 export type CustomerDetail = CustomerSummary & {
-  contacts: Contact[]; openJobCount: number; completedJobCount: number;
+  contacts: Contact[]; hasOperationHistory: boolean; openJobCount: number; completedJobCount: number;
 };
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 
@@ -119,6 +119,7 @@ function parseCustomerDetail(value: unknown): CustomerDetail {
   const v = object(value);
   return {
     ...parseCustomerSummary(v), contacts: array(v.contacts, 'contacts').map(parseContact),
+    hasOperationHistory: boolean(v.hasOperationHistory, 'hasOperationHistory'),
     openJobCount: number(v.openJobCount, 'openJobCount'),
     completedJobCount: number(v.completedJobCount, 'completedJobCount'),
   };

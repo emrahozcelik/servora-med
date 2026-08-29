@@ -8,6 +8,7 @@ const apps: FastifyInstance[] = [];
 const manager = { id: 'manager-1', organizationId: 'org-1', name: 'Manager',
   email: 'manager@example.com', role: 'MANAGER' as const, mustChangePassword: false,
   isActive: true, version: 1 };
+const admin = { ...manager, id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
 
 function serviceDouble() {
   const customer = { id: 'customer-1', organizationId: 'org-1', name: 'Demo Klinik',
@@ -117,14 +118,14 @@ describe('CRM HTTP routes', () => {
   });
 
   it('dispatches Customer delete and returns 204', async () => {
-    const { app, service } = await createApp();
+    const { app, service } = await createApp(admin);
     const response = await app.inject({
       method: 'DELETE', url: '/api/customers/customer-1',
       payload: { expectedVersion: 1 },
     });
     expect(response.statusCode).toBe(204);
     expect(service.deleteCustomer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'manager-1' }), 'customer-1', 1,
+      expect.objectContaining({ id: 'admin-1' }), 'customer-1', 1,
     );
   });
 

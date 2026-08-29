@@ -53,6 +53,7 @@ export type ContactDetail = Contact & {
 
 export type CustomerDetail = CustomerSummary & {
   contacts: ContactDetail[];
+  hasOperationHistory: boolean;
   openJobCount?: number;
   completedJobCount?: number;
 };
@@ -64,7 +65,7 @@ export type CustomerRow = {
   assigned_staff_user_id: string | null; status: CustomerStatus; version: number;
   created_at: Date; updated_at: Date; assigned_staff_name?: string | null;
   primary_contact_id?: string | null; primary_contact_name?: string | null;
-  primary_contact_title?: string | null;
+  primary_contact_title?: string | null; has_operation_history?: boolean;
 };
 
 export type ContactRow = {
