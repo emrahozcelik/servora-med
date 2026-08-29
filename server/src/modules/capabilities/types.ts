@@ -3,6 +3,7 @@ export type AuthenticatedCapabilities = Readonly<{
   calendar: boolean;
   messaging: boolean;
   backup: boolean;
+  demoDatasetCreation: boolean;
 }>;
 
 export type AuthenticatedSupport = Readonly<{

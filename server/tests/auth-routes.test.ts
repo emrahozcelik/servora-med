@@ -43,6 +43,8 @@ const baseConfig = {
     overviewDashboard: true,
     calendar: false,
     messaging: false,
+    backup: false,
+    demoDatasetCreation: false,
   },
   support: {
     displayLabel: 'Operasyon desteği',

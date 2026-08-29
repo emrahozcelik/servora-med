@@ -9,6 +9,7 @@ const DEFAULT_CAPABILITIES: AuthenticatedCapabilities = {
   calendar: false,
   messaging: false,
   backup: false,
+  demoDatasetCreation: false,
 };
 const DEFAULT_SUPPORT: AuthenticatedSupport = {
   displayLabel: 'Sistem yöneticiniz',
@@ -21,9 +22,14 @@ export function authenticatedUser(
   capabilities: AuthenticatedCapabilities | undefined,
   support: AuthenticatedSupport | undefined,
 ) {
+  const effectiveCapabilities = capabilities ?? DEFAULT_CAPABILITIES;
+  const demoDatasetCreation = effectiveCapabilities.demoDatasetCreation === true && user.role === 'ADMIN';
   return {
     ...user,
-    capabilities: capabilities ?? DEFAULT_CAPABILITIES,
+    capabilities: {
+      ...effectiveCapabilities,
+      demoDatasetCreation,
+    },
     support: support ?? DEFAULT_SUPPORT,
   };
 }

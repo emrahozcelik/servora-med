@@ -356,7 +356,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
         <Route path={paths.settingsApplication} element={<ApplicationSettingsPage />} />
         <Route path={paths.settingsDemoData} element={user.role === 'ADMIN'
-          ? <DemoDataPage /> : <ForbiddenView />} />
+          ? <DemoDataPage user={user} /> : <ForbiddenView />} />
         <Route path={paths.settingsBackupRecovery} element={user.role === 'ADMIN' && user.capabilities?.backup === true
           ? <BackupRecoveryPage /> : <ForbiddenView />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}

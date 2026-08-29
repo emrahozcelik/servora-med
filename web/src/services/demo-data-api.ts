@@ -81,6 +81,23 @@ export type DemoDatasetPurgeRequest = {
   planHash: string;
 };
 
+export type DemoDatasetCreateRequest = {
+  clientActionId: string;
+};
+
+export type DemoDatasetCreateCounts = {
+  users: number;
+  customers: number;
+  products: number;
+  jobCards: number;
+};
+
+export type DemoDatasetCreateResponse = {
+  dataset: DemoDataset;
+  counts: DemoDatasetCreateCounts;
+  replayed: boolean;
+};
+
 const DATASET_STATUSES = ['ACTIVE', 'PURGED'] as const;
 const COUNT_FIELDS = [
   'users', 'staffProfiles', 'customers', 'contacts', 'products', 'jobCards',
@@ -232,4 +249,25 @@ export async function purgeDemoDataset(
     seedVersion: expectedDataset.seedVersion,
     planHash: input.planHash,
   });
+}
+
+function parseDemoDatasetCreateResponse(value: unknown): DemoDatasetCreateResponse {
+  const item = object(value);
+  const dataset = parseDataset(item.dataset);
+  const countsRaw = object(item.counts);
+  const counts: DemoDatasetCreateCounts = {
+    users: number(countsRaw.users, 'counts.users'),
+    customers: number(countsRaw.customers, 'counts.customers'),
+    products: number(countsRaw.products, 'counts.products'),
+    jobCards: number(countsRaw.jobCards, 'counts.jobCards'),
+  };
+  for (const [k, v] of Object.entries(counts)) {
+    if (!Number.isInteger(v) || v < 0) invalid(`counts.${k}`);
+  }
+  const replayed = boolean(item.replayed, 'replayed');
+  return { dataset, counts, replayed };
+}
+
+export async function createDemoDataset(input: DemoDatasetCreateRequest): Promise<DemoDatasetCreateResponse> {
+  return parseDemoDatasetCreateResponse(await request('/api/admin/demo-datasets', json('POST', input)));
 }
