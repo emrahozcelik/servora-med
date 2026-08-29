@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { MemoryRouter } from 'react-router-dom';
+
 import { ProductDetailScreen } from '../src/ProductDetail';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Product } from '../src/services/products-api';
@@ -41,7 +43,7 @@ describe('Product detail', () => {
     const props = {
       productId: product.id, user, load, update: vi.fn(), ...overrides,
     };
-    await act(async () => root.render(<ProductDetailScreen {...props} />));
+    await act(async () => root.render(<MemoryRouter><ProductDetailScreen {...props} /></MemoryRouter>));
     return props;
   }
 
@@ -182,5 +184,45 @@ describe('Product detail', () => {
     expect(container.textContent).not.toContain('Pasifleştir');
     expect(container.textContent).not.toContain('Etkinleştir');
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('shows permanent delete for ADMIN pristine product', async () => {
+    const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
+    const pristine = { ...product, hasOperationHistory: false };
+    await render(vi.fn().mockResolvedValue(pristine), admin);
+    expect(container.textContent).toContain('Kalıcı olarak sil');
+    expect(container.textContent).not.toContain('Bu ürün operasyon geçmişinde kullanıldığı için');
+  });
+
+  it('shows referenced explanation for ADMIN with history and no delete action', async () => {
+    const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
+    const referenced = { ...product, hasOperationHistory: true };
+    await render(vi.fn().mockResolvedValue(referenced), admin);
+    expect(container.textContent).toContain('Bu ürün operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.');
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'Kalıcı olarak sil')).toBe(false);
+  });
+
+  it('hides permanent delete for MANAGER and STAFF', async () => {
+    const pristine = { ...product, hasOperationHistory: false };
+    await render(vi.fn().mockResolvedValue(pristine), manager);
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'Kalıcı olarak sil')).toBe(false);
+    await render(vi.fn().mockResolvedValue(pristine), staff);
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent === 'Kalıcı olarak sil')).toBe(false);
+  });
+
+  it('opens confirmation and performs one DELETE with expectedVersion', async () => {
+    const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
+    const pristine = { ...product, hasOperationHistory: false };
+    const del = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn().mockResolvedValue(pristine);
+    await render(load, admin, { remove: del });
+    const trigger = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain('Ürün kalıcı olarak silinsin mi?');
+    const confirm = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Kalıcı olarak sil' && b.closest('[role="dialog"]'))!;
+    await act(async () => confirm.click());
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(product.id, product.version);
   });
 });

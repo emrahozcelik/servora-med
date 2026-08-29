@@ -10,6 +10,7 @@ import type {
   AppendProductAuditInput,
   Product,
   ProductActor,
+  ProductDetail,
   ProductFields,
   ProductFilters,
 } from './types.js';
@@ -53,6 +54,10 @@ const versionConflict = (currentVersion?: number) => new AppError(
 
 function requireWriter(actor: ProductActor) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') throw forbidden();
+}
+
+function requireAdmin(actor: ProductActor) {
+  if (actor.role !== 'ADMIN') throw forbidden();
 }
 
 function requiredName(value: string) {
@@ -136,8 +141,13 @@ export class ProductService {
   }
 
   async getProduct(actor: ProductActor, productId: string) {
-    return (await this.repository.getProduct(actor.organizationId, productId))
-      ?? Promise.reject(productNotFound());
+    const product = await this.repository.getProduct(actor.organizationId, productId);
+    if (!product) throw productNotFound();
+    const hasOperationHistory = await this.repository.productHasDeliveryItems(
+      actor.organizationId,
+      productId,
+    );
+    return { ...product, hasOperationHistory };
   }
 
   async createProduct(actor: ProductActor, input: CreateProductInput) {
@@ -203,7 +213,7 @@ export class ProductService {
   }
 
   async deleteProduct(actor: ProductActor, productId: string, expectedVersion: number) {
-    requireWriter(actor);
+    requireAdmin(actor);
     try {
       await this.repository.execute(async (tx) => {
         const current = await this.requireProduct(tx, actor, productId);

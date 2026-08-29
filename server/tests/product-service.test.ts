@@ -4,6 +4,7 @@ import { ProductService } from '../src/modules/products/service.js';
 import type { Product } from '../src/modules/products/types.js';
 
 const now = new Date('2026-07-13T10:00:00Z');
+const admin = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const };
 const manager = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' as const };
 const staff = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const };
 
@@ -80,6 +81,7 @@ function fixture(options: {
     },
     listProducts: async () => ({ items: current ? [current] : [], total: current ? 1 : 0, limit: 50, offset: 0 }),
     getProduct: async (organizationId: string) => current?.organizationId === organizationId ? current : null,
+    productHasDeliveryItems: async () => options.hasDeliveryItems ?? false,
   };
   return {
     service: new ProductService(repository as never), audits, calls,
@@ -297,19 +299,26 @@ describe('Product service policy', () => {
 
   it('deletes a Product without delivery history and audits PRODUCT_DELETED', async () => {
     const { service, calls, audits, current } = fixture();
-    await expect(service.deleteProduct(manager, 'product-1', 1)).resolves.toBeUndefined();
+    await expect(service.deleteProduct(admin, 'product-1', 1)).resolves.toBeUndefined();
     expect(current()).toBeNull();
     expect(calls).toEqual(['lock', 'has-delivery', 'delete', 'audit']);
     expect(audits).toEqual([{
-      organizationId: 'org-1', actorUserId: 'manager-1', subjectId: 'product-1',
+      organizationId: 'org-1', actorUserId: 'admin-1', subjectId: 'product-1',
       eventType: 'PRODUCT_DELETED', oldValue: { name: 'İmplant', isActive: true },
       newValue: null, metadata: {},
     }]);
   });
 
+  it('forbids MANAGER from deleting a Product', async () => {
+    const { service } = fixture();
+    await expect(service.deleteProduct(manager, 'product-1', 1)).rejects.toMatchObject({
+      code: 'FORBIDDEN', statusCode: 403,
+    });
+  });
+
   it('blocks Product delete when delivery items reference the Product', async () => {
     const { service, calls, audits, current } = fixture({ hasDeliveryItems: true });
-    await expect(service.deleteProduct(manager, 'product-1', 1)).rejects.toMatchObject({
+    await expect(service.deleteProduct(admin, 'product-1', 1)).rejects.toMatchObject({
       code: 'PRODUCT_HAS_OPERATION_HISTORY', statusCode: 409,
       message: 'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
     });
@@ -320,14 +329,14 @@ describe('Product service policy', () => {
 
   it('maps FK violations on Product delete to the operation-history conflict', async () => {
     const { service } = fixture({ fkViolationOnDelete: true });
-    await expect(service.deleteProduct(manager, 'product-1', 1)).rejects.toMatchObject({
+    await expect(service.deleteProduct(admin, 'product-1', 1)).rejects.toMatchObject({
       code: 'PRODUCT_HAS_OPERATION_HISTORY', statusCode: 409,
     });
   });
 
   it('conceals a missing Product on delete', async () => {
     const { service } = fixture({ current: null });
-    await expect(service.deleteProduct(manager, 'missing', 1)).rejects.toMatchObject({
+    await expect(service.deleteProduct(admin, 'missing', 1)).rejects.toMatchObject({
       code: 'PRODUCT_NOT_FOUND', statusCode: 404,
     });
   });
@@ -335,7 +344,7 @@ describe('Product service policy', () => {
 
   it('rejects Product delete when expectedVersion is stale', async () => {
     const { service } = fixture();
-    await expect(service.deleteProduct(manager, 'product-1', 99)).rejects.toMatchObject({
+    await expect(service.deleteProduct(admin, 'product-1', 99)).rejects.toMatchObject({
       code: 'VERSION_CONFLICT', statusCode: 409,
     });
   });

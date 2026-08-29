@@ -179,7 +179,7 @@ describe('Product HTTP routes', () => {
   });
 
   it('deletes a Product with 204 and blocks delivery-history conflicts', async () => {
-    const { app, productRepository, cookie } = await createApp();
+    const { app, productRepository, cookie } = await createApp('ADMIN');
     const deleted = await app.inject({
       method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie },
       payload: { expectedVersion: 1 },
@@ -188,7 +188,7 @@ describe('Product HTTP routes', () => {
     expect(productRepository.products.has(PRODUCT_ID)).toBe(false);
     expect(productRepository.audits.at(-1)).toMatchObject({ eventType: 'PRODUCT_DELETED' });
 
-    const recreate = await createApp();
+    const recreate = await createApp('ADMIN');
     recreate.productRepository.hasDeliveryItems = true;
     const blocked = await recreate.app.inject({
       method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie: recreate.cookie },
@@ -200,6 +200,16 @@ describe('Product HTTP routes', () => {
       error: 'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
     });
     expect(recreate.productRepository.products.has(PRODUCT_ID)).toBe(true);
+  });
+
+  it('forbids MANAGER from deleting a Product', async () => {
+    const { app, cookie } = await createApp('MANAGER');
+    const response = await app.inject({
+      method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie },
+      payload: { expectedVersion: 1 },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('creates with optional catalog fields omitted or null and propagates the actor', async () => {

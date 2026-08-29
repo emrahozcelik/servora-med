@@ -36,6 +36,7 @@ export interface ProductTransaction {
 export interface ProductRepository {
   listProducts(organizationId: string, filters: ProductFilters): Promise<Paginated<Product>>;
   getProduct(organizationId: string, productId: string): Promise<Product | null>;
+  productHasDeliveryItems(organizationId: string, productId: string): Promise<boolean>;
   execute<T>(work: (tx: ProductTransaction) => Promise<T>): Promise<T>;
 }
 
@@ -154,10 +155,19 @@ export class PostgresProductRepository implements ProductRepository {
   async getProduct(organizationId: string, productId: string) {
     const result = await this.pool.query<ProductRow>(
       `SELECT ${PRODUCT_COLUMNS} FROM products
-       WHERE organization_id=$1 AND id=$2`,
+        WHERE organization_id=$1 AND id=$2`,
       [organizationId, productId],
     );
     return result.rows[0] ? mapProduct(result.rows[0]) : null;
+  }
+
+  async productHasDeliveryItems(organizationId: string, productId: string) {
+    const result = await this.pool.query(
+      `SELECT 1 FROM job_card_delivery_items
+        WHERE organization_id=$1 AND product_id=$2 LIMIT 1`,
+      [organizationId, productId],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async execute<T>(work: (tx: ProductTransaction) => Promise<T>) {
