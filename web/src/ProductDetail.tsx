@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { ProductForm, productInputFromFormData, productServerFieldErrors } from './ProductForm';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  getProduct, updateProduct, type CreateProductInput, type Product,
+  deleteProduct as deleteProductApi, getProduct, updateProduct, type CreateProductInput, type Product,
 } from './services/products-api';
+import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { ResultState } from './ui/antd/ResultState';
 
 type ProductDetailState =
@@ -17,6 +19,7 @@ type ProductDetailProps = {
   user: CurrentUser;
   load?: typeof getProduct;
   update?: typeof updateProduct;
+  remove?: typeof deleteProductApi;
 };
 
 function apiError(caught: unknown, fallback: string) {
@@ -62,7 +65,8 @@ function ProductFacts({ product }: { product: Product }) {
   </dl>;
 }
 
-export function ProductDetailScreen({ productId, user, load = getProduct, update = updateProduct }: ProductDetailProps) {
+export function ProductDetailScreen({ productId, user, load = getProduct, update = updateProduct, remove = deleteProductApi }: ProductDetailProps) {
+  const navigate = useNavigate();
   const [state, setState] = useState<ProductDetailState>({ kind: 'loading' });
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -74,6 +78,9 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   const [conflictVersion, setConflictVersion] = useState<number | null | undefined>(undefined);
   const editErrorRef = useRef<HTMLDivElement>(null);
   const [editFocusTarget, setEditFocusTarget] = useState<'summary' | 'name' | 'referencePrice' | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (editFocusTarget === 'summary') editErrorRef.current?.focus();
@@ -100,6 +107,8 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
 
   const { product } = state;
   const canManage = user.role !== 'STAFF';
+  const canDelete = user.role === 'ADMIN' && product.hasOperationHistory === false;
+  const isReferenced = product.hasOperationHistory === true;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setFieldErrors({}); setFeedback(''); setConflictVersion(undefined);
@@ -140,6 +149,32 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     finally { setPending(false); }
   }
 
+  async function handleDelete() {
+    if (deletePending) return;
+    setDeletePending(true); setError(''); setFeedback('');
+    try {
+      await remove(productId, product.version);
+      setFeedback('Ürün kalıcı olarak silindi.');
+      setDeleteConfirmOpen(false);
+      navigate('/products');
+    } catch (caught) {
+      const next = apiError(caught, 'Ürün silinemedi.');
+      if (next.code === 'PRODUCT_HAS_OPERATION_HISTORY') {
+        setError('Ürün artık operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.');
+        setState((prev) => prev.kind === 'ready' ? { kind: 'ready', product: { ...prev.product, hasOperationHistory: true } } : prev);
+        setDeleteConfirmOpen(false);
+      } else if (next.code === 'VERSION_CONFLICT') {
+        const ver = safeCurrentVersion(next);
+        setConflictVersion(ver);
+        setError('Ürün başka bir kullanıcı tarafından güncellendi.');
+        setDeleteConfirmOpen(false);
+        void reloadCurrentValues();
+      } else {
+        setError(next.message);
+      }
+    } finally { setDeletePending(false); }
+  }
+
   if (editing) return <>
     {conflictVersion !== undefined && <div className="conflict-actions product-edit-conflict" role="alert">
       <p>Ürün başka bir kullanıcı tarafından güncellendi. Formdaki değişiklikleriniz korunuyor.
@@ -161,7 +196,35 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     {canManage && <section className="record-section record-commands" aria-labelledby="product-actions-title">
       <h2 id="product-actions-title">Katalog işlemleri</h2>
       <p>Katalog bilgisini güncelleyin.</p>
-      <div><button className="secondary-button" type="button" onClick={() => { setEditing(true); setFeedback(''); setError(''); }} disabled={pending}>Ürünü düzenle</button></div>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <button className="secondary-button" type="button" onClick={() => { setEditing(true); setFeedback(''); setError(''); }} disabled={pending}>Ürünü düzenle</button>
+        {canManage && <button className="secondary-button" type="button" onClick={async () => {
+          const current = await load(productId);
+          setState({ kind: 'ready', product: current });
+        }} disabled={pending}>Yenile</button>}
+      </div>
     </section>}
+    {user.role === 'ADMIN' && product.hasOperationHistory === false && <section className="record-section record-commands" aria-labelledby="product-delete-title">
+      <h2 id="product-delete-title">Kalıcı silme</h2>
+      <p>Bu ürün hiç kullanılmadığı için kalıcı olarak silinebilir.</p>
+      <div><button ref={deleteTriggerRef} className="destructive-button" type="button" onClick={() => setDeleteConfirmOpen(true)} disabled={pending || deletePending}>Kalıcı olarak sil</button></div>
+    </section>}
+    {user.role === 'ADMIN' && isReferenced && <section className="record-section" aria-labelledby="product-delete-blocked-title">
+      <h2 id="product-delete-blocked-title">Kalıcı silme</h2>
+      <p>Bu ürün operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez. Ürünü devre dışı bırakabilirsiniz.</p>
+    </section>}
+    <ConfirmationAction
+      open={deleteConfirmOpen}
+      title="Ürün kalıcı olarak silinsin mi?"
+      description="Bu işlem geri alınamaz. Yalnız kullanılmamış ürünler silinebilir."
+      details={[`Ürün: ${product.name}`, `SKU: ${product.sku ?? '—'}`, `Sürüm: ${product.version}`]}
+      confirmLabel="Kalıcı olarak sil"
+      pending={deletePending}
+      pendingLabel="Siliniyor…"
+      destructive
+      onConfirm={() => void handleDelete()}
+      onCancel={() => setDeleteConfirmOpen(false)}
+      returnFocusRef={deleteTriggerRef}
+    />
   </main>;
 }

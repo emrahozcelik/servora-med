@@ -16,6 +16,10 @@ export type Product = {
   updatedAt: Date;
 };
 
+export type ProductDetail = Product & {
+  hasOperationHistory: boolean;
+};
+
 export type ProductRow = {
   id: string;
   organization_id: string;

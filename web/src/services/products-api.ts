@@ -7,6 +7,7 @@ export type Product = {
   brand: string | null; category: string | null; model: string | null;
   unit: string | null; referencePrice: number | null; isActive: boolean;
   version: number; createdAt: string; updatedAt: string;
+  hasOperationHistory?: boolean;
 };
 export type ProductFilters = {
   q?: string; status?: 'active' | 'inactive' | 'all'; limit?: number; offset?: number;
@@ -49,6 +50,7 @@ function parseProduct(value: unknown): Product {
     referencePrice: nullableNumber(v.referencePrice, 'referencePrice'),
     isActive: boolean(v.isActive, 'isActive'), version: number(v.version, 'version'),
     createdAt: string(v.createdAt, 'createdAt'), updatedAt: string(v.updatedAt, 'updatedAt'),
+    ...(v.hasOperationHistory !== undefined ? { hasOperationHistory: boolean(v.hasOperationHistory, 'hasOperationHistory') } : {}),
   };
 }
 
