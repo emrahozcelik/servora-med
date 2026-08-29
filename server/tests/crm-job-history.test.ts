@@ -11,7 +11,7 @@ function detail(): CustomerDetail {
     id: 'customer-1', organizationId: 'org-1', name: 'Demo Klinik', customerType: 'clinic',
     taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
     assignedStaffUserId: null, status: 'active', version: 1, createdAt: new Date(), updatedAt: new Date(),
-    assignedStaffName: null, primaryContact: null, contacts: [],
+    assignedStaffName: null, primaryContact: null, contacts: [], hasOperationHistory: false,
   };
 }
 

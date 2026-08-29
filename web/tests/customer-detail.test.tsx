@@ -10,6 +10,7 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 import type { CustomerDetail, JobHistoryItem } from '../src/services/crm-api';
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
+const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
 const staff: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
 const jobs: JobHistoryItem[] = Array.from({ length: 6 }, (_, index) => ({
   id: `job-${index + 1}`, title: `İş ${index + 1}`, type: 'GENERAL_TASK', status: 'IN_PROGRESS', priority: 'normal',
@@ -24,11 +25,12 @@ const customer: CustomerDetail = {
   assignedStaffUserId: 'staff-1', assignedStaffName: 'Ayşe Personel', status: 'active', version: 3,
   primaryContact: { id: 'contact-1', name: 'Dr. Ayşe', title: 'Doktor' },
   contacts: [{ id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1', name: 'Dr. Ayşe', title: 'Doktor', phone: null, email: null, isPrimary: true, isActive: true, version: 2 }],
+  hasOperationHistory: false,
   openJobCount: jobs.length, completedJobCount: completedJobs.length,
 };
 
-function render(user: CurrentUser) {
-  return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={user} staff={[]}
+function render(user: CurrentUser, record: CustomerDetail = customer) {
+  return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={record} user={user} staff={[]}
     pending={false} error="" notice="" onBack={() => {}} onSave={() => {}}
     onCreateContact={() => {}} historyStatus="all" historyPage={{ items: [...jobs.slice(0, 5), ...completedJobs.slice(0, 5)], total: 12, limit: 20, offset: 0 }}
     historyLoading={false} historyError="" onHistoryStatusChange={() => {}} onHistoryPageChange={() => {}} /></MemoryRouter>);
@@ -52,6 +54,26 @@ describe('Customer detail', () => {
     const managerHtml = render(manager); expect(managerHtml).toContain('Bilgileri kaydet');
     expect(managerHtml).not.toContain('Müşteriyi pasifleştir'); expect(managerHtml).not.toContain('Müşteriyi aktifleştir');
     expect(managerHtml).not.toMatch(/name="status"/); expect(managerHtml).not.toMatch(/name="version"/);
+  });
+
+  it('shows permanent Customer deletion only to an Admin for a pristine record', () => {
+    expect(render(admin)).toContain('Kalıcı olarak sil');
+    expect(render(manager)).not.toContain('Kalıcı olarak sil');
+    expect(render(staff)).not.toContain('Kalıcı olarak sil');
+  });
+
+  it('keeps permanent deletion unavailable when history exists despite zero visible counts', () => {
+    const referenced = { ...customer, hasOperationHistory: true, openJobCount: 0, completedJobCount: 0 };
+    const html = render(admin, referenced);
+    expect(html).not.toContain('>Kalıcı olarak sil</button>');
+    expect(html).toContain('Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.');
+  });
+
+  it('explains linked Contact removal in the permanent-delete confirmation', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={admin} staff={[]}
+      pending={false} error="" notice="" deleteConfirmOpen deleteTriggerRef={{ current: null }}
+      onBack={() => {}} onSave={() => {}} onCreateContact={() => {}} /></MemoryRouter>);
+    expect(html).toContain('Bu işlem geri alınamaz. Bu müşteri için operasyon geçmişi bulunmuyor. Bağlı 1 ilgili kişi de kalıcı olarak silinecek.');
   });
 
   it('builds a general PATCH payload without lifecycle fields', () => {

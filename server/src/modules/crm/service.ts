@@ -209,7 +209,7 @@ export class CrmService {
   }
 
   async deleteCustomer(actor: CrmActor, customerId: string, expectedVersion: number) {
-    requireWriter(actor);
+    requireAdmin(actor);
     try {
       await this.repository.execute(async (tx) => {
         const current = await this.requireCustomer(tx, actor, customerId);

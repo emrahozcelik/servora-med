@@ -22,6 +22,7 @@ import type { CustomerSummary } from '../src/services/crm-api';
 import type { StaffProfile } from '../src/services/people-api';
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
+const admin: CurrentUser = { ...manager, id: 'admin-1', name: 'Deniz', email: 'deniz@example.com', role: 'ADMIN' };
 const staffUser: CurrentUser = { ...manager, id: 'staff-1', name: 'Ayşe', role: 'STAFF' };
 const customer: CustomerSummary = {
   id: 'customer-1', organizationId: 'org-1', name: 'Demo Dental Klinik', customerType: 'clinic',
@@ -88,7 +89,7 @@ describe('Customer list and creation', () => {
     expect(createHtml).not.toContain('eyebrow">CRM');
   });
 
-  it('allows all roles to create but keeps edit and delete for Manager only', () => {
+  it('allows all roles to create but keeps permanent deletion off the summary list', () => {
     expect(list({ kind: 'ready', customers: [] }, staffUser)).toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');
     const staffHtml = list({ kind: 'ready', customers: [customer] }, staffUser);
@@ -96,9 +97,9 @@ describe('Customer list and creation', () => {
     expect(staffHtml).not.toContain('müşterisini sil');
     const managerHtml = list({ kind: 'ready', customers: [customer] }, manager);
     expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini düzenle"');
-    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini sil"');
     expect(managerHtml).toContain('Düzenle');
-    expect(managerHtml).toContain('Sil');
+    expect(managerHtml).not.toContain('müşterisini sil');
+    expect(list({ kind: 'ready', customers: [customer] }, admin)).not.toContain('müşterisini sil');
   });
 
   it('restores supported URL filters and ignores inactive status', () => {
@@ -224,144 +225,27 @@ describe('Customer list and creation', () => {
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-
-describe('routed Customer list delete flow', () => {
-  let container: HTMLDivElement;
+describe('Customer list navigation feedback', () => {
   let root: Root;
+  let container: HTMLDivElement;
+
   beforeEach(() => {
-    container = document.createElement('div');
-    document.body.append(container);
-    root = createRoot(container);
-  });
-  afterEach(async () => {
-    await act(async () => root.unmount());
-    container.remove();
-    vi.restoreAllMocks();
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
 
-  async function mount(remove: ReturnType<typeof vi.fn>, loadImpl: ReturnType<typeof vi.fn>) {
-    const people = await import('../src/services/people-api');
-    vi.spyOn(people, 'listStaff').mockResolvedValue([]);
+  afterEach(async () => {
+    await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+  });
+
+  it('shows the delete success notice after navigation and loads the list once', async () => {
+    const load = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
     const router = createMemoryRouter([{
-      path: '/customers',
-      element: <CustomerListScreen user={manager} load={loadImpl as never} remove={remove as never} />,
-    }], { initialEntries: ['/customers'] });
+      path: '/customers', element: <CustomerListScreen user={manager} load={load as never} />,
+    }], { initialEntries: [{ pathname: '/customers', state: { customerNotice: 'Demo Klinik kalıcı olarak silindi.' } }] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
-    return router;
-  }
-
-  it('confirms Customer delete without optimistic removal', async () => {
-    const remove = vi.fn().mockResolvedValue(undefined);
-    const load = vi.fn()
-      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
-      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
-    await mount(remove, load);
-
-    const deleteButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
-    expect(deleteButton).toBeTruthy();
-    await act(async () => deleteButton.click());
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Demo Dental Klinik müşterisini sil');
-    expect(remove).not.toHaveBeenCalled();
-
-    await act(async () => {
-      container.querySelector('[role="dialog"]')!.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      );
-    });
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(remove).not.toHaveBeenCalled();
-
-    await act(async () => deleteButton.click());
-    const cancel = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Vazgeç') as HTMLButtonElement;
-    await act(async () => cancel.click());
-    expect(remove).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('Demo Dental Klinik');
-
-    await act(async () => deleteButton.click());
-    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
-    await act(async () => confirm.click());
-    await act(async () => { await Promise.resolve(); });
-    expect(remove).toHaveBeenCalledWith('customer-1', 1);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain('Demo Dental Klinik silindi.');
-  });
-
-  it('keeps the Customer row when delete is blocked by operation history', async () => {
-    const remove = vi.fn().mockRejectedValue(new ApiError(
-      409, 'CUSTOMER_HAS_OPERATION_HISTORY',
-      'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
-    ));
-    const load = vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 50, offset: 0 });
-    await mount(remove, load);
-
-    const deleteButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
-    await act(async () => deleteButton.click());
-    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
-    await act(async () => confirm.click());
-    await act(async () => { await Promise.resolve(); });
-    expect(container.querySelector('[role="alert"]')?.textContent)
-      .toContain('Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.');
-    expect(container.textContent).toContain('Demo Dental Klinik');
-    expect(remove).toHaveBeenCalledWith('customer-1', 1);
-  });
-
-  it('blocks a second delete while pending and restores focus to the Sil trigger after cancel', async () => {
-    let resolveDelete!: () => void;
-    const remove = vi.fn().mockImplementation(() => new Promise<void>((resolve) => { resolveDelete = resolve; }));
-    const load = vi.fn()
-      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
-      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
-    await mount(remove, load);
-
-    const deleteButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
-    await act(async () => deleteButton.click());
-    const cancel = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Vazgeç') as HTMLButtonElement;
-    await act(async () => cancel.click());
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(deleteButton);
-
-    await act(async () => deleteButton.click());
-    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
-    await act(async () => confirm.click());
-    await act(async () => { await Promise.resolve(); });
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Siliniyor');
-    await act(async () => confirm.click());
-    expect(remove).toHaveBeenCalledTimes(1);
-    await act(async () => { resolveDelete(); await Promise.resolve(); });
-    await act(async () => { await Promise.resolve(); });
-    expect(remove).toHaveBeenCalledTimes(1);
-    expect(load).toHaveBeenCalledTimes(2);
-  });
-
-  it('moves focus to the customer list heading after successful deletion unmounts the trigger', async () => {
-    const remove = vi.fn().mockResolvedValue(undefined);
-    const load = vi.fn()
-      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
-      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
-    await mount(remove, load);
-
-    const deleteButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
-    await act(async () => deleteButton.click());
-    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
-      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
-    await act(async () => confirm.click());
-    await act(async () => { await Promise.resolve(); });
-    await act(async () => { await Promise.resolve(); });
-
-    expect(remove).toHaveBeenCalledWith('customer-1', 1);
-    expect(container.querySelector('[aria-label="Demo Dental Klinik müşterisini sil"]')).toBeNull();
-    const heading = container.querySelector('.workspace-heading h1') as HTMLHeadingElement;
-    expect(heading.classList.contains('route-identity-heading')).toBe(true);
-    expect(document.activeElement).toBe(heading);
-    expect(document.activeElement).not.toBe(document.body);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Demo Klinik kalıcı olarak silindi.');
+    expect(router.state.location.state).toBe(null);
   });
 });

@@ -1,19 +1,18 @@
 import {
   useEffect, useRef, useState, type FormEvent, type MouseEvent, type RefObject,
 } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   createContact, createCustomer, customerStatusLabels, customerTypeLabels,
-  deleteCustomer, listCustomers, type ContactFields,
+  listCustomers, type ContactFields,
   type CreateCustomerInput, type CustomerFilters,
   type CustomerSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
-import { ConfirmationAction } from './ui/antd';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -234,7 +233,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, onRequestDelete, feedback = '', actionError = '', headingRef }: {
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, feedback = '', headingRef }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -245,9 +244,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   onFilterChange?: (name: string, value: string | boolean) => void;
   onApplyFilters?: (next: CustomerDraft) => void;
   onOpenCustomer?: (customerId: string) => void;
-  onRequestDelete?: (customer: CustomerSummary, trigger: HTMLButtonElement) => void;
   feedback?: string;
-  actionError?: string;
   headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const canManage = user.role !== 'STAFF';
@@ -257,8 +254,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
       <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
-    <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div className="form-error" role="alert"><p>{actionError}</p></div>}
+    {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
     {state.kind === 'error' && <ResultState status="error" title="Müşteriler yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
@@ -278,9 +274,6 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
         {canManage && <div className="customer-row-commands">
           <Link className="secondary-button" to={paths.customer(customer.id)}
             aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
-          <button className="destructive-button" type="button"
-            aria-label={`${customer.name} müşterisini sil`}
-            onClick={(event) => onRequestDelete?.(customer, event.currentTarget)}>Sil</button>
         </div>}
       </article></li>)}</ul>}
   </main>;
@@ -406,11 +399,11 @@ export function incompleteContactInput(data: FormData): boolean {
     .some((field) => String(data.get(field) ?? '').trim() !== '');
 }
 
-export function CustomerListScreen({ user, load = listCustomers, remove = deleteCustomer }: {
+export function CustomerListScreen({ user, load = listCustomers }: {
   user: CurrentUser;
   load?: typeof listCustomers;
-  remove?: typeof deleteCustomer;
 }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const filters = customerFiltersFromParams(params);
@@ -418,11 +411,15 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
   const [state, setState] = useState<CustomerListState>({ kind: 'loading' });
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<CustomerSummary | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [actionError, setActionError] = useState('');
-  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const navigationNotice = typeof (location.state as { customerNotice?: unknown } | null)?.customerNotice === 'string'
+    ? (location.state as { customerNotice: string }).customerNotice : '';
+  const [feedback, setFeedback] = useState(navigationNotice);
+
+  useEffect(() => {
+    if (!navigationNotice) return;
+    setFeedback(navigationNotice);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, navigate, navigationNotice]);
 
   useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
@@ -449,30 +446,6 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
     else if (draft.assignedStaffUserId) next.set('assignedStaffUserId', draft.assignedStaffUserId);
     setParams(next);
   }
-  function requestDelete(customer: CustomerSummary, trigger: HTMLButtonElement) {
-    if (deletePending) return;
-    deleteTriggerRef.current = trigger;
-    setActionError('');
-    setDeleteTarget(customer);
-  }
-  async function confirmDelete() {
-    if (!deleteTarget || deletePending) return;
-    setDeletePending(true);
-    setActionError('');
-    try {
-      await remove(deleteTarget.id, deleteTarget.version);
-      const name = deleteTarget.name;
-      deleteTriggerRef.current = null;
-      setDeleteTarget(null);
-      setFeedback(`${name} silindi.`);
-      setReloadKey((value) => value + 1);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Müşteri silinemedi.');
-      setDeleteTarget(null);
-    } finally {
-      setDeletePending(false);
-    }
-  }
   const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   return <>
@@ -481,20 +454,7 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
       onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
       onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
       onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}
-      onRequestDelete={requestDelete} feedback={feedback} actionError={actionError} />
-    <ConfirmationAction
-      open={deleteTarget !== null}
-      title={deleteTarget ? `${deleteTarget.name} müşterisini sil` : 'Müşteriyi sil'}
-      description="Bu işlem geri alınamaz. Müşteri ve ilgili kişiler kalıcı olarak silinir."
-      confirmLabel="Sil"
-      pending={deletePending}
-      pendingLabel="Siliniyor…"
-      destructive
-      returnFocusRef={deleteTriggerRef}
-      fallbackFocusRef={headingRef}
-      onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
-      onConfirm={() => { void confirmDelete(); }}
-    />
+      feedback={feedback} />
   </>;
 }
 

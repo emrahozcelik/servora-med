@@ -22,7 +22,7 @@ Object.assign(globalThis, {
 const crm = vi.hoisted(() => ({
   getCustomer: vi.fn(), getContact: vi.fn(), updateCustomer: vi.fn(), updateContact: vi.fn(),
   activateCustomer: vi.fn(), deactivateCustomer: vi.fn(), activateContact: vi.fn(), deactivateContact: vi.fn(),
-  makePrimaryContact: vi.fn(), createContact: vi.fn(),
+  makePrimaryContact: vi.fn(), createContact: vi.fn(), deleteCustomer: vi.fn(),
 }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 
@@ -34,11 +34,12 @@ vi.mock('../src/services/people-api', async (importOriginal) => ({
 }));
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false };
+const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
 
 function customer(id: string, name: string, version = 1): CustomerDetail {
   return { id, organizationId: 'org-1', name, customerType: 'clinic', taxNumber: null, phone: null, email: null,
     city: null, district: null, address: null, assignedStaffUserId: null, assignedStaffName: null, status: 'active', version,
-    primaryContact: null, contacts: [], openJobCount: 0, completedJobCount: 0 };
+    primaryContact: null, contacts: [], hasOperationHistory: false, openJobCount: 0, completedJobCount: 0 };
 }
 
 function contact(id: string, name: string, isPrimary = false, version = 1): Contact {
@@ -122,6 +123,98 @@ describe('CRM detail screen concurrency', () => {
     expect(container.textContent).not.toContain('Müşteriyi pasifleştir');
     expect(container.textContent).not.toContain('Müşteriyi aktifleştir');
     expect(container.textContent).not.toContain('Müşteri durumu');
+  });
+
+  it('lets an Admin cancel pristine Customer deletion without sending a request', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 4));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={admin} /> }], { initialEntries: ['/customers/customer-1'] });
+    await render(router);
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kalıcı olarak sil' && !button.closest('[role="dialog"]'))!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Bu müşteri için operasyon geçmişi bulunmuyor.');
+    const cancel = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Vazgeç')!;
+    await act(async () => cancel.click());
+    expect(crm.deleteCustomer).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('confirms one permanent-delete request with the current Customer version', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 7));
+    crm.deleteCustomer.mockResolvedValue(undefined);
+    const router = createMemoryRouter([
+      { path: '/customers/:customerId', element: <CustomerRoute user={admin} /> },
+      { path: '/customers', element: <div>Müşteri listesi</div> },
+    ], { initialEntries: ['/customers/customer-1'] });
+    await render(router);
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kalıcı olarak sil' && !button.closest('[role="dialog"]'))!;
+    await act(async () => trigger.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => confirm.click()); await settle();
+    expect(crm.deleteCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.deleteCustomer).toHaveBeenCalledWith('customer-1', 7);
+    expect(router.state.location.pathname).toBe('/customers');
+    expect(router.state.location.state).toEqual({ customerNotice: 'Demo Klinik kalıcı olarak silindi.' });
+  });
+
+  it('prevents duplicate permanent-delete requests while confirmation is pending', async () => {
+    const deletion = deferred<void>();
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 3));
+    crm.deleteCustomer.mockReturnValue(deletion.promise);
+    const router = createMemoryRouter([
+      { path: '/customers/:customerId', element: <CustomerRoute user={admin} /> },
+      { path: '/customers', element: <div>Müşteri listesi</div> },
+    ], { initialEntries: ['/customers/customer-1'] });
+    await render(router);
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kalıcı olarak sil' && !button.closest('[role="dialog"]'))!;
+    await act(async () => trigger.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => { confirm.click(); confirm.click(); });
+    expect(crm.deleteCustomer).toHaveBeenCalledTimes(1);
+    expect((container.querySelector('[role="dialog"]')?.querySelector('.destructive-button') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => deletion.resolve());
+  });
+
+  it('refreshes and removes the delete action after an operation-history race', async () => {
+    crm.getCustomer
+      .mockResolvedValueOnce(customer('customer-1', 'Demo Klinik', 3))
+      .mockResolvedValueOnce({ ...customer('customer-1', 'Demo Klinik', 3), hasOperationHistory: true });
+    crm.deleteCustomer.mockRejectedValue(new ApiError(
+      409, 'CUSTOMER_HAS_OPERATION_HISTORY',
+      'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
+    ));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={admin} /> }], { initialEntries: ['/customers/customer-1'] });
+    await render(router);
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kalıcı olarak sil' && !button.closest('[role="dialog"]'))!;
+    await act(async () => trigger.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => confirm.click()); await settle();
+    expect(crm.deleteCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.getCustomer).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.');
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Kalıcı olarak sil')).toBe(false);
+  });
+
+  it('refreshes current values without retrying after a Customer version conflict', async () => {
+    const initial = { ...customer('customer-1', 'Eski Klinik', 3), contacts: [contact('contact-1', 'Dr. Ayşe')] };
+    const current = { ...customer('customer-1', 'Güncel Klinik', 4), contacts: [contact('contact-1', 'Dr. Ayşe')] };
+    crm.getCustomer.mockResolvedValueOnce(initial).mockResolvedValueOnce(current);
+    crm.deleteCustomer.mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Kayıt başka bir kullanıcı tarafından güncellendi.', false, { currentVersion: 4 }));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={admin} /> }], { initialEntries: ['/customers/customer-1'] });
+    await render(router);
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kalıcı olarak sil' && !button.closest('[role="dialog"]'))!;
+    await act(async () => trigger.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => confirm.click()); await settle();
+    expect(crm.deleteCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.getCustomer).toHaveBeenCalledTimes(2);
+    expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');
+    expect(container.textContent).toContain('Dr. Ayşe');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Müşteri başka bir kullanıcı tarafından güncellendi');
   });
 
   it('returns focus to the Contact create trigger after a successful inline create', async () => {

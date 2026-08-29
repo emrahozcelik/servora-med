@@ -249,19 +249,28 @@ describe('CRM service policy', () => {
 
   it('deletes a Customer without operation history after removing Contacts and auditing', async () => {
     const { service, calls, audits } = fixture({ currentCustomer: customer({ status: 'active' }) });
-    await expect(service.deleteCustomer(manager, 'customer-1', 1)).resolves.toBeUndefined();
+    await expect(service.deleteCustomer(admin, 'customer-1', 1)).resolves.toBeUndefined();
     expect(calls).toEqual(['delete-contacts', 'delete-customer']);
     expect(audits).toEqual([{
-      organizationId: 'org-1', actorUserId: 'manager-1', subjectType: 'CUSTOMER',
+      organizationId: 'org-1', actorUserId: 'admin-1', subjectType: 'CUSTOMER',
       subjectId: 'customer-1', eventType: 'CUSTOMER_DELETED',
       oldValue: { name: 'Demo Klinik', status: 'active', customerType: 'clinic' },
       newValue: null, metadata: {},
     }]);
   });
 
+  it('rejects Customer hard-delete for MANAGER even when pristine', async () => {
+    const { service, calls, audits } = fixture();
+    await expect(service.deleteCustomer(manager, 'customer-1', 1)).rejects.toMatchObject({
+      code: 'FORBIDDEN', statusCode: 403,
+    });
+    expect(calls).toEqual([]);
+    expect(audits).toEqual([]);
+  });
+
   it('blocks Customer delete when any JobCards reference the Customer', async () => {
     const { service, calls, audits } = fixture({ customerHasAnyJobs: true });
-    await expect(service.deleteCustomer(manager, 'customer-1', 1)).rejects.toMatchObject({
+    await expect(service.deleteCustomer(admin, 'customer-1', 1)).rejects.toMatchObject({
       code: 'CUSTOMER_HAS_OPERATION_HISTORY', statusCode: 409,
       message: 'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
     });
@@ -271,21 +280,21 @@ describe('CRM service policy', () => {
 
   it('maps FK violations on Customer delete to the operation-history conflict', async () => {
     const { service } = fixture({ fkViolationOnDelete: true });
-    await expect(service.deleteCustomer(manager, 'customer-1', 1)).rejects.toMatchObject({
+    await expect(service.deleteCustomer(admin, 'customer-1', 1)).rejects.toMatchObject({
       code: 'CUSTOMER_HAS_OPERATION_HISTORY', statusCode: 409,
     });
   });
 
   it('conceals a missing Customer on delete', async () => {
     const { service } = fixture({ currentCustomer: null });
-    await expect(service.deleteCustomer(manager, 'missing', 1)).rejects.toMatchObject({
+    await expect(service.deleteCustomer(admin, 'missing', 1)).rejects.toMatchObject({
       code: 'CUSTOMER_NOT_FOUND', statusCode: 404,
     });
   });
 
   it('rejects Customer delete when expectedVersion is stale', async () => {
     const { service } = fixture();
-    await expect(service.deleteCustomer(manager, 'customer-1', 99)).rejects.toMatchObject({
+    await expect(service.deleteCustomer(admin, 'customer-1', 99)).rejects.toMatchObject({
       code: 'VERSION_CONFLICT', statusCode: 409,
     });
   });

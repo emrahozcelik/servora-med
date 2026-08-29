@@ -82,9 +82,32 @@ describe('CRM persistence', () => {
       'customer-1',
     );
 
-    expect(recorded.calls.filter((call) => call.text.includes('FROM job_cards'))).toHaveLength(1);
-    expect(recorded.calls.filter((call) => call.text.includes('has_operation_history'))).toHaveLength(1);
+    expect(recorded.calls.filter((call) => call.text.includes('FROM job_cards'))).toHaveLength(2);
+    expect(recorded.calls.filter((call) => call.text.includes('has_operation_history'))).toHaveLength(2);
     expect(recorded.calls).toHaveLength(2);
+  });
+
+  it('returns the server-derived Customer operation-history signal', async () => {
+    const recorded = recordingPool((text) => {
+      if (text.includes('FROM customers c') && !text.includes('COUNT')) return [{
+        id: 'customer-1', organization_id: 'org-1', name: 'Klinik', customer_type: 'clinic',
+        tax_number: null, phone: null, email: null, city: null, district: null, address: null,
+        assigned_staff_user_id: null, status: 'active', version: 1,
+        created_at: new Date('2026-07-12T00:00:00Z'), updated_at: new Date('2026-07-12T00:00:00Z'),
+        has_operation_history: true,
+      }];
+      return [];
+    });
+    const repository = new PostgresCrmRepository(recorded.pool);
+
+    const detail = await repository.getCustomerDetail(
+      { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' },
+      'customer-1',
+    );
+
+    expect(detail?.hasOperationHistory).toBe(true);
+    const customerQuery = recorded.calls.find((call) => call.text.includes('FROM customers c'))!;
+    expect(customerQuery.text).toMatch(/EXISTS \([\s\S]*FROM job_cards[\s\S]*job_cards\.organization_id=c\.organization_id[\s\S]*job_cards\.customer_id=c\.id/);
   });
 
   it('uses version predicates and writes only caller-supplied audit values', async () => {
@@ -130,6 +153,7 @@ describe('CRM persistence', () => {
     expect(detail).not.toBeNull();
     expect(detail!.contacts).toEqual([]);
     expect(detail!.primaryContact).toBeNull();
+    expect(detail!.hasOperationHistory).toBe(false);
   });
 
   it('caps Customer and Contact pagination at 200 records', async () => {

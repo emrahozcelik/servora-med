@@ -341,7 +341,11 @@ export class PostgresCrmRepository implements CrmRepository {
   async getCustomerDetail(actor: CrmActor, customerId: string) {
     const customerResult = await this.pool.query<CustomerRow>(
       `SELECT ${CUSTOMER_COLUMNS}, u.name AS assigned_staff_name,
-         pc.id AS primary_contact_id, pc.name AS primary_contact_name, pc.title AS primary_contact_title
+         pc.id AS primary_contact_id, pc.name AS primary_contact_name, pc.title AS primary_contact_title,
+         EXISTS (
+           SELECT 1 FROM job_cards
+           WHERE job_cards.organization_id=c.organization_id AND job_cards.customer_id=c.id
+         ) AS has_operation_history
        FROM customers c
        LEFT JOIN users u ON u.organization_id=c.organization_id AND u.id=c.assigned_staff_user_id
        LEFT JOIN contacts pc ON pc.organization_id=c.organization_id AND pc.customer_id=c.id
@@ -356,7 +360,8 @@ export class PostgresCrmRepository implements CrmRepository {
        FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
     );
-    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContactDetail) };
+    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContactDetail),
+      hasOperationHistory: row.has_operation_history === true };
   }
 
   async listContacts(organizationId: string, customerId: string, filters: ContactFilters) {

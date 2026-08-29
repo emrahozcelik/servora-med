@@ -74,11 +74,19 @@ describe('CRM API client', () => {
 
   it('encodes the top-level Customer detail route', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
-      primaryContact: null, contacts: [], openJobCount: 0, completedJobCount: 0 }));
+      primaryContact: null, contacts: [], hasOperationHistory: false, openJobCount: 0, completedJobCount: 0 }));
     vi.stubGlobal('fetch', fetchMock);
     await getCustomer('customer/1 + özel');
     expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1%20%2B%20%C3%B6zel',
       expect.objectContaining({ credentials: 'include' }));
+  });
+
+  it('parses the authoritative Customer operation-history signal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
+      primaryContact: null, contacts: [], openJobCount: 0, completedJobCount: 0,
+      hasOperationHistory: true })));
+
+    await expect(getCustomer('customer/1')).resolves.toMatchObject({ hasOperationHistory: true });
   });
 
   it('sends exact Customer mutation and command bodies', async () => {
@@ -140,7 +148,7 @@ describe('CRM API client', () => {
 
   it('rejects malformed Customer detail history counts', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
-      primaryContact: null, contacts: [], openJobCount: 'BOGUS', completedJobCount: 0 })));
+      primaryContact: null, contacts: [], hasOperationHistory: false, openJobCount: 'BOGUS', completedJobCount: 0 })));
     await expect(getCustomer('customer-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
