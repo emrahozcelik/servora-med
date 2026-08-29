@@ -26,6 +26,7 @@ export type Contact = {
   id: string; organizationId: string; customerId: string; name: string;
   title: string | null; phone: string | null; email: string | null;
   isPrimary: boolean; isActive: boolean; version: number;
+  hasOperationHistory?: boolean;
 };
 export type CustomerSummary = Customer & {
   assignedStaffName: string | null;
@@ -93,6 +94,7 @@ function parseContact(value: unknown): Contact {
     title: nullableString(v.title, 'title'), phone: nullableString(v.phone, 'phone'),
     email: nullableString(v.email, 'email'), isPrimary: boolean(v.isPrimary, 'isPrimary'),
     isActive: boolean(v.isActive, 'isActive'), version: number(v.version, 'version'),
+    ...(v.hasOperationHistory !== undefined ? { hasOperationHistory: boolean(v.hasOperationHistory, 'hasOperationHistory') } : {}),
   };
 }
 
@@ -200,6 +202,9 @@ export const activateContact = async (customerId: string, contactId: string, exp
   parseContact(await request(`${contactPath(customerId, contactId)}/activate`, json('POST', { expectedVersion })));
 export const deactivateContact = async (customerId: string, contactId: string, expectedVersion: number) =>
   parseContact(await request(`${contactPath(customerId, contactId)}/deactivate`, json('POST', { expectedVersion })));
+export const deleteContact = async (customerId: string, contactId: string, expectedVersion: number) => {
+  await request(contactPath(customerId, contactId), json('DELETE', { expectedVersion }));
+};
 export async function makePrimaryContact(customerId: string, contactId: string, expectedVersion: number) {
   const v = object(await request(`${contactPath(customerId, contactId)}/make-primary`,
     json('POST', { expectedVersion })));

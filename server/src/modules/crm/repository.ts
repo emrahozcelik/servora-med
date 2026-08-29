@@ -3,8 +3,10 @@ import type { Pool, PoolClient } from 'pg';
 import type {
   AppendCrmAuditInput,
   Contact,
+  ContactDetail,
   ContactFilters,
   ContactRow,
+  ContactWithHistoryRow,
   CreateContactRecord,
   CreateCustomerRecord,
   CrmActor,
@@ -20,7 +22,7 @@ import type {
   UpdateContactRecord,
   UpdateCustomerRecord,
 } from './types.js';
-import { mapContact, mapCustomer, mapCustomerSummary, normalizeTaxNumber } from './types.js';
+import { mapContact, mapContactDetail, mapCustomer, mapCustomerSummary, normalizeTaxNumber } from './types.js';
 
 const CUSTOMER_COLUMNS = `c.id, c.organization_id, c.name, c.customer_type, c.tax_number,
   c.phone, c.email, c.city, c.district, c.address, c.assigned_staff_user_id,
@@ -52,6 +54,8 @@ export interface CrmTransaction {
   clearPrimary(contactId: string): Promise<Contact>;
   setPrimary(contactId: string, expectedVersion: number): Promise<Contact | null>;
   contactHasActiveJobs(organizationId: string, contactId: string): Promise<boolean>;
+  contactHasAnyJobs(organizationId: string, contactId: string): Promise<boolean>;
+  deleteContact(organizationId: string, customerId: string, contactId: string): Promise<boolean>;
   appendAudit(input: AppendCrmAuditInput): Promise<void>;
 }
 
@@ -59,8 +63,8 @@ export interface CrmRepository {
   execute<T>(work: (tx: CrmTransaction) => Promise<T>): Promise<T>;
   listCustomers(organizationId: string, filters: CustomerFilters): Promise<Paginated<CustomerSummary>>;
   getCustomerDetail(actor: CrmActor, customerId: string): Promise<CustomerDetail | null>;
-  listContacts(organizationId: string, customerId: string, filters: ContactFilters): Promise<Paginated<Contact>>;
-  getContact(organizationId: string, customerId: string, contactId: string): Promise<Contact | null>;
+  listContacts(organizationId: string, customerId: string, filters: ContactFilters): Promise<Paginated<ContactDetail>>;
+  getContact(organizationId: string, customerId: string, contactId: string): Promise<ContactDetail | null>;
 }
 
 class PostgresCrmTransaction implements CrmTransaction {
@@ -243,6 +247,22 @@ class PostgresCrmTransaction implements CrmTransaction {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async contactHasAnyJobs(organizationId: string, contactId: string) {
+    const result = await this.client.query(
+      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2 LIMIT 1`,
+      [organizationId, contactId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteContact(organizationId: string, customerId: string, contactId: string) {
+    const result = await this.client.query(
+      `DELETE FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND id=$3`,
+      [organizationId, customerId, contactId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async appendAudit(input: AppendCrmAuditInput) {
     await this.client.query(
       `INSERT INTO audit_events
@@ -330,11 +350,13 @@ export class PostgresCrmRepository implements CrmRepository {
     );
     const row = customerResult.rows[0];
     if (!row) return null;
-    const contacts = await this.pool.query<ContactRow>(
-      `SELECT ${CONTACT_COLUMNS} FROM contacts WHERE organization_id=$1 AND customer_id=$2
+    const contacts = await this.pool.query<ContactWithHistoryRow>(
+      `SELECT ${CONTACT_COLUMNS},
+         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+       FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
     );
-    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContact) };
+    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContactDetail) };
   }
 
   async listContacts(organizationId: string, customerId: string, filters: ContactFilters) {
@@ -354,20 +376,23 @@ export class PostgresCrmRepository implements CrmRepository {
       `SELECT COUNT(*)::text AS total FROM contacts WHERE ${condition}`, values,
     );
     const pageValues = [...values, limit, filters.offset];
-    const items = await this.pool.query<ContactRow>(
-      `SELECT ${CONTACT_COLUMNS} FROM contacts WHERE ${condition}
+    const items = await this.pool.query<ContactWithHistoryRow>(
+      `SELECT ${CONTACT_COLUMNS},
+         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+       FROM contacts WHERE ${condition}
        ORDER BY is_primary DESC, name, id LIMIT $${pageValues.length - 1} OFFSET $${pageValues.length}`,
       pageValues,
     );
-    return { items: items.rows.map(mapContact), total: Number(count.rows[0]?.total ?? 0),
+    return { items: items.rows.map(mapContactDetail), total: Number(count.rows[0]?.total ?? 0),
       limit, offset: filters.offset };
   }
 
   async getContact(organizationId: string, customerId: string, contactId: string) {
-    const result = await this.pool.query<ContactRow>(
-      `SELECT ${CONTACT_COLUMNS} FROM contacts
-       WHERE organization_id=$1 AND customer_id=$2 AND id=$3`, [organizationId, customerId, contactId],
+    const result = await this.pool.query<ContactWithHistoryRow>(
+      `SELECT ${CONTACT_COLUMNS},
+         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+       FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND id=$3`, [organizationId, customerId, contactId],
     );
-    return result.rows[0] ? mapContact(result.rows[0]) : null;
+    return result.rows[0] ? mapContactDetail(result.rows[0]) : null;
   }
 }

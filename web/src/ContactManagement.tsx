@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type RefO
 import { Link, useNavigate } from 'react-router-dom';
 
 import { paths } from './paths';
-import { ApiError } from './services/api';
+import { ApiError, type CurrentUser } from './services/api';
 import {
-  createContact, getContact, getCustomer, makePrimaryContact,
+  createContact, deleteContact, getContact, getCustomer, makePrimaryContact,
   updateContact, type Contact, type ContactFields,
 } from './services/crm-api';
 import { createRequestGate } from './services/request-gate';
-import { CompactConfirmationAction } from './ui/antd';
+import { CompactConfirmationAction, ConfirmationAction } from './ui/antd';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -84,16 +84,24 @@ export function ContactCreateForm({ pending, error, onCancel, onSubmit }: {
   </section>;
 }
 
-export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, formRevision = 0, canManage = true, errorRef, commandsRef, onBack, onSave, onMakePrimary, onReloadCurrent }: {
+export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, formRevision = 0, canManage = true, user, deletePending = false, deleteConfirmOpen = false, onDeleteConfirmOpenChange, onDelete, deleteTriggerRef, errorRef, commandsRef, onBack, onSave, onMakePrimary, onReloadCurrent }: {
   contact: Contact; customerName: string; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   canManage?: boolean;
+  user?: CurrentUser;
+  deletePending?: boolean;
+  deleteConfirmOpen?: boolean;
+  onDeleteConfirmOpenChange?: (open: boolean) => void;
+  onDelete?: () => void;
+  deleteTriggerRef?: RefObject<HTMLButtonElement | null>;
   errorRef?: RefObject<HTMLDivElement | null>;
   commandsRef?: RefObject<HTMLElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void;
   onMakePrimary: (trigger: HTMLButtonElement) => void;
   onReloadCurrent?: () => void;
 }) {
+  const canDelete = user?.role === 'ADMIN' && contact.hasOperationHistory === false;
+  const isReferenced = contact.hasOperationHistory === true;
   return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>{customerName} kaydına dön</button>
     <div className="detail-heading"><div><p className="eyebrow">İlgili kişi</p><h1>{contact.name}</h1></div>
       <div className="record-status">{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div></div>
@@ -124,13 +132,31 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
             onConfirm={onMakePrimary}
           /></div></>}
     </section>}
+    {user?.role === 'ADMIN' && canDelete && <section className="record-section record-commands" aria-labelledby="contact-delete-title"><h2 id="contact-delete-title">Kalıcı silme</h2>
+      <p>Yanlışlıkla oluşturulan kişi kaydı kalıcı olarak silinebilir. Sadece hiç kullanılmamış kişiler silinebilir.</p>
+      <div><button ref={deleteTriggerRef} className="destructive-button" type="button" onClick={() => onDeleteConfirmOpenChange?.(true)} disabled={pending || deletePending}>Kalıcı olarak sil</button></div>
+      {onDelete && <ConfirmationAction
+        title="İletişim kişisi kalıcı olarak silinsin mi?"
+        description="Bu işlem geri alınamaz. Yalnız operasyon geçmişinde kullanılmamış kişiler silinebilir."
+        confirmLabel="Kalıcı olarak sil"
+        pending={deletePending}
+        open={deleteConfirmOpen}
+        destructive
+        onConfirm={onDelete}
+        onCancel={() => onDeleteConfirmOpenChange?.(false)}
+        returnFocusRef={deleteTriggerRef}
+      />}</section>}
+    {user?.role === 'ADMIN' && isReferenced && <section className="record-section" aria-labelledby="contact-delete-blocked-title"><h2 id="contact-delete-blocked-title">Kalıcı silme</h2>
+      <p>Bu kişi operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez. Kişiyi devre dışı bırakabilirsiniz.</p>
+    </section>}
   </main>;
 }
 
-export function ContactDetailScreen({ customerId, contactId, canManage }: { customerId: string; contactId: string; canManage: boolean }) {
+export function ContactDetailScreen({ customerId, contactId, user, canManage }: { customerId: string; contactId: string; user: CurrentUser; canManage: boolean }) {
   const navigate = useNavigate(); const [contact, setContact] = useState<Contact | null>(null); const [customerName, setCustomerName] = useState('Müşteri'); const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0);
-  const errorRef = useRef<HTMLDivElement>(null); const commandsRef = useRef<HTMLElement>(null); const requestGate = useRef(createRequestGate());
+  const [deletePending, setDeletePending] = useState(false); const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null); const commandsRef = useRef<HTMLElement>(null); const deleteTriggerRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate());
   async function load() {
     const generation = requestGate.current.next(); setLoading(true); setContact(null); setError(''); setNotice(''); setConflict(false);
     try {
@@ -177,7 +203,34 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
       }
     }
   }
-  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} canManage={canManage} errorRef={errorRef} commandsRef={commandsRef}
+  async function handleDelete() {
+    if (deletePending) return;
+    const generation = requestGate.current.current(); setDeletePending(true); setError(''); setNotice('');
+    try {
+      await deleteContact(customerId, contactId, contact!.version);
+      setNotice('İlgili kişi kalıcı olarak silindi.');
+      setDeleteConfirmOpen(false);
+      navigate(paths.customer(customerId));
+    } catch (caught) {
+      if (!requestGate.current.isCurrent(generation)) return;
+      const err = caught as ApiError;
+      if (err.code === 'CONTACT_HAS_OPERATION_HISTORY') {
+        setError('Bu kişi operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.');
+        setContact((prev) => prev ? { ...prev, hasOperationHistory: true } : prev);
+        setDeleteConfirmOpen(false);
+      } else if (err.code === 'VERSION_CONFLICT') {
+        setConflict(true);
+        setError('İlgili kişi başka bir kullanıcı tarafından güncellendi.');
+        setDeleteConfirmOpen(false);
+        void load();
+      } else {
+        setError(err.message ?? 'İlgili kişi silinemedi.');
+      }
+    } finally {
+      if (requestGate.current.isCurrent(generation)) setDeletePending(false);
+    }
+  }
+  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} canManage={canManage} user={user} deletePending={deletePending} deleteConfirmOpen={deleteConfirmOpen} onDeleteConfirmOpenChange={setDeleteConfirmOpen} onDelete={() => void handleDelete()} deleteTriggerRef={deleteTriggerRef} errorRef={errorRef} commandsRef={commandsRef}
     onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onMakePrimary={(trigger) => void makePrimary(trigger)}
     onReloadCurrent={() => void load()} />;
 }

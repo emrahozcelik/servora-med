@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
       expect(result.appliedVersions).toHaveLength(38);
-      expect(result.appliedVersions.at(-1)).toBe('038_demo_dataset_audit_types');
+      expect(result.appliedVersions.at(-1)).toBe('039_contact_deleted_audit');
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED']));
 
       const { organizationId, actorId } = await createAuditActor(pool);
@@ -111,7 +111,7 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
       await insertAuditEvent(pool, organizationId, actorId, 'USER_DEACTIVATED');
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types'] });
+      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '039_contact_deleted_audit'] });
       expect((await pool.query(`SELECT event_type FROM audit_events WHERE event_type = 'USER_DEACTIVATED'`)).rows).toHaveLength(1);
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED']));
       await insertAuditEvent(pool, organizationId, actorId, 'USER_OFFBOARDED');

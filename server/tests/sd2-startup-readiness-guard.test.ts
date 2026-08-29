@@ -75,8 +75,8 @@ function createMockLogger() {
 describe('SD2 catalog source', () => {
   it('derives expected head from catalog as 038', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.head?.version).toBe('038_demo_dataset_audit_types');
-    expect(catalog.count).toBe(38);
+    expect(catalog.head?.version).toBe('039_contact_deleted_audit');
+    expect(catalog.count).toBe(39);
     expect(catalog.entries[0]?.version).toBe('001_auth_foundation');
   });
 
@@ -85,7 +85,7 @@ describe('SD2 catalog source', () => {
     // In worktree src context, it should be src/db/migrations
     expect(dir).toMatch(/\/db\/migrations$/);
     const catalog = await loadMigrationCatalog(dir);
-    expect(catalog.count).toBe(38);
+    expect(catalog.count).toBe(39);
   });
 
   it('dist migrations are copied and resolvable', async () => {
@@ -93,8 +93,8 @@ describe('SD2 catalog source', () => {
     const { existsSync } = await import('node:fs');
     if (!existsSync(distMigrationsDirectory)) return;
     const catalog = await loadMigrationCatalog(distMigrationsDirectory);
-    expect(catalog.head?.version).toBe('038_demo_dataset_audit_types');
-    expect(catalog.count).toBe(38);
+    expect(catalog.head?.version).toBe('039_contact_deleted_audit');
+    expect(catalog.count).toBe(39);
   });
 });
 
@@ -105,7 +105,7 @@ describe('SD2 HEALTH_SCHEMA_VERSION assertion', () => {
   });
   it('037 matches head', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(getHealthSchemaVersionMismatchError(catalog, '038_demo_dataset_audit_types')).toBeNull();
+    expect(getHealthSchemaVersionMismatchError(catalog, '039_contact_deleted_audit')).toBeNull();
   });
   it('036 mismatches', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
@@ -129,7 +129,7 @@ describe('SD2 startup fail-fast', () => {
     const { logger, logs } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/incompatibility: BEHIND/);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
-    expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '038_demo_dataset_audit_types']);
+    expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '039_contact_deleted_audit']);
   });
   it('BEHIND many (029 incident) refused with 9 pending', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
@@ -147,7 +147,7 @@ describe('SD2 startup fail-fast', () => {
       '035_demo_data_purge_foundation',
       '036_job_card_invalidated',
       '037_staff_offboarding_audit',
-      '038_demo_dataset_audit_types',
+      '039_contact_deleted_audit',
     ]);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
     expect(JSON.stringify(logs)).not.toMatch(/postgres/i);

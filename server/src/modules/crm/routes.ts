@@ -32,4 +32,5 @@ export const crmRoutes: FastifyPluginAsync<CrmRoutesOptions> = async (app, optio
   app.post('/customers/:customerId/contacts/:contactId/activate', auth, handlers.activateContact);
   app.post('/customers/:customerId/contacts/:contactId/deactivate', auth, handlers.deactivateContact);
   app.post('/customers/:customerId/contacts/:contactId/make-primary', auth, handlers.makePrimary);
+  app.delete('/customers/:customerId/contacts/:contactId', auth, handlers.deleteContact);
 };

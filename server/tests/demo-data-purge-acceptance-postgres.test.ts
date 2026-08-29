@@ -682,7 +682,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     const migration = await pool!.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    expect(migration.rows[0]?.version).toBe('038_demo_dataset_audit_types');
+    expect(migration.rows[0]?.version).toBe('039_contact_deleted_audit');
     const constraints = await pool!.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
        WHERE conname = ANY($1::text[])

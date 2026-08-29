@@ -82,7 +82,8 @@ describe('CRM persistence', () => {
       'customer-1',
     );
 
-    expect(recorded.calls.filter((call) => call.text.includes('FROM job_cards'))).toHaveLength(0);
+    expect(recorded.calls.filter((call) => call.text.includes('FROM job_cards'))).toHaveLength(1);
+    expect(recorded.calls.filter((call) => call.text.includes('has_operation_history'))).toHaveLength(1);
     expect(recorded.calls).toHaveLength(2);
   });
 

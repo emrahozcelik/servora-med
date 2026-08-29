@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('038_demo_dataset_audit_types');
+      expect(cmp.pendingVersions).toContain('039_contact_deleted_audit');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '039_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '040_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('039_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('040_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -258,10 +258,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 38 head 038', async () => {
+  it('produces dist catalog 39 head 039', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(38);
-    expect(distCatalog.head?.version).toBe('038_demo_dataset_audit_types');
+    expect(distCatalog.count).toBe(39);
+    expect(distCatalog.head?.version).toBe('039_contact_deleted_audit');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {
