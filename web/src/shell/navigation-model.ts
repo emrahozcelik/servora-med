@@ -113,6 +113,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (pathname.startsWith('/help')) return 'Yardım Merkezi';
   if (pathname.startsWith(paths.settingsDemoData)) return 'Demo verileri';
   if (pathname.startsWith(paths.settingsBackupRecovery)) return 'Yedekleme ve Kurtarma';
+  if (pathname === paths.settingsDataManagement || pathname.startsWith(`${paths.settingsDataManagement}/`)) return 'Veri Yönetimi';
   if (pathname.startsWith('/settings')) return 'Ayarlar';
   if (pathname.startsWith('/jobs/new-')) return 'Yeni iş';
   if (/^\/jobs\/[^/]+/.test(pathname)) return 'İş detayı';
@@ -139,6 +140,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
 export function resolveShellBackTo(pathname: string): string | null {
   if (pathname.startsWith(paths.settingsDemoData)) return paths.settings;
   if (pathname.startsWith(paths.settingsBackupRecovery)) return paths.settings;
+  if (pathname === paths.settingsDataManagement) return paths.settings;
   if (pathname.startsWith('/jobs/new-') || /^\/jobs\/[^/]+/.test(pathname)) return paths.jobs;
 
   const contactMatch = pathname.match(/^\/customers\/([^/]+)\/contacts\//);

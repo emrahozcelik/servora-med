@@ -34,11 +34,17 @@ const settingsLandingItems = [
 ];
 
 export function SettingsLandingPage({ user }: { user?: CurrentUser } = {}) {
-  const showDemoData = user?.role === 'ADMIN';
-  const showBackupRecovery = user?.role === 'ADMIN' && user.capabilities?.backup === true;
+  const isAdmin = user?.role === 'ADMIN';
+  const showBackupRecovery = isAdmin && user?.capabilities?.backup === true;
   const landingItems = [
     ...settingsLandingItems,
-    ...(showDemoData ? [{
+    ...(isAdmin ? [{
+      key: 'data-management',
+      title: 'Veri Yönetimi',
+      description: 'İş kayıtlarının ve demo verilerinin yaşam döngüsünü tek bir yerden keşfedin.',
+      to: paths.settingsDataManagement,
+    }] : []),
+    ...(isAdmin ? [{
       key: 'demo-data',
       title: 'Demo verileri',
       description: 'Demo dataset kayıtlarını ve güvenli silme önizlemesini görüntüleyin.',

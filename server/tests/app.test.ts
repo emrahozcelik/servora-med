@@ -83,6 +83,16 @@ describe('AppDependencies', () => {
     expect(dependencies.productRepository).toBeDefined();
   });
 
+  it('registers the Admin-only Data Management summary with its read model', async () => {
+    const app = await buildApp(testConfig, {
+      authRepository: {} as never,
+      dataManagementRepository: {} as never,
+    });
+    apps.push(app);
+
+    expect(app.hasRoute({ method: 'GET', url: '/api/admin/data-management/summary' })).toBe(true);
+  });
+
   it('registers People only with the shared report read model', async () => {
     const withoutReports = await buildApp(testConfig, {
       authRepository: {} as never,

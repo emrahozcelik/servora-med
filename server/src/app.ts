@@ -86,6 +86,10 @@ import type { DemoDatasetRepository } from './modules/demo-data/types.js';
 import { DemoDatasetService } from './modules/demo-data/service.js';
 import { PostgresDemoDatasetRepository } from './modules/demo-data/repository.js';
 import { demoDatasetRoutes } from './modules/demo-data/routes.js';
+import type { DataManagementReadModel } from './modules/data-management/repository.js';
+import { PostgresDataManagementRepository } from './modules/data-management/repository.js';
+import { DataManagementService } from './modules/data-management/service.js';
+import { dataManagementRoutes } from './modules/data-management/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -142,6 +146,7 @@ export type AppDependencies = {
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
+  dataManagementRepository?: DataManagementReadModel;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -395,6 +400,16 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           dependencies.demoDatasetRepository
             ?? new PostgresDemoDatasetRepository(dependencies.pool!),
           () => config.demoDataCreationEnabled,
+        ),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.dataManagementRepository || dependencies.pool) {
+      await app.register(dataManagementRoutes, {
+        prefix: '/api/admin',
+        service: new DataManagementService(
+          dependencies.dataManagementRepository
+            ?? new PostgresDataManagementRepository(dependencies.pool!),
         ),
         authenticate: authenticateDomain,
       });

@@ -176,6 +176,9 @@ const NotificationSettingsPage = lazy(() =>
 const ApplicationSettingsPage = lazy(() =>
   import('./settings/SettingsPages').then((module) => ({ default: module.ApplicationSettingsPage })),
 );
+const DataManagementPage = lazy(() =>
+  import('./settings/DataManagementPage').then((module) => ({ default: module.DataManagementPage })),
+);
 const DemoDataPage = lazy(() =>
   import('./settings/DemoDataPage').then((module) => ({ default: module.DemoDataPage })),
 );
@@ -355,6 +358,8 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.settingsSecurity} element={<SecuritySettingsPage onSessionEnded={onSessionEnded} />} />
         <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
         <Route path={paths.settingsApplication} element={<ApplicationSettingsPage />} />
+        <Route path={paths.settingsDataManagement} element={user.role === 'ADMIN'
+          ? <DataManagementPage user={user} /> : <ForbiddenView />} />
         <Route path={paths.settingsDemoData} element={user.role === 'ADMIN'
           ? <DemoDataPage user={user} /> : <ForbiddenView />} />
         <Route path={paths.settingsBackupRecovery} element={user.role === 'ADMIN' && user.capabilities?.backup === true
