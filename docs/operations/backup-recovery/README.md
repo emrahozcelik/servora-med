@@ -278,15 +278,17 @@ BR7 delivered (operator CLI only; no production cutover):
 ## Relationship to existing documents
 
 - [../backup-restore.md](../backup-restore.md) remains the **operating
-  contract for the current script-based MVP backup stack**
+  contract for the legacy script-based MVP backup stack**
   (`ops/scripts/backup-postgres.sh`, systemd/launchd timers,
-  `restore-rehearsal.sh`). Nothing on that page changes until the BR
-  slices that replace it are merged and enabled.
+  `restore-rehearsal.sh`) and the deployment safety boundary. BR1–BR7 are
+  merged, but production worker enablement, legacy retirement, and cutover
+  remain separately authorized.
 - The MVP-era product boundary "no `backup_status` table and no in-app
   backup UI" is **superseded for post-MVP V1** by decision
-  `OPS-002` in [`DECISIONS.md`](../../../DECISIONS.md). The boundary stays
-  in force until the BR slices that introduce the domain (BR1) and the UI
-  (BR6) are actually merged.
+  `OPS-002` in [`DECISIONS.md`](../../../DECISIONS.md): the Admin Backup &
+  Recovery UI/API now exists behind the `BACKUP_ENABLED` capability and
+  ADMIN-only authorization. Restore and production cutover remain outside the
+  web UI.
 - Backup/restore is a **disaster recovery domain** and is deliberately
   separate from business-data export/import; see the deferred
   `docs/superpowers/plans/2026-08-04-admin-data-management-deferred-plan.md`

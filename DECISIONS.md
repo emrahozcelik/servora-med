@@ -720,6 +720,23 @@ MVP, betik tabanlı bir yedekleme yığınını (`backup-postgres.sh`, systemd/l
 - Platform kontratları: `docs/operations/backup-recovery/platform-contracts.md`
 - MVP yığını: `docs/operations/backup-restore.md`
 
+### Current-state reconciliation addendum — 2026-08-29
+
+The BR0 context and decision text above preserve the state and provenance of
+the accepted OPS-002 record. Since then, BR1–BR7 have been merged on canonical
+`main`: the installation-scoped backup domain, execution contracts, worker,
+operator restore CLI, and the capability-gated ADMIN Backup & Recovery UI/API
+are implemented. The MVP product boundary in item 9 is therefore no longer a
+claim that the current repository has no backup tables or UI.
+
+The legacy `backup-postgres.sh`/timer/rehearsal stack remains an active
+operator contract until a separately authorized production worker and cutover
+transition. Production worker enablement, real-R2 DR acceptance, host
+configuration, offsite retention, host restore rehearsal, monitoring cutover,
+and production restore/cutover remain unproven or unauthorized. Export/Import
+remains a separate deferred business-data domain; no `SYSTEM_OPERATOR` role is
+introduced by this reconciliation.
+
 ## OPS-003: BR3 yedek şifrelemesi native age post-quantum HybridRecipient kullanır (ML-KEM-768 + X25519)
 
 - **Date:** 2026-08-23
