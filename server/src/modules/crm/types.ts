@@ -47,8 +47,12 @@ export type CustomerSummary = Customer & {
   primaryContact: Pick<Contact, 'id' | 'name' | 'title'> | null;
 };
 
+export type ContactDetail = Contact & {
+  hasOperationHistory: boolean;
+};
+
 export type CustomerDetail = CustomerSummary & {
-  contacts: Contact[];
+  contacts: ContactDetail[];
   openJobCount?: number;
   completedJobCount?: number;
 };
@@ -68,6 +72,10 @@ export type ContactRow = {
   title: string | null; phone: string | null; email: string | null;
   is_primary: boolean; is_active: boolean; version: number;
   created_at: Date; updated_at: Date;
+};
+
+export type ContactWithHistoryRow = ContactRow & {
+  has_operation_history: boolean;
 };
 
 export function mapCustomer(row: CustomerRow): Customer {
@@ -96,6 +104,13 @@ export function mapContact(row: ContactRow): Contact {
     name: row.name, title: row.title, phone: row.phone, email: row.email,
     isPrimary: row.is_primary, isActive: row.is_active, version: row.version,
     createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+export function mapContactDetail(row: ContactWithHistoryRow): ContactDetail {
+  return {
+    ...mapContact(row),
+    hasOperationHistory: row.has_operation_history,
   };
 }
 
@@ -155,7 +170,7 @@ export const CRM_AUDIT_EVENTS = [
   'CUSTOMER_CREATED', 'CUSTOMER_FIELDS_UPDATED', 'CUSTOMER_ASSIGNEE_CHANGED',
   'CUSTOMER_ACTIVATED', 'CUSTOMER_DEACTIVATED', 'CUSTOMER_DELETED',
   'CONTACT_CREATED', 'CONTACT_FIELDS_UPDATED', 'CONTACT_MADE_PRIMARY',
-  'CONTACT_ACTIVATED', 'CONTACT_DEACTIVATED',
+  'CONTACT_ACTIVATED', 'CONTACT_DEACTIVATED', 'CONTACT_DELETED',
 ] as const;
 export type CrmAuditEvent = (typeof CRM_AUDIT_EVENTS)[number];
 

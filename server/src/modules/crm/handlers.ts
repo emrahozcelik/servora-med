@@ -200,5 +200,10 @@ export function createCrmHandlers(service: CrmService) {
       const ids = params(request); const value = body(request, ['expectedVersion']);
       return service.makePrimary(actor(request), ids.customerId, ids.contactId!, version(value.expectedVersion));
     },
+    deleteContact: async (request: FastifyRequest, reply: FastifyReply) => {
+      const ids = params(request); const value = body(request, ['expectedVersion']);
+      await service.deleteContact(actor(request), ids.customerId, ids.contactId!, version(value.expectedVersion));
+      return reply.code(204).send();
+    },
   };
 }

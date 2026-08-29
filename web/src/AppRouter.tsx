@@ -266,7 +266,7 @@ export function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
 export function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { customerId, contactId } = useParams();
   if (!customerId || !contactId) return <NotFoundView />;
-  return <ContactDetailScreen key={`${customerId}:${contactId}`} customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
+  return <ContactDetailScreen key={`${customerId}:${contactId}`} customerId={customerId} contactId={contactId} user={user} canManage={user.role !== 'STAFF'} />;
 }
 
 function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {

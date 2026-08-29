@@ -4,6 +4,7 @@ import { CrmService } from '../src/modules/crm/service.js';
 import type { Contact, Customer } from '../src/modules/crm/types.js';
 
 const now = new Date('2026-07-12T10:00:00Z');
+const admin = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const };
 const manager = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' as const };
 const staff = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const };
 
@@ -23,19 +24,21 @@ function contact(overrides: Partial<Contact> = {}): Contact {
 
 function fixture(options: {
   currentCustomer?: Customer | null;
-  currentContact?: Contact;
+  currentContact?: Contact | null;
   activeContacts?: Contact[];
   customerHasJobs?: boolean;
   customerHasAnyJobs?: boolean;
   contactHasJobs?: boolean;
+  contactHasAnyJobs?: boolean;
   uniqueTaxFailure?: boolean;
   uniqueConstraint?: string;
   fkViolationOnDelete?: boolean;
+  fkViolationOnContactDelete?: boolean;
 } = {}) {
   const audits: unknown[] = [];
   const calls: string[] = [];
   let currentCustomer = options.currentCustomer === undefined ? customer() : options.currentCustomer;
-  let currentContact = options.currentContact ?? contact();
+  let currentContact = options.currentContact === undefined ? contact() : options.currentContact;
   const tx = {
     lockUser: async (_org: string, id: string) => id === 'staff-1'
       ? { id, organizationId: 'org-1', role: 'STAFF', isActive: true } : null,
@@ -74,6 +77,13 @@ function fixture(options: {
     clearPrimary: async (id: string) => { calls.push(`clear:${id}:3`); return contact({ id, isPrimary: false, version: 3 }); },
     setPrimary: async (id: string) => { calls.push(`primary:${id}:${currentContact.version + 1}`); return contact({ id, isPrimary: true, version: currentContact.version + 1 }); },
     contactHasActiveJobs: async () => options.contactHasJobs ?? false,
+    contactHasAnyJobs: async () => options.contactHasAnyJobs ?? false,
+    deleteContact: async () => {
+      calls.push('delete-contact');
+      if (options.fkViolationOnContactDelete) throw Object.assign(new Error('fk'), { code: '23503' });
+      currentContact = null as unknown as Contact;
+      return true;
+    },
     appendAudit: async (input: unknown) => { audits.push(input); },
   };
   const repository = {
@@ -272,7 +282,6 @@ describe('CRM service policy', () => {
       code: 'CUSTOMER_NOT_FOUND', statusCode: 404,
     });
   });
-});
 
   it('rejects Customer delete when expectedVersion is stale', async () => {
     const { service } = fixture();
@@ -280,3 +289,62 @@ describe('CRM service policy', () => {
       code: 'VERSION_CONFLICT', statusCode: 409,
     });
   });
+
+  it('deletes a pristine Contact as ADMIN and audits CONTACT_DELETED', async () => {
+    const { service, calls, audits } = fixture();
+    await expect(service.deleteContact(admin, 'customer-1', 'contact-1', 1)).resolves.toBeUndefined();
+    expect(calls).toEqual(['delete-contact']);
+    expect(audits).toEqual([{
+      organizationId: 'org-1', actorUserId: 'admin-1', subjectType: 'CONTACT',
+      subjectId: 'contact-1', eventType: 'CONTACT_DELETED',
+      oldValue: { customerId: 'customer-1', name: 'Dr. Ayşe', isPrimary: false, isActive: true },
+      newValue: null, metadata: {},
+    }]);
+  });
+
+  it('deletes a pristine primary Contact as ADMIN', async () => {
+    const primary = contact({ id: 'contact-1', isPrimary: true, version: 2 });
+    const { service, audits } = fixture({ currentContact: primary });
+    await expect(service.deleteContact(admin, 'customer-1', 'contact-1', 2)).resolves.toBeUndefined();
+    expect(audits[0]).toMatchObject({ eventType: 'CONTACT_DELETED', oldValue: { isPrimary: true } });
+  });
+
+  it('rejects Contact hard-delete for MANAGER even when pristine', async () => {
+    const { service, calls, audits } = fixture();
+    await expect(service.deleteContact(manager, 'customer-1', 'contact-1', 1)).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    expect(calls).toEqual([]); expect(audits).toEqual([]);
+  });
+
+  it('rejects Contact hard-delete for STAFF', async () => {
+    const { service } = fixture();
+    await expect(service.deleteContact(staff, 'customer-1', 'contact-1', 1)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('blocks Contact delete when any JobCard references the Contact', async () => {
+    const { service, calls, audits } = fixture({ contactHasAnyJobs: true });
+    await expect(service.deleteContact(admin, 'customer-1', 'contact-1', 1)).rejects.toMatchObject({
+      code: 'CONTACT_HAS_OPERATION_HISTORY', statusCode: 409,
+    });
+    expect(calls).toEqual([]); expect(audits).toEqual([]);
+  });
+
+  it('maps FK violation on Contact delete to CONTACT_HAS_OPERATION_HISTORY', async () => {
+    const { service } = fixture({ fkViolationOnContactDelete: true });
+    await expect(service.deleteContact(admin, 'customer-1', 'contact-1', 1)).rejects.toMatchObject({
+      code: 'CONTACT_HAS_OPERATION_HISTORY', statusCode: 409,
+    });
+  });
+
+  it('rejects Contact delete when version is stale and emits no audit', async () => {
+    const { service, audits } = fixture({ currentContact: contact({ version: 5 }) });
+    await expect(service.deleteContact(admin, 'customer-1', 'contact-1', 1)).rejects.toMatchObject({
+      code: 'VERSION_CONFLICT', statusCode: 409,
+    });
+    expect(audits).toEqual([]);
+  });
+
+  it('conceals missing Contact as not found', async () => {
+    const { service } = fixture({ currentContact: null });
+    await expect(service.deleteContact(admin, 'customer-1', 'missing', 1)).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
+  });
+});

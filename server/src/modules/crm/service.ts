@@ -46,6 +46,10 @@ function requireWriter(actor: CrmActor) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') throw forbidden();
 }
 
+function requireAdmin(actor: CrmActor) {
+  if (actor.role !== 'ADMIN') throw forbidden();
+}
+
 function requireCustomerCreator(actor: CrmActor) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER' && actor.role !== 'STAFF') throw forbidden();
 }
@@ -312,6 +316,43 @@ export class CrmService {
   deactivateContact(actor: CrmActor, customerId: string, contactId: string, expectedVersion: number) {
     requireWriter(actor);
     return this.changeContactActive(actor, customerId, contactId, expectedVersion, false);
+  }
+
+  async deleteContact(actor: CrmActor, customerId: string, contactId: string, expectedVersion: number) {
+    requireAdmin(actor);
+    try {
+      await this.repository.execute(async (tx) => {
+        const current = await this.requireContact(tx, actor, customerId, contactId);
+        if (current.version !== expectedVersion) throw versionConflict(current.version);
+        if (await tx.contactHasAnyJobs(actor.organizationId, contactId)) {
+          throw new AppError(
+            'CONTACT_HAS_OPERATION_HISTORY',
+            409,
+            'Bu kişi operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.',
+          );
+        }
+        const deleted = await tx.deleteContact(actor.organizationId, customerId, contactId);
+        if (!deleted) throw contactNotFound();
+        await tx.appendAudit(audit(
+          actor,
+          'CONTACT',
+          contactId,
+          'CONTACT_DELETED',
+          { customerId, name: current.name, isPrimary: current.isPrimary, isActive: current.isActive },
+          null,
+        ));
+      });
+    } catch (error) {
+      const value = error as { code?: string };
+      if (value.code === '23503') {
+        throw new AppError(
+          'CONTACT_HAS_OPERATION_HISTORY',
+          409,
+          'Bu kişi operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.',
+        );
+      }
+      throw error;
+    }
   }
 
   private async changeContactActive(actor: CrmActor, customerId: string, contactId: string, expectedVersion: number, active: boolean) {

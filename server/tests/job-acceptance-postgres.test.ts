@@ -182,6 +182,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '036_job_card_invalidated',
           '037_staff_offboarding_audit',
           '038_demo_dataset_audit_types',
+          '039_contact_deleted_audit',
         ],
       });
 
