@@ -1815,6 +1815,7 @@ export class JobCardService {
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
     };
+    assertStaffStartActor(actor);
     if (!this.geolocation.enabled) {
       return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, requestTime);
     }
@@ -1832,7 +1833,6 @@ export class JobCardService {
     if (job.version !== lifecycleInput.expectedVersion) {
       throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
     }
-    assertStaffStartActor(actor);
     assertCanTransition(actor, job, 'START', undefined, requestTime);
     const resolvedCapture = await this.resolveStartLocation({
       organizationId: actor.organizationId,

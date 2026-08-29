@@ -637,7 +637,7 @@ describe('Manager review', () => {
     const root = createRoot(host);
     try {
       await act(async () => {
-        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        root.render(<JobDetailScreen jobId="job-1" user={staff} onBack={() => {}} onChanged={() => {}} />);
         await flush();
       });
       expect(host.textContent).toContain('Genel görev');

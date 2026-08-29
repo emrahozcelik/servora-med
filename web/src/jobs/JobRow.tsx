@@ -10,6 +10,7 @@ import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import {
   deriveCompactWorkflowSummary,
   expectedRoleForStatus,
+  isLifecycleCommandVisible,
 } from './job-workflow-presentation';
 import { cardScheduleFact } from './scheduling';
 
@@ -73,7 +74,10 @@ function listPrimaryOpenCommand(user: CurrentUser, job: JobCardListItem): Lifecy
 
 function listOpenCommands(user: CurrentUser, job: JobCardListItem): LifecycleCommand[] {
   const primary = listPrimaryOpenCommand(user, job);
-  const presentable = OPEN_COMMAND_ORDER.filter((command) => job.allowedCommands.includes(command));
+  const presentable = OPEN_COMMAND_ORDER.filter((command) => (
+    job.allowedCommands.includes(command)
+    && isLifecycleCommandVisible(user, job.status, job.assignee.id, command)
+  ));
   if (!primary) return [...presentable];
   return [primary, ...presentable.filter((command) => command !== primary)];
 }
