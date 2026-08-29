@@ -140,7 +140,7 @@ the row.
 
 | Role | V1 backup administration |
 |------|--------------------------|
-| `ADMIN` | backup overview/status; backup history; manual backup request; reverify request; schedule/policy management; storage connection test |
+| `ADMIN` | backup overview/status; backup history; manual backup request; internal reverify primitive only (no HTTP/UI action in this slice); schedule/policy management; storage connection test |
 | `MANAGER` | **none** — no backup administration in V1 |
 | `STAFF` | **none** |
 | Restore | **no application role** performs V1 production restore — operator-controlled only (CLI) |
@@ -152,9 +152,10 @@ Enforcement follows the repository pattern — service-layer
 `requireAdmin(actor)` helpers (like `people/service.ts`), never UI-only
 hiding.
 
-## 3. Admin API contract (future slices)
+## 3. Admin API contract (implemented scope + deferred contract)
 
-Not implemented in BR0. Contracts follow existing conventions: Fastify
+The original BR0 contract was documentation-only; current implementation
+status is stated per endpoint below. Contracts follow existing conventions: Fastify
 module routes with `/api` prefixes, `AppError(code, status, Turkish
 message)` responses `{ error, code, details? }`, ADMIN-only via service
 layer, sensitive payload redaction via logger redact paths.
