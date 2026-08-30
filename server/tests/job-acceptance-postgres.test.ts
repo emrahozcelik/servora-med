@@ -184,6 +184,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '038_demo_dataset_audit_types',
           '039_contact_deleted_audit',
           '040_demo_lifecycle_simplification',
+          '041_user_lifecycle_reconciliation',
         ],
       });
 

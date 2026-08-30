@@ -17,6 +17,7 @@ function serviceDouble() {
     counters: { open: 1, waitingApproval: 2, revisionRequested: 3, completedThisMonth: 4, overdue: 5 } };
   return {
     listUsers: vi.fn().mockResolvedValue([user]), getUser: vi.fn().mockResolvedValue(user),
+    deleteUser: vi.fn().mockResolvedValue(undefined),
     createUser: vi.fn().mockResolvedValue(user), updateUser: vi.fn().mockResolvedValue({ ...user, version: 2 }),
     changeRole: vi.fn().mockResolvedValue({ ...user, role: 'MANAGER', version: 2 }),
     activate: vi.fn().mockResolvedValue({ ...user, isActive: true, version: 2 }),
@@ -79,6 +80,14 @@ describe('People HTTP routes', () => {
     expect((await app.inject({ method: 'GET', url: '/api/users/staff-1' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'PATCH', url: '/api/users/staff-1', payload: { expectedVersion: 1, name: 'Yeni Ad' } })).statusCode).toBe(200);
     expect(service.updateUser).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), 'staff-1', { expectedVersion: 1, name: 'Yeni Ad' });
+  });
+
+  it('dispatches the Admin-only permanent delete command with an optional version', async () => {
+    const { app, service } = await createApp();
+    expect((await app.inject({ method: 'DELETE', url: '/api/users/staff-1', payload: { expectedVersion: 4 } })).statusCode).toBe(204);
+    expect(service.deleteUser).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), 'staff-1', 4);
+    expect((await app.inject({ method: 'DELETE', url: '/api/users/staff-1', payload: { unexpected: true } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'DELETE', url: '/api/users/staff-1', payload: { expectedVersion: 0 } })).statusCode).toBe(400);
   });
 
   it.each([

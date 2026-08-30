@@ -12,6 +12,7 @@ export type StaffCounters = {
 
 export type AuditEventType =
   | 'USER_CREATED'
+  | 'USER_DELETED'
   | 'USER_ROLE_CHANGED'
   | 'USER_ACTIVATED'
   | 'USER_DEACTIVATED'
@@ -38,6 +39,31 @@ export type ManagedUserRecord = {
 };
 
 export type SafeManagedUser = Omit<ManagedUserRecord, 'passwordHash'>;
+
+export type UserDataClass = 'BUSINESS' | 'DEMO';
+
+export type PermanentDeleteBlocker =
+  | 'SELF'
+  | 'LAST_ADMIN'
+  | 'HAS_BUSINESS_HISTORY'
+  | 'HAS_ACTIVE_RESPONSIBILITIES'
+  | 'DEMO_USER';
+
+export type ManagedUserDetails = SafeManagedUser & {
+  canPermanentlyDelete: boolean;
+  permanentDeleteBlockers: PermanentDeleteBlocker[];
+};
+
+export type UserDeletionTarget = ManagedUserRecord & {
+  dataClass: UserDataClass;
+};
+
+export type UserDeletionFacts = {
+  dataClass: UserDataClass;
+  hasBusinessHistory: boolean;
+  hasActiveResponsibilities: boolean;
+  activeAdminCount: number;
+};
 
 export type StaffProfileRecord = {
   id: string;

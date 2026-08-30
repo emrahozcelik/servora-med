@@ -10,10 +10,11 @@ import type { ManagedUser } from '../src/services/people-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const people = vi.hoisted(() => ({ getUser: vi.fn() }));
+const people = vi.hoisted(() => ({ getUser: vi.fn(), permanentlyDeleteUser: vi.fn() }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/services/people-api')>(),
   getUser: (...args: unknown[]) => people.getUser(...args),
+  permanentlyDeleteUser: (...args: unknown[]) => people.permanentlyDeleteUser(...args),
 }));
 
 const user: ManagedUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com',
@@ -50,6 +51,20 @@ describe('Admin user management views', () => {
     }
     const inactive = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={{ ...user, isActive: false }} onBack={() => {}} onChanged={() => {}} />);
     expect(inactive).not.toContain('Personeli devre dışı bırak');
+  });
+
+  it('shows permanent deletion only for server-confirmed pristine users', () => {
+    const eligible = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN"
+      user={{ ...user, role: 'MANAGER', canPermanentlyDelete: true, permanentDeleteBlockers: [] }}
+      onBack={() => {}} onChanged={() => {}} />);
+    expect(eligible).toContain('Kalıcı olarak sil');
+    expect(eligible).toContain('Bu işlem geri alınamaz');
+
+    const historyBearing = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN"
+      user={{ ...user, canPermanentlyDelete: false, permanentDeleteBlockers: ['HAS_BUSINESS_HISTORY'] }}
+      onBack={() => {}} onChanged={() => {}} />);
+    expect(historyBearing).toContain('Operasyon geçmişi ve atıfları korunur');
+    expect(historyBearing).not.toMatch(/<button[^>]*>Kalıcı olarak sil<\/button>/);
   });
 
   it('user create uses create-heading and form-actions with Vazgeç before submit and no heading cancel', () => {
@@ -111,6 +126,7 @@ describe('User detail route race protection', () => {
     document.body.append(container);
     root = createRoot(container);
     people.getUser.mockReset();
+    people.permanentlyDeleteUser.mockReset();
   });
   afterEach(async () => {
     await act(async () => root.unmount());
@@ -140,5 +156,21 @@ describe('User detail route race protection', () => {
     });
     expect(container.textContent).toContain('Bora');
     expect(container.textContent).not.toContain('Ayşe');
+  });
+
+  it('confirms and completes a pristine-user permanent deletion', async () => {
+    const onDeleted = vi.fn();
+    people.permanentlyDeleteUser.mockResolvedValue(undefined);
+    const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewerRole="ADMIN" user={eligible}
+      onBack={() => {}} onChanged={() => {}} onDeleted={onDeleted} /></MemoryRouter>));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Kalıcı olarak sil')) as HTMLButtonElement;
+    expect(button).toBeDefined();
+    await act(async () => { button.click(); await Promise.resolve(); });
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('geri alınamaz'));
+    expect(people.permanentlyDeleteUser).toHaveBeenCalledWith('staff-1', 1);
+    expect(onDeleted).toHaveBeenCalledTimes(1);
+    confirm.mockRestore();
   });
 });

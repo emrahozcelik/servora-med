@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import {
   changeUserRole, createUser, getUser, listUsers,
-  resetUserPassword, updateUser, type ManagedUser,
+  permanentlyDeleteUser, resetUserPassword, updateUser, type ManagedUser, type ManagedUserDetails,
 } from './services/people-api';
 import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
 import { EmptyState } from './ui/antd/EmptyState';
@@ -23,16 +23,19 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function UserListView({ users, onCreate, onOpen }: { users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void }) {
+export function UserListView({ users, onCreate, onOpen, notice }: {
+  users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void; notice?: string;
+}) {
   return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1 className="route-identity-heading">Kullanıcılar</h1></div>
     <button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button></div>
+    {notice && <div className="success-message" role="status">{notice}</div>}
     {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
       : <ul className="people-list">{users.map((user) => <li key={user.id}>
         <article className="people-row people-list-card" data-user-id={user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, user.id)}>
           <div className="people-identity">
             <h2><Link className="people-title-link" to={paths.user(user.id)}>{user.name}</Link></h2>
-            <p>{user.email} · {roleLabel[user.role]}</p>
+            <p>{user.email} · {roleLabel[user.role]}{user.isActive ? '' : ' · Devre dışı'}</p>
           </div>
         </article>
       </li>)}</ul>}
@@ -75,11 +78,52 @@ function Field({ id, label, children, hint, hintId }: {
     {hint && hintId ? <p id={hintId} className="field-hint">{hint}</p> : null}</div>;
 }
 
-export function UserDetailView({ user: initial, viewerRole, onBack, onChanged }: {
-  user: ManagedUser; viewerRole: ManagedUser['role']; onBack: () => void; onChanged: (user: ManagedUser) => void;
+type UserDetailRecord = ManagedUser & Partial<Pick<ManagedUserDetails, 'canPermanentlyDelete' | 'permanentDeleteBlockers'>>;
+
+const deleteBlockerLabels: Record<string, string> = {
+  SELF: 'Kendi hesabınız',
+  LAST_ADMIN: 'son aktif sistem yöneticisi olması',
+  HAS_BUSINESS_HISTORY: 'operasyon geçmişi bulunması',
+  HAS_ACTIVE_RESPONSIBILITIES: 'aktif sorumlulukları bulunması',
+  DEMO_USER: 'Demo veri kümesine ait olması',
+};
+
+function permanentDeleteUnavailableMessage(user: UserDetailRecord) {
+  const blockers = user.permanentDeleteBlockers ?? [];
+  if (blockers.includes('DEMO_USER')) return 'Demo kullanıcıları Demo veri kümesi akışıyla kaldırılır; bu ekrandan kalıcı silinemez.';
+  if (blockers.includes('HAS_BUSINESS_HISTORY') || blockers.includes('HAS_ACTIVE_RESPONSIBILITIES')) {
+    return 'Operasyon geçmişi ve atıfları korunur. Bu kullanıcı kalıcı olarak silinemez; gerekiyorsa mevcut offboarding akışını kullanın.';
+  }
+  if (blockers.length > 0) {
+    const reason = blockers.map((blocker) => deleteBlockerLabels[blocker] ?? blocker).join(', ');
+    return `Kalıcı silme kullanılamıyor: ${reason}.`;
+  }
+  return null;
+}
+
+export function UserDetailView({ user: initial, viewerRole, onBack, onChanged, onDeleted }: {
+  user: UserDetailRecord; viewerRole: ManagedUser['role']; onBack: () => void;
+  onChanged: (user: ManagedUser) => void; onDeleted?: () => void;
 }) {
-  const [user, setUser] = useState(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
-  async function run(action: () => Promise<ManagedUser>, message: string) { setError(''); try { const next = await action(); setUser(next); onChanged(next); setNotice(message); } catch (e) { setError(e instanceof Error ? e.message : 'İşlem tamamlanamadı.'); } }
+  const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [deletePending, setDeletePending] = useState(false);
+  async function run(action: () => Promise<ManagedUser>, message: string) {
+    setError('');
+    try {
+      const next = await action();
+      const merged = { ...user, ...next };
+      setUser(merged); onChanged(merged); setNotice(message);
+    } catch (e) { setError(e instanceof Error ? e.message : 'İşlem tamamlanamadı.'); }
+  }
+  async function permanentlyDelete() {
+    if (user.canPermanentlyDelete !== true || deletePending) return;
+    if (!window.confirm('Bu kullanıcıda operasyon geçmişi bulunmuyor. Kullanıcı kalıcı olarak silinsin mi? Bu işlem geri alınamaz.')) return;
+    setError(''); setNotice(''); setDeletePending(true);
+    try { await permanentlyDeleteUser(user.id, user.version); onDeleted?.(); if (!onDeleted) setNotice('Kullanıcı kalıcı olarak silindi.'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Kullanıcı silinemedi.'); }
+    finally { setDeletePending(false); }
+  }
+  const deleteUnavailable = permanentDeleteUnavailableMessage(user);
   return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Kullanıcı</p><h1>{user.name}</h1></div><button className="secondary-button" onClick={onBack}>Listeye dön</button></div>
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <section><h2>Temel bilgiler</h2><form onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get('name') ?? ''); void run(() => updateUser(user.id, { expectedVersion: user.version, name }), 'Ad güncellendi.'); }}>
@@ -98,21 +142,33 @@ export function UserDetailView({ user: initial, viewerRole, onBack, onChanged }:
             setUser(inactive); onChanged(inactive);
           });
         }} />}
+      {viewerRole === 'ADMIN' && user.canPermanentlyDelete === true && <div className="danger-command-section">
+        <h3>Kalıcı kullanıcı silme</h3>
+        <p>Bu işlem yalnızca operasyon geçmişi olmayan gerçek kullanıcılar için kullanılabilir. Bu işlem geri alınamaz.</p>
+        <button className="destructive-button command-button" type="button" onClick={() => void permanentlyDelete()} disabled={deletePending}
+          aria-busy={deletePending}>{deletePending ? 'Siliniyor…' : 'Kalıcı olarak sil'}</button>
+      </div>}
+      {viewerRole === 'ADMIN' && user.canPermanentlyDelete === false && deleteUnavailable && <div className="lifecycle-notice" role="status">
+        {deleteUnavailable}
+      </div>}
     </section></main>;
 }
 
 export function UserListScreen() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const load = () => { setState('loading'); listUsers().then((value) => { setUsers(value); setState('ready'); }).catch(() => setState('error')); };
   useEffect(load, []);
   if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcılar yükleniyor</h1></main>;
   if (state === 'error') return <main className="workspace"><ResultState status="error" title="Kullanıcılar yüklenemedi" headingLevel={1} action={<button className="secondary-button" onClick={load}>Tekrar dene</button>} /></main>;
+  const notice = typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
+    ? (location.state as { notice: string }).notice : undefined;
   return <>
     <button className="back-link" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>
     <UserListView users={users} onCreate={() => navigate(paths.newUser)}
-      onOpen={(id) => navigate(paths.user(id))} />
+      onOpen={(id) => navigate(paths.user(id))} notice={notice} />
   </>;
 }
 
@@ -134,7 +190,7 @@ export function UserCreateScreen() {
 export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role'] }) {
   const { userId } = useParams();
   const navigate = useNavigate();
-  const [user, setUser] = useState<ManagedUser | null>(null);
+  const [user, setUser] = useState<UserDetailRecord | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -155,7 +211,9 @@ export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
   if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
     action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
-  return <UserDetailView viewerRole={viewerRole} user={user} onBack={() => navigate(paths.users)} onChanged={setUser} />;
+  return <UserDetailView viewerRole={viewerRole} user={user} onBack={() => navigate(paths.users)}
+    onChanged={(next) => setUser((current) => current ? { ...current, ...next } : next)}
+    onDeleted={() => navigate(paths.users, { replace: true, state: { notice: 'Kullanıcı kalıcı olarak silindi.' } })} />;
 }
 
 /** @deprecated Prefer routed screens; kept for existing imports. */

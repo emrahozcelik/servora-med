@@ -189,6 +189,13 @@ export function createPeopleHandlers(service: PeopleService, offboardingService?
     ),
     listUsers: (request: FastifyRequest) => service.listUsers(request.currentUser!),
     getUser: (request: FastifyRequest) => service.getUser(request.currentUser!, userId(request)),
+    deleteUser: async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body === undefined || request.body === null ? {} : bodyOf(request);
+      exactFields(body, ['expectedVersion']);
+      const version = body.expectedVersion === undefined ? undefined : expectedVersion(body.expectedVersion);
+      await service.deleteUser(request.currentUser!, userId(request), version);
+      return reply.code(204).send();
+    },
     createUser: async (request: FastifyRequest, reply: FastifyReply) => {
       const body = bodyOf(request);
       exactFields(body, ['name', 'email', 'role', 'temporaryPassword', 'staffProfile']);
