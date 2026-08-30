@@ -181,6 +181,65 @@ async function createLegacyFixture(pool: Pool, withDemoRoot = false) {
   };
 }
 
+async function createActiveFixture(pool: Pool) {
+  const organization = await pool.query<{ id: string }>(
+    `INSERT INTO organizations (name) VALUES ('D4 active migration organization') RETURNING id`,
+  );
+  const organizationId = organization.rows[0]!.id;
+  const businessAdmin = await pool.query<{ id: string }>(
+    `INSERT INTO users (organization_id, name, email, password_hash, role)
+     VALUES ($1, 'D4 Active Business Admin', $2, 'test-hash', 'ADMIN')
+     RETURNING id`,
+    [organizationId, `${randomUUID()}@d4.test`],
+  );
+  const businessSentinel = await pool.query<{ id: string }>(
+    `INSERT INTO customers (organization_id, name, customer_type, status)
+     VALUES ($1, 'D4 Active Business Sentinel', 'clinic', 'active')
+     RETURNING id`,
+    [organizationId],
+  );
+
+  const datasetId = randomUUID();
+  await pool.query(
+    `INSERT INTO demo_datasets
+       (id, organization_id, dataset_key, seed_version, status,
+        created_by, created_by_user_id_snapshot, purged_at)
+     VALUES ($1, $2, 'active-d4', 'demo-standard-v1', 'ACTIVE', $3, NULL, NULL)`,
+    [datasetId, organizationId, businessAdmin.rows[0]!.id],
+  );
+  const demoUser = await pool.query<{ id: string }>(
+    `INSERT INTO users
+       (organization_id, name, email, password_hash, role, data_class, demo_dataset_id)
+     VALUES ($1, 'D4 Active Demo Staff', $2, 'test-hash', 'STAFF', 'DEMO', $3)
+     RETURNING id`,
+    [organizationId, `${randomUUID()}@demo.d4.test`, datasetId],
+  );
+  const demoCustomer = await pool.query<{ id: string }>(
+    `INSERT INTO customers
+       (organization_id, name, customer_type, assigned_staff_user_id, status,
+        data_class, demo_dataset_id)
+     VALUES ($1, 'D4 Active Demo Clinic', 'clinic', $2, 'active', 'DEMO', $3)
+     RETURNING id`,
+    [organizationId, demoUser.rows[0]!.id, datasetId],
+  );
+  const demoContact = await pool.query<{ id: string }>(
+    `INSERT INTO contacts (organization_id, customer_id, name, title, is_primary)
+     VALUES ($1, $2, 'D4 Active Demo Contact', 'Purchasing', TRUE)
+     RETURNING id`,
+    [organizationId, demoCustomer.rows[0]!.id],
+  );
+
+  return {
+    organizationId,
+    businessAdminId: businessAdmin.rows[0]!.id,
+    businessSentinelId: businessSentinel.rows[0]!.id,
+    datasetId,
+    demoUserId: demoUser.rows[0]!.id,
+    demoCustomerId: demoCustomer.rows[0]!.id,
+    demoContactId: demoContact.rows[0]!.id,
+  };
+}
+
 describe('040 Demo lifecycle simplification migration contract', () => {
   it('adds the narrow D4 receipt/audit vocabulary and active-only registry boundary', () => {
     expect(migration040).toContain("'DEMO_DATASET_PURGED'");
@@ -294,6 +353,56 @@ describe.skipIf(!databaseUrl)('040 Demo lifecycle simplification PostgreSQL migr
          VALUES ($1, $2, 'DEMO_DATASET', $3, 'DEMO_DATASET_PURGED')`,
         [fixture.organizationId, fixture.businessAdminId, fixture.datasetId],
       )).resolves.toBeDefined();
+    });
+  });
+
+  it('preserves an existing ACTIVE dataset and its Demo child graph while applying 040', async () => {
+    await withIsolatedDatabase(async (pool) => {
+      const baseline = await applyThrough(pool, 39);
+      expect(baseline.appliedVersions).toHaveLength(39);
+      const fixture = await createActiveFixture(pool);
+
+      const snapshot = async () => ({
+        dataset: (await pool.query(
+          `SELECT id::text AS id, dataset_key, seed_version, status,
+                  created_by::text AS created_by,
+                  created_by_user_id_snapshot::text AS created_by_user_id_snapshot,
+                  purged_at IS NULL AS purged_at_is_null
+             FROM demo_datasets
+            WHERE organization_id = $1 AND id = $2`,
+          [fixture.organizationId, fixture.datasetId],
+        )).rows,
+        users: (await pool.query(
+          `SELECT id::text AS id, data_class, demo_dataset_id::text AS demo_dataset_id
+             FROM users
+            WHERE organization_id = $1 AND id = $2`,
+          [fixture.organizationId, fixture.demoUserId],
+        )).rows,
+        customers: (await pool.query(
+          `SELECT id::text AS id, data_class, demo_dataset_id::text AS demo_dataset_id,
+                  assigned_staff_user_id::text AS assigned_staff_user_id
+             FROM customers
+            WHERE organization_id = $1 AND id = $2`,
+          [fixture.organizationId, fixture.demoCustomerId],
+        )).rows,
+        contacts: (await pool.query(
+          `SELECT id::text AS id, customer_id::text AS customer_id, name, title, is_primary
+             FROM contacts
+            WHERE organization_id = $1 AND id = $2`,
+          [fixture.organizationId, fixture.demoContactId],
+        )).rows,
+        businessSentinel: (await pool.query(
+          `SELECT id::text AS id, data_class, demo_dataset_id::text AS demo_dataset_id
+             FROM customers
+            WHERE organization_id = $1 AND id = $2`,
+          [fixture.organizationId, fixture.businessSentinelId],
+        )).rows,
+      });
+      const before = await snapshot();
+
+      const upgrade = await applyThrough(pool, 40);
+      expect(upgrade.appliedVersions).toEqual(['040_demo_lifecycle_simplification']);
+      expect(await snapshot()).toEqual(before);
     });
   });
 
