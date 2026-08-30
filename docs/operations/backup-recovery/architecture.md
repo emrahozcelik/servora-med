@@ -3,7 +3,7 @@
 ```text
 Date: 2026-08-23
 Slice: BR7 — operator restore CLI / disaster-recovery acceptance
-Status: BR7 IMPLEMENTED on an isolated Draft PR branch; exact-head review and production enablement are not authorized
+Status: BR7 implementation is merged on canonical main; production enablement and cutover are not authorized
 Decision record: DECISIONS.md → OPS-002
 ```
 

@@ -2,21 +2,32 @@
 
 > Backup freshness alerting: the operator alerting monitor checks the age and
 > checksum validity of the latest canonical backup pair without modifying it —
-> see [operator-alerting.md](./operator-alerting.md). Backup creation and
-> restore remain manual as documented below.
+> see [operator-alerting.md](./operator-alerting.md). Host backup, restore, and
+> cutover operations remain operator-controlled.
 
-> Post-MVP direction: the approved Backup & Recovery V1 architecture and
-> contracts (R2 + age encryption + worker) live in
-> [backup-recovery/](./backup-recovery/) (BR0, documentation-only). This page
-> remains the operating contract for the current script-based stack until the
-> BR slices replace it; see `DECISIONS.md` → `OPS-002`.
+> BR1–BR7 Backup & Recovery implementation and contracts live in
+> [backup-recovery/](./backup-recovery/). This page remains the operating
+> contract for the legacy local script/timer stack and its deployment safety
+> boundary; production worker enablement and cutover remain separately gated.
 
 > BR7 operator restore: the new-target CLI and its DR boundary are documented
 > in [br7-restore-cli.md](./backup-recovery/br7-restore-cli.md). The legacy
 > rehearsal script below remains preserved until a separately authorized
 > production operational transition.
 
+## Current-state boundary
+
+Servora has three distinct backup/recovery surfaces:
+
+- **Admin Backup & Recovery application surface** — `Settings → Data Management → Backup & Recovery` and the related admin API are implemented, but are visible/usable only for an authorized `ADMIN` capability (`BACKUP_ENABLED`). The surface provides backup status, history, schedule, storage status, and a manual backup request; it does not provide restore or production cutover.
+- **Deployment backups** — the canonical `ops/deploy-production.sh` flow requires a SHA-scoped predeploy backup before migration/release switch and a postdeploy backup after health/browser smoke. These artifacts prove deployment safety only; they do not prove offsite retention or a live restore rehearsal.
+- **Operator restore/rehearsal/cutover** — the BR7 CLI and legacy rehearsal path remain operator-controlled. Restore targets are isolated/new targets; web-based production restore, tenant reset, database replacement, and one-click rollback are not provided.
+
 ## Backup
+
+The following section documents the legacy local `pg_dump`/sidecar stack. It
+remains available until a separately authorized production worker/cutover
+transition retires it.
 
 Script: `ops/scripts/backup-postgres.sh`
 
@@ -98,4 +109,6 @@ On the macOS pilot host, use `ops/launchd/com.servora-med.backup.plist.example` 
 
 ## Product boundary
 
-No `backup_status` table and no in-app backup UI.
+No web-based restore or production database cutover UI is provided. The Admin
+Backup & Recovery UI/API is capability-gated and does not replace the
+operator-controlled restore, rehearsal, or cutover workflow.

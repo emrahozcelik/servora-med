@@ -37,7 +37,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=039_contact_deleted_audit` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
 - `DEMO_DATA_CREATION_ENABLED=false` (default false all environments; creation DISABLED, list/preview/purge remain AVAILABLE; enable explicitly only for staging/dev where disposable `TEST_DATABASE_URL` is used)
 
 ### HEALTH_SCHEMA_VERSION verification
@@ -70,6 +70,10 @@ printf '%s\n' "$LATEST_MIGRATION"
 A builder-checkout may be verified separately with
 `git ls-files server/src/db/migrations`; a builder checkout is **not** an
 installed release and the two must never be mixed.
+
+The release `MigrationCatalog` is the authoritative expected migration history.
+`HEALTH_SCHEMA_VERSION` is only a configuration assertion against that catalog
+head; it is not an independent migration authority.
 
 Failure behavior — an incorrect or stale `HEALTH_SCHEMA_VERSION` means:
 
@@ -213,6 +217,10 @@ entrypoint at `ops/deploy-production.sh` and the manually dispatched
 `.github/workflows/deploy-production.yml` workflow. A merge to `main` runs the
 normal CI workflow only; it never deploys production by itself.
 
+`ops/deploy-production.sh`, invoked by the manually dispatched workflow, is the
+canonical production deployment path. The legacy host helper is not an
+alternative current workflow.
+
 The approved operator flow is:
 
 ```text
@@ -324,6 +332,11 @@ staff, customer, product, job, and demo-data counts before and after the runner
 and fails if they move unexpectedly. No arbitrary SQL or automatic database
 restore is available.
 
+This runbook does not assert the current live production schema. The deploy-time
+read-only comparison is authoritative: an `EXACT` 039 database needs no
+migration; an exact 038 prefix has `039_contact_deleted_audit` pending; an
+older exact prefix produces the ordered pending set for operator review.
+
 If activation/health/browser smoke fails and zero migrations were applied, the
 old release may be switched back atomically and the application restarted. A
 migration-applied deployment never receives an automatic application or
@@ -366,10 +379,20 @@ bash ops/deploy-production.sh --sha <40-character-main-sha>
 bash ops/deploy-production.sh --sha <40-character-main-sha> --allow-migrations
 ```
 
-## Deploy sequence (fail-closed)
+## Legacy `deploy-release.sh` reference (historical)
+
+This section is retained only for historical/compatibility context for older
+host installations. It is not the current production deployment path and must
+not be used as the preferred deployment command. Current deployments use
+`ops/deploy-production.sh` through the manually approved `Production Deploy`
+workflow described above.
+
+**Do not execute the command block in this historical section for current
+deployments.**
 
 Migration **must** run from the **new release directory**, never from the still-active
-`current` symlink. Prefer the checked-in helper:
+`current` symlink. The older helper invocation is retained below only as a
+legacy reference:
 
 ```bash
 sudo SHA=<git-sha> SERVORA_FQDN=app.example.com \
@@ -394,7 +417,7 @@ sudo install -o root -g root -m 0644 \
   /etc/systemd/system/servora-med-predeploy-backup@.service
 ```
 
-The operator invocation is intentionally narrow: use the exact command above
+The historical operator invocation is intentionally narrow: use the exact command above
 with `sudo env`/`sudo SHA=...`; never add `ALL=(ALL) NOPASSWD: ALL` or an
 operator-controlled arbitrary release-root override to sudoers. If a host
 sudoers rule is required, it must point to a separately reviewed, root-owned
@@ -619,7 +642,7 @@ GET /api/health
 
 | Claim | Status |
 |-------|--------|
-| Implementation verification (unit/integration/CI) | unit/integration checks complete on the isolated branch; exact-head CI is the Draft PR handoff gate |
+| Implementation verification (unit/integration/CI) | canonical main implementation and exact-head CI are verified; live host configuration and cutover remain operator gates |
 | Disposable PostgreSQL backup/restore acceptance | covered by automated tests when `TEST_DATABASE_URL` is set |
 | Disposable real-R2 FULL_DATA DR acceptance | **NOT EXECUTED** — dedicated acceptance credentials unavailable; never falls back to production credentials |
 | Live host restore rehearsal record | **pending** operator |
@@ -628,4 +651,5 @@ GET /api/health
 
 ## Non-goals
 
-Docker/K8s, multi-region, HA, auto-deploy from CI, product backup UI.
+Docker/K8s, multi-region, HA, auto-deploy from CI, web-based production restore
+or database cutover UI, and automatic database rollback.

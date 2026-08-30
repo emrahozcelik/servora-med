@@ -29,7 +29,7 @@ ACTION_SCOPED_GEOLOCATION_ENABLED:
 false initially
 
 CURRENT HEALTH_SCHEMA_VERSION:
-037_staff_offboarding_audit
+039_contact_deleted_audit
 
 AUTOMATIC MIGRATION ON APP START:
 PROHIBITED
@@ -44,7 +44,7 @@ STAGING_PUBLIC_ORIGIN:
 operator-provided HTTPS origin; unresolved until ingress provisioning
 ```
 
-Topology follows [OPS-001](../DECISIONS.md) and the macOS + Cloudflare Tunnel
+Topology follows [OPS-001](../../DECISIONS.md) and the macOS + Cloudflare Tunnel
 guide ([local-macos-cloudflare-tunnel.md](./local-macos-cloudflare-tunnel.md)).
 The staging host runs only loopback services; public HTTPS terminates at
 Cloudflare Edge. No router port forwarding, no public Fastify or PostgreSQL.
@@ -53,7 +53,7 @@ Cloudflare Edge. No router port forwarding, no public Fastify or PostgreSQL.
 
 `HEALTH_SCHEMA_VERSION` must equal the **exact latest canonical migration
 identifier included in the deployed release** — currently
-`037_staff_offboarding_audit`. Update the value in the staging environment file
+`039_contact_deleted_audit`. Update the value in the staging environment file
 on every release that adds a migration.
 
 Operator verification against the deployed release (no database credentials, no
@@ -124,7 +124,7 @@ No values or real credentials are recorded.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `037_staff_offboarding_audit` |
+| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `039_contact_deleted_audit` |
 
 ### Feature flags
 

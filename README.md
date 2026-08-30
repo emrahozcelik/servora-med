@@ -171,7 +171,9 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–037 files (latest: `037_staff_offboarding_audit`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, and the JobCard INVALIDATED foundation.
+The migration runner applies the immutable 001–039 files (latest: `039_contact_deleted_audit`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, and contact-delete audit history.
+
+The `MigrationCatalog` is the authoritative expected migration history for a release. `HEALTH_SCHEMA_VERSION` is a production configuration assertion against that catalog head; it is not an independent migration authority.
 
 ### First Admin Bootstrap
 
@@ -488,7 +490,7 @@ cd web && npm audit --omit=dev
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `037_staff_offboarding_audit`; must equal the latest canonical migration in the deployed release); optional in development/test |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `039_contact_deleted_audit`; must equal the latest canonical migration in the deployed release); optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |
@@ -513,13 +515,14 @@ Production secrets must come from the deployment environment. Raw passwords, ses
 ## Backup and restore
 
 Scripts and contracts: [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
-Post-MVP V1 architecture (approved, documentation-only): [docs/operations/backup-recovery/](docs/operations/backup-recovery/).
+Backup & Recovery V1 implementation and operations: [docs/operations/backup-recovery/](docs/operations/backup-recovery/). Production worker enablement and cutover remain separately authorized.
 
 | Capability | Status |
 |------------|--------|
+| Admin Backup & Recovery UI/API | implemented, capability-gated by `BACKUP_ENABLED` and ADMIN-only; no web restore/cutover |
 | Local scheduled backup scripts | available |
 | Disposable restore automated tests | available with `TEST_DATABASE_URL` |
-| Automatic backup schedule | not enabled on any host; manual backup workflow continues, activation is operator-owned |
+| Production worker/automatic backup schedule | not enabled on any host; legacy manual workflow continues, activation is operator-owned |
 | Host restore rehearsal record | pending until executed on pilot host |
 | Real offsite copy | pending destination + credentials |
 

@@ -9,7 +9,7 @@ Every item must be independently verified; a checklist item is never assumed.
 exact deployed commit recorded
 exact-head CI server/web success
 DATABASE_URL points to staging DB
-37/37 migrations
+39/39 migrations
 HEALTH_SCHEMA_VERSION exact
 /api/health = 200
 login works
@@ -55,9 +55,9 @@ Detail notes:
 - **Exact-head CI** — the CI run for the deployed commit shows server and web
   jobs `SUCCESS`.
 - **Database** — `DATABASE_URL` resolves to `servora_med_staging`;
-  `schema_migrations` holds exactly the 37 canonical migrations.
+  `schema_migrations` holds exactly the 39 canonical migrations.
 - **Readiness** — `HEALTH_SCHEMA_VERSION` equals the exact latest migration in
-  the release (currently `037_staff_offboarding_audit`); `GET /api/health`
+  the release (currently `039_contact_deleted_audit`); `GET /api/health`
   returns `200 {"status":"ok"}`.
 - **Feature flags** — `OVERVIEW_DASHBOARD_ENABLED=true`,
   `CALENDAR_ENABLED=true`, and `MESSAGING_ENABLED=true`; `WEB_PUSH_ENABLED=false`
