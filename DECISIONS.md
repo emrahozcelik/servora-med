@@ -768,3 +768,44 @@ OPS-002, BR0 zamanında henüz somut uygulama seçimi yapılmadan önce şifrele
 - Yerine aldığı yön (yalnız recipient türü): `DECISIONS.md` OPS-002 madde 5; `docs/operations/backup-recovery/architecture.md` §10 (uzlaştırma notu eklendi)
 - Uygulama: `server/src/modules/backup/encryption.ts` (LocalEncryptionEngine, recipient policy)
 - age 1.3.0 sürüm notları (native post-quantum recipients, `age1pq1…`, `AGE-SECRET-KEY-PQ-1…`, `age-keygen -pq`, `age-inspect`)
+
+## Current-state reconciliation addendum — 2026-08-30
+
+Bu ek, önceki kronolojik kararları değiştirmeden, 041 şema ve yaşam döngüsü
+uzlaştırması sonrasındaki güncel durumu kaydeder.
+
+- **Canonical source:** `main`, `origin/main` ile hizalı; exact head
+  `6f387f09f8fa1a1f5ae800fbd55b73ae168e55e8`.
+- **Source schema:** 41 / `041_user_lifecycle_reconciliation`.
+- **Protected local `servora_med`:** schema 41 /
+  `041_user_lifecycle_reconciliation`; schema compatibility `COMPATIBLE`.
+- **Production schema:** `UNKNOWN`. Production readiness discovery ve
+  production işlemleri bu kayıtla gerçekleştirilmiş sayılmaz; deploy-time
+  karşılaştırma read-only olarak gerçek installed schema'yı ve ordered pending
+  set'i belirlemelidir.
+- **Migration authority:** `MigrationCatalog` canonical kaynaktır;
+  `HEALTH_SCHEMA_VERSION` yalnızca catalog head için bir configuration
+  assertion'dır. Uygulama başlangıcında otomatik migration yoktur. Production
+  migration yalnızca açık `allow_migrations` / `--allow-migrations`
+  yetkilendirmesiyle çalıştırılabilir.
+- **D4 Demo lifecycle:** `create → use → purge completely → recreate`.
+  Başarılı purge sonrasında DEMO domain kayıtları ve `demo_datasets` satırı
+  yoktur; product-facing `PURGED` geçmişi tutulmaz. İdempotent tekrar için
+  minimal teknik `COMPLETED` receipt kalabilir. BUSINESS kayıtları korunur,
+  cross-link kontrolü fail-closed ve purge işlemi transaction içindedir.
+- **U3 User/Staff lifecycle:** yalnızca Admin, pristine BUSINESS kullanıcıyı
+  anlamlı business/operasyon geçmişi ve blocking aktif sorumluluğu yoksa
+  kalıcı silebilir. Self-delete, son aktif Admin, Demo kullanıcı ve history-
+  bearing kullanıcı korumaları yürürlüktedir. History-bearing Staff
+  offboarding ile pasifleştirilir; sorumluluklar açıkça çözülür, oturumlar
+  iptal edilir ve tarihsel attribution korunur.
+- **Admin data navigation:** Ayarlar → Veri Yönetimi read-only özet/geçiş
+  alanıdır; toplu silme konsolu değildir. Yıkıcı işlemler kendi domain
+  ekranlarındaki yetkili akışlarda kalır.
+- **Local validation artifacts:** local reconciliation için taze pre-backup
+  `/private/tmp/servora-med-before-schema-041-20260830T135819Z/servora-med-20260830T135819Z.dump`
+  ve post-backup
+  `/private/tmp/servora-med-after-schema-041-20260830T150803Z/servora-med-20260830T150803Z.dump`
+  kullanılmıştır. Post-backup SHA-256:
+  `cf9860bb443d05a4d82f0b504a5f48ff8431448886cc0bb6ae48b8dd0e758bdb`.
+  Bu yollar production backup'ı veya production deployment kanıtı değildir.

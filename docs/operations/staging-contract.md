@@ -29,7 +29,7 @@ ACTION_SCOPED_GEOLOCATION_ENABLED:
 false initially
 
 CURRENT HEALTH_SCHEMA_VERSION:
-039_contact_deleted_audit
+041_user_lifecycle_reconciliation
 
 AUTOMATIC MIGRATION ON APP START:
 PROHIBITED
@@ -53,7 +53,7 @@ Cloudflare Edge. No router port forwarding, no public Fastify or PostgreSQL.
 
 `HEALTH_SCHEMA_VERSION` must equal the **exact latest canonical migration
 identifier included in the deployed release** — currently
-`039_contact_deleted_audit`. Update the value in the staging environment file
+`041_user_lifecycle_reconciliation`. Update the value in the staging environment file
 on every release that adds a migration.
 
 Operator verification against the deployed release (no database credentials, no
@@ -124,7 +124,7 @@ No values or real credentials are recorded.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `039_contact_deleted_audit` |
+| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `041_user_lifecycle_reconciliation` |
 
 ### Feature flags
 

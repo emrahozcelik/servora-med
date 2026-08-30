@@ -273,13 +273,44 @@ Admin, Manager’ın tüm operasyonlarını yapabilir; ek olarak kullanıcı yö
 1. **Kullanıcılar** (`/users`) menüsüne girin.
 2. Yeni kullanıcı: ad, e-posta, rol (**ADMIN** / **MANAGER** / **STAFF**).
 3. Başlangıç parolasını güvenli kanaldan iletin; kullanıcı ilk girişte **kendi parolasını değiştirmek zorundadır**.
-4. Artık ihtiyaç yoksa kullanıcıyı **pasif** yapın (silmek yerine).
+4. Kullanıcı artık gerekmiyorsa, uygun yaşam döngüsü işlemini kullanın:
+   anlamlı iş/operasyon geçmişi ve engelleyici aktif sorumluluğu olmayan
+   `BUSINESS` kullanıcılar onay sonrası kalıcı silinebilir; geçmişi olan
+   Staff kullanıcılar için **offboarding** gerekir.
 
-### 9.2 İlk organizasyon notu
+### 9.2 Kullanıcı ve personel yaşam döngüsü
+
+- Kullanıcı kalıcı silme ve Staff offboarding işlemleri yalnızca Admin'e
+  açıktır. Kullanıcı kendi hesabını silemez; son aktif Admin de silinemez veya
+  pasifleştirilemez.
+- Sunucu, kullanıcı detayında `canPermanentlyDelete` ve
+  `permanentDeleteBlockers` ile uygunluğu hesaplar. Arayüz bu kararı kendi
+  kurallarıyla yeniden üretmez.
+- Anlamlı iş/operasyon geçmişi olmayan ve aktif sorumluluğu bulunmayan
+  `BUSINESS` kullanıcı, onay kutusu tamamlandıktan sonra kalıcı silinebilir.
+  İş geçmişi olan kullanıcılar kalıcı silinmez; eski Staff için offboarding
+  planı açılır.
+- Staff offboarding sırasında aktif iş, müşteri, takvim, takip ve hatırlatıcı
+  sorumlulukları açıkça çözülür; oturumlar iptal edilir, yeni atama
+  yapılamaz, iş/mesaj/rapor/audit geçmişindeki personel ilişkisi korunur.
+  Manager sorumlulukları da kalıcı silmeyi engelleyebilir.
+- Yalnızca teknik giriş veya oturum geçmişinin bulunması, başka anlamlı
+  iş/operasyon geçmişi yoksa, tek başına kalıcı silme engeli değildir.
+- Demo kullanıcıları normal Kullanıcılar ekranından silinmez; yalnızca Demo
+  veri kümesi tamamen temizlendiğinde kaldırılır.
+
+**Ayarlar → Veri Yönetimi** ana ekranı yalnızca veri durumu ve ilgili alanlara
+geçiş özeti sunar; toplu silme konsolu değildir. Varsa ayrı **Backup &
+Recovery** alanı yalnızca kendi Admin backup sözleşmesi içindir; deploy
+pre/post backup'ları, restore/recovery ve offsite DR bunun dışındadır. Yıkıcı
+işlemler ilgili Demo, Kullanıcı/Personel, müşteri veya ürün detay ekranındaki
+yetkili akışlardan başlatılır.
+
+### 9.3 İlk organizasyon notu
 
 Canlı pilotta ilk Admin genelde operatörün `bootstrap:admin` komutu ile oluşturulur. Siz uygulamadan “ilk Admin’i sihirbazla” oluşturmazsınız; bu bir kurulum adımıdır.
 
-### 9.3 Operasyonel kontrol listesi (Admin)
+### 9.4 Operasyonel kontrol listesi (Admin)
 
 1. En az bir Manager ve gerekli Staff hesapları var mı?
 2. Temel müşteri ve ürün kayıtları girildi mi?

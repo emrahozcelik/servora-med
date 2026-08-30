@@ -1,6 +1,7 @@
 # D1 — Managed Demo Dataset Backend Creation
 
-Status: implemented (draft PR), backend-only. UI creation flow is deferred to D2.
+Status: implemented; backend creation contract from D1 with the D4 lifecycle
+reconciliation. UI creation flow is deferred to D2.
 
 ## Endpoint
 
@@ -36,6 +37,25 @@ Creation requires `config.demoDataCreationEnabled === true`. Default is
 - `DEMO_DATA_CREATION_ENABLED=false` → create is unavailable (opaque 404).
 - The flag does not disable `list`, `detail`, `preview`, or `purge`.
 
+## D4 lifecycle contract
+
+The disposable lifecycle is:
+
+```text
+create → use → purge completely → recreate
+```
+
+After a successful purge, all DEMO domain rows and the `demo_datasets` domain
+row are absent. `PURGED` is not a product-facing dataset status and no
+product-facing `PURGED` history row is retained. A minimal technical
+`COMPLETED` purge-operation receipt may remain so an identical idempotent retry
+can replay the completed response; list and detail do not return that receipt.
+
+Purge is transactional, validates the exact planned roots, fails closed on
+cross-dataset or BUSINESS references, and never deletes BUSINESS data. The D4
+migration removes legacy `PURGED` registry rows only when their six required
+roots are already empty; otherwise it fails closed.
+
 ## Dataset key / clientActionId
 
 `dataset_key` is derived deterministically from `clientActionId`:
@@ -47,18 +67,18 @@ standard-v1-<clientActionId>
 - same organization + same `clientActionId` → same `dataset_key`
 - new `clientActionId` → new `dataset_key`
 
-This is the durable idempotency identity. It also preserves the
-`UNIQUE(organization_id, dataset_key)` tombstone semantics: after a purge the
-same `clientActionId` replays the historical `PURGED` result and never silently
-creates a new dataset. A genuinely new creation after purge uses a new
-`clientActionId`.
+This is the durable idempotency identity. After a purge, the same
+`clientActionId` replays the technical completed purge-operation response; it
+does not create a new dataset. A genuinely new creation after purge uses a
+new `clientActionId`.
 
 ## Cardinality
 
-At most one `ACTIVE` demo dataset per organization. Historical `PURGED`
-tombstones may remain. Creation is serialized per organization with a single
-`SERIALIZABLE` transaction plus `SELECT ... FOR UPDATE` on the organization row;
-PostgreSQL SSI covers the concurrent two-tab race.
+At most one `ACTIVE` demo dataset per organization. The domain registry has no
+historical `PURGED` tombstones; minimal completed purge-operation receipts may
+remain outside the domain registry. Creation is serialized per organization
+with a single `SERIALIZABLE` transaction plus `SELECT ... FOR UPDATE` on the
+organization row; PostgreSQL SSI covers the concurrent two-tab race.
 
 ## Seed version
 
@@ -105,10 +125,11 @@ credentials, hashes, or connection details.
 
 ## Purge round-trip
 
-D1 creation is proven compatible with the existing R2 purge backend on a
-disposable PostgreSQL schema: create → preview (`safeToPurge=true`) → purge →
-`PURGED` tombstone → create again with a new action. Replaying the old action
-after purge returns the historical `PURGED` result.
+D1 creation is proven compatible with the D4 purge backend on a disposable
+PostgreSQL schema: create → preview (`safeToPurge=true`) → purge completely
+→ no `demo_datasets` domain row → create again with a new action. Replaying the
+old action after purge returns the minimal technical `COMPLETED` receipt; it
+does not expose a product-facing `PURGED` result.
 
 ## Production posture
 
