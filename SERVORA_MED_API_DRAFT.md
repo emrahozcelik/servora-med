@@ -275,11 +275,6 @@ Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORT
 
 `reasonCode` is one of `ACCESS_ENDED`, `ROLE_CHANGED`, `ACCOUNT_CORRECTION`, or `OTHER_ADMINISTRATIVE`; replacement users must be active Staff in the same organization. A changed plan returns `409 STALE_PLAN`; reusing a `clientActionId` for different input returns `409 CLIENT_ACTION_REUSED`. The response is `{ status: "OFFBOARDED", targetUserId, planHash, summary }`.
 
-Eligible Staff deactivation clears every matching Customer `assignedStaffUserId` in the
-same transaction, increments each affected Customer version, and appends one
-`CUSTOMER_ASSIGNEE_CHANGED` audit event with reason `STAFF_DEACTIVATED`. Session revocation,
-user deactivation, assignment cleanup, and audit insertion either commit or roll back
-together.
 
 ## 6. Staff `/api/staff`
 
