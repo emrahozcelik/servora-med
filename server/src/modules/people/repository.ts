@@ -174,6 +174,10 @@ class PostgresPeopleTransaction implements PeopleTransaction {
             WHERE activity.organization_id = u.organization_id AND activity.actor_id = u.id
           )
           OR EXISTS (
+            SELECT 1 FROM job_action_locations location
+            WHERE location.organization_id = u.organization_id AND location.actor_user_id = u.id
+          )
+          OR EXISTS (
             SELECT 1 FROM job_card_notes note
             WHERE note.organization_id = u.organization_id AND note.author_id = u.id
           )

@@ -233,6 +233,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
       const jobHistoryTarget = await createUser(pool, organizationId, 'STAFF');
       const messageHistoryTarget = await createUser(pool, organizationId, 'STAFF');
       const calendarHistoryTarget = await createUser(pool, organizationId, 'STAFF');
+      const locationHistoryTarget = await createUser(pool, organizationId, 'STAFF');
 
       await pool.query(
         `INSERT INTO audit_events (
@@ -274,6 +275,26 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
          ) VALUES ($1, $2, 'Historical calendar event', $3, $4, 'Europe/Istanbul', $5, $2)`,
         [organizationId, admin.id, '2026-09-01T10:00:00.000Z', '2026-09-01T11:00:00.000Z', calendarHistoryTarget.id],
       );
+      const locationJob = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, assigned_to, created_by
+         ) VALUES ($1, 'GENERAL_TASK', 'NEW', 'Historical location job', $2, $2)
+         RETURNING id`,
+        [organizationId, admin.id],
+      )).rows[0]!.id;
+      const locationActivity = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_activity_logs (organization_id, job_card_id, actor_id, event_type)
+         VALUES ($1, $2, $3, 'JOB_STARTED')
+         RETURNING id`,
+        [organizationId, locationJob, locationHistoryTarget.id],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_action_locations (
+           organization_id, job_card_id, activity_id, actor_user_id, action,
+           capture_outcome, failure_reason, geocoding_status
+         ) VALUES ($1, $2, $3, $4, 'JOB_STARTED', 'UNAVAILABLE', 'TIMEOUT', 'NOT_REQUESTED')`,
+        [organizationId, locationJob, locationActivity, locationHistoryTarget.id],
+      );
 
       const service = await createService(pool);
       await expect(service.getUser(admin, historyTarget.id)).resolves.toMatchObject({
@@ -300,7 +321,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         code: 'USER_PERMANENT_DELETE_BLOCKED',
         details: { blockers: ['HAS_ACTIVE_RESPONSIBILITIES'] },
       });
-      for (const target of [jobHistoryTarget, messageHistoryTarget, calendarHistoryTarget]) {
+      for (const target of [jobHistoryTarget, messageHistoryTarget, calendarHistoryTarget, locationHistoryTarget]) {
         await expect(service.getUser(admin, target.id)).resolves.toMatchObject({
           canPermanentlyDelete: false,
           permanentDeleteBlockers: ['HAS_BUSINESS_HISTORY'],
@@ -312,10 +333,11 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
       }
       await expect(pool.query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [
         [historyTarget.id, assignedTarget.id, managerTarget.id,
-          jobHistoryTarget.id, messageHistoryTarget.id, calendarHistoryTarget.id],
+          jobHistoryTarget.id, messageHistoryTarget.id, calendarHistoryTarget.id, locationHistoryTarget.id],
       ])).resolves.toMatchObject({ rows: expect.arrayContaining([
         { id: historyTarget.id }, { id: assignedTarget.id }, { id: managerTarget.id },
         { id: jobHistoryTarget.id }, { id: messageHistoryTarget.id }, { id: calendarHistoryTarget.id },
+        { id: locationHistoryTarget.id },
       ]) });
     });
   });

@@ -243,7 +243,7 @@ describe('PostgresPeopleRepository transactions', () => {
       expect.stringContaining('has_business_history'), expect.stringContaining('FOR SHARE'), 'COMMIT',
     ]);
     const facts = calls.find((call) => call.text.includes('has_business_history'))!;
-    expect(facts.text).toMatch(/job_cards|messages|calendar_events|audit_events|backup_runs|demo_datasets/);
+    expect(facts.text).toMatch(/job_cards|job_action_locations|messages|calendar_events|audit_events|backup_runs|demo_datasets/);
     expect(facts.text).toMatch(/conversation_participants|conversation_user_states|realtime_events/);
   });
 
