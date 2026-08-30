@@ -109,6 +109,8 @@ Historical MVP implementation record (application through Slice 11; pilot docs S
 - Apple/PWA install guidance (physical-device install remains manual acceptance)
 - Operator alerting tooling (merged, default disabled; host activation not performed, real webhook not configured)
 - Expanded canonical pilot product catalog (781 products)
+- Disposable Demo lifecycle: create, use, complete purge, and recreate without a product-facing `PURGED` history row
+- Admin-controlled User/Staff lifecycle: pristine BUSINESS users may be permanently deleted; history-bearing Staff users use offboarding
 
 ### Operator-owned
 
@@ -171,9 +173,15 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–039 files (latest: `039_contact_deleted_audit`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, and contact-delete audit history.
+The migration runner applies the immutable 001–041 files (latest: `041_user_lifecycle_reconciliation`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, and User/Staff lifecycle reconciliation.
 
 The `MigrationCatalog` is the authoritative expected migration history for a release. `HEALTH_SCHEMA_VERSION` is a production configuration assertion against that catalog head; it is not an independent migration authority.
+
+Current schema posture: canonical source `main` and the protected local
+`servora_med` database are at schema 41 / `041_user_lifecycle_reconciliation`.
+Production schema remains **UNKNOWN** until a separately authorized,
+read-only production readiness discovery; this README does not imply that
+production migrations have run.
 
 ### First Admin Bootstrap
 
@@ -490,7 +498,7 @@ cd web && npm audit --omit=dev
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `039_contact_deleted_audit`; must equal the latest canonical migration in the deployed release); optional in development/test |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `041_user_lifecycle_reconciliation`; must equal the latest canonical migration in the deployed release); optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |

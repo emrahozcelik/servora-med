@@ -88,7 +88,7 @@ Canonical order:
 2. Confirm staging DB is absent or explicitly owned
 3. Create the named staging database
 4. Apply canonical migrations explicitly
-5. Verify migration set = 39/39
+5. Verify migration set = 41/41
 6. Apply the selected fixture profile (MINIMAL ADMIN or ACCEPTANCE FIXTURE)
 7. Optionally import the approved synthetic pilot product catalog
 8. Verify health schema exact match
@@ -126,8 +126,8 @@ A builder checkout may use `npm run migrate` (`tsx`); a builder checkout is
 
 ### 5. Verify migration set
 
-Read-only check that `schema_migrations` contains exactly the 39 canonical
-migrations (`001_auth_foundation` .. `039_contact_deleted_audit`).
+Read-only check that `schema_migrations` contains exactly the 41 canonical
+migrations (`001_auth_foundation` .. `041_user_lifecycle_reconciliation`).
 
 ### 6a. MINIMAL ADMIN PROFILE — bootstrap-admin
 
@@ -197,10 +197,10 @@ existing_users:
 0
 
 migration_count:
-39
+41
 
 latest_migration:
-039_contact_deleted_audit
+041_user_lifecycle_reconciliation
 ```
 
 If any value differs:
@@ -306,7 +306,7 @@ node dist/db/import-pilot-products.js \
 ### 8. Health schema exact match
 
 The staging environment `HEALTH_SCHEMA_VERSION` must equal the exact latest
-migration in the release (currently `039_contact_deleted_audit`); verify
+migration in the release (currently `041_user_lifecycle_reconciliation`); verify
 against `server/dist/db/migrations` (see
 [staging-contract.md](./staging-contract.md)); `GET /api/health` must return
 `200 {"status":"ok"}`.

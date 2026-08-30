@@ -38,6 +38,24 @@ The product must provide the speed of a card-based workflow without sacrificing 
 
 All permissions are enforced by the backend. Hiding an action in the UI is not authorization.
 
+### User and Staff lifecycle
+
+- Permanent deletion is an Admin-only action for a pristine `BUSINESS` user:
+  no meaningful business or operational history and no blocking active
+  responsibilities.
+- The server is authoritative for `canPermanentlyDelete` and
+  `permanentDeleteBlockers`; the UI must not infer eligibility locally.
+- A history-bearing user cannot be hard-deleted. A history-bearing Staff user
+  is offboarded/deactivated instead: active responsibilities are explicitly
+  resolved, sessions are revoked, no new assignments are allowed, and the
+  historical attribution of jobs, messages, reports, and audit records remains.
+- Demo users are deleted only as part of complete Demo dataset purge; they are
+  not deleted through the ordinary User endpoint.
+- Self-delete is forbidden, and the last active Admin cannot be deleted or
+  deactivated. A Manager with responsibilities may also block permanent
+  deletion. Technical login/session history alone is not a business-history
+  blocker for an otherwise pristine user.
+
 ## Core Workflows
 
 ### Product delivery

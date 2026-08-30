@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented and verified through Slice 11 Production Deployment
+> Status: Living API contract; implemented and verified through Slice 11 Production Deployment and U3 User/Staff lifecycle reconciliation
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -94,6 +94,18 @@ SELF_DEACTIVATION_FORBIDDEN
 LAST_ACTIVE_ADMIN_REQUIRED
 USER_VERSION_CONFLICT
 STAFF_PROFILE_VERSION_CONFLICT
+USER_NOT_FOUND
+USER_PERMANENT_DELETE_BLOCKED
+SELF_DELETE_FORBIDDEN
+DEMO_USER_DELETE_FORBIDDEN
+OFFBOARDING_REQUIRED
+OFFBOARDING_UNAVAILABLE
+OFFBOARDING_TARGET_NOT_STAFF
+USER_ALREADY_INACTIVE
+INVALID_REPLACEMENT_STAFF
+CALENDAR_CONFLICT
+STALE_PLAN
+CLIENT_ACTION_REUSED
 PASSWORD_CHANGE_REQUIRED
 CUSTOMER_NOT_FOUND
 CONTACT_NOT_FOUND
@@ -227,19 +239,41 @@ Logout is safe to repeat. It revokes the current session when present and clears
 | GET | `/` | admin | safe organization user list |
 | POST | `/` | admin | create user and required or forbidden Staff profile according to role |
 | GET | `/:userId` | admin | safe organization user detail |
+| DELETE | `/:userId` | admin | permanently delete an eligible pristine BUSINESS user; returns `204` |
 | PATCH | `/:userId` | admin | update only `name` |
 | POST | `/:userId/change-role` | admin | apply an allowed Admin/Manager role command |
 | POST | `/:userId/activate` | admin | activate an eligible user |
 | POST | `/:userId/deactivate` | admin | deactivate an eligible user and revoke all sessions |
 | POST | `/:userId/reset-password` | admin | set an Admin-provided temporary password and revoke all sessions |
+| POST | `/:userId/offboarding/preview` | admin | return the current Staff responsibility plan |
+| POST | `/:userId/offboarding/execute` | admin | apply an exact, idempotent Staff offboarding plan |
 
 Staff reads their identity through `/api/auth/me` and profile through `/api/staff/me`.
 
-Safe user responses include `id`, `organizationId`, `name`, normalized `email`, `role`, `isActive`, `mustChangePassword`, `lastLoginAt`, `version`, `createdAt`, and `updatedAt`. Password hashes, temporary passwords, tokens, cookies, and session data are never returned.
+Safe user responses include `id`, `organizationId`, `name`, normalized `email`, `role`, `isActive`, `mustChangePassword`, `lastLoginAt`, `version`, `createdAt`, and `updatedAt`. `GET /api/users/:userId` additionally returns the server-derived `canPermanentlyDelete` boolean and `permanentDeleteBlockers` array. Password hashes, temporary passwords, tokens, cookies, and session data are never returned.
 
-Every mutation requires `expectedVersion`, performs an atomic version-predicate update, and increments `version`. A stale mutation returns `409 USER_VERSION_CONFLICT`. Named commands accept only the fields required for that command; role and activation changes cannot be combined with a general patch.
+PATCH and the ordinary named user commands require `expectedVersion`, perform an atomic version-predicate update, and increment `version`. A stale mutation returns `409 USER_VERSION_CONFLICT`. Named commands accept only the fields required for that command; role and activation changes cannot be combined with a general patch. `DELETE /api/users/:userId` accepts an optional body containing only `expectedVersion` and returns `204` on success.
 
-Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. The final active Admin, a Staff user with active JobCards, and a Manager with assigned active Staff are protected by their corresponding conflict codes.
+Permanent deletion is Admin-only and succeeds only for a pristine `BUSINESS` user with no meaningful business or operational history and no blocking active responsibilities. The server computes `permanentDeleteBlockers` from `SELF`, `LAST_ADMIN`, `HAS_BUSINESS_HISTORY`, `HAS_ACTIVE_RESPONSIBILITIES`, and `DEMO_USER`; the UI must not infer eligibility. Self-delete, deletion of the last active Admin, Demo-user deletion, and deletion with business blockers return their corresponding `409` error codes, including `USER_PERMANENT_DELETE_BLOCKED` where applicable. Technical login/session history alone does not create a business-history blocker. A successful deletion writes the `USER_DELETED` audit event with `metadata.deletionMode=PERMANENT` and returns no user payload.
+
+Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. Generic deactivation of a Staff user returns `409 OFFBOARDING_REQUIRED`; history-bearing Staff users must use the dedicated offboarding flow. Offboarding revokes the target's sessions, resolves explicitly planned jobs, customers, calendar assignments, follow-ups, and reminders, deactivates the Staff user, preserves historical attribution, and appends `USER_OFFBOARDED`.
+
+`POST /api/users/:userId/offboarding/preview` is Admin-only and accepts `{}`. It returns the current plan and its `planHash`. The Admin then submits that exact plan to the idempotent, serializable execute command:
+
+```json
+{
+  "clientActionId": "<operator-action-id>",
+  "planHash": "<sha256>",
+  "reasonCode": "ACCESS_ENDED",
+  "jobDecisions": [{ "jobCardId": "<uuid>", "replacementUserId": "<staff-uuid>" }],
+  "calendarDecisions": [{ "calendarEventId": "<uuid>", "replacementUserId": "<staff-uuid>" }],
+  "followUpDecisions": [{ "jobCardId": "<uuid>", "replacementUserId": "<staff-uuid>" }],
+  "customerDecisions": [{ "customerId": "<uuid>", "action": "REASSIGN", "replacementUserId": "<staff-uuid>" }],
+  "reminderDecisions": [{ "reminderId": "<uuid>", "action": "TRANSFER", "replacementUserId": "<staff-uuid>" }]
+}
+```
+
+`reasonCode` is one of `ACCESS_ENDED`, `ROLE_CHANGED`, `ACCOUNT_CORRECTION`, or `OTHER_ADMINISTRATIVE`; replacement users must be active Staff in the same organization. A changed plan returns `409 STALE_PLAN`; reusing a `clientActionId` for different input returns `409 CLIENT_ACTION_REUSED`. The response is `{ status: "OFFBOARDED", targetUserId, planHash, summary }`.
 
 Eligible Staff deactivation clears every matching Customer `assignedStaffUserId` in the
 same transaction, increments each affected Customer version, and appends one

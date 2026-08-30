@@ -37,7 +37,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=039_contact_deleted_audit` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
 - `DEMO_DATA_CREATION_ENABLED=false` (default false all environments; creation DISABLED, list/preview/purge remain AVAILABLE; enable explicitly only for staging/dev where disposable `TEST_DATABASE_URL` is used)
 
 ### HEALTH_SCHEMA_VERSION verification
@@ -332,10 +332,17 @@ staff, customer, product, job, and demo-data counts before and after the runner
 and fails if they move unexpectedly. No arbitrary SQL or automatic database
 restore is available.
 
-This runbook does not assert the current live production schema. The deploy-time
-read-only comparison is authoritative: an `EXACT` 039 database needs no
-migration; an exact 038 prefix has `039_contact_deleted_audit` pending; an
-older exact prefix produces the ordered pending set for operator review.
+This runbook does not assert the current live production schema. The
+deploy-time read-only comparison is authoritative, and derives the pending
+set from the candidate release's `MigrationCatalog`. The current canonical
+target is `041_user_lifecycle_reconciliation`; production's installed schema
+remains UNKNOWN until that comparison runs. Conditional examples are:
+
+- exact 039 (`039_contact_deleted_audit`) → pending 040 (`040_demo_lifecycle_simplification`) and 041 (`041_user_lifecycle_reconciliation`)
+- exact 040 (`040_demo_lifecycle_simplification`) → pending 041 (`041_user_lifecycle_reconciliation`)
+- exact 041 (`041_user_lifecycle_reconciliation`) → no pending migration
+- an older exact ordered prefix → the remaining ordered `MigrationCatalog` set
+  is pending
 
 If activation/health/browser smoke fails and zero migrations were applied, the
 old release may be switched back atomically and the application restarted. A
