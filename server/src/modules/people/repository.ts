@@ -608,7 +608,7 @@ export class PostgresPeopleRepository implements PeopleRepository {
   async getStaffProfile(organizationId: string, userId: string) {
     const result = await this.pool.query<StaffProfileDetailsRow>(
       `${STAFF_PROFILE_SELECT}
-       WHERE sp.organization_id = $1 AND sp.user_id = $2`,
+       WHERE sp.organization_id = $1 AND sp.user_id = $2 AND u.role = 'STAFF'`,
       [organizationId, userId],
     );
     return result.rows[0] ? mapProfileDetails(result.rows[0]) : null;
@@ -618,7 +618,7 @@ export class PostgresPeopleRepository implements PeopleRepository {
     const activeFilter = status === 'all' ? '' : ` AND u.is_active = ${status === 'active' ? 'TRUE' : 'FALSE'}`;
     const result = await this.pool.query<StaffProfileDetailsRow>(
       `${STAFF_PROFILE_SELECT}
-       WHERE sp.organization_id = $1${activeFilter}
+       WHERE sp.organization_id = $1 AND u.role = 'STAFF'${activeFilter}
        ORDER BY u.name, u.id`,
       [organizationId],
     );
