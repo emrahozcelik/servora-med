@@ -24,6 +24,7 @@ export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app,
   app.get('/users', auth, handlers.listUsers);
   app.post('/users', auth, handlers.createUser);
   app.get('/users/:userId', auth, handlers.getUser);
+  app.delete('/users/:userId', auth, handlers.deleteUser);
   app.patch('/users/:userId', auth, handlers.updateUser);
   app.post('/users/:userId/change-role', auth, handlers.changeRole);
   app.post('/users/:userId/activate', auth, handlers.activate);

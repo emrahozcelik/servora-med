@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   changeUserRole, createUser, executeStaffOffboarding, getOwnStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
-  previewStaffOffboarding, resetUserPassword, updateStaffProfile,
+  getUser, permanentlyDeleteUser, previewStaffOffboarding, resetUserPassword, updateStaffProfile,
 } from '../src/services/people-api';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -12,6 +12,7 @@ const user = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'st
   createdAt: '2026-07-12T08:00:00Z', updatedAt: '2026-07-12T08:00:00Z' };
 const profile = { id: 'profile-1', user, title: null, phone: null, region: null, managerUserId: null,
   managerName: null, version: 1, counters: { open: 1, waitingApproval: 2, revisionRequested: 3, completedThisMonth: 4, overdue: 5 } };
+const userDetails = { ...user, canPermanentlyDelete: true, permanentDeleteBlockers: [] };
 
 describe('People API client', () => {
   it('parses the exact Staff offboarding preview and execute contracts', async () => {
@@ -94,6 +95,24 @@ describe('People API client', () => {
     await resetUserPassword('staff-1', { expectedVersion: 2, temporaryPassword: 'temporary-password' });
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/users/staff-1/change-role', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/users/staff-1/reset-password', expect.objectContaining({ body: JSON.stringify({ expectedVersion: 2, temporaryPassword: 'temporary-password' }) }));
+  });
+
+  it('parses server-derived deletion eligibility and sends a versioned DELETE', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(userDetails))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getUser('staff/1')).resolves.toEqual(userDetails);
+    await expect(permanentlyDeleteUser('staff/1', 3)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/users/staff%2F1', expect.objectContaining({ credentials: 'include' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/users/staff%2F1', expect.objectContaining({
+      method: 'DELETE', body: JSON.stringify({ expectedVersion: 3 }), credentials: 'include',
+    }));
+  });
+
+  it('fails closed on malformed deletion eligibility', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...user, canPermanentlyDelete: true, permanentDeleteBlockers: ['UNKNOWN'] })));
+    await expect(getUser('staff-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
   it('sends Staff creation and versioned profile update', async () => {

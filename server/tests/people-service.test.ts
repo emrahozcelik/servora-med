@@ -5,6 +5,7 @@ import type { PeopleRepository, PeopleTransaction } from '../src/modules/people/
 import type {
   AppendAuditInput,
   ManagedUserRecord,
+  UserDataClass,
   StaffProfileRecord,
   StaffProfileDetails,
   StaffProfileSummary,
@@ -48,6 +49,9 @@ class MemoryPeopleRepository implements PeopleRepository {
   customerAssignments = [{ customerId: 'customer-active', staffUserId: 'staff-1' }, { customerId: 'customer-inactive', staffUserId: 'staff-1' }];
   cleanupCalls: string[] = [];
   failAudit = false;
+  deletionDataClasses: Record<string, UserDataClass> = {};
+  deletionHistory = new Set<string>();
+  deletionResponsibilities = new Set<string>();
 
   async execute<T>(work: (tx: PeopleTransaction) => Promise<T>) {
     const usersBefore = structuredClone(this.users); const profilesBefore = structuredClone(this.profiles);
@@ -62,6 +66,15 @@ class MemoryPeopleRepository implements PeopleRepository {
   }
   async listUsers(org: string) { return this.users.filter((item) => item.organizationId === org).map(({ passwordHash: _, ...safe }) => safe); }
   async getUser(org: string, id: string) { const found = this.users.find((item) => item.organizationId === org && item.id === id); if (!found) return null; const { passwordHash: _, ...safe } = found; return safe; }
+  async getUserDeletionFacts(org: string, id: string) {
+    return this.execute(async (tx) => {
+      await tx.lockActiveAdmins(org);
+      const target = await tx.lockUserForDeletion(org, id);
+      if (!target) return null;
+      const inspected = await tx.inspectUserDeletion(org, id);
+      return inspected ? { ...inspected, activeAdminCount: await tx.countActiveAdmins(org) } : null;
+    });
+  }
   async getStaffProfile(org: string, id: string) {
     const foundUser = this.users.find((item) => item.organizationId === org && item.id === id);
     const foundProfile = this.profiles.find((item) => item.organizationId === org && item.userId === id);
@@ -77,6 +90,21 @@ class MemoryPeopleRepository implements PeopleRepository {
   private transaction(): PeopleTransaction {
     return {
       lockUser: async (org, id) => this.users.find((item) => item.organizationId === org && item.id === id) ?? null,
+      lockActiveAdmins: async () => undefined,
+      lockUserForDeletion: async (org, id) => {
+        const found = this.users.find((item) => item.organizationId === org && item.id === id);
+        return found ? { ...found, dataClass: this.deletionDataClasses[id] ?? 'BUSINESS' } : null;
+      },
+      inspectUserDeletion: async (org, id) => {
+        const found = this.users.find((item) => item.organizationId === org && item.id === id);
+        if (!found) return null;
+        const assigned = this.customerAssignments.some((item) => item.staffUserId === id);
+        return {
+          dataClass: this.deletionDataClasses[id] ?? 'BUSINESS',
+          hasBusinessHistory: this.deletionHistory.has(id) || this.activeJobCards,
+          hasActiveResponsibilities: this.deletionResponsibilities.has(id) || assigned || this.activeJobCards || this.assignedStaff,
+        };
+      },
       findUserByEmail: async (email) => this.users.find((item) => item.email === email) ?? null,
       lockStaffProfile: async (org, id) => this.profiles.find((item) => item.organizationId === org && item.userId === id) ?? null,
       createUser: async (input) => { const created = user({ ...input, id: `user-${this.users.length + 1}`, version: 1 }); this.users.push(created); return created; },
@@ -99,6 +127,16 @@ class MemoryPeopleRepository implements PeopleRepository {
         this.cleanupCalls.push(input.staffUserId);
         this.customerAssignments = this.customerAssignments.filter((item) => item.staffUserId !== input.staffUserId);
         return [{ customerId: 'customer-active', nextVersion: 2 }, { customerId: 'customer-inactive', nextVersion: 2 }];
+      },
+      detachTechnicalAuditActors: async () => undefined,
+      deleteTechnicalUserDependencies: async () => undefined,
+      deleteStaffProfile: async (org, id) => {
+        this.profiles = this.profiles.filter((item) => !(item.organizationId === org && item.userId === id));
+      },
+      deleteUser: async (org, id) => {
+        const before = this.users.length;
+        this.users = this.users.filter((item) => !(item.organizationId === org && item.id === id));
+        return this.users.length !== before;
       },
       appendAudit: async (input) => { if (this.failAudit) throw new Error('audit failed'); this.audits.push(input); },
     };
@@ -132,6 +170,12 @@ const service = (repository = new MemoryPeopleRepository()) => ({
   repository,
   service: new PeopleService(repository, credentials, staffSummaries, () => now),
 });
+
+function pristineRepository() {
+  const repository = new MemoryPeopleRepository();
+  repository.customerAssignments = [];
+  return repository;
+}
 
 describe('PeopleService policy', () => {
   it('allows only Admin to list and create users', async () => {
@@ -215,6 +259,88 @@ describe('PeopleService policy', () => {
     await expect(people.updateUser(admin, 'manager-1', { expectedVersion: 99, name: 'Stale' }))
       .rejects.toMatchObject({ code: 'USER_VERSION_CONFLICT' });
     expect(repository.audits).toHaveLength(0);
+  });
+
+  it('derives permanent-delete eligibility from lifecycle facts', async () => {
+    const repository = pristineRepository();
+    const { service: people } = service(repository);
+    await expect(people.getUser(admin, 'staff-1')).resolves.toMatchObject({
+      id: 'staff-1', canPermanentlyDelete: true, permanentDeleteBlockers: [],
+    });
+    repository.deletionHistory.add('staff-1');
+    await expect(people.getUser(admin, 'staff-1')).resolves.toMatchObject({
+      canPermanentlyDelete: false, permanentDeleteBlockers: ['HAS_BUSINESS_HISTORY'],
+    });
+  });
+
+  it.each([
+    ['Staff', 'staff-1'],
+    ['Manager', 'manager-1'],
+  ])('allows an Admin to permanently delete a pristine %s user', async (_label, targetId) => {
+    const repository = pristineRepository();
+    const { service: people } = service(repository);
+    await expect(people.deleteUser(admin, targetId, 1)).resolves.toBeUndefined();
+    expect(repository.users.some((item) => item.id === targetId)).toBe(false);
+    expect(repository.profiles.some((item) => item.userId === targetId)).toBe(false);
+    expect(repository.audits).toEqual([expect.objectContaining({
+      eventType: 'USER_DELETED', subjectId: targetId, actorUserId: 'admin-1',
+      oldValue: expect.objectContaining({ id: targetId, dataClass: 'BUSINESS' }),
+    })]);
+  });
+
+  it('allows permanent deletion of a pristine non-final Admin', async () => {
+    const repository = pristineRepository();
+    repository.users.push(user({ id: 'admin-2', name: 'Admin 2', email: 'admin2@example.com', role: 'ADMIN', mustChangePassword: false }));
+    repository.activeAdminCount = 2;
+    const { service: people } = service(repository);
+    await expect(people.deleteUser(admin, 'admin-2', 1)).resolves.toBeUndefined();
+    expect(repository.users.some((item) => item.id === 'admin-2')).toBe(false);
+  });
+
+  it('blocks self, final Admin, Demo, history, and active-responsibility deletion', async () => {
+    const selfRepository = pristineRepository();
+    const { service: selfPeople } = service(selfRepository);
+    await expect(selfPeople.deleteUser(admin, 'admin-1', 1)).rejects.toMatchObject({ code: 'SELF_DELETE_FORBIDDEN' });
+
+    const finalAdminRepository = pristineRepository();
+    finalAdminRepository.users.push(user({ id: 'admin-2', name: 'Admin 2', email: 'admin2@example.com', role: 'ADMIN', mustChangePassword: false }));
+    finalAdminRepository.activeAdminCount = 1;
+    const { service: finalAdminPeople } = service(finalAdminRepository);
+    await expect(finalAdminPeople.deleteUser(admin, 'admin-2', 1)).rejects.toMatchObject({ code: 'LAST_ACTIVE_ADMIN_REQUIRED' });
+
+    const demoRepository = pristineRepository();
+    demoRepository.deletionDataClasses['staff-1'] = 'DEMO';
+    const { service: demoPeople } = service(demoRepository);
+    await expect(demoPeople.deleteUser(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'DEMO_USER_DELETE_FORBIDDEN' });
+
+    const historyRepository = pristineRepository();
+    historyRepository.deletionHistory.add('staff-1');
+    const { service: historyPeople } = service(historyRepository);
+    await expect(historyPeople.deleteUser(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'USER_PERMANENT_DELETE_BLOCKED' });
+    expect(historyRepository.users.some((item) => item.id === 'staff-1')).toBe(true);
+
+    const responsibilityRepository = pristineRepository();
+    responsibilityRepository.deletionResponsibilities.add('staff-1');
+    const { service: responsibilityPeople } = service(responsibilityRepository);
+    await expect(responsibilityPeople.deleteUser(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'USER_PERMANENT_DELETE_BLOCKED' });
+  });
+
+  it('keeps deletion atomic when the success audit cannot be written', async () => {
+    const repository = pristineRepository();
+    repository.failAudit = true;
+    const { service: people } = service(repository);
+    await expect(people.deleteUser(admin, 'staff-1', 1)).rejects.toThrow('audit failed');
+    expect(repository.users.some((item) => item.id === 'staff-1')).toBe(true);
+    expect(repository.profiles.some((item) => item.userId === 'staff-1')).toBe(true);
+    expect(repository.audits).toEqual([]);
+  });
+
+  it('denies permanent deletion to non-Admin actors and isolates tenants', async () => {
+    const repository = pristineRepository();
+    repository.users.push(user({ id: 'foreign-user', organizationId: 'org-2', email: 'foreign@example.com' }));
+    const { service: people } = service(repository);
+    await expect(people.deleteUser(manager, 'staff-1', 1)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(people.deleteUser(admin, 'foreign-user', 1)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
   });
 
   it('limits Staff to own profile and Manager to active profile lists', async () => {

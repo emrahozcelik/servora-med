@@ -10,6 +10,16 @@ export type ManagedUser = {
   mustChangePassword: boolean; isActive: boolean; version: number;
   lastLoginAt: string | null; createdAt: string; updatedAt: string;
 };
+export type PermanentDeleteBlocker =
+  | 'SELF'
+  | 'LAST_ADMIN'
+  | 'HAS_BUSINESS_HISTORY'
+  | 'HAS_ACTIVE_RESPONSIBILITIES'
+  | 'DEMO_USER';
+export type ManagedUserDetails = ManagedUser & {
+  canPermanentlyDelete: boolean;
+  permanentDeleteBlockers: PermanentDeleteBlocker[];
+};
 export type StaffCounters = { open: number; waitingApproval: number; revisionRequested: number; completedThisMonth: number; overdue: number };
 export type StaffProfile = {
   id: string; user: ManagedUser; title: string | null; phone: string | null; region: string | null;
@@ -64,6 +74,25 @@ function parseUser(value: unknown): ManagedUser {
     mustChangePassword: boolean(v.mustChangePassword, 'mustChangePassword'), isActive: boolean(v.isActive, 'isActive'),
     version: number(v.version, 'version'), lastLoginAt: nullableString(v.lastLoginAt, 'lastLoginAt'),
     createdAt: string(v.createdAt, 'createdAt'), updatedAt: string(v.updatedAt, 'updatedAt') };
+}
+
+function parseUserDetails(value: unknown): ManagedUserDetails {
+  const raw = object(value);
+  const user = parseUser(raw);
+  const canPermanentlyDelete = boolean(raw.canPermanentlyDelete, 'canPermanentlyDelete');
+  if (!Array.isArray(raw.permanentDeleteBlockers)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Yanıtta permanentDeleteBlockers alanı geçersiz.');
+  }
+  const allowed: readonly PermanentDeleteBlocker[] = [
+    'SELF', 'LAST_ADMIN', 'HAS_BUSINESS_HISTORY', 'HAS_ACTIVE_RESPONSIBILITIES', 'DEMO_USER',
+  ];
+  const permanentDeleteBlockers = raw.permanentDeleteBlockers.map((value, index) => {
+    if (typeof value !== 'string' || !allowed.includes(value as PermanentDeleteBlocker)) {
+      throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta permanentDeleteBlockers[${index}] alanı geçersiz.`);
+    }
+    return value as PermanentDeleteBlocker;
+  });
+  return { ...user, canPermanentlyDelete, permanentDeleteBlockers };
 }
 function parseProfile(value: unknown): StaffProfile {
   const v = object(value); const counters = object(v.counters);
@@ -179,13 +208,16 @@ function parseOffboardingResponse(value: unknown, expectedTargetUserId: string, 
 }
 
 export const listUsers = async () => array(await request('/api/users')).map(parseUser);
-export const getUser = async (id: string) => parseUser(await request(`/api/users/${id}`));
+export const getUser = async (id: string) => parseUserDetails(await request(`/api/users/${encodeURIComponent(id)}`));
 export const createUser = async (input: CreateUserInput) => parseUser(await request('/api/users', json('POST', input)));
 export const updateUser = async (id: string, input: { expectedVersion: number; name: string }) => parseUser(await request(`/api/users/${id}`, json('PATCH', input)));
 export const changeUserRole = async (id: string, input: { expectedVersion: number; role: 'ADMIN' | 'MANAGER' }) => parseUser(await request(`/api/users/${id}/change-role`, json('POST', input)));
 export const activateUser = async (id: string, expectedVersion: number) => parseUser(await request(`/api/users/${id}/activate`, json('POST', { expectedVersion })));
 export const deactivateUser = async (id: string, expectedVersion: number) => parseUser(await request(`/api/users/${id}/deactivate`, json('POST', { expectedVersion })));
 export const resetUserPassword = async (id: string, input: { expectedVersion: number; temporaryPassword: string }) => parseUser(await request(`/api/users/${id}/reset-password`, json('POST', input)));
+export const permanentlyDeleteUser = async (id: string, expectedVersion?: number) => {
+  await request(`/api/users/${encodeURIComponent(id)}`, json('DELETE', expectedVersion === undefined ? {} : { expectedVersion }));
+};
 export const previewStaffOffboarding = async (id: string) => parseOffboardingPlan(
   await request(`/api/users/${encodeURIComponent(id)}/offboarding/preview`, json('POST', {})), id,
 );

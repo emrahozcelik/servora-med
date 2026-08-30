@@ -204,4 +204,66 @@ describe('PostgresPeopleRepository transactions', () => {
     expect(select.text).toMatch(/SELECT id FROM users[\s\S]*FOR SHARE/);
     expect(select.text).not.toContain('COUNT(');
   });
+
+  it('provides a locked, server-derived deletion facts query', async () => {
+    const calls: QueryCall[] = [];
+    const client = {
+      query: async (text: string, values: unknown[] = []) => {
+        calls.push({ text, values });
+        if (text.includes('role = \'ADMIN\'') && text.includes('FOR UPDATE')) {
+          return { rows: [{ id: 'admin-1' }], rowCount: 1 };
+        }
+        if (text.includes('data_class') && text.includes('FOR UPDATE')) {
+          return { rows: [{
+            id: 'staff-1', organization_id: 'org-1', name: 'Ayşe', email: 'staff@example.com', password_hash: 'hash',
+            role: 'STAFF', must_change_password: true, is_active: true, version: 1, last_login_at: null,
+            created_at: new Date(), updated_at: new Date(), data_class: 'BUSINESS',
+          }], rowCount: 1 };
+        }
+        if (text.includes('has_business_history')) {
+          return { rows: [{ data_class: 'BUSINESS', has_business_history: false, has_active_responsibilities: false }], rowCount: 1 };
+        }
+        if (text.includes('role = \'ADMIN\'') && text.includes('FOR SHARE')) {
+          return { rows: [{ id: 'admin-1' }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => undefined,
+    };
+    const pool = { connect: async () => client, query: client.query } as never;
+    const repository = new PostgresPeopleRepository(pool, {
+      validatePassword: () => undefined, hashPassword: async () => 'hash', resetTemporaryPassword: async () => 2,
+    }, { revokeAllSessions: async () => undefined });
+
+    await expect(repository.getUserDeletionFacts('org-1', 'staff-1')).resolves.toEqual({
+      dataClass: 'BUSINESS', hasBusinessHistory: false, hasActiveResponsibilities: false, activeAdminCount: 1,
+    });
+    expect(calls.map((call) => call.text)).toEqual([
+      'BEGIN', expect.stringContaining('ORDER BY id FOR UPDATE'), expect.stringContaining('data_class'),
+      expect.stringContaining('has_business_history'), expect.stringContaining('FOR SHARE'), 'COMMIT',
+    ]);
+    const facts = calls.find((call) => call.text.includes('has_business_history'))!;
+    expect(facts.text).toMatch(/job_cards|job_action_locations|messages|calendar_events|audit_events|backup_runs|demo_datasets/);
+    expect(facts.text).toMatch(/conversation_participants|conversation_user_states|realtime_events/);
+  });
+
+  it('cleans only technical dependencies and preserves business source tables', async () => {
+    const recorded = recordingPool();
+    const repository = new PostgresPeopleRepository(
+      recorded.pool, recorded.credentials, recorded.sessions,
+    );
+    await repository.execute(async (tx) => {
+      await tx.detachTechnicalAuditActors('org-1', 'staff-1');
+      await tx.deleteTechnicalUserDependencies('org-1', 'staff-1');
+      await tx.deleteStaffProfile('org-1', 'staff-1');
+      await tx.deleteUser('org-1', 'staff-1');
+    });
+    const sql = recorded.calls.map((call) => call.text).join('\n');
+    expect(sql).toMatch(/UPDATE audit_events[\s\S]*actor_user_id_snapshot/);
+    expect(sql).toMatch(/web_push_deliveries|in_app_notifications|web_push_subscriptions|sessions|processed_actions/);
+    expect(sql).toMatch(/calendar_reminders|realtime_events/);
+    expect(sql).toMatch(/DELETE FROM staff_profiles/);
+    expect(sql).toMatch(/DELETE FROM users[\s\S]*RETURNING id/);
+    expect(sql).not.toMatch(/DELETE FROM (customers|job_cards|messages|calendar_events)/i);
+  });
 });

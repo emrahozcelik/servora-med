@@ -13,12 +13,16 @@ import type {
   AppendAuditInput,
   CreateUserInput,
   ManagedUserRecord,
+  ManagedUserDetails,
+  PermanentDeleteBlocker,
   SafeManagedUser,
   StaffProfileInput,
   StaffProfileDetails,
   StaffProfileRecord,
   StaffProfileSummary,
   StaffStatusFilter,
+  UserDeletionFacts,
+  UserDeletionTarget,
   UpdateStaffProfileInput,
 } from './types.js';
 
@@ -46,6 +50,34 @@ function requireAdmin(actor: SafeUser) {
 
 function requireAdminOrManager(actor: SafeUser) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') throw forbidden();
+}
+
+function permanentDeleteBlockers(
+  actor: SafeUser,
+  target: Pick<UserDeletionTarget, 'id' | 'role' | 'isActive' | 'dataClass'>,
+  facts: UserDeletionFacts,
+): PermanentDeleteBlocker[] {
+  const blockers: PermanentDeleteBlocker[] = [];
+  if (actor.id === target.id) blockers.push('SELF');
+  if (target.role === 'ADMIN' && target.isActive && facts.activeAdminCount <= 1) blockers.push('LAST_ADMIN');
+  if (facts.hasBusinessHistory) blockers.push('HAS_BUSINESS_HISTORY');
+  if (facts.hasActiveResponsibilities) blockers.push('HAS_ACTIVE_RESPONSIBILITIES');
+  if (facts.dataClass === 'DEMO') blockers.push('DEMO_USER');
+  return blockers;
+}
+
+function withPermanentDeleteEligibility(
+  user: SafeManagedUser,
+  actor: SafeUser,
+  facts: UserDeletionFacts,
+): ManagedUserDetails {
+  const target = { ...user, dataClass: facts.dataClass };
+  const blockers = permanentDeleteBlockers(actor, target, facts);
+  return {
+    ...user,
+    canPermanentlyDelete: blockers.length === 0,
+    permanentDeleteBlockers: blockers,
+  };
 }
 
 function cleanRequired(value: string, field: string) {
@@ -117,7 +149,11 @@ export class PeopleService {
 
   async getUser(actor: SafeUser, userId: string) {
     requireAdmin(actor);
-    return (await this.repository.getUser(actor.organizationId, userId)) ?? Promise.reject(userNotFound());
+    const user = await this.repository.getUser(actor.organizationId, userId);
+    if (!user) throw userNotFound();
+    const facts = await this.repository.getUserDeletionFacts(actor.organizationId, userId);
+    if (!facts) throw userNotFound();
+    return withPermanentDeleteEligibility(user, actor, facts);
   }
 
   async createUser(actor: SafeUser, input: CreateUserInput) {
@@ -175,6 +211,7 @@ export class PeopleService {
     requireAdmin(actor);
     if (actor.id === userId) throw new AppError('SELF_ROLE_CHANGE_FORBIDDEN', 409, 'Kendi rolünüzü değiştiremezsiniz.');
     return this.repository.execute(async (tx) => {
+      await tx.lockActiveAdmins(actor.organizationId);
       const target = await this.requireUser(tx, actor, userId);
       if (target.version !== input.expectedVersion) throw userVersionConflict();
       if (target.role === 'STAFF') throw new AppError('STAFF_ROLE_CHANGE_NOT_SUPPORTED', 409, 'Personel rolü dönüşümü bu sürümde desteklenmiyor.');
@@ -205,6 +242,7 @@ export class PeopleService {
 
   private async setActive(actor: SafeUser, userId: string, expectedVersion: number, active: boolean) {
     return this.repository.execute(async (tx) => {
+      await tx.lockActiveAdmins(actor.organizationId);
       const target = await this.requireUser(tx, actor, userId);
       if (target.version !== expectedVersion) throw userVersionConflict();
       if (target.isActive === active) return safe(target);
@@ -225,6 +263,68 @@ export class PeopleService {
       await tx.appendAudit(audit(actor, 'USER', target.id, active ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
         { isActive: target.isActive }, { isActive: updated.isActive }));
       return safe(updated);
+    });
+  }
+
+  async deleteUser(actor: SafeUser, userId: string, expectedVersion?: number): Promise<void> {
+    requireAdmin(actor);
+    await this.repository.execute(async (tx) => {
+      // Every operation that can remove the last active Admin takes the same
+      // ordered lock as role changes and deactivation.
+      await tx.lockActiveAdmins(actor.organizationId);
+      const target = await tx.lockUserForDeletion(actor.organizationId, userId);
+      if (!target) throw userNotFound();
+      if (expectedVersion !== undefined && target.version !== expectedVersion) throw userVersionConflict();
+
+      const inspected = await tx.inspectUserDeletion(actor.organizationId, userId);
+      if (!inspected) throw userNotFound();
+      const facts: UserDeletionFacts = {
+        ...inspected,
+        activeAdminCount: await tx.countActiveAdmins(actor.organizationId),
+      };
+      const blockers = permanentDeleteBlockers(actor, target, facts);
+      if (blockers.includes('SELF')) {
+        throw new AppError('SELF_DELETE_FORBIDDEN', 409, 'Kendi hesabınızı kalıcı olarak silemezsiniz.', { blockers });
+      }
+      if (blockers.includes('DEMO_USER')) {
+        throw new AppError('DEMO_USER_DELETE_FORBIDDEN', 409, 'Demo kullanıcıları Demo veri kümesi akışıyla kaldırılmalıdır.', { blockers });
+      }
+      if (blockers.includes('LAST_ADMIN')) {
+        throw new AppError('LAST_ACTIVE_ADMIN_REQUIRED', 409, 'En az bir aktif sistem yöneticisi bulunmalıdır.', { blockers });
+      }
+      const businessBlockers = blockers.filter((blocker) =>
+        blocker === 'HAS_BUSINESS_HISTORY' || blocker === 'HAS_ACTIVE_RESPONSIBILITIES');
+      if (businessBlockers.length > 0) {
+        throw new AppError(
+          'USER_PERMANENT_DELETE_BLOCKED',
+          409,
+          'Bu kullanıcıya ait operasyon geçmişi veya aktif sorumluluklar bulunduğu için kalıcı silme yapılamaz.',
+          { blockers: businessBlockers },
+        );
+      }
+
+      await tx.detachTechnicalAuditActors(actor.organizationId, target.id);
+      await tx.deleteTechnicalUserDependencies(actor.organizationId, target.id);
+      await tx.appendAudit({
+        organizationId: actor.organizationId,
+        actorUserId: actor.id,
+        subjectType: 'USER',
+        subjectId: target.id,
+        eventType: 'USER_DELETED',
+        oldValue: {
+          id: target.id,
+          name: target.name,
+          email: target.email,
+          role: target.role,
+          isActive: target.isActive,
+          version: target.version,
+          dataClass: target.dataClass,
+        },
+        newValue: null,
+        metadata: { deletionMode: 'PERMANENT' },
+      });
+      await tx.deleteStaffProfile(actor.organizationId, target.id);
+      if (!await tx.deleteUser(actor.organizationId, target.id)) throw userVersionConflict();
     });
   }
 
