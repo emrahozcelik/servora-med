@@ -47,6 +47,7 @@ describe('PostgresPeopleRepository transactions', () => {
     });
 
     expect(recorded.calls[0]?.values).toEqual(['org-1', 'staff-1']);
+    expect(recorded.calls[0]?.text).toMatch(/u\.role = 'STAFF'/);
     expect(recorded.calls[0]?.text).not.toMatch(/job_cards|COUNT\(|manager_approved_at/i);
   });
 
@@ -60,6 +61,7 @@ describe('PostgresPeopleRepository transactions', () => {
 
     expect(recorded.calls[0]?.values).toEqual(['org-1']);
     expect(recorded.calls[0]?.text).toMatch(/u\.is_active = FALSE/);
+    expect(recorded.calls[0]?.text).toMatch(/u\.role = 'STAFF'/);
     expect(recorded.calls[0]?.text).toMatch(/ORDER BY u\.name, u\.id/);
     expect(recorded.calls[0]?.text).not.toMatch(/job_cards|COUNT\(/i);
   });
