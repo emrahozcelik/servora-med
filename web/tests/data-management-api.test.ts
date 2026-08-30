@@ -11,7 +11,7 @@ describe('Data Management API contract', () => {
       contacts: { total: 2, active: 1, inactive: 1 },
       products: { total: 2, active: 1, inactive: 1 },
       staff: { total: 2, active: 1, inactive: 1 },
-      demoDataset: { total: 2, active: 0, purged: 2 },
+      demoDataset: { total: 0, active: 0 },
     });
 
     expect(result.customers).toEqual({ total: 3, prospect: 1, active: 1, inactive: 1 });
@@ -25,7 +25,7 @@ describe('Data Management API contract', () => {
       contacts: { total: 0, active: 0, inactive: 0 },
       products: { total: 0, active: 0, inactive: 0 },
       staff: { total: 0, active: 0, inactive: 0 },
-      demoDataset: { total: 0, active: 0, purged: 0 },
+      demoDataset: { total: 0, active: 0 },
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
 

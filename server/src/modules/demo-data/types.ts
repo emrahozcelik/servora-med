@@ -1,13 +1,14 @@
 export const DATA_CLASSES = ['BUSINESS', 'DEMO'] as const;
 export type DataClass = (typeof DATA_CLASSES)[number];
 
-export const DEMO_DATASET_STATUSES = ['ACTIVE', 'PURGED'] as const;
+export const DEMO_DATASET_STATUSES = ['ACTIVE'] as const;
 export type DemoDatasetStatus = (typeof DEMO_DATASET_STATUSES)[number];
 
 export const DEMO_DATASET_PURGE_PLAN_SCHEMA_VERSION = 2 as const;
 
 /** First-class audit semantics for Demo Dataset creation (migration 038). */
 export const DEMO_DATASET_AUDIT_EVENT_TYPE = 'DEMO_DATASET_CREATED' as const;
+export const DEMO_DATASET_PURGED_AUDIT_EVENT_TYPE = 'DEMO_DATASET_PURGED' as const;
 export const DEMO_DATASET_AUDIT_SUBJECT_TYPE = 'DEMO_DATASET' as const;
 
 export type DemoDatasetRecord = Readonly<{
@@ -18,7 +19,6 @@ export type DemoDatasetRecord = Readonly<{
   status: DemoDatasetStatus;
   createdAt: Date;
   createdBy: string;
-  purgedAt: Date | null;
 }>;
 
 export type DemoDatasetDto = Readonly<{
@@ -29,7 +29,6 @@ export type DemoDatasetDto = Readonly<{
   status: DemoDatasetStatus;
   createdAt: string;
   createdBy: string;
-  purgedAt: string | null;
 }>;
 
 export type DemoDatasetImpactCounts = Readonly<{
@@ -144,14 +143,13 @@ export type DemoDatasetPurgeRequest = Readonly<{
 export type DemoDatasetPurgeResponse = Readonly<{
   operationId: string;
   status: 'COMPLETED';
-  dataset: DemoDatasetDto;
+  datasetId: string;
   datasetKey: string;
   seedVersion: string;
   planHash: string;
   affectedCounts: DemoDatasetImpactCounts;
   retained: Readonly<{
     auditActorDetaches: number;
-    datasetCreatorDetached: boolean;
   }>;
   completedAt: string;
 }>;

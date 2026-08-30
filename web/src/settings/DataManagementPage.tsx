@@ -148,7 +148,6 @@ export function DataManagementPage({ user, load = getDataManagementSummary }: Da
           <dl className="data-management-counts">
             <div><dt>Toplam</dt><dd>{summary.demoDataset.total}</dd></div>
             <div><dt>Aktif</dt><dd>{summary.demoDataset.active}</dd></div>
-            <div><dt>Geçmiş</dt><dd>{summary.demoDataset.purged}</dd></div>
           </dl>
           <p className="data-management-card-copy">
             Demo veri kümeleri BUSINESS kayıtlarından ayrı tutulur ve kendi yönetim ekranındaki kontrollü yaşam döngüsüyle ele alınır.

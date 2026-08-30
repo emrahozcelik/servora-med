@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe.skipIf(!databaseUrl)('Demo data PostgreSQL purge', () => {
-  it('purges the typed demo graph, retains tombstone/audit receipt, and replays exactly', async () => {
+  it('deletes the typed demo graph, retains only a technical receipt/audit, and replays exactly', async () => {
     const organization = await pool!.query<{ id: string }>(
       'INSERT INTO organizations (name) VALUES ($1) RETURNING id',
       [`R2 purge ${randomUUID()}`],
@@ -141,38 +141,40 @@ describe.skipIf(!databaseUrl)('Demo data PostgreSQL purge', () => {
     const first = await service.purge(admin, datasetId, request);
     expect(first).toMatchObject({
       status: 'COMPLETED',
-      dataset: { status: 'PURGED', createdBy: demoStaff.id },
-      retained: { auditActorDetaches: 1, datasetCreatorDetached: true },
+      datasetId,
+      retained: { auditActorDetaches: 1 },
     });
 
     const persisted = await pool!.query<{
-      dataset_status: string;
+      dataset_status: string | null;
       created_by: string | null;
       creator_snapshot: string | null;
       user_count: string;
       audit_actor: string | null;
       audit_snapshot: string | null;
       operation_count: string;
+      purge_audit_count: string;
     }>(
       `SELECT
-         d.status AS dataset_status,
-         d.created_by,
-         d.created_by_user_id_snapshot AS creator_snapshot,
+         (SELECT status FROM demo_datasets WHERE organization_id = $1 AND id = $3) AS dataset_status,
+         (SELECT created_by FROM demo_datasets WHERE organization_id = $1 AND id = $3) AS created_by,
+         (SELECT created_by_user_id_snapshot FROM demo_datasets WHERE organization_id = $1 AND id = $3) AS creator_snapshot,
          (SELECT COUNT(*) FROM users WHERE organization_id = $1 AND id = $2)::text AS user_count,
          (SELECT actor_user_id FROM audit_events WHERE organization_id = $1 AND subject_id = $2 LIMIT 1) AS audit_actor,
          (SELECT actor_user_id_snapshot FROM audit_events WHERE organization_id = $1 AND subject_id = $2 LIMIT 1) AS audit_snapshot,
-         (SELECT COUNT(*) FROM demo_dataset_purge_operations WHERE organization_id = $1 AND dataset_id = $3)::text AS operation_count
-       FROM demo_datasets d WHERE d.organization_id = $1 AND d.id = $3`,
+         (SELECT COUNT(*) FROM demo_dataset_purge_operations WHERE organization_id = $1 AND dataset_id = $3)::text AS operation_count,
+         (SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND subject_id = $3 AND event_type = 'DEMO_DATASET_PURGED')::text AS purge_audit_count`,
       [organizationId, demoStaff.id, datasetId],
     );
     expect(persisted.rows[0]).toEqual({
-      dataset_status: 'PURGED',
+      dataset_status: null,
       created_by: null,
-      creator_snapshot: demoStaff.id,
+      creator_snapshot: null,
       user_count: '0',
       audit_actor: null,
       audit_snapshot: demoStaff.id,
       operation_count: '1',
+      purge_audit_count: '1',
     });
 
     await expect(pool!.query(
@@ -185,6 +187,6 @@ describe.skipIf(!databaseUrl)('Demo data PostgreSQL purge', () => {
     await expect(service.purge(admin, datasetId, request)).resolves.toEqual(first);
     await expect(service.purge(admin, datasetId, {
       clientActionId: randomUUID(), planHash: preview.planHash,
-    })).rejects.toMatchObject({ code: 'DEMO_DATASET_ALREADY_PURGED' });
+    })).rejects.toMatchObject({ code: 'DEMO_DATASET_NOT_FOUND' });
   });
 });

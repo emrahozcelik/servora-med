@@ -15,7 +15,7 @@ import type {
 const dataset: DemoDatasetPreviewData = {
   dataset: {
     id: '11111111-1111-4111-8111-111111111111', organizationId: 'org-1', datasetKey: 'demo', seedVersion: 'r1',
-    status: 'ACTIVE', createdAt: new Date('2026-08-24T10:00:00.000Z'), createdBy: 'admin-1', purgedAt: null,
+    status: 'ACTIVE', createdAt: new Date('2026-08-24T10:00:00.000Z'), createdBy: 'admin-1',
   },
   organizationName: 'Organization One',
   affectedCounts: {
@@ -40,21 +40,12 @@ class MemoryRepository implements DemoDatasetRepository {
     return {
       operationId: '22222222-2222-4222-8222-222222222222',
       status: 'COMPLETED',
-      dataset: {
-        id: dataset.dataset.id,
-        organizationId: dataset.dataset.organizationId,
-        datasetKey: dataset.dataset.datasetKey,
-        seedVersion: dataset.dataset.seedVersion,
-        status: 'PURGED',
-        createdAt: dataset.dataset.createdAt.toISOString(),
-        createdBy: dataset.dataset.createdBy,
-        purgedAt: '2026-08-24T11:00:00.000Z',
-      },
+      datasetId: dataset.dataset.id,
       datasetKey: dataset.dataset.datasetKey,
       seedVersion: dataset.dataset.seedVersion,
       planHash: _request.planHash,
       affectedCounts: dataset.affectedCounts,
-      retained: { auditActorDetaches: 0, datasetCreatorDetached: true },
+      retained: { auditActorDetaches: 0 },
       completedAt: '2026-08-24T11:00:00.000Z',
     };
   }
@@ -70,7 +61,6 @@ class MemoryRepository implements DemoDatasetRepository {
         status: 'ACTIVE',
         createdAt: dataset.dataset.createdAt.toISOString(),
         createdBy: dataset.dataset.createdBy,
-        purgedAt: null,
       },
       counts: { users: 3, customers: 5, products: 5, jobCards: 8 },
       replayed: replay,
@@ -144,7 +134,7 @@ describe('Demo data HTTP routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       status: 'COMPLETED',
-      dataset: { status: 'PURGED' },
+      datasetId: dataset.dataset.id,
       planHash: 'a'.repeat(64),
     });
 

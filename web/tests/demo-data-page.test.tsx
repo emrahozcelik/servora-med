@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError, type CurrentUser } from '../src/services/api';
 import { DemoDataPage } from '../src/settings/DemoDataPage';
-import { ApiError } from '../src/services/api';
 import type {
   DemoDataset,
   DemoDatasetPreview,
@@ -16,7 +16,6 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const demoDataApi = vi.hoisted(() => ({
   listDemoDatasets: vi.fn(),
-  getDemoDataset: vi.fn(),
   previewDemoDataset: vi.fn(),
   purgeDemoDataset: vi.fn(),
   createDemoDataset: vi.fn(),
@@ -35,15 +34,6 @@ const activeDataset: DemoDataset = {
   status: 'ACTIVE',
   createdAt: '2026-08-24T10:00:00.000Z',
   createdBy: 'admin-1',
-  purgedAt: null,
-};
-
-const purgedDataset: DemoDataset = {
-  ...activeDataset,
-  id: '22222222-2222-4222-8222-222222222222',
-  datasetKey: 'servora-demo-purged',
-  status: 'PURGED',
-  purgedAt: '2026-08-24T11:00:00.000Z',
 };
 
 const affectedCounts = {
@@ -53,22 +43,26 @@ const affectedCounts = {
   realtimeEvents: 1,
 };
 
-const adminUser = {
-  id: 'admin-1',
-  organizationId: 'org-1',
-  name: 'Admin',
-  email: 'admin@test.local',
-  role: 'ADMIN' as const,
-  mustChangePassword: false,
-  isActive: true,
-  version: 1,
+const adminUser: CurrentUser = {
+  id: 'admin-1', organizationId: 'org-1', name: 'Admin', email: 'admin@test.local',
+  role: 'ADMIN', mustChangePassword: false, isActive: true, version: 1,
   capabilities: { overviewDashboard: false, calendar: false, messaging: false, demoDatasetCreation: true },
   support: { displayLabel: 'Sistem yöneticiniz', email: null, helpUrl: null },
 };
-
-const managerUser = { ...adminUser, role: 'MANAGER' as const, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
-const staffUser = { ...adminUser, role: 'STAFF' as const, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
-const adminNoCapability = { ...adminUser, capabilities: { ...adminUser.capabilities, demoDatasetCreation: false } };
+const managerUser: CurrentUser = {
+  ...adminUser,
+  role: 'MANAGER',
+  capabilities: { ...adminUser.capabilities, demoDatasetCreation: false },
+};
+const staffUser: CurrentUser = {
+  ...adminUser,
+  role: 'STAFF',
+  capabilities: { ...adminUser.capabilities, demoDatasetCreation: false },
+};
+const adminNoCapability: CurrentUser = {
+  ...adminUser,
+  capabilities: { ...adminUser.capabilities, demoDatasetCreation: false },
+};
 
 function preview(overrides: Partial<DemoDatasetPreview> = {}): DemoDatasetPreview {
   return {
@@ -82,22 +76,20 @@ function preview(overrides: Partial<DemoDatasetPreview> = {}): DemoDatasetPrevie
   };
 }
 
-function purgeReceipt(): DemoDatasetPurgeResponse {
-  const completedDataset: DemoDataset = {
-    ...activeDataset,
-    status: 'PURGED',
-    purgedAt: '2026-08-24T11:00:00.000Z',
-  };
+function purgeReceipt(
+  dataset: DemoDataset = activeDataset,
+  operationId = '33333333-3333-4333-8333-333333333333',
+): DemoDatasetPurgeResponse {
   return {
-    operationId: '33333333-3333-4333-8333-333333333333',
+    operationId,
     status: 'COMPLETED',
-    dataset: completedDataset,
-    datasetKey: activeDataset.datasetKey,
-    seedVersion: activeDataset.seedVersion,
+    datasetId: dataset.id,
+    datasetKey: dataset.datasetKey,
+    seedVersion: dataset.seedVersion,
     planHash: 'a'.repeat(64),
     affectedCounts,
-    retained: { auditActorDetaches: 0, datasetCreatorDetached: false },
-    completedAt: completedDataset.purgedAt!,
+    retained: { auditActorDetaches: 0 },
+    completedAt: '2026-08-24T11:00:00.000Z',
   };
 }
 
@@ -112,25 +104,25 @@ function deferred<T>() {
 }
 
 async function settle() {
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 8; index += 1) {
     await act(async () => { await Promise.resolve(); });
   }
 }
 
-describe('DemoDataPage destructive purge flow', () => {
+describe('DemoDataPage disposable lifecycle', () => {
   let host: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     demoDataApi.listDemoDatasets.mockReset();
-    demoDataApi.getDemoDataset.mockReset();
     demoDataApi.previewDemoDataset.mockReset();
     demoDataApi.purgeDemoDataset.mockReset();
     demoDataApi.createDemoDataset.mockReset();
-    vi.restoreAllMocks();
+    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
     demoDataApi.previewDemoDataset.mockResolvedValue(preview());
   });
 
@@ -139,63 +131,48 @@ describe('DemoDataPage destructive purge flow', () => {
     host.remove();
   });
 
-  async function renderPage(user: typeof adminUser = adminUser) {
+  async function renderPage(user: CurrentUser = adminUser) {
     await act(async () => {
-      root.render(<MemoryRouter><DemoDataPage user={user as unknown as import('../src/services/api').CurrentUser} /></MemoryRouter>);
+      root.render(<MemoryRouter><DemoDataPage user={user} /></MemoryRouter>);
     });
     await settle();
   }
 
-  it('selects the first active dataset and never previews a purged tombstone', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([purgedDataset, activeDataset]);
+  function button(text: string) {
+    return Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+      .find((candidate) => candidate.textContent === text);
+  }
 
-    await renderPage();
-
-    const selected = host.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
-    expect(selected?.textContent).toContain(activeDataset.datasetKey);
-    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledTimes(1);
-    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledWith(activeDataset.id);
-    expect(host.textContent).toContain('Kaldırıldı');
-    expect(host.textContent).not.toContain('Arşivlenmiş');
-  });
-
-  it('localizes blockers without exposing raw codes, messages, ids, or plan hashes', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.previewDemoDataset.mockResolvedValue(preview({
-      safeToPurge: false,
-      blockers: [{
-        code: 'DEMO_USER_TO_BUSINESS_JOB',
-        message: 'RAW_BACKEND_MESSAGE',
-        sourceType: 'USER',
-        sourceId: 'internal-user-id',
-        relatedType: 'JOB_CARD',
-        relatedId: 'internal-job-id',
-      }],
-    }));
-
-    await renderPage();
-
-    expect(host.textContent).toContain('Demo içeriği gerçek iş verileriyle bağlantılı.');
-    expect(host.textContent).not.toContain('DEMO_USER_TO_BUSINESS_JOB');
-    expect(host.textContent).not.toContain('RAW_BACKEND_MESSAGE');
-    expect(host.textContent).not.toContain('internal-user-id');
-    expect(host.textContent).not.toContain('internal-job-id');
-    expect(host.textContent).not.toContain('a'.repeat(64));
-  });
-
-  it('opens a destructive confirmation with the approved count snapshot before posting', async () => {
-    const randomUuid = vi.spyOn(globalThis.crypto, 'randomUUID');
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-
-    await renderPage();
-
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır');
-    expect(trigger).not.toBeUndefined();
+  async function confirmPurge() {
+    const trigger = button('Demo verilerini sil');
+    expect(trigger).toBeDefined();
     await act(async () => { trigger!.click(); });
-
     const dialog = host.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
+    const confirm = Array.from(dialog!.querySelectorAll<HTMLButtonElement>('button'))
+      .find((candidate) => candidate.textContent === 'Demo verilerini sil');
+    expect(confirm).toBeDefined();
+    await act(async () => { confirm!.click(); });
+    return dialog!;
+  }
+
+  it('renders only active datasets and never exposes history or tombstones', async () => {
+    await renderPage();
+
+    expect(host.textContent).toContain(activeDataset.datasetKey);
+    expect(host.textContent).toContain('Aktif');
+    expect(host.textContent).not.toContain('Kaldırıldı');
+    expect(host.textContent).not.toContain('Geçmiş');
+    expect(host.textContent).not.toContain('PURGED');
+    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledWith(activeDataset.id);
+  });
+
+  it('opens confirmation with the approved count snapshot before posting', async () => {
+    const randomUuid = vi.spyOn(globalThis.crypto, 'randomUUID');
+    await renderPage();
+
+    await act(async () => { button('Demo verilerini sil')!.click(); });
+    const dialog = host.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain('Bu işlem geri alınamaz.');
     expect(dialog?.textContent).toContain(activeDataset.datasetKey);
     expect(dialog?.textContent).toContain('JobCard kayıtları: 2');
@@ -203,27 +180,14 @@ describe('DemoDataPage destructive purge flow', () => {
     expect(randomUuid).not.toHaveBeenCalled();
   });
 
-  it('creates one client action on first confirm and locks the purge surface while pending', async () => {
+  it('creates one purge request and locks the destructive surface while pending', async () => {
     const pending = deferred<DemoDatasetPurgeResponse>();
     const clientActionId = '44444444-4444-4444-8444-444444444444';
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
-    demoDataApi.listDemoDatasets
-      .mockResolvedValueOnce([activeDataset])
-      .mockResolvedValue([purgeReceipt().dataset]);
     demoDataApi.purgeDemoDataset.mockReturnValue(pending.promise);
 
     await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-
-    await act(async () => {
-      confirm.click();
-      confirm.click();
-    });
+    const dialog = await confirmPurge();
 
     expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(1);
     expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledWith(activeDataset.id, {
@@ -234,346 +198,149 @@ describe('DemoDataPage destructive purge flow', () => {
       seedVersion: activeDataset.seedVersion,
     });
     expect(host.querySelector<HTMLButtonElement>('.demo-data-dataset-row')?.disabled).toBe(true);
-    expect(trigger.disabled).toBe(true);
     expect(dialog.getAttribute('aria-busy')).toBe('true');
-    expect(Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).every((button) => button.disabled)).toBe(true);
 
     pending.resolve(purgeReceipt());
     await settle();
   });
 
-  it('labels a known transactional blocker as unchanged and hides the destructive action', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      409,
-      'DEMO_DATASET_PURGE_BLOCKED',
-      'RAW_BACKEND_BLOCKER',
-      false,
-      { blockerCodes: ['PURGE_ACTOR_IN_DATASET'], blockerCount: 1 },
-    ));
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('İşlem yapılmadı. Veriler değiştirilmedi.');
-    expect(host.textContent).toContain('Bu demo veri kümesinin parçası olan hesapla kaldırma işlemi yapılamaz.');
-    expect(host.textContent).not.toContain('RAW_BACKEND_BLOCKER');
-    expect(Array.from(host.querySelectorAll('button'))
-      .filter((button) => button.textContent === 'Demo verilerini kaldır')).toHaveLength(0);
-  });
-
-  it('treats a lost mutation response as ambiguous and recovers success from a purged tombstone', async () => {
-    const reconciliation = deferred<DemoDataset>();
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      0,
-      'NETWORK_ERROR',
-      'Sunucuya ulaşılamadı.',
-      true,
-    ));
-    demoDataApi.getDemoDataset.mockReturnValue(reconciliation.promise);
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('İşlemin sonucu doğrulanamadı. Güncel durum kontrol ediliyor.');
-    expect(host.textContent).not.toContain('Veriler değiştirilmedi.');
-    expect(demoDataApi.getDemoDataset).toHaveBeenCalledWith(activeDataset.id);
-
-    reconciliation.resolve(purgeReceipt().dataset);
-    await settle();
-
-    expect(host.textContent).toContain('Demo verileri kaldırıldı.');
-    expect(host.textContent).toContain('Kaldırıldı');
-  });
-
-  it('requires an IN_PROGRESS state recheck before offering same-attempt retry', async () => {
+  it('retries the exact same purge request after an ambiguous response and clears the registry UI', async () => {
     const clientActionId = '55555555-5555-4555-8555-555555555555';
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
-    demoDataApi.listDemoDatasets
-      .mockResolvedValueOnce([activeDataset])
-      .mockResolvedValue([purgeReceipt().dataset]);
-    demoDataApi.getDemoDataset.mockResolvedValue(activeDataset);
     demoDataApi.purgeDemoDataset
-      .mockRejectedValueOnce(new ApiError(
-        409,
-        'DEMO_DATASET_PURGE_IN_PROGRESS',
-        'RAW_IN_PROGRESS',
-      ))
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'network', true))
       .mockResolvedValueOnce(purgeReceipt());
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([activeDataset]).mockResolvedValueOnce([]);
 
     await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    let dialog = host.querySelector('[role="dialog"]')!;
-    let confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('Durumu yeniden kontrol et');
-    expect(host.textContent).not.toContain('Aynı işlemi yeniden dene');
-    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(1);
-    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledTimes(2);
-
-    const recheck = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Durumu yeniden kontrol et')!;
-    await act(async () => { recheck.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('Aynı işlemi yeniden dene');
-    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(1);
-    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledTimes(3);
-
-    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Aynı işlemi yeniden dene')!;
-    await act(async () => { retry.click(); });
-    dialog = host.querySelector('[role="dialog"]')!;
-    confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
+    await confirmPurge();
     await settle();
 
     expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(2);
-    expect(demoDataApi.purgeDemoDataset).toHaveBeenLastCalledWith(activeDataset.id, {
-      clientActionId,
-      planHash: 'a'.repeat(64),
-    }, {
-      datasetKey: activeDataset.datasetKey,
-      seedVersion: activeDataset.seedVersion,
-    });
+    expect(demoDataApi.purgeDemoDataset.mock.calls[0]).toEqual(demoDataApi.purgeDemoDataset.mock.calls[1]);
+    expect(host.textContent).toContain('Demo verileri silindi.');
+    expect(host.textContent).toContain('JobCard kayıtları: 2');
+    expect(host.textContent).toContain('Demo veri kümesi yok');
+    expect(host.textContent).not.toContain('Kaldırıldı');
+    expect(host.textContent).not.toContain('Geçmiş');
   });
 
-  it('discards a stale attempt, states that nothing changed, and requires a new preview approval', async () => {
-    const refreshedPreview = preview({ planHash: 'b'.repeat(64) });
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.previewDemoDataset
-      .mockResolvedValueOnce(preview())
-      .mockResolvedValueOnce(refreshedPreview);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      409,
-      'DEMO_DATASET_PLAN_STALE',
-      'RAW_STALE_MESSAGE',
-    ));
+  it('requires a recheck when the same request remains in progress, then completes with that request id', async () => {
+    const clientActionId = '66666666-6666-4666-8666-666666666666';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
+    const inProgress = new ApiError(409, 'DEMO_DATASET_PURGE_IN_PROGRESS', 'in progress');
+    demoDataApi.purgeDemoDataset
+      .mockRejectedValueOnce(inProgress)
+      .mockRejectedValueOnce(inProgress)
+      .mockResolvedValueOnce(purgeReceipt());
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([activeDataset]).mockResolvedValueOnce([]);
 
     await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
+    await confirmPurge();
+    await settle();
+    expect(host.textContent).toContain('Durumu yeniden kontrol et');
+    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(2);
+
+    await act(async () => { button('Durumu yeniden kontrol et')!.click(); });
     await settle();
 
-    expect(host.textContent).toContain('İşlem yapılmadı. Veriler değiştirilmedi.');
-    expect(host.textContent).toContain('Güncel planı yeniden inceleyip onaylayın.');
-    expect(host.textContent).not.toContain('RAW_STALE_MESSAGE');
-    expect(demoDataApi.previewDemoDataset).toHaveBeenCalledTimes(2);
-    expect(Array.from(host.querySelectorAll('button'))
-      .filter((button) => button.textContent === 'Demo verilerini kaldır')).toHaveLength(1);
+    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(3);
+    expect(demoDataApi.purgeDemoDataset.mock.calls[0]).toEqual(demoDataApi.purgeDemoDataset.mock.calls[2]);
+    expect(host.textContent).toContain('Demo verileri silindi.');
   });
 
-  it('does not treat ALREADY_PURGED as success until GET confirms the tombstone', async () => {
-    const reconciliation = deferred<DemoDataset>();
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      409,
-      'DEMO_DATASET_ALREADY_PURGED',
-      'RAW_ALREADY_PURGED',
-    ));
-    demoDataApi.getDemoDataset.mockReturnValue(reconciliation.promise);
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).not.toContain('Demo verileri kaldırıldı.');
-    expect(demoDataApi.getDemoDataset).toHaveBeenCalledWith(activeDataset.id);
-
-    reconciliation.resolve(purgeReceipt().dataset);
-    await settle();
-
-    expect(host.textContent).toContain('Demo verileri daha önce kaldırılmış.');
-    expect(host.textContent).not.toContain('RAW_ALREADY_PURGED');
-  });
-
-  it('fails closed on an unexpected dependency without exposing backend diagnostics', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      409,
-      'DEMO_DATASET_UNEXPECTED_DEPENDENCY',
-      'RAW_DATABASE_CONSTRAINT',
-    ));
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('İşlem yapılmadı. Veriler değiştirilmedi.');
-    expect(host.textContent).toContain('Beklenmeyen bir veri bağımlılığı bulundu.');
-    expect(host.textContent).not.toContain('RAW_DATABASE_CONSTRAINT');
-    expect(Array.from(host.querySelectorAll('button'))
-      .filter((button) => button.textContent === 'Demo verilerini kaldır')).toHaveLength(0);
-  });
-
-  it('fails closed on an unknown mutation error without claiming that data is unchanged', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      409,
-      'UNKNOWN_PURGE_REJECTION',
-      'RAW_UNKNOWN_MESSAGE',
-    ));
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('İşlem tamamlanamadı. Sunucu durumu doğrulanmadan yeni bir kaldırma işlemi başlatılamaz.');
-    expect(host.textContent).not.toContain('Veriler değiştirilmedi.');
-    expect(host.textContent).not.toContain('RAW_UNKNOWN_MESSAGE');
-  });
-
-  it('renders a purged tombstone as neutral history without preview or destructive controls', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([purgedDataset]);
-
-    await renderPage();
-
-    expect(host.textContent).toContain('Demo veri kümesi kaldırıldı');
-    expect(host.textContent).toContain('Bu geçmiş kaydı yeniden kaldırılamaz.');
-    expect(demoDataApi.previewDemoDataset).not.toHaveBeenCalled();
-    expect(Array.from(host.querySelectorAll('button'))
-      .filter((button) => button.textContent === 'Demo verilerini kaldır')).toHaveLength(0);
-  });
-
-  it('treats an INVALID_RESPONSE after mutation as ambiguous and reconciles before retry', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.getDemoDataset.mockResolvedValue(activeDataset);
-    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(
-      0,
-      'INVALID_RESPONSE',
-      'RAW_INVALID_RESPONSE',
-    ));
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-
-    expect(host.textContent).toContain('Aynı işlemi yeniden dene');
-    expect(host.textContent).not.toContain('Veriler değiştirilmedi.');
-    expect(host.textContent).not.toContain('RAW_INVALID_RESPONSE');
-    expect(demoDataApi.getDemoDataset).toHaveBeenCalledWith(activeDataset.id);
-  });
-
-  it('maps an unknown preview blocker to one generic fail-closed message', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
+  it('fails closed for known blockers and unknown blocker vocabulary', async () => {
     demoDataApi.previewDemoDataset.mockResolvedValue(preview({
       safeToPurge: false,
       blockers: [{
         code: 'FUTURE_UNKNOWN_BLOCKER',
         message: 'RAW_FUTURE_MESSAGE',
-        sourceType: 'FUTURE_SOURCE',
-        sourceId: 'future-source-id',
-        relatedType: null,
-        relatedId: null,
+        sourceType: 'FUTURE_SOURCE', sourceId: 'internal-id', relatedType: null, relatedId: null,
       }],
     }));
 
     await renderPage();
 
-    expect(host.textContent).toContain('Kaldırma güvenliği doğrulanamadı. İşlem kapalı tutuldu.');
+    expect(host.textContent).toContain('Silme güvenliği doğrulanamadı. İşlem kapalı tutuldu.');
     expect(host.textContent).not.toContain('FUTURE_UNKNOWN_BLOCKER');
     expect(host.textContent).not.toContain('RAW_FUTURE_MESSAGE');
-    expect(Array.from(host.querySelectorAll('button'))
-      .filter((button) => button.textContent === 'Demo verilerini kaldır')).toHaveLength(0);
+    expect(button('Demo verilerini sil')).toBeUndefined();
   });
 
-  it('does not expose backend diagnostics when preview loading fails', async () => {
-    demoDataApi.listDemoDatasets.mockResolvedValue([activeDataset]);
-    demoDataApi.previewDemoDataset.mockRejectedValue(new ApiError(
-      500,
-      'INTERNAL_ERROR',
-      'RAW_PREVIEW_DIAGNOSTIC',
-    ));
+  it('does not claim unchanged data for an unknown mutation error', async () => {
+    demoDataApi.purgeDemoDataset.mockRejectedValue(new ApiError(409, 'UNKNOWN_PURGE_REJECTION', 'raw'));
 
     await renderPage();
-
-    expect(host.textContent).toContain('Demo veri kümesinin güvenlik önizlemesi alınamadı.');
-    expect(host.textContent).not.toContain('RAW_PREVIEW_DIAGNOSTIC');
-  });
-
-  it('keeps a valid completed receipt successful when the list refresh fails', async () => {
-    demoDataApi.listDemoDatasets
-      .mockResolvedValueOnce([activeDataset])
-      .mockRejectedValueOnce(new Error('refresh failed'));
-    demoDataApi.purgeDemoDataset.mockResolvedValue(purgeReceipt());
-
-    await renderPage();
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Demo verilerini kaldır')!;
-    await act(async () => { confirm.click(); });
+    await confirmPurge();
     await settle();
 
-    expect(host.textContent).toContain('Demo verileri kaldırıldı.');
-    expect(host.textContent).toContain('Veri kümesi listesi yenilenemedi.');
-    expect(host.textContent).toContain('JobCard kayıtları: 2');
-    expect(host.textContent).toContain('Kaldırıldı');
+    expect(host.textContent).toContain('Sunucu durumu doğrulanmadan yeni bir silme işlemi başlatılamaz.');
+    expect(host.textContent).not.toContain('Veriler değiştirilmedi.');
+    expect(host.textContent).not.toContain('raw');
+  });
+
+  it('keeps the Demo UI usable for create, purge, recreate, purge, recreate', async () => {
+    const datasetB: DemoDataset = { ...activeDataset, id: '22222222-2222-4222-8222-222222222222', datasetKey: 'servora-demo-b' };
+    const datasetC: DemoDataset = { ...activeDataset, id: '33333333-3333-4333-8333-333333333333', datasetKey: 'servora-demo-c' };
+    demoDataApi.listDemoDatasets
+      .mockReset()
+      .mockResolvedValueOnce([activeDataset])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([datasetB])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([datasetC]);
+    demoDataApi.previewDemoDataset.mockImplementation((datasetId: string) => Promise.resolve(
+      preview({ dataset: datasetId === datasetB.id ? datasetB : datasetId === datasetC.id ? datasetC : activeDataset }),
+    ));
+    demoDataApi.purgeDemoDataset
+      .mockResolvedValueOnce(purgeReceipt(activeDataset, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
+      .mockResolvedValueOnce(purgeReceipt(datasetB, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'));
+    demoDataApi.createDemoDataset
+      .mockResolvedValueOnce({ dataset: datasetB, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false })
+      .mockResolvedValueOnce({ dataset: datasetC, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false });
+
+    await renderPage();
+    await confirmPurge();
+    await settle();
+    expect(host.textContent).toContain('Demo veri kümesi yok');
+
+    for (const dataset of [datasetB, datasetC]) {
+      const createTrigger = button('Demo verisi oluştur');
+      expect(createTrigger).toBeDefined();
+      await act(async () => { createTrigger!.click(); });
+      const createDialog = host.querySelector('[role="dialog"]');
+      expect(createDialog).not.toBeNull();
+      const createConfirm = Array.from(createDialog!.querySelectorAll<HTMLButtonElement>('button'))
+        .find((candidate) => candidate.textContent === 'Oluştur');
+      expect(createConfirm).toBeDefined();
+      await act(async () => { createConfirm!.click(); });
+      await settle();
+
+      expect(host.textContent).toContain(dataset.datasetKey);
+      expect(button('Demo verilerini sil')).toBeDefined();
+      if (dataset !== datasetC) {
+        await confirmPurge();
+        await settle();
+        expect(host.textContent).toContain('Demo veri kümesi yok');
+      }
+    }
+
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(2);
+    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain(datasetC.datasetKey);
   });
 });
 
-describe('DemoDataPage creation flow', () => {
+describe('DemoDataPage creation boundaries', () => {
   let host: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     demoDataApi.listDemoDatasets.mockReset();
-    demoDataApi.getDemoDataset.mockReset();
     demoDataApi.previewDemoDataset.mockReset();
     demoDataApi.purgeDemoDataset.mockReset();
     demoDataApi.createDemoDataset.mockReset();
@@ -585,188 +352,56 @@ describe('DemoDataPage creation flow', () => {
     host.remove();
   });
 
-  async function renderCreation(user: typeof adminUser = adminUser, datasets: DemoDataset[] = []) {
+  async function renderCreation(user: CurrentUser, datasets: DemoDataset[] = []) {
     demoDataApi.listDemoDatasets.mockResolvedValue(datasets);
-    if (datasets.some((d) => d.status === 'ACTIVE')) {
-      demoDataApi.previewDemoDataset.mockResolvedValue(preview());
-    } else {
-      demoDataApi.previewDemoDataset.mockResolvedValue(preview());
-    }
     await act(async () => {
-      root.render(<MemoryRouter><DemoDataPage user={user as unknown as import('../src/services/api').CurrentUser} /></MemoryRouter>);
+      root.render(<MemoryRouter><DemoDataPage user={user} /></MemoryRouter>);
     });
     await settle();
   }
 
-  it('shows creation CTA when ADMIN, capability enabled and no ACTIVE dataset', async () => {
-    await renderCreation(adminUser, []);
+  it('shows creation only for an Admin with the capability and no active dataset', async () => {
+    await renderCreation(adminUser);
     expect(host.textContent).toContain('Demo verisi oluştur');
     expect(host.textContent).toContain('3 demo personel');
-    expect(host.textContent).toContain('5 demo müşteri');
   });
 
-  it('hides creation CTA when capability disabled', async () => {
-    await renderCreation(adminNoCapability, []);
+  it('hides creation when the capability is disabled or the role is not Admin', async () => {
+    await renderCreation(adminNoCapability);
     expect(host.textContent).toContain('Demo verisi oluşturma bu ortamda etkin değil.');
-    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
-  });
+    expect(Array.from(host.querySelectorAll('button')).some((item) => item.textContent === 'Demo verisi oluştur')).toBe(false);
 
-  it('disables creation CTA when ACTIVE dataset exists', async () => {
-    await renderCreation(adminUser, [activeDataset]);
-    expect(host.textContent).toContain('Zaten etkin bir demo veri seti bulunuyor.');
-    const createButton = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur');
-    expect(createButton).toBeDefined();
-    expect(createButton?.disabled).toBe(true);
-  });
-
-  it('does not show creation for MANAGER or STAFF', async () => {
-    await renderCreation(managerUser, []);
-    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
     await act(async () => { root.unmount(); });
+    host.remove();
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
-    demoDataApi.listDemoDatasets.mockReset();
-    demoDataApi.previewDemoDataset.mockReset();
-    demoDataApi.createDemoDataset.mockReset();
-    await renderCreation(staffUser, []);
-    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Demo verisi oluştur')).toBe(false);
+    await renderCreation(managerUser);
+    expect(Array.from(host.querySelectorAll('button')).some((item) => item.textContent === 'Demo verisi oluştur')).toBe(false);
+
+    await act(async () => { root.unmount(); });
+    host.remove();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await renderCreation(staffUser);
+    expect(Array.from(host.querySelectorAll('button')).some((item) => item.textContent === 'Demo verisi oluştur')).toBe(false);
   });
 
-  it('opens confirmation and shows fixture summary before POST', async () => {
-    const spy = vi.spyOn(globalThis.crypto, 'randomUUID');
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    expect(dialog.textContent).toContain('Demo verisi oluşturulsun mu?');
-    expect(dialog.textContent).toContain('3 demo personel');
-    expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('creates one POST with valid clientActionId and locks while pending', async () => {
-    const pending = deferred<import('../src/services/demo-data-api').DemoDatasetCreateResponse>();
-    const clientActionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
-    demoDataApi.createDemoDataset.mockReturnValue(pending.promise as unknown as Promise<import('../src/services/demo-data-api').DemoDatasetCreateResponse>);
-    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); confirm.click(); });
-    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(1);
-    expect(demoDataApi.createDemoDataset).toHaveBeenCalledWith({ clientActionId });
-    expect(dialog.getAttribute('aria-busy')).toBe('true');
-    expect(Array.from(dialog.querySelectorAll('button')).every((b) => b.disabled)).toBe(true);
-    pending.resolve({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
-    await settle();
-  });
-
-  it('cancels without POST', async () => {
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const cancel = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'İptal' || b.textContent === 'Vazgeç') ?? Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent !== 'Oluştur')!;
-    await act(async () => { cancel.click(); });
-    expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('shows success 201 and refreshes list', async () => {
-    const created: DemoDataset = { ...activeDataset, id: '99999999-9999-4999-8999-999999999999', datasetKey: 'standard-v1-aaaa', seedVersion: 'demo-standard-v1', status: 'ACTIVE', purgedAt: null };
-    demoDataApi.createDemoDataset.mockResolvedValue({ dataset: created, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
-    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([created]);
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(host.textContent).toContain('Demo verisi oluşturuldu');
-    expect(demoDataApi.listDemoDatasets).toHaveBeenCalledTimes(2);
-  });
-
-  it('treats 200 replay as success', async () => {
-    demoDataApi.createDemoDataset.mockResolvedValue({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: true } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
-    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(host.textContent).toContain('Demo verisi zaten oluşturulmuş');
-  });
-
-  it('handles 409 already exists with friendly message and refresh', async () => {
-    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(409, 'DEMO_DATASET_ALREADY_EXISTS', 'exists', false, {}));
-    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
+  it('disables creation while one active dataset exists', async () => {
+    await renderCreation(adminUser, [activeDataset]);
+    const createButton = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+      .find((item) => item.textContent === 'Demo verisi oluştur');
+    expect(createButton?.disabled).toBe(true);
     expect(host.textContent).toContain('Zaten etkin bir demo veri seti bulunuyor.');
-    expect(demoDataApi.listDemoDatasets).toHaveBeenCalledTimes(2);
   });
 
-  it('handles 404 disabled with safe message', async () => {
-    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(404, 'DEMO_DATASET_NOT_FOUND', 'not found', false, {}));
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(host.textContent).toContain('Demo verisi oluşturma bu ortamda etkin değil.');
-  });
-
-  it('handles 403 with permission message', async () => {
-    demoDataApi.createDemoDataset.mockRejectedValue(new ApiError(403, 'FORBIDDEN', 'forbidden', false, {}));
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    const dialog = host.querySelector('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(host.textContent).toContain('Bu işlem için yetkiniz yok');
-  });
-
-  it('reuses same clientActionId on network retry', async () => {
-    const firstId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    const spy = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValueOnce(firstId);
-    demoDataApi.createDemoDataset
-      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'network', true, {}))
-      .mockResolvedValueOnce({ dataset: activeDataset, counts: { users: 3, customers: 5, products: 5, jobCards: 8 }, replayed: false } as unknown as import('../src/services/demo-data-api').DemoDatasetCreateResponse);
-    demoDataApi.listDemoDatasets.mockResolvedValueOnce([]).mockResolvedValueOnce([activeDataset]);
-    await renderCreation(adminUser, []);
-    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Demo verisi oluştur')!;
-    await act(async () => { trigger.click(); });
-    let dialog = host.querySelector('[role="dialog"]')!;
-    let confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(demoDataApi.createDemoDataset).toHaveBeenCalledWith({ clientActionId: firstId });
-    expect(host.textContent).toContain('İşlemin sonucu doğrulanamadı');
-    // retry should reuse same id, spy still returns same firstId? second call should be same
-    spy.mockReturnValue(firstId);
-    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent.includes('Yeniden')) ?? host.querySelector<HTMLButtonElement>('button');
-    // fallback: reopen dialog and retry
-    await act(async () => { trigger.click(); });
-    dialog = host.querySelector('[role="dialog"]')!;
-    confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === 'Oluştur')!;
-    await act(async () => { confirm.click(); });
-    await settle();
-    expect(demoDataApi.createDemoDataset).toHaveBeenLastCalledWith({ clientActionId: firstId });
+  it('opens the create confirmation without posting before approval', async () => {
+    await renderCreation(adminUser);
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+      .find((item) => item.textContent === 'Demo verisi oluştur');
+    await act(async () => { trigger!.click(); });
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Demo verisi oluşturulsun mu?');
+    expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
   });
 });

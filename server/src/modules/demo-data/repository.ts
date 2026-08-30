@@ -16,7 +16,11 @@ import type {
   DemoDatasetRecord,
   DemoDatasetRepository,
 } from './types.js';
-import { DEMO_DATASET_AUDIT_EVENT_TYPE, DEMO_DATASET_AUDIT_SUBJECT_TYPE } from './types.js';
+import {
+  DEMO_DATASET_AUDIT_EVENT_TYPE,
+  DEMO_DATASET_AUDIT_SUBJECT_TYPE,
+  DEMO_DATASET_PURGED_AUDIT_EVENT_TYPE,
+} from './types.js';
 
 import { AppError } from '../../errors/index.js';
 
@@ -46,8 +50,12 @@ type DemoDatasetRow = {
 };
 
 function mapDataset(row: DemoDatasetRow): DemoDatasetRecord {
-  const createdBy = row.created_by ?? row.created_by_user_id_snapshot;
-  if (!createdBy) throw new Error('demo dataset creator attribution is missing');
+  if (row.status !== 'ACTIVE'
+    || row.created_by === null
+    || row.created_by_user_id_snapshot !== null
+    || row.purged_at !== null) {
+    throw new Error('demo dataset row is not an active disposable dataset');
+  }
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -55,8 +63,7 @@ function mapDataset(row: DemoDatasetRow): DemoDatasetRecord {
     seedVersion: row.seed_version,
     status: row.status,
     createdAt: row.created_at,
-    createdBy,
-    purgedAt: row.purged_at,
+    createdBy: row.created_by,
   };
 }
 
@@ -360,7 +367,6 @@ function datasetDto(dataset: DemoDatasetRecord) {
     status: dataset.status,
     createdAt: dataset.createdAt.toISOString(),
     createdBy: dataset.createdBy,
-    purgedAt: dataset.purgedAt?.toISOString() ?? null,
   } as const;
 }
 
@@ -376,7 +382,7 @@ async function lockDataset(client: PoolClient, organizationId: string, datasetId
   try {
     await client.query(
       `SELECT id FROM demo_datasets
-       WHERE organization_id = $1 AND id = $2
+       WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
        FOR UPDATE NOWAIT`,
       [organizationId, datasetId],
     );
@@ -389,36 +395,70 @@ async function lockDataset(client: PoolClient, organizationId: string, datasetId
   }
 }
 
-async function updateDatasetToPurged(
+async function deleteDataset(
+  client: PoolClient,
+  organizationId: string,
+  datasetId: string,
+) {
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM demo_datasets
+     WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
+     RETURNING id`,
+    [organizationId, datasetId],
+  );
+  if (result.rows.length !== 1) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo veri kümesi registry kaydı güvenli biçimde silinemedi.');
+  }
+}
+
+async function reassignDatasetCreator(
   client: PoolClient,
   organizationId: string,
   datasetId: string,
   creatorUserId: string | null,
+  replacementUserId: string,
 ) {
-  const result = creatorUserId
-    ? await client.query(
-      `UPDATE demo_datasets
-       SET created_by_user_id_snapshot = created_by,
-           created_by = NULL,
-           status = 'PURGED',
-           purged_at = NOW()
-       WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
-         AND created_by = $3
-       RETURNING id`,
-      [organizationId, datasetId, creatorUserId],
-    )
-    : await client.query(
-      `UPDATE demo_datasets
-       SET status = 'PURGED', purged_at = NOW()
-       WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
-       RETURNING id`,
-      [organizationId, datasetId],
-    );
+  if (!creatorUserId) return;
+  const result = await client.query<{ id: string }>(
+    `UPDATE demo_datasets
+     SET created_by = $3, created_by_user_id_snapshot = NULL
+     WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
+       AND created_by = $4
+     RETURNING id`,
+    [organizationId, datasetId, replacementUserId, creatorUserId],
+  );
   if (result.rows.length !== 1) {
     throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
-      'Demo veri kümesi tombstone durumu güvenli biçimde güncellenemedi.');
+      'Demo veri kümesi creator bağımlılığı güvenli biçimde ayrıştırılamadı.');
   }
-  return Boolean(creatorUserId);
+}
+
+async function appendPurgeAudit(
+  client: PoolClient,
+  organizationId: string,
+  actorUserId: string,
+  datasetId: string,
+  datasetKey: string,
+  seedVersion: string,
+  affectedCounts: DemoDatasetPurgeResponse['affectedCounts'],
+) {
+  try {
+    await client.query(
+      `INSERT INTO audit_events
+         (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [organizationId, actorUserId, DEMO_DATASET_AUDIT_SUBJECT_TYPE, datasetId,
+        DEMO_DATASET_PURGED_AUDIT_EVENT_TYPE, JSON.stringify({
+          datasetKey,
+          seedVersion,
+          affectedCounts,
+        })],
+    );
+  } catch {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 500,
+      'Demo veri kümesi purge audit kaydı oluşturulamadı.');
+  }
 }
 
 async function assertNoTargetUserReferences(
@@ -554,7 +594,7 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
     const result = await this.pool.query<DemoDatasetRow>(
       `SELECT ${DATASET_COLUMNS}
        ${DATASET_FROM}
-       WHERE d.organization_id = $1
+       WHERE d.organization_id = $1 AND d.status = 'ACTIVE'
        ORDER BY d.created_at ASC, d.id ASC`,
       [organizationId],
     );
@@ -565,7 +605,7 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
     const result = await this.pool.query<DemoDatasetRow>(
       `SELECT ${DATASET_COLUMNS}
        ${DATASET_FROM}
-       WHERE d.organization_id = $1 AND d.id = $2`,
+       WHERE d.organization_id = $1 AND d.id = $2 AND d.status = 'ACTIVE'`,
       [organizationId, datasetId],
     );
     return result.rows[0] ? mapDataset(result.rows[0]) : null;
@@ -598,16 +638,6 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
       inTransaction = true;
 
-      const initialDatasetResult = await client.query<DemoDatasetRow>(
-        `SELECT ${DATASET_COLUMNS}
-         ${DATASET_FROM}
-         WHERE d.organization_id = $1 AND d.id = $2`,
-        [organizationId, datasetId],
-      );
-      const initialDatasetRow = initialDatasetResult.rows[0];
-      if (!initialDatasetRow) throw notFound();
-      let dataset = mapDataset(initialDatasetRow);
-
       const existingOperationResult = await client.query<{
         id: string;
         dataset_id: string;
@@ -617,7 +647,8 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       }>(
         `SELECT id, dataset_id, plan_hash, status, response_body
          FROM demo_dataset_purge_operations
-         WHERE organization_id = $1 AND client_action_id = $2`,
+         WHERE organization_id = $1 AND client_action_id = $2
+         FOR UPDATE`,
         [organizationId, request.clientActionId],
       );
       const existingOperation = existingOperationResult.rows[0];
@@ -636,25 +667,26 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
           'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
       }
 
-      if (dataset.status !== 'ACTIVE') {
-        throw new AppError('DEMO_DATASET_ALREADY_PURGED', 409,
-          'Demo veri kümesi daha önce purge edildi.');
-      }
+      const initialDatasetResult = await client.query<DemoDatasetRow>(
+        `SELECT ${DATASET_COLUMNS}
+         ${DATASET_FROM}
+         WHERE d.organization_id = $1 AND d.id = $2 AND d.status = 'ACTIVE'`,
+        [organizationId, datasetId],
+      );
+      const initialDatasetRow = initialDatasetResult.rows[0];
+      if (!initialDatasetRow) throw notFound();
+      let dataset = mapDataset(initialDatasetRow);
 
       await lockDataset(client, organizationId, datasetId);
       const lockedDatasetResult = await client.query<DemoDatasetRow>(
         `SELECT ${DATASET_COLUMNS}
          ${DATASET_FROM}
-         WHERE d.organization_id = $1 AND d.id = $2`,
+         WHERE d.organization_id = $1 AND d.id = $2 AND d.status = 'ACTIVE'`,
         [organizationId, datasetId],
       );
       const lockedDatasetRow = lockedDatasetResult.rows[0];
       if (!lockedDatasetRow) throw notFound();
       dataset = mapDataset(lockedDatasetRow);
-      if (dataset.status !== 'ACTIVE') {
-        throw new AppError('DEMO_DATASET_ALREADY_PURGED', 409,
-          'Demo veri kümesi daha önce purge edildi.');
-      }
 
       const firstAnalysis = await new DemoDatasetImpactAnalyzer(client).analyze(organizationId, datasetId);
       if (!firstAnalysis) throw notFound();
@@ -710,8 +742,12 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       const detachedAuditActors = await detachAuditActors(
         client, organizationId, secondAnalysis.purgePlan.retainedAuditActorLinks,
       );
-      const detachedDatasetCreator = await updateDatasetToPurged(
-        client, organizationId, datasetId, secondAnalysis.purgePlan.datasetCreatorUserId,
+      await reassignDatasetCreator(
+        client,
+        organizationId,
+        datasetId,
+        secondAnalysis.purgePlan.datasetCreatorUserId,
+        actorUserId,
       );
       await assertNoTargetUserReferences(client, organizationId, secondAnalysis.purgePlan.users);
       await deleteRootRows(
@@ -722,29 +758,27 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
         secondAnalysis.purgePlan.users,
       );
       await assertRootPostconditions(client, organizationId, datasetId);
-
-      const finalDatasetResult = await client.query<DemoDatasetRow>(
-        `SELECT ${DATASET_COLUMNS}
-         ${DATASET_FROM}
-         WHERE d.organization_id = $1 AND d.id = $2`,
-        [organizationId, datasetId],
-      );
-      const finalDatasetRow = finalDatasetResult.rows[0];
-      if (!finalDatasetRow) throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
-        'Purge sonrası demo veri kümesi tombstone kaydı bulunamadı.');
-      const finalDataset = mapDataset(finalDatasetRow);
       const completedAt = new Date();
+      await appendPurgeAudit(
+        client,
+        organizationId,
+        actorUserId,
+        datasetId,
+        dataset.datasetKey,
+        dataset.seedVersion,
+        secondAnalysis.affectedCounts,
+      );
+      await deleteDataset(client, organizationId, datasetId);
       const response: DemoDatasetPurgeResponse = {
         operationId: operation.operationId,
         status: 'COMPLETED',
-        dataset: datasetDto(finalDataset),
-        datasetKey: finalDataset.datasetKey,
-        seedVersion: finalDataset.seedVersion,
+        datasetId,
+        datasetKey: dataset.datasetKey,
+        seedVersion: dataset.seedVersion,
         planHash: request.planHash,
         affectedCounts: secondAnalysis.affectedCounts,
         retained: {
           auditActorDetaches: detachedAuditActors,
-          datasetCreatorDetached: detachedDatasetCreator,
         },
         completedAt: completedAt.toISOString(),
       };
@@ -818,7 +852,7 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       const existingByKey = await client.query<DemoDatasetRow>(
         `SELECT ${DATASET_COLUMNS}
           ${DATASET_FROM}
-          WHERE d.organization_id = $1 AND d.dataset_key = $2`,
+          WHERE d.organization_id = $1 AND d.dataset_key = $2 AND d.status = 'ACTIVE'`,
         [organizationId, datasetKey],
       );
       if (existingByKey.rows[0]) {
@@ -860,7 +894,7 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       const insertedFetch = await client.query<DemoDatasetRow>(
         `SELECT ${DATASET_COLUMNS}
           ${DATASET_FROM}
-          WHERE d.id = $1`,
+          WHERE d.id = $1 AND d.status = 'ACTIVE'`,
         [insertedRow.id],
       );
       const datasetRecord = mapDataset(insertedFetch.rows[0]!);

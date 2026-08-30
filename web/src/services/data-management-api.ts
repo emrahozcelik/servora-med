@@ -13,7 +13,6 @@ export type CustomerDataManagementCount = DataManagementCount & {
 export type DemoDatasetDataManagementCount = {
   total: number;
   active: number;
-  purged: number;
 };
 
 export type DataManagementSummary = {
@@ -56,7 +55,6 @@ export function parseDataManagementSummary(input: unknown): DataManagementSummar
     demoDataset: {
       total: count(demoDataset.total, 'demoDataset.total'),
       active: count(demoDataset.active, 'demoDataset.active'),
-      purged: count(demoDataset.purged, 'demoDataset.purged'),
     },
   };
 }

@@ -53,14 +53,13 @@ async function createUser(
   )).rows[0]!.id;
 }
 
-async function createDataset(pool: Pool, organizationId: string, createdBy: string, status: 'ACTIVE' | 'PURGED') {
+async function createDataset(pool: Pool, organizationId: string, createdBy: string) {
   return (await pool.query<{ id: string }>(
     `INSERT INTO demo_datasets
-       (organization_id, dataset_key, seed_version, status, created_by, purged_at)
-     VALUES ($1, $2, 'u2-test', $3, $4, $5)
+       (organization_id, dataset_key, seed_version, created_by)
+     VALUES ($1, $2, 'u2-test', $3)
      RETURNING id`,
-    [organizationId, `u2-${randomUUID()}`, status, createdBy,
-      status === 'PURGED' ? new Date('2026-08-01T00:00:00Z') : null],
+    [organizationId, `u2-${randomUUID()}`, createdBy],
   )).rows[0]!.id;
 }
 
@@ -110,9 +109,8 @@ describe.skipIf(!databaseUrl)('Data Management summary PostgreSQL contract', () 
       const organizationB = await createOrganization(pool, 'U2 Organization B');
       const adminA = await createUser(pool, organizationA, 'ADMIN');
       const adminB = await createUser(pool, organizationB, 'ADMIN');
-      const activeDatasetA = await createDataset(pool, organizationA, adminA, 'ACTIVE');
-      await createDataset(pool, organizationA, adminA, 'PURGED');
-      const activeDatasetB = await createDataset(pool, organizationB, adminB, 'ACTIVE');
+      const activeDatasetA = await createDataset(pool, organizationA, adminA);
+      const activeDatasetB = await createDataset(pool, organizationB, adminB);
 
       await createUser(pool, organizationA, 'STAFF');
       await createUser(pool, organizationA, 'STAFF', { active: false });
@@ -149,14 +147,14 @@ describe.skipIf(!databaseUrl)('Data Management summary PostgreSQL contract', () 
         contacts: { total: 2, active: 1, inactive: 1 },
         products: { total: 2, active: 1, inactive: 1 },
         staff: { total: 2, active: 1, inactive: 1 },
-        demoDataset: { total: 2, active: 1, purged: 1 },
+        demoDataset: { total: 1, active: 1 },
       });
       await expect(repository.getSummary(organizationB)).resolves.toEqual({
         customers: { total: 2, prospect: 0, active: 2, inactive: 0 },
         contacts: { total: 1, active: 1, inactive: 0 },
         products: { total: 1, active: 1, inactive: 0 },
         staff: { total: 1, active: 1, inactive: 0 },
-        demoDataset: { total: 1, active: 1, purged: 0 },
+        demoDataset: { total: 1, active: 1 },
       });
 
       const after = await pool.query<{ users: string; customers: string; contacts: string; products: string; audits: string }>(
