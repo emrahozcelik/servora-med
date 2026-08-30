@@ -598,7 +598,10 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     const request = { clientActionId: randomUUID(), planHash: preview.planHash };
     const response = await fixture.service.purge(fixture.admin, fixture.datasetId, request);
     expect(response.status).toBe('COMPLETED');
-    expect(response.retained).toEqual({ auditActorDetaches: 1, datasetCreatorDetached: true });
+    expect(response).toMatchObject({
+      datasetId: fixture.datasetId,
+      retained: { auditActorDetaches: 1 },
+    });
 
     const remaining = await pool!.query<{ table_name: string; count: string }>(
       `WITH target_org AS (SELECT $1::uuid AS id)
@@ -634,20 +637,24 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     expect(remaining.rows.every((row) => row.count === '0')).toBe(true);
 
     const persisted = await pool!.query(
-      `SELECT d.status, d.created_by, d.created_by_user_id_snapshot,
-          (SELECT COUNT(*) FROM demo_dataset_purge_operations WHERE dataset_id = d.id) AS operation_count,
+      `SELECT
+          (SELECT status FROM demo_datasets WHERE id = $1) AS status,
+          (SELECT created_by FROM demo_datasets WHERE id = $1) AS created_by,
+          (SELECT created_by_user_id_snapshot FROM demo_datasets WHERE id = $1) AS created_by_user_id_snapshot,
+          (SELECT COUNT(*) FROM demo_dataset_purge_operations WHERE dataset_id = $1) AS operation_count,
           (SELECT actor_user_id FROM audit_events WHERE id = $2) AS audit_actor,
-          (SELECT actor_user_id_snapshot FROM audit_events WHERE id = $2) AS audit_snapshot
-       FROM demo_datasets d WHERE d.id = $1`,
+          (SELECT actor_user_id_snapshot FROM audit_events WHERE id = $2) AS audit_snapshot,
+          (SELECT COUNT(*) FROM audit_events WHERE subject_id = $1 AND event_type = 'DEMO_DATASET_PURGED') AS purge_audit_count`,
       [fixture.datasetId, graph.auditEventId],
     );
     expect(persisted.rows[0]).toMatchObject({
-      status: 'PURGED',
+      status: null,
       created_by: null,
-      created_by_user_id_snapshot: fixture.staffId,
+      created_by_user_id_snapshot: null,
       operation_count: '1',
       audit_actor: null,
       audit_snapshot: fixture.staffId,
+      purge_audit_count: '1',
     });
     const afterSentinels = await pool!.query(
       `SELECT id::text, name, data_class FROM customers WHERE id = $1
@@ -666,29 +673,21 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     await expect(fixture.service.purge(fixture.admin, fixture.datasetId, {
       clientActionId: randomUUID(),
       planHash: preview.planHash,
-    })).rejects.toMatchObject({ code: 'DEMO_DATASET_ALREADY_PURGED' });
-
-    await expect(pool!.query(
-      'UPDATE demo_datasets SET created_by = $2 WHERE id = $1',
-      [fixture.datasetId, fixture.adminId],
-    )).rejects.toMatchObject({ code: '23514' });
-    await expect(pool!.query(
-      'UPDATE audit_events SET actor_user_id = $2 WHERE id = $1',
-      [graph.auditEventId, fixture.adminId],
-    )).rejects.toMatchObject({ code: '23514' });
+    })).rejects.toMatchObject({ code: 'DEMO_DATASET_NOT_FOUND' });
   });
 
-  it('verifies migration 035 constraints and plan-hash stability on real PostgreSQL', async () => {
+  it('verifies the D4 registry/receipt constraints and plan-hash stability on real PostgreSQL', async () => {
     const migration = await pool!.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    expect(migration.rows[0]?.version).toBe('039_contact_deleted_audit');
+    expect(migration.rows[0]?.version).toBe('040_demo_lifecycle_simplification');
     const constraints = await pool!.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
        WHERE conname = ANY($1::text[])
        ORDER BY conname`,
       [[
-        'demo_datasets_creator_attribution_check',
+        'demo_datasets_active_creator_attribution_check',
+        'demo_datasets_active_status_check',
         'audit_events_actor_attribution_check',
         'demo_dataset_purge_operations_client_action_unique',
       ]],
@@ -696,7 +695,8 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     expect(constraints.rows.map((row) => row.conname)).toEqual([
       'audit_events_actor_attribution_check',
       'demo_dataset_purge_operations_client_action_unique',
-      'demo_datasets_creator_attribution_check',
+      'demo_datasets_active_creator_attribution_check',
+      'demo_datasets_active_status_check',
     ]);
 
     const fixture = await createFixture();
@@ -998,7 +998,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
         expect((result.reason as { code?: string }).code).toBeOneOf([
           'DEMO_DATASET_PURGE_IN_PROGRESS',
           'DEMO_DATASET_PLAN_STALE',
-          'DEMO_DATASET_ALREADY_PURGED',
+          'DEMO_DATASET_NOT_FOUND',
         ]);
       }
     }
@@ -1024,7 +1024,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     await expect(fixture.service.purge(fixture.admin, fixture.datasetId, {
       clientActionId: randomUUID(),
       planHash: preview.planHash,
-    })).rejects.toMatchObject({ code: 'DEMO_DATASET_ALREADY_PURGED' });
+    })).rejects.toMatchObject({ code: 'DEMO_DATASET_NOT_FOUND' });
   });
 
   it('returns in-progress for a durable PROCESSING receipt without mutating the graph', async () => {

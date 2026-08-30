@@ -33,7 +33,6 @@ function mapDataset(dataset: DemoDatasetPreviewData['dataset']): DemoDatasetDto 
     status: dataset.status,
     createdAt: dataset.createdAt.toISOString(),
     createdBy: dataset.createdBy,
-    purgedAt: dataset.purgedAt?.toISOString() ?? null,
   };
 }
 
@@ -58,15 +57,7 @@ function stableBlockers(blockers: readonly DemoDatasetBlocker[]) {
 
 function previewDto(data: DemoDatasetPreviewData): DemoDatasetPreviewDto {
   const blockers = stableBlockers(data.blockers);
-  const statusBlocker = data.dataset.status === 'ACTIVE' ? [] : [{
-    code: 'DATASET_NOT_ACTIVE',
-    message: 'Yalnızca aktif demo veri kümeleri ileride silme adayı olabilir.',
-    sourceType: 'DEMO_DATASET',
-    sourceId: data.dataset.id,
-    relatedType: null,
-    relatedId: null,
-  } satisfies DemoDatasetBlocker];
-  const allBlockers = stableBlockers([...blockers, ...statusBlocker]);
+  const allBlockers = stableBlockers(blockers);
   return {
     dataset: mapDataset(data.dataset),
     organization: { id: data.dataset.organizationId, name: data.organizationName },

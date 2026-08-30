@@ -22,7 +22,6 @@ type SummaryRow = {
   staff_inactive: string | number;
   demo_dataset_total: string | number;
   demo_dataset_active: string | number;
-  demo_dataset_purged: string | number;
 };
 
 export const DATA_MANAGEMENT_SUMMARY_SQL = `
@@ -61,8 +60,7 @@ WITH customer_counts AS (
 ), demo_dataset_counts AS (
   SELECT
     COUNT(*) AS demo_dataset_total,
-    COUNT(*) FILTER (WHERE d.status = 'ACTIVE') AS demo_dataset_active,
-    COUNT(*) FILTER (WHERE d.status = 'PURGED') AS demo_dataset_purged
+    COUNT(*) FILTER (WHERE d.status = 'ACTIVE') AS demo_dataset_active
   FROM demo_datasets d
   WHERE d.organization_id = $1
 )
@@ -71,7 +69,7 @@ SELECT
   contact_total, contact_active, contact_inactive,
   product_total, product_active, product_inactive,
   staff_total, staff_active, staff_inactive,
-  demo_dataset_total, demo_dataset_active, demo_dataset_purged
+  demo_dataset_total, demo_dataset_active
 FROM customer_counts
 CROSS JOIN contact_counts
 CROSS JOIN product_counts
@@ -118,7 +116,6 @@ export class PostgresDataManagementRepository implements DataManagementReadModel
       demoDataset: {
         total: count(row.demo_dataset_total, 'demo_dataset_total'),
         active: count(row.demo_dataset_active, 'demo_dataset_active'),
-        purged: count(row.demo_dataset_purged, 'demo_dataset_purged'),
       },
     };
   }

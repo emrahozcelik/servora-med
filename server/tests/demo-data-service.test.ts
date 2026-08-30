@@ -48,7 +48,6 @@ const previewData: DemoDatasetPreviewData = {
     status: 'ACTIVE',
     createdAt: new Date('2026-08-24T10:00:00.000Z'),
     createdBy: 'admin-1',
-    purgedAt: null,
   },
   organizationName: 'Demo Organization',
   affectedCounts: counts,

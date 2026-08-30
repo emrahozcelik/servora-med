@@ -10,7 +10,7 @@ import {
   string,
 } from './api';
 
-export type DemoDatasetStatus = 'ACTIVE' | 'PURGED';
+export type DemoDatasetStatus = 'ACTIVE';
 
 export type DemoDataset = {
   id: string;
@@ -20,7 +20,6 @@ export type DemoDataset = {
   status: DemoDatasetStatus;
   createdAt: string;
   createdBy: string;
-  purgedAt: string | null;
 };
 
 export type DemoDatasetImpactCounts = {
@@ -64,14 +63,13 @@ export type DemoDatasetPreview = {
 export type DemoDatasetPurgeResponse = {
   operationId: string;
   status: 'COMPLETED';
-  dataset: DemoDataset;
+  datasetId: string;
   datasetKey: string;
   seedVersion: string;
   planHash: string;
   affectedCounts: DemoDatasetImpactCounts;
   retained: {
     auditActorDetaches: number;
-    datasetCreatorDetached: boolean;
   };
   completedAt: string;
 };
@@ -98,7 +96,7 @@ export type DemoDatasetCreateResponse = {
   replayed: boolean;
 };
 
-const DATASET_STATUSES = ['ACTIVE', 'PURGED'] as const;
+const DATASET_STATUSES = ['ACTIVE'] as const;
 const COUNT_FIELDS = [
   'users', 'staffProfiles', 'customers', 'contacts', 'products', 'jobCards',
   'deliveryItems', 'notes', 'confidentialNotes', 'activities', 'followUps',
@@ -119,8 +117,6 @@ function enumValue<T extends string>(value: unknown, field: string, values: read
 function parseDataset(value: unknown): DemoDataset {
   const item = object(value);
   const status = enumValue(item.status, 'status', DATASET_STATUSES);
-  const purgedAt = item.purgedAt === null ? null : nullableString(item.purgedAt, 'purgedAt');
-  if ((status === 'ACTIVE') !== (purgedAt === null)) invalid('purgedAt');
   return {
     id: string(item.id, 'id'),
     organizationId: string(item.organizationId, 'organizationId'),
@@ -129,7 +125,6 @@ function parseDataset(value: unknown): DemoDataset {
     status,
     createdAt: string(item.createdAt, 'createdAt'),
     createdBy: string(item.createdBy, 'createdBy'),
-    purgedAt,
   };
 }
 
@@ -185,18 +180,14 @@ export function parseDemoDatasetPurgeResponse(
 ): DemoDatasetPurgeResponse {
   const item = object(value);
   const retained = object(item.retained);
-  const dataset = parseDataset(item.dataset);
+  const datasetId = string(item.datasetId, 'datasetId');
   const datasetKey = string(item.datasetKey, 'datasetKey');
   const seedVersion = string(item.seedVersion, 'seedVersion');
   const planHash = string(item.planHash, 'planHash');
   const auditActorDetaches = number(retained.auditActorDetaches, 'retained.auditActorDetaches');
-  if (dataset.id !== expected.datasetId) invalid('dataset.id');
-  if (dataset.datasetKey !== expected.datasetKey) invalid('dataset.datasetKey');
-  if (dataset.seedVersion !== expected.seedVersion) invalid('dataset.seedVersion');
-  if (dataset.status !== 'PURGED') invalid('dataset.status');
-  if (dataset.purgedAt === null) invalid('dataset.purgedAt');
-  if (datasetKey !== dataset.datasetKey) invalid('datasetKey');
-  if (seedVersion !== dataset.seedVersion) invalid('seedVersion');
+  if (datasetId !== expected.datasetId) invalid('datasetId');
+  if (datasetKey !== expected.datasetKey) invalid('datasetKey');
+  if (seedVersion !== expected.seedVersion) invalid('seedVersion');
   if (!/^[0-9a-f]{64}$/.test(planHash) || planHash !== expected.planHash) invalid('planHash');
   if (!Number.isInteger(auditActorDetaches) || auditActorDetaches < 0) {
     invalid('retained.auditActorDetaches');
@@ -204,14 +195,13 @@ export function parseDemoDatasetPurgeResponse(
   return {
     operationId: string(item.operationId, 'operationId'),
     status: enumValue(item.status, 'status', ['COMPLETED'] as const),
-    dataset,
+    datasetId,
     datasetKey,
     seedVersion,
     planHash,
     affectedCounts: parseCounts(item.affectedCounts),
     retained: {
       auditActorDetaches,
-      datasetCreatorDetached: boolean(retained.datasetCreatorDetached, 'retained.datasetCreatorDetached'),
     },
     completedAt: string(item.completedAt, 'completedAt'),
   };

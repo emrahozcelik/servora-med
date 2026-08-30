@@ -32,7 +32,7 @@ type Fixture = {
 
 async function runAllMigrations(store: PostgresMigrationStore) {
   const result = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-  const expectedCount = 39;
+  const expectedCount = 40;
   if (result.appliedVersions.length !== expectedCount) {
     throw new Error(`Expected ${expectedCount} migrations, got ${result.appliedVersions.length}`);
   }
@@ -190,7 +190,7 @@ describe.skipIf(!databaseUrl)('D1 demo dataset -- managed backend creation', () 
 });
 
 describe.skipIf(!databaseUrl)('D1 demo dataset -- lifecycle (round-trip, preservation, rollback)', () => {
-  it('supports create A -> purge A -> create B and replays old A without a new ACTIVE', async () => {
+  it('supports create A -> purge A -> create B -> purge B -> create C without history replay', async () => {
     await withIsolatedDatabase(async (fixture) => {
       const actionA = randomUUID();
       const createA = await fixture.createService.create(fixture.admin, { clientActionId: actionA });
@@ -202,6 +202,11 @@ describe.skipIf(!databaseUrl)('D1 demo dataset -- lifecycle (round-trip, preserv
         planHash: preview.planHash,
       });
       expect(purge.status).toBe('COMPLETED');
+      expect(purge.datasetId).toBe(createA.dataset.id);
+      expect((await fixture.pool.query<{ n: number }>(
+        'SELECT COUNT(*)::int AS n FROM demo_datasets WHERE organization_id = $1',
+        [fixture.organizationId],
+      )).rows[0]!.n).toBe(0);
 
       const createB = await fixture.createService.create(fixture.admin, { clientActionId: randomUUID() });
       expect(createB.dataset.id).not.toBe(createA.dataset.id);
@@ -209,15 +214,35 @@ describe.skipIf(!databaseUrl)('D1 demo dataset -- lifecycle (round-trip, preserv
       expect(createB.counts).toEqual({ users: 3, customers: 5, products: 5, jobCards: 8 });
       expect(await demoCounts(fixture.pool, fixture.organizationId)).toEqual({ users: 3, customers: 5, products: 5, jobCards: 8 });
 
-      const replayA = await fixture.createService.create(fixture.admin, { clientActionId: actionA });
-      expect(replayA.replayed).toBe(true);
-      expect(replayA.dataset.status).toBe('PURGED');
+      const previewB = await fixture.service.preview(fixture.admin, createB.dataset.id);
+      const purgeB = await fixture.service.purge(fixture.admin, createB.dataset.id, {
+        clientActionId: randomUUID(),
+        planHash: previewB.planHash,
+      });
+      expect(purgeB.status).toBe('COMPLETED');
+      expect(purgeB.datasetId).toBe(createB.dataset.id);
+
+      const createC = await fixture.createService.create(fixture.admin, { clientActionId: randomUUID() });
+      expect(createC.dataset.id).not.toBe(createB.dataset.id);
+      expect(createC.dataset.id).not.toBe(createA.dataset.id);
+      expect(createC.replayed).toBe(false);
+      expect(await demoCounts(fixture.pool, fixture.organizationId)).toEqual({ users: 3, customers: 5, products: 5, jobCards: 8 });
+
+      // A's create action has no domain receipt after its dataset was deleted;
+      // while C is active it must not replay A or create a second active set.
+      await expect(fixture.createService.create(fixture.admin, { clientActionId: actionA }))
+        .rejects.toMatchObject({ code: 'DEMO_DATASET_ALREADY_EXISTS' });
 
       const active = await fixture.pool.query<{ n: number }>(
         "SELECT COUNT(*)::int AS n FROM demo_datasets WHERE organization_id = $1 AND status = 'ACTIVE'",
         [fixture.organizationId],
       );
       expect(active.rows[0]!.n).toBe(1);
+      const registry = await fixture.pool.query<{ n: number }>(
+        'SELECT COUNT(*)::int AS n FROM demo_datasets WHERE organization_id = $1',
+        [fixture.organizationId],
+      );
+      expect(registry.rows[0]!.n).toBe(1);
     });
   });
 

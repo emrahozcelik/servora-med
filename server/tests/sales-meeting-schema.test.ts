@@ -148,8 +148,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(39);
-      expect(firstRun.appliedVersions.at(-1)).toBe('039_contact_deleted_audit');
+      expect(firstRun.appliedVersions).toHaveLength(40);
+      expect(firstRun.appliedVersions.at(-1)).toBe('040_demo_lifecycle_simplification');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -214,6 +214,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '037_staff_offboarding_audit',
           '038_demo_dataset_audit_types',
           '039_contact_deleted_audit',
+          '040_demo_lifecycle_simplification',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();

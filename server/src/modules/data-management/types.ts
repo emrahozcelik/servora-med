@@ -11,7 +11,6 @@ export type CustomerDataManagementCount = DataManagementCount & Readonly<{
 export type DemoDatasetDataManagementCount = Readonly<{
   total: number;
   active: number;
-  purged: number;
 }>;
 
 export type DataManagementSummary = Readonly<{

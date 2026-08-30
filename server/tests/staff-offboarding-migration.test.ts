@@ -87,15 +87,15 @@ async function insertAuditEvent(pool: Pool, organizationId: string, actorId: str
 }
 
 describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
-  it('freshly applies the full chain, preserves the audit allowlist, adds only USER_OFFBOARDED, and rejects unknown events', async () => {
+  it('freshly applies the full chain, preserves the audit allowlist, and adds the D4 audit vocabulary', async () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-      expect(result.appliedVersions).toHaveLength(39);
-      expect(result.appliedVersions.at(-1)).toBe('039_contact_deleted_audit');
-      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'CONTACT_DELETED']));
+      expect(result.appliedVersions).toHaveLength(40);
+      expect(result.appliedVersions.at(-1)).toBe('040_demo_lifecycle_simplification');
+      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED']));
 
       const { organizationId, actorId } = await createAuditActor(pool);
-      for (const eventType of [...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'CONTACT_DELETED', 'DEMO_DATASET_CREATED']) {
+      for (const eventType of [...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'CONTACT_DELETED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED']) {
         await insertAuditEvent(pool, organizationId, actorId, eventType);
       }
       await expect(insertAuditEvent(pool, organizationId, actorId, 'R4A_UNKNOWN_EVENT')).rejects.toMatchObject({ code: '23514' });
@@ -111,10 +111,11 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
       await insertAuditEvent(pool, organizationId, actorId, 'USER_DEACTIVATED');
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit'] });
+      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification'] });
       expect((await pool.query(`SELECT event_type FROM audit_events WHERE event_type = 'USER_DEACTIVATED'`)).rows).toHaveLength(1);
-      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'CONTACT_DELETED']));
+      expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED']));
       await insertAuditEvent(pool, organizationId, actorId, 'USER_OFFBOARDED');
+      await insertAuditEvent(pool, organizationId, actorId, 'DEMO_DATASET_PURGED');
       await expect(insertAuditEvent(pool, organizationId, actorId, 'R4A_UNKNOWN_EVENT')).rejects.toMatchObject({ code: '23514' });
     });
   });

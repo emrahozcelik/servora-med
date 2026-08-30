@@ -16,7 +16,6 @@ const dataset = {
   status: 'ACTIVE',
   createdAt: '2026-08-24T10:00:00.000Z',
   createdBy: 'admin-1',
-  purgedAt: null,
 };
 
 const affectedCounts = {
@@ -37,17 +36,25 @@ function purgeResponse(overrides: Record<string, unknown> = {}) {
   return {
     operationId: '22222222-2222-4222-8222-222222222222',
     status: 'COMPLETED',
-    dataset: {
-      ...dataset,
-      status: 'PURGED',
-      purgedAt: '2026-08-24T10:05:00.000Z',
-    },
+    datasetId: dataset.id,
     datasetKey: dataset.datasetKey,
     seedVersion: dataset.seedVersion,
     planHash: 'a'.repeat(64),
     affectedCounts,
-    retained: { auditActorDetaches: 1, datasetCreatorDetached: true },
+    retained: { auditActorDetaches: 1 },
     completedAt: '2026-08-24T10:05:00.000Z',
+    ...overrides,
+  };
+}
+
+function previewResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    dataset,
+    organization: { id: 'org-1', name: 'Organization One' },
+    affectedCounts,
+    blockers: [],
+    safeToPurge: true,
+    planHash: 'a'.repeat(64),
     ...overrides,
   };
 }
@@ -58,64 +65,57 @@ describe('demo data API contract', () => {
   });
 
   it('parses typed preview counts, blockers, safety and plan hash', () => {
-    const result = parseDemoDatasetPreview({
-      dataset,
-      organization: { id: 'org-1', name: 'Organization One' },
-      affectedCounts: {
-        users: 1, staffProfiles: 1, customers: 1, contacts: 1, products: 1, jobCards: 1,
-        deliveryItems: 0, notes: 0, confidentialNotes: 0, activities: 1, followUps: 0,
-        calendarEvents: 0, conversations: 0, messages: 0, notifications: 0, reminders: 0,
-        realtimeEvents: 0,
-      },
+    const result = parseDemoDatasetPreview(previewResponse({
       blockers: [{
         code: 'DEMO_USER_TO_BUSINESS_JOB',
         message: 'Demo personel gerçek JobCard\'a atanmış.',
         sourceType: 'USER', sourceId: 'staff-1', relatedType: 'JOB_CARD', relatedId: 'job-1',
       }],
       safeToPurge: false,
-      planHash: 'a'.repeat(64),
-    });
+    }));
 
     expect(result.safeToPurge).toBe(false);
     expect(result.affectedCounts.jobCards).toBe(1);
     expect(result.blockers[0]?.code).toBe('DEMO_USER_TO_BUSINESS_JOB');
     expect(result.planHash).toBe('a'.repeat(64));
+    expect(result.dataset.status).toBe('ACTIVE');
   });
 
-  it('parses a completed purge receipt for the approved dataset and plan', () => {
+  it('parses a completed technical receipt without a retained dataset tombstone', () => {
     const result = parseDemoDatasetPurgeResponse(purgeResponse(), approvedIdentity);
 
     expect(result.status).toBe('COMPLETED');
-    expect(result.dataset.status).toBe('PURGED');
-    expect(result.dataset.purgedAt).toBe('2026-08-24T10:05:00.000Z');
+    expect(result.datasetId).toBe(dataset.id);
     expect(result.affectedCounts.jobCards).toBe(1);
+    expect(result.retained).toEqual({ auditActorDetaches: 1 });
+    expect(result).not.toHaveProperty('dataset');
   });
 
-  it('rejects a purge receipt for a different dataset', () => {
-    expect(() => parseDemoDatasetPurgeResponse(purgeResponse(), {
-      ...approvedIdentity,
+  it('rejects a receipt for a different dataset', () => {
+    expect(() => parseDemoDatasetPurgeResponse(purgeResponse({
       datasetId: '33333333-3333-4333-8333-333333333333',
-    })).toThrowError(/dataset\.id/);
+    }), approvedIdentity)).toThrowError(/datasetId/);
   });
 
-  it('rejects a purge receipt for a different approved plan', () => {
+  it('rejects a receipt for a different approved plan', () => {
     expect(() => parseDemoDatasetPurgeResponse(purgeResponse(), {
       ...approvedIdentity,
       planHash: 'b'.repeat(64),
     })).toThrowError(/planHash/);
   });
 
-  it('rejects a completed purge receipt whose dataset is still active', () => {
-    expect(() => parseDemoDatasetPurgeResponse(
-      purgeResponse({ dataset }),
-      approvedIdentity,
-    )).toThrowError(/dataset\.status/);
-  });
-
-  it('rejects a purged dataset receipt without a purge timestamp', () => {
-    expect(() => parseDemoDatasetPurgeResponse(purgeResponse({
-      dataset: { ...dataset, status: 'PURGED', purgedAt: null },
-    }), approvedIdentity)).toThrowError(/purgedAt/);
+  it('rejects the legacy dataset tombstone receipt shape', () => {
+    expect(() => parseDemoDatasetPurgeResponse({
+      operationId: '22222222-2222-4222-8222-222222222222',
+      status: 'COMPLETED',
+      dataset: { ...dataset, status: 'PURGED' },
+      datasetKey: dataset.datasetKey,
+      seedVersion: dataset.seedVersion,
+      planHash: 'a'.repeat(64),
+      affectedCounts,
+      retained: { auditActorDetaches: 1 },
+      completedAt: '2026-08-24T10:05:00.000Z',
+    }, approvedIdentity)).toThrowError(/datasetId/);
   });
 
   it('posts the approved plan and client action exactly once', async () => {
@@ -148,18 +148,11 @@ describe('demo data API contract', () => {
     );
   });
 
-  it('rejects receipt identity fields that disagree with the dataset tombstone', () => {
-    expect(() => parseDemoDatasetPurgeResponse(
-      purgeResponse({ datasetKey: 'other-demo' }),
-      approvedIdentity,
-    )).toThrowError(/datasetKey/);
-  });
-
-  it('rejects a receipt whose internally consistent identity differs from the approval snapshot', () => {
-    expect(() => parseDemoDatasetPurgeResponse(purgeResponse({
-      dataset: { ...dataset, datasetKey: 'other-demo', status: 'PURGED', purgedAt: '2026-08-24T10:05:00.000Z' },
-      datasetKey: 'other-demo',
-    }), approvedIdentity)).toThrowError(/dataset\.datasetKey/);
+  it('rejects receipt identity fields that disagree with the approval snapshot', () => {
+    expect(() => parseDemoDatasetPurgeResponse(purgeResponse({ datasetKey: 'other-demo' }), approvedIdentity))
+      .toThrowError(/datasetKey/);
+    expect(() => parseDemoDatasetPurgeResponse(purgeResponse({ seedVersion: 'other-seed' }), approvedIdentity))
+      .toThrowError(/seedVersion/);
   });
 
   it('rejects a purge receipt whose operation is not completed', () => {
@@ -179,55 +172,34 @@ describe('demo data API contract', () => {
 
   it('rejects an invalid retained audit detach count', () => {
     expect(() => parseDemoDatasetPurgeResponse(purgeResponse({
-      retained: { auditActorDetaches: -1, datasetCreatorDetached: false },
+      retained: { auditActorDetaches: -1 },
     }), approvedIdentity)).toThrowError(/retained\.auditActorDetaches/);
   });
 
   it('rejects a preview whose safety flag disagrees with its blockers', () => {
-    expect(() => parseDemoDatasetPreview({
-      dataset,
-      organization: { id: 'org-1', name: 'Organization One' },
-      affectedCounts,
+    expect(() => parseDemoDatasetPreview(previewResponse({
       blockers: [{
-        code: 'DEMO_USER_TO_BUSINESS_JOB',
-        message: 'Blocked',
-        sourceType: 'USER',
-        sourceId: 'staff-1',
-        relatedType: 'JOB_CARD',
-        relatedId: 'job-1',
+        code: 'DEMO_USER_TO_BUSINESS_JOB', message: 'Blocked', sourceType: 'USER',
+        sourceId: 'staff-1', relatedType: 'JOB_CARD', relatedId: 'job-1',
       }],
       safeToPurge: true,
-      planHash: 'a'.repeat(64),
-    })).toThrowError(/safeToPurge/);
+    }))).toThrowError(/safeToPurge/);
   });
 
   it('rejects a preview returned for a different dataset than requested', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(previewResponse({
       dataset: { ...dataset, id: '33333333-3333-4333-8333-333333333333' },
-      organization: { id: 'org-1', name: 'Organization One' },
-      affectedCounts,
-      blockers: [],
-      safeToPurge: true,
-      planHash: 'a'.repeat(64),
-    }), { status: 200 })));
+    })), { status: 200 })));
 
     await expect(previewDemoDataset(dataset.id)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('rejects a reconciled dataset whose identity or tombstone state is invalid', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ...dataset,
-        id: '33333333-3333-4333-8333-333333333333',
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        ...dataset,
-        status: 'PURGED',
-        purgedAt: null,
-      }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+  it('does not accept a PURGED dataset from the active detail endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ...dataset,
+      status: 'PURGED',
+    }), { status: 200 })));
 
-    await expect(getDemoDataset(dataset.id)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     await expect(getDemoDataset(dataset.id)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });

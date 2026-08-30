@@ -175,8 +175,12 @@ async function rows<T extends QueryResultRow>(client: QueryClient, sql: string, 
 }
 
 function mapDataset(row: DatasetRow): DemoDatasetRecord {
-  const createdBy = row.created_by ?? row.created_by_user_id_snapshot;
-  if (!createdBy) throw new Error('demo dataset creator attribution is missing');
+  if (row.status !== 'ACTIVE'
+    || row.created_by === null
+    || row.created_by_user_id_snapshot !== null
+    || row.purged_at !== null) {
+    throw new Error('demo dataset row is not an active disposable dataset');
+  }
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -184,8 +188,7 @@ function mapDataset(row: DatasetRow): DemoDatasetRecord {
     seedVersion: row.seed_version,
     status: row.status,
     createdAt: row.created_at,
-    createdBy,
-    purgedAt: row.purged_at,
+    createdBy: row.created_by,
   };
 }
 
@@ -385,7 +388,7 @@ export class DemoDatasetImpactAnalyzer {
     const datasetRows = await rows<DatasetRow>(this.client, `
       SELECT ${DATASET_COLUMNS}
       ${DATASET_FROM}
-      WHERE d.organization_id = $1 AND d.id = $2`, [organizationId, datasetId]);
+      WHERE d.organization_id = $1 AND d.id = $2 AND d.status = 'ACTIVE'`, [organizationId, datasetId]);
     const datasetRow = datasetRows[0];
     if (!datasetRow) return null;
     const dataset = mapDataset(datasetRow);

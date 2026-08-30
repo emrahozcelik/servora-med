@@ -16,7 +16,7 @@ const summary: DataManagementSummary = {
   contacts: { total: 1, active: 1, inactive: 0 },
   products: { total: 3, active: 2, inactive: 1 },
   staff: { total: 1, active: 1, inactive: 0 },
-  demoDataset: { total: 1, active: 1, purged: 0 },
+  demoDataset: { total: 1, active: 1 },
 };
 
 function actor(role: SafeUser['role'], organizationId = 'org-1'): SafeUser {
@@ -83,7 +83,7 @@ describe('Data Management summary HTTP route', () => {
             contact_total: '1', contact_active: '1', contact_inactive: '0',
             product_total: '3', product_active: '2', product_inactive: '1',
             staff_total: '1', staff_active: '1', staff_inactive: '0',
-            demo_dataset_total: '1', demo_dataset_active: '1', demo_dataset_purged: '0',
+            demo_dataset_total: '1', demo_dataset_active: '1',
           }],
         };
       },

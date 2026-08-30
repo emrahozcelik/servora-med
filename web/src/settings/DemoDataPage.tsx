@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { ApiError, type CurrentUser } from '../services/api';
 import {
   createDemoDataset,
-  getDemoDataset,
   listDemoDatasets,
   previewDemoDataset,
   purgeDemoDataset,
@@ -86,9 +85,9 @@ const BLOCKER_MESSAGES = new Map<string, string>([
   ] as const),
   ['WORKER_CLAIMED_REMINDER', 'Bazı demo işlemleri halen arka planda işleniyor.'],
   ['WORKER_CLAIMED_WEB_PUSH', 'Bazı demo işlemleri halen arka planda işleniyor.'],
-  ['PURGE_ACTOR_IN_DATASET', 'Bu demo veri kümesinin parçası olan hesapla kaldırma işlemi yapılamaz.'],
-  ['FOLLOW_UP_CYCLE', 'Demo verilerindeki ilişki yapısı güvenli kaldırmaya uygun değil.'],
-  ['DATASET_NOT_ACTIVE', 'Yalnızca aktif demo veri kümeleri kaldırılabilir.'],
+  ['PURGE_ACTOR_IN_DATASET', 'Bu demo veri kümesinin parçası olan hesapla silme işlemi yapılamaz.'],
+  ['FOLLOW_UP_CYCLE', 'Demo verilerindeki ilişki yapısı güvenli silmeye uygun değil.'],
+  ['DATASET_NOT_ACTIVE', 'Yalnızca aktif demo veri kümeleri silinebilir.'],
   ['CROSS_DATASET_EDGE', 'Demo verileri başka bir demo veri kümesiyle bağlantılı.'],
   ['DEMO_USER_TO_EXTERNAL_DEMO_DATASET', 'Demo verileri başka bir demo veri kümesiyle bağlantılı.'],
   ['CROSS_ORGANIZATION_DERIVED_EDGE', 'Demo verileri başka bir organizasyonla bağlantılı.'],
@@ -102,7 +101,7 @@ const BLOCKER_MESSAGES = new Map<string, string>([
   ['BACKUP_DEPENDENCY', 'Demo kullanıcıları sistem yedekleme kayıtlarıyla bağlantılı.'],
 ]);
 
-const UNKNOWN_BLOCKER_MESSAGE = 'Kaldırma güvenliği doğrulanamadı. İşlem kapalı tutuldu.';
+const UNKNOWN_BLOCKER_MESSAGE = 'Silme güvenliği doğrulanamadı. İşlem kapalı tutuldu.';
 
 function localizedBlockerMessages(codes: readonly string[]) {
   return Array.from(new Set(codes.map((code) => BLOCKER_MESSAGES.get(code) ?? UNKNOWN_BLOCKER_MESSAGE)));
@@ -120,7 +119,7 @@ type PurgeAttempt = PurgeApprovalSnapshot & {
   clientActionId: string;
 };
 
-type PurgeReconcileReason = 'AMBIGUOUS' | 'IN_PROGRESS' | 'ALREADY_PURGED';
+type PurgeReconcileReason = 'AMBIGUOUS' | 'IN_PROGRESS';
 
 type PurgeConfirmation =
   | { kind: 'initial'; snapshot: PurgeApprovalSnapshot }
@@ -131,10 +130,9 @@ type PurgeOperationState =
   | { kind: 'submitting'; attempt: PurgeAttempt }
   | { kind: 'reconciling'; attempt: PurgeAttempt; reason: PurgeReconcileReason }
   | { kind: 'recheck-required'; attempt: PurgeAttempt; reason: PurgeReconcileReason; description: string }
-  | { kind: 'retry-ready'; attempt: PurgeAttempt; description: string }
   | {
       kind: 'success';
-      dataset: DemoDataset;
+      datasetId: string;
       title: string;
       status: 'success' | 'info';
       description: string;
@@ -172,7 +170,7 @@ function confirmationDetails(snapshot: PurgeApprovalSnapshot) {
   return [
     `Demo veri kümesi: ${snapshot.datasetKey}`,
     `Seed sürümü: ${snapshot.seedVersion}`,
-    ...(nonZeroCounts.length > 0 ? nonZeroCounts : ['Kaldırılacak kayıt bulunmuyor.']),
+    ...(nonZeroCounts.length > 0 ? nonZeroCounts : ['Silinecek kayıt bulunmuyor.']),
   ];
 }
 
@@ -195,7 +193,7 @@ function isAmbiguousMutationError(error: unknown) {
 function operationDatasetId(operation: PurgeOperationState) {
   switch (operation.kind) {
     case 'idle': return null;
-    case 'success': return operation.dataset.id;
+    case 'success': return operation.datasetId;
     case 'rejected': return operation.datasetId;
     default: return operation.attempt.datasetId;
   }
@@ -223,7 +221,7 @@ const DEMO_FIXTURE_SUMMARY: readonly string[] = [
 ] as const;
 
 const DEMO_FIXTURE_EXPLANATION =
-  'Oluşturulacak veriler sentetiktir. Mevcut iş verileriniz değişmez. Aynı anda yalnızca bir aktif demo veri kümesi bulunabilir; daha sonra Demo verisi yönetimi üzerinden kaldırılabilir.';
+  'Oluşturulacak veriler sentetiktir. Mevcut iş verileriniz değişmez. Aynı anda yalnızca bir aktif demo veri kümesi bulunabilir; daha sonra Demo verisi yönetimi üzerinden silinebilir.';
 
 function queryErrorMessage(error: unknown, fallback: string) {
   if (!(error instanceof ApiError)) return fallback;
@@ -256,7 +254,7 @@ function DatasetList({
   if (datasets.length === 0) {
     return <EmptyState
       title="Demo veri kümesi yok"
-      description="Yeni demo veri kümesi oluşturma akışı henüz bu sürümün parçası değil."
+      description="Aktif demo veri kümesi yok. Yeni bir demo veri kümesi oluşturabilirsiniz."
     />;
   }
   return <ul className="demo-data-dataset-list" aria-label="Demo veri kümeleri">
@@ -274,26 +272,12 @@ function DatasetList({
             <small>Seed {dataset.seedVersion} · {formatDate(dataset.createdAt)}</small>
           </span>
           <span className={`demo-data-status demo-data-status--${dataset.status.toLowerCase()}`}>
-            {dataset.status === 'ACTIVE' ? 'Aktif' : 'Kaldırıldı'}
+            Aktif
           </span>
         </button>
       </li>
     ))}
   </ul>;
-}
-
-function TombstoneDetails({ dataset }: { dataset: DemoDataset }): ReactNode {
-  return <OperationalCard title="Demo veri kümesi kaldırıldı">
-    <p className="demo-data-preview-message">
-      Bu geçmiş kaydı yeniden kaldırılamaz. Demo içeriği artık etkin değildir.
-    </p>
-    <dl className="demo-data-facts">
-      <div><dt>Demo veri kümesi</dt><dd>{dataset.datasetKey}</dd></div>
-      <div><dt>Seed sürümü</dt><dd>{dataset.seedVersion}</dd></div>
-      <div><dt>Oluşturulma</dt><dd>{formatDate(dataset.createdAt)}</dd></div>
-      <div><dt>Kaldırılma</dt><dd>{dataset.purgedAt ? formatDate(dataset.purgedAt) : '—'}</dd></div>
-    </dl>
-  </OperationalCard>;
 }
 
 function PreviewDetails({
@@ -317,12 +301,12 @@ function PreviewDetails({
   return <div className="demo-data-preview-stack">
     <OperationalCard
       tone={preview.safeToPurge ? 'success' : 'attention'}
-      title={preview.safeToPurge ? 'Kaldırmaya hazır' : 'Kaldırma işlemi kullanılamıyor'}
+      title={preview.safeToPurge ? 'Silmeye hazır' : 'Silme işlemi kullanılamıyor'}
     >
       <p className="demo-data-preview-message">
         {preview.safeToPurge
-          ? 'Sunucu, seçili demo veri kümesinin mevcut ilişkilerini kaldırma için güvenli buldu.'
-          : 'Sunucu güvenlik engelleri buldu. Demo verileri bu durumda kaldırılamaz.'}
+          ? 'Sunucu, seçili demo veri kümesinin mevcut ilişkilerini silme için güvenli buldu.'
+          : 'Sunucu güvenlik engelleri buldu. Demo verileri bu durumda silinemez.'}
       </p>
       <dl className="demo-data-facts">
         <div><dt>Organizasyon</dt><dd>{preview.organization.name}</dd></div>
@@ -341,9 +325,9 @@ function PreviewDetails({
 
     <OperationalCard title={`Güvenlik kontrolü (${blockerMessages.length})`}>
       {blockerMessages.length === 0 ? (
-        <p className="field-status">Kaldırmayı engelleyen bir ilişki bulunmadı.</p>
+        <p className="field-status">Silmeyi engelleyen bir ilişki bulunmadı.</p>
       ) : (
-        <ul className="demo-data-blocker-list" aria-label="Demo veri kaldırma engelleri">
+        <ul className="demo-data-blocker-list" aria-label="Demo veri silme engelleri">
           {blockerMessages.map((message) => (
             <li key={message}>{message}</li>
           ))}
@@ -352,9 +336,9 @@ function PreviewDetails({
     </OperationalCard>
 
     {preview.safeToPurge && actionAvailable && (
-      <OperationalCard tone="attention" title="Demo verilerini kaldır">
+      <OperationalCard tone="attention" title="Demo verilerini sil">
         <p className="demo-data-preview-message">
-          Bu işlem yalnız sunucunun demo olarak doğruladığı kayıtları kalıcı olarak kaldırır.
+          Bu işlem yalnız sunucunun demo olarak doğruladığı kayıtları kalıcı olarak siler.
         </p>
         <button
           ref={actionRef}
@@ -363,7 +347,7 @@ function PreviewDetails({
           disabled={actionDisabled}
           onClick={onRequestPurge}
         >
-          Demo verilerini kaldır
+          Demo verilerini sil
         </button>
       </OperationalCard>
     )}
@@ -389,90 +373,83 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
 
   const interactionLocked = operation.kind === 'submitting' || operation.kind === 'reconciling';
 
+  async function completePurge(receipt: DemoDatasetPurgeResponse) {
+    setConfirmation(null);
+    setPreview(null);
+    setPreviewError('');
+    setDatasets([]);
+    setSelectedId(null);
+    setOperation({
+      kind: 'success',
+      datasetId: receipt.datasetId,
+      title: 'Demo verileri silindi.',
+      status: 'success',
+      receipt,
+      refreshWarning: '',
+      description: 'Sunucu işlemi tamamladı ve demo veri kümesinin tüm kapsamı kalıcı olarak silindi.',
+    });
+    try {
+      const refreshed = await listDemoDatasets();
+      setDatasets(refreshed);
+      setSelectedId(refreshed[0]?.id ?? null);
+    } catch {
+      setOperation((current) => current.kind === 'success' && current.datasetId === receipt.datasetId
+        ? {
+            ...current,
+            refreshWarning: 'Aktif demo veri kümesi listesi yenilenemedi. Silme sonucu sunucu tarafından tamamlandı.',
+          }
+        : current);
+    }
+  }
+
   async function reconcilePurgeAttempt(
     attempt: PurgeAttempt,
     reason: PurgeReconcileReason,
-    allowRetry: boolean,
   ) {
     try {
-      const dataset = await getDemoDataset(attempt.datasetId);
-      if (dataset.status === 'PURGED') {
-        setPreview(null);
-        setDatasets((current) => current?.map((item) =>
-          item.id === dataset.id ? dataset : item) ?? [dataset]);
-        setOperation({
-          kind: 'success',
-          dataset,
-          title: reason === 'ALREADY_PURGED'
-            ? 'Demo verileri daha önce kaldırılmış.'
-            : 'Demo verileri kaldırıldı.',
-          status: reason === 'ALREADY_PURGED' ? 'info' : 'success',
-          receipt: null,
-          refreshWarning: '',
-          description: reason === 'ALREADY_PURGED'
-            ? 'Demo veri kümesinin daha önce kaldırıldığı sunucu durumundan doğrulandı.'
-            : 'Kayıp işlem yanıtından sonra kaldırılmış veri kümesi sunucu durumundan doğrulandı.',
-        });
-        return;
-      }
-      setDatasets((current) => current?.map((item) =>
-        item.id === dataset.id ? dataset : item) ?? [dataset]);
-      const latestPreview = await previewDemoDataset(attempt.datasetId);
-      setPreview(latestPreview);
-      setPreviewError('');
-      if (!latestPreview.safeToPurge) {
-        setOperation({
-          kind: 'rejected',
-          datasetId: attempt.datasetId,
-          title: 'Demo verileri kaldırılamadı',
-          description: 'İşlem yapılmadı. Veriler değiştirilmedi.',
-          blockerMessages: localizedBlockerMessages(latestPreview.blockers.map((blocker) => blocker.code)),
-          suppressAction: true,
-        });
-        return;
-      }
-      if (latestPreview.planHash !== attempt.planHash) {
-        setOperation({
-          kind: 'rejected',
-          datasetId: attempt.datasetId,
-          title: 'Kaldırma planı değişti',
-          description: 'İşlem yapılmadı. Veriler değiştirilmedi. Güncel planı yeniden inceleyip onaylayın.',
-          blockerMessages: [],
-          suppressAction: false,
-        });
-        return;
-      }
-      if (reason === 'ALREADY_PURGED') {
-        setOperation({
-          kind: 'rejected',
-          datasetId: attempt.datasetId,
-          title: 'Sunucu durumu eşleşmiyor',
-          description: 'Veri kümesi kaldırılmış olarak doğrulanamadı. Yeni bir işlem başlatmadan önce sayfayı yenileyin.',
-          blockerMessages: [],
-          suppressAction: true,
-        });
-        return;
-      }
-      if (!allowRetry) {
-        setOperation({
-          kind: 'recheck-required',
-          attempt,
-          reason,
-          description: 'Başka bir kaldırma işlemi raporlandı. Yeni bir gönderimden önce sunucu durumunu tekrar kontrol edin.',
-        });
-        return;
-      }
-      setOperation({
-        kind: 'retry-ready',
-        attempt,
-        description: 'Veri kümesi hâlâ aktif ve onaylanan güvenli plan değişmedi. Aynı işlem kimliğiyle açıkça yeniden deneyebilirsiniz.',
+      const receipt = await purgeDemoDataset(attempt.datasetId, {
+        clientActionId: attempt.clientActionId,
+        planHash: attempt.planHash,
+      }, {
+        datasetKey: attempt.datasetKey,
+        seedVersion: attempt.seedVersion,
       });
-    } catch {
+      await completePurge(receipt);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_PLAN_STALE') {
+        try {
+          const latestPreview = await previewDemoDataset(attempt.datasetId);
+          setPreview(latestPreview);
+          setPreviewError('');
+          setOperation({
+            kind: 'rejected',
+            datasetId: attempt.datasetId,
+            title: 'Silme planı değişti',
+            description: 'İşlem yapılmadı. Veriler değiştirilmedi. Güncel planı yeniden inceleyip onaylayın.',
+            blockerMessages: localizedBlockerMessages(latestPreview.blockers.map((blocker) => blocker.code)),
+            suppressAction: !latestPreview.safeToPurge,
+          });
+          return;
+        } catch {
+          // Continue with the fail-closed reconciliation state below.
+        }
+      }
+      if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_PURGE_BLOCKED') {
+        setOperation({
+          kind: 'rejected',
+          datasetId: attempt.datasetId,
+          title: 'Demo verileri silinemedi',
+          description: 'İşlem yapılmadı. Veriler değiştirilmedi.',
+          blockerMessages: localizedBlockerMessages(blockerCodesFromError(caught)),
+          suppressAction: true,
+        });
+        return;
+      }
       setOperation({
         kind: 'recheck-required',
         attempt,
         reason,
-        description: 'Sunucu durumu alınamadı. Demo verilerini yeniden kaldırmayı denemeden önce durumu tekrar kontrol edin.',
+        description: 'Aynı silme isteğiyle sunucu durumu doğrulanamadı. Yeni bir işlem başlatmadan önce durumu tekrar kontrol edin.',
       });
     }
   }
@@ -492,45 +469,16 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         datasetKey: attempt.datasetKey,
         seedVersion: attempt.seedVersion,
       });
-      setConfirmation(null);
-      setPreview(null);
-      setDatasets((current) => current?.map((dataset) =>
-        dataset.id === receipt.dataset.id ? receipt.dataset : dataset) ?? [receipt.dataset]);
-      setOperation({
-        kind: 'success',
-        dataset: receipt.dataset,
-        title: 'Demo verileri kaldırıldı.',
-        status: 'success',
-        receipt,
-        refreshWarning: '',
-        description: 'Sunucu işlemi tamamladı ve veri kümesini kaldırıldı olarak işaretledi.',
-      });
-      try {
-        const refreshed = await listDemoDatasets();
-        setDatasets(refreshed);
-      } catch {
-        setOperation({
-          kind: 'success',
-          dataset: receipt.dataset,
-          title: 'Demo verileri kaldırıldı.',
-          status: 'success',
-          receipt,
-          refreshWarning: 'Veri kümesi listesi yenilenemedi. Kaldırma sonucu yine de sunucu tarafından doğrulandı.',
-          description: 'Sunucu işlemi tamamladı ve veri kümesini kaldırıldı olarak işaretledi.',
-        });
-      }
+      await completePurge(receipt);
     } catch (caught) {
       setConfirmation(null);
       setPreviewError('');
       if (isAmbiguousMutationError(caught)) {
         setOperation({ kind: 'reconciling', attempt, reason: 'AMBIGUOUS' });
-        void reconcilePurgeAttempt(attempt, 'AMBIGUOUS', true);
+        void reconcilePurgeAttempt(attempt, 'AMBIGUOUS');
       } else if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_PURGE_IN_PROGRESS') {
         setOperation({ kind: 'reconciling', attempt, reason: 'IN_PROGRESS' });
-        void reconcilePurgeAttempt(attempt, 'IN_PROGRESS', false);
-      } else if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_ALREADY_PURGED') {
-        setOperation({ kind: 'reconciling', attempt, reason: 'ALREADY_PURGED' });
-        void reconcilePurgeAttempt(attempt, 'ALREADY_PURGED', false);
+        void reconcilePurgeAttempt(attempt, 'IN_PROGRESS');
       } else if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_PLAN_STALE') {
         try {
           const latestPreview = await previewDemoDataset(attempt.datasetId);
@@ -538,7 +486,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
           setOperation({
             kind: 'rejected',
             datasetId: attempt.datasetId,
-            title: 'Kaldırma planı değişti',
+            title: 'Silme planı değişti',
             description: 'İşlem yapılmadı. Veriler değiştirilmedi. Güncel planı yeniden inceleyip onaylayın.',
             blockerMessages: localizedBlockerMessages(latestPreview.blockers.map((blocker) => blocker.code)),
             suppressAction: !latestPreview.safeToPurge,
@@ -547,8 +495,8 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
           setOperation({
             kind: 'rejected',
             datasetId: attempt.datasetId,
-            title: 'Kaldırma planı değişti',
-            description: 'İşlem yapılmadı. Veriler değiştirilmedi. Güncel önizleme alınamadığı için işlem kapalı tutuldu.',
+            title: 'Silme planı değişti',
+            description: 'İşlem yapılmadı. Veriler değiştirilmedi. Güncel önizleme alınamadığı için silme kapalı tutuldu.',
             blockerMessages: [],
             suppressAction: true,
           });
@@ -557,7 +505,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         setOperation({
           kind: 'rejected',
           datasetId: attempt.datasetId,
-          title: 'Demo verileri kaldırılamadı',
+          title: 'Demo verileri silinemedi',
           description: 'İşlem yapılmadı. Veriler değiştirilmedi. Beklenmeyen bir veri bağımlılığı bulundu.',
           blockerMessages: [],
           suppressAction: true,
@@ -566,7 +514,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         setOperation({
           kind: 'rejected',
           datasetId: attempt.datasetId,
-          title: 'Demo verileri kaldırılamadı',
+          title: 'Demo verileri silinemedi',
           description: 'İşlem yapılmadı. Veriler değiştirilmedi.',
           blockerMessages: localizedBlockerMessages(blockerCodesFromError(caught)),
           suppressAction: true,
@@ -577,8 +525,8 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
           datasetId: attempt.datasetId,
           title: caught instanceof ApiError && caught.status === 403
             ? 'Bu işlem için yetkiniz yok'
-            : 'Demo verileri kaldırılamadı',
-          description: 'İşlem tamamlanamadı. Sunucu durumu doğrulanmadan yeni bir kaldırma işlemi başlatılamaz.',
+            : 'Demo verileri silinemedi',
+          description: 'İşlem tamamlanamadı. Sunucu durumu doğrulanmadan yeni bir silme işlemi başlatılamaz.',
           blockerMessages: [],
           suppressAction: true,
         });
@@ -590,7 +538,6 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
 
   const canCreate = user.role === 'ADMIN' && user.capabilities?.demoDatasetCreation === true;
   const hasActiveDataset = datasets?.some((dataset) => dataset.status === 'ACTIVE') ?? false;
-  const createAvailable = canCreate && !hasActiveDataset && datasets !== null;
   const isCreating = createOperation.kind === 'submitting';
 
   async function submitCreate() {
@@ -603,6 +550,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
       const response = await createDemoDataset({ clientActionId });
       setCreateConfirmationOpen(false);
       setCreateOperation({ kind: 'success', dataset: response.dataset, replayed: response.replayed });
+      setOperation({ kind: 'idle' });
       createClientActionRef.current = null;
       const refreshed = await listDemoDatasets();
       setDatasets(refreshed);
@@ -619,7 +567,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         setCreateOperation({
           kind: 'error',
           title: 'Zaten etkin bir demo veri seti bulunuyor.',
-          description: 'Yeni bir demo veri kümesi oluşturmadan önce mevcut etkin kümenin kaldırılması gerekir.',
+          description: 'Yeni bir demo veri kümesi oluşturmadan önce mevcut etkin kümenin silinmesi gerekir.',
         });
         try {
           const refreshed = await listDemoDatasets();
@@ -675,10 +623,8 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
     return () => { mounted = false; };
   }, []);
 
-  const selectedDatasetStatus = datasets?.find((item) => item.id === selectedId)?.status;
-
   useEffect(() => {
-    if (!selectedId || selectedDatasetStatus === 'PURGED') {
+    if (!selectedId) {
       setPreview(null);
       setPreviewError('');
       setPreviewLoading(false);
@@ -698,7 +644,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
       if (mounted) setPreviewLoading(false);
     });
     return () => { mounted = false; };
-  }, [selectedDatasetStatus, selectedId]);
+  }, [selectedId]);
 
   if (error) return <main className="workspace"><ResultState
     status="error" title="Demo verileri yüklenemedi" description={error} headingLevel={1}
@@ -706,14 +652,12 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
   if (!datasets) return <main className="workspace"><LoadingSkeleton title="Demo veri kümeleri yükleniyor" />
   </main>;
 
-  const selectedDataset = datasets.find((dataset) => dataset.id === selectedId) ?? null;
-
   return <main className="workspace settings-workspace">
     <header className="workspace-heading">
       <div>
         <h1>Demo verileri</h1>
         <p className="workspace-heading-copy">
-          Demo veri kümelerini inceleyin ve sunucu tarafından güvenli olduğu doğrulanan içeriği kontrollü biçimde kaldırın.
+          Demo veri kümelerini inceleyin ve sunucu tarafından güvenli olduğu doğrulanan içeriği kontrollü biçimde silin.
         </p>
       </div>
       <Link className="ghost-button" to={paths.settings}>Ayarlar</Link>
@@ -733,7 +677,7 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         </p>
         {hasActiveDataset && createOperation.kind !== 'success' && createOperation.kind !== 'error' && (
           <p className="demo-data-preview-message" style={{ marginTop: '0.75rem' }}>
-            Zaten etkin bir demo veri seti bulunuyor. Yeni bir küme oluşturmadan önce mevcut etkin kümenin Demo verisi yönetimi üzerinden kaldırılması gerekir.
+            Zaten etkin bir demo veri seti bulunuyor. Yeni bir küme oluşturmadan önce mevcut etkin kümenin Demo verisi yönetimi üzerinden silinmesi gerekir.
           </p>
         )}
         {createOperation.kind === 'success' && (
@@ -799,14 +743,14 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
         />
       </OperationalCard>
       <section className="demo-data-detail-region" aria-live="polite">
-        {operation.kind === 'success' && operation.dataset.id === selectedId && (
+        {operation.kind === 'success' && (selectedId === null || operation.datasetId === selectedId) && (
           <ResultState
             status={operation.status}
             title={operation.title}
             description={<div className="demo-data-result-copy">
               <p>{operation.refreshWarning || operation.description}</p>
               {operation.receipt && (
-                <ul className="demo-data-result-counts" aria-label="Kaldırılan demo kayıtları">
+                <ul className="demo-data-result-counts" aria-label="Silinen demo kayıtları">
                   {countDetails(operation.receipt.affectedCounts).map((detail) => (
                     <li key={detail}>{detail}</li>
                   ))}
@@ -821,10 +765,8 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
             status="info"
             title="İşlem sonucu doğrulanıyor"
             description={operation.reason === 'AMBIGUOUS'
-              ? 'İşlemin sonucu doğrulanamadı. Güncel durum kontrol ediliyor.'
-              : operation.reason === 'IN_PROGRESS'
-                ? 'Başka bir kaldırma işlemi raporlandı. Güncel durum kontrol ediliyor.'
-                : 'Veri kümesinin kaldırılmış durumu sunucudan doğrulanıyor.'}
+              ? 'İşlemin sonucu doğrulanamadı. Aynı istek kimliğiyle sonuç kontrol ediliyor.'
+              : 'Başka bir silme işlemi raporlandı. Aynı istek kimliğiyle sonuç doğrulanıyor.'}
             headingLevel={2}
           />
         )}
@@ -842,25 +784,10 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
                   attempt: operation.attempt,
                   reason: operation.reason,
                 });
-                void reconcilePurgeAttempt(operation.attempt, operation.reason, true);
+                void reconcilePurgeAttempt(operation.attempt, operation.reason);
               }}
             >
               Durumu yeniden kontrol et
-            </button>}
-            headingLevel={2}
-          />
-        )}
-        {operation.kind === 'retry-ready' && operation.attempt.datasetId === selectedId && (
-          <ResultState
-            status="info"
-            title="Aynı işlem yeniden denenebilir"
-            description={operation.description}
-            action={<button
-              className="secondary-button"
-              type="button"
-              onClick={() => setConfirmation({ kind: 'retry', attempt: operation.attempt })}
-            >
-              Aynı işlemi yeniden dene
             </button>}
             headingLevel={2}
           />
@@ -880,9 +807,6 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
             headingLevel={2}
           />
         )}
-        {selectedDataset?.status === 'PURGED'
-          && !(operation.kind === 'success' && operation.dataset.id === selectedDataset.id)
-          && <TombstoneDetails dataset={selectedDataset} />}
         {previewLoading && <LoadingSkeleton title="Demo graph önizlemesi hesaplanıyor" rows={3} />}
         {!previewLoading && previewError && <ResultState status="error" title="Önizleme alınamadı" description={previewError} headingLevel={2} />}
         {operation.kind !== 'success' && !previewLoading && !previewError && preview && <PreviewDetails
@@ -899,12 +823,12 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
     </div>
     <ConfirmationAction
       open={confirmation !== null}
-      title="Demo verileri kaldırılsın mı?"
+      title="Demo verileri silinsin mi?"
       description="Bu işlem geri alınamaz. Sunucu, onaylanan planı işlem anında yeniden doğrular."
       details={confirmation ? confirmationDetails(confirmationSnapshot(confirmation)) : []}
-      confirmLabel="Demo verilerini kaldır"
+      confirmLabel="Demo verilerini sil"
       pending={interactionLocked}
-      pendingLabel="Demo verileri kaldırılıyor…"
+      pendingLabel="Demo verileri siliniyor…"
       destructive
       onConfirm={() => { void submitApprovedPurge(); }}
       onCancel={() => setConfirmation(null)}

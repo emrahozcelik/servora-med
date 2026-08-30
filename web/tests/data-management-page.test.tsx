@@ -26,14 +26,14 @@ const summary = {
   contacts: { total: 2, active: 1, inactive: 1 },
   products: { total: 2, active: 1, inactive: 1 },
   staff: { total: 2, active: 1, inactive: 1 },
-  demoDataset: { total: 2, active: 0, purged: 2 },
+  demoDataset: { total: 0, active: 0 },
 };
 const emptySummary = {
   customers: { total: 0, prospect: 0, active: 0, inactive: 0 },
   contacts: { total: 0, active: 0, inactive: 0 },
   products: { total: 0, active: 0, inactive: 0 },
   staff: { total: 0, active: 0, inactive: 0 },
-  demoDataset: { total: 0, active: 0, purged: 0 },
+  demoDataset: { total: 0, active: 0 },
 };
 
 let host: HTMLDivElement;
@@ -133,7 +133,7 @@ describe('DataManagementPage', () => {
 
     expect(host.textContent).toContain('Aktif demo veri kümesi yok.');
     expect(host.textContent).not.toContain('Veri özeti yüklenemedi');
-    expect(host.querySelectorAll('.data-management-counts dd')).toHaveLength(16);
+    expect(host.querySelectorAll('.data-management-counts dd')).toHaveLength(15);
     expect(Array.from(host.querySelectorAll('.data-management-counts dd')).every((item) => item.textContent === '0')).toBe(true);
   });
 });
