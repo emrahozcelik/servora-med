@@ -923,9 +923,9 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
       const demoManager = demoUsers.find((u) => u.role === 'MANAGER')!;
       const demoStaff = demoUsers.filter((u) => u.role === 'STAFF');
 
-      // Staff profiles: all demo users get profile; STAFF manager is demoManager
-      for (const user of demoUsers) {
-        const managerUserId = user.role === 'STAFF' ? demoManager.id : null;
+      // Staff profiles belong only to Demo Staff; the Demo Manager owns the team.
+      for (const user of demoStaff) {
+        const managerUserId = demoManager.id;
         await client.query(
           `INSERT INTO staff_profiles
               (organization_id, user_id, title, phone, region, manager_user_id)

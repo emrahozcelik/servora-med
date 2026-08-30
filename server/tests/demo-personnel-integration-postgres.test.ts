@@ -116,7 +116,6 @@ describe.skipIf(!databaseUrl)('Demo and People integration PostgreSQL contract',
       [admin.organizationId],
     );
     expect(profileComposition.rows).toEqual([
-      { role: 'MANAGER', count: 1 },
       { role: 'STAFF', count: 2 },
     ]);
 
