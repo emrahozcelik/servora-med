@@ -580,6 +580,117 @@ assert_data_invariants_unchanged() {
     || fail BUSINESS_DATA_INVARIANT_CHANGED
 }
 
+derive_health_schema_target() {
+  local target="$STATE_CATALOG_HEAD"
+  [[ -n "$target" ]] || return 1
+  [[ "$target" =~ ^[0-9]{3}_[a-z0-9_]+$ ]] || return 1
+  printf '%s\n' "$target"
+}
+
+transition_health_schema_version() {
+  local target
+  target="$(derive_health_schema_target)" || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=invalid_target target=${STATE_CATALOG_HEAD:-unset}" >&2
+    return 1
+  }
+
+  # Zero-migration: no mutation, preserve old value. This also covers the
+  # "failure before migration" path which never reaches this function.
+  if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION skipped target=${target} reason=zero_migrations"
+    return 0
+  fi
+
+  [[ -f "$APP_ENV_FILE" && ! -L "$APP_ENV_FILE" ]] || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=env_contract_missing target=${target}" >&2
+    return 1
+  }
+
+  local current=""
+  local current_count=0
+  current_count="$(grep -c '^HEALTH_SCHEMA_VERSION=' "$APP_ENV_FILE" 2>/dev/null || true)"
+  if [[ "$current_count" -gt 0 ]]; then
+    current="$(grep -E '^HEALTH_SCHEMA_VERSION=' "$APP_ENV_FILE" | tail -n 1 | cut -d= -f2-)"
+  fi
+
+  # Already current and exactly one line — no mutation needed.
+  if [[ "$current" == "$target" && "$current_count" -eq 1 ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION skipped target=${target} reason=already_current"
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp "$(dirname -- "$APP_ENV_FILE")/.servora-med.env.XXXXXX")" || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=mktemp_failed target=${target}" >&2
+    return 1
+  }
+  TEMP_FILES+=("$tmp")
+
+  # Preserve all keys except HEALTH_SCHEMA_VERSION, then append exactly one
+  # canonical entry. grep -v exits 1 when no lines remain — treat as success
+  # when the file only contained the old HEALTH_SCHEMA_VERSION line.
+  local grep_status=0
+  grep -v '^HEALTH_SCHEMA_VERSION=' "$APP_ENV_FILE" >"$tmp" 2>/dev/null || grep_status=$?
+  if [[ "$grep_status" -ne 0 && "$grep_status" -ne 1 ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=filter_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if [[ "$grep_status" -eq 1 ]]; then
+    # Every line was HEALTH_SCHEMA_VERSION — truncate is intentional
+    : >"$tmp"
+  fi
+  printf 'HEALTH_SCHEMA_VERSION=%s\n' "$target" >>"$tmp" || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=write_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  local new_count
+  new_count="$(grep -c '^HEALTH_SCHEMA_VERSION=' "$tmp" 2>/dev/null || true)"
+  if [[ "$new_count" -ne 1 ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=duplicate_validation target=${target} count=${new_count}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! grep -F -x "HEALTH_SCHEMA_VERSION=${target}" "$tmp" >/dev/null 2>&1; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=target_not_found target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+
+  chown root:servora-med "$tmp" 2>/dev/null || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=chown_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+  chmod 640 "$tmp" 2>/dev/null || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=chmod_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  mv -- "$tmp" "$APP_ENV_FILE" 2>/dev/null || {
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=rename_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  # Post-move contract validation
+  if [[ "$(stat -c '%U:%G:%a' "$APP_ENV_FILE" 2>/dev/null)" != 'root:servora-med:640' ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=contract_drift_after_move target=${target}" >&2
+    return 1
+  fi
+  if [[ "$(grep -c '^HEALTH_SCHEMA_VERSION=' "$APP_ENV_FILE" 2>/dev/null || true)" -ne 1 ]]; then
+    echo "HEALTH_SCHEMA_VERSION_TRANSITION_FAILED reason=duplicate_after_move target=${target}" >&2
+    return 1
+  fi
+
+  # Secret-safe: log only key and old/new identifiers, never secret values.
+  echo "HEALTH_SCHEMA_VERSION_TRANSITION old=${current:-unset} new=${target}"
+  return 0
+}
+
 run_schema_check() {
   local release="$1"
   local error_file
@@ -779,6 +890,12 @@ deploy_phase() {
     || fail MIGRATION_RESULT_INCOMPATIBLE
   [[ "$STATE_EXACT_CATALOG" == true && "$STATE_MIGRATION_STATUS" == EXACT ]] \
     || fail MIGRATION_HISTORY_DIVERGED
+  # Atomically transition HEALTH_SCHEMA_VERSION to the candidate catalog head
+  # (STATE_CATALOG_HEAD, e.g. 041_user_lifecycle_reconciliation) so the
+  # subsequent schema-check validates against the post-migration database.
+  # Zero-migration preserves the env untouched; failures before this point
+  # never reach the transition and therefore preserve the old value.
+  transition_health_schema_version || fail HEALTH_SCHEMA_VERSION_TRANSITION_FAILED
   if ! run_schema_check "$release"; then
     if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
       systemctl start "$SERVICE" >/dev/null 2>&1 || true

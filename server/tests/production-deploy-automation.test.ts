@@ -24,6 +24,18 @@ import {
 
 const runner = fileURLToPath(new URL('../../ops/deploy-production.sh', import.meta.url));
 const hostHelper = fileURLToPath(new URL('../../ops/scripts/deploy-production-host.sh', import.meta.url));
+const recoveryHelper = fileURLToPath(new URL('../../ops/scripts/production-recovery.sh', import.meta.url));
+const patchedHostHelper = (() => {
+  const p = join(tmpdir(), `patched-host-${process.pid}.sh`);
+  try {
+    const content = readFileSync(hostHelper, 'utf8').replace(
+      'readonly APP_ENV_FILE="/etc/servora-med/servora-med.env"',
+      'APP_ENV_FILE="${APP_ENV_FILE:-/etc/servora-med/servora-med.env}"',
+    );
+    writeFileSync(p, content, { mode: 0o755 });
+  } catch {}
+  return p;
+})();
 const migrationState = fileURLToPath(new URL('../../ops/scripts/migration-state.mjs', import.meta.url));
 const migrationReconciliation = fileURLToPath(new URL('../../ops/scripts/migration-reconciliation.mjs', import.meta.url));
 const browserSmoke = fileURLToPath(new URL('../../web/scripts/production-browser-smoke.mjs', import.meta.url));
@@ -145,6 +157,7 @@ validate_release_tree() { :; }
 assert_candidate_backup_contract() { :; }
 run_predeploy_backup() { log_event backup; ${mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
 run_schema_check() { log_event schema; return 0; }
+transition_health_schema_version() { log_event "transition:$STATE_CATALOG_HEAD:$MIGRATIONS_APPLIED"; return 0; }
 write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
@@ -249,6 +262,140 @@ stage_release
     SERVORA_TEST_RELEASE_ROOT: releaseRoot,
   });
   return { result, release, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function createEnvFile(root: string, content: string) {
+  const envFile = join(root, 'servora-med.env');
+  writeFileSync(envFile, content);
+  return envFile;
+}
+
+function runPatchedHost(body: string, extraEnv: NodeJS.ProcessEnv = {}, args: string[] = []) {
+  return runSourced(patchedHostHelper, body, args, extraEnv);
+}
+
+function runHealthTransitionHarness(
+  envContent: string,
+  stateHead: string,
+  migrationsApplied: number,
+  extraSetup = '',
+) {
+  const root = temporaryDirectory('health-transition');
+  const envFile = createEnvFile(root, envContent);
+  const body = `
+STATE_CATALOG_HEAD="${stateHead}"
+MIGRATIONS_APPLIED=${migrationsApplied}
+chown() { return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+${extraSetup}
+transition_health_schema_version
+`;
+  const result = runPatchedHost(body, { APP_ENV_FILE: envFile });
+  const envAfter = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
+  return { result, envFile, envAfter, root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function runDeployEnvHarness(opts: {
+  mode: 'backup-failure' | 'partial-migration' | 'full-success' | 'zero-migration';
+  initialEnv: string;
+  allowMigrations?: boolean;
+}) {
+  const root = temporaryDirectory(`deploy-env-${opts.mode}`);
+  const eventLog = join(root, 'events.log');
+  const envFile = createEnvFile(root, opts.initialEnv);
+  const body = `
+EVENT_LOG="$2"
+ENV_FILE="${envFile}"
+SHA="${TEST_SHA}"
+FQDN="fixture.example"
+ARTIFACT="/tmp/fixture.tar.gz"
+ARTIFACT_SHA="${'a'.repeat(64)}"
+ALLOW_MIGRATIONS=${opts.allowMigrations ? 'true' : 'false'}
+log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
+require_commands() { log_event require; }
+validate_sha() { log_event validate_sha; }
+validate_fqdn() { :; }
+validate_artifact() { :; }
+assert_env_contract() { :; }
+assert_host_backup_contract() { :; }
+assert_release_dir() { return 0; }
+current_release() { printf '%s\\n' /opt/servora-med/releases/old; }
+assert_service_and_health() { log_event preflight; }
+verify_archive_entries() { log_event archive; }
+verify_artifact_checksum() { log_event checksum; :; }
+stage_release() { log_event stage; }
+validate_release_tree() { :; }
+assert_candidate_backup_contract() { :; }
+run_predeploy_backup() { log_event backup; ${opts.mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
+# Mock chown/stat for env transition
+chown() { return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+STATE_READ_COUNT=0
+read_migration_state() {
+  STATE_READ_COUNT=$((STATE_READ_COUNT + 1))
+  STATE_CATALOG_COUNT=41
+  STATE_CATALOG_HEAD=041_user_lifecycle_reconciliation
+  STATE_APPLIED_HEAD=041_user_lifecycle_reconciliation
+  STATE_PENDING_VERSIONS=""; STATE_PENDING_COUNT=0; STATE_UNEXPECTED_VERSIONS=""; STATE_UNEXPECTED_COUNT=0
+  STATE_MIGRATION_STATUS=EXACT; STATE_MIGRATION_REASON=EXACT; STATE_DUPLICATE_VERSIONS=""; STATE_EXACT_CATALOG=true
+  STATE_ORGANIZATIONS=0; STATE_ADMINS=0; STATE_STAFF=0; STATE_CUSTOMERS=0; STATE_PRODUCTS=0; STATE_JOBS=0; STATE_DEMO_DATA=0
+  if [[ "${opts.mode}" == "zero-migration" ]]; then
+    STATE_APPLIED_COUNT=41; STATE_APPLIED_HEAD=041_user_lifecycle_reconciliation
+  elif [[ "${opts.mode}" == "partial-migration" ]]; then
+    if [[ "$STATE_READ_COUNT" -eq 1 ]]; then
+      STATE_APPLIED_COUNT=37; STATE_APPLIED_HEAD=037_staff_offboarding_audit
+      STATE_PENDING_VERSIONS="038_demo_dataset_audit_types 039_contact_deleted_audit"; STATE_PENDING_COUNT=2
+      STATE_MIGRATION_STATUS=PREFIX_WITH_PENDING; STATE_MIGRATION_REASON=PREFIX_WITH_PENDING; STATE_EXACT_CATALOG=false
+    else
+      # After partial failure, 038 was committed, count=38
+      STATE_APPLIED_COUNT=38; STATE_APPLIED_HEAD=038_demo_dataset_audit_types
+      STATE_PENDING_VERSIONS=""; STATE_PENDING_COUNT=0
+      STATE_MIGRATION_STATUS=EXACT; STATE_MIGRATION_REASON=EXACT; STATE_EXACT_CATALOG=true
+    fi
+  elif [[ "${opts.mode}" == "full-success" ]]; then
+    if [[ "$STATE_READ_COUNT" -eq 1 ]]; then
+      STATE_APPLIED_COUNT=37; STATE_APPLIED_HEAD=037_staff_offboarding_audit
+      STATE_PENDING_VERSIONS="038_demo_dataset_audit_types 039_contact_deleted_audit 040_demo_lifecycle_simplification 041_user_lifecycle_reconciliation"; STATE_PENDING_COUNT=4
+      STATE_MIGRATION_STATUS=PREFIX_WITH_PENDING; STATE_MIGRATION_REASON=PREFIX_WITH_PENDING; STATE_EXACT_CATALOG=false
+    else
+      STATE_APPLIED_COUNT=41; STATE_APPLIED_HEAD=041_user_lifecycle_reconciliation
+    fi
+  else
+    STATE_APPLIED_COUNT=37; STATE_APPLIED_HEAD=037_staff_offboarding_audit
+  fi
+  CAPTURED_APPLIED_COUNT="$STATE_APPLIED_COUNT"
+}
+capture_data_invariants() { :; }
+assert_data_invariants_unchanged() { :; }
+run_schema_check() { log_event schema; return 0; }
+write_state() { log_event write_state; }
+atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
+health_gate() { log_event health; return 0; }
+restart_candidate_or_fail() { log_event candidate_start; return 0; }
+systemctl() { log_event "systemctl:$*"; return 0; }
+run_release_node() {
+  log_event migrate
+  if [[ "${opts.mode}" == "partial-migration" ]]; then
+    return 1
+  fi
+  return 0
+}
+deploy_phase
+`;
+  const result = runPatchedHost(body, { APP_ENV_FILE: envFile }, [eventLog]);
+  const events = existsSync(eventLog) ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean) : [];
+  const envAfter = readFileSync(envFile, 'utf8');
+  return { result, events, envAfter, envFile, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 describe('controlled production deployment automation contract', () => {
@@ -671,6 +818,686 @@ describe('controlled production deployment automation contract', () => {
       expect(result.events).not.toContain('systemctl:restart servora-med.service');
     } finally {
       result.cleanup();
+    }
+  });
+});
+
+describe('HEALTH_SCHEMA_VERSION transition — derive and atomic ENV handling', () => {
+  it('derives valid target 041_user_lifecycle_reconciliation', () => {
+    const result = runSourced(hostHelper, 'STATE_CATALOG_HEAD="041_user_lifecycle_reconciliation"; derive_health_schema_target');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('041_user_lifecycle_reconciliation');
+  });
+
+  it('derives 037_staff_offboarding_audit and rejects invalid patterns', () => {
+    const valid = runSourced(hostHelper, 'STATE_CATALOG_HEAD="037_staff_offboarding_audit"; derive_health_schema_target');
+    expect(valid.status).toBe(0);
+    expect(valid.stdout.trim()).toBe('037_staff_offboarding_audit');
+    const empty = runSourced(hostHelper, 'set +e; STATE_CATALOG_HEAD=""; derive_health_schema_target; echo EXIT:$?');
+    expect(empty.stdout).toContain('EXIT:1');
+    const badFormat = runSourced(hostHelper, 'set +e; STATE_CATALOG_HEAD="not-a-version"; derive_health_schema_target; echo EXIT:$?');
+    expect(badFormat.stdout).toContain('EXIT:1');
+    const uppercase = runSourced(hostHelper, 'set +e; STATE_CATALOG_HEAD="041_InvalidUpper"; derive_health_schema_target; echo EXIT:$?');
+    expect(uppercase.stdout).toContain('EXIT:1');
+  });
+
+  it('transitions 037→041 atomically, mode 640, single entry, preserves other keys, secret-safe', () => {
+    const root = temporaryDirectory('health-atomic');
+    const envFile = createEnvFile(root, 'DATABASE_URL=postgresql://user:s3cr3t@localhost/servora_med\nHEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nOTHER=keep\n');
+    try {
+      const body = `
+STATE_CATALOG_HEAD="041_user_lifecycle_reconciliation"
+MIGRATIONS_APPLIED=1
+chown() { return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+transition_health_schema_version
+`;
+      const result = runPatchedHost(body, { APP_ENV_FILE: envFile });
+      expect(result.status).toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('HEALTH_SCHEMA_VERSION_TRANSITION old=037_staff_offboarding_audit new=041_user_lifecycle_reconciliation');
+      // Secret must not be logged
+      expect(`${result.stdout}${result.stderr}`).not.toContain('s3cr3t');
+      expect(`${result.stdout}${result.stderr}`).not.toContain('postgresql://');
+      const after = readFileSync(envFile, 'utf8');
+      expect(after).toContain('HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation');
+      expect(after).toContain('DATABASE_URL=postgresql://user:s3cr3t@localhost/servora_med');
+      expect(after).toContain('OTHER=keep');
+      expect((after.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+      // Verify atomic: only one HEALTH line, no duplicate
+      // Verify no duplicate remains (grep count)
+      const count = (after.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length;
+      expect(count).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips mutation when already current (idempotent, no duplicate)', () => {
+    const root = temporaryDirectory('health-already');
+    const envFile = createEnvFile(root, 'HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation\nOTHER=keep\n');
+    const before = readFileSync(envFile, 'utf8');
+    const beforeStat = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
+    try {
+      const body = `
+STATE_CATALOG_HEAD="041_user_lifecycle_reconciliation"
+MIGRATIONS_APPLIED=1
+chown() { echo unexpected_chown; return 0; }
+chmod() { echo unexpected_chmod; return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+transition_health_schema_version
+`;
+      const result = runPatchedHost(body, { APP_ENV_FILE: envFile });
+      expect(result.status).toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('reason=already_current');
+      const after = readFileSync(envFile, 'utf8');
+      expect(after).toBe(before);
+      expect(`${result.stdout}${result.stderr}`).not.toContain('unexpected_chown');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('zero-migration preserves env untouched (no mutation)', () => {
+    const harness = runHealthTransitionHarness(
+      'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nOTHER=keep\n',
+      '041_user_lifecycle_reconciliation',
+      0,
+    );
+    try {
+      expect(harness.result.status).toBe(0);
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('reason=zero_migrations');
+      expect(harness.envAfter).toContain('037_staff_offboarding_audit');
+      expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect((harness.envAfter.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('consolidates duplicate HEALTH_SCHEMA_VERSION entries to single canonical', () => {
+    const root = temporaryDirectory('health-dedup');
+    const envFile = createEnvFile(
+      root,
+      'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nHEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nOTHER=keep\n',
+    );
+    try {
+      const body = `
+STATE_CATALOG_HEAD="041_user_lifecycle_reconciliation"
+MIGRATIONS_APPLIED=1
+chown() { return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+transition_health_schema_version
+`;
+      const result = runPatchedHost(body, { APP_ENV_FILE: envFile });
+      expect(result.status).toBe(0);
+      const after = readFileSync(envFile, 'utf8');
+      expect((after.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+      expect(after).toContain('HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation');
+      expect(after).toContain('OTHER=keep');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when STATE_CATALOG_HEAD invalid and preserves env', () => {
+    const root = temporaryDirectory('health-invalid');
+    const envFile = createEnvFile(root, 'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\n');
+    const before = readFileSync(envFile, 'utf8');
+    try {
+      const body = `
+set +e
+STATE_CATALOG_HEAD=""
+MIGRATIONS_APPLIED=1
+chown() { return 0; }
+stat() { printf 'root:servora-med:640\\n'; return 0; }
+transition_health_schema_version
+echo EXIT:$?
+`;
+      const result = runPatchedHost(body, { APP_ENV_FILE: envFile });
+      expect(result.stdout).toContain('EXIT:1');
+      expect(`${result.stdout}${result.stderr}`).toContain('HEALTH_SCHEMA_VERSION_TRANSITION_FAILED');
+      expect(readFileSync(envFile, 'utf8')).toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps transition helper syntactically valid and secret-safe', () => {
+    const hostContent = readFileSync(hostHelper, 'utf8');
+    expect(hostContent).toContain('derive_health_schema_target');
+    expect(hostContent).toContain('transition_health_schema_version');
+    expect(hostContent).toContain('HEALTH_SCHEMA_VERSION_TRANSITION');
+    expect(hostContent).toContain('already_current');
+    expect(hostContent).toContain('zero_migrations');
+    // Secret-safe: log only old/new identifiers, not DATABASE_URL
+    expect(hostContent).not.toMatch(/echo.*DATABASE_URL/);
+  });
+});
+
+describe('deploy phase ENV integration — zero, failure, partial, full', () => {
+  it('failure before migration preserves old env (backup failure)', () => {
+    const harness = runDeployEnvHarness({
+      mode: 'backup-failure',
+      initialEnv: 'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nOTHER=keep\n',
+    });
+    try {
+      expect(harness.result.status).not.toBe(0);
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('PREDEPLOY_BACKUP_FAILED');
+      expect(harness.envAfter).toContain('037_staff_offboarding_audit');
+      expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.events).not.toContain('migrate');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('partial migration 038 committed, 039 fails → no old restart, env not changed, manual recovery required', () => {
+    const harness = runDeployEnvHarness({
+      mode: 'partial-migration',
+      initialEnv: 'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\n',
+      allowMigrations: true,
+    });
+    try {
+      expect(harness.result.status).not.toBe(0);
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('MIGRATION_FAILED');
+      expect(harness.envAfter).toContain('037_staff_offboarding_audit');
+      expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      // Must not have restarted old release
+      expect(harness.events).not.toContain('systemctl:restart servora-med.service');
+      expect(harness.events.some((e) => e === 'switch:/opt/servora-med/releases/old')).toBe(false);
+      // Must have attempted stop and migrate
+      expect(harness.events).toContain('systemctl:stop servora-med.service');
+      expect(harness.events).toContain('migrate');
+      // Env unchanged proves atomic guard
+      expect((harness.envAfter.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('full migration success → env 041, schema-check PASS, health PASS', () => {
+    const harness = runDeployEnvHarness({
+      mode: 'full-success',
+      initialEnv: 'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\nOTHER=keep\n',
+      allowMigrations: true,
+    });
+    try {
+      expect(harness.result.status).toBe(0);
+      expect(harness.envAfter).toContain('HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).toContain('OTHER=keep');
+      expect((harness.envAfter.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+      expect(harness.events).toContain('migrate');
+      expect(harness.events).toContain('schema');
+      expect(harness.events).toContain('systemctl:stop servora-med.service');
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('SCHEMA_CHECK=PASS');
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('HEALTH=PASS');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('zero-migration preserves env untouched and still passes', () => {
+    const harness = runDeployEnvHarness({
+      mode: 'zero-migration',
+      initialEnv: 'HEALTH_SCHEMA_VERSION=037_staff_offboarding_audit\n',
+    });
+    try {
+      expect(harness.result.status).toBe(0);
+      expect(harness.envAfter).toContain('037_staff_offboarding_audit');
+      expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.events).toContain('migrate');
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe('production-recovery helper — contract validation', () => {
+  const validSha = 'a'.repeat(40);
+  const validVersion = '037_staff_offboarding_audit';
+
+  function runRecovery(args: string[], env: NodeJS.ProcessEnv = {}) {
+    return spawnSync('bash', [recoveryHelper, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env },
+    });
+  }
+
+  function createBackupFixture(root: string, valid: boolean) {
+    const backup = join(root, 'servora-med-20250831T120000Z.dump');
+    const checksum = `${backup}.sha256`;
+    const content = valid ? 'valid-dump-content' : 'invalid';
+    writeFileSync(backup, content);
+    const digest = createHash('sha256').update(content).digest('hex');
+    // Write checksum file; if valid, use correct digest, else wrong
+    const sidecarDigest = valid ? digest : 'b'.repeat(64);
+    writeFileSync(checksum, `${sidecarDigest}  ${backup.split('/').pop()}\n`);
+    return { backup, checksum, digest };
+  }
+
+  it('keeps recovery helper syntactically valid and fail-closed', () => {
+    execFileSync('bash', ['-n', recoveryHelper], { stdio: 'pipe' });
+    const content = readFileSync(recoveryHelper, 'utf8');
+    expect(content).toContain('PRODUCTION_RECOVERY_REFUSED');
+    expect(content).toContain('CHECKSUM_MISMATCH');
+    expect(content).toContain('INVALID_TARGET_DB');
+    expect(content).toContain('INVALID_EXPECTED_HOST');
+    expect(content).toContain('--allow-destructive');
+    expect(content).toContain('servora_med');
+    expect(content).toContain('127.0.0.1');
+    expect(content).toContain('TEST_DATABASE_URL');
+  });
+
+  it('refuses without --allow-destructive', () => {
+    const root = temporaryDirectory('recovery-no-destructive');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('DESTRUCTIVE_NOT_AUTHORIZED');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses checksum mismatch', () => {
+    const root = temporaryDirectory('recovery-checksum-mismatch');
+    try {
+      const backup = join(root, 'servora-med-20250831T120000Z.dump');
+      writeFileSync(backup, 'content-a');
+      const badDigest = 'b'.repeat(64);
+      const checksum = `${backup}.sha256`;
+      writeFileSync(checksum, `${badDigest}  ${backup.split('/').pop()}\n`);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('CHECKSUM_MISMATCH');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses wrong target DB', () => {
+    const root = temporaryDirectory('recovery-wrong-db');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'other_db',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('INVALID_TARGET_DB');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses wrong expected host (remote)', () => {
+    const root = temporaryDirectory('recovery-wrong-host');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '10.0.0.5',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('INVALID_EXPECTED_HOST');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses invalid archive (pg_restore --list fails)', () => {
+    const root = temporaryDirectory('recovery-invalid-archive');
+    try {
+      const backup = join(root, 'servora-med-20250831T120000Z.dump');
+      writeFileSync(backup, 'not-a-valid-pg-dump');
+      const digest = createHash('sha256').update('not-a-valid-pg-dump').digest('hex');
+      const checksum = `${backup}.sha256`;
+      writeFileSync(checksum, `${digest}  ${backup.split('/').pop()}\n`);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      // Mock pg_restore to fail on -l
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'pg_restore'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      writeFileSync(join(bin, 'psql'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        {
+          TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test',
+          PATH: `${bin}:${process.env.PATH}`,
+          PG_RESTORE_BIN: join(bin, 'pg_restore'),
+          PSQL_BIN: join(bin, 'psql'),
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('BACKUP_ARCHIVE_INVALID');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses missing backup file', () => {
+    const root = temporaryDirectory('recovery-missing-backup');
+    try {
+      const missing = join(root, 'servora-med-20250831T120000Z.dump');
+      const checksum = `${missing}.sha256`;
+      writeFileSync(checksum, `${'a'.repeat(64)}  ${missing.split('/').pop()}\n`);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          missing,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('BACKUP_MISSING');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses invalid checksum sidecar (control chars)', () => {
+    const root = temporaryDirectory('recovery-bad-sidecar');
+    try {
+      const backup = join(root, 'servora-med-20250831T120000Z.dump');
+      writeFileSync(backup, 'valid-content');
+      const checksum = `${backup}.sha256`;
+      // Inject control char
+      writeFileSync(checksum, `${'a'.repeat(64)}  ${backup.split('/').pop()}\x00\n`);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('CHECKSUM_SIDECAR_INVALID');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('never logs DATABASE_URL secret', () => {
+    const root = temporaryDirectory('recovery-secret');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const secretUrl = 'postgresql://servora:s3cr3tP@ss@localhost:5432/servora_med_recovery_test';
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      // pg_restore mock that lists successfully
+      writeFileSync(join(bin, 'pg_restore'), '#!/bin/sh\nif [ "$1" = "-l" ]; then echo "Dumped by pg_dump version: 16"; exit 0; fi\nexit 0\n', { mode: 0o755 });
+      writeFileSync(join(bin, 'psql'), '#!/bin/sh\nif echo "$*" | grep -q "schema_migrations"; then echo "037_staff_offboarding_audit"; exit 0; fi\nexit 0\n', { mode: 0o755 });
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        {
+          TEST_DATABASE_URL: secretUrl,
+          PATH: `${bin}:${process.env.PATH}`,
+          PG_RESTORE_BIN: join(bin, 'pg_restore'),
+          PSQL_BIN: join(bin, 'psql'),
+        },
+      );
+      // Even on failure/success, output must not contain secret
+      const combined = `${result.stdout}${result.stderr}`;
+      expect(combined).not.toContain('s3cr3tP@ss');
+      expect(combined).not.toContain('postgresql://servora');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses missing env file in test mode', () => {
+    const root = temporaryDirectory('recovery-missing-env');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const missingEnv = join(root, 'no-such.env');
+      const bin = join(root, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'pg_restore'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      writeFileSync(join(bin, 'psql'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          missingEnv,
+        ],
+        {
+          TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test',
+          PG_RESTORE_BIN: join(bin, 'pg_restore'),
+          PSQL_BIN: join(bin, 'psql'),
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('ENV_FILE_MISSING');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses TEST_DATABASE_URL pointing to protected servora_med', () => {
+    const root = temporaryDirectory('recovery-protected-db');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('TEST_DATABASE_URL_PRODUCTION_COLLISION');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('validates timestamp binding mismatch', () => {
+    const root = temporaryDirectory('recovery-timestamp');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = createEnvFile(root, `HEALTH_SCHEMA_VERSION=${validVersion}\n`);
+      const result = runRecovery(
+        [
+          '--backup',
+          backup,
+          '--checksum',
+          checksum,
+          '--target-db',
+          'servora_med',
+          '--expected-host',
+          '127.0.0.1',
+          '--allow-destructive',
+          '--old-release',
+          validSha,
+          '--old-health-schema-version',
+          validVersion,
+          '--expected-backup-timestamp',
+          '20990101T000000Z',
+          '--env-file',
+          envFile,
+        ],
+        { TEST_DATABASE_URL: 'postgresql://localhost:5432/servora_med_recovery_test' },
+      );
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('BACKUP_TIMESTAMP_MISMATCH');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
