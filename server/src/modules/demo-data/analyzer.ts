@@ -576,8 +576,36 @@ export class DemoDatasetImpactAnalyzer {
         allJobsEdge.push(job);
       }
     }
+    // Effective DEMO ownership: legacy misclassified follow-ups (persisted as
+    // BUSINESS with demo_dataset_id NULL before the forward provenance fix) are
+    // DEMO-derived when deterministic graph lineage proves their source chain
+    // leads to a JobCard owned by this dataset. Classification is follow-up
+    // lineage bound — a row is never classified by customer/assignee/title/
+    // timestamp proximity alone.
+    const effectiveDemoJobIds = new Set<string>();
+    const jobByIdForEffective = new Map(allJobsEdge.map((row) => [row.id, row]));
+    for (const job of allJobsEdge) {
+      if (owned(job, organizationId, datasetId)) effectiveDemoJobIds.add(job.id);
+    }
+    let lineageChanged = true;
+    while (lineageChanged) {
+      lineageChanged = false;
+      for (const job of allJobsEdge) {
+        if (effectiveDemoJobIds.has(job.id)) continue;
+        if (job.organization_id !== organizationId) continue;
+        if (!job.source_job_card_id) continue;
+        const source = jobByIdForEffective.get(job.source_job_card_id);
+        if (!source || !effectiveDemoJobIds.has(source.id)) continue;
+        // Transitive deterministic lineage; cycles simply make no progress.
+        effectiveDemoJobIds.add(job.id);
+        lineageChanged = true;
+      }
+    }
+    const effectiveJobIdArr = [...effectiveDemoJobIds].sort();
+    const effectiveJobSet = setOf(effectiveJobIdArr);
+
     const deliveryItems = deliveriesEdge
-      .filter((row) => jobSet.has(row.job_card_id))
+      .filter((row) => effectiveJobSet.has(row.job_card_id))
       .map((row) => row.id);
 
     const jobActivitiesEdge = await rows<ActivityRow>(this.client, `
@@ -586,7 +614,7 @@ export class DemoDatasetImpactAnalyzer {
       WHERE organization_id = $1
         AND (job_card_id = ANY($2::uuid[]) OR actor_id = ANY($3::uuid[]))
       ORDER BY id`, [organizationId, jobIds, userIds]);
-    const jobActivities = jobActivitiesEdge.filter((row) => jobSet.has(row.job_card_id));
+    const jobActivities = jobActivitiesEdge.filter((row) => effectiveJobSet.has(row.job_card_id));
     const jobActivityIds = jobActivities.map((row) => row.id);
     const jobNotesEdge = await rows<NoteRow>(this.client, `
       SELECT id, organization_id, job_card_id, author_id
@@ -594,7 +622,7 @@ export class DemoDatasetImpactAnalyzer {
       WHERE organization_id = $1
         AND (job_card_id = ANY($2::uuid[]) OR author_id = ANY($3::uuid[]))
       ORDER BY id`, [organizationId, jobIds, userIds]);
-    const jobNotes = jobNotesEdge.filter((row) => jobSet.has(row.job_card_id));
+    const jobNotes = jobNotesEdge.filter((row) => effectiveJobSet.has(row.job_card_id));
     const activityAndNoteJobRefs = [
       ...jobActivitiesEdge.map((row) => row.job_card_id),
       ...jobNotesEdge.map((row) => row.job_card_id),
@@ -616,11 +644,11 @@ export class DemoDatasetImpactAnalyzer {
     const meetingDetails = await rows<MeetingRow>(this.client, `
       SELECT job_card_id, organization_id
       FROM job_card_meeting_details
-      WHERE organization_id = $1 AND job_card_id = ANY($2::uuid[])`, [organizationId, jobIds]);
+      WHERE organization_id = $1 AND job_card_id = ANY($2::uuid[])`, [organizationId, effectiveJobIdArr]);
     const jobActionLocations = await rows<LocationRow>(this.client, `
       SELECT id, organization_id, job_card_id, activity_id
       FROM job_action_locations
-      WHERE organization_id = $1 AND job_card_id = ANY($2::uuid[])`, [organizationId, jobIds]);
+      WHERE organization_id = $1 AND job_card_id = ANY($2::uuid[])`, [organizationId, effectiveJobIdArr]);
 
     const confidentialNotesEdge = await rows<ConfidentialNoteRow>(this.client, `
       SELECT id, organization_id, staff_user_id, author_user_id
@@ -884,7 +912,7 @@ export class DemoDatasetImpactAnalyzer {
     }
 
     for (const job of allJobsEdge) {
-      const jobIsTarget = owned(job, organizationId, datasetId);
+      const jobIsTarget = effectiveJobSet.has(job.id);
       for (const [role, userId] of userRefs(job)) {
         if (!userId) continue;
         if (userSet.has(userId) && !jobIsTarget) {
@@ -952,18 +980,18 @@ export class DemoDatasetImpactAnalyzer {
           SELECT id, organization_id, data_class, demo_dataset_id
           FROM products WHERE organization_id = $1 AND id = $2`, [organizationId, delivery.product_id]).then((items) => items[0]);
       if (!job || !product) continue;
-      if (productSet.has(product.id) && !owned(job, organizationId, datasetId)) {
+      if (productSet.has(product.id) && !effectiveJobSet.has(job.id)) {
         edgeBlocker(blockers, ownerCode(job, 'DEMO_PRODUCT_TO_BUSINESS_JOB'), ownershipMessage,
           'PRODUCT', product.id, 'JOB_CARD', job.id);
       }
-      if (owned(job, organizationId, datasetId) && !productSet.has(product.id) && !isBusiness(product)) {
+      if (effectiveJobSet.has(job.id) && !productSet.has(product.id) && !isBusiness(product)) {
         edgeBlocker(blockers, ownerCode(product, 'BUSINESS_PRODUCT_TO_DEMO_JOB'), ownershipMessage,
           'JOB_CARD', job.id, 'PRODUCT', product.id);
       }
     }
 
-    const jobSetForCycle = setOf(jobIds);
-    for (const start of jobIds) {
+    const jobSetForCycle = effectiveJobSet;
+    for (const start of effectiveJobIdArr) {
       const seen = new Set<string>();
       let current: string | null = start;
       while (current && jobSetForCycle.has(current)) {
@@ -973,7 +1001,7 @@ export class DemoDatasetImpactAnalyzer {
           break;
         }
         seen.add(current);
-        current = jobs.find((row) => row.id === current)?.source_job_card_id ?? null;
+        current = allJobById.get(current)?.source_job_card_id ?? null;
       }
     }
 
@@ -981,7 +1009,7 @@ export class DemoDatasetImpactAnalyzer {
     for (const activity of jobActivitiesEdge) {
       const job = allJobById.get(activity.job_card_id);
       if (!job || !activity.actor_id) continue;
-      const jobIsTarget = owned(job, organizationId, datasetId);
+      const jobIsTarget = effectiveJobSet.has(job.id);
       const actorIsTarget = userSet.has(activity.actor_id);
       if (jobIsTarget && !actorIsTarget) {
         const actor = userById.get(activity.actor_id);
@@ -998,7 +1026,7 @@ export class DemoDatasetImpactAnalyzer {
     for (const note of jobNotesEdge) {
       const job = allJobById.get(note.job_card_id);
       if (!job) continue;
-      const jobIsTarget = owned(job, organizationId, datasetId);
+      const jobIsTarget = effectiveJobSet.has(job.id);
       const authorIsTarget = userSet.has(note.author_id);
       if (jobIsTarget && !authorIsTarget) {
         const author = userById.get(note.author_id);
@@ -1067,11 +1095,11 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       if (conversation.job_id) {
         const job = allJobById.get(conversation.job_id);
-        if (job && conversationIsTarget && !owned(job, organizationId, datasetId) && !isBusiness(job)) {
+        if (job && conversationIsTarget && !effectiveJobSet.has(job.id) && !isBusiness(job)) {
           edgeBlocker(blockers, ownerCode(job, 'DEMO_CONVERSATION_TO_BUSINESS_JOB'), ownershipMessage,
             'CONVERSATION', conversation.id, 'JOB_CARD', job.id);
         }
-        if (job && !conversationIsTarget && owned(job, organizationId, datasetId)) {
+        if (job && !conversationIsTarget && effectiveJobSet.has(job.id)) {
           edgeBlocker(blockers, ownerCode(conversation, 'DEMO_JOB_TO_BUSINESS_CONVERSATION'), ownershipMessage,
             'JOB_CARD', job.id, 'CONVERSATION', conversation.id);
         }
@@ -1224,7 +1252,7 @@ export class DemoDatasetImpactAnalyzer {
     ];
 
     const realtimeEntityIds = [
-      ...jobIds,
+      ...effectiveJobIdArr,
       ...eventIds,
       ...conversationIds,
       ...confidentialNotes,
@@ -1316,18 +1344,20 @@ export class DemoDatasetImpactAnalyzer {
     const datasetCreatorUserId = datasetRow.created_by && userSet.has(datasetRow.created_by)
       ? datasetRow.created_by
       : null;
-    const jobCardDeleteOrder = deleteOrder(jobs, jobIds);
+    const jobCardDeleteOrder = deleteOrder(allJobsEdge, effectiveJobIdArr);
     const semanticallyRelevantEdges = [
       ...contactsEdge
         .filter((row) => customerSet.has(row.customer_id))
         .map((row) => `CONTACT_CUSTOMER:${row.id}:${row.customer_id}`),
-      ...jobs.flatMap((row) => [
-        ...(row.customer_id ? [`JOB_CUSTOMER:${row.id}:${row.customer_id}`] : []),
-        ...(row.contact_id ? [`JOB_CONTACT:${row.id}:${row.contact_id}`] : []),
-        ...userRefs(row).flatMap(([role, userId]) => userId ? [`JOB_USER:${row.id}:${role}:${userId}`] : []),
-      ]),
+      ...allJobsEdge
+        .filter((row) => effectiveJobSet.has(row.id))
+        .flatMap((row) => [
+          ...(row.customer_id ? [`JOB_CUSTOMER:${row.id}:${row.customer_id}`] : []),
+          ...(row.contact_id ? [`JOB_CONTACT:${row.id}:${row.contact_id}`] : []),
+          ...userRefs(row).flatMap(([role, userId]) => userId ? [`JOB_USER:${row.id}:${role}:${userId}`] : []),
+        ]),
       ...deliveriesEdge
-        .filter((row) => jobSet.has(row.job_card_id))
+        .filter((row) => effectiveJobSet.has(row.job_card_id))
         .map((row) => `JOB_PRODUCT:${row.job_card_id}:${row.product_id}`),
       ...jobActivities
         .flatMap((row) => row.actor_id ? [`JOB_ACTIVITY_ACTOR:${row.id}:${row.actor_id}`] : []),
@@ -1382,7 +1412,7 @@ export class DemoDatasetImpactAnalyzer {
       customers: customerIds,
       contacts: uniqueSorted(contacts),
       products: productIds,
-      jobCards: jobIds,
+      jobCards: effectiveJobIdArr,
       jobCardDeleteOrder,
       deliveryItems: uniqueSorted(deliveryItems),
       jobNotes: jobNotes.map((row) => row.id),
@@ -1421,7 +1451,7 @@ export class DemoDatasetImpactAnalyzer {
       confidentialNotes: plan.confidentialNotes,
       jobActivities: plan.jobActivities,
       calendarActivities: plan.calendarActivities,
-      followUps: jobs.filter((row) => row.source_job_card_id !== null).length,
+      followUps: allJobsEdge.filter((row) => effectiveJobSet.has(row.id) && row.source_job_card_id !== null).length,
       calendarEvents: plan.calendarEvents,
       conversations: plan.conversations,
       messages: plan.messages,

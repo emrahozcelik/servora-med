@@ -145,6 +145,35 @@ async function deleteUuidRows(
   assertExactIds(table, ids, result.rows.map((row) => row.id));
 }
 
+/**
+ * Deletes planned JobCard rows. True DEMO-owned rows keep the dataset guard;
+ * legacy misclassified follow-ups (BUSINESS / demo_dataset_id NULL) that the
+ * double-analyzed purge plan proved DEMO-derived are deleted by exact id.
+ */
+async function deleteJobCardPlannedRows(
+  client: PoolClient,
+  organizationId: string,
+  datasetId: string,
+  id: string,
+) {
+  const rowResult = await client.query<{
+    id: string;
+    data_class: 'BUSINESS' | 'DEMO';
+    demo_dataset_id: string | null;
+  }>(
+    `SELECT id::text AS id, data_class, demo_dataset_id
+     FROM job_cards
+     WHERE organization_id = $1 AND id = $2`,
+    [organizationId, id],
+  );
+  const row = rowResult.rows[0];
+  if (row && row.data_class === 'DEMO' && row.demo_dataset_id === datasetId) {
+    await deleteRootRows(client, 'job_cards', organizationId, datasetId, [id]);
+  } else {
+    await deleteUuidRows(client, 'job_cards', organizationId, [id]);
+  }
+}
+
 async function deleteRootRows(
   client: PoolClient,
   table: string,
@@ -348,7 +377,7 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
   await deleteRootRows(client, 'calendar_events', organizationId, plan.datasetId, plan.calendarEvents);
   for (const jobCardId of plan.jobCardDeleteOrder) {
-    await deleteRootRows(client, 'job_cards', organizationId, plan.datasetId, [jobCardId]);
+    await deleteJobCardPlannedRows(client, organizationId, plan.datasetId, jobCardId);
   }
   await deleteUuidRows(client, 'contacts', organizationId, plan.contacts);
   await deleteRootRows(client, 'customers', organizationId, plan.datasetId, plan.customers);
