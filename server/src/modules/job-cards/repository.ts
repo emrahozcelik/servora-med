@@ -158,6 +158,8 @@ export type CreateJobCardRecord = {
   engagementKind: JobCard['engagementKind'];
   acceptedAt: Date | null; acceptedBy: string | null;
   sourceJobCardId: string | null; followUpInstructions: string | null;
+  dataClass?: 'BUSINESS' | 'DEMO';
+  demoDatasetId?: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -245,6 +247,8 @@ export type FollowUpSourceReference = {
   startedAt: string | null;
   staffCompletedAt: string | null;
   managerApprovedAt: string | null;
+  dataClass: 'BUSINESS' | 'DEMO';
+  demoDatasetId: string | null;
   customer: ReferenceCustomer | null;
   contact: ReferenceContact | null;
   meetingAt: string | null;
@@ -691,6 +695,7 @@ const JOB_CARD_BASE_COLUMNS = `id, organization_id, type, status, version, title
 const FOLLOW_UP_SOURCE_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        j.customer_id, j.contact_id, j.assigned_to, j.source_job_card_id,
        j.scheduled_at, j.started_at, j.staff_completed_at, j.manager_approved_at,
+       j.data_class, j.demo_dataset_id,
        c.id AS customer_id_join, c.name AS customer_name, c.customer_type, c.status AS customer_status,
        ct.id AS contact_id_join, ct.name AS contact_name, ct.title AS contact_title,
        md.meeting_at, md.outcome
@@ -709,6 +714,7 @@ type FollowUpSourceRow = {
   source_job_card_id: string | null;
   scheduled_at: Date | null; started_at: Date | null;
   staff_completed_at: Date | null; manager_approved_at: Date | null;
+  data_class: 'BUSINESS' | 'DEMO'; demo_dataset_id: string | null;
   customer_id_join: string | null; customer_name: string | null;
   customer_type: string | null; customer_status: string | null;
   contact_id_join: string | null; contact_name: string | null; contact_title: string | null;
@@ -729,6 +735,8 @@ function mapFollowUpSource(row: FollowUpSourceRow): FollowUpSourceReference {
     startedAt: mapInstant(row.started_at),
     staffCompletedAt: mapInstant(row.staff_completed_at),
     managerApprovedAt: mapInstant(row.manager_approved_at),
+    dataClass: row.data_class,
+    demoDatasetId: row.demo_dataset_id,
     customer: row.customer_id_join === null
       ? null
       : {
@@ -1534,6 +1542,25 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async createJobCard(input: CreateJobCardRecord) {
+    if (input.dataClass === 'DEMO' && input.demoDatasetId) {
+      // Server-authoritative DEMO provenance for linked children: a follow-up of a
+      // DEMO source inherits the source dataset directly at creation.
+      const demoResult = await this.client.query<JobCardRow>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, description, customer_id, contact_id,
+            assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at,
+            engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions,
+            data_class, demo_dataset_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+         RETURNING ${JOB_CARD_BASE_COLUMNS}`,
+        [input.organizationId, input.type, input.status, input.title, input.description,
+          input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
+          input.dueDate, input.scheduledAt, input.scheduledEndsAt, input.engagementKind,
+          input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions,
+          input.dataClass, input.demoDatasetId],
+      );
+      return mapJobCard(demoResult.rows[0]!);
+    }
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,

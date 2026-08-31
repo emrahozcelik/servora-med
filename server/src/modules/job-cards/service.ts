@@ -925,6 +925,8 @@ export class JobCardService {
           throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         }
         assertFollowUpSourceEligible(source);
+        // Server-authoritative DEMO provenance: a follow-up created from a DEMO
+        // source inherits the source dataset directly (never from client input).
         await this.assertFollowUpDepth(transaction, source);
 
         let followUpOverrideReason: string | null = null;
@@ -970,6 +972,10 @@ export class JobCardService {
           });
         }
 
+        const childDataClass: 'BUSINESS' | 'DEMO' =
+          source.dataClass === 'DEMO' && source.demoDatasetId ? 'DEMO' : 'BUSINESS';
+        const childDemoDatasetId: string | null =
+          childDataClass === 'DEMO' ? source.demoDatasetId : null;
         const { job, realtimeEvents } = await this.createFollowUpChild(transaction, actor, {
           sourceJobCardId,
           customerId: source.customerId,
@@ -985,6 +991,8 @@ export class JobCardService {
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
           clientActionId: input.clientActionId,
           requestTime,
+          dataClass: childDataClass,
+          demoDatasetId: childDemoDatasetId,
           activityMetadata: {
             sourceJobCardId,
             ...(followUpOverrideReason !== null
@@ -1025,6 +1033,8 @@ export class JobCardService {
       engagementKind: JobCardEngagementKind | null;
       clientActionId: string;
       requestTime: Date;
+      dataClass?: 'BUSINESS' | 'DEMO';
+      demoDatasetId?: string | null;
       acceptance?: {
         acceptedAt: Date;
         acceptedBy: string;
@@ -1084,6 +1094,7 @@ export class JobCardService {
       acceptedBy: input.acceptance?.acceptedBy ?? null,
       sourceJobCardId: input.sourceJobCardId,
       followUpInstructions: input.followUpInstructions,
+      ...(input.dataClass ? { dataClass: input.dataClass, demoDatasetId: input.demoDatasetId ?? null } : {}),
     });
     if (this.calendar.enabled) {
       await transaction.synchronizeCalendarReminder({
