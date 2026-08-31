@@ -494,6 +494,53 @@ export class DemoDatasetImpactAnalyzer {
         )`,
     [organizationId, jobIds, jobCustomerRefs, contacts, userIds, jobParentIds]);
     const allJobById = new Map(allJobsEdge.map((row) => [row.id, row]));
+    // Ensure BUSINESS jobs referencing DEMO customers/contacts are included for blocker detection
+    // (isolated BUSINESS job with DEMO customer would otherwise be missed)
+    const extraBusinessJobCustomerIds = customerIds;
+    if (extraBusinessJobCustomerIds.length > 0) {
+      const extraJobsByCustomer = await rows<JobRow>(this.client, `
+        SELECT id, organization_id, data_class, demo_dataset_id,
+          assigned_to, created_by, accepted_by, staff_completed_by,
+          manager_approved_by, revision_requested_by, cancelled_by,
+          follow_up_proposed_assignee, follow_up_proposed_by,
+          source_job_card_id, customer_id, contact_id
+        FROM job_cards
+        WHERE organization_id = $1
+          AND customer_id = ANY($2::uuid[])
+          AND NOT (id = ANY($3::uuid[]))`,
+        [organizationId, extraBusinessJobCustomerIds, [...allJobById.keys()]]);
+      for (const job of extraJobsByCustomer) {
+        if (!allJobById.has(job.id)) {
+          allJobById.set(job.id, job);
+          allJobsEdge.push(job);
+        }
+      }
+    }
+    const extraBusinessJobContactIds = contactsEdge.map((r) => r.id);
+    // Also catch BUSINESS jobs referencing DEMO contacts (via contact_id)
+    if (extraBusinessJobContactIds.length > 0 || customerIds.length > 0) {
+      // contactsEdge already filtered to demo customers, so any contact there is demo-related
+      const demoContactIds = contactsEdge.filter((r) => customerSet.has(r.customer_id)).map((r) => r.id);
+      if (demoContactIds.length > 0) {
+        const extraJobsByContact = await rows<JobRow>(this.client, `
+          SELECT id, organization_id, data_class, demo_dataset_id,
+            assigned_to, created_by, accepted_by, staff_completed_by,
+            manager_approved_by, revision_requested_by, cancelled_by,
+            follow_up_proposed_assignee, follow_up_proposed_by,
+            source_job_card_id, customer_id, contact_id
+          FROM job_cards
+          WHERE organization_id = $1
+            AND contact_id = ANY($2::uuid[])
+            AND NOT (id = ANY($3::uuid[]))`,
+          [organizationId, demoContactIds, [...allJobById.keys()]]);
+        for (const job of extraJobsByContact) {
+          if (!allJobById.has(job.id)) {
+            allJobById.set(job.id, job);
+            allJobsEdge.push(job);
+          }
+        }
+      }
+    }
 
     const customersEdge = await rows<CustomerRow>(this.client, `
       SELECT id, organization_id, data_class, demo_dataset_id, assigned_staff_user_id
@@ -743,9 +790,9 @@ export class DemoDatasetImpactAnalyzer {
         allEventsEdge.push(event);
       }
     }
-    const targetReminderRows = reminderCandidates.filter((row) =>
-      (row.job_card_id !== null && jobSet.has(row.job_card_id))
-      || (row.calendar_event_id !== null && eventSet.has(row.calendar_event_id)));
+    // Include any reminder touching the DEMO graph: DEMO source -> BUSINESS recipient and
+    // BUSINESS source -> DEMO recipient are both purgeable derived artifacts (delete reminder, preserve BUSINESS root).
+    const targetReminderRows = reminderCandidates;
     const targetReminderIds = targetReminderRows.map((row) => row.id);
 
     const targetSourceActivityIds = jobActivityIds;
@@ -775,9 +822,9 @@ export class DemoDatasetImpactAnalyzer {
       WHERE organization_id = $1
         AND (source_realtime_event_id = ANY($2::bigint[]) OR recipient_user_id = ANY($3::uuid[]))`,
     [organizationId, realtimeIds, userIds]);
-    const realtimeSet = setOf(realtimeIds);
-    const targetNotificationRows = notificationsEdge.filter((row) =>
-      realtimeSet.has(row.source_realtime_event_id) && userSet.has(row.recipient_user_id));
+    // Include any notification touching the DEMO graph: DEMO realtime -> BUSINESS recipient and
+    // BUSINESS realtime -> DEMO recipient are purgeable derived artifacts.
+    const targetNotificationRows = notificationsEdge;
     const targetNotificationIds = targetNotificationRows.map((row) => row.id);
 
     const subscriptions = await rows<PushSubscriptionRow>(this.client, `
@@ -793,9 +840,8 @@ export class DemoDatasetImpactAnalyzer {
       WHERE organization_id = $1
         AND (notification_id = ANY($2::uuid[]) OR subscription_id = ANY($3::uuid[]))`,
     [organizationId, targetNotificationIds, subscriptionIds]);
-    const targetDeliveryRows = deliveryCandidates.filter((row) =>
-      targetNotificationRows.some((notification) => notification.id === row.notification_id)
-      && subscriptions.some((subscription) => subscription.id === row.subscription_id));
+    // Any delivery touching the DEMO graph is purgeable: delete delivery, preserve BUSINESS subscription/notification.
+    const targetDeliveryRows = deliveryCandidates;
 
     const sessions = await rows<IdRow>(this.client, `
       SELECT id FROM sessions WHERE user_id = ANY($1::uuid[])`, [userIds]);
@@ -816,21 +862,19 @@ export class DemoDatasetImpactAnalyzer {
         edgeBlocker(blockers, ownerCode(customer, 'DEMO_USER_TO_BUSINESS_CUSTOMER'), ownershipMessage,
           'USER', assigned, 'CUSTOMER', customer.id);
       }
-      if (owned(customer, organizationId, datasetId) && assigned && !userSet.has(assigned)) {
-        edgeBlocker(blockers, ownerCode(userById.get(assigned) ?? {
-          id: assigned, organization_id: organizationId, data_class: 'BUSINESS', demo_dataset_id: null,
-        }, 'BUSINESS_USER_TO_DEMO_CUSTOMER'), ownershipMessage,
-        'CUSTOMER', customer.id, 'USER', assigned);
-      }
+      // DEMO customer -> BUSINESS user is DEMO-owned referencing BUSINESS root: purgeable (delete DEMO customer, preserve BUSINESS user)
     }
 
     for (const profile of staffProfilesEdge) {
       const profileUserIsTarget = userSet.has(profile.user_id);
       const managerIsTarget = profile.manager_user_id ? userSet.has(profile.manager_user_id) : false;
       if (profileUserIsTarget && profile.manager_user_id && !managerIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, profile.manager_user_id,
-          'DEMO_USER_TO_BUSINESS_STAFF_PROFILE'), ownershipMessage,
-          'USER', profile.manager_user_id, 'STAFF_PROFILE', profile.id);
+        const manager = userById.get(profile.manager_user_id);
+        if (manager && !isBusiness(manager)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, profile.manager_user_id,
+            'DEMO_USER_TO_BUSINESS_STAFF_PROFILE'), ownershipMessage,
+            'USER', profile.manager_user_id, 'STAFF_PROFILE', profile.id);
+        }
       }
       if (!profileUserIsTarget && managerIsTarget) {
         edgeBlocker(blockers, userOwnerCode(userById, organizationId, profile.user_id,
@@ -848,17 +892,19 @@ export class DemoDatasetImpactAnalyzer {
             'USER', userId, 'JOB_CARD', job.id);
         }
         if (jobIsTarget && !userSet.has(userId)) {
-          edgeBlocker(blockers, ownerCode(userById.get(userId) ?? {
-            id: userId, organization_id: organizationId, data_class: 'BUSINESS', demo_dataset_id: null,
-          }, 'BUSINESS_USER_TO_DEMO_JOB'), ownershipMessage,
-          'JOB_CARD', job.id, 'USER', userId);
+          const relatedUser = userById.get(userId);
+          // DEMO job -> BUSINESS user is purgeable; DEMO job -> other DEMO dataset user is CROSS_DATASET blocker
+          if (relatedUser && !isBusiness(relatedUser)) {
+            edgeBlocker(blockers, ownerCode(relatedUser, 'BUSINESS_USER_TO_DEMO_JOB'), ownershipMessage,
+              'JOB_CARD', job.id, 'USER', userId);
+          }
         }
         void role;
       }
       if (job.customer_id) {
         const customer = customersEdge.find((row) => row.id === job.customer_id);
         if (customer) {
-          if (jobIsTarget && !owned(customer, organizationId, datasetId)) {
+          if (jobIsTarget && !owned(customer, organizationId, datasetId) && !isBusiness(customer)) {
             edgeBlocker(blockers, ownerCode(customer, 'BUSINESS_CUSTOMER_TO_DEMO_JOB'), ownershipMessage,
               'JOB_CARD', job.id, 'CUSTOMER', customer.id);
           }
@@ -872,20 +918,22 @@ export class DemoDatasetImpactAnalyzer {
         const contact = contactsEdge.find((row) => row.id === job.contact_id);
         if (contact) {
           const contactCustomer = customersEdge.find((row) => row.id === contact.customer_id);
-          if (contactCustomer && jobIsTarget && !owned(contactCustomer, organizationId, datasetId)) {
-            edgeBlocker(blockers, ownerCode(contactCustomer, 'DEMO_JOB_TO_BUSINESS_CONTACT'), ownershipMessage,
-              'JOB_CARD', job.id, 'CONTACT', contact.id);
-          }
-          if (contactCustomer && !jobIsTarget && owned(contactCustomer, organizationId, datasetId)) {
-            edgeBlocker(blockers, ownerCode(job, 'BUSINESS_CONTACT_TO_DEMO_JOB'), ownershipMessage,
-              'CONTACT', contact.id, 'JOB_CARD', job.id);
+          if (contactCustomer) {
+            if (jobIsTarget && !owned(contactCustomer, organizationId, datasetId) && !isBusiness(contactCustomer)) {
+              edgeBlocker(blockers, ownerCode(contactCustomer, 'DEMO_JOB_TO_BUSINESS_CONTACT'), ownershipMessage,
+                'JOB_CARD', job.id, 'CONTACT', contact.id);
+            }
+            if (!jobIsTarget && owned(contactCustomer, organizationId, datasetId)) {
+              edgeBlocker(blockers, ownerCode(job, 'BUSINESS_CONTACT_TO_DEMO_JOB'), ownershipMessage,
+                'CONTACT', contact.id, 'JOB_CARD', job.id);
+            }
           }
         }
       }
       if (job.source_job_card_id) {
         const source = allJobById.get(job.source_job_card_id);
         if (source) {
-          if (jobIsTarget && !owned(source, organizationId, datasetId)) {
+          if (jobIsTarget && !owned(source, organizationId, datasetId) && !isBusiness(source)) {
             edgeBlocker(blockers, ownerCode(source, 'DEMO_JOB_TO_BUSINESS_FOLLOW_UP'), ownershipMessage,
               'JOB_CARD', job.id, 'JOB_CARD', source.id);
           }
@@ -908,7 +956,7 @@ export class DemoDatasetImpactAnalyzer {
         edgeBlocker(blockers, ownerCode(job, 'DEMO_PRODUCT_TO_BUSINESS_JOB'), ownershipMessage,
           'PRODUCT', product.id, 'JOB_CARD', job.id);
       }
-      if (owned(job, organizationId, datasetId) && !productSet.has(product.id)) {
+      if (owned(job, organizationId, datasetId) && !productSet.has(product.id) && !isBusiness(product)) {
         edgeBlocker(blockers, ownerCode(product, 'BUSINESS_PRODUCT_TO_DEMO_JOB'), ownershipMessage,
           'JOB_CARD', job.id, 'PRODUCT', product.id);
       }
@@ -936,10 +984,11 @@ export class DemoDatasetImpactAnalyzer {
       const jobIsTarget = owned(job, organizationId, datasetId);
       const actorIsTarget = userSet.has(activity.actor_id);
       if (jobIsTarget && !actorIsTarget) {
-        edgeBlocker(blockers, ownerCode(userById.get(activity.actor_id) ?? {
-          id: activity.actor_id, organization_id: organizationId, data_class: 'BUSINESS', demo_dataset_id: null,
-        }, 'BUSINESS_JOB_ACTIVITY_TO_DEMO_USER'), ownershipMessage,
-        'JOB_ACTIVITY', activity.id, 'USER', activity.actor_id);
+        const actor = userById.get(activity.actor_id);
+        if (actor && !isBusiness(actor)) {
+          edgeBlocker(blockers, ownerCode(actor, 'BUSINESS_JOB_ACTIVITY_TO_DEMO_USER'), ownershipMessage,
+            'JOB_ACTIVITY', activity.id, 'USER', activity.actor_id);
+        }
       }
       if (!jobIsTarget && actorIsTarget) {
         edgeBlocker(blockers, ownerCode(job, 'DEMO_USER_TO_BUSINESS_JOB_ACTIVITY'), ownershipMessage,
@@ -952,10 +1001,11 @@ export class DemoDatasetImpactAnalyzer {
       const jobIsTarget = owned(job, organizationId, datasetId);
       const authorIsTarget = userSet.has(note.author_id);
       if (jobIsTarget && !authorIsTarget) {
-        edgeBlocker(blockers, ownerCode(userById.get(note.author_id) ?? {
-          id: note.author_id, organization_id: organizationId, data_class: 'BUSINESS', demo_dataset_id: null,
-        }, 'BUSINESS_JOB_NOTE_TO_DEMO_USER'), ownershipMessage,
-        'JOB_NOTE', note.id, 'USER', note.author_id);
+        const author = userById.get(note.author_id);
+        if (author && !isBusiness(author)) {
+          edgeBlocker(blockers, ownerCode(author, 'BUSINESS_JOB_NOTE_TO_DEMO_USER'), ownershipMessage,
+            'JOB_NOTE', note.id, 'USER', note.author_id);
+        }
       }
       if (!jobIsTarget && authorIsTarget) {
         edgeBlocker(blockers, ownerCode(job, 'DEMO_USER_TO_BUSINESS_JOB_NOTE'), ownershipMessage,
@@ -966,9 +1016,12 @@ export class DemoDatasetImpactAnalyzer {
       const staffIsTarget = userSet.has(note.staff_user_id);
       const authorIsTarget = userSet.has(note.author_user_id);
       if (staffIsTarget && !authorIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, note.author_user_id,
-          'BUSINESS_CONFIDENTIAL_NOTE_AUTHOR_TO_DEMO_USER'), ownershipMessage,
-          'STAFF_CONFIDENTIAL_NOTE', note.id, 'USER', note.author_user_id);
+        const author = userById.get(note.author_user_id);
+        if (author && !isBusiness(author)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, note.author_user_id,
+            'BUSINESS_CONFIDENTIAL_NOTE_AUTHOR_TO_DEMO_USER'), ownershipMessage,
+            'STAFF_CONFIDENTIAL_NOTE', note.id, 'USER', note.author_user_id);
+        }
       }
       if (!staffIsTarget && authorIsTarget) {
         edgeBlocker(blockers, userOwnerCode(userById, organizationId, note.staff_user_id,
@@ -985,19 +1038,23 @@ export class DemoDatasetImpactAnalyzer {
             'USER', userId, 'CALENDAR_EVENT', event.id);
         }
         if (eventIsTarget && !userSet.has(userId)) {
-          edgeBlocker(blockers, ownerCode(userById.get(userId) ?? {
-            id: userId, organization_id: organizationId, data_class: 'BUSINESS', demo_dataset_id: null,
-          }, 'BUSINESS_CALENDAR_EVENT_TO_DEMO_USER'), ownershipMessage,
-          'CALENDAR_EVENT', event.id, 'USER', userId);
+          const relatedUser = userById.get(userId);
+          if (relatedUser && !isBusiness(relatedUser)) {
+            edgeBlocker(blockers, ownerCode(relatedUser, 'BUSINESS_CALENDAR_EVENT_TO_DEMO_USER'), ownershipMessage,
+              'CALENDAR_EVENT', event.id, 'USER', userId);
+          }
         }
       }
     }
     for (const activity of calendarActivitiesEdge) {
       const event = allEventById.get(activity.calendar_event_id);
       if (event && owned(event, organizationId, datasetId) && activity.actor_user_id && !userSet.has(activity.actor_user_id)) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, activity.actor_user_id,
-          'BUSINESS_CALENDAR_ACTIVITY_TO_DEMO_EVENT'), ownershipMessage,
-          'CALENDAR_EVENT_ACTIVITY', activity.id, 'USER', activity.actor_user_id);
+        const actor = userById.get(activity.actor_user_id);
+        if (actor && !isBusiness(actor)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, activity.actor_user_id,
+            'BUSINESS_CALENDAR_ACTIVITY_TO_DEMO_EVENT'), ownershipMessage,
+            'CALENDAR_EVENT_ACTIVITY', activity.id, 'USER', activity.actor_user_id);
+        }
       }
       if (event && !owned(event, organizationId, datasetId) && activity.actor_user_id && userSet.has(activity.actor_user_id)) {
         edgeBlocker(blockers, ownerCode(event, 'DEMO_USER_TO_BUSINESS_CALENDAR_ACTIVITY'), ownershipMessage,
@@ -1010,7 +1067,7 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       if (conversation.job_id) {
         const job = allJobById.get(conversation.job_id);
-        if (job && conversationIsTarget && !owned(job, organizationId, datasetId)) {
+        if (job && conversationIsTarget && !owned(job, organizationId, datasetId) && !isBusiness(job)) {
           edgeBlocker(blockers, ownerCode(job, 'DEMO_CONVERSATION_TO_BUSINESS_JOB'), ownershipMessage,
             'CONVERSATION', conversation.id, 'JOB_CARD', job.id);
         }
@@ -1021,13 +1078,15 @@ export class DemoDatasetImpactAnalyzer {
       }
       if (conversation.customer_id) {
         const customer = customersEdge.find((row) => row.id === conversation.customer_id);
-        if (customer && conversationIsTarget && !owned(customer, organizationId, datasetId)) {
-          edgeBlocker(blockers, ownerCode(customer, 'DEMO_CONVERSATION_TO_BUSINESS_CUSTOMER'), ownershipMessage,
-            'CONVERSATION', conversation.id, 'CUSTOMER', customer.id);
-        }
-        if (customer && !conversationIsTarget && owned(customer, organizationId, datasetId)) {
-          edgeBlocker(blockers, ownerCode(conversation, 'DEMO_CUSTOMER_TO_BUSINESS_CONVERSATION'), ownershipMessage,
-            'CUSTOMER', customer.id, 'CONVERSATION', conversation.id);
+        if (customer) {
+          if (conversationIsTarget && !owned(customer, organizationId, datasetId) && !isBusiness(customer)) {
+            edgeBlocker(blockers, ownerCode(customer, 'DEMO_CONVERSATION_TO_BUSINESS_CUSTOMER'), ownershipMessage,
+              'CONVERSATION', conversation.id, 'CUSTOMER', customer.id);
+          }
+          if (!conversationIsTarget && owned(customer, organizationId, datasetId)) {
+            edgeBlocker(blockers, ownerCode(conversation, 'DEMO_CUSTOMER_TO_BUSINESS_CONVERSATION'), ownershipMessage,
+              'CUSTOMER', customer.id, 'CONVERSATION', conversation.id);
+          }
         }
       }
     }
@@ -1037,9 +1096,12 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       const participantIsTarget = userSet.has(participant.userId);
       if (conversationIsTarget && !participantIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, participant.userId,
-          'BUSINESS_CONVERSATION_TO_DEMO_USER'), ownershipMessage,
-          'CONVERSATION', participant.conversationId, 'USER', participant.userId);
+        const user = userById.get(participant.userId);
+        if (user && !isBusiness(user)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, participant.userId,
+            'BUSINESS_CONVERSATION_TO_DEMO_USER'), ownershipMessage,
+            'CONVERSATION', participant.conversationId, 'USER', participant.userId);
+        }
       }
       if (!conversationIsTarget && participantIsTarget) {
         edgeBlocker(blockers, ownerCode(conversation, 'DEMO_USER_TO_BUSINESS_CONVERSATION'), ownershipMessage,
@@ -1052,9 +1114,12 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       const senderIsTarget = userSet.has(message.sender_user_id);
       if (conversationIsTarget && !senderIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, message.sender_user_id,
-          'BUSINESS_MESSAGE_TO_DEMO_CONVERSATION'), ownershipMessage,
-          'MESSAGE', message.id, 'USER', message.sender_user_id);
+        const user = userById.get(message.sender_user_id);
+        if (user && !isBusiness(user)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, message.sender_user_id,
+            'BUSINESS_MESSAGE_TO_DEMO_CONVERSATION'), ownershipMessage,
+            'MESSAGE', message.id, 'USER', message.sender_user_id);
+        }
       }
       if (!conversationIsTarget && senderIsTarget) {
         edgeBlocker(blockers, ownerCode(conversation, 'DEMO_USER_TO_BUSINESS_MESSAGE'), ownershipMessage,
@@ -1067,9 +1132,12 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       const actorIsTarget = userSet.has(activity.actor_user_id);
       if (conversationIsTarget && !actorIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, activity.actor_user_id,
-          'BUSINESS_MESSAGING_ACTIVITY_TO_DEMO_CONVERSATION'), ownershipMessage,
-          'MESSAGING_ACTIVITY', activity.id, 'USER', activity.actor_user_id);
+        const user = userById.get(activity.actor_user_id);
+        if (user && !isBusiness(user)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, activity.actor_user_id,
+            'BUSINESS_MESSAGING_ACTIVITY_TO_DEMO_CONVERSATION'), ownershipMessage,
+            'MESSAGING_ACTIVITY', activity.id, 'USER', activity.actor_user_id);
+        }
       }
       if (!conversationIsTarget && actorIsTarget) {
         edgeBlocker(blockers, ownerCode(conversation, 'DEMO_USER_TO_BUSINESS_MESSAGING_ACTIVITY'), ownershipMessage,
@@ -1082,9 +1150,12 @@ export class DemoDatasetImpactAnalyzer {
       const conversationIsTarget = owned(conversation, organizationId, datasetId);
       const stateUserIsTarget = userSet.has(state.userId);
       if (conversationIsTarget && !stateUserIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, state.userId,
-          'BUSINESS_CONVERSATION_STATE_TO_DEMO_CONVERSATION'), ownershipMessage,
-          'CONVERSATION_USER_STATE', `${state.conversationId}:${state.userId}`, 'USER', state.userId);
+        const user = userById.get(state.userId);
+        if (user && !isBusiness(user)) {
+          edgeBlocker(blockers, userOwnerCode(userById, organizationId, state.userId,
+            'BUSINESS_CONVERSATION_STATE_TO_DEMO_CONVERSATION'), ownershipMessage,
+            'CONVERSATION_USER_STATE', `${state.conversationId}:${state.userId}`, 'USER', state.userId);
+        }
       }
       if (!conversationIsTarget && stateUserIsTarget) {
         edgeBlocker(blockers, ownerCode(conversation, 'DEMO_USER_TO_BUSINESS_CONVERSATION_STATE'), ownershipMessage,
@@ -1094,106 +1165,21 @@ export class DemoDatasetImpactAnalyzer {
 
     const jobById = new Map(allJobsEdge.map((row) => [row.id, row]));
     for (const reminder of reminderCandidates) {
-      const sourceJob = reminder.job_card_id ? jobById.get(reminder.job_card_id) : undefined;
-      const sourceEvent = reminder.calendar_event_id ? allEventById.get(reminder.calendar_event_id) : undefined;
-      const sourceIsTarget = (sourceJob && owned(sourceJob, organizationId, datasetId))
-        || (sourceEvent && owned(sourceEvent, organizationId, datasetId));
-      const recipientIsTarget = userSet.has(reminder.recipient_user_id);
-      if (sourceIsTarget && !recipientIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, reminder.recipient_user_id,
-          'DEMO_REMINDER_TO_EXTERNAL_USER'), ownershipMessage,
-          'CALENDAR_REMINDER', reminder.id, 'USER', reminder.recipient_user_id);
-      }
-      if (!sourceIsTarget && recipientIsTarget) {
-        const sourceCode = sourceJob
-          ? ownerCode(sourceJob, 'EXTERNAL_REMINDER_TO_DEMO_USER')
-          : sourceEvent
-            ? ownerCode(sourceEvent, 'EXTERNAL_REMINDER_TO_DEMO_USER')
-            : 'EXTERNAL_DERIVED_EDGE';
-        edgeBlocker(blockers, sourceCode, ownershipMessage,
-          'USER', reminder.recipient_user_id, 'CALENDAR_REMINDER', reminder.id);
-      }
+      // DEMO->BUSINESS and BUSINESS->DEMO reminders are purgeable derived artifacts:
+      // they will be included in the purge plan and deleted, preserving the BUSINESS root.
+      // Only CLAIMED reminders remain a worker safety blocker.
       if (reminder.state === 'CLAIMED') {
         edgeBlocker(blockers, 'WORKER_CLAIMED_REMINDER', 'Demo hatırlatıcısı bir worker tarafından işleniyor.',
           'CALENDAR_REMINDER', reminder.id, null, null);
       }
     }
 
-    const realtimeSourceIds = [
-      ...jobActivityIds,
-      ...calendarActivities,
-      ...targetReminderIds,
-      ...targetMessagingActivityIds,
-      ...confidentialNotes,
-    ];
-    const externalSourceRealtime = await rows<IdRow>(this.client, `
-      SELECT re.id::text
-      FROM realtime_events re
-      WHERE re.organization_id = $1
-        AND (
-          EXISTS (
-            SELECT 1 FROM job_card_activity_logs a
-            JOIN job_cards j ON j.organization_id = a.organization_id AND j.id = a.job_card_id
-            WHERE a.id = re.source_activity_id
-              AND NOT (j.data_class = 'DEMO' AND j.demo_dataset_id = $2 AND j.organization_id = $1)
-          )
-          OR EXISTS (
-            SELECT 1 FROM calendar_event_activity_logs a
-            JOIN calendar_events e ON e.organization_id = a.organization_id AND e.id = a.calendar_event_id
-            WHERE a.id = re.calendar_activity_id
-              AND NOT (e.data_class = 'DEMO' AND e.demo_dataset_id = $2 AND e.organization_id = $1)
-          )
-          OR EXISTS (
-            SELECT 1 FROM calendar_reminders r
-            WHERE r.id = re.calendar_reminder_id
-              AND NOT (
-                (r.job_card_id IN (SELECT id FROM job_cards WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2))
-                OR (r.calendar_event_id IN (SELECT id FROM calendar_events WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2))
-              )
-          )
-          OR EXISTS (
-            SELECT 1 FROM messaging_activity_logs a
-            JOIN conversations c ON c.organization_id = a.organization_id AND c.id = a.conversation_id
-            WHERE a.id = re.messaging_activity_id
-              AND NOT (c.data_class = 'DEMO' AND c.demo_dataset_id = $2 AND c.organization_id = $1)
-          )
-          OR EXISTS (
-            SELECT 1 FROM staff_confidential_notes n
-            JOIN users u ON u.organization_id = n.organization_id AND u.id = n.staff_user_id
-            WHERE n.id = re.staff_note_id
-              AND NOT (u.data_class = 'DEMO' AND u.demo_dataset_id = $2 AND u.organization_id = $1)
-          )
-        )`, [organizationId, datasetId]);
-    if (externalSourceRealtime.length > 0) {
-      edgeBlocker(blockers, 'EXTERNAL_DERIVED_EDGE', 'Realtime kaynağının sahipliği hedef demo veri kümesine ait değil.',
-        'REALTIME_EVENT', 'EXTERNAL_DERIVED_EDGE', null, null);
-    }
-
-    for (const notification of notificationsEdge) {
-      const sourceIsTarget = realtimeSet.has(notification.source_realtime_event_id);
-      const recipientIsTarget = userSet.has(notification.recipient_user_id);
-      if (sourceIsTarget && !recipientIsTarget) {
-        edgeBlocker(blockers, userOwnerCode(userById, organizationId, notification.recipient_user_id,
-          'DEMO_NOTIFICATION_TO_EXTERNAL_USER'), ownershipMessage,
-          'IN_APP_NOTIFICATION', notification.id, 'USER', notification.recipient_user_id);
-      }
-      if (!sourceIsTarget && recipientIsTarget) {
-        edgeBlocker(blockers, 'EXTERNAL_NOTIFICATION_TO_DEMO_USER', ownershipMessage,
-          'USER', notification.recipient_user_id, 'IN_APP_NOTIFICATION', notification.id);
-      }
-    }
+    // Realtime/notification/reminder/push cross-scope edges are purgeable derived artifacts.
+    // DEMO-derived realtime/notifications/reminders with BUSINESS recipients and
+    // BUSINESS-derived realtime/notifications with DEMO recipients are included in the
+    // purge plan and deleted, preserving BUSINESS roots.
 
     for (const delivery of deliveryCandidates) {
-      const notificationIsTarget = targetNotificationRows.some((row) => row.id === delivery.notification_id);
-      const subscriptionIsTarget = targetSubscriptionSet.has(delivery.subscription_id);
-      if (notificationIsTarget && !subscriptionIsTarget) {
-        edgeBlocker(blockers, 'DEMO_PUSH_TO_EXTERNAL_SUBSCRIPTION', ownershipMessage,
-          'IN_APP_NOTIFICATION', delivery.notification_id, 'WEB_PUSH_SUBSCRIPTION', delivery.subscription_id);
-      }
-      if (!notificationIsTarget && subscriptionIsTarget) {
-        edgeBlocker(blockers, 'EXTERNAL_NOTIFICATION_TO_DEMO_SUBSCRIPTION', ownershipMessage,
-          'WEB_PUSH_SUBSCRIPTION', delivery.subscription_id, 'IN_APP_NOTIFICATION', delivery.notification_id);
-      }
       if (delivery.state === 'CLAIMED') {
         edgeBlocker(blockers, 'WORKER_CLAIMED_WEB_PUSH', 'Demo push teslimatı bir worker tarafından işleniyor.',
           'WEB_PUSH_DELIVERY', delivery.id, null, null);
@@ -1222,14 +1208,20 @@ export class DemoDatasetImpactAnalyzer {
         'USER', 'TARGET_DATASET_USER', 'DEMO_DATASET', reference.id);
     }
 
-    const targetRealtimeRows = realtimeRows.filter((row) =>
+    let targetRealtimeRows = realtimeRows.filter((row) =>
       (row.source_activity_id ? activityIds.has(row.source_activity_id) : false)
       || (row.calendar_activity_id ? setOf(calendarActivities).has(row.calendar_activity_id) : false)
       || (row.calendar_reminder_id ? setOf(targetReminderIds).has(row.calendar_reminder_id) : false)
       || (row.messaging_activity_id ? setOf(targetMessagingActivityIds).has(row.messaging_activity_id) : false)
       || (row.staff_note_id ? setOf(targetStaffNoteIds).has(row.staff_note_id) : false));
 
-    const targetRealtimeSet = setOf(targetRealtimeRows.map((row) => row.id));
+    const realtimeSourceIds = [
+      ...jobActivityIds,
+      ...calendarActivities,
+      ...targetReminderIds,
+      ...targetMessagingActivityIds,
+      ...confidentialNotes,
+    ];
 
     const realtimeEntityIds = [
       ...jobIds,
@@ -1257,7 +1249,8 @@ export class DemoDatasetImpactAnalyzer {
         'REALTIME_EVENT', 'CROSS_ORGANIZATION_DERIVED_EDGE', null, null);
     }
 
-    const sameOrgExternalRealtime = await rows<IdRow>(this.client, `
+    // Same-org external derived realtime that touches DEMO is purgeable: delete the derived realtime, preserve BUSINESS root
+    const sameOrgExternalRealtimeIds = await rows<IdRow>(this.client, `
       SELECT id::text
       FROM realtime_events
       WHERE organization_id = $1
@@ -1268,18 +1261,53 @@ export class DemoDatasetImpactAnalyzer {
           OR actor_user_id = ANY($4::uuid[])
           OR audience_user_ids && $4::uuid[]
         )`, [organizationId, realtimeEntityIds, realtimeIds, userIds]);
-    if (sameOrgExternalRealtime.length > 0) {
-      edgeBlocker(blockers, 'EXTERNAL_DERIVED_EDGE', 'Realtime kaydı hedef demo grafiğinin dışında bir ilişki içeriyor.',
-        'REALTIME_EVENT', 'EXTERNAL_DERIVED_EDGE', null, null);
+    if (sameOrgExternalRealtimeIds.length > 0) {
+      const extraRows = await rows<RealtimeRow>(this.client, `
+        SELECT id::text, organization_id, source_activity_id, calendar_activity_id,
+          calendar_reminder_id, messaging_activity_id, staff_note_id,
+          actor_user_id, audience_user_ids, entity_type, entity_id
+        FROM realtime_events
+        WHERE organization_id = $1 AND id = ANY($2::bigint[])`, [organizationId, sameOrgExternalRealtimeIds.map((r) => r.id)]);
+      const existingIds = setOf(targetRealtimeRows.map((r) => r.id));
+      for (const row of extraRows) {
+        if (!existingIds.has(row.id)) targetRealtimeRows.push(row);
+      }
+    }
+    const targetRealtimeSet = setOf(targetRealtimeRows.map((row) => row.id));
+
+    // Merge notifications derived from the extra same-org realtime (BUSINESS-derived but touching DEMO)
+    if (sameOrgExternalRealtimeIds.length > 0) {
+      const extraNotif = await rows<NotificationRow>(this.client, `
+        SELECT id, organization_id, recipient_user_id, source_realtime_event_id::text
+        FROM in_app_notifications
+        WHERE organization_id = $1 AND source_realtime_event_id = ANY($2::bigint[])`,
+        [organizationId, sameOrgExternalRealtimeIds.map((r) => r.id)]);
+      const existingNotifIds = setOf(targetNotificationRows.map((r) => r.id));
+      for (const row of extraNotif) {
+        if (!existingNotifIds.has(row.id)) {
+          targetNotificationRows.push(row);
+          existingNotifIds.add(row.id);
+        }
+      }
+      // Also merge web_push_deliveries for those extra notifications
+      if (extraNotif.length > 0) {
+        const extraNotifIds = extraNotif.map((r) => r.id);
+        const extraDeliveries = await rows<PushDeliveryRow>(this.client, `
+          SELECT id, organization_id, notification_id, subscription_id, state
+          FROM web_push_deliveries
+          WHERE organization_id = $1 AND notification_id = ANY($2::uuid[])`,
+          [organizationId, extraNotifIds]);
+        const existingDeliveryIds = setOf(targetDeliveryRows.map((r) => r.id));
+        for (const row of extraDeliveries) {
+          if (!existingDeliveryIds.has(row.id)) targetDeliveryRows.push(row);
+        }
+      }
     }
 
-    const targetNotificationIdsFinal = notificationsEdge
-      .filter((row) => targetRealtimeSet.has(row.source_realtime_event_id) && userSet.has(row.recipient_user_id))
-      .map((row) => row.id);
+    // Notifications and deliveries touching DEMO are already expanded to union above; use them directly
+    const targetNotificationIdsFinal = targetNotificationRows.map((row) => row.id);
     const targetNotificationSet = setOf(targetNotificationIdsFinal);
-    const targetDeliveryIds = deliveryCandidates
-      .filter((row) => targetNotificationSet.has(row.notification_id) && targetSubscriptionSet.has(row.subscription_id))
-      .map((row) => row.id);
+    const targetDeliveryIds = targetDeliveryRows.map((row) => row.id);
 
     const retainedAuditActorLinks: DemoDatasetRetainedActorLink[] = auditLinks.map((row) => ({
       auditEventId: row.id,

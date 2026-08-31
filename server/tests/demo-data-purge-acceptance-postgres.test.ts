@@ -727,7 +727,22 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
 
     const reverseFixture = await createFixture();
     await insertCustomer(reverseFixture, 'DEMO', reverseFixture.datasetId, reverseFixture.businessStaffId);
-    await expectBlocked(reverseFixture, ['BUSINESS_USER_TO_DEMO_CUSTOMER']);
+    // DEMO customer -> BUSINESS user is DEMO-owned referencing BUSINESS root: purgeable
+    {
+      const preview = await reverseFixture.service.preview(reverseFixture.admin, reverseFixture.datasetId);
+      expect(preview.safeToPurge).toBe(true);
+      expect(preview.blockers).toEqual([]);
+      const resp = await reverseFixture.service.purge(reverseFixture.admin, reverseFixture.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: preview.planHash,
+      });
+      expect(resp.status).toBe('COMPLETED');
+      // Ensure business staff still exists
+      expect((await pool!.query('SELECT id FROM users WHERE id = $1', [reverseFixture.businessStaffId])).rows.length).toBe(1);
+      // Demo customer deleted is implied by purge completion; verify via count
+      const demoCustomers = await pool!.query('SELECT COUNT(*)::int AS c FROM customers WHERE organization_id = $1 AND data_class = $2', [reverseFixture.organizationId, 'DEMO']);
+      expect(demoCustomers.rows[0].c).toBe(0);
+    }
 
     const crossDatasetFixture = await createFixture();
     const otherDatasetId = await addDataset(crossDatasetFixture);
@@ -782,7 +797,18 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
        VALUES ($1, $2, $3), ($1, $4, $3)`,
       [conversationId, messagingFixture.staffId, messagingFixture.organizationId, messagingFixture.adminId],
     );
-    await expectBlocked(messagingFixture, ['BUSINESS_CONVERSATION_TO_DEMO_USER']);
+    // DEMO conversation -> BUSINESS participant is DEMO-owned referencing BUSINESS root: purgeable
+    {
+      const preview = await messagingFixture.service.preview(messagingFixture.admin, messagingFixture.datasetId);
+      expect(preview.safeToPurge).toBe(true);
+      expect(preview.blockers).toEqual([]);
+      const resp = await messagingFixture.service.purge(messagingFixture.admin, messagingFixture.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: preview.planHash,
+      });
+      expect(resp.status).toBe('COMPLETED');
+      expect((await pool!.query('SELECT id FROM users WHERE id = $1', [messagingFixture.adminId])).rows.length).toBe(1);
+    }
   });
 
   it('blocks cross-organization realtime, worker claims and backup dependencies fail-closed', async () => {
@@ -1045,6 +1071,109 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
       planHash: preview.planHash,
     })).rejects.toMatchObject({ code: 'DEMO_DATASET_PURGE_IN_PROGRESS' });
     expect(await datasetSnapshot(fixture)).toEqual(before);
+  });
+
+  it('purges cross-scope DEMO artifacts while preserving BUSINESS roots', async () => {
+    // Scenario A: BUSINESS Staff assigned to DEMO Job
+    const staffFixture = await createFixture();
+    const demoJobId = await insertJob(staffFixture, {
+      title: 'Demo job for business staff',
+      assignedTo: staffFixture.businessStaffId,
+      createdBy: staffFixture.demoManagerId,
+    });
+    const demoActivityId = await insertJobActivity(staffFixture, demoJobId, staffFixture.demoManagerId, 'JOB_CREATED');
+    // Simulate derived artifacts: reminder, realtime, notification for BUSINESS recipient
+    const reminderId = (await first<{ id: string }>(
+      `INSERT INTO calendar_reminders (organization_id, job_card_id, recipient_user_id, remind_at, next_attempt_at, dedupe_key)
+       VALUES ($1, $2, $3, NOW(), NOW(), $4) RETURNING id`,
+      [staffFixture.organizationId, demoJobId, staffFixture.businessStaffId, `reminder-${randomUUID()}`],
+    )).id;
+    const realtimeId = await insertRealtime(staffFixture, 'source_activity_id', demoActivityId, 'job.created', 'job-card', demoJobId);
+    // Manually insert notification with BUSINESS recipient and DEMO-derived realtime
+    const notificationId = (await first<{ id: string }>(
+      `INSERT INTO in_app_notifications (organization_id, recipient_user_id, source_realtime_event_id, kind, entity_type, entity_id)
+       VALUES ($1, $2, $3::bigint, 'job.assigned', 'job-card', $4) RETURNING id`,
+      [staffFixture.organizationId, staffFixture.businessStaffId, realtimeId, demoJobId],
+    )).id;
+    const previewA = await staffFixture.service.preview(staffFixture.admin, staffFixture.datasetId);
+    expect(previewA.safeToPurge).toBe(true);
+    expect(previewA.blockers).toEqual([]);
+    const respA = await staffFixture.service.purge(staffFixture.admin, staffFixture.datasetId, {
+      clientActionId: randomUUID(),
+      planHash: previewA.planHash,
+    });
+    expect(respA.status).toBe('COMPLETED');
+    expect((await pool!.query('SELECT id FROM users WHERE id = $1', [staffFixture.businessStaffId])).rows.length).toBe(1);
+    expect((await pool!.query('SELECT id FROM job_cards WHERE id = $1', [demoJobId])).rows.length).toBe(0);
+    expect((await pool!.query('SELECT id FROM calendar_reminders WHERE id = $1', [reminderId])).rows.length).toBe(0);
+    expect((await pool!.query('SELECT id FROM in_app_notifications WHERE id = $1', [notificationId])).rows.length).toBe(0);
+    expect((await pool!.query('SELECT id FROM realtime_events WHERE id = $1::bigint', [realtimeId])).rows.length).toBe(0);
+
+    // Scenario B: Demo action creates notification for BUSINESS Manager/Admin
+    const managerFixture = await createFixture();
+    const managerJobId = await insertJob(managerFixture, {
+      title: 'Demo job for manager',
+      assignedTo: managerFixture.staffId,
+      createdBy: managerFixture.demoManagerId,
+    });
+    const managerActivityId = await insertJobActivity(managerFixture, managerJobId, managerFixture.demoManagerId, 'JOB_CREATED');
+    const managerRealtimeId = await insertRealtime(managerFixture, 'source_activity_id', managerActivityId, 'job.created', 'job-card', managerJobId);
+    const managerNotifId = (await first<{ id: string }>(
+      `INSERT INTO in_app_notifications (organization_id, recipient_user_id, source_realtime_event_id, kind, entity_type, entity_id)
+       VALUES ($1, $2, $3::bigint, 'job.assigned', 'job-card', $4) RETURNING id`,
+      [managerFixture.organizationId, managerFixture.managerId, managerRealtimeId, managerJobId],
+    )).id;
+    const previewB = await managerFixture.service.preview(managerFixture.admin, managerFixture.datasetId);
+    expect(previewB.safeToPurge).toBe(true);
+    const respB = await managerFixture.service.purge(managerFixture.admin, managerFixture.datasetId, {
+      clientActionId: randomUUID(),
+      planHash: previewB.planHash,
+    });
+    expect(respB.status).toBe('COMPLETED');
+    expect((await pool!.query('SELECT id FROM users WHERE id = $1', [managerFixture.managerId])).rows.length).toBe(1);
+    expect((await pool!.query('SELECT id FROM in_app_notifications WHERE id = $1', [managerNotifId])).rows.length).toBe(0);
+
+    // Scenario C: DEMO Job references BUSINESS Customer / Product
+    const customerFixture = await createFixture();
+    const businessCustomerId = await insertCustomer(customerFixture, 'BUSINESS', null, null);
+    const businessProductId = (await first<{ id: string }>(
+      `INSERT INTO products (organization_id, sku, name, unit) VALUES ($1, $2, 'Business Product', 'adet') RETURNING id`,
+      [customerFixture.organizationId, `BUS-${randomUUID()}`],
+    )).id;
+    const businessRefJobId = await insertJob(customerFixture, {
+      title: 'Demo job referencing business customer/product',
+      assignedTo: customerFixture.staffId,
+      createdBy: customerFixture.demoManagerId,
+      customerId: businessCustomerId,
+    });
+    await pool!.query(
+      `INSERT INTO job_card_delivery_items (organization_id, job_card_id, product_id, delivery_purpose, delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot, delivery_note)
+       VALUES ($1, $2, $3, 'SALE', NOW(), 1, 'adet', 'Business Product', 'BUS', 'ref')`,
+      [customerFixture.organizationId, businessRefJobId, businessProductId],
+    );
+    const previewC = await customerFixture.service.preview(customerFixture.admin, customerFixture.datasetId);
+    expect(previewC.safeToPurge).toBe(true);
+    const respC = await customerFixture.service.purge(customerFixture.admin, customerFixture.datasetId, {
+      clientActionId: randomUUID(),
+      planHash: previewC.planHash,
+    });
+    expect(respC.status).toBe('COMPLETED');
+    expect((await pool!.query('SELECT id FROM customers WHERE id = $1', [businessCustomerId])).rows.length).toBe(1);
+    expect((await pool!.query('SELECT id FROM products WHERE id = $1', [businessProductId])).rows.length).toBe(1);
+    expect((await pool!.query('SELECT id FROM job_cards WHERE id = $1', [businessRefJobId])).rows.length).toBe(0);
+
+    // Scenario G: True unsafe reverse dependency remains blocked (BUSINESS job -> DEMO customer)
+    const unsafeFixture = await createFixture();
+    const demoCustomerForUnsafe = await insertCustomer(unsafeFixture, 'DEMO', unsafeFixture.datasetId, null);
+    await insertJob(unsafeFixture, {
+      title: 'BUSINESS job referencing DEMO customer',
+      assignedTo: unsafeFixture.businessStaffId,
+      createdBy: unsafeFixture.adminId,
+      customerId: demoCustomerForUnsafe,
+      dataClass: 'BUSINESS',
+      datasetId: null,
+    });
+    await expectBlocked(unsafeFixture, ['DEMO_CUSTOMER_TO_BUSINESS_JOB']);
   });
 
   it('enforces ADMIN-only scope, opaque cross-org access, and self-purge blocking', async () => {
