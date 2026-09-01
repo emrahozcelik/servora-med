@@ -555,33 +555,18 @@ export class DemoDatasetImpactAnalyzer {
     [organizationId, customerIds, jobCustomerRefs,
       contactsEdge.map((row) => row.customer_id), userIds]);
 
-    const deliveriesEdge = await rows<DeliveryRow>(this.client, `
-      SELECT di.id, di.organization_id, di.job_card_id, di.product_id
-      FROM job_card_delivery_items di
-      WHERE di.organization_id = $1
-        AND (di.job_card_id = ANY($2::uuid[]) OR di.product_id = ANY($3::uuid[]))`,
-    [organizationId, jobIds, productIds]);
-    const deliveryJobRefs = deliveriesEdge.map((row) => row.job_card_id);
-    const deliveryJobs = await rows<JobRow>(this.client, `
-      SELECT id, organization_id, data_class, demo_dataset_id,
-        assigned_to, created_by, accepted_by, staff_completed_by,
-        manager_approved_by, revision_requested_by, cancelled_by,
-        follow_up_proposed_assignee, follow_up_proposed_by,
-        source_job_card_id, customer_id, contact_id
-      FROM job_cards WHERE organization_id = $1 AND id = ANY($2::uuid[])`,
-    [organizationId, deliveryJobRefs]);
-    for (const job of deliveryJobs) {
-      if (!allJobById.has(job.id)) {
-        allJobById.set(job.id, job);
-        allJobsEdge.push(job);
-      }
-    }
     // Effective DEMO ownership: legacy misclassified follow-ups (persisted as
     // BUSINESS with demo_dataset_id NULL before the forward provenance fix) are
     // DEMO-derived when deterministic graph lineage proves their source chain
     // leads to a JobCard owned by this dataset. Classification is follow-up
     // lineage bound — a row is never classified by customer/assignee/title/
     // timestamp proximity alone.
+    //
+    // Computed here, before any job-scoped artifact fetch, so every subsequent
+    // job-scoped query (deliveries, activities, notes, conversations,
+    // reminders) can key on the lineage-expanded set instead of the seed
+    // jobIds. Otherwise BUSINESS-staff authored artifacts on a derived
+    // follow-up fall outside the plan and trigger FK 23503 at purge time.
     const effectiveDemoJobIds = new Set<string>();
     const jobByIdForEffective = new Map(allJobsEdge.map((row) => [row.id, row]));
     for (const job of allJobsEdge) {
@@ -604,6 +589,28 @@ export class DemoDatasetImpactAnalyzer {
     const effectiveJobIdArr = [...effectiveDemoJobIds].sort();
     const effectiveJobSet = setOf(effectiveJobIdArr);
 
+    const deliveriesEdge = await rows<DeliveryRow>(this.client, `
+      SELECT di.id, di.organization_id, di.job_card_id, di.product_id
+      FROM job_card_delivery_items di
+      WHERE di.organization_id = $1
+        AND (di.job_card_id = ANY($2::uuid[]) OR di.product_id = ANY($3::uuid[]))`,
+    [organizationId, effectiveJobIdArr, productIds]);
+    const deliveryJobRefs = deliveriesEdge.map((row) => row.job_card_id);
+    const deliveryJobs = await rows<JobRow>(this.client, `
+      SELECT id, organization_id, data_class, demo_dataset_id,
+        assigned_to, created_by, accepted_by, staff_completed_by,
+        manager_approved_by, revision_requested_by, cancelled_by,
+        follow_up_proposed_assignee, follow_up_proposed_by,
+        source_job_card_id, customer_id, contact_id
+      FROM job_cards WHERE organization_id = $1 AND id = ANY($2::uuid[])`,
+    [organizationId, deliveryJobRefs]);
+    for (const job of deliveryJobs) {
+      if (!allJobById.has(job.id)) {
+        allJobById.set(job.id, job);
+        allJobsEdge.push(job);
+      }
+    }
+
     const deliveryItems = deliveriesEdge
       .filter((row) => effectiveJobSet.has(row.job_card_id))
       .map((row) => row.id);
@@ -613,7 +620,7 @@ export class DemoDatasetImpactAnalyzer {
       FROM job_card_activity_logs
       WHERE organization_id = $1
         AND (job_card_id = ANY($2::uuid[]) OR actor_id = ANY($3::uuid[]))
-      ORDER BY id`, [organizationId, jobIds, userIds]);
+      ORDER BY id`, [organizationId, effectiveJobIdArr, userIds]);
     const jobActivities = jobActivitiesEdge.filter((row) => effectiveJobSet.has(row.job_card_id));
     const jobActivityIds = jobActivities.map((row) => row.id);
     const jobNotesEdge = await rows<NoteRow>(this.client, `
@@ -621,7 +628,7 @@ export class DemoDatasetImpactAnalyzer {
       FROM job_card_notes
       WHERE organization_id = $1
         AND (job_card_id = ANY($2::uuid[]) OR author_id = ANY($3::uuid[]))
-      ORDER BY id`, [organizationId, jobIds, userIds]);
+      ORDER BY id`, [organizationId, effectiveJobIdArr, userIds]);
     const jobNotes = jobNotesEdge.filter((row) => effectiveJobSet.has(row.job_card_id));
     const activityAndNoteJobRefs = [
       ...jobActivitiesEdge.map((row) => row.job_card_id),
@@ -727,7 +734,7 @@ export class DemoDatasetImpactAnalyzer {
               AND cs.conversation_id = c.id
               AND cs.user_id = ANY($5::uuid[])
           )
-        )`, [organizationId, conversationIds, jobIds, customerIds, userIds]);
+        )`, [organizationId, conversationIds, effectiveJobIdArr, customerIds, userIds]);
     const candidateConversationIds = candidateConversations.map((row) => row.id);
     const conversationJobRefs = candidateConversations.flatMap((row) => row.job_id ? [row.job_id] : []);
     const conversationCustomerRefs = candidateConversations.flatMap((row) => row.customer_id ? [row.customer_id] : []);
@@ -790,7 +797,7 @@ export class DemoDatasetImpactAnalyzer {
           job_card_id = ANY($2::uuid[])
           OR calendar_event_id = ANY($3::uuid[])
           OR recipient_user_id = ANY($4::uuid[])
-        )`, [organizationId, jobIds, eventIds, userIds]);
+        )`, [organizationId, effectiveJobIdArr, eventIds, userIds]);
     const reminderJobRefs = reminderCandidates.flatMap((row) => row.job_card_id ? [row.job_card_id] : []);
     const reminderEventRefs = reminderCandidates.flatMap((row) => row.calendar_event_id ? [row.calendar_event_id] : []);
     const reminderJobs = await rows<JobRow>(this.client, `
