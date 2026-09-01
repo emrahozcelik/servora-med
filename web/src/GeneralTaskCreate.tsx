@@ -11,7 +11,7 @@ import {
   type CustomerSummary,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate } from './services/request-gate';
+import { createRequestGate, mergeById } from './services/request-gate';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -66,6 +66,9 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const errorRef = useRef<HTMLDivElement>(null);
   const actionIdRef = useRef<string | null>(null);
   const contactGate = useRef(createRequestGate());
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(new Map<string, CustomerSummary>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -88,21 +91,40 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, user.role]);
 
-  useEffect(() => () => { contactGate.current.next(); }, []);
+  useEffect(() => () => {
+    contactGate.current.next();
+    customerLoadGate.current.next();
+  }, []);
 
   async function loadActiveCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
-      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
-      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+      const next = await loadAllCustomers();
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      setCustomers(reconciled); setCustomerState('ready');
+      const selectedCreatedId = selectedCreatedCustomerRef.current;
+      if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
+        setCustomerId(selectedCreatedId);
+        void changeCustomer(selectedCreatedId, true);
+      } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
         setCustomerId(initialCustomerId);
         void changeCustomer(initialCustomerId);
       } else if (initialCustomerId) {
         setCustomerId('');
       }
     } catch {
-      setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
-      setContactState('idle'); setCustomerState('error');
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = Array.from(createdCustomersRef.current.values());
+      if (created.length > 0) {
+        setCustomers(created);
+        setCustomerId(selectedCreatedCustomerRef.current ?? '');
+        setCustomerState('ready');
+      } else {
+        setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
+        setContactState('idle'); setCustomerState('error');
+      }
     }
   }
 
@@ -110,7 +132,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     if (event.currentTarget.open && customerState === 'idle') void loadActiveCustomers();
   }
 
-  async function changeCustomer(nextCustomerId: string) {
+  async function changeCustomer(nextCustomerId: string, preserveCreated = false) {
+    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
     setCustomerId(nextCustomerId); setContactId(''); setContacts([]);
     const generation = contactGate.current.next();
     if (!nextCustomerId) { setContactState('idle'); return; }
@@ -126,10 +149,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   }
 
   function addCreatedCustomer(customer: Customer) {
-    setCustomers((current) => current.some((item) => item.id === customer.id)
-      ? current
-      : [...current, { ...customer, assignedStaffName: null, primaryContact: null }]);
-    void changeCustomer(customer.id);
+    const summary = { ...customer, assignedStaffName: null, primaryContact: null };
+    createdCustomersRef.current.set(customer.id, summary);
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => mergeById(current, [summary]));
+    setCustomerState('ready');
+    void changeCustomer(customer.id, true);
     setCustomerCreateOpen(false);
   }
 

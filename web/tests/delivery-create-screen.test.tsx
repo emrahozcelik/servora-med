@@ -63,6 +63,12 @@ function profile(id: string, name: string): StaffProfile {
 }
 
 async function settle() { await act(async () => { await Promise.resolve(); }); }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
 function change(select: HTMLSelectElement, value: string) { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }
 function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -396,5 +402,48 @@ describe('Delivery create CRM defaults', () => {
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
     expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Başarı sonrası korunmalı');
     expect(api.createProductDelivery).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newly-created Customer selected when the initial reference list resolves late', async () => {
+    const initial = deferred<ReferenceCustomer[]>();
+    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(view(staffUser)));
+    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).disabled).toBe(true);
+
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    initial.resolve(customers.slice(0, 1));
+    await settle();
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-a', 'customer-created']);
+    expect(select.value).toBe('customer-created');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the Customer reference state ready when the initial list fails after creation', async () => {
+    const initial = deferred<ReferenceCustomer[]>();
+    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(view(staffUser)));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    initial.reject(new Error('İlk müşteri listesi başarısız'));
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    expect(container.querySelector('[data-retry-customers]')).toBeNull();
   });
 });

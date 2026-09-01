@@ -403,6 +403,57 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard).not.toHaveBeenCalled();
   });
 
+  it('keeps a newly-created Customer selected when the optional list resolves late', async () => {
+    const initial = deferred<{ items: ReturnType<typeof customer>[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    expect((container.querySelector('#task-customer') as HTMLSelectElement).disabled).toBe(true);
+
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Taslak görev');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    initial.resolve({ items: [customer('customer-1', 'Eski Klinik')], total: 1, limit: 200, offset: 0 });
+    await settle();
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-1', 'customer-created']);
+    expect(select.value).toBe('customer-created');
+    expect(container.querySelector('#task-title')).toHaveProperty('value', 'Taslak görev');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the optional Customer reference usable when its initial list fails after creation', async () => {
+    const initial = deferred<{ items: ReturnType<typeof customer>[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    initial.reject(new Error('İlk müşteri listesi başarısız'));
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('Müşteriler yüklenemedi');
+  });
+
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }))

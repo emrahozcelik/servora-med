@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 import { CustomerCreateFlow } from './CustomerList';
 import type { Customer } from './services/crm-api';
@@ -18,6 +18,12 @@ export function CustomerCreateSideFlow({
   onCancel: () => void;
   onCreated: (customer: Customer) => void;
 }) {
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!open) setPending(false);
+  }, [open]);
+
   return (
     <ResponsiveFormDrawer
       open={open}
@@ -25,12 +31,14 @@ export function CustomerCreateSideFlow({
       onDismiss={onCancel}
       returnFocusRef={returnFocusRef}
       rootClassName="job-customer-create-drawer"
+      dismissDisabled={pending}
     >
       <CustomerCreateFlow
         user={user}
         embedded
         onCancel={onCancel}
         onCreated={onCreated}
+        onPendingChange={setPending}
       />
     </ResponsiveFormDrawer>
   );

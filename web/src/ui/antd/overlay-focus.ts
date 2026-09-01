@@ -1,7 +1,7 @@
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from 'react';
 
 const FOCUSABLE =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'summary, button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function focusableElements(root: HTMLElement | null): HTMLElement[] {
   return Array.from(root?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);

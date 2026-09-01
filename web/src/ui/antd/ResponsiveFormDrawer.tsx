@@ -15,6 +15,8 @@ export type ResponsiveFormDrawerProps = {
   children: ReactNode;
   returnFocusRef?: RefObject<HTMLElement | null>;
   rootClassName?: string;
+  /** Prevent every dismiss path while an owned form request is in flight. */
+  dismissDisabled?: boolean;
 };
 
 /**
@@ -29,6 +31,7 @@ export function ResponsiveFormDrawer({
   children,
   returnFocusRef,
   rootClassName,
+  dismissDisabled = false,
 }: ResponsiveFormDrawerProps): ReactNode {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -54,14 +57,21 @@ export function ResponsiveFormDrawer({
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onDismiss();
+        if (!dismissDisabled) onDismiss();
         return;
       }
       trapTabKey(event, panel);
     }
     panel.addEventListener('keydown', onKey);
     return () => panel.removeEventListener('keydown', onKey);
-  }, [open, onDismiss]);
+  }, [dismissDisabled, open, onDismiss]);
+
+  useEffect(() => {
+    if (!open || !dismissDisabled || !panelRef.current) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && panelRef.current.contains(active) && !active.matches(':disabled')) return;
+    panelRef.current.focus();
+  }, [dismissDisabled, open]);
 
   if (!open) return null;
 
@@ -71,7 +81,9 @@ export function ResponsiveFormDrawer({
         type="button"
         className="form-drawer-backdrop"
         aria-label="Formu kapat"
-        onClick={onDismiss}
+        disabled={dismissDisabled}
+        aria-disabled={dismissDisabled}
+        onClick={() => { if (!dismissDisabled) onDismiss(); }}
       />
       <div
         ref={panelRef}
@@ -79,6 +91,7 @@ export function ResponsiveFormDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
       >
         <div className="form-drawer-header">
           <h2 id={titleId}>{title}</h2>
@@ -86,7 +99,9 @@ export function ResponsiveFormDrawer({
             ref={closeRef}
             type="button"
             className="secondary-button compact-button"
-            onClick={onDismiss}
+            disabled={dismissDisabled}
+            aria-disabled={dismissDisabled}
+            onClick={() => { if (!dismissDisabled) onDismiss(); }}
             aria-label="Formu kapat"
           >
             ✕

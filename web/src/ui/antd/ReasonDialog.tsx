@@ -109,6 +109,8 @@ export function ReasonDialog({
     if (!open || !initialFocusReady) return;
     const target = initialFocusRef?.current;
     if (!target || ('disabled' in target && Boolean((target as HTMLButtonElement).disabled))) return;
+    const active = document.activeElement;
+    if (active !== cancelRef.current && active !== dialogRef.current) return;
     target.focus();
   }, [initialFocusReady, initialFocusRef, open]);
 

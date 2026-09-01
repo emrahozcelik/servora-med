@@ -11,6 +11,8 @@ import type { DeliveryItem, JobCard, JobWorkflowContext, LifecycleCommand } from
 import type {
   RecordEditPresentation, TransitionPresentation,
 } from '../src/jobs/job-workflow-presentation';
+import type { FollowUpProposalSectionProps } from '../src/jobs/FollowUpProposalSection';
+import { focusableElements } from '../src/ui/antd/overlay-focus';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -434,6 +436,57 @@ describe('Manager review', () => {
         expect(button.disabled).toBe(true);
       }
     } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('keeps the Staff follow-up summary in the dialog focus-trap order', async () => {
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    const onClose = vi.fn();
+    const followUp: FollowUpProposalSectionProps = {
+      mode: 'staff',
+      draft: {
+        scheduledAt: '2026-08-08T10:00:00.000Z', type: 'SALES_MEETING', assignedTo: staff.id,
+        followUpInstructions: 'Takip notu',
+      },
+      origin: null,
+      evaluation: null,
+      assigneeName: staff.name,
+      assignees: [],
+      allowTypeEdit: false,
+      overrideReason: '',
+      inlineError: null,
+      onChange: () => {},
+      onOverrideReasonChange: () => {},
+      onUseSuggestedAlternative: () => {},
+    };
+    try {
+      await act(async () => root.render(<JobWorkflowDialog
+        dialog={{ kind: 'approve', presentation: approvePresentation }}
+        pending={false}
+        followUp={followUp}
+        onClose={onClose}
+        onConfirm={() => {}}
+      />));
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const summary = dialog.querySelector('summary')!;
+      const focusables = focusableElements(dialog);
+      expect(focusables[0]).toBe(summary);
+      summary.focus();
+      await act(async () => {
+        dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+      });
+      expect(document.activeElement).toBe(focusables[focusables.length - 1]);
+      focusables[focusables.length - 1]!.focus();
+      await act(async () => {
+        dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      });
+      expect(document.activeElement).toBe(summary);
+      await act(async () => {
+        dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount()); host.remove();
+    }
   });
 
   it('renders a focus-managed reason dialog with a bounded required field', () => {

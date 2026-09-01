@@ -117,6 +117,48 @@ describe('ReasonDialog', () => {
     expect(document.activeElement).toBe(firstPreludeField.current);
   });
 
+  it('does not steal focus or draft input when the user interacts before async readiness', async () => {
+    const firstPreludeField = { current: null } as RefObject<HTMLElement | null>;
+    const returnFocusRef = { current: trigger } as RefObject<HTMLElement | null>;
+    await renderReason({
+      initialFocusRef: firstPreludeField,
+      initialFocusReady: false,
+      returnFocusRef,
+      prelude: <input ref={firstPreludeField} aria-label="Takip tarihi" />,
+    });
+
+    const textarea = host.querySelector('textarea')!;
+    typeInTextarea(textarea, 'Yönetici notu korunmalı');
+    textarea.focus();
+
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <ReasonDialog
+            open
+            title="Düzeltme için geri gönder"
+            description="Personelin neyi düzeltmesi gerektiğini açıklayın."
+            reasonLabel="Düzeltme nedeni"
+            confirmLabel="Gönder"
+            maxLength={2000}
+            required
+            pending={false}
+            onConfirm={() => {}}
+            onCancel={() => {}}
+            returnFocusRef={returnFocusRef}
+            prelude={<input ref={firstPreludeField} aria-label="Takip tarihi" />}
+            initialFocusRef={firstPreludeField}
+            initialFocusReady
+          />
+        </ServoraAntProvider>,
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(document.activeElement).toBe(textarea);
+    expect(textarea.value).toBe('Yönetici notu korunmalı');
+  });
+
   it('shows required reason error on real empty submit click', async () => {
     const onConfirm = vi.fn();
     await renderReason({ onConfirm });

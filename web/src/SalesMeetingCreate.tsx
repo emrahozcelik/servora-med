@@ -22,6 +22,7 @@ import {
 import { ApiError, type CurrentUser } from './services/api';
 import { listCustomers, type Customer, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate, mergeById } from './services/request-gate';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -66,6 +67,11 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(new Map<string, CustomerSummary>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
+
+  useEffect(() => () => { customerLoadGate.current.next(); }, []);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
@@ -103,23 +109,42 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   }
 
   function addCreatedCustomer(customer: Customer) {
-    setCustomers((current) => current.some((item) => item.id === customer.id)
-      ? current
-      : [...current, { ...customer, assignedStaffName: null, primaryContact: null }]);
+    const summary = { ...customer, assignedStaffName: null, primaryContact: null };
+    createdCustomersRef.current.set(customer.id, summary);
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => mergeById(current, [summary]));
     setCustomerId(customer.id);
+    setCustomerState('ready');
     setCustomerCreateOpen(false);
   }
 
   async function loadCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
-      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
-      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+      const next = await loadAllCustomers();
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      setCustomers(reconciled); setCustomerState('ready');
+      const selectedCreatedId = selectedCreatedCustomerRef.current;
+      if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
+        setCustomerId(selectedCreatedId);
+      } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
         setCustomerId(initialCustomerId);
       } else if (initialCustomerId) {
         setCustomerId('');
       }
-    } catch { setCustomers([]); setCustomerId(''); setCustomerState('error'); }
+    } catch {
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = Array.from(createdCustomersRef.current.values());
+      if (created.length > 0) {
+        setCustomers(created);
+        setCustomerId(selectedCreatedCustomerRef.current ?? '');
+        setCustomerState('ready');
+      } else {
+        setCustomers([]); setCustomerId(''); setCustomerState('error');
+      }
+    }
   }
   async function loadActiveStaff() {
     setStaffState('loading');
@@ -238,7 +263,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
             aria-invalid={fieldErrors.customerId ? true : undefined}
             aria-describedby={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
-            onChange={(event) => setCustomerId(event.target.value)}>
+            onChange={(event) => { selectedCreatedCustomerRef.current = null; setCustomerId(event.target.value); }}>
             <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
           {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
         <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>

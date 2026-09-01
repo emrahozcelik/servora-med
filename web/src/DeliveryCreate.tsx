@@ -17,6 +17,7 @@ import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate, mergeById } from './services/request-gate';
 import type { Product } from './services/products-api';
 import type { Customer } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
@@ -91,7 +92,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(new Map<string, ReferenceCustomer>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => () => { customerLoadGate.current.next(); }, []);
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
   useEffect(() => {
@@ -137,14 +142,23 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   }
 
   async function loadCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
       const next = await listReferenceCustomers();
-      setCustomers(next);
-      const initialCustomer = next.find((customer) => (
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      setCustomers(reconciled);
+      const selectedCreatedCustomer = selectedCreatedCustomerRef.current
+        ? reconciled.find((customer) => customer.id === selectedCreatedCustomerRef.current)
+        : undefined;
+      const initialCustomer = reconciled.find((customer) => (
         customer.id === initialCustomerId && customer.status !== 'inactive'
       ));
-      if (initialCustomer) {
+      if (selectedCreatedCustomer) {
+        setCustomerId(selectedCreatedCustomer.id);
+        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
+      } else if (initialCustomer) {
         setCustomerId(initialCustomer.id);
         applyCustomerSelection(initialCustomer);
       } else if (initialCustomerId) {
@@ -153,10 +167,22 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       }
       setCustomerState('ready');
     } catch {
-      setCustomers([]);
-      setCustomerId('');
-      applyCustomerSelection(undefined);
-      setCustomerState('error');
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = Array.from(createdCustomersRef.current.values());
+      if (created.length > 0) {
+        setCustomers(created);
+        const selectedCreatedCustomer = selectedCreatedCustomerRef.current
+          ? created.find((customer) => customer.id === selectedCreatedCustomerRef.current)
+          : undefined;
+        setCustomerId(selectedCreatedCustomer?.id ?? '');
+        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
+        setCustomerState('ready');
+      } else {
+        setCustomers([]);
+        setCustomerId('');
+        applyCustomerSelection(undefined);
+        setCustomerState('error');
+      }
     }
   }
   useEffect(() => { void loadCustomers(); }, []);
@@ -172,16 +198,19 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     }).catch(() => { if (active) setStaffState('error'); });
     return () => { active = false; };
   }, [user.role]);
-  function changeCustomer(nextCustomerId: string) {
+  function changeCustomer(nextCustomerId: string, preserveCreated = false) {
+    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
     setCustomerId(nextCustomerId);
     applyCustomerSelection(customers.find((customer) => customer.id === nextCustomerId));
   }
 
   function addCreatedCustomer(customer: Customer) {
-    setCustomers((current) => current.some((item) => item.id === customer.id)
-      ? current
-      : [...current, customer]);
+    createdCustomersRef.current.set(customer.id, customer);
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => mergeById(current, [customer]));
     setCustomerId(customer.id);
+    if (!assigneeModified.current) applyCustomerSelection(customer);
+    setCustomerState('ready');
     setCustomerCreateOpen(false);
   }
 

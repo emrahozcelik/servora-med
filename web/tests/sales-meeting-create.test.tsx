@@ -68,6 +68,13 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
 describe('Sales Meeting create page (AAP create-time parity)', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -310,5 +317,50 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Hata sonrası görüşme');
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
     expect(jobs.createJobCard).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newly-created Customer selected when the initial list resolves late', async () => {
+    const initial = deferred<{ items: typeof customer[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await render(staffUser);
+    expect((host.querySelector('#meeting-customer') as HTMLSelectElement).disabled).toBe(true);
+
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'Taslak görüşme');
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    initial.resolve({ items: [customer], total: 1, limit: 200, offset: 0 });
+    await flush();
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-1', 'customer-created']);
+    expect(select.value).toBe('customer-created');
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Taslak görüşme');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the Customer reference state ready when the initial list fails after creation', async () => {
+    const initial = deferred<{ items: typeof customer[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await render(staffUser);
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await flush();
+    initial.reject(new Error('İlk müşteri listesi başarısız'));
+    await flush();
+
+    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    expect(host.querySelector('[data-retry-customers]')).toBeNull();
   });
 });

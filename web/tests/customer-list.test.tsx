@@ -10,6 +10,7 @@ import {
   CustomerListScreen,
   CustomerListView,
   createRequestGate,
+  mergeById,
   createCustomerWithRecovery,
   customerFiltersFromParams,
   customerInputFromFormData,
@@ -122,6 +123,17 @@ describe('Customer list and creation', () => {
     vi.advanceTimersByTime(1); expect(callback).toHaveBeenCalledOnce(); vi.useRealTimers();
     const gate = createRequestGate(); const older = gate.next(); const latest = gate.next();
     expect(gate.isCurrent(older)).toBe(false); expect(gate.isCurrent(latest)).toBe(true);
+  });
+
+  it('reconciles reference records by Customer ID without duplicates', () => {
+    expect(mergeById(
+      [{ id: 'old', name: 'Eski' }, { id: 'same', name: 'Eski sürüm' }],
+      [{ id: 'new', name: 'Yeni' }, { id: 'same', name: 'Güncel sürüm' }],
+    )).toEqual([
+      { id: 'old', name: 'Eski' },
+      { id: 'same', name: 'Güncel sürüm' },
+      { id: 'new', name: 'Yeni' },
+    ]);
   });
 
   it('renders labeled filters and an accessible creation form with pending state', () => {
