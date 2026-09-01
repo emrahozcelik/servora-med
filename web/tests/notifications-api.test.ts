@@ -93,3 +93,43 @@ describe('Notification API transport', () => {
     await expect(getUnreadNotificationCount()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });
+
+describe('Notification kind contract (PD-001)', () => {
+  const invalidatedItem = {
+    id: '11111111-1111-4111-8111-111111111111', kind: 'job.invalidated',
+    title: 'İş geçersiz kılındı', body: 'Bu iş kaydı geçersiz kılındı.',
+    entity: { type: 'job-card', id: '22222222-2222-4222-8222-222222222222' },
+    createdAt: '2026-07-21T10:00:00.000Z', readAt: null,
+  };
+
+  it('parses a 2xx list page containing kind="job.invalidated"', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [invalidatedItem], nextCursor: null,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listNotifications()).resolves.toEqual({
+      items: [invalidatedItem], nextCursor: null,
+    });
+  });
+
+  it('parses a mark-read response for kind="job.invalidated"', async () => {
+    const readItem = { ...invalidatedItem, readAt: '2026-07-21T11:00:00.000Z' };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(readItem), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(markNotificationRead(invalidatedItem.id)).resolves.toEqual(readItem);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/notifications/${invalidatedItem.id}/read`,
+      expect.objectContaining({ method: 'PATCH', credentials: 'include' }),
+    );
+  });
+
+  it('stays fail-closed for kinds outside the canonical contract', () => {
+    expect(() => parseNotificationPage({
+      items: [{ ...invalidatedItem, kind: 'job.totally_unknown' }], nextCursor: null,
+    })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+  });
+});
