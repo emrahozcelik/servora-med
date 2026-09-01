@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { buildApp } from '../src/app.js';
 import type { AppDependencies } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { createProductionAppDependencies } from '../src/app-dependencies.js';
 import { createGeolocationDependencies } from '../src/geolocation-dependencies.js';
 import { GoogleReverseGeocoder } from '../src/modules/geocoding/google-reverse-geocoder.js';
 import { PostgresReverseGeocodingQuotaGuard } from '../src/modules/geocoding/postgres-reverse-geocoding-quota.js';
@@ -93,16 +94,40 @@ describe('geolocation composition root wiring (TG-001)', () => {
     );
   });
 
+  it('production bootstrap seam calls the geolocation factory and forwards its result', () => {
+    const config = loadConfig({ ...SYNTHETIC_ENV });
+    const { pool } = recordingQuotaPool();
+    const geolocationDependencies = {
+      reverseGeocoder: { reverse: vi.fn() },
+      reverseGeocodingQuotaGuard: { reserve: vi.fn() },
+    };
+    const createGeolocation = vi.fn(() => geolocationDependencies);
+
+    const dependencies = createProductionAppDependencies(
+      config,
+      pool,
+      {
+        authRepository: {} as AppDependencies['authRepository'],
+        jobCardRepository: {} as AppDependencies['jobCardRepository'],
+      },
+      { createGeolocationDependencies: createGeolocation },
+    );
+
+    expect(createGeolocation).toHaveBeenCalledOnce();
+    expect(createGeolocation).toHaveBeenCalledWith(config, pool);
+    expect(dependencies.reverseGeocoder).toBe(geolocationDependencies.reverseGeocoder);
+    expect(dependencies.reverseGeocodingQuotaGuard).toBe(
+      geolocationDependencies.reverseGeocodingQuotaGuard,
+    );
+  });
+
   it('injects the config-built quota guard and geocoder into JobCardService', async () => {
     const config = loadConfig({ ...SYNTHETIC_ENV });
     const { pool } = recordingQuotaPool();
-    const geolocationDependencies = createGeolocationDependencies(config, pool);
-
-    const dependencies: AppDependencies = {
+    const dependencies = createProductionAppDependencies(config, pool, {
       authRepository: {} as AppDependencies['authRepository'],
       jobCardRepository: {} as AppDependencies['jobCardRepository'],
-      ...geolocationDependencies,
-    };
+    });
     const app = await buildApp(config, dependencies);
     try {
       expect(jobCardServiceCtor).toHaveBeenCalledTimes(1);
@@ -111,11 +136,11 @@ describe('geolocation composition root wiring (TG-001)', () => {
         { enabled: boolean; reverseGeocoder?: unknown; quotaGuard?: unknown },
       ];
       expect(geolocation.enabled).toBe(true);
-      expect(geolocation.reverseGeocoder).toBe(geolocationDependencies.reverseGeocoder);
+      expect(geolocation.reverseGeocoder).toBe(dependencies.reverseGeocoder);
       // Exact identity: the same guard instance built from config limits is
       // what the runtime JobCardService path will call on every START.
       expect(geolocation.quotaGuard).toBe(
-        geolocationDependencies.reverseGeocodingQuotaGuard,
+        dependencies.reverseGeocodingQuotaGuard,
       );
     } finally {
       await app.close();

@@ -25,7 +25,7 @@ import { RealtimeService } from './modules/realtime/service.js';
 import { PostgresNotificationRepository } from './modules/notifications/repository.js';
 import { createShutdown } from './shutdown.js';
 import { PostgresWebPushRepository } from './modules/web-push/repository.js';
-import { createGeolocationDependencies } from './geolocation-dependencies.js';
+import { createProductionAppDependencies } from './app-dependencies.js';
 import { PostgresOverviewRepository } from './modules/overview/repository.js';
 import { PostgresCalendarRepository } from './modules/calendar/repository.js';
 import { PostgresStaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
@@ -80,9 +80,7 @@ async function main() {
       realtimeBus,
     );
 
-    const geolocationDependencies = createGeolocationDependencies(config, database.pool);
-
-    app = await buildApp(config, {
+    const appDependencies = createProductionAppDependencies(config, database.pool, {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
       jobHistoryReadPort: jobCards,
@@ -118,8 +116,8 @@ async function main() {
       notificationRepository: new PostgresNotificationRepository(database.pool),
       webPushRepository: new PostgresWebPushRepository(database.pool),
       pool: database.pool,
-      ...geolocationDependencies,
     });
+    app = await buildApp(config, appDependencies);
 
     const shutdown = createShutdown({
       closeApp: () => app!.close(),
