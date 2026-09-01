@@ -362,4 +362,249 @@ describe.skipIf(!databaseUrl)('Demo effective artifact closure F2 PostgreSQL con
     });
   });
   // @formatter:on
+
+  // @formatter:off
+  it('CONVERSATION_REKEY_EFFECTIVE_JOB_CLOSURE: conversations on an effective legacy DEMO-derived follow-up must be plan-closed; BUSINESS conversation history must fail closed', async () => {
+    // @expected:success-side:preview.safeToPurge=true
+    // @expected:success-side:preview.conversationsIncludeLegacyConversation=true
+    // @expected:success-side:execution:23503-free
+    // @expected:success-side:execution:conversation+message+participant+state deleted
+    // @expected:blocked-side:preview.blockers contain DEMO_JOB_TO_BUSINESS_CONVERSATION
+    // @expected:blocked-side:execution:no-mutation
+    // @expected:blocked-side:BUSINESS conversation/message/participant history preserved
+    await withSchema(async (pool) => {
+      // Success side: a DEMO conversation attached to the legacy derived follow-up
+      // was invisible to the seed-jobIds fetch before the F2 fix; the RESTRICT FK
+      // on conversations.job_id then surfaced as execution-time 23503. It must now
+      // be planned and deleted with its messages/participants/state.
+      const success = await createDemoFixture(pool, 'conversation-closure');
+      const successParentId = await insertJob(pool, success, {
+        title: 'Demo parent completed',
+        status: 'COMPLETED',
+        dataClass: 'DEMO',
+        demoDatasetId: success.datasetId,
+        customerId: success.demoCustomerId,
+        assignedTo: success.demoStaffId,
+        createdBy: success.demoManagerId,
+      });
+      const successLegacyId = await insertJob(pool, success, {
+        title: 'Legacy follow-up with DEMO conversation',
+        status: 'IN_PROGRESS',
+        dataClass: 'BUSINESS',
+        demoDatasetId: null,
+        customerId: success.demoCustomerId,
+        assignedTo: success.businessStaffId,
+        createdBy: success.demoManagerId,
+        sourceJobCardId: successParentId,
+      });
+      const demoConversationId = (await pool.query<{ id: string }>(
+        `INSERT INTO conversations
+           (organization_id, direct_key, context_type, job_id, data_class, demo_dataset_id, title)
+         VALUES ($1, $2, 'JOB', $3, 'DEMO', $4, 'Legacy follow-up conversation') RETURNING id`,
+        [success.organizationId, `eac-conv-${randomUUID()}`, successLegacyId, success.datasetId],
+      )).rows[0]!.id;
+      const demoMessageId = (await pool.query<{ id: string }>(
+        `INSERT INTO messages
+           (conversation_id, organization_id, sender_user_id, client_action_id, body)
+         VALUES ($1, $2, $3, $4, 'EAC synthetic message') RETURNING id`,
+        [demoConversationId, success.organizationId, success.demoStaffId, randomUUID()],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO conversation_participants
+           (conversation_id, user_id, organization_id, last_read_message_id)
+         VALUES ($1, $2, $3, $4)`,
+        [demoConversationId, success.demoStaffId, success.organizationId, demoMessageId],
+      );
+      await pool.query(
+        `INSERT INTO conversation_user_states (organization_id, conversation_id, user_id)
+         VALUES ($1, $2, $3)`,
+        [success.organizationId, demoConversationId, success.demoStaffId],
+      );
+      await pool.query(
+        `INSERT INTO messaging_activity_logs
+           (organization_id, conversation_id, actor_user_id, action, client_action_id)
+         VALUES ($1, $2, $3, 'MESSAGE_SENT', $4)`,
+        [success.organizationId, demoConversationId, success.demoManagerId, randomUUID()],
+      );
+
+      const successPreview = await success.service.preview(success.admin, success.datasetId);
+      expect(successPreview.safeToPurge).toBe(true);
+      expect(successPreview.blockers).toEqual([]);
+      expect(successPreview.affectedCounts.conversations).toBeGreaterThanOrEqual(1);
+      expect(successPreview.affectedCounts.messages).toBeGreaterThanOrEqual(1);
+
+      const successResponse = await success.service.purge(success.admin, success.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: successPreview.planHash,
+      });
+      expect(successResponse.status).toBe('COMPLETED');
+      expect((await pool.query('SELECT id FROM job_cards WHERE id = $1', [successLegacyId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT id FROM conversations WHERE id = $1', [demoConversationId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT conversation_id FROM messages WHERE conversation_id = $1', [demoConversationId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT conversation_id FROM conversation_participants WHERE conversation_id = $1', [demoConversationId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT conversation_id FROM conversation_user_states WHERE conversation_id = $1', [demoConversationId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT id FROM users WHERE id = $1', [success.businessStaffId])).rows.length).toBe(1);
+
+      // Blocked side: an independent BUSINESS conversation attached to the same
+      // legacy derived Job must block the purge fail-closed. Its BUSINESS message
+      // and participant history must never be deleted merely because the Job it
+      // references is DEMO-derived.
+      const blocked = await createDemoFixture(pool, 'conversation-block');
+      const blockedParentId = await insertJob(pool, blocked, {
+        title: 'Demo parent completed',
+        status: 'COMPLETED',
+        dataClass: 'DEMO',
+        demoDatasetId: blocked.datasetId,
+        customerId: blocked.demoCustomerId,
+        assignedTo: blocked.demoStaffId,
+        createdBy: blocked.demoManagerId,
+      });
+      const blockedLegacyId = await insertJob(pool, blocked, {
+        title: 'Legacy follow-up with BUSINESS conversation',
+        status: 'IN_PROGRESS',
+        dataClass: 'BUSINESS',
+        demoDatasetId: null,
+        customerId: blocked.demoCustomerId,
+        assignedTo: blocked.businessStaffId,
+        createdBy: blocked.demoManagerId,
+        sourceJobCardId: blockedParentId,
+      });
+      const businessConversationId = (await pool.query<{ id: string }>(
+        `INSERT INTO conversations
+           (organization_id, direct_key, context_type, job_id, data_class, demo_dataset_id, title)
+         VALUES ($1, $2, 'JOB', $3, 'BUSINESS', NULL, 'Business conversation on derived job') RETURNING id`,
+        [blocked.organizationId, `eac-conv-${randomUUID()}`, blockedLegacyId],
+      )).rows[0]!.id;
+      const businessMessageId = (await pool.query<{ id: string }>(
+        `INSERT INTO messages
+           (conversation_id, organization_id, sender_user_id, client_action_id, body)
+         VALUES ($1, $2, $3, $4, 'Business history must survive') RETURNING id`,
+        [businessConversationId, blocked.organizationId, blocked.businessStaffId, randomUUID()],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO conversation_participants
+           (conversation_id, user_id, organization_id, last_read_message_id)
+         VALUES ($1, $2, $3, $4)`,
+        [businessConversationId, blocked.businessStaffId, blocked.organizationId, businessMessageId],
+      );
+
+      const blockedPreview = await blocked.service.preview(blocked.admin, blocked.datasetId);
+      expect(blockedPreview.safeToPurge).toBe(false);
+      const blockedCodes = blockedPreview.blockers.map((blocker) => blocker.code);
+      expect(blockedCodes).toContain('DEMO_JOB_TO_BUSINESS_CONVERSATION');
+      await expect(blocked.service.purge(blocked.admin, blocked.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: blockedPreview.planHash,
+      })).rejects.toMatchObject({ code: 'DEMO_DATASET_PURGE_BLOCKED' });
+
+      expect((await pool.query('SELECT id FROM job_cards WHERE id = $1', [blockedLegacyId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT id FROM job_cards WHERE id = $1', [blockedParentId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT id FROM conversations WHERE id = $1', [businessConversationId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT conversation_id FROM messages WHERE conversation_id = $1', [businessConversationId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT conversation_id FROM conversation_participants WHERE conversation_id = $1', [businessConversationId])).rows.length).toBe(1);
+    });
+  });
+  // @formatter:on
+
+  // @formatter:off
+  it('REMINDER_REKEY_EFFECTIVE_JOB_CLOSURE: reminders on an effective legacy DEMO-derived follow-up must be plan-closed; worker-claimed reminders must fail closed', async () => {
+    // @expected:success-side:preview.safeToPurge=true
+    // @expected:success-side:preview.remindersIncludeLegacyReminder=true
+    // @expected:success-side:execution:reminder deleted
+    // @expected:success-side:BUSINESS recipient preserved
+    // @expected:blocked-side:preview.blockers contain WORKER_CLAIMED_REMINDER
+    // @expected:blocked-side:execution:no-mutation
+    await withSchema(async (pool) => {
+      // Success side: a PENDING reminder on the legacy derived follow-up with a
+      // real BUSINESS recipient is a DEMO-derived derived artifact. Before the F2
+      // fix it was invisible to the seed-jobIds fetch and only disappeared via
+      // the DB CASCADE at execution time, outside the plan. It must now be
+      // planned and deleted while the BUSINESS recipient survives.
+      const success = await createDemoFixture(pool, 'reminder-closure');
+      const successParentId = await insertJob(pool, success, {
+        title: 'Demo parent completed',
+        status: 'COMPLETED',
+        dataClass: 'DEMO',
+        demoDatasetId: success.datasetId,
+        customerId: success.demoCustomerId,
+        assignedTo: success.demoStaffId,
+        createdBy: success.demoManagerId,
+      });
+      const successLegacyId = await insertJob(pool, success, {
+        title: 'Legacy follow-up with reminder',
+        status: 'IN_PROGRESS',
+        dataClass: 'BUSINESS',
+        demoDatasetId: null,
+        customerId: success.demoCustomerId,
+        assignedTo: success.businessStaffId,
+        createdBy: success.demoManagerId,
+        sourceJobCardId: successParentId,
+      });
+      const pendingReminderId = (await pool.query<{ id: string }>(
+        `INSERT INTO calendar_reminders
+           (organization_id, job_card_id, recipient_user_id, remind_at, next_attempt_at, dedupe_key)
+         VALUES ($1, $2, $3, NOW(), NOW(), $4) RETURNING id`,
+        [success.organizationId, successLegacyId, success.businessStaffId, `eac-reminder-${randomUUID()}`],
+      )).rows[0]!.id;
+
+      const successPreview = await success.service.preview(success.admin, success.datasetId);
+      expect(successPreview.safeToPurge).toBe(true);
+      expect(successPreview.blockers).toEqual([]);
+      expect(successPreview.affectedCounts.reminders).toBeGreaterThanOrEqual(1);
+
+      const successResponse = await success.service.purge(success.admin, success.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: successPreview.planHash,
+      });
+      expect(successResponse.status).toBe('COMPLETED');
+      expect((await pool.query('SELECT id FROM calendar_reminders WHERE id = $1', [pendingReminderId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT id FROM job_cards WHERE id = $1', [successLegacyId])).rows.length).toBe(0);
+      expect((await pool.query('SELECT id FROM users WHERE id = $1', [success.businessStaffId])).rows.length).toBe(1);
+
+      // Blocked side: a worker-claimed reminder on the same legacy derived Job
+      // must remain a hard blocker before the fix deletes it mid-processing.
+      const blocked = await createDemoFixture(pool, 'reminder-claimed');
+      const blockedParentId = await insertJob(pool, blocked, {
+        title: 'Demo parent completed',
+        status: 'COMPLETED',
+        dataClass: 'DEMO',
+        demoDatasetId: blocked.datasetId,
+        customerId: blocked.demoCustomerId,
+        assignedTo: blocked.demoStaffId,
+        createdBy: blocked.demoManagerId,
+      });
+      const blockedLegacyId = await insertJob(pool, blocked, {
+        title: 'Legacy follow-up with claimed reminder',
+        status: 'IN_PROGRESS',
+        dataClass: 'BUSINESS',
+        demoDatasetId: null,
+        customerId: blocked.demoCustomerId,
+        assignedTo: blocked.businessStaffId,
+        createdBy: blocked.demoManagerId,
+        sourceJobCardId: blockedParentId,
+      });
+      const claimedReminderId = (await pool.query<{ id: string }>(
+        `INSERT INTO calendar_reminders
+           (organization_id, job_card_id, recipient_user_id, remind_at, state,
+            dedupe_key, next_attempt_at, lease_token, lease_until)
+         VALUES ($1, $2, $3, NOW(), 'CLAIMED', $4, NOW(), $5, NOW() + INTERVAL '10 minutes') RETURNING id`,
+        [blocked.organizationId, blockedLegacyId, blocked.businessStaffId,
+          `eac-claimed-reminder-${randomUUID()}`, randomUUID()],
+      )).rows[0]!.id;
+
+      const blockedPreview = await blocked.service.preview(blocked.admin, blocked.datasetId);
+      expect(blockedPreview.safeToPurge).toBe(false);
+      const blockedCodes = blockedPreview.blockers.map((blocker) => blocker.code);
+      expect(blockedCodes).toContain('WORKER_CLAIMED_REMINDER');
+      await expect(blocked.service.purge(blocked.admin, blocked.datasetId, {
+        clientActionId: randomUUID(),
+        planHash: blockedPreview.planHash,
+      })).rejects.toMatchObject({ code: 'DEMO_DATASET_PURGE_BLOCKED' });
+
+      expect((await pool.query('SELECT id FROM calendar_reminders WHERE id = $1', [claimedReminderId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT id FROM job_cards WHERE id = $1', [blockedLegacyId])).rows.length).toBe(1);
+      expect((await pool.query('SELECT id FROM users WHERE id = $1', [blocked.businessStaffId])).rows.length).toBe(1);
+    });
+  });
+  // @formatter:on
 });
