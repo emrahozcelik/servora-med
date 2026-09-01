@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
@@ -8,10 +7,12 @@ import {
   listContacts,
   listCustomers,
   type Contact,
+  type Customer,
   type CustomerSummary,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = { title?: string; assignedTo?: string };
@@ -65,6 +66,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const errorRef = useRef<HTMLDivElement>(null);
   const actionIdRef = useRef<string | null>(null);
   const contactGate = useRef(createRequestGate());
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
@@ -120,6 +123,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
       if (!contactGate.current.isCurrent(generation)) return;
       setContacts([]); setContactState('error');
     }
+  }
+
+  function addCreatedCustomer(customer: Customer) {
+    setCustomers((current) => current.some((item) => item.id === customer.id)
+      ? current
+      : [...current, { ...customer, assignedStaffName: null, primaryContact: null }]);
+    void changeCustomer(customer.id);
+    setCustomerCreateOpen(false);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -215,7 +226,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
-            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></div>
+            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
               <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}
                 onChange={(event) => void changeCustomer(event.target.value)}>
                 <option value="">Müşteri seçilmedi</option>
@@ -245,5 +256,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         </button>
       </div>
     </form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

@@ -49,7 +49,7 @@ describe('Product Delivery creation', () => {
     for (const purpose of ['Satış', 'Numune', 'Konsinye', 'İade', 'Diğer']) {
       expect(html).toContain(`>${purpose}</option>`);
     }
-    expect(html).toContain('href="/customers/new?source=delivery"');
+    expect(html).toContain('>Yeni müşteri ekle</button>');
     expect(html).not.toContain('id="delivery-contact"');
     expect(html).not.toContain('id="delivery-quantity"');
     expect(html).not.toContain('id="delivery-scheduled-ends-at"');

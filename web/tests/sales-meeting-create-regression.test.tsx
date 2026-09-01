@@ -201,17 +201,17 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
-  it('shows a link to create a new Customer when the customer list is empty', async () => {
+  it('shows an embedded action to create a new Customer when the customer list is empty', async () => {
     crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
-    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Yeni müşteri ekle')).toBe(true);
   });
 
-  it('keeps the create-customer link available when customers already exist', async () => {
+  it('keeps the embedded create-customer action available when customers already exist', async () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
-    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Yeni müşteri ekle')).toBe(true);
   });
 
   it('locks double submit and reuses the action ID after a retryable error', async () => {

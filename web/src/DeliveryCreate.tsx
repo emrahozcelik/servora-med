@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import {
   ApiError,
@@ -19,6 +18,8 @@ import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from 
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
+import type { Customer } from './services/crm-api';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 export type DeliveryFormValues = {
   customerId: string;
@@ -85,6 +86,8 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
@@ -172,6 +175,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   function changeCustomer(nextCustomerId: string) {
     setCustomerId(nextCustomerId);
     applyCustomerSelection(customers.find((customer) => customer.id === nextCustomerId));
+  }
+
+  function addCreatedCustomer(customer: Customer) {
+    setCustomers((current) => current.some((item) => item.id === customer.id)
+      ? current
+      : [...current, customer]);
+    setCustomerId(customer.id);
+    setCustomerCreateOpen(false);
   }
 
   function addSelectedProduct(product: Product) {
@@ -269,7 +280,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
-        <Link className="inline-action" to="/customers/new?source=delivery">Yeni müşteri ekle</Link></div>
+        <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={pending} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
         <select id="delivery-customer" name="customerId" required disabled={pending || unavailable || customerState !== 'ready'} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
           <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></div>
@@ -320,5 +331,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
       </div>
     </form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

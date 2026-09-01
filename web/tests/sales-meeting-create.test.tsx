@@ -10,7 +10,7 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const scheduling = vi.hoisted(() => {
   return {
@@ -88,6 +88,12 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     jobs.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 });
     jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
     crm.listCustomers.mockResolvedValue({ items: [customer], total: 1, limit: 200, offset: 0 });
+    crm.createCustomer.mockResolvedValue({
+      id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, status: 'prospect', version: 1,
+    });
+    crm.createContact.mockResolvedValue({});
     people.listStaff.mockResolvedValue([profile]);
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     onCreated = vi.fn();
@@ -227,5 +233,82 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       scheduledAt: '2026-08-10T06:30:00.000Z',
     }));
     expect(onCreated).toHaveBeenCalledWith('job-2');
+  });
+
+  it('keeps the meeting draft mounted while the embedded customer flow is open', async () => {
+    await render(manager);
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'Taslak görüşme');
+    change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+
+    const addCustomer = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Yeni müşteri ekle');
+    expect(addCustomer).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => { (addCustomer as HTMLButtonElement).click(); });
+
+    expect(host.querySelector('[data-servora-form-drawer="true"]')).not.toBeNull();
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Taslak görüşme');
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+  });
+
+  it('creates and selects a customer without resetting the meeting draft or creating a JobCard', async () => {
+    await render(manager);
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'Taslak görüşme');
+    change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+    change(host.querySelector('#meeting-description') as HTMLTextAreaElement, 'Klinik ihtiyaçlarını görüş');
+    change(host.querySelector('#meeting-priority') as HTMLSelectElement, 'high');
+
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect((host.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('customer-created');
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Taslak görüşme');
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+    expect((host.querySelector('#meeting-description') as HTMLTextAreaElement).value).toBe('Klinik ihtiyaçlarını görüş');
+    expect((host.querySelector('#meeting-priority') as HTMLSelectElement).value).toBe('high');
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+  });
+
+  it('cancels the customer side flow without resetting the meeting draft', async () => {
+    await render(manager);
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'İptal edilecek görüşme');
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (host.querySelector('[data-servora-form-drawer="true"] .customer-form button[type="button"]') as HTMLButtonElement).click();
+    });
+
+    expect(host.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect(crm.createCustomer).not.toHaveBeenCalled();
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('İptal edilecek görüşme');
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+  });
+
+  it('keeps the meeting draft mounted when customer creation returns an API error', async () => {
+    crm.createCustomer.mockRejectedValueOnce(new Error('Müşteri servisi 503'));
+    await render(manager);
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'Hata sonrası görüşme');
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(host.querySelector('#customer-name') as HTMLInputElement, 'Hatalı Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    expect(host.querySelector('[data-servora-form-drawer="true"]')).not.toBeNull();
+    expect(host.querySelector('[data-servora-form-drawer="true"] [role="alert"]')?.textContent).toContain('Müşteri servisi 503');
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Hata sonrası görüşme');
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
   });
 });

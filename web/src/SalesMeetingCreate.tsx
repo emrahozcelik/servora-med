@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import {
   createJobCard,
@@ -21,8 +20,9 @@ import {
   localDateTimeToIso,
 } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
-import { listCustomers, type CustomerSummary } from './services/crm-api';
+import { listCustomers, type Customer, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type FieldErrors = {
@@ -64,6 +64,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
@@ -98,6 +100,14 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
+  }
+
+  function addCreatedCustomer(customer: Customer) {
+    setCustomers((current) => current.some((item) => item.id === customer.id)
+      ? current
+      : [...current, { ...customer, assignedStaffName: null, primaryContact: null }]);
+    setCustomerId(customer.id);
+    setCustomerCreateOpen(false);
   }
 
   async function loadCustomers() {
@@ -224,7 +234,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         )}
       </div>
       <div className="task-field-pair">
-        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></div>
+        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
             aria-invalid={fieldErrors.customerId ? true : undefined}
             aria-describedby={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
@@ -270,5 +280,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
       <button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
         {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></div></form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

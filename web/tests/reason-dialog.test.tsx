@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, useState } from 'react';
+import { act, useState, type ReactNode, type RefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,6 +42,10 @@ describe('ReasonDialog', () => {
     onConfirm?: (reason: string) => void;
     onCancel?: () => void;
     confirmLabel?: string;
+    prelude?: ReactNode;
+    initialFocusRef?: RefObject<HTMLElement | null>;
+    initialFocusReady?: boolean;
+    returnFocusRef?: RefObject<HTMLElement | null>;
   } = {}) {
     await act(async () => {
       root.render(
@@ -57,10 +61,14 @@ describe('ReasonDialog', () => {
             pending={props.pending ?? false}
             onConfirm={props.onConfirm ?? (() => {})}
             onCancel={props.onCancel ?? (() => {})}
-            returnFocusRef={{ current: trigger }}
+            returnFocusRef={props.returnFocusRef ?? { current: trigger }}
+            prelude={props.prelude}
+            initialFocusRef={props.initialFocusRef}
+            initialFocusReady={props.initialFocusReady}
           />
         </ServoraAntProvider>,
       );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
     });
   }
 
@@ -71,6 +79,42 @@ describe('ReasonDialog', () => {
     const cancel = Array.from(host.querySelectorAll('button'))
       .find((b) => b.textContent === 'Vazgeç');
     expect(document.activeElement).toBe(cancel);
+  });
+
+  it('focuses the meaningful field and rehomes focus when an async prelude appears', async () => {
+    const firstPreludeField = { current: null } as RefObject<HTMLElement | null>;
+    const returnFocusRef = { current: trigger } as RefObject<HTMLElement | null>;
+    await renderReason({
+      initialFocusRef: firstPreludeField,
+      initialFocusReady: false,
+      returnFocusRef,
+    });
+    expect(document.activeElement?.textContent).toBe('Vazgeç');
+
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <ReasonDialog
+            open
+            title="Düzeltme için geri gönder"
+            description="Personelin neyi düzeltmesi gerektiğini açıklayın."
+            reasonLabel="Düzeltme nedeni"
+            confirmLabel="Gönder"
+            maxLength={2000}
+            required
+            pending={false}
+            onConfirm={() => {}}
+            onCancel={() => {}}
+            returnFocusRef={returnFocusRef}
+            prelude={<input ref={firstPreludeField} aria-label="Takip tarihi" />}
+            initialFocusRef={firstPreludeField}
+            initialFocusReady
+          />
+        </ServoraAntProvider>,
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(document.activeElement).toBe(firstPreludeField.current);
   });
 
   it('shows required reason error on real empty submit click', async () => {

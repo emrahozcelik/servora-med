@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 
 import { ConfirmationAction, ReasonDialog } from '../ui/antd';
 import type {
@@ -34,6 +34,7 @@ export function JobWorkflowDialog(props: {
   const {
     dialog, pending, onClose, onConfirm, followUp, returnFocusRef, restoreFocusEnabledRef,
   } = props;
+  const followUpInitialFocusRef = useRef<HTMLElement>(null);
 
   if (dialog.kind === 'withdraw-edit') {
     const title = dialog.presentation.confirmation?.title ?? dialog.presentation.label;
@@ -84,7 +85,7 @@ export function JobWorkflowDialog(props: {
         : 'İşi iptal et';
 
   const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
-    ? <FollowUpProposalSection {...followUp} />
+    ? <FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} />
     : undefined;
 
   return (
@@ -105,6 +106,8 @@ export function JobWorkflowDialog(props: {
       pending={pending}
       destructive={dialog.kind === 'cancel'}
       prelude={prelude}
+      initialFocusRef={followUp ? followUpInitialFocusRef : undefined}
+      initialFocusReady={followUp !== undefined}
       returnFocusRef={returnFocusRef}
       restoreFocusEnabledRef={restoreFocusEnabledRef}
       onCancel={onClose}
