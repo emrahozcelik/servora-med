@@ -9,11 +9,7 @@ import {
 } from '../src/ui/antd/ServoraCalendar';
 import { useCompact } from '../src/ui/useResponsive';
 
-function shiftLocalDays(date: Date, amount: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
+import { resolveSmokeTargetDate } from './calendar-responsive-smoke-dates';
 
 function atLocalTime(date: Date, hour: number, minute: number): string {
   const next = new Date(date);
@@ -24,7 +20,7 @@ function atLocalTime(date: Date, hour: number, minute: number): string {
 function createFixture() {
   const today = new Date();
   const month = new Date(today.getFullYear(), today.getMonth(), 1, 12);
-  const targetDate = shiftLocalDays(today, today.getDate() === 1 ? 1 : -1);
+  const targetDate = resolveSmokeTargetDate(today);
   const events: ServoraCalendarEventSummary[] = Array.from(
     { length: 12 },
     (_, index) => ({
