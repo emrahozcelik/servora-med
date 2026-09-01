@@ -275,6 +275,26 @@ printf 'final_state=%s\\nstarted=%s\\n' "$SERVICE_STATE" "$SERVICE_STARTED" >>"$
   };
 }
 
+function isServiceActivationEvent(event: string) {
+  return /^(?:systemctl:(?:start|restart) servora-med\.service|systemctl:enable --now servora-med\.service)$/.test(
+    event,
+  );
+}
+
+function earlyServiceActivationEvents(events: string[]) {
+  const enableIndex = events.indexOf('systemctl:enable servora-med.service');
+  const activationBoundaryIndex = events.findIndex((event) => event.startsWith('switch:'));
+  if (enableIndex === -1 || activationBoundaryIndex <= enableIndex) {
+    throw new Error('BOOT_ENABLEMENT_ACTIVATION_BOUNDARY_MISSING');
+  }
+
+  return events.slice(enableIndex + 1, activationBoundaryIndex).filter(isServiceActivationEvent);
+}
+
+function assertNoEarlyServiceActivation(events: string[]) {
+  expect(earlyServiceActivationEvents(events)).toEqual([]);
+}
+
 function assertBootEnablementContract(result: ReturnType<typeof runBootEnablementHarness>) {
   expect(result.result.status).toBe(0);
   expect(result.finalState).toBe('enabled');
@@ -518,8 +538,57 @@ describe('controlled production deployment automation contract', () => {
       expect(activationStartIndex).toBeGreaterThan(switchIndex);
       expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
       expect(harness.events).not.toContain('systemctl:start servora-med.service');
+      expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
     } finally {
       harness.cleanup();
+    }
+  });
+
+  it('detects a plain restart inserted before the activation boundary', () => {
+    const root = temporaryDirectory('early-restart-mutation');
+    const mutatedHelper = join(root, 'deploy-production-host.sh');
+    const source = readFileSync(hostHelper, 'utf8');
+    const marker = '  enable_service_for_boot\n\n  PHASE=PREFLIGHT';
+    const mutatedSource = source.replace(
+      marker,
+      '  enable_service_for_boot\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
+    );
+    expect(mutatedSource).not.toBe(source);
+    writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
+
+    const baseline = runBootEnablementHarness(hostHelper, 'disabled');
+    const mutated = runBootEnablementHarness(mutatedHelper, 'disabled');
+    try {
+      expect(() => assertNoEarlyServiceActivation(baseline.events)).not.toThrow();
+      expect(mutated.events).toContain('systemctl:restart servora-med.service');
+      expect(() => assertNoEarlyServiceActivation(mutated.events)).toThrow();
+    } finally {
+      baseline.cleanup();
+      mutated.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a plain restart at the final activation boundary', () => {
+    const root = temporaryDirectory('final-restart-mutation');
+    const mutatedHelper = join(root, 'deploy-production-host.sh');
+    const source = readFileSync(hostHelper, 'utf8');
+    const marker = '  atomic_switch "$release"\n';
+    const mutatedSource = source.replace(
+      marker,
+      '  atomic_switch "$release"\n  systemctl restart "$SERVICE"\n',
+    );
+    expect(mutatedSource).not.toBe(source);
+    writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
+
+    const harness = runBootEnablementHarness(mutatedHelper, 'disabled');
+    try {
+      expect(harness.result.status).toBe(0);
+      expect(harness.events).toContain('systemctl:restart servora-med.service');
+      expect(() => assertNoEarlyServiceActivation(harness.events)).not.toThrow();
+    } finally {
+      harness.cleanup();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -530,6 +599,7 @@ describe('controlled production deployment automation contract', () => {
       expect(harness.events.filter((event) => event === 'systemctl:enable servora-med.service')).toHaveLength(1);
       expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
       expect(harness.events).not.toContain('systemctl:start servora-med.service');
+      expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
     } finally {
       harness.cleanup();
     }
