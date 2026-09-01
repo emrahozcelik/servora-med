@@ -185,6 +185,15 @@ assert_service_and_health() {
   health_gate || fail CURRENT_HEALTH_FAILED
 }
 
+enable_service_for_boot() {
+  # Boot persistence is intentionally separate from runtime activation. The
+  # deployment flow starts the service only after backup, migration, schema,
+  # and release activation gates have passed.
+  if ! systemctl enable "$SERVICE"; then
+    fail SERVICE_BOOT_ENABLEMENT_FAILED
+  fi
+}
+
 is_forbidden_artifact_path() {
   local clean="$1"
   case "$clean" in
@@ -826,6 +835,7 @@ deploy_phase() {
   assert_env_contract
   assert_host_backup_contract
   assert_release_dir "$RELEASE_ROOT" || fail RELEASE_ROOT_INVALID
+  enable_service_for_boot
 
   PHASE=PREFLIGHT
   OLD_RELEASE="$(current_release)"
