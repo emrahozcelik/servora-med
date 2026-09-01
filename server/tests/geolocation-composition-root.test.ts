@@ -4,13 +4,14 @@ import type { Pool } from 'pg';
 import { buildApp } from '../src/app.js';
 import type { AppDependencies } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { createGeolocationDependencies } from '../src/geolocation-dependencies.js';
 import { GoogleReverseGeocoder } from '../src/modules/geocoding/google-reverse-geocoder.js';
 import { PostgresReverseGeocodingQuotaGuard } from '../src/modules/geocoding/postgres-reverse-geocoding-quota.js';
 
-// TG-001: prove the production-style composition root actually injects the
-// geolocation quota guard (built from parsed env limits) into the runtime
-// JobCardService path. The service is replaced with a recording constructor
-// mock so the assertion is on the wiring, not on service behavior.
+// TG-001: prove the production composition factory injects the geolocation
+// quota guard built from parsed env limits into the runtime JobCardService
+// path. The service is replaced with a recording constructor mock so the
+// assertion is on the wiring, not on service behavior.
 const jobCardServiceCtor = vi.hoisted(() => vi.fn());
 vi.mock('../src/modules/job-cards/service.js', () => ({
   JobCardService: jobCardServiceCtor,
@@ -80,25 +81,27 @@ describe('geolocation composition root wiring (TG-001)', () => {
     expect(config.geocodingGlobalMonthlyLimit).toBe(8000);
   });
 
+  it('constructs geolocation dependencies through the shared production factory', () => {
+    const config = loadConfig({ ...SYNTHETIC_ENV });
+    const { pool } = recordingQuotaPool();
+
+    const dependencies = createGeolocationDependencies(config, pool);
+
+    expect(dependencies.reverseGeocoder).toBeInstanceOf(GoogleReverseGeocoder);
+    expect(dependencies.reverseGeocodingQuotaGuard).toBeInstanceOf(
+      PostgresReverseGeocodingQuotaGuard,
+    );
+  });
+
   it('injects the config-built quota guard and geocoder into JobCardService', async () => {
     const config = loadConfig({ ...SYNTHETIC_ENV });
-    // Mirrors the production composition root (server/src/index.ts:97-108).
     const { pool } = recordingQuotaPool();
-    const quotaGuard = new PostgresReverseGeocodingQuotaGuard(pool, {
-      userDailyLimit: config.geocodingUserDailyLimit,
-      organizationDailyLimit: config.geocodingOrganizationDailyLimit,
-      globalMonthlyLimit: config.geocodingGlobalMonthlyLimit,
-    });
-    const reverseGeocoder = new GoogleReverseGeocoder({
-      apiKey: config.googleGeocodingApiKey!,
-      timeoutMs: config.reverseGeocoderTimeoutMs,
-    });
+    const geolocationDependencies = createGeolocationDependencies(config, pool);
 
     const dependencies: AppDependencies = {
       authRepository: {} as AppDependencies['authRepository'],
       jobCardRepository: {} as AppDependencies['jobCardRepository'],
-      reverseGeocoder,
-      reverseGeocodingQuotaGuard: quotaGuard,
+      ...geolocationDependencies,
     };
     const app = await buildApp(config, dependencies);
     try {
@@ -108,10 +111,12 @@ describe('geolocation composition root wiring (TG-001)', () => {
         { enabled: boolean; reverseGeocoder?: unknown; quotaGuard?: unknown },
       ];
       expect(geolocation.enabled).toBe(true);
-      expect(geolocation.reverseGeocoder).toBe(reverseGeocoder);
+      expect(geolocation.reverseGeocoder).toBe(geolocationDependencies.reverseGeocoder);
       // Exact identity: the same guard instance built from config limits is
       // what the runtime JobCardService path will call on every START.
-      expect(geolocation.quotaGuard).toBe(quotaGuard);
+      expect(geolocation.quotaGuard).toBe(
+        geolocationDependencies.reverseGeocodingQuotaGuard,
+      );
     } finally {
       await app.close();
     }
@@ -120,11 +125,11 @@ describe('geolocation composition root wiring (TG-001)', () => {
   it('propagates the configured limits into the quota upsert scope keys', async () => {
     const config = loadConfig({ ...SYNTHETIC_ENV });
     const { inserts, pool } = recordingQuotaPool();
-    const quotaGuard = new PostgresReverseGeocodingQuotaGuard(pool, {
-      userDailyLimit: config.geocodingUserDailyLimit,
-      organizationDailyLimit: config.geocodingOrganizationDailyLimit,
-      globalMonthlyLimit: config.geocodingGlobalMonthlyLimit,
-    });
+    const { reverseGeocodingQuotaGuard: quotaGuard } = createGeolocationDependencies(
+      config,
+      pool,
+    );
+    if (!quotaGuard) throw new Error('Expected the production factory to create a quota guard');
 
     const decision = await quotaGuard.reserve({
       provider: 'GOOGLE',
@@ -141,13 +146,15 @@ describe('geolocation composition root wiring (TG-001)', () => {
     ]);
   });
 
-  it('fails fast when geolocation is enabled without a reverse geocoder', async () => {
-    const config = loadConfig({ ...SYNTHETIC_ENV });
-    const dependencies: AppDependencies = {
-      authRepository: {} as AppDependencies['authRepository'],
-      jobCardRepository: {} as AppDependencies['jobCardRepository'],
+  it('fails fast when geolocation is enabled without a reverse geocoder', () => {
+    const config = {
+      ...loadConfig({ ...SYNTHETIC_ENV }),
+      reverseGeocoderProvider: null,
+      googleGeocodingApiKey: null,
     };
-    await expect(buildApp(config, dependencies)).rejects.toThrow(
+    const { pool } = recordingQuotaPool();
+
+    expect(() => createGeolocationDependencies(config, pool)).toThrow(
       'ACTION_SCOPED_GEOLOCATION_ENABLED requires a configured reverse geocoder',
     );
   });

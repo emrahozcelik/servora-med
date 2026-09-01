@@ -120,9 +120,11 @@ describe('NotificationCenter', () => {
   it('renders and marks read a job.invalidated notification without parser errors (PD-001)', async () => {
     const invalidatedNotification = {
       ...notification,
+      id: 'notification-invalidated',
       kind: 'job.invalidated' as const,
       title: 'İş geçersiz kılındı',
       body: 'Bu iş kaydı geçersiz kılındı.',
+      entity: { type: 'job-card' as const, id: 'job-invalidated' },
     };
     api.listNotifications.mockResolvedValue({
       items: [notification, invalidatedNotification],
@@ -144,7 +146,9 @@ describe('NotificationCenter', () => {
     // The list page containing both a canonical kind and job.invalidated loads.
     expect(dialog.textContent).toContain('Yeni iş atandı');
     expect(dialog.textContent).toContain('İş geçersiz kılındı');
-    const action = dialog.querySelector<HTMLButtonElement>('[data-notification-id]')!;
+    const action = dialog.querySelector<HTMLButtonElement>(
+      `[data-notification-id="${invalidatedNotification.id}"]`,
+    )!;
     await act(async () => action.click());
     expect(api.markNotificationRead).toHaveBeenCalledWith(invalidatedNotification.id);
     expect(container.querySelector('[data-location]')?.textContent).toBe(
