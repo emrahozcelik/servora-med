@@ -22,7 +22,7 @@ import {
 import { ApiError, type CurrentUser } from './services/api';
 import { listCustomers, type Customer, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate, mergeById } from './services/request-gate';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -68,7 +68,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
   const customerLoadGate = useRef(createRequestGate());
-  const createdCustomersRef = useRef(new Map<string, CustomerSummary>());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<CustomerSummary>());
   const selectedCreatedCustomerRef = useRef<string | null>(null);
 
   useEffect(() => () => { customerLoadGate.current.next(); }, []);
@@ -110,9 +110,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
 
   function addCreatedCustomer(customer: Customer) {
     const summary = { ...customer, assignedStaffName: null, primaryContact: null };
-    createdCustomersRef.current.set(customer.id, summary);
+    createdCustomersRef.current.add(summary, customerLoadGate.current.current());
     selectedCreatedCustomerRef.current = customer.id;
-    setCustomers((current) => mergeById(current, [summary]));
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
     setCustomerId(customer.id);
     setCustomerState('ready');
     setCustomerCreateOpen(false);
@@ -124,7 +124,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     try {
       const next = await loadAllCustomers();
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
       setCustomers(reconciled); setCustomerState('ready');
       const selectedCreatedId = selectedCreatedCustomerRef.current;
       if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
@@ -136,7 +136,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       }
     } catch {
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const created = Array.from(createdCustomersRef.current.values());
+      const created = createdCustomersRef.current.values();
       if (created.length > 0) {
         setCustomers(created);
         setCustomerId(selectedCreatedCustomerRef.current ?? '');

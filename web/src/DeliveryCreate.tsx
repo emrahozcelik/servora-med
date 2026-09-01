@@ -17,7 +17,7 @@ import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate, mergeById } from './services/request-gate';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 import type { Product } from './services/products-api';
 import type { Customer } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
@@ -93,7 +93,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
   const customerLoadGate = useRef(createRequestGate());
-  const createdCustomersRef = useRef(new Map<string, ReferenceCustomer>());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<ReferenceCustomer>());
   const selectedCreatedCustomerRef = useRef<string | null>(null);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   useEffect(() => () => { customerLoadGate.current.next(); }, []);
@@ -147,7 +147,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     try {
       const next = await listReferenceCustomers();
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
       setCustomers(reconciled);
       const selectedCreatedCustomer = selectedCreatedCustomerRef.current
         ? reconciled.find((customer) => customer.id === selectedCreatedCustomerRef.current)
@@ -168,7 +168,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       setCustomerState('ready');
     } catch {
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const created = Array.from(createdCustomersRef.current.values());
+      const created = createdCustomersRef.current.values();
       if (created.length > 0) {
         setCustomers(created);
         const selectedCreatedCustomer = selectedCreatedCustomerRef.current
@@ -205,9 +205,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   }
 
   function addCreatedCustomer(customer: Customer) {
-    createdCustomersRef.current.set(customer.id, customer);
+    createdCustomersRef.current.add(customer, customerLoadGate.current.current());
     selectedCreatedCustomerRef.current = customer.id;
-    setCustomers((current) => mergeById(current, [customer]));
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
     setCustomerId(customer.id);
     if (!assigneeModified.current) applyCustomerSelection(customer);
     setCustomerState('ready');

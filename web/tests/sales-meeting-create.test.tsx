@@ -363,4 +363,47 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(select.disabled).toBe(false);
     expect(host.querySelector('[data-retry-customers]')).toBeNull();
   });
+
+  it('accepts a later same-ID canonical Customer refresh without clearing the draft or selection', async () => {
+    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
+    const canonical = {
+      ...customer,
+      id: 'customer-created',
+      name: 'Canonical Klinik',
+      assignedStaffName: 'Canonical Sorumlu',
+      primaryContact: { id: 'contact-canonical', name: 'Dr. Canonical', title: 'Doktor' },
+      version: 2,
+    };
+    crm.listCustomers
+      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
+      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 200, offset: 0 });
+    crm.createCustomer.mockReturnValueOnce(create.promise);
+    await render(staffUser);
+
+    const retry = host.querySelector('[data-retry-customers]') as HTMLButtonElement;
+    change(host.querySelector('#meeting-title') as HTMLInputElement, 'Canonical refresh taslağı');
+    await act(async () => {
+      (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(host.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    await act(async () => {
+      create.resolve({
+        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null, status: 'prospect', version: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      retry.click();
+    });
+    await flush();
+
+    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Canonical refresh taslağı');
+    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
+  });
 });

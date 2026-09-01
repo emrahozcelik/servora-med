@@ -11,7 +11,7 @@ import {
   type CustomerSummary,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate, mergeById } from './services/request-gate';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -67,7 +67,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const actionIdRef = useRef<string | null>(null);
   const contactGate = useRef(createRequestGate());
   const customerLoadGate = useRef(createRequestGate());
-  const createdCustomersRef = useRef(new Map<string, CustomerSummary>());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<CustomerSummary>());
   const selectedCreatedCustomerRef = useRef<string | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
@@ -102,12 +102,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     try {
       const next = await loadAllCustomers();
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const reconciled = mergeById(next, Array.from(createdCustomersRef.current.values()));
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
       setCustomers(reconciled); setCustomerState('ready');
       const selectedCreatedId = selectedCreatedCustomerRef.current;
       if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
         setCustomerId(selectedCreatedId);
-        void changeCustomer(selectedCreatedId, true);
       } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
         setCustomerId(initialCustomerId);
         void changeCustomer(initialCustomerId);
@@ -116,7 +115,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
       }
     } catch {
       if (!customerLoadGate.current.isCurrent(generation)) return;
-      const created = Array.from(createdCustomersRef.current.values());
+      const created = createdCustomersRef.current.values();
       if (created.length > 0) {
         setCustomers(created);
         setCustomerId(selectedCreatedCustomerRef.current ?? '');
@@ -150,9 +149,9 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
 
   function addCreatedCustomer(customer: Customer) {
     const summary = { ...customer, assignedStaffName: null, primaryContact: null };
-    createdCustomersRef.current.set(customer.id, summary);
+    createdCustomersRef.current.add(summary, customerLoadGate.current.current());
     selectedCreatedCustomerRef.current = customer.id;
-    setCustomers((current) => mergeById(current, [summary]));
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
     setCustomerState('ready');
     void changeCustomer(customer.id, true);
     setCustomerCreateOpen(false);

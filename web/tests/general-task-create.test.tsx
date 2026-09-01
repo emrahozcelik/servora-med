@@ -454,6 +454,53 @@ describe('General Task quick create', () => {
     expect(container.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('Müşteriler yüklenemedi');
   });
 
+  it('uses a later same-ID canonical Customer without resetting the task draft or Contact dependency', async () => {
+    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
+    const canonical = {
+      ...customer('customer-created', 'Canonical Klinik'),
+      assignedStaffName: 'Canonical Sorumlu',
+      primaryContact: { id: 'contact-canonical', name: 'Dr. Canonical', title: 'Doktor' },
+      version: 2,
+    };
+    crm.listCustomers
+      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
+      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 200, offset: 0 });
+    crm.createCustomer.mockReturnValueOnce(create.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+
+    const retry = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Tekrar dene') as HTMLButtonElement;
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Canonical refresh görevi');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    await act(async () => {
+      create.resolve({
+        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null, status: 'prospect', version: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      retry.click();
+    });
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Canonical refresh görevi');
+    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
+    expect(crm.listContacts).toHaveBeenCalledTimes(1);
+  });
+
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }))

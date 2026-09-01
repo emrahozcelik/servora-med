@@ -19,7 +19,7 @@ import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
-export { createRequestGate, mergeById } from './services/request-gate';
+export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
 export type CustomerListState =

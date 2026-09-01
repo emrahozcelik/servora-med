@@ -446,4 +446,48 @@ describe('Delivery create CRM defaults', () => {
     expect(select.disabled).toBe(false);
     expect(container.querySelector('[data-retry-customers]')).toBeNull();
   });
+
+  it('uses a later same-ID canonical Customer projection while preserving the delivery draft', async () => {
+    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
+    const canonical: ReferenceCustomer = {
+      id: 'customer-created',
+      name: 'Canonical Klinik',
+      customerType: 'clinic',
+      status: 'active',
+      assignedStaffUserId: 'staff-2',
+    };
+    api.listReferenceCustomers
+      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
+      .mockResolvedValueOnce([canonical]);
+    crm.createCustomer.mockReturnValueOnce(create.promise);
+    await act(async () => root.render(view(manager)));
+    await settle();
+
+    const retry = container.querySelector('[data-retry-customers]') as HTMLButtonElement;
+    await act(async () => changeInput(container.querySelector('#delivery-note') as HTMLTextAreaElement, 'Canonical refresh notu'));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    await act(async () => {
+      create.resolve({
+        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null, status: 'prospect', version: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      retry.click();
+    });
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Canonical refresh notu');
+    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
+  });
 });
