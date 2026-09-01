@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
@@ -8,10 +7,12 @@ import {
   listContacts,
   listCustomers,
   type Contact,
+  type Customer,
   type CustomerSummary,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate } from './services/request-gate';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = { title?: string; assignedTo?: string };
@@ -65,6 +66,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const errorRef = useRef<HTMLDivElement>(null);
   const actionIdRef = useRef<string | null>(null);
   const contactGate = useRef(createRequestGate());
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<CustomerSummary>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
@@ -85,21 +91,39 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, user.role]);
 
-  useEffect(() => () => { contactGate.current.next(); }, []);
+  useEffect(() => () => {
+    contactGate.current.next();
+    customerLoadGate.current.next();
+  }, []);
 
   async function loadActiveCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
-      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
-      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+      const next = await loadAllCustomers();
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
+      setCustomers(reconciled); setCustomerState('ready');
+      const selectedCreatedId = selectedCreatedCustomerRef.current;
+      if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
+        setCustomerId(selectedCreatedId);
+      } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
         setCustomerId(initialCustomerId);
         void changeCustomer(initialCustomerId);
       } else if (initialCustomerId) {
         setCustomerId('');
       }
     } catch {
-      setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
-      setContactState('idle'); setCustomerState('error');
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = createdCustomersRef.current.values();
+      if (created.length > 0) {
+        setCustomers(created);
+        setCustomerId(selectedCreatedCustomerRef.current ?? '');
+        setCustomerState('ready');
+      } else {
+        setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
+        setContactState('idle'); setCustomerState('error');
+      }
     }
   }
 
@@ -107,7 +131,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     if (event.currentTarget.open && customerState === 'idle') void loadActiveCustomers();
   }
 
-  async function changeCustomer(nextCustomerId: string) {
+  async function changeCustomer(nextCustomerId: string, preserveCreated = false) {
+    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
     setCustomerId(nextCustomerId); setContactId(''); setContacts([]);
     const generation = contactGate.current.next();
     if (!nextCustomerId) { setContactState('idle'); return; }
@@ -120,6 +145,16 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
       if (!contactGate.current.isCurrent(generation)) return;
       setContacts([]); setContactState('error');
     }
+  }
+
+  function addCreatedCustomer(customer: Customer) {
+    const summary = { ...customer, assignedStaffName: null, primaryContact: null };
+    createdCustomersRef.current.add(summary, customerLoadGate.current.current());
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
+    setCustomerState('ready');
+    void changeCustomer(customer.id, true);
+    setCustomerCreateOpen(false);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -215,7 +250,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
-            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></div>
+            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
               <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}
                 onChange={(event) => void changeCustomer(event.target.value)}>
                 <option value="">Müşteri seçilmedi</option>
@@ -245,5 +280,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         </button>
       </div>
     </form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 import {
   isoInstantToLocalDateTime,
@@ -37,6 +37,7 @@ export type FollowUpProposalSectionProps = {
   onChange: (next: Partial<FollowUpDraft>) => void;
   onOverrideReasonChange: (value: string) => void;
   onUseSuggestedAlternative: () => void;
+  initialFocusRef?: RefObject<HTMLElement | null>;
 };
 
 function formatDateTime(value: string): string {
@@ -71,6 +72,7 @@ export function FollowUpProposalSection({
   onChange,
   onOverrideReasonChange,
   onUseSuggestedAlternative,
+  initialFocusRef,
 }: FollowUpProposalSectionProps): ReactNode {
   const scheduledLocal = draft?.scheduledAt
     ? isoInstantToLocalDateTime(draft.scheduledAt)
@@ -109,7 +111,11 @@ export function FollowUpProposalSection({
       {mode === 'staff' ? (
         <>
           <details className="task-optional-fields follow-up-edit">
-            <summary>Tarih ve saati değiştir</summary>
+            <summary
+              ref={mode === 'staff' && initialFocusRef
+                ? (node) => { initialFocusRef.current = node; }
+                : undefined}
+            >Tarih ve saati değiştir</summary>
             <div className="field-group">
               <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
               <input
@@ -144,6 +150,9 @@ export function FollowUpProposalSection({
           <div className="field-group">
             <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
             <input
+              ref={mode === 'manager' && initialFocusRef
+                ? (node) => { initialFocusRef.current = node; }
+                : undefined}
               id="follow-up-proposal-scheduled-at"
               type="datetime-local"
               value={scheduledLocal}

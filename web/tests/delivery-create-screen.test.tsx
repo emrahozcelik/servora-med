@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({
   createProductDelivery: vi.fn(),
   listReferenceCustomers: vi.fn(),
 }));
-const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
+const crm = vi.hoisted(() => ({ getCustomer: vi.fn(), listCustomers: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const productsApi = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
@@ -63,9 +63,16 @@ function profile(id: string, name: string): StaffProfile {
 }
 
 async function settle() { await act(async () => { await Promise.resolve(); }); }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
 function change(select: HTMLSelectElement, value: string) { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }
-function changeInput(input: HTMLInputElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -90,6 +97,13 @@ describe('Delivery create CRM defaults', () => {
     jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     api.listReferenceCustomers.mockResolvedValue(customers);
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    crm.createCustomer.mockResolvedValue({
+      id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, assignedStaffName: null, status: 'prospect', version: 1, primaryContact: null,
+    });
+    crm.createContact.mockResolvedValue({});
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 8, offset: 0 });
     api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
@@ -332,5 +346,148 @@ describe('Delivery create CRM defaults', () => {
     expect(api.createProductDelivery).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
     }));
+  });
+
+  it('cancels the customer side flow without resetting delivery fields', async () => {
+    await act(async () => root.render(view(manager)));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
+    await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
+    await act(async () => changeInput(container.querySelector('#delivery-note') as HTMLTextAreaElement, 'Teslim notu korunmalı'));
+
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('[data-servora-form-drawer="true"] .customer-form button[type="button"]') as HTMLButtonElement).click();
+    });
+
+    expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect(crm.createCustomer).not.toHaveBeenCalled();
+    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).value).toBe('customer-a');
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('2');
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+    expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Teslim notu korunmalı');
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
+  });
+
+  it('creates and selects a customer without resetting delivery fields or creating a duplicate delivery', async () => {
+    await act(async () => root.render(view(manager)));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
+    await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
+    await act(async () => changeInput(container.querySelector('#delivery-note') as HTMLTextAreaElement, 'Başarı sonrası korunmalı'));
+
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).value).toBe('customer-created');
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('2');
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+    expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Başarı sonrası korunmalı');
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newly-created Customer selected when the initial reference list resolves late', async () => {
+    const initial = deferred<ReferenceCustomer[]>();
+    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(view(staffUser)));
+    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).disabled).toBe(true);
+
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    initial.resolve(customers.slice(0, 1));
+    await settle();
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-a', 'customer-created']);
+    expect(select.value).toBe('customer-created');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the Customer reference state ready when the initial list fails after creation', async () => {
+    const initial = deferred<ReferenceCustomer[]>();
+    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(view(staffUser)));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    initial.reject(new Error('İlk müşteri listesi başarısız'));
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    expect(container.querySelector('[data-retry-customers]')).toBeNull();
+  });
+
+  it('uses a later same-ID canonical Customer projection while preserving the delivery draft', async () => {
+    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
+    const canonical: ReferenceCustomer = {
+      id: 'customer-created',
+      name: 'Canonical Klinik',
+      customerType: 'clinic',
+      status: 'active',
+      assignedStaffUserId: 'staff-2',
+    };
+    api.listReferenceCustomers
+      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
+      .mockResolvedValueOnce([canonical]);
+    crm.createCustomer.mockReturnValueOnce(create.promise);
+    await act(async () => root.render(view(manager)));
+    await settle();
+
+    const retry = container.querySelector('[data-retry-customers]') as HTMLButtonElement;
+    await act(async () => changeInput(container.querySelector('#delivery-note') as HTMLTextAreaElement, 'Canonical refresh notu'));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    await act(async () => {
+      create.resolve({
+        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null, status: 'prospect', version: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      retry.click();
+    });
+    await settle();
+
+    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Canonical refresh notu');
+    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
   });
 });

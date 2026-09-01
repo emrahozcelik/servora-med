@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import {
   createJobCard,
@@ -21,8 +20,10 @@ import {
   localDateTimeToIso,
 } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
-import { listCustomers, type CustomerSummary } from './services/crm-api';
+import { listCustomers, type Customer, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type FieldErrors = {
@@ -64,6 +65,13 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<CustomerSummary>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
+
+  useEffect(() => () => { customerLoadGate.current.next(); }, []);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
@@ -100,16 +108,43 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
   }
 
+  function addCreatedCustomer(customer: Customer) {
+    const summary = { ...customer, assignedStaffName: null, primaryContact: null };
+    createdCustomersRef.current.add(summary, customerLoadGate.current.current());
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
+    setCustomerId(customer.id);
+    setCustomerState('ready');
+    setCustomerCreateOpen(false);
+  }
+
   async function loadCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
-      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
-      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+      const next = await loadAllCustomers();
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
+      setCustomers(reconciled); setCustomerState('ready');
+      const selectedCreatedId = selectedCreatedCustomerRef.current;
+      if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
+        setCustomerId(selectedCreatedId);
+      } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
         setCustomerId(initialCustomerId);
       } else if (initialCustomerId) {
         setCustomerId('');
       }
-    } catch { setCustomers([]); setCustomerId(''); setCustomerState('error'); }
+    } catch {
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = createdCustomersRef.current.values();
+      if (created.length > 0) {
+        setCustomers(created);
+        setCustomerId(selectedCreatedCustomerRef.current ?? '');
+        setCustomerState('ready');
+      } else {
+        setCustomers([]); setCustomerId(''); setCustomerState('error');
+      }
+    }
   }
   async function loadActiveStaff() {
     setStaffState('loading');
@@ -224,11 +259,11 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         )}
       </div>
       <div className="task-field-pair">
-        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></div>
+        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
             aria-invalid={fieldErrors.customerId ? true : undefined}
             aria-describedby={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
-            onChange={(event) => setCustomerId(event.target.value)}>
+            onChange={(event) => { selectedCreatedCustomerRef.current = null; setCustomerId(event.target.value); }}>
             <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
           {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
         <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
@@ -270,5 +305,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
       <button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
         {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></div></form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

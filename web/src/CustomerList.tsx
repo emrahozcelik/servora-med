@@ -9,6 +9,7 @@ import {
   createContact, createCustomer, customerStatusLabels, customerTypeLabels,
   listCustomers, type ContactFields,
   type CreateCustomerInput, type CustomerFilters,
+  type Customer,
   type CustomerSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -18,7 +19,7 @@ import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
-export { createRequestGate } from './services/request-gate';
+export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
 export type CustomerListState =
@@ -281,7 +282,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
 
 export type CustomerFieldErrors = Partial<Record<'name' | 'customerType' | 'email' | 'contactName', string>>;
 
-export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange, staffMode = false, currentUserName = '', contactNotice = '', contactNoticeCustomerId = '', onOpenCreatedCustomer = () => {} }: {
+export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange, staffMode = false, currentUserName = '', contactNotice = '', contactNoticeCustomerId = '', onOpenCreatedCustomer = () => {}, embedded = false }: {
   staff: StaffProfile[];
   pending: boolean;
   similarCustomers: CustomerSummary[];
@@ -296,12 +297,14 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   contactNotice?: string;
   contactNoticeCustomerId?: string;
   onOpenCreatedCustomer?: (customerId: string) => void;
+  embedded?: boolean;
 }) {
-  return <main className="customer-create"><div className="create-heading"><div><h1>Yeni müşteri</h1></div></div>
+  const Root = embedded ? 'div' : 'main';
+  return <Root className="customer-create"><div className="create-heading"><div><h1>Yeni müşteri</h1></div></div>
     <p className="form-intro">Müşteri kaydını oluşturun. İletişim kişisi eklemek isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {contactNotice && <div className="success-message" role="status">{contactNotice}
-      {contactNoticeCustomerId && <div><button className="inline-action" type="button" onClick={() => onOpenCreatedCustomer(contactNoticeCustomerId)}>Müşteri detayına git</button></div>}</div>}
+      {contactNoticeCustomerId && <div><button className="inline-action" type="button" onClick={() => onOpenCreatedCustomer(contactNoticeCustomerId)}>{embedded ? 'Müşteriyi seç' : 'Müşteri detayına git'}</button></div>}</div>}
     {similarCustomers.length > 0 && <section className="similar-customers" aria-labelledby="similar-title"><h2 id="similar-title">Benzer müşteri kayıtları</h2>
       <p>Bu kayıtlar oluşturmayı engellemez. Yinelenen müşteri olmadığını kontrol edin.</p><ul>{similarCustomers.map((customer) => <li key={customer.id}><Link to={paths.customer(customer.id)}>{customer.name}</Link></li>)}</ul></section>}
     <form className="customer-form" onSubmit={onSubmit} noValidate>
@@ -344,7 +347,7 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
         <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Oluşturuluyor…' : 'Müşteriyi oluştur'}</button></div>
     </form>
-  </main>;
+  </Root>;
 }
 
 export async function createCustomerWithRecovery(input: CreateCustomerInput, dependencies = {
@@ -458,9 +461,24 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   </>;
 }
 
-export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
+export type CustomerCreateFlowProps = {
+  user: CurrentUser;
+  source?: string | null;
+  embedded?: boolean;
+  onCancel?: () => void;
+  onCreated?: (customer: Customer) => void;
+  onPendingChange?: (pending: boolean) => void;
+};
+
+export function CustomerCreateFlow({
+  user,
+  source = null,
+  embedded = false,
+  onCancel,
+  onCreated,
+  onPendingChange,
+}: CustomerCreateFlowProps) {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [similar, setSimilar] = useState<CustomerSummary[]>([]);
   const [pending, setPending] = useState(false);
@@ -469,12 +487,21 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
   const [contactNotice, setContactNotice] = useState('');
   const [contactNoticeCustomerId, setContactNoticeCustomerId] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
+  const createdCustomerRef = useRef<Customer | null>(null);
+  const mountedRef = useRef(true);
+  const createAttemptRef = useRef(0);
   const staffMode = user.role === 'STAFF';
-  const source = params.get('source');
   useEffect(() => { if (!staffMode) void listStaff('active').then(setStaff).catch(() => setStaff([])); }, [staffMode]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const similarRequestGate = useRef(createRequestGate());
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      createAttemptRef.current += 1;
+    };
+  }, []);
   useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); similarRequestGate.current.next(); }, []);
   function nameChanged(name: string) {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -486,14 +513,20 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
         .catch(() => { if (similarRequestGate.current.isCurrent(requestGeneration)) setSimilar([]); });
     }, 250);
   }
-  function redirectAfterCreate(customerId: string) {
-    if (source === 'meeting') navigate(paths.newMeeting + `?customerId=${customerId}`);
-    else if (source === 'task') navigate(paths.newTask + `?customerId=${customerId}`);
-    else if (source === 'delivery') navigate(paths.newDelivery + `?customerId=${customerId}`);
-    else navigate(paths.customer(customerId));
+  function redirectAfterCreate(customer: Customer) {
+    if (embedded) {
+      onCreated?.(customer);
+      return;
+    }
+    if (source === 'meeting') navigate(paths.newMeeting + `?customerId=${customer.id}`);
+    else if (source === 'task') navigate(paths.newTask + `?customerId=${customer.id}`);
+    else if (source === 'delivery') navigate(paths.newDelivery + `?customerId=${customer.id}`);
+    else navigate(paths.customer(customer.id));
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setFieldErrors({}); setContactNotice('');
+    event.preventDefault();
+    if (pending) return;
+    setError(''); setFieldErrors({}); setContactNotice('');
     const data = new FormData(event.currentTarget); const input = customerInputFromFormData(data); const { name, email } = input;
     if (staffMode) input.assignedStaffUserId = null;
     const errors: CustomerFieldErrors = {};
@@ -512,35 +545,61 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
       }, 0);
       return;
     }
+    const attempt = createAttemptRef.current + 1;
+    createAttemptRef.current = attempt;
+    const isCurrentAttempt = () => mountedRef.current && createAttemptRef.current === attempt;
     setPending(true);
+    onPendingChange?.(true);
     try {
       const result = await createCustomerWithRecovery(input);
+      if (!isCurrentAttempt()) return;
       if (result.customer) {
+        createdCustomerRef.current = result.customer;
         const contact = staffMode ? null : contactInputFromFormData(data);
         if (contact) {
           try {
             await createContact(result.customer.id, contact);
           } catch {
-            setPending(false);
+            if (!isCurrentAttempt()) return;
             setContactNotice('Müşteri oluşturuldu ancak iletişim kişisi eklenemedi. İletişim kişisini müşteri detayından tekrar ekleyebilirsiniz.');
             setContactNoticeCustomerId(result.customer.id);
             return;
           }
         }
-        redirectAfterCreate(result.customer.id);
+        if (!isCurrentAttempt()) return;
+        redirectAfterCreate(result.customer);
       }
       else { setSimilar(result.matches); setError('Kayıt isteğinin sonucu doğrulanamadı. Benzer kayıtları kontrol edip gerekirse yeniden deneyin.'); }
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.'); }
-    finally { setPending(false); }
+    } catch (caught) {
+      if (isCurrentAttempt()) setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.');
+    } finally {
+      if (isCurrentAttempt()) {
+        setPending(false);
+        onPendingChange?.(false);
+      }
+    }
   }
   return <CustomerCreateForm staff={staff} pending={pending} similarCustomers={similar} fieldErrors={fieldErrors} error={error} errorRef={errorRef}
     contactNotice={contactNotice} contactNoticeCustomerId={contactNoticeCustomerId}
-    onOpenCreatedCustomer={(customerId) => navigate(paths.customer(customerId))}
+    onOpenCreatedCustomer={(customerId) => {
+      if (embedded) {
+        if (createdCustomerRef.current?.id === customerId) onCreated?.(createdCustomerRef.current);
+        return;
+      }
+      navigate(paths.customer(customerId));
+    }}
     onCancel={() => {
-      if (source === 'meeting') navigate(paths.newMeeting);
+      if (embedded) {
+        onCancel?.();
+      } else if (source === 'meeting') navigate(paths.newMeeting);
       else if (source === 'task') navigate(paths.newTask);
       else if (source === 'delivery') navigate(paths.newDelivery);
       else navigate(paths.customers);
     }} onSubmit={(event) => void submit(event)} onNameChange={nameChanged}
-    staffMode={staffMode} currentUserName={user.name} />;
+    staffMode={staffMode} currentUserName={user.name} embedded={embedded} />;
+}
+
+export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
+  const [params] = useSearchParams();
+  return <CustomerCreateFlow user={user} source={params.get('source')} />;
 }

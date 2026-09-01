@@ -208,6 +208,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Müşteri oluşturuldu ancak iletişim kişisi eklenemedi.');
     expect(container.textContent).toContain('İletişim kişisini müşteri detayından tekrar ekleyebilirsiniz.');
+    expect(container.textContent).toContain('Müşteri detayına git');
   });
 
   it('CUX-3D: rejects incomplete optional Contact before creating the Customer', async () => {

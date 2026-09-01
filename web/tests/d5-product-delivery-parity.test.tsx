@@ -117,7 +117,7 @@ describe('D5 Product Delivery create parity', () => {
     ));
     await settle();
 
-    expect(host.querySelector('a[href="/customers/new?source=delivery"]')?.textContent)
+    expect(host.querySelector('button')?.textContent)
       .toBe('Yeni müşteri ekle');
     expect((host.querySelector('#delivery-customer') as HTMLSelectElement).value)
       .toBe('customer-new');

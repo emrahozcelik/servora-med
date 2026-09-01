@@ -13,7 +13,9 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const crm = vi.hoisted(() => ({
+  listCustomers: vi.fn(), listContacts: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn(),
+}));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
   localDateTimeToIso: (value: string) => {
@@ -81,6 +83,12 @@ describe('General Task quick create', () => {
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    crm.createCustomer.mockResolvedValue({
+      id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, assignedStaffName: null, status: 'prospect', version: 1, primaryContact: null,
+    });
+    crm.createContact.mockResolvedValue({});
     jobs.createJobCard.mockResolvedValue({ id: 'job-task-1', version: 1 });
     onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
     root = createRoot(container);
@@ -285,21 +293,212 @@ describe('General Task quick create', () => {
     expect(container.querySelector('#task-contact')?.textContent).toContain('Dr. Ayşe');
   });
 
-  it('shows a create-customer link when the customer list is empty', async () => {
+  it('shows an embedded create-customer action when the customer list is empty', async () => {
     crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
-    expect(container.querySelector('[href="/customers/new?source=task"]')).not.toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Yeni müşteri ekle')).toBe(true);
   });
 
-  it('keeps the create-customer link available when customers already exist', async () => {
+  it('keeps the embedded create-customer action available when customers already exist', async () => {
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
-    expect(container.querySelector('[href="/customers/new?source=task"]')).not.toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Yeni müşteri ekle')).toBe(true);
+  });
+
+  it('creates and selects a customer while preserving task fields and clearing only Contact', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'Eski Klinik')], total: 1, limit: 200, offset: 0,
+    });
+    crm.listContacts.mockImplementation((id: string) => Promise.resolve(id === 'c1'
+      ? { items: [contact('c1', 'contact-1', 'Dr. Eski')], total: 1, limit: 200, offset: 0 }
+      : { items: [], total: 0, limit: 200, offset: 0 }));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Taslak görev');
+    change(container.querySelector('#task-description') as HTMLTextAreaElement, 'Açıklama korunmalı');
+    change(container.querySelector('#task-assignee') as HTMLSelectElement, 'staff-2');
+    change(container.querySelector('#task-priority') as HTMLSelectElement, 'high');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
+    await act(async () => change(container.querySelector('#task-customer') as HTMLSelectElement, 'c1'));
+    await settle();
+    await act(async () => change(container.querySelector('#task-contact') as HTMLSelectElement, 'contact-1'));
+
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect((container.querySelector('#task-customer') as HTMLSelectElement).value).toBe('customer-created');
+    expect((container.querySelector('#task-contact') as HTMLSelectElement).value).toBe('');
+    expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Taslak görev');
+    expect((container.querySelector('#task-description') as HTMLTextAreaElement).value).toBe('Açıklama korunmalı');
+    expect((container.querySelector('#task-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#task-priority') as HTMLSelectElement).value).toBe('high');
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-22T13:00');
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+  });
+
+  it('cancels the customer side flow without resetting the task draft', async () => {
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    change(container.querySelector('#task-title') as HTMLInputElement, 'İptal edilecek görev');
+    change(container.querySelector('#task-description') as HTMLTextAreaElement, 'Taslak açıklama');
+    change(container.querySelector('#task-assignee') as HTMLSelectElement, 'staff-2');
+    change(container.querySelector('#task-priority') as HTMLSelectElement, 'urgent');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('[data-servora-form-drawer="true"] .customer-form button[type="button"]') as HTMLButtonElement).click();
+    });
+
+    expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
+    expect(crm.createCustomer).not.toHaveBeenCalled();
+    expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('İptal edilecek görev');
+    expect((container.querySelector('#task-description') as HTMLTextAreaElement).value).toBe('Taslak açıklama');
+    expect((container.querySelector('#task-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect((container.querySelector('#task-priority') as HTMLSelectElement).value).toBe('urgent');
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-22T13:00');
+  });
+
+  it('keeps the task draft mounted when customer creation returns an API error', async () => {
+    crm.createCustomer.mockRejectedValueOnce(new Error('Müşteri servisi 503'));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Hata sonrası görev');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Hatalı Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(container.querySelector('[data-servora-form-drawer="true"]')).not.toBeNull();
+    expect(container.querySelector('[data-servora-form-drawer="true"] [role="alert"]')?.textContent).toContain('Müşteri servisi 503');
+    expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Hata sonrası görev');
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-22T13:00');
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+  });
+
+  it('keeps a newly-created Customer selected when the optional list resolves late', async () => {
+    const initial = deferred<{ items: ReturnType<typeof customer>[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    expect((container.querySelector('#task-customer') as HTMLSelectElement).disabled).toBe(true);
+
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Taslak görev');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    initial.resolve({ items: [customer('customer-1', 'Eski Klinik')], total: 1, limit: 200, offset: 0 });
+    await settle();
+
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-1', 'customer-created']);
+    expect(select.value).toBe('customer-created');
+    expect(container.querySelector('#task-title')).toHaveProperty('value', 'Taslak görev');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the optional Customer reference usable when its initial list fails after creation', async () => {
+    const initial = deferred<{ items: ReturnType<typeof customer>[]; total: number; limit: number; offset: number }>();
+    crm.listCustomers.mockReturnValueOnce(initial.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    initial.reject(new Error('İlk müşteri listesi başarısız'));
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('Müşteriler yüklenemedi');
+  });
+
+  it('uses a later same-ID canonical Customer without resetting the task draft or Contact dependency', async () => {
+    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
+    const canonical = {
+      ...customer('customer-created', 'Canonical Klinik'),
+      assignedStaffName: 'Canonical Sorumlu',
+      primaryContact: { id: 'contact-canonical', name: 'Dr. Canonical', title: 'Doktor' },
+      version: 2,
+    };
+    crm.listCustomers
+      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
+      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 200, offset: 0 });
+    crm.createCustomer.mockReturnValueOnce(create.promise);
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details.task-optional')!;
+    details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+
+    const retry = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Tekrar dene') as HTMLButtonElement;
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Canonical refresh görevi');
+    await act(async () => {
+      (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
+    });
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    await act(async () => {
+      create.resolve({
+        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null, status: 'prospect', version: 1,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      retry.click();
+    });
+    await settle();
+
+    const select = container.querySelector('#task-customer') as HTMLSelectElement;
+    expect(select.value).toBe('customer-created');
+    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Canonical refresh görevi');
+    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
+    expect(crm.listContacts).toHaveBeenCalledTimes(1);
   });
 
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {

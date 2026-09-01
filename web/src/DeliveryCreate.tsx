@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 
 import {
   ApiError,
@@ -18,7 +17,10 @@ import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 import type { Product } from './services/products-api';
+import type { Customer } from './services/crm-api';
+import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 export type DeliveryFormValues = {
   customerId: string;
@@ -85,10 +87,16 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
+  const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
+  const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
+  const customerLoadGate = useRef(createRequestGate());
+  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<ReferenceCustomer>());
+  const selectedCreatedCustomerRef = useRef<string | null>(null);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => () => { customerLoadGate.current.next(); }, []);
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
   useEffect(() => {
@@ -134,14 +142,23 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   }
 
   async function loadCustomers() {
+    const generation = customerLoadGate.current.next();
     setCustomerState('loading');
     try {
       const next = await listReferenceCustomers();
-      setCustomers(next);
-      const initialCustomer = next.find((customer) => (
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const reconciled = createdCustomersRef.current.reconcile(next, generation);
+      setCustomers(reconciled);
+      const selectedCreatedCustomer = selectedCreatedCustomerRef.current
+        ? reconciled.find((customer) => customer.id === selectedCreatedCustomerRef.current)
+        : undefined;
+      const initialCustomer = reconciled.find((customer) => (
         customer.id === initialCustomerId && customer.status !== 'inactive'
       ));
-      if (initialCustomer) {
+      if (selectedCreatedCustomer) {
+        setCustomerId(selectedCreatedCustomer.id);
+        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
+      } else if (initialCustomer) {
         setCustomerId(initialCustomer.id);
         applyCustomerSelection(initialCustomer);
       } else if (initialCustomerId) {
@@ -150,10 +167,22 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       }
       setCustomerState('ready');
     } catch {
-      setCustomers([]);
-      setCustomerId('');
-      applyCustomerSelection(undefined);
-      setCustomerState('error');
+      if (!customerLoadGate.current.isCurrent(generation)) return;
+      const created = createdCustomersRef.current.values();
+      if (created.length > 0) {
+        setCustomers(created);
+        const selectedCreatedCustomer = selectedCreatedCustomerRef.current
+          ? created.find((customer) => customer.id === selectedCreatedCustomerRef.current)
+          : undefined;
+        setCustomerId(selectedCreatedCustomer?.id ?? '');
+        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
+        setCustomerState('ready');
+      } else {
+        setCustomers([]);
+        setCustomerId('');
+        applyCustomerSelection(undefined);
+        setCustomerState('error');
+      }
     }
   }
   useEffect(() => { void loadCustomers(); }, []);
@@ -169,9 +198,20 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     }).catch(() => { if (active) setStaffState('error'); });
     return () => { active = false; };
   }, [user.role]);
-  function changeCustomer(nextCustomerId: string) {
+  function changeCustomer(nextCustomerId: string, preserveCreated = false) {
+    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
     setCustomerId(nextCustomerId);
     applyCustomerSelection(customers.find((customer) => customer.id === nextCustomerId));
+  }
+
+  function addCreatedCustomer(customer: Customer) {
+    createdCustomersRef.current.add(customer, customerLoadGate.current.current());
+    selectedCreatedCustomerRef.current = customer.id;
+    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
+    setCustomerId(customer.id);
+    if (!assigneeModified.current) applyCustomerSelection(customer);
+    setCustomerState('ready');
+    setCustomerCreateOpen(false);
   }
 
   function addSelectedProduct(product: Product) {
@@ -269,7 +309,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
-        <Link className="inline-action" to="/customers/new?source=delivery">Yeni müşteri ekle</Link></div>
+        <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={pending} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
         <select id="delivery-customer" name="customerId" required disabled={pending || unavailable || customerState !== 'ready'} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
           <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></div>
@@ -320,5 +360,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
       </div>
     </form>
+    <CustomerCreateSideFlow
+      open={customerCreateOpen}
+      user={user}
+      returnFocusRef={customerCreateTriggerRef}
+      onCancel={() => setCustomerCreateOpen(false)}
+      onCreated={addCreatedCustomer}
+    />
   </main>;
 }

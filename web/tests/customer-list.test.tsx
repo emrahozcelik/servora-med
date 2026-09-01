@@ -10,6 +10,7 @@ import {
   CustomerListScreen,
   CustomerListView,
   createRequestGate,
+  createTemporaryReferenceBuffer,
   createCustomerWithRecovery,
   customerFiltersFromParams,
   customerInputFromFormData,
@@ -122,6 +123,51 @@ describe('Customer list and creation', () => {
     vi.advanceTimersByTime(1); expect(callback).toHaveBeenCalledOnce(); vi.useRealTimers();
     const gate = createRequestGate(); const older = gate.next(); const latest = gate.next();
     expect(gate.isCurrent(older)).toBe(false); expect(gate.isCurrent(latest)).toBe(true);
+  });
+
+  it('retires a temporary Customer snapshot only after canonical same-ID acknowledgement', () => {
+    const buffer = createTemporaryReferenceBuffer<{ id: string; name: string }>();
+    buffer.add({ id: 'created', name: 'Snapshot' }, 1);
+
+    expect(buffer.reconcile([{ id: 'other', name: 'Diğer' }], 2)).toEqual([
+      { id: 'other', name: 'Diğer' },
+      { id: 'created', name: 'Snapshot' },
+    ]);
+    expect(buffer.has('created')).toBe(true);
+
+    expect(buffer.reconcile([{ id: 'created', name: 'Canonical' }], 3)).toEqual([
+      { id: 'created', name: 'Canonical' },
+    ]);
+    expect(buffer.has('created')).toBe(false);
+    expect(buffer.reconcile([{ id: 'created', name: 'En yeni canonical' }], 4)).toEqual([
+      { id: 'created', name: 'En yeni canonical' },
+    ]);
+  });
+
+  it('lets a created snapshot win over a same-generation pre-create response', () => {
+    const buffer = createTemporaryReferenceBuffer<{ id: string; name: string }>();
+    buffer.add({ id: 'created', name: 'Created snapshot' }, 1);
+
+    expect(buffer.reconcile([{ id: 'created', name: 'Stale list record' }], 1)).toEqual([
+      { id: 'created', name: 'Created snapshot' },
+    ]);
+    expect(buffer.has('created')).toBe(true);
+  });
+
+  it('keeps canonical request B when older request A resolves after it', () => {
+    const gate = createRequestGate();
+    const buffer = createTemporaryReferenceBuffer<{ id: string; name: string }>();
+    const requestA = gate.next();
+    buffer.add({ id: 'created', name: 'Snapshot' }, gate.current());
+    const requestB = gate.next();
+    let state = buffer.reconcile([{ id: 'created', name: 'Canonical B' }], requestB);
+
+    if (gate.isCurrent(requestA)) {
+      state = buffer.reconcile([{ id: 'old', name: 'Stale A' }], requestA);
+    }
+
+    expect(state).toEqual([{ id: 'created', name: 'Canonical B' }]);
+    expect(buffer.has('created')).toBe(false);
   });
 
   it('renders labeled filters and an accessible creation form with pending state', () => {

@@ -33,6 +33,9 @@ export type ReasonDialogProps = {
   pendingLabel?: string;
   destructive?: boolean;
   prelude?: ReactNode;
+  /** Optional focus target for content that is loaded after the dialog opens. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  initialFocusReady?: boolean;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
@@ -58,6 +61,8 @@ export function ReasonDialog({
   pendingLabel = 'İşleniyor…',
   destructive = false,
   prelude,
+  initialFocusRef,
+  initialFocusReady = false,
   onConfirm,
   onCancel,
   returnFocusRef,
@@ -99,6 +104,15 @@ export function ReasonDialog({
       }
     };
   }, [open, restoreFocusEnabledRef, returnFocusRef]);
+
+  useEffect(() => {
+    if (!open || !initialFocusReady) return;
+    const target = initialFocusRef?.current;
+    if (!target || ('disabled' in target && Boolean((target as HTMLButtonElement).disabled))) return;
+    const active = document.activeElement;
+    if (active !== cancelRef.current && active !== dialogRef.current) return;
+    target.focus();
+  }, [initialFocusReady, initialFocusRef, open]);
 
   useEffect(() => {
     if (!open || !pending) return;
