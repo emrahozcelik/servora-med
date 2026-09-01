@@ -207,7 +207,11 @@ function contractFailures(measurement, viewport) {
 }
 
 async function exerciseSelection(page, targetKey) {
-  const targetDay = targetKey.slice(-2).replace(/^0/, '');
+  // AntD renders the mini-calendar day value zero-padded ("01".."31"); match
+  // the exact rendered text instead of stripping the leading zero, which made
+  // single-digit targets (day 1..9 of the month) unmatchable and broke the
+  // selection exercise whenever the resolved target fell in 1..9.
+  const targetDay = targetKey.slice(-2);
   const targetCell = page.locator(
     `[class*="picker-cell-in-view"]:has([class*="picker-calendar-date-value"]:text-is("${targetDay}"))`,
   ).first();
