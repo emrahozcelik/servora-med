@@ -15,6 +15,8 @@ import type {
   JobCard,
   JobCardActor,
   JobCardEngagementKind,
+  MeetingOutcome,
+  UnsuccessfulVisitReasonCode,
   JobCardType,
 } from '../src/modules/job-cards/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -111,6 +113,8 @@ type Fixture = {
     assignedTo: string;
     scheduledAt?: string | null;
     engagementKind?: JobCardEngagementKind;
+    outcome?: MeetingOutcome;
+    unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
   }): Promise<JobCard>;
 };
 
@@ -192,6 +196,9 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       const type = input.type;
       const resolvedCustomerId = input.customerId === undefined ? customerId : input.customerId;
       const assignedTo = input.assignedTo;
+      const engagementKind = type === 'SALES_MEETING'
+        ? input.engagementKind ?? 'CUSTOMER_VISIT'
+        : undefined;
       const scheduledAt = input.scheduledAt === undefined ? '2026-08-01T10:00:00.000Z' : input.scheduledAt;
       const scheduledEndsAt = scheduledAt === null
         ? null
@@ -208,9 +215,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
         dueDate: null,
         scheduledAt,
         scheduledEndsAt: type === 'GENERAL_TASK' ? undefined : scheduledEndsAt,
-        engagementKind: type === 'SALES_MEETING'
-          ? input.engagementKind ?? 'CUSTOMER_VISIT'
-          : undefined,
+        engagementKind,
       } as never);
       const started = await service.start(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -232,11 +237,17 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
         return service.detail(staffA, job.id) as unknown as Promise<JobCard>;
       }
       if (type === 'SALES_MEETING') {
+        const outcome = input.outcome
+          ?? (engagementKind === 'CUSTOMER_VISIT' ? 'FOLLOW_UP_REQUIRED' : 'POSITIVE');
+        const unsuccessfulReason = outcome === 'FOLLOW_UP_REQUIRED'
+          ? input.unsuccessfulReason ?? 'REQUESTED_LATER'
+          : null;
         const details = await service.patchMeetingDetails(staffA, job.id, {
           clientActionId: randomUUID(),
           expectedVersion: started.version,
           meetingAt: '2026-08-01T09:30:00.000Z',
-          outcome: 'POSITIVE',
+          outcome,
+          unsuccessfulReason,
           meetingSummary: 'Görüşme tamamlandı.',
         });
         void details;
@@ -1203,6 +1214,30 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       expect(child.followUpContext).toMatchObject({
         sourceJobCardId: persistedProposal.rows[0]!.id,
       });
+    });
+  });
+
+  it('keeps a legacy near-term persisted proposal valid under the new lead policy', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, organizationId }) => {
+      const legacyScheduledAt = '2026-08-01T10:05:00.000Z';
+      const persisted = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, version, title, assigned_to, created_by,
+           started_at, staff_completed_at, staff_completed_by,
+           follow_up_proposed_at, follow_up_proposed_type, follow_up_proposed_assignee,
+           follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by
+         )
+         VALUES ($1, 'GENERAL_TASK', 'WAITING_APPROVAL', 2, 'Eski yakın tarihli teklif', $2, $3,
+           NOW(), NOW(), $2, $4, 'GENERAL_TASK', $2, 'Takip: Eski iş', 'SYSTEM', $3)
+         RETURNING id`,
+        [organizationId, staffA.id, manager.id, legacyScheduledAt],
+      );
+
+      const approved = await service.approve(manager, persisted.rows[0]!.id, {
+        clientActionId: randomUUID(), expectedVersion: 2,
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child.scheduledAt).toBe(legacyScheduledAt);
     });
   });
 

@@ -25,6 +25,7 @@ import {
   type PaginatedJobCardNotes,
   type MeetingDetailsCandidate,
   type MeetingOutcome,
+  type UnsuccessfulVisitReasonCode,
   type ReferenceContact,
   type ReferenceCustomer,
   type RelatedIdentity,
@@ -550,6 +551,7 @@ type MeetingDetailsRow = {
   job_card_id: string;
   meeting_at: Date | null;
   outcome: MeetingOutcome | null;
+  unsuccessful_reason_code: UnsuccessfulVisitReasonCode | null;
   meeting_summary: string | null;
   next_follow_up_at: Date | null;
 };
@@ -579,6 +581,7 @@ function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
   return {
     meetingAt: row.meeting_at?.toISOString() ?? null,
     outcome: row.outcome,
+    unsuccessfulReason: row.unsuccessful_reason_code,
     meetingSummary: row.meeting_summary,
     nextFollowUpAt: row.next_follow_up_at?.toISOString() ?? null,
   };
@@ -1586,7 +1589,8 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.client.query<MeetingDetailsRow>(
-      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+      `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
+              meeting_summary, next_follow_up_at
          FROM job_card_meeting_details
         WHERE organization_id = $1 AND job_card_id = $2
         FOR UPDATE`,
@@ -1598,11 +1602,11 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async updateMeetingDetails(input: MeetingDetailsRecord) {
     await this.client.query(
       `UPDATE job_card_meeting_details
-          SET meeting_at = $3, outcome = $4, meeting_summary = $5,
-              next_follow_up_at = $6, updated_at = NOW()
+          SET meeting_at = $3, outcome = $4, unsuccessful_reason_code = $5,
+              meeting_summary = $6, next_follow_up_at = $7, updated_at = NOW()
         WHERE organization_id = $1 AND job_card_id = $2`,
       [input.organizationId, input.jobCardId, input.meetingAt, input.outcome,
-        input.meetingSummary, input.nextFollowUpAt],
+        input.unsuccessfulReason ?? null, input.meetingSummary, input.nextFollowUpAt],
     );
   }
 
@@ -2173,7 +2177,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
 
   async findMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<MeetingDetailsRow>(
-      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+      `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
+              meeting_summary, next_follow_up_at
          FROM job_card_meeting_details
         WHERE organization_id = $1 AND job_card_id = $2`,
       [organizationId, jobCardId],
@@ -2209,7 +2214,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
 
   async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<MeetingDetailsRow>(
-      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+      `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
+              meeting_summary, next_follow_up_at
          FROM job_card_meeting_details
         WHERE organization_id = $1 AND job_card_id = $2`,
       [organizationId, jobCardId],

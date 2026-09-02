@@ -1,4 +1,9 @@
-import type { JobCardEngagementKind, JobCardType } from './types.js';
+import type {
+  JobCardEngagementKind,
+  JobCardType,
+  MeetingOutcome,
+  UnsuccessfulVisitReasonCode,
+} from './types.js';
 import {
   addCalendarDaysToDateKey,
   instantFromLocal,
@@ -14,10 +19,43 @@ import {
  * (a per-type record) deliberately leaves that door open.
  */
 export const FOLLOW_UP_DEFAULT_INTERVAL_DAYS = 7;
+export const FOLLOW_UP_MIN_LEAD_MINUTES = 15;
 export const FOLLOW_UP_SEARCH_HORIZON_DAYS = 30;
 export const RECENT_VISIT_WARNING_DAYS = 7;
 export const FREQUENT_VISIT_WINDOW_DAYS = 14;
 export const FREQUENT_VISIT_MAX_COUNT = 3;
+
+/**
+ * Follow-up proposals must leave a short operational buffer after the
+ * canonical reference instant. This policy intentionally works on UTC
+ * instants; callers choose the reference (meeting/completion/request time)
+ * before invoking it.
+ */
+export function isFollowUpMinimumLeadSatisfied(input: {
+  referenceAt: Date;
+  scheduledAt: Date;
+}): boolean {
+  return input.scheduledAt.valueOf()
+    >= input.referenceAt.valueOf() + FOLLOW_UP_MIN_LEAD_MINUTES * 60_000;
+}
+
+/**
+ * A follow-up cannot be scheduled before the request has been made, even when
+ * the recorded meeting happened earlier. A future-dated meeting therefore
+ * becomes the reference, while an already elapsed meeting falls back to the
+ * request instant.
+ */
+export function followUpLeadReferenceAt(input: {
+  meetingAt: Date | null;
+  requestAt: Date;
+}): Date {
+  if (input.meetingAt === null || Number.isNaN(input.meetingAt.valueOf())) {
+    return input.requestAt;
+  }
+  return input.meetingAt.valueOf() > input.requestAt.valueOf()
+    ? input.meetingAt
+    : input.requestAt;
+}
 
 export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
 
@@ -34,8 +72,14 @@ export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
 export function requiresMandatoryFollowUpProposal(input: {
   type: JobCardType;
   engagementKind: JobCardEngagementKind | null;
+  outcome?: MeetingOutcome | null;
+  unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
 }): boolean {
-  return input.type === 'SALES_MEETING' && input.engagementKind === 'CUSTOMER_VISIT';
+  return input.type === 'SALES_MEETING'
+    && input.engagementKind === 'CUSTOMER_VISIT'
+    && input.outcome === 'FOLLOW_UP_REQUIRED'
+    && input.unsuccessfulReason !== null
+    && input.unsuccessfulReason !== undefined;
 }
 
 /**

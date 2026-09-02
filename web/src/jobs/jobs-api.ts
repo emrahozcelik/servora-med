@@ -30,8 +30,15 @@ export const JOB_CARD_ENGAGEMENT_KINDS = [
 export const MEETING_OUTCOMES = [
   'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
 ] as const;
+export const UNSUCCESSFUL_VISIT_REASON_CODES = [
+  'CONTACT_NOT_AVAILABLE',
+  'CONTACT_BUSY',
+  'CUSTOMER_UNREACHABLE',
+  'REQUESTED_LATER',
+  'OTHER',
+] as const;
 export const MEETING_DETAIL_FIELDS = [
-  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ] as const;
 export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
@@ -54,7 +61,8 @@ export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 export const SUBMISSION_REQUIREMENT_CODES = [
   'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
   'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
-  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'FOLLOW_UP_TIME_VALID',
+  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'UNSUCCESSFUL_REASON_PRESENT',
+  'FOLLOW_UP_TIME_VALID',
 ] as const;
 
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
@@ -65,6 +73,7 @@ export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 export type JobCardEngagementKind = (typeof JOB_CARD_ENGAGEMENT_KINDS)[number];
 export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
+export type UnsuccessfulVisitReasonCode = (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number];
 export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 export type RelatedName = { id: string; name: string };
@@ -308,11 +317,13 @@ export type DeliveryItem = {
 };
 export type MeetingDetails = {
   jobCardId: string; meetingAt: string | null; outcome: MeetingOutcome | null;
+  unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
   meetingSummary: string | null; nextFollowUpAt: string | null; jobCardVersion: number;
 };
 export type PatchMeetingDetailsInput = {
   clientActionId: string; expectedVersion: number; meetingAt?: string | null;
-  outcome?: MeetingOutcome | null; meetingSummary?: string | null;
+  outcome?: MeetingOutcome | null; unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
+  meetingSummary?: string | null;
   nextFollowUpAt?: string | null;
 };
 export type PatchJobCardInput = {
@@ -875,13 +886,16 @@ function parseProductDeliveryCreate(value: unknown) {
 }
 export function parseMeetingDetails(value: unknown): MeetingDetails {
   const v = exactObject(value, 'meetingDetails', [
-    'jobCardId', 'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+    'jobCardId', 'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
     'jobCardVersion',
   ]);
   return {
     jobCardId: string(v.jobCardId, 'jobCardId'),
     meetingAt: nullableCanonicalInstant(v.meetingAt, 'meetingAt'),
     outcome: v.outcome === null ? null : oneOf(v.outcome, 'outcome', MEETING_OUTCOMES),
+    unsuccessfulReason: v.unsuccessfulReason === undefined || v.unsuccessfulReason === null
+      ? null
+      : oneOf(v.unsuccessfulReason, 'unsuccessfulReason', UNSUCCESSFUL_VISIT_REASON_CODES),
     meetingSummary: nullableString(v.meetingSummary, 'meetingSummary'),
     nextFollowUpAt: nullableCanonicalInstant(v.nextFollowUpAt, 'nextFollowUpAt'),
     jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion'),

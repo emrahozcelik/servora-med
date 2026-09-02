@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,9 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'MEETING_DETAILS_UPDATED',
   'JOB_APPROVAL_WITHDRAWN',
   'JOB_INVALIDATED',
+] as const;
+const EXPECTED_UNSUCCESSFUL_REASON_CODES = [
+  'CONTACT_NOT_AVAILABLE', 'CONTACT_BUSY', 'CUSTOMER_UNREACHABLE', 'REQUESTED_LATER', 'OTHER',
 ] as const;
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -148,8 +151,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(41);
-      expect(firstRun.appliedVersions.at(-1)).toBe('041_user_lifecycle_reconciliation');
+      expect(firstRun.appliedVersions).toHaveLength(42);
+      expect(firstRun.appliedVersions.at(-1)).toBe('042_unsuccessful_visit_reason');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -160,6 +163,19 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
       expect(activityEvents).toHaveLength(18);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
+      const reasonColumn = await pool.query<{ is_nullable: string }>(
+        `SELECT is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'job_card_meeting_details'
+            AND column_name = 'unsuccessful_reason_code'`,
+      );
+      expect(reasonColumn.rows).toEqual([{ is_nullable: 'YES' }]);
+      const reasonValues = await readCheckValues(
+        pool,
+        'job_card_meeting_details_unsuccessful_reason_check',
+      );
+      expect(new Set(reasonValues)).toEqual(new Set(EXPECTED_UNSUCCESSFUL_REASON_CODES));
 
       const secondRun = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
@@ -169,7 +185,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
     });
   });
 
-  it('upgrades an applied 001-006 database with migrations 007 through 010', async () => {
+  it('upgrades an applied 001-006 database through the current migration head', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const legacyDirectory = await createMigrationSubset(MIGRATIONS_001_TO_006);
       const baseline = await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -216,9 +232,44 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '039_contact_deleted_audit',
           '040_demo_lifecycle_simplification',
           '041_user_lifecycle_reconciliation',
+          '042_unsuccessful_visit_reason',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
+    });
+  });
+
+  it('adds the nullable reason column without changing existing meeting rows', async () => {
+    await withIsolatedDatabase(async (pool, store) => {
+      const migrationsBeforeReason = (await readdir(MIGRATIONS_DIRECTORY))
+        .filter((file) => file.endsWith('.sql') && file !== '042_unsuccessful_visit_reason.sql')
+        .sort();
+      const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
+      await runMigrations({ migrationsDirectory: legacyDirectory, store });
+
+      const fixture = await createOrganizationAndStaff(pool, 'Legacy meeting');
+      const jobCardId = await createSalesMeeting(pool, fixture.organizationId, fixture.staffUserId);
+      await pool.query(
+        `INSERT INTO job_card_meeting_details (job_card_id, organization_id)
+         VALUES ($1, $2)`,
+        [jobCardId, fixture.organizationId],
+      );
+      await pool.query(
+        `UPDATE job_card_meeting_details
+            SET meeting_at = '2026-07-15T10:00:00Z', outcome = 'NO_DECISION',
+                meeting_summary = 'Tarihi görüşme'
+          WHERE job_card_id = $1`,
+        [jobCardId],
+      );
+
+      await expect(runMigrations({
+        migrationsDirectory: MIGRATIONS_DIRECTORY,
+        store,
+      })).resolves.toEqual({ appliedVersions: ['042_unsuccessful_visit_reason'] });
+      await expect(pool.query<{ unsuccessful_reason_code: string | null }>(
+        `SELECT unsuccessful_reason_code FROM job_card_meeting_details WHERE job_card_id = $1`,
+        [jobCardId],
+      )).resolves.toMatchObject({ rows: [{ unsuccessful_reason_code: null }] });
     });
   });
 
@@ -284,6 +335,17 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         `UPDATE job_card_meeting_details SET outcome = $2 WHERE job_card_id = $1`,
         [firstJobCardId, 'MAYBE'],
       );
+      await expectConstraintViolation(
+        pool,
+        'invalid_unsuccessful_reason',
+        `UPDATE job_card_meeting_details
+            SET unsuccessful_reason_code = $2 WHERE job_card_id = $1`,
+        [firstJobCardId, 'NOT_A_REASON'],
+      );
+      await expect(pool.query(
+        `UPDATE job_card_meeting_details SET unsuccessful_reason_code = $2 WHERE job_card_id = $1`,
+        [firstJobCardId, 'CONTACT_BUSY'],
+      )).resolves.toMatchObject({ rowCount: 1 });
       for (const [index, summary] of [' ', '\t', '\n', '\t\n '].entries()) {
         await expectConstraintViolation(
           pool,

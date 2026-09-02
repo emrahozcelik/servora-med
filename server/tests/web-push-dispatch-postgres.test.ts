@@ -42,6 +42,7 @@ const MIGRATIONS = [
   '034_demo_data_foundation.sql',
   '035_demo_data_purge_foundation.sql',
   '036_job_card_invalidated.sql',
+  '042_unsuccessful_visit_reason.sql',
 
 ] as const;
 

@@ -54,6 +54,7 @@ class LifecycleRepository implements JobCardRepository {
   meetingDetails: MeetingDetailsCandidate | null = {
     meetingAt: '2026-07-13T12:00:00.000Z',
     outcome: 'POSITIVE',
+    unsuccessfulReason: null,
     meetingSummary: 'Görüşme tamamlandı.',
     nextFollowUpAt: null,
   };
@@ -370,7 +371,7 @@ function salesMeetingRepository() {
     customerId: 'customer-1',
     contactId: null,
     dueDate: '2026-07-15',
-    engagementKind: 'SALES_MEETING',
+    engagementKind: 'CUSTOMER_VISIT',
   };
   repository.items = [];
   return repository;
@@ -1072,10 +1073,26 @@ describe('JobCard lifecycle commands', () => {
     'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
   ] as const)('submits a ready Sales Meeting with %s outcome', async (outcome) => {
     const repo = salesMeetingRepository();
-    repo.meetingDetails = { ...repo.meetingDetails!, outcome };
+    repo.meetingDetails = {
+      ...repo.meetingDetails!,
+      outcome,
+      unsuccessfulReason: outcome === 'FOLLOW_UP_REQUIRED' ? 'REQUESTED_LATER' : null,
+    };
 
     await expect(new JobCardService(repo, () => time).submitForApproval(
-      staff, 'job-1', input(`meeting-submit-${outcome}`),
+      staff,
+      'job-1',
+      outcome === 'FOLLOW_UP_REQUIRED'
+        ? {
+            ...input(`meeting-submit-${outcome}`),
+            followUpProposal: {
+              scheduledAt: '2026-07-13T12:15:00.000Z',
+              type: 'SALES_MEETING',
+              assignedTo: staff.id,
+              followUpInstructions: 'Takip: Görüşme',
+            },
+          }
+        : input(`meeting-submit-${outcome}`),
     )).resolves.toMatchObject({
       type: 'SALES_MEETING', status: 'WAITING_APPROVAL', version: 3,
     });
@@ -1085,23 +1102,52 @@ describe('JobCard lifecycle commands', () => {
     ]);
   });
 
-  it('keeps FOLLOW_UP_REQUIRED follow-up optional and accepts valid chronology', async () => {
-    const withoutFollowUp = salesMeetingRepository();
-    withoutFollowUp.meetingDetails = {
-      ...withoutFollowUp.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', nextFollowUpAt: null,
+  it('requires a structured reason and a follow-up proposal for unsuccessful visits', async () => {
+    const withoutReason = salesMeetingRepository();
+    withoutReason.meetingDetails = {
+      ...withoutReason.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: null,
     };
-    await expect(new JobCardService(withoutFollowUp, () => time).submitForApproval(
-      staff, 'job-1', input('follow-up-without-date'),
+    await expect(new JobCardService(withoutReason, () => time).submitForApproval(
+      staff, 'job-1', input('follow-up-without-reason'),
+    )).rejects.toMatchObject({
+      code: 'MEETING_NOT_READY', details: { fieldErrors: { unsuccessfulReason: expect.any(String) } },
+    });
+
+    const withoutProposal = salesMeetingRepository();
+    withoutProposal.meetingDetails = {
+      ...withoutProposal.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+    };
+    await expect(new JobCardService(withoutProposal, () => time).submitForApproval(
+      staff, 'job-1', input('follow-up-without-proposal'),
+    )).rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_REQUIRED', statusCode: 400 });
+
+    const exactBoundary = salesMeetingRepository();
+    exactBoundary.meetingDetails = {
+      ...exactBoundary.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+    };
+    await expect(new JobCardService(exactBoundary, () => time).submitForApproval(
+      staff, 'job-1', {
+        ...input('follow-up-exact-boundary'),
+        followUpProposal: {
+          scheduledAt: '2026-07-13T12:15:00.000Z',
+          type: 'SALES_MEETING', assignedTo: staff.id, followUpInstructions: 'Takip: Görüşme',
+        },
+      },
     )).resolves.toMatchObject({ status: 'WAITING_APPROVAL' });
 
-    const withFollowUp = salesMeetingRepository();
-    withFollowUp.meetingDetails = {
-      ...withFollowUp.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED',
-      nextFollowUpAt: '2026-07-14T12:00:00.000Z',
+    const belowBoundary = salesMeetingRepository();
+    belowBoundary.meetingDetails = {
+      ...belowBoundary.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
     };
-    await expect(new JobCardService(withFollowUp, () => time).submitForApproval(
-      staff, 'job-1', input('follow-up-with-date'),
-    )).resolves.toMatchObject({ status: 'WAITING_APPROVAL' });
+    await expect(new JobCardService(belowBoundary, () => time).submitForApproval(
+      staff, 'job-1', {
+        ...input('follow-up-below-boundary'),
+        followUpProposal: {
+          scheduledAt: '2026-07-13T12:14:59.000Z',
+          type: 'SALES_MEETING', assignedTo: staff.id, followUpInstructions: 'Takip: Görüşme',
+        },
+      },
+    )).rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_INVALID', statusCode: 400 });
 
     const historical = salesMeetingRepository();
     historical.meetingDetails = {

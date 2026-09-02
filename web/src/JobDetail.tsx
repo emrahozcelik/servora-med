@@ -103,6 +103,7 @@ export async function runStaffJobCommand(
   dependencies: CommandDependencies = commandDependencies,
   note = '',
   followUpProposal?: FollowUpProposalInput,
+  meetingDetails?: MeetingDetails | null,
 ) {
   const input = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
   try {
@@ -111,7 +112,7 @@ export async function runStaffJobCommand(
       : await dependencies.submit(job.id, {
           ...input,
           note: note.trim(),
-          ...(requiresMandatoryFollowUpProposal(job) && followUpProposal
+          ...(requiresMandatoryFollowUpProposal(job, meetingDetails) && followUpProposal
             ? { followUpProposal }
             : {}),
         });
@@ -1744,7 +1745,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'approve', presentation: transition });
-      void prepareApproveFollowUp(state.detail.job);
+      void prepareApproveFollowUp(
+        state.detail.job,
+        state.detail.kind === 'SALES_MEETING' ? state.detail.meetingDetails : null,
+      );
       return;
     }
     if (commandName === 'SUBMIT_FOR_APPROVAL') {
@@ -1753,7 +1757,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'submit', presentation: transition });
-      void prepareSubmitFollowUp(state.detail.job);
+      void prepareSubmitFollowUp(
+        state.detail.job,
+        state.detail.kind === 'SALES_MEETING' ? state.detail.meetingDetails : null,
+      );
       return;
     }
     if (commandName === 'REQUEST_REVISION') {
@@ -1775,8 +1782,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     void execute(commandName);
   }
 
-  async function prepareSubmitFollowUp(job: JobCard) {
-    if (!requiresMandatoryFollowUpProposal(job)) {
+  async function prepareSubmitFollowUp(job: JobCard, meetingDetails: MeetingDetails | null) {
+    if (!requiresMandatoryFollowUpProposal(job, meetingDetails)) {
       setFollowUp(null);
       return;
     }
@@ -1804,9 +1811,9 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     }
   }
 
-  async function prepareApproveFollowUp(job: JobCard) {
+  async function prepareApproveFollowUp(job: JobCard, meetingDetails: MeetingDetails | null) {
     const persisted = job.followUpProposal;
-    if (!requiresMandatoryFollowUpProposal(job) && !persisted) {
+    if (!requiresMandatoryFollowUpProposal(job, meetingDetails) && !persisted) {
       setFollowUp(null);
       return;
     }
@@ -1893,8 +1900,11 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     if (!dialog) return;
     if (dialog.kind === 'approve') {
       const job = state.kind === 'ready' ? state.detail.job : null;
+      const meetingDetails = state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
+        ? state.detail.meetingDetails
+        : null;
       const followUpRequired = job !== null
-        && (requiresMandatoryFollowUpProposal(job) || Boolean(job.followUpProposal));
+        && (requiresMandatoryFollowUpProposal(job, meetingDetails) || Boolean(job.followUpProposal));
       if (!followUp?.draft) {
         if (!followUpRequired) void execute('APPROVE', reason);
         return;
@@ -1928,7 +1938,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     }
     if (dialog.kind === 'submit') {
       const job = state.kind === 'ready' ? state.detail.job : null;
-      const followUpRequired = job !== null && requiresMandatoryFollowUpProposal(job);
+      const meetingDetails = state.kind === 'ready' && state.detail.kind === 'SALES_MEETING'
+        ? state.detail.meetingDetails
+        : null;
+      const followUpRequired = job !== null && requiresMandatoryFollowUpProposal(job, meetingDetails);
       if (!followUp?.draft) {
         if (!followUpRequired) void execute('SUBMIT_FOR_APPROVAL', reason);
         return;
@@ -1980,6 +1993,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     && Object.values({
       meetingAt: detail.meetingDetails.meetingAt,
       outcome: detail.meetingDetails.outcome,
+      unsuccessfulReason: detail.meetingDetails.unsuccessfulReason,
       meetingSummary: detail.meetingDetails.meetingSummary,
       nextFollowUpAt: detail.meetingDetails.nextFollowUpAt,
     }).some((value) => value !== null);

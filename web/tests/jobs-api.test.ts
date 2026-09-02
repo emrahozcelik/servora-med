@@ -376,12 +376,14 @@ describe('JobCard workspace transport', () => {
   it('parses exact meeting details and sends an exact patch body', async () => {
     const details = {
       jobCardId: 'job-1', meetingAt: '2026-07-20T09:15:00.000Z', outcome: 'POSITIVE',
+      unsuccessfulReason: null,
       meetingSummary: 'Yeni ürün grubu görüşüldü.', nextFollowUpAt: null,
       jobCardVersion: 8,
     };
     const input = {
       clientActionId: 'meeting-result-1', expectedVersion: 7,
       meetingAt: details.meetingAt, outcome: 'POSITIVE' as const,
+      unsuccessfulReason: null,
       meetingSummary: details.meetingSummary, nextFollowUpAt: null,
     };
     const fetchMock = vi.fn().mockResolvedValueOnce(json(details)).mockResolvedValueOnce(json(details));

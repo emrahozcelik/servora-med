@@ -3,9 +3,11 @@ import type { SubmissionReader } from './repository.js';
 import {
   DELIVERY_PURPOSES,
   MEETING_OUTCOMES,
+  UNSUCCESSFUL_VISIT_REASON_CODES,
   type JobCard,
   type JobCardActor,
   type MeetingDetailField,
+  type MeetingDetailsCandidate,
   type SubmissionReadiness,
   type SubmissionRequirement,
 } from './types.js';
@@ -13,12 +15,14 @@ import {
 export type SubmissionEvaluation = {
   readiness: SubmissionReadiness;
   failure: AppError | null;
+  meetingDetails?: MeetingDetailsCandidate | null;
 };
 
 function readiness(
   evaluatedAt: Date,
   items: SubmissionRequirement[],
   failure: AppError | null,
+  meetingDetails?: MeetingDetailsCandidate | null,
 ): SubmissionEvaluation {
   return {
     readiness: {
@@ -27,6 +31,7 @@ function readiness(
       items,
     },
     failure,
+    ...(meetingDetails !== undefined ? { meetingDetails } : {}),
   };
 }
 
@@ -108,6 +113,8 @@ async function evaluateMeeting(
     && details?.outcome !== undefined
     && MEETING_OUTCOMES.includes(details.outcome);
   const summaryPresent = Boolean(details?.meetingSummary?.trim());
+  const unsuccessfulReasonPresent = details?.outcome !== 'FOLLOW_UP_REQUIRED'
+    || UNSUCCESSFUL_VISIT_REASON_CODES.includes(details.unsuccessfulReason as (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number]);
   const followUpValid = details?.nextFollowUpAt === null
     || (meetingAt !== null
       && !Number.isNaN(new Date(details!.nextFollowUpAt!).valueOf())
@@ -122,6 +129,11 @@ async function evaluateMeeting(
       ? 'missing' : outcomeValid ? 'met' : 'invalid', field: 'outcome' },
     { code: 'MEETING_SUMMARY_PRESENT', state: summaryPresent ? 'met' : 'missing',
       field: 'meetingSummary' },
+    ...(details?.outcome === 'FOLLOW_UP_REQUIRED' ? [{
+      code: 'UNSUCCESSFUL_REASON_PRESENT' as const,
+      state: unsuccessfulReasonPresent ? 'met' as const : 'missing' as const,
+      field: 'unsuccessfulReason' as const,
+    }] : []),
     { code: 'FOLLOW_UP_TIME_VALID', state: followUpValid ? 'met' : 'invalid',
       field: 'nextFollowUpAt' },
   ];
@@ -156,6 +168,9 @@ async function evaluateMeeting(
     if (details.meetingSummary === null || !details.meetingSummary.trim()) {
       fieldErrors.meetingSummary = 'Görüşme özeti zorunludur.';
     }
+    if (details.outcome === 'FOLLOW_UP_REQUIRED' && !unsuccessfulReasonPresent) {
+      fieldErrors.unsuccessfulReason = 'Takip gereken başarısız görüşme nedeni zorunludur.';
+    }
     if (details.nextFollowUpAt !== null) {
       const followUp = new Date(details.nextFollowUpAt);
       if (meetingAt === null || Number.isNaN(followUp.valueOf())
@@ -173,7 +188,7 @@ async function evaluateMeeting(
     }
   }
 
-  return readiness(evaluatedAt, items, failure);
+  return readiness(evaluatedAt, items, failure, details);
 }
 
 export async function evaluateSubmission(

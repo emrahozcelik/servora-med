@@ -13,7 +13,8 @@ const fieldLabels = {
   scheduledEndsAt: 'Planlanan bitiş', engagementKind: 'Görüşme türü',
 } as const;
 const meetingFieldLabels = {
-  meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', meetingSummary: 'Görüşme özeti',
+  meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', unsuccessfulReason: 'Başarısız görüşme nedeni',
+  meetingSummary: 'Görüşme özeti',
   nextFollowUpAt: 'Takip zamanı',
 } as const;
 const locationFailureLabels = {

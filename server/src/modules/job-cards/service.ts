@@ -119,7 +119,9 @@ import {
   defaultFollowUpInstructions,
   defaultFollowUpType,
   deriveProposalOrigin,
+  followUpLeadReferenceAt,
   requiresMandatoryFollowUpProposal,
+  isFollowUpMinimumLeadSatisfied,
   suggestedFollowUpInstant,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
@@ -311,7 +313,12 @@ function meetingDetailsResponse(
   jobCardVersion: number,
   details: MeetingDetailsCandidate,
 ): MeetingDetails {
-  return { jobCardId, ...details, jobCardVersion };
+  return {
+    jobCardId,
+    ...details,
+    unsuccessfulReason: details.unsuccessfulReason ?? null,
+    jobCardVersion,
+  };
 }
 
 const DELIVERY_FIELDS = [
@@ -1290,9 +1297,15 @@ export class JobCardService {
           jobCardId,
         );
         if (!current) invariantViolation();
+        const outcome = input.outcome === undefined ? current.outcome : input.outcome;
         const candidate: MeetingDetailsCandidate = {
           meetingAt: input.meetingAt === undefined ? current.meetingAt : input.meetingAt,
-          outcome: input.outcome === undefined ? current.outcome : input.outcome,
+          outcome,
+          unsuccessfulReason: input.unsuccessfulReason === undefined
+            ? input.outcome !== undefined && input.outcome !== 'FOLLOW_UP_REQUIRED'
+              ? null
+              : current.unsuccessfulReason ?? null
+            : input.unsuccessfulReason,
           meetingSummary: input.meetingSummary === undefined
             ? current.meetingSummary
             : input.meetingSummary,
@@ -1301,9 +1314,10 @@ export class JobCardService {
             : input.nextFollowUpAt,
         };
         validateMeetingDetailsCandidate(candidate);
-        const changedFields = MEETING_DETAIL_FIELDS.filter(
-          (field) => Object.hasOwn(input, field) && candidate[field] !== current[field],
-        );
+        const changedFields = MEETING_DETAIL_FIELDS.filter((field) => (
+          Object.hasOwn(input, field)
+          || (field === 'unsuccessfulReason' && Object.hasOwn(input, 'outcome'))
+        ) && candidate[field] !== current[field]);
         if (changedFields.length === 0) {
           throw new AppError(
             'MEETING_DETAILS_UNCHANGED',
@@ -1945,6 +1959,7 @@ export class JobCardService {
           origin: FollowUpProposalOrigin;
           proposedBy: string | null;
         } | null = null;
+        let submissionMeetingDetails: MeetingDetailsCandidate | null = null;
         let approval: {
           proposal: ValidatedFollowUpProposal;
           overrideReason: string | null;
@@ -1952,8 +1967,13 @@ export class JobCardService {
           dueDate: string | null;
         } | null = null;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          await validateSubmission(tx, actor, job, requestTime);
-          if (!requiresMandatoryFollowUpProposal(job)
+          const submission = await validateSubmission(tx, actor, job, requestTime);
+          submissionMeetingDetails = submission.meetingDetails ?? null;
+          const followUpRequired = requiresMandatoryFollowUpProposal({
+            ...job,
+            ...submissionMeetingDetails,
+          });
+          if (!followUpRequired
             && definition.followUpProposal !== undefined) {
             throw new AppError(
               'FOLLOW_UP_PROPOSAL_INVALID',
@@ -1961,9 +1981,17 @@ export class JobCardService {
               'Bu iş türü için takip işi planı desteklenmiyor.',
             );
           }
-          if (requiresMandatoryFollowUpProposal(job)) {
+          if (followUpRequired) {
             const proposal = await this.validateFollowUpProposal(
-              tx, actor, job, definition.followUpProposal, requestTime,
+              tx,
+              actor,
+              job,
+              definition.followUpProposal,
+              requestTime,
+              {
+                followUpRequired,
+                meetingAt: submissionMeetingDetails?.meetingAt ?? null,
+              },
             );
             await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
             const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
@@ -2177,6 +2205,11 @@ export class JobCardService {
     job: JobCard,
     input: FollowUpProposalInput | undefined,
     requestTime: Date,
+    context: {
+      followUpRequired: boolean;
+      meetingAt: string | null;
+      enforceMinimumLead?: boolean;
+    } = { followUpRequired: false, meetingAt: null },
   ): Promise<ValidatedFollowUpProposal> {
     if (!input || typeof input !== 'object') {
       throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
@@ -2190,10 +2223,22 @@ export class JobCardService {
         'Takip işi planı için gelecek bir tarih zorunludur.',
       );
     }
+    const leadReferenceAt = followUpLeadReferenceAt({
+      meetingAt: context.meetingAt === null ? null : new Date(context.meetingAt),
+      requestAt: requestTime,
+    });
+    if (context.enforceMinimumLead !== false
+      && !isFollowUpMinimumLeadSatisfied({ referenceAt: leadReferenceAt, scheduledAt })) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Takip işi planı için görüşme/işlem zamanından en az 15 dakika sonrası seçilmelidir.',
+      );
+    }
     if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
     }
-    if (requiresMandatoryFollowUpProposal(job) && input.type !== 'SALES_MEETING') {
+    if (context.followUpRequired && input.type !== 'SALES_MEETING') {
       throw new AppError(
         'FOLLOW_UP_PROPOSAL_INVALID',
         400,
@@ -2360,17 +2405,24 @@ export class JobCardService {
     priority: JobCardPriority;
     dueDate: string | null;
   } | null> {
+    const meetingDetails = job.type === 'SALES_MEETING'
+      ? await tx.getSubmissionMeetingDetails(actor.organizationId, job.id)
+      : null;
+    const followUpRequired = requiresMandatoryFollowUpProposal({
+      ...job,
+      ...meetingDetails,
+    });
     const persisted = job.followUpProposedAt !== null
       && job.followUpProposedType !== null
       && job.followUpProposedAssignee !== null
       && job.followUpProposalInstructions !== null;
     if (!persisted && !input) {
-      if (requiresMandatoryFollowUpProposal(job)) {
+      if (followUpRequired) {
         throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
       }
       return null;
     }
-    if (!requiresMandatoryFollowUpProposal(job) && !persisted && input) {
+    if (!followUpRequired && !persisted && input) {
       throw new AppError(
         'FOLLOW_UP_PROPOSAL_INVALID',
         400,
@@ -2388,6 +2440,14 @@ export class JobCardService {
         followUpInstructions: job.followUpProposalInstructions!,
       } : undefined),
       requestTime,
+      {
+        followUpRequired,
+        meetingAt: meetingDetails?.meetingAt ?? null,
+        // Proposals persisted before the 15-minute policy are legacy data;
+        // approving them must remain backward compatible. New/edited proposals
+        // are validated at submission or when the Manager supplies an override.
+        enforceMinimumLead: input !== undefined || !persisted,
+      },
     );
     const priority = normalizePriority(input?.priority);
     const dueDate = normalizeFollowUpDueDate(input?.dueDate, proposal.type);
@@ -2510,7 +2570,13 @@ export class JobCardService {
     if (isTerminalJobStatus(detail.status)) {
       throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
     }
-    if (at === undefined && !requiresMandatoryFollowUpProposal(detail)) {
+    const meetingDetails = detail.type === 'SALES_MEETING'
+      ? await this.repository.findMeetingDetails(actor.organizationId, detail.id)
+      : null;
+    if (at === undefined && !requiresMandatoryFollowUpProposal({
+      ...detail,
+      ...meetingDetails,
+    })) {
       throw new AppError(
         'FOLLOW_UP_PROPOSAL_INVALID',
         400,

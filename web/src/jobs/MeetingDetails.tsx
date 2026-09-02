@@ -3,15 +3,23 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type CurrentUser } from '../services/api';
 import type {
   JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
+  UnsuccessfulVisitReasonCode,
 } from './jobs-api';
 
 const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
+const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
+  CONTACT_NOT_AVAILABLE: 'İlgili kişi mevcut değil',
+  CONTACT_BUSY: 'İlgili kişi meşgul',
+  CUSTOMER_UNREACHABLE: 'Müşteriye ulaşılamadı',
+  REQUESTED_LATER: 'Daha sonra görüşülmesi istendi',
+  OTHER: 'Diğer',
+};
 type MeetingFieldErrors = Partial<Record<MeetingDetailField, string>>;
 const meetingFields: MeetingDetailField[] = [
-  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ];
 
 function localValue(value: string | null) {
@@ -49,6 +57,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
 }) {
   const [meetingAt, setMeetingAt] = useState(() => meetingLocalValue(details.meetingAt));
   const [outcome, setOutcome] = useState<MeetingOutcome | ''>(details.outcome ?? '');
+  const [unsuccessfulReason, setUnsuccessfulReason] = useState<UnsuccessfulVisitReasonCode | ''>(
+    details.unsuccessfulReason ?? '',
+  );
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
@@ -59,6 +70,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       && canonicalRef.current.version === details.jobCardVersion) return;
     canonicalRef.current = { jobCardId: details.jobCardId, version: details.jobCardVersion };
     setMeetingAt(meetingLocalValue(details.meetingAt)); setOutcome(details.outcome ?? '');
+    setUnsuccessfulReason(details.unsuccessfulReason ?? '');
     setSummary(details.meetingSummary ?? '');
   }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
@@ -78,12 +90,14 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     }
     const candidate = {
       meetingAt: instant(meetingAt), outcome: outcome || null,
+      unsuccessfulReason: outcome === 'FOLLOW_UP_REQUIRED' ? (unsuccessfulReason || null) : null,
       meetingSummary: normalizedSummary || null,
       // Legacy follow-up time stays historical/API compatible; the mandatory
       // follow-up proposal is planned in the completion dialog instead.
       nextFollowUpAt: details.nextFollowUpAt,
     };
     if (candidate.meetingAt === details.meetingAt && candidate.outcome === details.outcome
+      && candidate.unsuccessfulReason === (details.unsuccessfulReason ?? null)
       && candidate.meetingSummary === details.meetingSummary
       && candidate.nextFollowUpAt === details.nextFollowUpAt) {
       setFeedback('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
@@ -105,6 +119,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     <h2 id="meeting-details-title">Görüşme sonucu</h2><dl className="detail-summary">
       <div><dt>Gerçekleşme zamanı</dt><dd>{formatInstant(details.meetingAt)}</dd></div>
       <div><dt>Sonuç</dt><dd>{details.outcome ? outcomeLabels[details.outcome] : 'Belirtilmedi'}</dd></div>
+      {details.outcome === 'FOLLOW_UP_REQUIRED' && <div><dt>Görüşme nedeni</dt><dd>
+        {details.unsuccessfulReason ? unsuccessfulReasonLabels[details.unsuccessfulReason] : 'Belirtilmedi'}
+      </dd></div>}
       <div><dt>Takip zamanı</dt><dd>{formatInstant(details.nextFollowUpAt)}</dd></div>
       <div className="detail-summary-wide"><dt>Görüşme özeti</dt><dd>{details.meetingSummary ?? 'Belirtilmedi'}</dd></div>
     </dl></section>;
@@ -125,9 +142,27 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       <div className="field-group"><label htmlFor="meeting-outcome">Sonuç</label>
         <select id="meeting-outcome" value={outcome} aria-invalid={fieldErrors.outcome ? true : undefined}
           aria-describedby={fieldErrors.outcome ? 'meeting-outcome-error' : undefined}
-          onChange={(event) => setOutcome(event.target.value as MeetingOutcome | '')}>
+          onChange={(event) => {
+            const next = event.target.value as MeetingOutcome | '';
+            setOutcome(next);
+            if (next !== 'FOLLOW_UP_REQUIRED') setUnsuccessfulReason('');
+          }}>
           <option value="">Sonuç seçin</option>{Object.entries(outcomeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         {fieldErrors.outcome && <span id="meeting-outcome-error" className="field-error">{fieldErrors.outcome}</span>}</div>
+      {outcome === 'FOLLOW_UP_REQUIRED' && <div className="field-group"><label htmlFor="meeting-unsuccessful-reason">Başarısız görüşme nedeni</label>
+        <select id="meeting-unsuccessful-reason" value={unsuccessfulReason}
+          aria-invalid={fieldErrors.unsuccessfulReason ? true : undefined}
+          aria-describedby={fieldErrors.unsuccessfulReason ? 'meeting-unsuccessful-reason-error' : undefined}
+          onChange={(event) => setUnsuccessfulReason(event.target.value as UnsuccessfulVisitReasonCode | '')}>
+          <option value="">Neden seçin</option>
+          {Object.entries(unsuccessfulReasonLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+        {fieldErrors.unsuccessfulReason && <span id="meeting-unsuccessful-reason-error" className="field-error">
+          {fieldErrors.unsuccessfulReason}
+        </span>}
+      </div>}
       <div className="field-group"><label htmlFor="meeting-summary">Görüşme özeti</label>
         <textarea id="meeting-summary" rows={5} value={summary}
           aria-invalid={fieldErrors.meetingSummary ? true : undefined}

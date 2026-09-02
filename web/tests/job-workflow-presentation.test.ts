@@ -11,6 +11,7 @@ import type {
   JobCard,
   JobCardStatus,
   JobLifecycleFacts,
+  MeetingDetails,
   JobWorkflowContext,
   LifecycleCommand,
   SubmissionRequirement,
@@ -59,13 +60,13 @@ function jobWith(partial: Partial<JobCard> & {
   };
 }
 
-function derive(job: JobCard, user: CurrentUser = staff) {
+function derive(job: JobCard, user: CurrentUser = staff, meetingDetails: MeetingDetails | null = null) {
   return deriveJobWorkflowPresentation({
     job,
     user,
     workflowContext: job.workflowContext,
     deliveryItems: [],
-    meetingDetails: null,
+    meetingDetails,
   });
 }
 
@@ -74,10 +75,13 @@ function jobAt(status: JobCardStatus, lifecycle: JobLifecycleFacts) {
 }
 
 describe('deriveJobWorkflowPresentation', () => {
-  it('requires a proposal only for explicit CUSTOMER_VISIT sales meetings', () => {
+  it('requires a proposal only for unsuccessful CUSTOMER_VISIT sales meetings', () => {
     expect(requiresMandatoryFollowUpProposal({
       type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
-    })).toBe(true);
+    }, { outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER' })).toBe(true);
+    expect(requiresMandatoryFollowUpProposal({
+      type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
+    }, { outcome: 'POSITIVE', unsuccessfulReason: null })).toBe(false);
     for (const input of [
       { type: 'SALES_MEETING' as const, engagementKind: 'TRAINING' as const },
       { type: 'SALES_MEETING' as const, engagementKind: 'PRODUCT_DEMO' as const },
@@ -372,7 +376,11 @@ describe('deriveJobWorkflowPresentation', () => {
       workflowContext: contextWith({
         allowedCommands: ['SUBMIT_FOR_APPROVAL'],
       }),
-    }));
+    }), staff, {
+      jobCardId: 'job-1', meetingAt: '2026-07-17T10:00:00.000Z',
+      outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+      meetingSummary: 'Daha sonra görüşülecek.', nextFollowUpAt: null, jobCardVersion: 1,
+    });
     expect(visit.primaryTransition?.consequence).toContain('Takip işi planı zorunludur.');
     expect(visit.primaryTransition?.confirmation?.details).toContain(
       'Takip işi planı işle birlikte yöneticiye iletilir',
@@ -768,6 +776,7 @@ describe('deriveJobWorkflowPresentation', () => {
       'MEETING_SUMMARY_PRESENT',
       'MEETING_TIME_VALID',
       'TASK_TITLE_VALID',
+      'UNSUCCESSFUL_REASON_PRESENT',
     ]);
   });
 

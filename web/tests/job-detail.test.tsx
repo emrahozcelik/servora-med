@@ -3186,6 +3186,10 @@ describe('Staff JobCard detail', () => {
       type: 'SALES_MEETING',
       assignedTo: 's1',
       followUpInstructions: 'Takip: Ziyaret',
+    }, {
+      jobCardId: 'job-1', meetingAt: '2026-07-17T10:00:00.000Z',
+      outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+      meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
     });
     expect(submit).toHaveBeenCalledWith('job-1', {
       clientActionId: 'action-3', expectedVersion: 3, note: 'Ziyaret tamamlandı',

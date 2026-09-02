@@ -101,6 +101,7 @@ export const requirementLabels: Record<SubmissionRequirement['code'], string> = 
   MEETING_TIME_VALID: 'Gerçekleşen görüşme zamanı',
   MEETING_OUTCOME_VALID: 'Görüşme sonucu',
   MEETING_SUMMARY_PRESENT: 'Görüşme özeti',
+  UNSUCCESSFUL_REASON_PRESENT: 'Başarısız görüşme nedeni',
   FOLLOW_UP_TIME_VALID: 'Takip zamanı (varsa görüşmeden sonra)',
 };
 
@@ -154,8 +155,13 @@ function isManagement(user: CurrentUser): boolean {
 
 export function requiresMandatoryFollowUpProposal(
   job: Pick<JobCard, 'type' | 'engagementKind'>,
+  meetingDetails?: Pick<MeetingDetails, 'outcome' | 'unsuccessfulReason'> | null,
 ): boolean {
-  return job.type === 'SALES_MEETING' && job.engagementKind === 'CUSTOMER_VISIT';
+  return job.type === 'SALES_MEETING'
+    && job.engagementKind === 'CUSTOMER_VISIT'
+    && meetingDetails?.outcome === 'FOLLOW_UP_REQUIRED'
+    && meetingDetails.unsuccessfulReason !== null
+    && meetingDetails.unsuccessfulReason !== undefined;
 }
 
 function isRevisionActive(lifecycle: JobLifecycleFacts): boolean {
@@ -208,9 +214,14 @@ function phaseIndex(phase: WorkflowPhase): number {
 
 function commandCopy(
   command: LifecycleCommand,
-  opts: { revisionActive: boolean; user: CurrentUser; job: JobCard },
+  opts: {
+    revisionActive: boolean;
+    user: CurrentUser;
+    job: JobCard;
+    meetingDetails: MeetingDetails | null;
+  },
 ): CommandCopy {
-  const mandatoryFollowUp = requiresMandatoryFollowUpProposal(opts.job);
+  const mandatoryFollowUp = requiresMandatoryFollowUpProposal(opts.job, opts.meetingDetails);
   const hasFollowUpOnApproval = mandatoryFollowUp || Boolean(opts.job.followUpProposal);
   switch (command) {
     case 'ACCEPT_ASSIGNMENT':
@@ -290,7 +301,12 @@ function commandCopy(
 
 function transitionPresentation(
   command: LifecycleCommand,
-  opts: { revisionActive: boolean; user: CurrentUser; job: JobCard },
+  opts: {
+    revisionActive: boolean;
+    user: CurrentUser;
+    job: JobCard;
+    meetingDetails: MeetingDetails | null;
+  },
 ): TransitionPresentation {
   const copy = commandCopy(command, opts);
   return {
@@ -594,11 +610,12 @@ function deriveTransitions(
   workflowContext: JobWorkflowContext,
   revisionActive: boolean,
   hideWithdraw: boolean,
+  meetingDetails: MeetingDetails | null,
 ): {
   primaryTransition: TransitionPresentation | null;
   secondaryTransitions: TransitionPresentation[];
 } {
-  const opts = { revisionActive, user, job };
+  const opts = { revisionActive, user, job, meetingDetails };
   const allowed = workflowContext.allowedCommands.filter((command) => {
     if (hideWithdraw && command === 'WITHDRAW_FROM_APPROVAL') return false;
     return isLifecycleCommandVisible(user, job.status, job.assignedTo, command);
@@ -636,7 +653,7 @@ export function deriveJobWorkflowPresentation(
   const scheduleEdit = deriveScheduleEdit(job, workflowContext);
   const hideWithdraw = recordEditAction?.action === 'WITHDRAW_AND_EDIT_JOB_FIELDS';
   const { primaryTransition, secondaryTransitions } = deriveTransitions(
-    job, user, workflowContext, revisionActive, hideWithdraw,
+    job, user, workflowContext, revisionActive, hideWithdraw, input.meetingDetails,
   );
 
   const isTerminal = job.status === 'COMPLETED'

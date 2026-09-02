@@ -101,9 +101,10 @@ describe('runMigrations', () => {
       '039_contact_deleted_audit.sql',
       '040_demo_lifecycle_simplification.sql',
       '041_user_lifecycle_reconciliation.sql',
+      '042_unsuccessful_visit_reason.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('041_user_lifecycle_reconciliation.sql');
-    expect(expectedSchemaVersion).toBe(41);
+    expect(migrations.at(-1)?.name).toBe('042_unsuccessful_visit_reason.sql');
+    expect(expectedSchemaVersion).toBe(42);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

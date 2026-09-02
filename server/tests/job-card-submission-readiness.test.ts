@@ -42,6 +42,7 @@ const defaultCustomer: SubmissionCustomer = {
 const defaultMeetingDetails: MeetingDetailsCandidate = {
   meetingAt: '2026-07-13T12:00:00.000Z',
   outcome: 'POSITIVE',
+  unsuccessfulReason: null,
   meetingSummary: 'Görüşme tamamlandı.',
   nextFollowUpAt: null,
 };
@@ -125,6 +126,35 @@ describe('structured submission readiness', () => {
     expect(evaluation.readiness.items).toContainEqual({
       code: 'MEETING_TIME_VALID', state: 'invalid', field: 'meetingAt',
     });
+  });
+
+  it('requires a structured unsuccessful reason when follow-up is required', async () => {
+    const missing = await evaluateSubmission(reader({
+      meetingDetails: {
+        ...defaultMeetingDetails,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: null,
+      },
+    }), staff, meetingJob, now);
+    expect(missing.readiness.items).toContainEqual({
+      code: 'UNSUCCESSFUL_REASON_PRESENT', state: 'missing', field: 'unsuccessfulReason',
+    });
+    expect(() => assertSubmissionReady(missing)).toThrowError(expect.objectContaining({
+      code: 'MEETING_NOT_READY',
+      details: { fieldErrors: { unsuccessfulReason: expect.any(String) } },
+    }));
+
+    const valid = await evaluateSubmission(reader({
+      meetingDetails: {
+        ...defaultMeetingDetails,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: 'CONTACT_BUSY',
+      },
+    }), staff, meetingJob, now);
+    expect(valid.readiness.items).toContainEqual({
+      code: 'UNSUCCESSFUL_REASON_PRESENT', state: 'met', field: 'unsuccessfulReason',
+    });
+    expect(valid.failure).toBeNull();
   });
 
   it('reports DELIVERY_ITEMS_VALID invalid when a planned item has null deliveredAt', async () => {

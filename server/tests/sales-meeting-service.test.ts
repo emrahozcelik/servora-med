@@ -55,6 +55,7 @@ class SalesMeetingRepository implements JobCardRepository {
     return {
       meetingAt: details.meetingAt,
       outcome: details.outcome,
+      unsuccessfulReason: details.unsuccessfulReason ?? null,
       meetingSummary: details.meetingSummary,
       nextFollowUpAt: details.nextFollowUpAt,
     };
@@ -120,6 +121,7 @@ class SalesMeetingRepository implements JobCardRepository {
           ...input,
           meetingAt: null,
           outcome: null,
+          unsuccessfulReason: null,
           meetingSummary: null,
           nextFollowUpAt: null,
         });
@@ -284,6 +286,7 @@ describe('Sales Meeting create transaction', () => {
       jobCardId: result.id,
       meetingAt: null,
       outcome: null,
+      unsuccessfulReason: null,
       meetingSummary: null,
       nextFollowUpAt: null,
     }]);
@@ -352,7 +355,8 @@ describe('Sales Meeting create transaction', () => {
 describe('Sales Meeting detail reads and mutations', () => {
   const patch: PatchMeetingDetailsInput = {
     clientActionId: 'meeting-save-1', expectedVersion: 2,
-    outcome: 'FOLLOW_UP_REQUIRED', meetingSummary: 'Kontrol ziyareti yapıldı.',
+    outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+    meetingSummary: 'Kontrol ziyareti yapıldı.',
   };
 
   it('reads an owned Sales Meeting without a lock or version mutation', async () => {
@@ -362,7 +366,7 @@ describe('Sales Meeting detail reads and mutations', () => {
     await expect(new JobCardService(repository).getMeetingDetails(staff, job.id))
       .resolves.toEqual({
         jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',
-        outcome: 'NO_DECISION', meetingSummary: 'İlk görüşme yapıldı.',
+        outcome: 'NO_DECISION', unsuccessfulReason: null, meetingSummary: 'İlk görüşme yapıldı.',
         nextFollowUpAt: null, jobCardVersion: 2,
       });
     expect(repository.lockOrder).toEqual([]);
@@ -424,15 +428,29 @@ describe('Sales Meeting detail reads and mutations', () => {
 
     expect(result).toEqual({
       jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',
-      outcome: 'FOLLOW_UP_REQUIRED', meetingSummary: 'Kontrol ziyareti yapıldı.',
+      outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+      meetingSummary: 'Kontrol ziyareti yapıldı.',
       nextFollowUpAt: null, jobCardVersion: 3,
     });
     expect(repository.jobs[0]!.version).toBe(3);
     expect(repository.activities).toEqual(['MEETING_DETAILS_UPDATED']);
     expect(repository.activityMetadata).toEqual([{
-      changedFields: ['outcome', 'meetingSummary'],
+      changedFields: ['outcome', 'unsuccessfulReason', 'meetingSummary'],
     }]);
     expect(repository.lockOrder).toEqual(['job_cards', 'meeting_details']);
+  });
+
+  it('clears a stale unsuccessful reason when the outcome leaves the follow-up path', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting({
+      details: { outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER' },
+    });
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'clear-unsuccessful-reason', expectedVersion: 2, outcome: 'POSITIVE',
+    })).resolves.toMatchObject({ outcome: 'POSITIVE', unsuccessfulReason: null, jobCardVersion: 3 });
+    expect(repository.activities).toEqual(['MEETING_DETAILS_UPDATED']);
+    expect(repository.activityMetadata).toEqual([{ changedFields: ['outcome', 'unsuccessfulReason'] }]);
   });
 
   it('validates chronology against merged persisted details', async () => {

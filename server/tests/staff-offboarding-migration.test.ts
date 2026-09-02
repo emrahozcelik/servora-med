@@ -90,8 +90,8 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
   it('freshly applies the full chain, preserves the audit allowlist, and adds the D4 audit vocabulary', async () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-      expect(result.appliedVersions).toHaveLength(41);
-      expect(result.appliedVersions.at(-1)).toBe('041_user_lifecycle_reconciliation');
+      expect(result.appliedVersions).toHaveLength(42);
+      expect(result.appliedVersions.at(-1)).toBe('042_unsuccessful_visit_reason');
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED', 'USER_DELETED']));
 
       const { organizationId, actorId } = await createAuditActor(pool);
@@ -111,7 +111,7 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
       await insertAuditEvent(pool, organizationId, actorId, 'USER_DEACTIVATED');
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation'] });
+      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason'] });
       expect((await pool.query(`SELECT event_type FROM audit_events WHERE event_type = 'USER_DEACTIVATED'`)).rows).toHaveLength(1);
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED', 'USER_DELETED']));
       await insertAuditEvent(pool, organizationId, actorId, 'USER_OFFBOARDED');

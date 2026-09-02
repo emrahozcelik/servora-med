@@ -40,6 +40,7 @@ async function applyMigrations(pool: Pool) {
     '034_demo_data_foundation.sql',
     '035_demo_data_purge_foundation.sql',
     '036_job_card_invalidated.sql',
+    '042_unsuccessful_visit_reason.sql',
 
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -177,6 +178,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       details = await service.patchMeetingDetails(staff, meeting.id, {
         clientActionId: 'meeting-boundary-result', expectedVersion: details.jobCardVersion,
         meetingAt: '2026-07-15T12:15:00.000Z', outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: 'REQUESTED_LATER',
         meetingSummary: 'Takip görüşmesi planlanacak.', nextFollowUpAt: null,
       });
       meeting = await service.submitForApproval(staff, meeting.id, {
