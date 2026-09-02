@@ -1,0 +1,44 @@
+name: Verify Production Temp
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: verify-production-temp
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SERVORA_PROD_HOST: ${{ secrets.SERVORA_PROD_HOST }}
+      SERVORA_PROD_SSH_USER: ${{ secrets.SERVORA_PROD_SSH_USER }}
+      SERVORA_PROD_SSH_KEY: ${{ secrets.SERVORA_PROD_SSH_KEY }}
+      SERVORA_PROD_KNOWN_HOSTS: ${{ secrets.SERVORA_PROD_KNOWN_HOSTS }}
+      SERVORA_PROD_FQDN: ${{ vars.SERVORA_PROD_FQDN }}
+    steps:
+      - name: Verify production release and health
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SERVORA_PROD_SSH_KEY" > ~/.ssh/id_verify
+          printf '%s\n' "$SERVORA_PROD_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_verify ~/.ssh/known_hosts
+          SSH="ssh -i ~/.ssh/id_verify -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts -o ConnectTimeout=10"
+          echo "=== CURRENT_RELEASE ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'readlink -f /opt/servora-med/current; ls -l /opt/servora-med/current; cat /opt/servora-med/current 2>/dev/null || true'
+          echo "=== HEALTH_SCHEMA_VERSION ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'cat /etc/servora-med/servora-med.env | grep HEALTH_SCHEMA_VERSION || echo MISSING; stat -c "%U:%G:%a" /etc/servora-med/servora-med.env'
+          echo "=== DB SCHEMA HEAD ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'sudo -u servora-med psql servora_med -c "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 5;" 2>&1 | head -n 20'
+          echo "=== MIGRATION 042 CHECK ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'sudo -u servora-med psql servora_med -c "SELECT column_name,data_type FROM information_schema.columns WHERE table_name='\''job_card_meeting_details'\'' AND column_name='\''unsuccessful_reason_code'\'';"'
+          echo "=== SERVICE STATUS ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'systemctl is-active servora-med.service; systemctl is-enabled servora-med.service; systemctl is-active caddy; systemctl is-active postgresql || systemctl is-active postgresql@15-main || echo pg-status-unknown'
+          echo "=== HEALTH ENDPOINTS ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'curl -fsS http://127.0.0.1:3000/api/health 2>&1 | head -c 500; echo; curl -fsS https://${SERVORA_PROD_FQDN}/api/health 2>&1 | head -c 500; echo'
+          echo "=== BACKUP LATEST ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'ls -lh /var/backups/servora-med/servora-med-*.dump 2>&1 | tail -n 5; ls -lh /var/backups/servora-med/servora-med-*.dump.sha256 2>&1 | tail -n 5'
+          echo "=== PID ==="
+          $SSH "$SERVORA_PROD_SSH_USER@$SERVORA_PROD_HOST" 'systemctl show servora-med.service -p MainPID --value; ps -o pid,comm -p $(systemctl show servora-med.service -p MainPID --value) 2>&1 | head'
