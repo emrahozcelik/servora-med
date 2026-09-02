@@ -453,6 +453,73 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.activityMetadata).toEqual([{ changedFields: ['outcome', 'unsuccessfulReason'] }]);
   });
 
+  it('rejects FOLLOW_UP_REQUIRED without an effective unsuccessful reason', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'missing-unsuccessful-reason', expectedVersion: 2,
+      outcome: 'FOLLOW_UP_REQUIRED',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.jobs[0]!.version).toBe(2);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('rejects an explicit null unsuccessful reason for FOLLOW_UP_REQUIRED', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'explicit-null-unsuccessful-reason', expectedVersion: 2,
+      outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: null,
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.jobs[0]!.version).toBe(2);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('preserves an existing valid reason when a partial PATCH omits it', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting({
+      details: { outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'CONTACT_BUSY' },
+    });
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'preserve-existing-unsuccessful-reason', expectedVersion: 2,
+      meetingSummary: 'Yeni not',
+    })).resolves.toMatchObject({
+      outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'CONTACT_BUSY',
+      meetingSummary: 'Yeni not',
+      jobCardVersion: 3,
+    });
+  });
+
+  it('does not silently bless a historical FOLLOW_UP_REQUIRED row without a reason', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting({
+      details: { outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: null },
+    });
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'historical-missing-unsuccessful-reason', expectedVersion: 2,
+      meetingSummary: 'Eski kayda yeni not',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.jobs[0]!.version).toBe(2);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('rejects an explicit unsuccessful reason when the effective outcome is not follow-up', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+
+    await expect(new JobCardService(repository).patchMeetingDetails(staff, job.id, {
+      clientActionId: 'reason-on-positive-outcome', expectedVersion: 2,
+      outcome: 'POSITIVE', unsuccessfulReason: 'CONTACT_BUSY',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.jobs[0]!.version).toBe(2);
+    expect(repository.activities).toHaveLength(0);
+  });
+
   it('validates chronology against merged persisted details', async () => {
     const repository = new SalesMeetingRepository();
     const job = repository.seedMeeting({

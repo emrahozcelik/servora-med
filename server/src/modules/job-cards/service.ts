@@ -178,6 +178,28 @@ type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
 type CancelInput = LifecycleInput & { cancelReason: string };
+
+function assertFollowUpMinimumLead(input: {
+  meetingAt: string | null;
+  requestTime: Date;
+  scheduledAt: Date;
+}) {
+  const leadReferenceAt = followUpLeadReferenceAt({
+    meetingAt: input.meetingAt === null ? null : new Date(input.meetingAt),
+    requestAt: input.requestTime,
+  });
+  if (!isFollowUpMinimumLeadSatisfied({
+    referenceAt: leadReferenceAt,
+    scheduledAt: input.scheduledAt,
+  })) {
+    throw new AppError(
+      'FOLLOW_UP_PROPOSAL_INVALID',
+      400,
+      'Takip işi planı için görüşme/işlem zamanından en az 15 dakika sonrası seçilmelidir.',
+    );
+  }
+}
+
 const JOB_CARD_PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt',
@@ -932,6 +954,13 @@ export class JobCardService {
           throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         }
         assertFollowUpSourceEligible(source);
+        if (input.scheduledAt !== null) {
+          assertFollowUpMinimumLead({
+            meetingAt: source.meetingAt,
+            requestTime,
+            scheduledAt: new Date(input.scheduledAt),
+          });
+        }
         // Server-authoritative DEMO provenance: a follow-up created from a DEMO
         // source inherits the source dataset directly (never from client input).
         await this.assertFollowUpDepth(transaction, source);
@@ -1313,7 +1342,9 @@ export class JobCardService {
             ? current.nextFollowUpAt
             : input.nextFollowUpAt,
         };
-        validateMeetingDetailsCandidate(candidate);
+        // Validate the merged post-patch state so a partial update cannot
+        // persist FOLLOW_UP_REQUIRED without its structured unsuccessful reason.
+        validateMeetingDetailsCandidate(candidate, { requireUnsuccessfulReason: true });
         const changedFields = MEETING_DETAIL_FIELDS.filter((field) => (
           Object.hasOwn(input, field)
           || (field === 'unsuccessfulReason' && Object.hasOwn(input, 'outcome'))
@@ -2223,17 +2254,12 @@ export class JobCardService {
         'Takip işi planı için gelecek bir tarih zorunludur.',
       );
     }
-    const leadReferenceAt = followUpLeadReferenceAt({
-      meetingAt: context.meetingAt === null ? null : new Date(context.meetingAt),
-      requestAt: requestTime,
-    });
-    if (context.enforceMinimumLead !== false
-      && !isFollowUpMinimumLeadSatisfied({ referenceAt: leadReferenceAt, scheduledAt })) {
-      throw new AppError(
-        'FOLLOW_UP_PROPOSAL_INVALID',
-        400,
-        'Takip işi planı için görüşme/işlem zamanından en az 15 dakika sonrası seçilmelidir.',
-      );
+    if (context.enforceMinimumLead !== false) {
+      assertFollowUpMinimumLead({
+        meetingAt: context.meetingAt,
+        requestTime,
+        scheduledAt,
+      });
     }
     if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');

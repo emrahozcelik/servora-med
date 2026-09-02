@@ -351,6 +351,63 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
     });
   });
 
+  it('rejects a direct management follow-up below the canonical minimum lead', async () => {
+    await withFixture(async (fixture) => {
+      const sourceId = await fixture.createSource({ type: 'SALES_MEETING' });
+
+      await expect(fixture.service.createFollowUp(
+        fixture.manager,
+        sourceId,
+        input(fixture.staffA.id, {
+          type: 'SALES_MEETING',
+          contactId: fixture.contactId,
+          engagementKind: 'FOLLOW_UP',
+          scheduledAt: '2026-08-01T10:14:59.000Z',
+        }),
+      )).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_INVALID', 400));
+    });
+  });
+
+  it('accepts a direct management follow-up at the canonical minimum lead', async () => {
+    await withFixture(async (fixture) => {
+      const sourceId = await fixture.createSource({ type: 'SALES_MEETING' });
+
+      await expect(fixture.service.createFollowUp(
+        fixture.manager,
+        sourceId,
+        input(fixture.staffA.id, {
+          type: 'SALES_MEETING',
+          contactId: fixture.contactId,
+          engagementKind: 'FOLLOW_UP',
+          scheduledAt: '2026-08-01T10:15:00.000Z',
+        }),
+      )).resolves.toMatchObject({
+        type: 'SALES_MEETING',
+        scheduledAt: '2026-08-01T10:15:00.000Z',
+      });
+    });
+  });
+
+  it('accepts a direct management follow-up above the canonical minimum lead', async () => {
+    await withFixture(async (fixture) => {
+      const sourceId = await fixture.createSource({ type: 'SALES_MEETING' });
+
+      await expect(fixture.service.createFollowUp(
+        fixture.manager,
+        sourceId,
+        input(fixture.staffA.id, {
+          type: 'SALES_MEETING',
+          contactId: fixture.contactId,
+          engagementKind: 'FOLLOW_UP',
+          scheduledAt: '2026-08-01T10:15:01.000Z',
+        }),
+      )).resolves.toMatchObject({
+        type: 'SALES_MEETING',
+        scheduledAt: '2026-08-01T10:15:01.000Z',
+      });
+    });
+  });
+
   it('enforces the customerless matrix and creates every supported type', async () => {
     await withFixture(async (fixture) => {
       const customerless = await fixture.createSource({ customerId: null, contactId: null });
