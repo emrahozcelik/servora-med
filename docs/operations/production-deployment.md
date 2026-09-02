@@ -242,6 +242,11 @@ same 40-character SHA. The workflow has `contents: read` and `actions: read`
 permissions, uses the `production-deploy` concurrency group, and does not
 cancel an in-flight deployment.
 
+Before the deployment gates proceed, the root host helper idempotently runs
+`systemctl enable servora-med.service`. This persists normal-boot startup but
+does not start the process; runtime start/restart remains after backup,
+migration, schema, and release-activation gates pass.
+
 ### GitHub Environment configuration
 
 Repository settings must create an environment named `production` and configure
@@ -557,7 +562,7 @@ sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup.service /etc
 sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup.timer /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/servora-med-backup-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now servora-med
+sudo systemctl enable servora-med.service
 sudo systemctl enable --now servora-med-backup.timer
 # Do not enable servora-med-backup-worker until the BR5 production gate above is approved.
 ```

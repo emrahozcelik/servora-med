@@ -129,7 +129,8 @@ function runDeployPhaseHarness(
     | 'pending-default'
     | 'pending-allow'
     | 'divergent-allow'
-    | 'ahead-allow',
+    | 'ahead-allow'
+    | 'enable-failure',
 ) {
   const root = temporaryDirectory(`phase-${mode}`);
   const eventLog = join(root, 'events.log');
@@ -162,7 +163,11 @@ write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
 restart_candidate_or_fail() { log_event candidate_start; ${mode === 'zero-rollback' || mode === 'migrated-no-rollback' ? 'return 1' : 'return 0'}; }
-systemctl() { log_event "systemctl:$*"; return 0; }
+systemctl() {
+  log_event "systemctl:$*"
+  if [[ "$1" == enable && "${mode}" == enable-failure ]]; then return 1; fi
+  return 0
+}
 STATE_READ_COUNT=0
 read_migration_state() {
   STATE_READ_COUNT=$((STATE_READ_COUNT + 1))
@@ -185,6 +190,115 @@ deploy_phase
   const result = runHostHarness(body, [eventLog]);
   const events = existsSync(eventLog) ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean) : [];
   return { result, events, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+type BootEnablementMode = 'disabled' | 'enabled' | 'failure';
+
+function runBootEnablementHarness(script: string, mode: BootEnablementMode) {
+  const root = temporaryDirectory(`boot-enablement-${mode}`);
+  const eventLog = join(root, 'events.log');
+  const body = `
+EVENT_LOG="$2"
+SHA="${TEST_SHA}"
+FQDN="fixture.example"
+ARTIFACT="/tmp/fixture.tar.gz"
+ARTIFACT_SHA="${'a'.repeat(64)}"
+SERVICE_STATE="${mode === 'enabled' ? 'enabled' : 'disabled'}"
+SERVICE_STARTED=false
+log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
+require_commands() { log_event require; }
+validate_sha() { log_event validate_sha; }
+validate_fqdn() { :; }
+validate_artifact() { :; }
+assert_env_contract() { :; }
+assert_host_backup_contract() { :; }
+assert_release_dir() { return 0; }
+current_release() { printf '%s\\n' /opt/servora-med/releases/old; }
+assert_service_and_health() { log_event preflight; }
+verify_archive_entries() { log_event archive; }
+verify_artifact_checksum() { log_event checksum; }
+stage_release() { log_event stage; }
+validate_release_tree() { :; }
+assert_candidate_backup_contract() { :; }
+run_predeploy_backup() { log_event backup; }
+read_migration_state() {
+  STATE_CATALOG_COUNT=41; STATE_CATALOG_HEAD=041_user_lifecycle_reconciliation
+  STATE_APPLIED_COUNT=41; STATE_APPLIED_HEAD=041_user_lifecycle_reconciliation
+  STATE_PENDING_VERSIONS=""; STATE_PENDING_COUNT=0
+  STATE_UNEXPECTED_VERSIONS=""; STATE_UNEXPECTED_COUNT=0
+  STATE_MIGRATION_STATUS=EXACT; STATE_MIGRATION_REASON=EXACT
+  STATE_DUPLICATE_VERSIONS=""; STATE_EXACT_CATALOG=true
+  STATE_ORGANIZATIONS=0; STATE_ADMINS=0; STATE_STAFF=0; STATE_CUSTOMERS=0
+  STATE_PRODUCTS=0; STATE_JOBS=0; STATE_DEMO_DATA=0
+}
+capture_data_invariants() { :; }
+assert_data_invariants_unchanged() { :; }
+run_schema_check() { log_event schema; return 0; }
+transition_health_schema_version() { log_event transition; return 0; }
+write_state() { log_event write_state; }
+atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
+health_gate() { log_event health; return 0; }
+restart_candidate_or_fail() { log_event candidate_start; SERVICE_STARTED=true; return 0; }
+run_release_node() { log_event migrate; return 0; }
+systemctl() {
+  log_event "systemctl:$*"
+  case "$1" in
+    enable)
+      if [[ "${mode}" == failure ]]; then return 1; fi
+      SERVICE_STATE=enabled
+      return 0
+      ;;
+    start|restart)
+      SERVICE_STARTED=true
+      return 0
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+deploy_phase
+printf 'final_state=%s\\nstarted=%s\\n' "$SERVICE_STATE" "$SERVICE_STARTED" >>"$EVENT_LOG"
+`;
+  const result = runSourced(script, body, [eventLog]);
+  const events = existsSync(eventLog)
+    ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean)
+    : [];
+  const finalState = events.find((event) => event.startsWith('final_state='))?.split('=', 2)[1];
+  const started = events.find((event) => event.startsWith('started='))?.split('=', 2)[1];
+  return {
+    result,
+    events,
+    finalState,
+    started,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+function isServiceActivationEvent(event: string) {
+  return /^(?:systemctl:(?:start|restart) servora-med\.service|systemctl:enable --now servora-med\.service)$/.test(
+    event,
+  );
+}
+
+function earlyServiceActivationEvents(events: string[]) {
+  const enableIndex = events.indexOf('systemctl:enable servora-med.service');
+  const activationBoundaryIndex = events.findIndex((event) => event.startsWith('switch:'));
+  if (enableIndex === -1 || activationBoundaryIndex <= enableIndex) {
+    throw new Error('BOOT_ENABLEMENT_ACTIVATION_BOUNDARY_MISSING');
+  }
+
+  return events.slice(enableIndex + 1, activationBoundaryIndex).filter(isServiceActivationEvent);
+}
+
+function assertNoEarlyServiceActivation(events: string[]) {
+  expect(earlyServiceActivationEvents(events)).toEqual([]);
+}
+
+function assertBootEnablementContract(result: ReturnType<typeof runBootEnablementHarness>) {
+  expect(result.result.status).toBe(0);
+  expect(result.finalState).toBe('enabled');
+  expect(result.events).toContain('systemctl:enable servora-med.service');
 }
 
 function runPostdeployBackupFailureHarness() {
@@ -407,6 +521,132 @@ describe('controlled production deployment automation contract', () => {
     execFileSync(process.execPath, ['--check', browserSmoke], { stdio: 'pipe' });
   });
 
+  it('enables a disabled service before deployment safety gates without early start', () => {
+    const source = readFileSync(hostHelper, 'utf8');
+    expect(source).toContain('systemctl enable "$SERVICE"');
+    expect(source).not.toContain('systemctl enable --now');
+
+    const harness = runBootEnablementHarness(hostHelper, 'disabled');
+    try {
+      assertBootEnablementContract(harness);
+      const enableIndex = harness.events.indexOf('systemctl:enable servora-med.service');
+      const backupIndex = harness.events.indexOf('backup');
+      const switchIndex = harness.events.findIndex((event) => event.startsWith('switch:'));
+      const activationStartIndex = harness.events.indexOf('candidate_start');
+      expect(enableIndex).toBeGreaterThan(-1);
+      expect(enableIndex).toBeLessThan(backupIndex);
+      expect(activationStartIndex).toBeGreaterThan(switchIndex);
+      expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
+      expect(harness.events).not.toContain('systemctl:start servora-med.service');
+      expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('detects a plain restart inserted before the activation boundary', () => {
+    const root = temporaryDirectory('early-restart-mutation');
+    const mutatedHelper = join(root, 'deploy-production-host.sh');
+    const source = readFileSync(hostHelper, 'utf8');
+    const marker = '  enable_service_for_boot\n\n  PHASE=PREFLIGHT';
+    const mutatedSource = source.replace(
+      marker,
+      '  enable_service_for_boot\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
+    );
+    expect(mutatedSource).not.toBe(source);
+    writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
+
+    const baseline = runBootEnablementHarness(hostHelper, 'disabled');
+    const mutated = runBootEnablementHarness(mutatedHelper, 'disabled');
+    try {
+      expect(() => assertNoEarlyServiceActivation(baseline.events)).not.toThrow();
+      expect(mutated.events).toContain('systemctl:restart servora-med.service');
+      expect(() => assertNoEarlyServiceActivation(mutated.events)).toThrow();
+    } finally {
+      baseline.cleanup();
+      mutated.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a plain restart at the final activation boundary', () => {
+    const root = temporaryDirectory('final-restart-mutation');
+    const mutatedHelper = join(root, 'deploy-production-host.sh');
+    const source = readFileSync(hostHelper, 'utf8');
+    const marker = '  atomic_switch "$release"\n';
+    const mutatedSource = source.replace(
+      marker,
+      '  atomic_switch "$release"\n  systemctl restart "$SERVICE"\n',
+    );
+    expect(mutatedSource).not.toBe(source);
+    writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
+
+    const harness = runBootEnablementHarness(mutatedHelper, 'disabled');
+    try {
+      expect(harness.result.status).toBe(0);
+      expect(harness.events).toContain('systemctl:restart servora-med.service');
+      expect(() => assertNoEarlyServiceActivation(harness.events)).not.toThrow();
+    } finally {
+      harness.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps enablement idempotent when the service is already enabled', () => {
+    const harness = runBootEnablementHarness(hostHelper, 'enabled');
+    try {
+      assertBootEnablementContract(harness);
+      expect(harness.events.filter((event) => event === 'systemctl:enable servora-med.service')).toHaveLength(1);
+      expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
+      expect(harness.events).not.toContain('systemctl:start servora-med.service');
+      expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('fails closed when systemctl enable fails', () => {
+    const harness = runBootEnablementHarness(hostHelper, 'failure');
+    try {
+      expect(harness.result.status).not.toBe(0);
+      expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('SERVICE_BOOT_ENABLEMENT_FAILED');
+      expect(harness.events).toEqual([
+        'require',
+        'validate_sha',
+        'systemctl:enable servora-med.service',
+      ]);
+      expect(harness.events).not.toContain('preflight');
+      expect(harness.events).not.toContain('backup');
+      expect(harness.events).not.toContain('migrate');
+      expect(harness.events.some((event) => event.startsWith('switch:'))).toBe(false);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('detects removal of the boot enablement invocation', () => {
+    const root = temporaryDirectory('boot-enablement-removal');
+    const modifiedHelper = join(root, 'deploy-production-host.sh');
+    const source = readFileSync(hostHelper, 'utf8');
+    const withoutEnablement = source.replace('  enable_service_for_boot\n', '');
+    expect(withoutEnablement).not.toBe(source);
+    writeFileSync(modifiedHelper, withoutEnablement, { mode: 0o755 });
+
+    const baseline = runBootEnablementHarness(hostHelper, 'disabled');
+    const removed = runBootEnablementHarness(modifiedHelper, 'disabled');
+    try {
+      assertBootEnablementContract(baseline);
+      expect(removed.result.status).toBe(0);
+      expect(removed.finalState).toBe('disabled');
+      expect(removed.events).not.toContain('systemctl:enable servora-med.service');
+      expect(() => assertBootEnablementContract(removed)).toThrow();
+    } finally {
+      baseline.cleanup();
+      removed.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('enforces main-only source and exact-head CI gates in the runner', () => {
     const content = readFileSync(runner, 'utf8');
     expect(content).toMatch(/\^\[0-9a-f\]\{40\}\$/);
@@ -512,6 +752,9 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('PREFIX_WITH_PENDING');
     expect(content).toContain('ARTIFACT_CHECKSUM_SIDECAR_INVALID');
     expect(content).toContain('SOURCE_TREE_NOT_EXACT');
+    expect(content).toContain('systemctl enable servora-med.service');
+    expect(content).toContain('does not start the process');
+    expect(content).not.toContain('systemctl enable --now servora-med.service');
   });
 
   it('executes strict checksum sidecar validation for valid and malicious fixtures', () => {
@@ -732,7 +975,7 @@ describe('controlled production deployment automation contract', () => {
     const backupFailure = runDeployPhaseHarness('backup-failure');
     try {
       expect(backupFailure.result.status).not.toBe(0);
-      expect(backupFailure.events).toEqual(['require', 'validate_sha', 'preflight', 'archive', 'checksum', 'stage', 'backup']);
+      expect(backupFailure.events).toEqual(['require', 'validate_sha', 'systemctl:enable servora-med.service', 'preflight', 'archive', 'checksum', 'stage', 'backup']);
       expect(`${backupFailure.result.stdout}${backupFailure.result.stderr}`).toContain('PREDEPLOY_BACKUP_FAILED');
       expect(backupFailure.events).not.toContain('migrate');
       expect(backupFailure.events.some((event) => event.startsWith('switch:'))).toBe(false);
@@ -743,7 +986,7 @@ describe('controlled production deployment automation contract', () => {
     const checksumFailure = runDeployPhaseHarness('checksum-failure');
     try {
       expect(checksumFailure.result.status).not.toBe(0);
-      expect(checksumFailure.events).toEqual(['require', 'validate_sha', 'preflight', 'archive', 'checksum']);
+      expect(checksumFailure.events).toEqual(['require', 'validate_sha', 'systemctl:enable servora-med.service', 'preflight', 'archive', 'checksum']);
       expect(`${checksumFailure.result.stdout}${checksumFailure.result.stderr}`).toContain('ARTIFACT_CHECKSUM_MISMATCH');
       expect(checksumFailure.events).not.toContain('backup');
       expect(checksumFailure.events).not.toContain('migrate');
