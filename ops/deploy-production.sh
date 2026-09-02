@@ -353,9 +353,21 @@ validate_checksum_sidecar_bytes() {
   done < <(od -An -v -t x1 "$1" | tr -s '[:space:]' '\n' | sed '/^$/d')
 }
 
+get_tar_portability_args() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    printf '%s\n' --no-xattrs --no-acls --no-fflags --no-mac-metadata
+  fi
+}
+
 package_artifact() {
   local output="$1"
-  tar --create --gzip --file "$output" \
+  local -a tar_extra_args=()
+  local arg
+  while IFS= read -r arg; do
+    [[ -n "$arg" ]] && tar_extra_args+=("$arg")
+  done < <(get_tar_portability_args)
+  COPYFILE_DISABLE=1 tar --create --gzip --file "$output" \
+    "${tar_extra_args[@]}" \
     --directory "$REPO_ROOT" \
     --exclude='./.git' \
     --exclude='./host.md' \
