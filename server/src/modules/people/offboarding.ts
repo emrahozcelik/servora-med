@@ -313,6 +313,10 @@ export class PostgresStaffOffboardingService {
       if (lockedTarget.role !== 'STAFF') throw new AppError('OFFBOARDING_TARGET_NOT_STAFF', 409, 'Offboarding hedefi Staff olmalıdır.');
       if (!lockedTarget.is_active) throw new AppError('USER_ALREADY_INACTIVE', 409, 'Staff zaten pasiftir.');
 
+      const currentPlan = await this.readPlan(client, asUser(lockedTarget), true);
+      if (currentPlan.planHash !== input.planHash) throw new AppError('STALE_PLAN', 409, 'Offboarding planı güncel değil.');
+      this.validateDecisions(currentPlan, input);
+
       const replacementIds = this.replacementIds(input);
       if (replacementIds.length > 0) {
         const replacements = await client.query<{ id: string; role: string; is_active: boolean }>(
@@ -325,10 +329,6 @@ export class PostgresStaffOffboardingService {
           throw new AppError('INVALID_REPLACEMENT_STAFF', 409, 'Replacement Staff geçersiz veya aktif değil.');
         }
       }
-
-      const currentPlan = await this.readPlan(client, asUser(lockedTarget), true);
-      if (currentPlan.planHash !== input.planHash) throw new AppError('STALE_PLAN', 409, 'Offboarding planı güncel değil.');
-      this.validateDecisions(currentPlan, input);
 
       const summary = await this.applyMutations(client, actor, targetUserId, input, currentPlan);
       await client.query(
@@ -431,6 +431,17 @@ export class PostgresStaffOffboardingService {
     const currentJobs = new Map(plan.jobs.map((item) => [item.id, item]));
     const currentFollowUps = new Map(plan.followUps.map((item) => [item.jobCardId, item]));
     for (const jobId of [...new Set([...jobDecision.keys(), ...followUpDecision.keys()])].sort()) {
+      const replacementForJob = jobDecision.get(jobId);
+      if (replacementForJob) {
+        const jobInterval = await client.query<{ scheduled_at: Date | null; scheduled_ends_at: Date | null }>(
+          `SELECT scheduled_at, scheduled_ends_at FROM job_cards WHERE organization_id = $1 AND id = $2`,
+          [actor.organizationId, jobId],
+        );
+        const row = jobInterval.rows[0];
+        const scheduledAt = row?.scheduled_at ? row.scheduled_at.toISOString() : null;
+        const scheduledEndsAt = row?.scheduled_ends_at ? row.scheduled_ends_at.toISOString() : null;
+        await this.assertJobCardAssignmentAvailable(client, actor.organizationId, replacementForJob, jobId, scheduledAt, scheduledEndsAt);
+      }
       const updated = await client.query(
         `UPDATE job_cards SET
             assigned_to = CASE WHEN $2::uuid IS NULL THEN assigned_to ELSE $2::uuid END,
@@ -605,18 +616,47 @@ export class PostgresStaffOffboardingService {
   ) {
     const conflict = await client.query(
       `SELECT 1
-         FROM calendar_events e
-        WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-          AND e.id <> $3 AND e.starts_at < $5 AND $4 < e.ends_at
-       UNION ALL
-       SELECT 1
-         FROM job_cards j
-        WHERE j.organization_id = $1 AND j.assigned_to = $2
-          AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
-          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-          AND j.scheduled_at < $5 AND $4 < j.scheduled_ends_at
-       LIMIT 1`,
+          FROM calendar_events e
+         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
+           AND e.id <> $3 AND e.starts_at < $5 AND $4 < e.ends_at
+        UNION ALL
+        SELECT 1
+          FROM job_cards j
+         WHERE j.organization_id = $1 AND j.assigned_to = $2
+           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+           AND j.scheduled_at < $5 AND $4 < j.scheduled_ends_at
+        LIMIT 1`,
       [organizationId, replacementUserId, event.id, event.startsAt, event.endsAt],
+    );
+    if (conflict.rows.length > 0) {
+      throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
+    }
+  }
+
+  private async assertJobCardAssignmentAvailable(
+    client: PoolClient,
+    organizationId: string,
+    replacementUserId: string,
+    jobCardId: string,
+    scheduledAt: string | null,
+    scheduledEndsAt: string | null,
+  ) {
+    if (!scheduledAt || !scheduledEndsAt) return;
+    const conflict = await client.query(
+      `SELECT 1
+          FROM calendar_events e
+         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
+           AND e.starts_at < $4 AND $3 < e.ends_at
+        UNION ALL
+        SELECT 1
+          FROM job_cards j
+         WHERE j.organization_id = $1 AND j.assigned_to = $2
+           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+        LIMIT 1`,
+      [organizationId, replacementUserId, scheduledAt, scheduledEndsAt, jobCardId],
     );
     if (conflict.rows.length > 0) {
       throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
