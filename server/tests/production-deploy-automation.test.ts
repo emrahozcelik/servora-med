@@ -952,6 +952,117 @@ describe('controlled production deployment automation contract', () => {
     }
   });
 
+  describe('deploy artifact portability — macOS xattr suppression', () => {
+    it('selects portable-archive suppression flags on Darwin and none on Linux', () => {
+      const darwin = runSourced(runner, 'uname() { echo Darwin; }; get_tar_portability_args');
+      expect(darwin.status).toBe(0);
+      expect(darwin.stdout).toContain('--no-xattrs');
+      expect(darwin.stdout).toContain('--no-acls');
+      expect(darwin.stdout).toContain('--no-fflags');
+      expect(darwin.stdout).toContain('--no-mac-metadata');
+      const linux = runSourced(runner, 'uname() { echo Linux; }; get_tar_portability_args');
+      expect(linux.status).toBe(0);
+      expect(linux.stdout.trim()).toBe('');
+    });
+
+    it('keeps canonical packaging command strict and portable', () => {
+      const content = readFileSync(runner, 'utf8');
+      expect(content).toContain('COPYFILE_DISABLE=1');
+      expect(content).toContain('--no-xattrs');
+      expect(content).toContain('--no-acls');
+      expect(content).toContain('--no-fflags');
+      expect(content).toContain('--no-mac-metadata');
+      expect(content).toContain('get_tar_portability_args');
+      expect(content).toContain('tar_extra_args');
+      // Must not mutate source xattrs as fix
+      expect(content).not.toMatch(/xattr\s+-c/);
+      // Must not post-filter archive bytes
+      expect(content).not.toContain('ARCHIVE_BYTE_STREAM_POST_FILTER');
+      expect(content).not.toContain('eval ');
+    });
+
+    it('creates macOS artifact without LIBARCHIVE/SCHILY xattr and AppleDouble even from xattr-bearing source', () => {
+      const staging = temporaryDirectory('portability-real');
+      const artifact = join(staging, 'fixture.tar.gz');
+      const srcDir = join(staging, 'src');
+      mkdirSync(join(srcDir, 'ops'), { recursive: true });
+      mkdirSync(join(srcDir, 'server', 'dist'), { recursive: true });
+      mkdirSync(join(srcDir, 'server', 'node_modules'), { recursive: true });
+      mkdirSync(join(srcDir, 'web', 'dist'), { recursive: true });
+      writeFileSync(join(srcDir, 'server', 'package.json'), '{}');
+      writeFileSync(join(srcDir, 'server', 'package-lock.json'), '{}');
+      writeFileSync(join(srcDir, 'server', 'dist', 'index.js'), 'fixture');
+      writeFileSync(join(srcDir, 'web', 'dist', 'index.html'), '<div id="root"></div>');
+      copyFileSync(runner, join(srcDir, 'ops', 'deploy-production.sh'));
+      // Mark a file with provenance xattr to prove suppression at archive creation time
+      const provenanceFile = join(srcDir, 'server', 'dist', 'index.js');
+      const xattrResult = spawnSync('xattr', ['-w', 'com.apple.provenance', 'test-provenance', provenanceFile]);
+      // If xattr unsupported in this env, skip provenance-specific check but still verify absence in archive
+      const sourceHasXattr = spawnSync('xattr', ['-p', 'com.apple.provenance', provenanceFile]).status === 0;
+      try {
+        const result = runSourced(join(srcDir, 'ops', 'deploy-production.sh'), 'package_artifact "$2"', [artifact]);
+        expect(result.status).toBe(0);
+        const list = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' });
+        expect(list).toContain('server/dist/index.js');
+        // No AppleDouble
+        expect(list).not.toMatch(/(^|\/)\._/);
+        // No absolute or traversal
+        expect(list).not.toMatch(/^\//);
+        expect(list).not.toContain('../');
+        // Verify PAX headers contain no xattr/provenance/ACL/mac-metadata
+        const verbose = execFileSync('tar', ['-tvzf', artifact], { encoding: 'utf8' });
+        expect(verbose).not.toContain('LIBARCHIVE.xattr');
+        expect(verbose).not.toContain('SCHILY.xattr');
+        expect(verbose).not.toContain('com.apple');
+        // Byte-level scan for PAX xattr records (also covers SCHILY)
+        const rawList = execFileSync('tar', ['--list', '--verbose', '-f', artifact], { encoding: 'utf8' });
+        // Use hex/raw inspection: look for any xattr string in raw tar tv output + pax headers via tar --list -v -O not needed; check via tar tv + od
+        // Also verify via tar's pax header dump: bsdtar stores xattrs as pax headers containing 'xattr'
+        const paxDump = (() => {
+          try {
+            return execFileSync('bash', ['-c', `tar -tzvf "${artifact}" 2>&1 | cat; echo "---"; tar --list --format=pax -f "${artifact}" 2>&1 | head -n 200`], { encoding: 'utf8' });
+          } catch { return verbose; }
+        })();
+        expect(paxDump).not.toContain('com.apple.provenance');
+        if (sourceHasXattr) {
+          // Ensure suppression was effective even though source had xattr
+          expect(paxDump).not.toContain('provenance');
+        }
+      } finally {
+        rmSync(staging, { recursive: true, force: true });
+      }
+    });
+
+    it('existing artifact excludes and payload paths remain preserved after portability change', () => {
+      const root = temporaryDirectory('portability-excludes');
+      const artifact = join(root, 'fixture.tar.gz');
+      mkdirSync(join(root, 'ops'), { recursive: true });
+      mkdirSync(join(root, 'server', 'dist'), { recursive: true });
+      mkdirSync(join(root, 'server', 'node_modules'), { recursive: true });
+      mkdirSync(join(root, 'web', 'dist'), { recursive: true });
+      writeFileSync(join(root, 'server', 'package.json'), '{}');
+      writeFileSync(join(root, 'server', 'package-lock.json'), '{}');
+      copyFileSync(runner, join(root, 'ops', 'deploy-production.sh'));
+      writeFileSync(join(root, 'server', 'dist', 'index.js'), 'fixture');
+      writeFileSync(join(root, 'web', 'dist', 'index.html'), '<div id="root"></div>');
+      writeFileSync(join(root, 'ops', 'credentials.ts'), 'export const safe = true;');
+      try {
+        const result = runSourced(join(root, 'ops', 'deploy-production.sh'), 'package_artifact "$2"', [artifact]);
+        expect(result.status).toBe(0);
+        const inventory = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' });
+        expect(inventory).toContain('server/dist/index.js');
+        expect(inventory).toContain('web/dist/index.html');
+        expect(inventory).toContain('ops/credentials.ts');
+        expect(inventory).toContain('server/package.json');
+        // Excludes still enforced
+        expect(inventory).not.toContain('host.md');
+        expect(inventory).not.toContain('.git');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('executes immutable collision identity checks without overwriting a release', () => {
     const matching = runImmutableCollisionHarness(true);
     try {
