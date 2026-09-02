@@ -106,6 +106,7 @@ import {
   filterAvailableSlotCandidates,
   generateAvailableSlotCandidates,
 } from './available-slots.js';
+import { generateFollowUpSlotCandidates } from './follow-up-auto-scheduler.js';
 import {
   createCustomerScheduleSnapshotReader,
   evaluateCustomerSchedule,
@@ -118,10 +119,8 @@ import {
   FOLLOW_UP_SEARCH_HORIZON_DAYS,
   defaultFollowUpInstructions,
   defaultFollowUpType,
-  deriveProposalOrigin,
-  followUpLeadReferenceAt,
+  earliestFollowUpAllowedAt,
   requiresMandatoryFollowUpProposal,
-  isFollowUpMinimumLeadSatisfied,
   suggestedFollowUpInstant,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
@@ -184,14 +183,11 @@ function assertFollowUpMinimumLead(input: {
   requestTime: Date;
   scheduledAt: Date;
 }) {
-  const leadReferenceAt = followUpLeadReferenceAt({
+  const earliestAllowedAt = earliestFollowUpAllowedAt({
     meetingAt: input.meetingAt === null ? null : new Date(input.meetingAt),
     requestAt: input.requestTime,
   });
-  if (!isFollowUpMinimumLeadSatisfied({
-    referenceAt: leadReferenceAt,
-    scheduledAt: input.scheduledAt,
-  })) {
+  if (input.scheduledAt.valueOf() < earliestAllowedAt.valueOf()) {
     throw new AppError(
       'FOLLOW_UP_PROPOSAL_INVALID',
       400,
@@ -2037,28 +2033,37 @@ export class JobCardService {
             );
           }
           if (followUpRequired) {
-            const proposal = await this.validateFollowUpProposal(
-              tx,
-              actor,
-              job,
-              definition.followUpProposal,
-              requestTime,
-              {
-                followUpRequired,
-                meetingAt: submissionMeetingDetails?.meetingAt ?? null,
-              },
-            );
-            await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
-            const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
-            const origin = suggestion.fields === null
-              ? 'STAFF_ADJUSTED'
-              : deriveProposalOrigin(proposal, suggestion.fields);
+            const autoScheduled = definition.followUpProposal?.scheduledAt === undefined;
+            const proposal = autoScheduled
+              ? await this.autoScheduleFollowUpProposal(
+                tx,
+                actor,
+                job,
+                requestTime,
+                submissionMeetingDetails?.meetingAt ?? null,
+                false,
+                definition.followUpProposal,
+              )
+              : await this.validateFollowUpProposal(
+                tx,
+                actor,
+                job,
+                definition.followUpProposal,
+                requestTime,
+                {
+                  followUpRequired,
+                  meetingAt: submissionMeetingDetails?.meetingAt ?? null,
+                },
+              );
+            if (!autoScheduled) {
+              await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
+            }
             persistedProposal = {
               scheduledAt: new Date(proposal.scheduledAt),
               type: proposal.type,
               assignedTo: proposal.assignedTo,
               instructions: proposal.followUpInstructions,
-              origin,
+              origin: autoScheduled ? 'SYSTEM' : 'STAFF_ADJUSTED',
               proposedBy: actor.id,
             };
           }
@@ -2479,16 +2484,45 @@ export class JobCardService {
         'Bu iş türü için takip işi planı desteklenmiyor.',
       );
     }
+    const managerProvidedSchedule = input?.scheduledAt !== undefined;
+    if (followUpRequired
+      && persisted
+      && job.followUpProposalOrigin === 'SYSTEM'
+      && !managerProvidedSchedule) {
+      const proposal = await this.autoScheduleFollowUpProposal(
+        tx,
+        actor,
+        job,
+        requestTime,
+        meetingDetails?.meetingAt ?? null,
+        true,
+        {
+          type: job.followUpProposedType!,
+          assignedTo: job.followUpProposedAssignee!,
+          followUpInstructions: job.followUpProposalInstructions!,
+        },
+        new Date(job.followUpProposedAt!),
+      );
+      return {
+        proposal,
+        overrideReason: null,
+        priority: normalizePriority(input?.priority),
+        dueDate: normalizeFollowUpDueDate(input?.dueDate, proposal.type),
+      };
+    }
+    const proposalInput = managerProvidedSchedule
+      ? input
+      : (persisted ? {
+        scheduledAt: job.followUpProposedAt!,
+        type: input?.type ?? job.followUpProposedType!,
+        assignedTo: input?.assignedTo ?? job.followUpProposedAssignee!,
+        followUpInstructions: input?.followUpInstructions ?? job.followUpProposalInstructions!,
+      } : undefined);
     const proposal = await this.validateFollowUpProposal(
       tx,
       actor,
       job,
-      input ?? (persisted ? {
-        scheduledAt: job.followUpProposedAt!,
-        type: job.followUpProposedType!,
-        assignedTo: job.followUpProposedAssignee!,
-        followUpInstructions: job.followUpProposalInstructions!,
-      } : undefined),
+      proposalInput,
       requestTime,
       {
         followUpRequired,
@@ -2525,6 +2559,138 @@ export class JobCardService {
       );
     }
     return { proposal, overrideReason, priority, dueDate };
+  }
+
+  private async autoScheduleFollowUpProposal(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    requestTime: Date,
+    meetingAt: string | null,
+    lockCustomer: boolean,
+    input?: FollowUpProposalInput,
+    preferredAt?: Date,
+  ): Promise<ValidatedFollowUpProposal> {
+    const type = input?.type ?? defaultFollowUpType(job.type);
+    if (!(JOB_CARD_TYPES as readonly string[]).includes(type) || type !== 'SALES_MEETING') {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Müşteri ziyareti takip işi Sales Meeting olmalıdır.',
+      );
+    }
+    if (actor.role === 'STAFF' && type !== defaultFollowUpType(job.type)) {
+      throw new AppError('FORBIDDEN', 403, 'Personel takip işi türünü değiştiremez.');
+    }
+    if (job.customerId === null) {
+      throw new AppError(
+        'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED',
+        409,
+        'Bu takip işi türü için kaynak JobCard müşteriye bağlı olmalıdır.',
+      );
+    }
+    const assignedTo = input?.assignedTo ?? job.assignedTo;
+    const assignee = await tx.getAssigneeForUpdate(actor.organizationId, assignedTo);
+    if (!assignee) {
+      throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    }
+    assertCanCreateForAssignee(actor, assignee);
+    if (lockCustomer && job.customerId !== null) {
+      const customer = await tx.getCustomerForUpdate(actor.organizationId, job.customerId);
+      if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    }
+
+    const policyEarliestAt = earliestFollowUpAllowedAt({
+      meetingAt: meetingAt === null ? null : new Date(meetingAt),
+      requestAt: requestTime,
+    });
+    const earliestAllowedAt = preferredAt
+      && preferredAt.valueOf() > policyEarliestAt.valueOf()
+      ? preferredAt
+      : policyEarliestAt;
+    const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    const candidates = generateFollowUpSlotCandidates({
+      earliestAllowedAt,
+      type,
+      timezone,
+    });
+    const firstCandidate = candidates[0];
+    const lastCandidate = candidates[candidates.length - 1];
+    if (!firstCandidate || !lastCandidate) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        409,
+        'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+      );
+    }
+
+    const snapshotFrom = new Date(
+      firstCandidate.startsAt.valueOf()
+        - FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        - MAX_TZ_OFFSET_MS,
+    );
+    const snapshotTo = new Date(
+      lastCandidate.endsAt.valueOf()
+        + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        + MAX_TZ_OFFSET_MS,
+    );
+    const activeJobs = await tx.listActiveOnSiteJobs(
+      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
+    );
+    const recentVisits = await tx.listRecentOnSiteVisits(
+      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
+    );
+    const assigneeIntervals = await tx.listAssigneeCalendarIntervals(
+      actor.organizationId,
+      assignedTo,
+      firstCandidate.startsAt,
+      lastCandidate.endsAt,
+      job.id,
+    );
+    const assigneeClearCandidates = filterAvailableSlotCandidates(
+      candidates,
+      assigneeIntervals.map((interval) => ({
+        startsAt: new Date(interval.startsAt),
+        endsAt: new Date(interval.endsAt),
+      })),
+    );
+    const customerReader = createCustomerScheduleSnapshotReader({
+      timezone,
+      activeJobs,
+      recentVisits,
+    });
+    for (const candidate of assigneeClearCandidates) {
+      const evaluation = await evaluateCustomerSchedule({
+        reader: customerReader,
+        organizationId: actor.organizationId,
+        customerId: job.customerId,
+        proposedAt: candidate.startsAt,
+        jobType: type,
+        excludeJobId: job.id,
+        now: requestTime,
+      });
+      if (evaluation.level === 'CLEAR' || evaluation.level === 'WARNING') {
+        return {
+          scheduledAt: candidate.startsAt,
+          type,
+          assignedTo,
+          followUpInstructions: input === undefined
+            ? defaultFollowUpInstructions(job.title)
+            : boundedTrimmedString(
+              input.followUpInstructions,
+              'followUpProposal.followUpInstructions',
+              1,
+              4_000,
+            ),
+          assignee,
+        };
+      }
+    }
+    throw new AppError(
+      'FOLLOW_UP_PROPOSAL_INVALID',
+      409,
+      '30 günlük aralıkta uygun takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+    );
   }
 
   private async computeFollowUpSuggestion(

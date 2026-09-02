@@ -57,6 +57,15 @@ export function followUpLeadReferenceAt(input: {
     : input.requestAt;
 }
 
+export function earliestFollowUpAllowedAt(input: {
+  meetingAt: Date | null;
+  requestAt: Date;
+}): Date {
+  return new Date(
+    followUpLeadReferenceAt(input).valueOf() + FOLLOW_UP_MIN_LEAD_MINUTES * 60_000,
+  );
+}
+
 export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
 
 const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, JobCardType> = {

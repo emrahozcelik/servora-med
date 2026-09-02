@@ -103,7 +103,7 @@ export type JobCardInvalidationInput = {
 export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
 
 export type FollowUpProposalInput = {
-  scheduledAt: string;
+  scheduledAt?: string;
   type: JobCardType;
   assignedTo: string;
   followUpInstructions: string;
