@@ -241,7 +241,11 @@ export class PostgresStaffOffboardingService {
     const client = await this.pool.connect();
     let committed = false;
     try {
-      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      // Explicit target/resource row locks provide atomic offboarding and
+      // serialize replacement scheduling. READ COMMITTED is intentional: the
+      // conflict statements issued after the replacement lock must observe
+      // commits that won while this transaction was waiting for that lock.
+      await client.query('BEGIN');
       const actorRow = await client.query<{ role: string; is_active: boolean }>(
         `SELECT role, is_active FROM users WHERE organization_id = $1 AND id = $2 FOR SHARE`,
         [actor.organizationId, actor.id],

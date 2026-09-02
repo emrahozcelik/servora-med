@@ -32,9 +32,17 @@ type QueryContext = Readonly<{
   processId: number;
 }>;
 
+type SettledOutcome<T> = Readonly<{
+  kind: 'fulfilled';
+  value: T;
+} | {
+  kind: 'rejected';
+  reason: unknown;
+}>;
+
 type QueryObserver = Readonly<{
   before?: (query: QueryContext) => void;
-  after?: (query: QueryContext) => Promise<void> | void;
+  after?: (query: QueryContext, result?: unknown) => Promise<void> | void;
 }>;
 
 function observePoolQueries(pool: Pool, observer: QueryObserver) {
@@ -69,11 +77,11 @@ function observePoolQueries(pool: Pool, observer: QueryObserver) {
       const result = originalQuery(...queryArgs);
       if (result && typeof result.then === 'function' && observer.after) {
         return Promise.resolve(result).then(async (value) => {
-          await observer.after!(query);
+          await observer.after!(query, value);
           return value;
         });
       }
-      observer.after?.(query);
+      observer.after?.(query, result);
       return result;
     };
     return client;
@@ -436,6 +444,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
       let offboardingLockObserved = false;
       let approvalPromise: Promise<unknown> | undefined;
       let offboardingPromise: Promise<unknown> | undefined;
+      let offboardingOutcomePromise: Promise<SettledOutcome<unknown>> | undefined;
       let offboardingSettled = false;
 
       try {
@@ -563,6 +572,10 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
 
         offboardingPromise = offboardingService.execute(adminUser, target.id, offboardingInput)
           .finally(() => { offboardingSettled = true; });
+        offboardingOutcomePromise = offboardingPromise.then(
+          (value) => ({ kind: 'fulfilled' as const, value }),
+          (reason) => ({ kind: 'rejected' as const, reason }),
+        );
         const offboardingProcessId = await offboardingLockAttempted.promise;
         expect(offboardingLockObserved).toBe(true);
         expect(offboardingProcessId).not.toBe(approvalProcessId);
@@ -598,10 +611,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
           canonicalScheduledEnd('SALES_MEETING', proposal.scheduledAt),
         );
 
-        const offboardingOutcome = await offboardingPromise.then(
-          (value) => ({ kind: 'fulfilled' as const, value }),
-          (reason) => ({ kind: 'rejected' as const, reason }),
-        );
+        const offboardingOutcome = await offboardingOutcomePromise!;
 
         const childRows = await pool.query<{
           id: string;
@@ -686,6 +696,252 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         expect(overlapRows.rows).toHaveLength(0);
       } finally {
         releaseApprovalLock.resolve(undefined);
+        const pending = [approvalPromise, offboardingPromise]
+          .filter((promise): promise is Promise<unknown> => promise !== undefined);
+        await Promise.allSettled(pending);
+        await Promise.all([approvalPool.end(), offboardingPool.end()]);
+      }
+    });
+  });
+
+  it('reselects AUTO approval after offboarding wins the replacement Staff lock', async () => {
+    await withFixture(async ({
+      pool, createPool, organizationId, admin, target, replacement, customerId,
+    }) => {
+      const raceNow = new Date('2026-09-10T09:00:00.000Z');
+      const sourceCustomerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status, assigned_staff_user_id)
+         VALUES ($1, 'Reverse AUTO source clinic', 'clinic', 'active', $2) RETURNING id`,
+        [organizationId, replacement.id],
+      )).rows[0]!.id;
+      const approvalPool = createPool();
+      const offboardingPool = createPool();
+      const offboardingLockAcquired = deferred<number>();
+      const releaseOffboardingLock = deferred<void>();
+      const approvalLockAttempted = deferred<number>();
+      const approvalSawCommittedBlocker = deferred<number>();
+      let approvalLockObserved = false;
+      let offboardingLockObserved = false;
+      let approvalPromise: Promise<unknown> | undefined;
+      let offboardingPromise: Promise<unknown> | undefined;
+      let approvalOutcomePromise: Promise<SettledOutcome<unknown>> | undefined;
+      let offboardingOutcomePromise: Promise<SettledOutcome<unknown>> | undefined;
+      let offboardingSettled = false;
+
+      try {
+        const replacementActor: JobCardActor = {
+          id: replacement.id,
+          organizationId,
+          role: 'STAFF',
+        };
+        const managerActor: JobCardActor = {
+          id: admin.id,
+          organizationId,
+          role: 'ADMIN',
+        };
+        const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+        const approvalService = new JobCardService(
+          new PostgresJobCardRepository(approvalPool),
+          () => raceNow,
+          undefined,
+          undefined,
+          undefined,
+          { enabled: true, reminderLeadMinutes: 30 },
+        );
+
+        const source = await approvalService.create(replacementActor, {
+          clientActionId: randomUUID(),
+          type: 'SALES_MEETING',
+          title: 'Reverse AUTO approval source',
+          description: null,
+          customerId: sourceCustomerId,
+          contactId: null,
+          assignedTo: replacement.id,
+          priority: 'normal',
+          dueDate: null,
+          scheduledAt: '2026-09-09T08:00:00.000Z',
+          scheduledEndsAt: canonicalScheduledEnd('SALES_MEETING', '2026-09-09T08:00:00.000Z'),
+          engagementKind: 'CUSTOMER_VISIT',
+        } as never);
+        const started = await approvalService.start(replacementActor, source.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: source.version,
+        });
+        const meeting = await approvalService.patchMeetingDetails(replacementActor, source.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: started.version,
+          meetingAt: '2026-09-09T08:30:00.000Z',
+          outcome: 'FOLLOW_UP_REQUIRED',
+          unsuccessfulReason: 'REQUESTED_LATER',
+          meetingSummary: 'Reverse AUTO approval race fixture.',
+        });
+        const submitted = await approvalService.submitForApproval(replacementActor, source.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: meeting.jobCardVersion,
+          note: 'Reverse AUTO proposal for concurrency proof.',
+        });
+        const proposal = submitted.followUpProposal;
+        if (!proposal) throw new Error('Expected a reverse AUTO follow-up proposal.');
+        expect(proposal.scheduledAt).toBe('2026-09-10T09:15:00.000Z');
+
+        const jobToTransfer = await insertJob(pool, {
+          organizationId,
+          assignedTo: target.id,
+          createdBy: admin.id,
+          customerId,
+          type: 'SALES_MEETING',
+          engagementKind: 'CUSTOMER_VISIT',
+          scheduledAt: new Date(proposal.scheduledAt),
+          scheduledEndsAt: new Date(canonicalScheduledEnd('SALES_MEETING', proposal.scheduledAt)),
+        });
+        const offboardingService = new PostgresStaffOffboardingService(
+          offboardingPool,
+          undefined,
+          () => raceNow,
+        );
+        const plan = await offboardingService.preview(adminUser, target.id);
+        const offboardingInput = {
+          clientActionId: randomUUID(),
+          planHash: plan.planHash,
+          reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+          jobDecisions: plan.jobs.map((item) => ({
+            jobCardId: item.id,
+            replacementUserId: replacement.id,
+          })),
+          calendarDecisions: [],
+          followUpDecisions: [],
+          customerDecisions: plan.customers.map((item) => ({
+            customerId: item.id,
+            action: 'REASSIGN' as const,
+            replacementUserId: replacement.id,
+          })),
+          reminderDecisions: [],
+        };
+
+        observePoolQueries(offboardingPool, {
+          after: async (query) => {
+            if (!offboardingLockObserved
+              && query.text.includes('FROM users')
+              && query.text.includes('id = ANY')
+              && query.text.includes('FOR UPDATE')
+              && queryIncludesUserId(query.values, replacement.id)) {
+              offboardingLockObserved = true;
+              offboardingLockAcquired.resolve(query.processId);
+              await releaseOffboardingLock.promise;
+            }
+          },
+        });
+        observePoolQueries(approvalPool, {
+          before: (query) => {
+            if (!approvalLockObserved
+              && query.text.includes('FROM users')
+              && query.text.includes('FOR UPDATE')
+              && queryIncludesUserId(query.values, replacement.id)) {
+              approvalLockObserved = true;
+              approvalLockAttempted.resolve(query.processId);
+            }
+          },
+          after: (query, result) => {
+            if (!query.text.includes('SELECT e.starts_at, e.ends_at')
+              || !query.text.includes('FROM calendar_events e')
+              || !query.text.includes('FROM job_cards j')
+              || !queryIncludesUserId(query.values, replacement.id)) return;
+            const rows = (result as {
+              rows?: Array<{ starts_at?: Date; ends_at?: Date }>;
+            } | undefined)?.rows ?? [];
+            const sawCommittedBlocker = rows.some((row) =>
+              row.starts_at?.toISOString() === proposal.scheduledAt
+              && row.ends_at?.toISOString() === canonicalScheduledEnd('SALES_MEETING', proposal.scheduledAt));
+            approvalSawCommittedBlocker.resolve(sawCommittedBlocker ? 1 : 0);
+          },
+        });
+
+        offboardingPromise = offboardingService.execute(adminUser, target.id, offboardingInput)
+          .finally(() => { offboardingSettled = true; });
+        offboardingOutcomePromise = offboardingPromise.then(
+          (value) => ({ kind: 'fulfilled' as const, value }),
+          (reason) => ({ kind: 'rejected' as const, reason }),
+        );
+        const offboardingProcessId = await offboardingLockAcquired.promise;
+        expect(offboardingLockObserved).toBe(true);
+        expect(offboardingSettled).toBe(false);
+
+        approvalPromise = approvalService.approve(managerActor, source.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        });
+        approvalOutcomePromise = approvalPromise.then(
+          (value) => ({ kind: 'fulfilled' as const, value }),
+          (reason) => ({ kind: 'rejected' as const, reason }),
+        );
+        const approvalProcessId = await approvalLockAttempted.promise;
+        expect(approvalLockObserved).toBe(true);
+        expect(approvalProcessId).not.toBe(offboardingProcessId);
+
+        const blockingState = await waitForBlockingPid(pool, approvalProcessId, offboardingProcessId);
+        expect(blockingState.wait_event_type).toBe('Lock');
+
+        releaseOffboardingLock.resolve(undefined);
+        const offboardingOutcome = await offboardingOutcomePromise!;
+        expect(offboardingOutcome.kind).toBe('fulfilled');
+        const transferred = await pool.query<{ assigned_to: string }>(
+          `SELECT assigned_to FROM job_cards WHERE organization_id = $1 AND id = $2`,
+          [organizationId, jobToTransfer],
+        );
+        expect(transferred.rows[0]!.assigned_to).toBe(replacement.id);
+
+        const approvalOutcome = await approvalOutcomePromise!;
+        expect(approvalOutcome.kind).toBe('fulfilled');
+        if (approvalOutcome.kind !== 'fulfilled') throw approvalOutcome.reason;
+        const approved = approvalOutcome.value as { followUpJobCardId?: string };
+        expect(approved.followUpJobCardId).toEqual(expect.any(String));
+        const blockerSeen = await approvalSawCommittedBlocker.promise;
+        expect(blockerSeen).toBe(1);
+        const children = await pool.query<{
+          id: string;
+          assigned_to: string;
+          scheduled_at: Date;
+          scheduled_ends_at: Date;
+        }>(
+          `SELECT id, assigned_to, scheduled_at, scheduled_ends_at
+             FROM job_cards
+            WHERE organization_id = $1 AND source_job_card_id = $2`,
+          [organizationId, source.id],
+        );
+        expect(children.rows).toHaveLength(1);
+        expect(children.rows[0]).toMatchObject({
+          id: approved.followUpJobCardId,
+          assigned_to: replacement.id,
+        });
+        expect(children.rows[0]!.scheduled_at.toISOString()).not.toBe(proposal.scheduledAt);
+        expect(children.rows[0]!.scheduled_ends_at.getTime())
+          .toBeGreaterThan(children.rows[0]!.scheduled_at.getTime());
+
+        const overlapRows = await pool.query(
+          `WITH intervals AS (
+             SELECT 'JOB'::text AS source, j.id::text AS id, j.scheduled_at AS starts_at,
+                    j.scheduled_ends_at AS ends_at
+               FROM job_cards j
+              WHERE j.organization_id = $1 AND j.assigned_to = $2
+                AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+                AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+             UNION ALL
+             SELECT 'MANUAL'::text, e.id::text, e.starts_at, e.ends_at
+               FROM calendar_events e
+              WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
+           ), numbered AS (
+             SELECT ROW_NUMBER() OVER (ORDER BY source, id) AS row_no, * FROM intervals
+           )
+           SELECT a.source AS source_a, a.id AS id_a, b.source AS source_b, b.id AS id_b
+             FROM numbered a
+             JOIN numbered b ON a.row_no < b.row_no
+                              AND a.starts_at < b.ends_at
+                              AND b.starts_at < a.ends_at`,
+          [organizationId, replacement.id],
+        );
+        expect(overlapRows.rows).toHaveLength(0);
+      } finally {
+        releaseOffboardingLock.resolve(undefined);
         const pending = [approvalPromise, offboardingPromise]
           .filter((promise): promise is Promise<unknown> => promise !== undefined);
         await Promise.allSettled(pending);
