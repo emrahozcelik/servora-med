@@ -362,17 +362,45 @@ describe('JobCardService action-scoped start location', () => {
     expect(repository.job.status).toBe('IN_PROGRESS');
   });
 
-  it('persists unavailable capture without provider I/O', async () => {
+  it('rejects unavailable capture without provider I/O or mutation', async () => {
+    const reasons = ['PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'UNSUPPORTED', 'UNKNOWN'] as const;
+    for (const reason of reasons) {
+      const { repository, reverse, service, quota } = enabledService();
+      await expect(service.start(staff, 'job-1', {
+        ...input,
+        clientActionId: `unavailable-${reason}`,
+        locationCapture: { outcome: 'unavailable', reason },
+      })).rejects.toMatchObject({ code: 'LOCATION_REQUIRED', statusCode: 400 });
+
+      expect(quota.reserve).not.toHaveBeenCalled();
+      expect(reverse).not.toHaveBeenCalled();
+      expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+      expect(repository.activities).toHaveLength(0);
+      expect(repository.realtimeEvents).toHaveLength(0);
+      expect(repository.notificationAppends).toHaveLength(0);
+      expect(repository.locationAppends).toEqual([]);
+    }
+  });
+
+  it('does not poison retry after unavailable failure', async () => {
     const { repository, reverse, service, quota } = enabledService();
+    const unavailableId = 'retry-unavailable';
+    await expect(service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: unavailableId,
+      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+    })).rejects.toMatchObject({ code: 'LOCATION_REQUIRED' });
+    expect(repository.job.status).toBe('ACCEPTED');
+    // Same clientActionId retry with valid capture should succeed (no poisoning)
     await service.start(staff, 'job-1', {
       ...input,
-      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+      clientActionId: unavailableId,
+      locationCapture: captured,
     });
-
-    expect(quota.reserve).not.toHaveBeenCalled();
-    expect(reverse).not.toHaveBeenCalled();
-    expect(repository.locationAppends[0]?.capture)
-      .toEqual({ outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' });
+    expect(repository.job.status).toBe('IN_PROGRESS');
+    expect(quota.reserve).toHaveBeenCalledOnce();
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(1);
   });
 
   it('does not call provider for malformed, stale, unauthorized, or ineligible requests', async () => {
