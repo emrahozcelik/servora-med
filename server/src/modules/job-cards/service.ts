@@ -306,6 +306,22 @@ function assertStaffStartActor(actor: JobCardActor) {
   }
 }
 
+function locationUnavailableMessage(reason: string): string {
+  switch (reason) {
+    case 'PERMISSION_DENIED':
+      return 'Konum izni reddedildi. Lütfen cihaz ayarlarından konum iznini verin ve tekrar deneyin.';
+    case 'POSITION_UNAVAILABLE':
+      return 'Konum alınamadı. Cihaz konumu şu anda kullanılamıyor.';
+    case 'TIMEOUT':
+      return 'Konum alınamadı. Konum isteği zaman aşımına uğradı, lütfen tekrar deneyin.';
+    case 'UNSUPPORTED':
+      return 'Bu tarayıcı konum özelliğini desteklemiyor.';
+    case 'UNKNOWN':
+    default:
+      return 'Konum alınamadı. Lütfen tekrar deneyin.';
+  }
+}
+
 function meetingDetailsResponse(
   jobCardId: string,
   jobCardVersion: number,
@@ -1845,6 +1861,14 @@ export class JobCardService {
       throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
     }
     assertCanTransition(actor, job, 'START', undefined, requestTime);
+    if (capture.outcome === 'UNAVAILABLE') {
+      throw new AppError(
+        'LOCATION_REQUIRED',
+        400,
+        locationUnavailableMessage(capture.reason),
+        { reason: capture.reason },
+      );
+    }
     const resolvedCapture = await this.resolveStartLocation({
       organizationId: actor.organizationId,
       actorUserId: actor.id,
