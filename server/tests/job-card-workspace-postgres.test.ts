@@ -51,6 +51,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '034_demo_data_foundation.sql',
         '035_demo_data_purge_foundation.sql',
         '036_job_card_invalidated.sql',
+        '042_unsuccessful_visit_reason.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -227,6 +228,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       const meetingDetails = await service.patchMeetingDetails(staff, salesMeeting.id, {
         clientActionId: 'save-sales-meeting-result', expectedVersion: salesMeeting.version,
         meetingAt: '2026-07-14T08:00:00.000Z', outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: 'REQUESTED_LATER',
         meetingSummary: 'Kontrol ziyareti tamamlandı.', nextFollowUpAt: null,
       });
       salesMeeting = await service.submitForApproval(staff, salesMeeting.id, {
@@ -259,7 +261,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
           eventType: 'MEETING_DETAILS_UPDATED',
           details: {
             kind: 'MEETING_DETAILS',
-            changedFields: ['meetingAt', 'outcome', 'meetingSummary'],
+            changedFields: ['meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary'],
           },
         }),
       ]));

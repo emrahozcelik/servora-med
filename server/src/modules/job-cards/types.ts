@@ -36,6 +36,15 @@ export const MEETING_OUTCOMES = [
 ] as const;
 export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
 
+export const UNSUCCESSFUL_VISIT_REASON_CODES = [
+  'CONTACT_NOT_AVAILABLE',
+  'CONTACT_BUSY',
+  'CUSTOMER_UNREACHABLE',
+  'REQUESTED_LATER',
+  'OTHER',
+] as const;
+export type UnsuccessfulVisitReasonCode = (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number];
+
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 
@@ -192,18 +201,22 @@ export type MeetingDetails = {
   jobCardId: string;
   meetingAt: string | null;
   outcome: MeetingOutcome | null;
+  unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
   meetingSummary: string | null;
   nextFollowUpAt: string | null;
   jobCardVersion: number;
 };
 
-export type MeetingDetailsCandidate = Pick<
-  MeetingDetails,
-  'meetingAt' | 'outcome' | 'meetingSummary' | 'nextFollowUpAt'
->;
+export type MeetingDetailsCandidate = {
+  meetingAt: string | null;
+  outcome: MeetingOutcome | null;
+  unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
+  meetingSummary: string | null;
+  nextFollowUpAt: string | null;
+};
 
 export const MEETING_DETAIL_FIELDS = [
-  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ] as const;
 export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 
@@ -212,6 +225,7 @@ export type PatchMeetingDetailsInput = {
   expectedVersion: number;
   meetingAt?: string | null;
   outcome?: MeetingOutcome | null;
+  unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
   meetingSummary?: string | null;
   nextFollowUpAt?: string | null;
 };
@@ -347,7 +361,8 @@ export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 export const SUBMISSION_REQUIREMENT_CODES = [
   'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
   'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
-  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'FOLLOW_UP_TIME_VALID',
+  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'UNSUCCESSFUL_REASON_PRESENT',
+  'FOLLOW_UP_TIME_VALID',
 ] as const;
 export type SubmissionRequirementCode = (typeof SUBMISSION_REQUIREMENT_CODES)[number];
 export type SubmissionRequirement = {

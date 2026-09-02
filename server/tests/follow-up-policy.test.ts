@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
+  FOLLOW_UP_MIN_LEAD_MINUTES,
   FOLLOW_UP_SEARCH_HORIZON_DAYS,
   FREQUENT_VISIT_MAX_COUNT,
   FREQUENT_VISIT_WINDOW_DAYS,
@@ -12,6 +13,8 @@ import {
   deriveProposalOrigin,
   requiresMandatoryFollowUpProposal,
   suggestedFollowUpInstant,
+  isFollowUpMinimumLeadSatisfied,
+  followUpLeadReferenceAt,
 } from '../src/modules/job-cards/follow-up-policy.js';
 import type {
   JobCardEngagementKind,
@@ -43,6 +46,48 @@ describe('follow-up policy V1 constants', () => {
     expect(FOLLOW_UP_SEARCH_HORIZON_DAYS).toBe(30);
   });
 
+  it('enforces a 15-minute minimum lead at the exact boundary', () => {
+    expect(FOLLOW_UP_MIN_LEAD_MINUTES).toBe(15);
+    const referenceAt = instant('2026-08-08T10:00:00.000Z');
+    expect(isFollowUpMinimumLeadSatisfied({
+      referenceAt,
+      scheduledAt: instant('2026-08-08T10:14:59.000Z'),
+    })).toBe(false);
+    expect(isFollowUpMinimumLeadSatisfied({
+      referenceAt,
+      scheduledAt: instant('2026-08-08T10:15:00.000Z'),
+    })).toBe(true);
+    expect(isFollowUpMinimumLeadSatisfied({
+      referenceAt,
+      scheduledAt: instant('2026-08-08T10:15:01.000Z'),
+    })).toBe(true);
+  });
+
+  it('compares timezone-offset values as instants without local-clock arithmetic', () => {
+    const referenceAt = instant('2026-03-29T01:45:00+03:00');
+    expect(isFollowUpMinimumLeadSatisfied({
+      referenceAt,
+      scheduledAt: instant('2026-03-28T23:00:00.000Z'),
+    })).toBe(true);
+    expect(isFollowUpMinimumLeadSatisfied({
+      referenceAt,
+      scheduledAt: instant('2026-03-28T22:59:59.000Z'),
+    })).toBe(false);
+  });
+
+  it('uses the later of the visit timestamp and request timestamp as lead reference', () => {
+    const requestAt = instant('2026-08-08T10:00:00.000Z');
+    expect(followUpLeadReferenceAt({
+      meetingAt: instant('2026-08-08T09:45:00.000Z'),
+      requestAt,
+    })).toEqual(requestAt);
+    expect(followUpLeadReferenceAt({
+      meetingAt: instant('2026-08-08T10:05:00.000Z'),
+      requestAt,
+    })).toEqual(instant('2026-08-08T10:05:00.000Z'));
+    expect(followUpLeadReferenceAt({ meetingAt: null, requestAt })).toEqual(requestAt);
+  });
+
   it('keeps the recent-visit and frequency windows with max 3', () => {
     expect(RECENT_VISIT_WARNING_DAYS).toBe(7);
     expect(FREQUENT_VISIT_WINDOW_DAYS).toBe(14);
@@ -55,7 +100,7 @@ describe('follow-up policy V1 constants', () => {
     expect(defaultFollowUpType('GENERAL_TASK')).toBe('GENERAL_TASK');
   });
 
-  it('requires a proposal only for explicit CUSTOMER_VISIT sales meetings', () => {
+  it('requires a proposal only for unsuccessful CUSTOMER_VISIT sales meetings', () => {
     const nonMandatoryCases = [
       { type: 'SALES_MEETING', engagementKind: 'SALES_MEETING' },
       { type: 'SALES_MEETING', engagementKind: 'PRODUCT_DEMO' },
@@ -72,7 +117,20 @@ describe('follow-up policy V1 constants', () => {
     expect(requiresMandatoryFollowUpProposal({
       type: 'SALES_MEETING',
       engagementKind: 'CUSTOMER_VISIT',
+      outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'REQUESTED_LATER',
     })).toBe(true);
+
+    expect(requiresMandatoryFollowUpProposal({
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+      outcome: 'POSITIVE',
+      unsuccessfulReason: null,
+    })).toBe(false);
+    expect(requiresMandatoryFollowUpProposal({
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toBe(false);
 
     for (const input of nonMandatoryCases) {
       expect(requiresMandatoryFollowUpProposal(input)).toBe(false);

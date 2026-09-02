@@ -16,6 +16,7 @@ describe('Sales Meeting detail input', () => {
       expectedVersion: 2,
       meetingAt: '2026-07-15T14:30:00+03:00',
       outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'REQUESTED_LATER',
       meetingSummary: '  Sonraki görüşme konuşuldu.  ',
       nextFollowUpAt: '2026-07-20T09:00:00+03:00',
     })).toEqual({
@@ -23,6 +24,7 @@ describe('Sales Meeting detail input', () => {
       expectedVersion: 2,
       meetingAt: '2026-07-15T11:30:00.000Z',
       outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'REQUESTED_LATER',
       meetingSummary: 'Sonraki görüşme konuşuldu.',
       nextFollowUpAt: '2026-07-20T06:00:00.000Z',
     });
@@ -31,10 +33,12 @@ describe('Sales Meeting detail input', () => {
   it('normalizes empty summary and explicit clears to null', () => {
     expect(parseMeetingDetailsPatch({
       clientActionId: 'save-2', expectedVersion: 3,
-      meetingAt: null, outcome: null, meetingSummary: '\u00a0\u2028', nextFollowUpAt: null,
+      meetingAt: null, outcome: null, unsuccessfulReason: null,
+      meetingSummary: '\u00a0\u2028', nextFollowUpAt: null,
     })).toEqual({
       clientActionId: 'save-2', expectedVersion: 3,
-      meetingAt: null, outcome: null, meetingSummary: null, nextFollowUpAt: null,
+      meetingAt: null, outcome: null, unsuccessfulReason: null,
+      meetingSummary: null, nextFollowUpAt: null,
     });
   });
 
@@ -43,6 +47,7 @@ describe('Sales Meeting detail input', () => {
     { clientActionId: 'save-1', expectedVersion: 1 },
     { clientActionId: 'save-1', expectedVersion: 0, outcome: 'POSITIVE' },
     { clientActionId: 'save-1', expectedVersion: 1, outcome: 'UNKNOWN' },
+    { clientActionId: 'save-1', expectedVersion: 1, unsuccessfulReason: 'UNKNOWN' },
     { clientActionId: 'save-1', expectedVersion: 1, unknown: 'field' },
     { clientActionId: 'save-1', expectedVersion: 1, meetingSummary: 'x'.repeat(4_001) },
   ])('rejects invalid PATCH body %#', (input) => {
@@ -79,6 +84,34 @@ describe('Sales Meeting detail input', () => {
     expect(validateMeetingDetailsCandidate({
       meetingAt: '2026-07-20T06:00:00.000Z', outcome: null, meetingSummary: null,
       nextFollowUpAt: '2026-07-20T06:00:01.000Z',
+    })).toBeUndefined();
+  });
+
+  it.each([
+    'CONTACT_NOT_AVAILABLE',
+    'CONTACT_BUSY',
+    'CUSTOMER_UNREACHABLE',
+    'REQUESTED_LATER',
+    'OTHER',
+  ] as const)('accepts structured unsuccessful reason %s for follow-up outcome', (unsuccessfulReason) => {
+    expect(parseMeetingDetailsPatch({
+      clientActionId: 'reason-save', expectedVersion: 1,
+      outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason,
+    })).toMatchObject({ outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason });
+  });
+
+  it('requires a structured reason only for a new follow-up-required outcome', () => {
+    expect(() => validateMeetingDetailsCandidate({
+      meetingAt: '2026-07-20T06:00:00.000Z', outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: null, meetingSummary: 'Takip konuşuldu.', nextFollowUpAt: null,
+    }, { requireUnsuccessfulReason: true })).toThrowError(validationError);
+    expect(validateMeetingDetailsCandidate({
+      meetingAt: '2026-07-20T06:00:00.000Z', outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'REQUESTED_LATER', meetingSummary: 'Takip konuşuldu.', nextFollowUpAt: null,
+    }, { requireUnsuccessfulReason: true })).toBeUndefined();
+    expect(validateMeetingDetailsCandidate({
+      meetingAt: '2026-07-20T06:00:00.000Z', outcome: 'POSITIVE',
+      unsuccessfulReason: null, meetingSummary: 'Olumlu görüşme.', nextFollowUpAt: null,
     })).toBeUndefined();
   });
 });

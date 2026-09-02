@@ -14,7 +14,10 @@ const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', statu
   title: 'Görüşme', description: null, customerId: 'c1', contactId: null, assignedTo: 'staff-1', createdBy: 'staff-1',
   priority: 'normal', dueDate: '2026-07-15', assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' },
   contact: null, workflowContext } satisfies JobCard;
-const details: MeetingDetails = { jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 3 };
+const details: MeetingDetails = {
+  jobCardId: 'job-1', meetingAt: null, outcome: null, unsuccessfulReason: null,
+  meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 3,
+};
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype
     : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -75,15 +78,30 @@ describe('MeetingDetailsSection', () => {
     await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user} mutationPending={false} onSave={onSave} />));
     change(container.querySelector('#meeting-actual-at')!, '2026-07-15T12:30');
     change(container.querySelector('#meeting-outcome')!, 'FOLLOW_UP_REQUIRED');
+    expect(container.querySelector('#meeting-unsuccessful-reason')).not.toBeNull();
+    change(container.querySelector('#meeting-unsuccessful-reason')!, 'REQUESTED_LATER');
     change(container.querySelector('#meeting-summary')!, '  Ürün sunumu yapıldı.  ');
     expect(container.querySelector('#meeting-follow-up-at')).toBeNull();
     expect(container.textContent).toContain('Takip işi planı, işi kontrole gönderirken oluşturulur.');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       clientActionId: 'save-1', expectedVersion: 3, outcome: 'FOLLOW_UP_REQUIRED',
+      unsuccessfulReason: 'REQUESTED_LATER',
       meetingSummary: 'Ürün sunumu yapıldı.', nextFollowUpAt: null,
     }));
     expect(new Date(onSave.mock.calls[0]![0].meetingAt as string).toString()).not.toBe('Invalid Date');
+  });
+
+  it('shows the unsuccessful reason selector only for the follow-up-required outcome', async () => {
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user}
+      mutationPending={false} onSave={vi.fn()} />));
+    expect(container.querySelector('#meeting-unsuccessful-reason')).toBeNull();
+
+    change(container.querySelector('#meeting-outcome')!, 'NO_DECISION');
+    expect(container.querySelector('#meeting-unsuccessful-reason')).toBeNull();
+
+    change(container.querySelector('#meeting-outcome')!, 'FOLLOW_UP_REQUIRED');
+    expect(container.querySelector('#meeting-unsuccessful-reason')).not.toBeNull();
   });
 
   it('accepts exactly 4,000 astral Unicode code points without a UTF-16 maxlength', async () => {

@@ -1,9 +1,11 @@
 import { AppError } from '../../errors/index.js';
 import {
   MEETING_OUTCOMES,
+  UNSUCCESSFUL_VISIT_REASON_CODES,
   type MeetingDetailsCandidate,
   type MeetingOutcome,
   type PatchMeetingDetailsInput,
+  type UnsuccessfulVisitReasonCode,
 } from './types.js';
 import {
   codePointLength,
@@ -14,10 +16,10 @@ import {
 
 const PATCH_FIELDS = [
   'clientActionId', 'expectedVersion', 'meetingAt', 'outcome',
-  'meetingSummary', 'nextFollowUpAt',
+  'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ] as const;
 const MUTATION_FIELDS = [
-  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ] as const;
 const INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -63,6 +65,14 @@ function outcome(value: unknown) {
   return value as MeetingOutcome;
 }
 
+function unsuccessfulReason(value: unknown) {
+  if (value === null) return null;
+  if (!UNSUCCESSFUL_VISIT_REASON_CODES.includes(value as UnsuccessfulVisitReasonCode)) {
+    throw validation('unsuccessfulReason');
+  }
+  return value as UnsuccessfulVisitReasonCode;
+}
+
 function summary(value: unknown) {
   if (value === null) return null;
   if (typeof value !== 'string') throw validation('meetingSummary');
@@ -83,6 +93,9 @@ export function parseMeetingDetailsPatch(value: unknown): PatchMeetingDetailsInp
   };
   if (Object.hasOwn(record, 'meetingAt')) parsed.meetingAt = instant(record.meetingAt, 'meetingAt');
   if (Object.hasOwn(record, 'outcome')) parsed.outcome = outcome(record.outcome);
+  if (Object.hasOwn(record, 'unsuccessfulReason')) {
+    parsed.unsuccessfulReason = unsuccessfulReason(record.unsuccessfulReason);
+  }
   if (Object.hasOwn(record, 'meetingSummary')) parsed.meetingSummary = summary(record.meetingSummary);
   if (Object.hasOwn(record, 'nextFollowUpAt')) {
     parsed.nextFollowUpAt = instant(record.nextFollowUpAt, 'nextFollowUpAt');
@@ -98,7 +111,17 @@ export function parseMeetingJobCardId(value: unknown) {
   }
 }
 
-export function validateMeetingDetailsCandidate(candidate: MeetingDetailsCandidate) {
+export function validateMeetingDetailsCandidate(
+  candidate: MeetingDetailsCandidate,
+  options: { requireUnsuccessfulReason?: boolean } = {},
+) {
+  const reason = candidate.unsuccessfulReason ?? null;
+  if (options.requireUnsuccessfulReason && candidate.outcome === 'FOLLOW_UP_REQUIRED' && reason === null) {
+    throw validation('unsuccessfulReason');
+  }
+  if (reason !== null && candidate.outcome !== 'FOLLOW_UP_REQUIRED') {
+    throw validation('unsuccessfulReason');
+  }
   if (candidate.nextFollowUpAt !== null && (candidate.meetingAt === null
     || new Date(candidate.nextFollowUpAt) <= new Date(candidate.meetingAt))) {
     throw validation('nextFollowUpAt');
