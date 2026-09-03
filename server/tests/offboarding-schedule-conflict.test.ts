@@ -146,9 +146,9 @@ const at = new Date('2026-08-25T09:00:00.000Z');
 
 async function insertJob(
   pool: Pool,
-  input: { organizationId: string; assignedTo: string; createdBy: string; scheduledAt?: Date | null; scheduledEndsAt?: Date | null; status?: string; customerId?: string | null; type?: 'GENERAL_TASK' | 'SALES_MEETING' | 'PRODUCT_DELIVERY'; engagementKind?: 'SALES_MEETING' | 'CUSTOMER_VISIT' | 'PRODUCT_DEMO' | 'TRAINING' | 'FOLLOW_UP' | 'OTHER' },
+  input: { id?: string; organizationId: string; assignedTo: string; createdBy: string; scheduledAt?: Date | null; scheduledEndsAt?: Date | null; status?: string; customerId?: string | null; type?: 'GENERAL_TASK' | 'SALES_MEETING' | 'PRODUCT_DELIVERY'; engagementKind?: 'SALES_MEETING' | 'CUSTOMER_VISIT' | 'PRODUCT_DEMO' | 'TRAINING' | 'FOLLOW_UP' | 'OTHER' },
 ) {
-  const id = randomUUID();
+  const id = input.id ?? randomUUID();
   const status = input.status ?? 'ACCEPTED';
   const fields = {
     startedAt: ['IN_PROGRESS', 'WAITING_APPROVAL', 'COMPLETED'].includes(status) ? at : null,
@@ -200,6 +200,51 @@ async function insertJob(
       fields.followUpBy, input.engagementKind ?? null],
   );
   return id;
+}
+
+async function addFollowUpProposal(
+  pool: Pool,
+  input: { organizationId: string; jobCardId: string; proposedAssignee: string; proposedBy: string; proposedAt: Date },
+) {
+  await pool.query(
+    `UPDATE job_cards SET
+       follow_up_proposed_at = $4,
+       follow_up_proposed_type = 'GENERAL_TASK',
+       follow_up_proposed_assignee = $3,
+       follow_up_proposal_instructions = 'Cross-offboarding lock-order regression',
+       follow_up_proposal_origin = 'SYSTEM',
+       follow_up_proposed_by = $5,
+       updated_at = $4
+     WHERE organization_id = $1 AND id = $2`,
+    [input.organizationId, input.jobCardId, input.proposedAssignee, input.proposedAt, input.proposedBy],
+  );
+}
+
+function isJobCardLockQuery(query: QueryContext, targetUserId: string) {
+  return query.text.includes('FROM job_cards')
+    && query.text.includes('FOR UPDATE')
+    && query.text.includes('ORDER BY id')
+    && query.values[1] === targetUserId;
+}
+
+function isUnifiedJobCardLockQuery(query: QueryContext) {
+  return query.text.includes('follow_up_proposed_assignee')
+    && query.text.includes('follow_up_proposed_at')
+    && query.text.includes(' OR ')
+    && query.text.includes('FOR UPDATE');
+}
+
+function isFollowUpLockQuery(query: QueryContext, targetUserId: string) {
+  return query.text.includes('id AS job_card_id')
+    && query.text.includes('follow_up_proposed_assignee = $2')
+    && query.text.includes('FOR UPDATE')
+    && query.values[1] === targetUserId;
+}
+
+function resultRowIds(result: unknown) {
+  if (!result || typeof result !== 'object' || !('rows' in result)) return [];
+  const rows = (result as { rows?: Array<{ id?: string }> }).rows ?? [];
+  return rows.flatMap((row) => row.id ? [row.id] : []);
 }
 
 async function insertCalendar(pool: Pool, organizationId: string, assignedUserId: string, createdBy: string, startsAt: string, endsAt: string) {
@@ -1267,6 +1312,246 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
           .filter((promise): promise is Promise<unknown> => promise !== undefined);
         await Promise.allSettled(pending);
         await Promise.all([approvalPool.end(), offboardingPool.end()]);
+      }
+    });
+  });
+
+  it.each([
+    {
+      scenario: 'low-first',
+      jobAId: '00000000-0000-4000-8000-000000000001',
+      jobBId: 'ffffffff-ffff-4fff-8fff-fffffffffff2',
+    },
+    {
+      scenario: 'high-first',
+      jobAId: 'ffffffff-ffff-4fff-8fff-fffffffffff1',
+      jobBId: '00000000-0000-4000-8000-000000000002',
+    },
+  ])('serializes cross-linked JobCard sets in one globally ordered lock query ($scenario)', async ({
+    jobAId, jobBId,
+  }) => {
+    await withFixture(async ({
+      pool, createPool, organizationId, admin, target, replacement, customerId,
+    }) => {
+      const raceNow = new Date('2026-09-10T09:00:00.000Z');
+      const targetB = await insertUser(pool, organizationId, 'STAFF', 'Cross-linked Target');
+      const replacementB = await insertUser(pool, organizationId, 'STAFF', 'Cross-linked Replacement');
+      const jobA = await insertJob(pool, {
+        id: jobAId,
+        organizationId,
+        assignedTo: target.id,
+        createdBy: admin.id,
+      });
+      const jobB = await insertJob(pool, {
+        id: jobBId,
+        organizationId,
+        assignedTo: targetB.id,
+        createdBy: admin.id,
+      });
+      await addFollowUpProposal(pool, {
+        organizationId,
+        jobCardId: jobA,
+        proposedAssignee: targetB.id,
+        proposedBy: admin.id,
+        proposedAt: new Date('2026-09-15T09:00:00.000Z'),
+      });
+      await addFollowUpProposal(pool, {
+        organizationId,
+        jobCardId: jobB,
+        proposedAssignee: target.id,
+        proposedBy: admin.id,
+        proposedAt: new Date('2026-09-15T09:00:00.000Z'),
+      });
+
+      const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+      const serviceA = new PostgresStaffOffboardingService(pool, undefined, () => raceNow);
+      const planA = await serviceA.preview(adminUser, target.id);
+      const planB = await serviceA.preview(adminUser, targetB.id);
+      const inputA = {
+        clientActionId: randomUUID(),
+        planHash: planA.planHash,
+        reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+        jobDecisions: planA.jobs.map((item) => ({ jobCardId: item.id, replacementUserId: replacement.id })),
+        calendarDecisions: planA.calendar.map((item) => ({ calendarEventId: item.id, replacementUserId: replacement.id })),
+        followUpDecisions: planA.followUps.map((item) => ({ jobCardId: item.jobCardId, replacementUserId: replacement.id })),
+        customerDecisions: planA.customers.map((item) => ({
+          customerId: item.id, action: 'REASSIGN' as const, replacementUserId: replacement.id,
+        })),
+        reminderDecisions: planA.reminders.map((item) => ({
+          reminderId: item.id, action: 'TRANSFER' as const, replacementUserId: replacement.id,
+        })),
+      };
+      const inputB = {
+        clientActionId: randomUUID(),
+        planHash: planB.planHash,
+        reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+        jobDecisions: planB.jobs.map((item) => ({ jobCardId: item.id, replacementUserId: replacementB.id })),
+        calendarDecisions: planB.calendar.map((item) => ({ calendarEventId: item.id, replacementUserId: replacementB.id })),
+        followUpDecisions: planB.followUps.map((item) => ({ jobCardId: item.jobCardId, replacementUserId: replacementB.id })),
+        customerDecisions: planB.customers.map((item) => ({
+          customerId: item.id, action: 'REASSIGN' as const, replacementUserId: replacementB.id,
+        })),
+        reminderDecisions: planB.reminders.map((item) => ({
+          reminderId: item.id, action: 'TRANSFER' as const, replacementUserId: replacementB.id,
+        })),
+      };
+
+      const poolA = createPool();
+      const poolB = createPool();
+      const releaseA = deferred<void>();
+      const releaseB = deferred<void>();
+      const firstLockA = deferred<{ processId: number; unified: boolean; ids: string[]; text: string }>();
+      const firstLockBAttemptedSignal = deferred<{ processId: number; unified: boolean; text: string }>();
+      const firstLockBAcquired = deferred<{ processId: number; unified: boolean; ids: string[]; text: string }>();
+      const followUpAttemptA = deferred<void>();
+      const followUpAttemptB = deferred<void>();
+      let firstLockASeen = false;
+      let firstLockBAttempted = false;
+      let firstLockBReturned = false;
+      let operationA: Promise<unknown> | undefined;
+      let operationB: Promise<unknown> | undefined;
+
+      try {
+        observePoolQueries(poolA, {
+          before: (query) => {
+            if (isFollowUpLockQuery(query, target.id)) followUpAttemptA.resolve(undefined);
+          },
+          after: async (query, result) => {
+            if (!firstLockASeen && isJobCardLockQuery(query, target.id)) {
+              firstLockASeen = true;
+              firstLockA.resolve({
+                processId: query.processId,
+                unified: isUnifiedJobCardLockQuery(query),
+                ids: resultRowIds(result),
+                text: query.text,
+              });
+              await releaseA.promise;
+            }
+          },
+        });
+        observePoolQueries(poolB, {
+          before: (query) => {
+            if (!firstLockBAttempted && isJobCardLockQuery(query, targetB.id)) {
+              firstLockBAttempted = true;
+              firstLockBAttemptedSignal.resolve({
+                processId: query.processId,
+                unified: isUnifiedJobCardLockQuery(query),
+                text: query.text,
+              });
+            }
+            if (isFollowUpLockQuery(query, targetB.id)) followUpAttemptB.resolve(undefined);
+          },
+          after: async (query, result) => {
+            if (!firstLockBReturned && isJobCardLockQuery(query, targetB.id)) {
+              firstLockBReturned = true;
+              const observation = {
+                processId: query.processId,
+                unified: isUnifiedJobCardLockQuery(query),
+                ids: resultRowIds(result),
+                text: query.text,
+              };
+              firstLockBAcquired.resolve(observation);
+              if (!observation.unified) await releaseB.promise;
+            }
+          },
+        });
+
+        const firstOperation = new PostgresStaffOffboardingService(poolA, undefined, () => raceNow);
+        const secondOperation = new PostgresStaffOffboardingService(poolB, undefined, () => raceNow);
+        operationA = firstOperation.execute(adminUser, target.id, inputA);
+        const lockA = await bounded(firstLockA.promise);
+
+        operationB = secondOperation.execute(adminUser, targetB.id, inputB);
+        const lockBAttempt = await bounded(firstLockBAttemptedSignal.promise);
+        expect(lockBAttempt.processId).not.toBe(lockA.processId);
+
+        if (lockBAttempt.unified) {
+          const blockingState = await bounded(
+            waitForBlockingPid(pool, lockBAttempt.processId, lockA.processId),
+          );
+          expect(blockingState.blocking_pids.map(Number)).toContain(lockA.processId);
+          releaseA.resolve(undefined);
+        } else {
+          const lockB = await bounded(firstLockBAcquired.promise);
+          expect(lockB.processId).toBe(lockBAttempt.processId);
+          releaseA.resolve(undefined);
+          releaseB.resolve(undefined);
+        }
+
+        if (!lockA.unified) {
+          await bounded(Promise.all([followUpAttemptA.promise, followUpAttemptB.promise]));
+        }
+
+        const outcomes = await bounded(Promise.allSettled([operationA, operationB]));
+        const rejectedCodes = outcomes
+          .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+          .map((outcome) => (outcome.reason as { code?: string }).code);
+        expect(rejectedCodes).not.toContain('40P01');
+        expect(lockA.unified).toBe(true);
+        expect(lockBAttempt.unified).toBe(true);
+        const lockB = await bounded(firstLockBAcquired.promise);
+        const expectedOrder = [jobA, jobB].sort((a, b) => a.localeCompare(b));
+        expect(lockA.ids).toEqual(expectedOrder);
+        if (lockB.ids.length > 0) expect(lockB.ids).toEqual(expectedOrder);
+        expect(lockA.text).toContain('ORDER BY id');
+        expect(lockBAttempt.text).toContain('ORDER BY id');
+        expect(lockA.text).toContain('FOR UPDATE');
+        expect(lockBAttempt.text).toContain('FOR UPDATE');
+
+        const successful = outcomes.filter(
+          (outcome): outcome is PromiseFulfilledResult<unknown> => outcome.status === 'fulfilled',
+        );
+        expect(successful).toHaveLength(1);
+        const winnerTargetId = (successful[0]!.value as { targetUserId: string }).targetUserId;
+        const userStates = await pool.query<{ id: string; is_active: boolean }>(
+          `SELECT id, is_active FROM users WHERE organization_id = $1 AND id IN ($2, $3) ORDER BY id`,
+          [organizationId, target.id, targetB.id],
+        );
+        expect(userStates.rows).toHaveLength(2);
+        expect(userStates.rows.find((row) => row.id === winnerTargetId)?.is_active).toBe(false);
+        expect(userStates.rows.find((row) => row.id !== winnerTargetId)?.is_active).toBe(true);
+
+        const jobRows = await pool.query<{
+          id: string;
+          assigned_to: string;
+          follow_up_proposed_assignee: string;
+        }>(
+          `SELECT id, assigned_to, follow_up_proposed_assignee
+             FROM job_cards WHERE organization_id = $1 AND id IN ($2, $3) ORDER BY id`,
+          [organizationId, jobA, jobB],
+        );
+        expect(jobRows.rows).toHaveLength(2);
+        const expectedJobRows = winnerTargetId === target.id
+          ? [
+            { id: jobA, assigned_to: replacement.id, follow_up_proposed_assignee: targetB.id },
+            { id: jobB, assigned_to: targetB.id, follow_up_proposed_assignee: replacement.id },
+          ]
+          : [
+            { id: jobA, assigned_to: target.id, follow_up_proposed_assignee: replacementB.id },
+            { id: jobB, assigned_to: replacementB.id, follow_up_proposed_assignee: target.id },
+          ];
+        expectedJobRows.sort((a, b) => a.id.localeCompare(b.id));
+        expect(jobRows.rows).toEqual(expectedJobRows);
+        if (winnerTargetId === target.id) {
+          const customer = await pool.query<{ assigned_staff_user_id: string }>(
+            `SELECT assigned_staff_user_id FROM customers WHERE organization_id = $1 AND id = $2`,
+            [organizationId, customerId],
+          );
+          expect(customer.rows[0]!.assigned_staff_user_id).toBe(replacement.id);
+        } else {
+          const customer = await pool.query<{ assigned_staff_user_id: string }>(
+            `SELECT assigned_staff_user_id FROM customers WHERE organization_id = $1 AND id = $2`,
+            [organizationId, customerId],
+          );
+          expect(customer.rows[0]!.assigned_staff_user_id).toBe(target.id);
+        }
+      } finally {
+        releaseA.resolve(undefined);
+        releaseB.resolve(undefined);
+        const pending = [operationA, operationB]
+          .filter((promise): promise is Promise<unknown> => promise !== undefined);
+        await Promise.allSettled(pending);
+        await Promise.all([poolA.end(), poolB.end()]);
       }
     });
   });

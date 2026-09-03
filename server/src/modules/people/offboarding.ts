@@ -713,18 +713,31 @@ export class PostgresStaffOffboardingService {
   private async readPlan(queryable: Queryable, target: UserSnapshot, lock: boolean): Promise<StaffOffboardingPlan> {
     const suffix = lock ? ' FOR UPDATE' : '';
     const at = this.now();
-    const jobs = await queryable.query<{ id: string; status: string; version: number; assigned_to: string }>(
-      `SELECT id, status, version, assigned_to FROM job_cards
-        WHERE organization_id = $1 AND assigned_to = $2 AND status = ANY($3::varchar[])
+    const affectedJobs = await queryable.query<{
+      id: string;
+      status: string;
+      version: number;
+      assigned_to: string;
+      follow_up_proposed_assignee: string | null;
+      follow_up_proposed_at: Date | null;
+    }>(
+      `SELECT id, status, version, assigned_to,
+              follow_up_proposed_assignee, follow_up_proposed_at
+         FROM job_cards
+        WHERE organization_id = $1
+          AND (
+            (assigned_to = $2 AND status = ANY($3::varchar[]))
+            OR (follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $4)
+          )
         ORDER BY id${suffix}`,
-      [target.organizationId, target.id, ACTIVE_JOB_STATUSES],
+      [target.organizationId, target.id, ACTIVE_JOB_STATUSES, at],
     );
-    const followUps = await queryable.query<{ job_card_id: string; follow_up_proposed_assignee: string; follow_up_proposed_at: Date; version: number }>(
-      `SELECT id AS job_card_id, follow_up_proposed_assignee, follow_up_proposed_at, version FROM job_cards
-        WHERE organization_id = $1 AND follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $3
-        ORDER BY id${suffix}`,
-      [target.organizationId, target.id, at],
-    );
+    const jobs = affectedJobs.rows.filter((row) => row.assigned_to === target.id);
+    const followUps = affectedJobs.rows.filter((row) => (
+      row.follow_up_proposed_assignee === target.id
+      && row.follow_up_proposed_at !== null
+      && row.follow_up_proposed_at > at
+    ));
     const customers = await queryable.query<{ id: string; assigned_staff_user_id: string; version: number }>(
       `SELECT id, assigned_staff_user_id, version FROM customers
         WHERE organization_id = $1 AND assigned_staff_user_id = $2 ORDER BY id${suffix}`,
@@ -747,7 +760,7 @@ export class PostgresStaffOffboardingService {
       `SELECT id, job_id FROM conversations
         WHERE organization_id = $1 AND context_type = 'JOB'
           AND job_id = ANY($2::uuid[]) ORDER BY id${suffix}`,
-      [target.organizationId, jobs.rows.map((item) => item.id)],
+      [target.organizationId, jobs.map((item) => item.id)],
     );
     const sessions = await queryable.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sessions
@@ -756,10 +769,10 @@ export class PostgresStaffOffboardingService {
     );
     const base = {
       target,
-      jobs: jobs.rows.map((row) => ({ id: row.id, status: row.status, version: row.version, assignedTo: row.assigned_to })),
+      jobs: jobs.map((row) => ({ id: row.id, status: row.status, version: row.version, assignedTo: row.assigned_to })),
       customers: customers.rows.map((row) => ({ id: row.id, assignedStaffUserId: row.assigned_staff_user_id, version: row.version })),
       calendar: calendar.rows.map((row) => ({ id: row.id, assignedUserId: row.assigned_user_id, status: row.status, version: row.version, startsAt: row.starts_at.toISOString(), endsAt: row.ends_at.toISOString() })),
-      followUps: followUps.rows.map((row) => ({ jobCardId: row.job_card_id, proposedAssignee: row.follow_up_proposed_assignee, proposedAt: row.follow_up_proposed_at.toISOString(), version: row.version })),
+      followUps: followUps.map((row) => ({ jobCardId: row.id, proposedAssignee: row.follow_up_proposed_assignee!, proposedAt: row.follow_up_proposed_at!.toISOString(), version: row.version })),
       reminders: reminders.rows.map((row) => ({ id: row.id, recipientUserId: row.recipient_user_id, state: row.state, remindAt: row.remind_at.toISOString(), nextAttemptAt: row.next_attempt_at.toISOString() })),
       jobConversations: conversations.rows.map((row) => ({ jobCardId: row.job_id, conversationId: row.id })),
       sessions: { activeCount: Number(sessions.rows[0]?.count ?? 0) },
