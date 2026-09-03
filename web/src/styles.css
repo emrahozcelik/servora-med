@@ -2694,6 +2694,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
 .reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
+/* Mobile shell: reserve the fixed bottom-nav footprint (mirrors
+   .mobile-bottom-nav min-height + safe-area) so overflowing workflow dialogs
+   never slide their primary CTA underneath the navigation bar. */
+.authenticated-shell--mobile .reason-dialog, .authenticated-shell--mobile .workflow-dialog { max-height: calc(100dvh - 2rem - 3.75rem - env(safe-area-inset-bottom, 0px)); }
 .reason-dialog h2, .workflow-dialog h2 { margin: 0; }
 .reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
 .reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
@@ -2916,7 +2920,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-version { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .product-detail .product-detail-facts { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .product-edit-conflict { width: min(100% - 2rem, 48rem); margin: 1.5rem auto 0; }
-.product-dialog-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(26% 0.016 246deg / 45%); }
+.product-dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(26% 0.016 246deg / 45%); }
 .product-dialog { width: min(100%, 30rem); padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.7rem; background: var(--paper); }
 .product-dialog h2 { margin: 0; font-size: 1.25rem; }
 .product-dialog p { color: var(--muted); line-height: 1.55; }

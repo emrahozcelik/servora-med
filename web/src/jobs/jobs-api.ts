@@ -374,6 +374,36 @@ export type ApproveFollowUpInput = FollowUpProposalInput & {
   overrideReason?: string;
 };
 
+/**
+ * Follow-up types the backend automatic proposal path currently accepts when
+ * scheduledAt is omitted. Mirrors the server auto-schedule capability for UI
+ * branching only; the backend remains authoritative and revalidates every
+ * request. Product Delivery has a canonical duration but is NOT accepted by
+ * the automatic path, and General Task has no automatic duration.
+ */
+export const AUTO_SCHEDULABLE_FOLLOW_UP_TYPES = ['SALES_MEETING'] as const satisfies readonly JobCardType[];
+
+export function isAutoSchedulableFollowUpType(type: JobCardType): boolean {
+  return (AUTO_SCHEDULABLE_FOLLOW_UP_TYPES as readonly string[]).includes(type);
+}
+
+export type StaffFollowUpProposalDraft = Pick<FollowUpProposalInput, 'type' | 'assignedTo' | 'followUpInstructions'>
+  & { scheduledAt: string };
+
+/**
+ * Builds the Staff submit request for a follow-up proposal draft. An empty
+ * scheduledAt is omitted (never sent as "") so the backend selects the
+ * earliest suitable slot for auto-supported types.
+ */
+export function buildStaffFollowUpProposalInput(draft: StaffFollowUpProposalDraft): FollowUpProposalInput {
+  return {
+    ...(draft.scheduledAt ? { scheduledAt: draft.scheduledAt } : {}),
+    type: draft.type,
+    assignedTo: draft.assignedTo,
+    followUpInstructions: draft.followUpInstructions.trim(),
+  };
+}
+
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
 }

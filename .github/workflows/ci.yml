@@ -189,7 +189,8 @@ jobs:
       - run: npm run build
       - run: npm run bundle:check
       - run: npm test -- --run
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
+      - run: node scripts/follow-up-dialog-geometry.mjs
       - run: npm run audit:high

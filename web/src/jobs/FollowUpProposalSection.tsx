@@ -38,6 +38,28 @@ export type FollowUpProposalSectionProps = {
   onOverrideReasonChange: (value: string) => void;
   onUseSuggestedAlternative: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /**
+   * Staff automatic scheduling presentation for backend-supported AUTO types.
+   * Hides the manual datetime editor; the server selects the slot.
+   */
+  autoSupported?: boolean;
+  /**
+   * Explicit datetime fallback for the no-slot case. When true in Staff AUTO
+   * mode, the manual datetime control is shown so the user is never stuck
+   * with a dead-end message.
+   */
+  allowExplicitSchedule?: boolean;
+  /**
+   * Suggestion load failure message. Rendered with a retry action instead of
+   * any scheduling controls; a failed load must never masquerade as no-slot.
+   */
+  loadError?: string | null;
+  onRetrySuggestion?: () => void;
+  /**
+   * Forces the Staff instructions disclosure open so a required-instructions
+   * validation error is discoverable instead of hidden in collapsed details.
+   */
+  expandInstructions?: boolean;
 };
 
 function formatDateTime(value: string): string {
@@ -73,11 +95,17 @@ export function FollowUpProposalSection({
   onOverrideReasonChange,
   onUseSuggestedAlternative,
   initialFocusRef,
+  autoSupported = false,
+  allowExplicitSchedule = false,
+  loadError = null,
+  onRetrySuggestion,
+  expandInstructions = false,
 }: FollowUpProposalSectionProps): ReactNode {
   const scheduledLocal = draft?.scheduledAt
     ? isoInstantToLocalDateTime(draft.scheduledAt)
     : '';  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const frequencyExceeded = evaluation?.level === 'FREQUENCY_EXCEEDED';
+  const staffAuto = mode === 'staff' && autoSupported;
 
   return (
     <section className="follow-up-proposal-card" aria-label="Takip işi planı">
@@ -87,12 +115,30 @@ export function FollowUpProposalSection({
       </div>
 
       {draft === null ? (
-        <p className="form-help">Takip için uygun bir tarih bulunamadı. Lütfen tarih ve saat seçin.</p>
+        loadError ? (
+          <>
+            <p className="field-error" role="alert">{loadError}</p>
+            {onRetrySuggestion && (
+              <button className="secondary-button compact-button" type="button" onClick={onRetrySuggestion}>
+                Tekrar dene
+              </button>
+            )}
+          </>
+        ) : (
+          <p className="form-help">Takip için uygun bir tarih bulunamadı. Lütfen tarih ve saat seçin.</p>
+        )
       ) : (
         <>
           <p className="follow-up-proposal-summary">
             {draft.scheduledAt === '' ? (
-              'Takip tarihi seçilmedi'
+              staffAuto ? (
+                <>
+                  {jobTypeLabels[draft.type]}
+                  {' · '}{assigneeName}
+                </>
+              ) : (
+                'Takip tarihi seçilmedi'
+              )
             ) : (
               <>
                 <time dateTime={draft.scheduledAt}>{formatDateTime(draft.scheduledAt)}</time>
@@ -105,10 +151,56 @@ export function FollowUpProposalSection({
           {evaluation?.safeMessage && (
             <p className="form-help follow-up-proposal-notice">{evaluation.safeMessage}</p>
           )}
+          {staffAuto && draft.scheduledAt === '' && !allowExplicitSchedule && (
+            <p className="form-help follow-up-proposal-notice">Uygun takip zamanı sistem tarafından seçilecek. Tarih ve saat seçmeniz gerekmez.</p>
+          )}
+          {staffAuto && draft.scheduledAt === '' && allowExplicitSchedule && (
+            <p className="form-help follow-up-proposal-notice">Uygun otomatik zaman bulunamadı. Devam etmek için tarih ve saat belirleyin.</p>
+          )}
         </>
       )}
 
-      {mode === 'staff' ? (
+      {staffAuto ? (
+        <>
+          {allowExplicitSchedule && draft !== null && (
+            <div className="field-group follow-up-explicit-schedule">
+              <label htmlFor="follow-up-proposal-scheduled-at">Takip tarihi ve saati</label>
+              <input
+                ref={initialFocusRef
+                  ? (node) => { initialFocusRef.current = node; }
+                  : undefined}
+                id="follow-up-proposal-scheduled-at"
+                type="datetime-local"
+                value={scheduledLocal}
+                onChange={(event) => {
+                  const value = event.target.value.trim();
+                  if (!value) return;
+                  onChange({ scheduledAt: localDateTimeToIso(value) });
+                }}
+              />
+              <p className="form-help">Saat dilimi: {timeZone}</p>
+            </div>
+          )}
+          <details className="task-optional-fields follow-up-edit" open={expandInstructions || undefined}>
+            <summary
+              ref={!allowExplicitSchedule && initialFocusRef
+                ? (node) => { initialFocusRef.current = node; }
+                : undefined}
+            >Takip kapsamını düzenle</summary>
+            <div className="field-group">
+              <label htmlFor="follow-up-proposal-instructions">Takip kapsamı / talimatlar</label>
+              <textarea
+                id="follow-up-proposal-instructions"
+                rows={2}
+                maxLength={4000}
+                value={draft?.followUpInstructions ?? ''}
+                onChange={(event) => onChange({ followUpInstructions: event.target.value })}
+              />
+            </div>
+          </details>
+        </>
+      ) : mode === 'staff' ? (
+        draft === null && loadError ? null : (
         <>
           <details className="task-optional-fields follow-up-edit">
             <summary
@@ -145,6 +237,7 @@ export function FollowUpProposalSection({
             </div>
           </details>
         </>
+        )
       ) : (
         <div className="follow-up-proposal-fields">
           <div className="field-group">
