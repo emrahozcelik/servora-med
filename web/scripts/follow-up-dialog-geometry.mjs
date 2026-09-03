@@ -7,10 +7,13 @@
  * (top bar + bottom nav AFTER the dialog, matching AppShell DOM order),
  * styled with the repository styles.css. No backend, no production.
  *
- * Asserts with DOM geometry (never screenshots alone):
- * - the dialog scroll container actually scrolls (programmatic + wheel)
- * - the primary CTA ends up above the fixed bottom nav (rect + elementFromPoint)
- * - no unintended horizontal page overflow
+ * Asserts with DOM geometry (never screenshots alone) and reports each
+ * dimension separately so an unsupported input can never pass as success:
+ * - PROGRAMMATIC_SCROLL: PASS/FAIL
+ * - USER_STYLE_SCROLL: PASS/FAIL/NOT_SUPPORTED
+ * - CTA_RECT (CTA bottom <= nav top): PASS/FAIL
+ * - CTA_HIT_TARGET (positive CTA identity): PASS/FAIL
+ * - HORIZONTAL_OVERFLOW: PASS/FAIL
  *
  * Usage: node scripts/follow-up-dialog-geometry.mjs
  * Requires: playwright chromium + webkit browsers installed.
@@ -21,6 +24,8 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, webkit } from 'playwright';
+
+import { userStyleScroll } from './follow-up-dialog-geometry-lib.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
@@ -72,6 +77,19 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
 </div>
 </body></html>`;
 
+// Production classes the fixture must mirror. If production renames any of
+// these, the fixture silently stops proving anything — fail instead.
+const REQUIRED_PRODUCTION_CLASSES = [
+  'dialog-backdrop',
+  'product-dialog-backdrop',
+  'workflow-dialog',
+  'reason-dialog',
+  'product-dialog',
+  'review-buttons',
+  'product-dialog-actions',
+  'mobile-bottom-nav',
+];
+
 const server = createServer((req, res) => {
   if ((req.url ?? '/').split('?')[0] !== '/') { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -89,9 +107,12 @@ const viewports = [
 ];
 
 const failures = [];
-function check(label, detail, ok) {
-  console.log(`  ${ok ? '✓' : '✗'} ${label}${detail ? `: ${detail}` : ''}`);
-  if (!ok) failures.push(`${label} ${detail}`);
+function check(dimension, label, detail, ok) {
+  console.log(`  ${ok ? '✓' : '✗'} [${dimension}] ${label}${detail ? `: ${detail}` : ''}`);
+  if (!ok) failures.push(`[${dimension}] ${label} ${detail}`);
+}
+function note(dimension, label, detail) {
+  console.log(`  ○ [${dimension}] ${label}${detail ? `: ${detail}` : ''}`);
 }
 
 for (const [browserName, browserType] of [['chromium', chromium], ['webkit', webkit]]) {
@@ -107,7 +128,7 @@ for (const [browserName, browserType] of [['chromium', chromium], ['webkit', web
       });
       await page.goto(base);
       await page.waitForSelector('#dialog');
-      const measured = await page.evaluate(() => {
+      const measured = await page.evaluate((requiredClasses) => {
         const rect = (el) => {
           const box = el.getBoundingClientRect();
           return {
@@ -119,51 +140,56 @@ for (const [browserName, browserType] of [['chromium', chromium], ['webkit', web
         const dialog = document.querySelector('#dialog');
         const cta = document.querySelector('#cta-btn');
         const nav = document.querySelector('.mobile-bottom-nav');
+        const missingClasses = requiredClasses.filter((name) => !document.querySelector(`.${name}`));
         const before = { scrollTop: dialog.scrollTop, scrollHeight: dialog.scrollHeight, clientHeight: dialog.clientHeight };
         dialog.scrollTop = dialog.scrollHeight;
         const progTop = dialog.scrollTop;
         const ctaRect = rect(cta);
         const navRect = rect(nav);
-        const point = document.elementFromPoint(
-          Math.min(ctaRect.x + ctaRect.width / 2, window.innerWidth - 1),
-          Math.min(ctaRect.bottom - 2, window.innerHeight - 1),
-        );
+        // Positive CTA identity: the hit target must be the CTA button itself
+        // or one of its descendants. Anything else (BODY, backdrop, dialog
+        // container, nav, unrelated overlay) fails.
+        const probeX = Math.min(ctaRect.x + ctaRect.width / 2, window.innerWidth - 1);
+        const probeY = Math.min(ctaRect.bottom - 2, window.innerHeight - 1);
+        const hit = document.elementFromPoint(probeX, probeY);
+        const ctaHit = hit === cta || (hit !== null && cta.contains(hit));
+        const hitDescriptor = hit
+          ? `${hit.tagName}.${String(hit.className?.baseVal ?? hit.className ?? '').split(' ').slice(0, 2).join('.')}`
+          : 'none';
+        // Negative control: a backdrop corner point must NOT satisfy the CTA
+        // identity check, proving the check discriminates.
+        const control = document.elementFromPoint(8, 8);
+        const controlPassesAsCta = control === cta || (control !== null && cta.contains(control));
         return {
-          before, progTop, ctaRect, navRect,
-          point: point
-            ? `${point.tagName}.${String(point.className?.baseVal ?? point.className ?? '').split(' ').slice(0, 2).join('.')}`
-            : 'none',
+          missingClasses, before, progTop, ctaRect, navRect,
+          ctaHit, hitDescriptor, controlPassesAsCta,
           overflowY: getComputedStyle(dialog).overflowY,
           docScrollW: document.documentElement.scrollWidth,
           docClientW: document.documentElement.clientWidth,
         };
-      });
+      }, REQUIRED_PRODUCTION_CLASSES);
       const prefix = `${browserName} ${viewport.name}`;
       const overflows = measured.before.scrollHeight > measured.before.clientHeight + 1;
-      check(`${prefix} dialog scrolls when overflowing`, `scrollTop=${measured.progTop}`, !overflows || measured.progTop > 0);
-      check(`${prefix} CTA above bottom nav`, `ctaBottom=${measured.ctaRect.bottom} navTop=${measured.navRect.top}`,
+      check('FIXTURE', `${prefix} production class match`,
+        measured.missingClasses.length > 0 ? `missing: ${measured.missingClasses.join(',')}` : '',
+        measured.missingClasses.length === 0);
+      check('PROGRAMMATIC_SCROLL', `${prefix} dialog scrolls when overflowing`, `scrollTop=${measured.progTop}`,
+        !overflows || measured.progTop > 0);
+      check('CTA_RECT', `${prefix} CTA above bottom nav`, `ctaBottom=${measured.ctaRect.bottom} navTop=${measured.navRect.top}`,
         measured.ctaRect.bottom <= measured.navRect.top);
-      check(`${prefix} CTA hit-test is dialog content`, measured.point,
-        !measured.point.startsWith('NAV.'));
-      check(`${prefix} no horizontal page overflow`, `scrollWidth=${measured.docScrollW}`,
+      check('CTA_HIT_TARGET', `${prefix} hit target is the CTA button`, measured.hitDescriptor, measured.ctaHit);
+      check('CTA_HIT_TARGET', `${prefix} backdrop corner is not the CTA`, 'negative control', !measured.controlPassesAsCta);
+      check('HORIZONTAL_OVERFLOW', `${prefix} no horizontal page overflow`, `scrollWidth=${measured.docScrollW}`,
         measured.docScrollW <= measured.docClientW + 1);
-      // User-style scroll input (wheel where supported). Retried once: under
-      // CI load the first synthetic wheel can land before the compositor is
-      // ready, while programmatic scrolling already proves scrollability.
       await page.evaluate(() => { document.querySelector('#dialog').scrollTop = 0; });
-      let wheelTop = 0;
-      try {
-        await page.mouse.move(viewport.width / 2, viewport.height / 2);
-        for (let attempt = 0; attempt < 2 && wheelTop === 0; attempt += 1) {
-          await page.mouse.wheel(0, 800);
-          await page.waitForTimeout(400);
-          wheelTop = await page.evaluate(() => document.querySelector('#dialog').scrollTop);
-        }
-      } catch {
-        wheelTop = -1; // input unsupported; programmatic proof above governs
+      const wheel = await userStyleScroll(page, viewport);
+      if (wheel.result === 'NOT_SUPPORTED') {
+        note('USER_STYLE_SCROLL', `${prefix} user-style scroll NOT_SUPPORTED`,
+          'input unavailable; programmatic proof governs');
+      } else {
+        check('USER_STYLE_SCROLL', `${prefix} user-style scroll ${wheel.result}`, `wheelTop=${wheel.wheelTop}`,
+          wheel.result === 'PASS');
       }
-      check(`${prefix} user-style scroll moves content`, `wheelTop=${wheelTop}`,
-        !overflows || wheelTop !== 0);
       await page.screenshot({ path: resolve(tmpdir(), `servora-followup-dialog-${browserName}-${viewport.name}.png`) });
       await page.close();
     }

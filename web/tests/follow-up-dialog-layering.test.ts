@@ -48,6 +48,37 @@ describe('follow-up dialog layering contract', () => {
     expect(ruleBody('.reason-dialog, .workflow-dialog', true)).toMatch(/overflow:\s*auto/);
   });
 
+  it('keeps the geometry fixture mirrored on production classes', () => {
+    const harness = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../scripts/follow-up-dialog-geometry.mjs'),
+      'utf8',
+    );
+    const required = [
+      'dialog-backdrop',
+      'product-dialog-backdrop',
+      'workflow-dialog',
+      'reason-dialog',
+      'product-dialog',
+      'review-buttons',
+      'product-dialog-actions',
+      'mobile-bottom-nav',
+    ];
+    for (const name of required) {
+      expect(harness, `harness must assert fixture class: ${name}`).toContain(name);
+    }
+    const sources = [
+      '../src/ui/antd/ReasonDialog.tsx',
+      '../src/jobs/JobWorkflowDialog.tsx',
+      '../src/jobs/FollowUpProposalSection.tsx',
+      '../src/shell/MobileBottomNav.tsx',
+      '../src/AppShell.tsx',
+    ].map((relative) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), relative), 'utf8'));
+    const production = sources.join('\n');
+    for (const name of required) {
+      expect(production, `production must use class: ${name}`).toContain(name);
+    }
+  });
+
   it('leaves neighboring overlay layers untouched', () => {
     expect(ruleBody('.shell-drawer-backdrop', true)).toMatch(/z-index:\s*30/);
     expect(ruleBody('.filter-sheet-root', true)).toMatch(/z-index:\s*55/);
