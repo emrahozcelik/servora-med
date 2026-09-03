@@ -106,6 +106,7 @@ import {
   filterAvailableSlotCandidates,
   generateAvailableSlotCandidates,
 } from './available-slots.js';
+import { generateFollowUpSlotCandidates } from './follow-up-auto-scheduler.js';
 import {
   createCustomerScheduleSnapshotReader,
   evaluateCustomerSchedule,
@@ -118,10 +119,8 @@ import {
   FOLLOW_UP_SEARCH_HORIZON_DAYS,
   defaultFollowUpInstructions,
   defaultFollowUpType,
-  deriveProposalOrigin,
-  followUpLeadReferenceAt,
+  earliestFollowUpAllowedAt,
   requiresMandatoryFollowUpProposal,
-  isFollowUpMinimumLeadSatisfied,
   suggestedFollowUpInstant,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
@@ -184,14 +183,11 @@ function assertFollowUpMinimumLead(input: {
   requestTime: Date;
   scheduledAt: Date;
 }) {
-  const leadReferenceAt = followUpLeadReferenceAt({
+  const earliestAllowedAt = earliestFollowUpAllowedAt({
     meetingAt: input.meetingAt === null ? null : new Date(input.meetingAt),
     requestAt: input.requestTime,
   });
-  if (!isFollowUpMinimumLeadSatisfied({
-    referenceAt: leadReferenceAt,
-    scheduledAt: input.scheduledAt,
-  })) {
+  if (input.scheduledAt.valueOf() < earliestAllowedAt.valueOf()) {
     throw new AppError(
       'FOLLOW_UP_PROPOSAL_INVALID',
       400,
@@ -403,6 +399,36 @@ export class JobCardService {
     for (const event of events) {
       this.realtimePublisher.publish(event);
     }
+  }
+
+  /**
+   * Every scheduling writer acquires User rows before JobCard, Customer, or
+   * Calendar rows. Sorting and de-duplicating the ids makes multi-assignee
+   * operations use one deterministic User lock order as well.
+   */
+  private async lockUsersInOrder(
+    transaction: JobCardTransaction,
+    organizationId: string,
+    userIds: readonly (string | null | undefined)[],
+  ) {
+    const assignees = new Map<string, JobCardAssignee>();
+    const orderedIds = [...new Set(userIds.filter(
+      (userId): userId is string => typeof userId === 'string' && userId.length > 0,
+    ))].sort();
+    for (const userId of orderedIds) {
+      const assignee = await transaction.getAssigneeForUpdate(organizationId, userId);
+      if (assignee) assignees.set(userId, assignee);
+    }
+    return assignees;
+  }
+
+  private requiredLockedAssignee(
+    assignees: ReadonlyMap<string, JobCardAssignee>,
+    userId: string,
+  ) {
+    const assignee = assignees.get(userId);
+    if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    return assignee;
   }
 
   private async appendRealtimeForActivity(
@@ -696,8 +722,12 @@ export class JobCardService {
           clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
         },
         async (transaction) => {
-        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
-        if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+        const lockedAssignees = await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          [input.assignedTo],
+        );
+        const assignee = this.requiredLockedAssignee(lockedAssignees, input.assignedTo);
         assertCanCreateForAssignee(actor, assignee);
         await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
         const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
@@ -825,8 +855,12 @@ export class JobCardService {
           clientActionId: input.clientActionId, operationKey: 'PRODUCT_DELIVERY_CREATE',
         },
         async (transaction) => {
-          const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
-          if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+          const lockedAssignees = await this.lockUsersInOrder(
+            transaction,
+            actor.organizationId,
+            [input.assignedTo],
+          );
+          const assignee = this.requiredLockedAssignee(lockedAssignees, input.assignedTo);
           assertCanCreateForAssignee(actor, assignee);
           await this.validateJobReferences(transaction, actor.organizationId, input.customerId, null);
           const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
@@ -962,9 +996,23 @@ export class JobCardService {
       },
       async (transaction) => {
         assertCanCreateFollowUp(actor);
+        const sourceSnapshot = await transaction.getFollowUpSource(
+          actor.organizationId,
+          sourceJobCardId,
+          false,
+        );
+        if (!sourceSnapshot) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        const lockedAssignees = await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          [sourceSnapshot.assignedTo, input.assignedTo],
+        );
         const source = await transaction.getFollowUpSource(
           actor.organizationId,
           sourceJobCardId,
+          true,
         );
         if (!source) {
           throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -982,7 +1030,7 @@ export class JobCardService {
         await this.assertFollowUpDepth(transaction, source);
 
         let followUpOverrideReason: string | null = null;
-        let lockedAssignee: JobCardAssignee | null | undefined;
+        const lockedAssignee = lockedAssignees.get(input.assignedTo) ?? null;
         if (source.customerId === null) {
           if (input.contactId !== null) {
             throw new AppError(
@@ -999,13 +1047,9 @@ export class JobCardService {
             );
           }
         } else {
-          // Keep the shared writer order User -> Customer. Defer the
-          // assignee authorization/error until after customer validation so a
-          // customer/contact error keeps its existing precedence.
-          lockedAssignee = await transaction.getAssigneeForUpdate(
-            actor.organizationId,
-            input.assignedTo,
-          );
+          // The source User and child User were locked before the source
+          // JobCard; Customer validation therefore follows User -> JobCard ->
+          // Customer without changing the existing validation contract.
           await this.validateJobReferences(
             transaction,
             actor.organizationId,
@@ -1081,7 +1125,7 @@ export class JobCardService {
       priority: JobCardPriority;
       dueDate: string | null;
       contactId: string | null;
-      assignee?: JobCardAssignee | null;
+      assignee: JobCardAssignee | null;
       engagementKind: JobCardEngagementKind | null;
       clientActionId: string;
       requestTime: Date;
@@ -1094,9 +1138,7 @@ export class JobCardService {
       activityMetadata?: unknown;
     },
   ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
-    const assignee = input.assignee === undefined
-      ? await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo)
-      : input.assignee;
+    const assignee = input.assignee;
     if (!assignee) {
       throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
     }
@@ -1457,8 +1499,24 @@ export class JobCardService {
       if (fields.engagementKind !== undefined && snapshot.type !== 'SALES_MEETING') {
         throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
       }
-      // Lock order correction: Job row FIRST, then assignee User, then target Customer,
-      // to serialize calendar capacity without introducing a User↔Customer deadlock.
+      assertCanEdit(actor, snapshot);
+      const snapshotIsCalendarIntervalJob = snapshot.type === 'SALES_MEETING'
+        || snapshot.type === 'PRODUCT_DELIVERY';
+      const snapshotScheduleChanged = fields.scheduledAt !== undefined
+        && fields.scheduledAt !== snapshot.scheduledAt
+        || fields.scheduledEndsAt !== undefined
+        && fields.scheduledEndsAt !== (snapshot.scheduledEndsAt ?? null);
+      const snapshotAssigneeChanged = fields.assignedTo !== undefined
+        && fields.assignedTo !== snapshot.assignedTo;
+      const snapshotNeedsAssigneeLock = snapshotAssigneeChanged
+        || (this.calendar.enabled && snapshotIsCalendarIntervalJob && snapshotScheduleChanged);
+      const lockedAssignees = snapshotNeedsAssigneeLock
+        ? await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          [snapshot.assignedTo, fields.assignedTo],
+        )
+        : new Map<string, JobCardAssignee>();
       const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (job.version !== input.expectedVersion) {
@@ -1487,11 +1545,13 @@ export class JobCardService {
         && isCalendarIntervalJob
         && (scheduleChanged || assigneeChanged);
       if (fields.assignedTo !== undefined && assigneeChanged) {
-        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);
+        const assignee = lockedAssignees.get(fields.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
       } else if (needsCalendarAssigneeLock) {
-        await transaction.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
+        if (!lockedAssignees.has(job.assignedTo)) {
+          throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+        }
       }
       const nextCustomerId = fields.customerId !== undefined ? fields.customerId : job.customerId;
       const nextContactId = fields.contactId !== undefined ? fields.contactId
@@ -1997,6 +2057,29 @@ export class JobCardService {
     const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
       async (tx) => {
+        let lockedAssignees = new Map<string, JobCardAssignee>();
+        const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
+          || definition.command === 'APPROVE';
+        if (mayScheduleFollowUp) {
+          const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
+          if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+          const needsSchedulingUserLocks = jobSnapshot.type === 'SALES_MEETING'
+            || jobSnapshot.followUpProposedAssignee !== null
+            || definition.followUpProposal?.assignedTo !== undefined
+            || definition.approveFollowUp?.assignedTo !== undefined;
+          if (needsSchedulingUserLocks) {
+            lockedAssignees = await this.lockUsersInOrder(
+              tx,
+              actor.organizationId,
+              [
+                jobSnapshot.assignedTo,
+                jobSnapshot.followUpProposedAssignee,
+                definition.followUpProposal?.assignedTo,
+                definition.approveFollowUp?.assignedTo,
+              ],
+            );
+          }
+        }
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
@@ -2037,35 +2120,47 @@ export class JobCardService {
             );
           }
           if (followUpRequired) {
-            const proposal = await this.validateFollowUpProposal(
-              tx,
-              actor,
-              job,
-              definition.followUpProposal,
-              requestTime,
-              {
-                followUpRequired,
-                meetingAt: submissionMeetingDetails?.meetingAt ?? null,
-              },
-            );
-            await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
-            const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
-            const origin = suggestion.fields === null
-              ? 'STAFF_ADJUSTED'
-              : deriveProposalOrigin(proposal, suggestion.fields);
+            const autoScheduled = definition.followUpProposal?.scheduledAt === undefined;
+            const proposal = autoScheduled
+              ? await this.autoScheduleFollowUpProposal(
+                tx,
+                actor,
+                job,
+                requestTime,
+                submissionMeetingDetails?.meetingAt ?? null,
+                false,
+                definition.followUpProposal,
+                undefined,
+                lockedAssignees,
+              )
+              : await this.validateFollowUpProposal(
+                tx,
+                actor,
+                job,
+                definition.followUpProposal,
+                requestTime,
+                lockedAssignees,
+                {
+                  followUpRequired,
+                  meetingAt: submissionMeetingDetails?.meetingAt ?? null,
+                },
+              );
+            if (!autoScheduled) {
+              await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
+            }
             persistedProposal = {
               scheduledAt: new Date(proposal.scheduledAt),
               type: proposal.type,
               assignedTo: proposal.assignedTo,
               instructions: proposal.followUpInstructions,
-              origin,
+              origin: autoScheduled ? 'SYSTEM' : 'STAFF_ADJUSTED',
               proposedBy: actor.id,
             };
           }
         }
         if (definition.command === 'APPROVE') {
           approval = await this.resolveApproveFollowUp(
-            tx, actor, job, definition.approveFollowUp, requestTime,
+            tx, actor, job, definition.approveFollowUp, requestTime, lockedAssignees,
           );
         }
         const occurredAt = requestTime;
@@ -2260,6 +2355,7 @@ export class JobCardService {
     job: JobCard,
     input: FollowUpProposalInput | undefined,
     requestTime: Date,
+    lockedAssignees: ReadonlyMap<string, JobCardAssignee>,
     context: {
       followUpRequired: boolean;
       meetingAt: string | null;
@@ -2305,7 +2401,7 @@ export class JobCardService {
         'Bu takip işi türü için kaynak JobCard müşteriye bağlı olmalıdır.',
       );
     }
-    const assignee = await tx.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
+    const assignee = lockedAssignees.get(input.assignedTo);
     if (!assignee) {
       throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
     }
@@ -2345,9 +2441,10 @@ export class JobCardService {
   }
 
   /**
-   * Authoritative evaluation at Manager approval. Locks the Customer row
-   * first so same-Customer scheduling decisions serialize; second transaction
-   * wakes and sees the first one's committed child.
+   * Authoritative evaluation at Manager approval. The caller has already
+   * acquired User and source JobCard locks; Customer is the next resource
+   * class so same-Customer scheduling decisions serialize and a waiting
+   * transaction sees the first one's committed child.
    */
   private async evaluateForApproval(
     tx: JobCardTransaction,
@@ -2449,6 +2546,7 @@ export class JobCardService {
     job: JobCard,
     input: ApproveFollowUpInput | undefined,
     requestTime: Date,
+    lockedAssignees: ReadonlyMap<string, JobCardAssignee>,
   ): Promise<{
     proposal: ValidatedFollowUpProposal;
     overrideReason: string | null;
@@ -2479,17 +2577,48 @@ export class JobCardService {
         'Bu iş türü için takip işi planı desteklenmiyor.',
       );
     }
+    const managerProvidedSchedule = input?.scheduledAt !== undefined;
+    if (followUpRequired
+      && persisted
+      && job.followUpProposalOrigin === 'SYSTEM'
+      && !managerProvidedSchedule) {
+      const proposal = await this.autoScheduleFollowUpProposal(
+        tx,
+        actor,
+        job,
+        requestTime,
+        meetingDetails?.meetingAt ?? null,
+        true,
+        {
+          type: job.followUpProposedType!,
+          assignedTo: job.followUpProposedAssignee!,
+          followUpInstructions: job.followUpProposalInstructions!,
+        },
+        new Date(job.followUpProposedAt!),
+        lockedAssignees,
+      );
+      return {
+        proposal,
+        overrideReason: null,
+        priority: normalizePriority(input?.priority),
+        dueDate: normalizeFollowUpDueDate(input?.dueDate, proposal.type),
+      };
+    }
+    const proposalInput = managerProvidedSchedule
+      ? input
+      : (persisted ? {
+        scheduledAt: job.followUpProposedAt!,
+        type: input?.type ?? job.followUpProposedType!,
+        assignedTo: input?.assignedTo ?? job.followUpProposedAssignee!,
+        followUpInstructions: input?.followUpInstructions ?? job.followUpProposalInstructions!,
+      } : undefined);
     const proposal = await this.validateFollowUpProposal(
       tx,
       actor,
       job,
-      input ?? (persisted ? {
-        scheduledAt: job.followUpProposedAt!,
-        type: job.followUpProposedType!,
-        assignedTo: job.followUpProposedAssignee!,
-        followUpInstructions: job.followUpProposalInstructions!,
-      } : undefined),
+      proposalInput,
       requestTime,
+      lockedAssignees,
       {
         followUpRequired,
         meetingAt: meetingDetails?.meetingAt ?? null,
@@ -2525,6 +2654,139 @@ export class JobCardService {
       );
     }
     return { proposal, overrideReason, priority, dueDate };
+  }
+
+  private async autoScheduleFollowUpProposal(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    requestTime: Date,
+    meetingAt: string | null,
+    lockCustomer: boolean,
+    input?: FollowUpProposalInput,
+    preferredAt?: Date,
+    lockedAssignees?: ReadonlyMap<string, JobCardAssignee>,
+  ): Promise<ValidatedFollowUpProposal> {
+    const type = input?.type ?? defaultFollowUpType(job.type);
+    if (!(JOB_CARD_TYPES as readonly string[]).includes(type) || type !== 'SALES_MEETING') {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Müşteri ziyareti takip işi Sales Meeting olmalıdır.',
+      );
+    }
+    if (actor.role === 'STAFF' && type !== defaultFollowUpType(job.type)) {
+      throw new AppError('FORBIDDEN', 403, 'Personel takip işi türünü değiştiremez.');
+    }
+    if (job.customerId === null) {
+      throw new AppError(
+        'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED',
+        409,
+        'Bu takip işi türü için kaynak JobCard müşteriye bağlı olmalıdır.',
+      );
+    }
+    const assignedTo = input?.assignedTo ?? job.assignedTo;
+    const assignee = lockedAssignees?.get(assignedTo);
+    if (!assignee) {
+      throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    }
+    assertCanCreateForAssignee(actor, assignee);
+    if (lockCustomer && job.customerId !== null) {
+      const customer = await tx.getCustomerForUpdate(actor.organizationId, job.customerId);
+      if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    }
+
+    const policyEarliestAt = earliestFollowUpAllowedAt({
+      meetingAt: meetingAt === null ? null : new Date(meetingAt),
+      requestAt: requestTime,
+    });
+    const earliestAllowedAt = preferredAt
+      && preferredAt.valueOf() > policyEarliestAt.valueOf()
+      ? preferredAt
+      : policyEarliestAt;
+    const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    const candidates = generateFollowUpSlotCandidates({
+      earliestAllowedAt,
+      type,
+      timezone,
+    });
+    const firstCandidate = candidates[0];
+    const lastCandidate = candidates[candidates.length - 1];
+    if (!firstCandidate || !lastCandidate) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        409,
+        'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+      );
+    }
+
+    const snapshotFrom = new Date(
+      firstCandidate.startsAt.valueOf()
+        - FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        - MAX_TZ_OFFSET_MS,
+    );
+    const snapshotTo = new Date(
+      lastCandidate.endsAt.valueOf()
+        + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        + MAX_TZ_OFFSET_MS,
+    );
+    const activeJobs = await tx.listActiveOnSiteJobs(
+      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
+    );
+    const recentVisits = await tx.listRecentOnSiteVisits(
+      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
+    );
+    const assigneeIntervals = await tx.listAssigneeCalendarIntervals(
+      actor.organizationId,
+      assignedTo,
+      firstCandidate.startsAt,
+      lastCandidate.endsAt,
+      job.id,
+    );
+    const assigneeClearCandidates = filterAvailableSlotCandidates(
+      candidates,
+      assigneeIntervals.map((interval) => ({
+        startsAt: new Date(interval.startsAt),
+        endsAt: new Date(interval.endsAt),
+      })),
+    );
+    const customerReader = createCustomerScheduleSnapshotReader({
+      timezone,
+      activeJobs,
+      recentVisits,
+    });
+    for (const candidate of assigneeClearCandidates) {
+      const evaluation = await evaluateCustomerSchedule({
+        reader: customerReader,
+        organizationId: actor.organizationId,
+        customerId: job.customerId,
+        proposedAt: candidate.startsAt,
+        jobType: type,
+        excludeJobId: job.id,
+        now: requestTime,
+      });
+      if (evaluation.level === 'CLEAR' || evaluation.level === 'WARNING') {
+        return {
+          scheduledAt: candidate.startsAt,
+          type,
+          assignedTo,
+          followUpInstructions: input === undefined
+            ? defaultFollowUpInstructions(job.title)
+            : boundedTrimmedString(
+              input.followUpInstructions,
+              'followUpProposal.followUpInstructions',
+              1,
+              4_000,
+            ),
+          assignee,
+        };
+      }
+    }
+    throw new AppError(
+      'FOLLOW_UP_PROPOSAL_INVALID',
+      409,
+      '30 günlük aralıkta uygun takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+    );
   }
 
   private async computeFollowUpSuggestion(

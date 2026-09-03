@@ -241,7 +241,11 @@ export class PostgresStaffOffboardingService {
     const client = await this.pool.connect();
     let committed = false;
     try {
-      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      // Lock all User rows before any mutable responsibility row. READ
+      // COMMITTED is intentional: the conflict statements issued after a
+      // replacement lock must observe commits that won while this transaction
+      // was waiting for that lock.
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
       const actorRow = await client.query<{ role: string; is_active: boolean }>(
         `SELECT role, is_active FROM users WHERE organization_id = $1 AND id = $2 FOR SHARE`,
         [actor.organizationId, actor.id],
@@ -301,34 +305,30 @@ export class PostgresStaffOffboardingService {
       }
       if (claim.status !== 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
 
-      const lockedTargetRow = await client.query<{
+      const replacementIds = this.replacementIds(input);
+      const userIds = [...new Set([targetUserId, ...replacementIds])].sort();
+      const lockedUsers = await client.query<{
         id: string; organization_id: string; role: string; is_active: boolean; version: number;
       }>(
         `SELECT id, organization_id, role, is_active, version FROM users
-          WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
-        [actor.organizationId, targetUserId],
+          WHERE organization_id = $1 AND id = ANY($2::uuid[])
+          ORDER BY id FOR UPDATE`,
+        [actor.organizationId, userIds],
       );
-      const lockedTarget = lockedTargetRow.rows[0];
+      const lockedTarget = lockedUsers.rows.find((item) => item.id === targetUserId);
       if (!lockedTarget) throw notFound();
       if (lockedTarget.role !== 'STAFF') throw new AppError('OFFBOARDING_TARGET_NOT_STAFF', 409, 'Offboarding hedefi Staff olmalıdır.');
       if (!lockedTarget.is_active) throw new AppError('USER_ALREADY_INACTIVE', 409, 'Staff zaten pasiftir.');
 
-      const replacementIds = this.replacementIds(input);
-      if (replacementIds.length > 0) {
-        const replacements = await client.query<{ id: string; role: string; is_active: boolean }>(
-          `SELECT id, role, is_active FROM users
-            WHERE organization_id = $1 AND id = ANY($2::uuid[])
-            ORDER BY id FOR UPDATE`,
-          [actor.organizationId, replacementIds],
-        );
-        if (replacements.rows.length !== replacementIds.length || replacements.rows.some((item) => item.role !== 'STAFF' || !item.is_active || item.id === targetUserId)) {
-          throw new AppError('INVALID_REPLACEMENT_STAFF', 409, 'Replacement Staff geçersiz veya aktif değil.');
-        }
-      }
-
       const currentPlan = await this.readPlan(client, asUser(lockedTarget), true);
       if (currentPlan.planHash !== input.planHash) throw new AppError('STALE_PLAN', 409, 'Offboarding planı güncel değil.');
       this.validateDecisions(currentPlan, input);
+
+      const replacements = lockedUsers.rows.filter((item) => item.id !== targetUserId);
+      if (replacements.length !== replacementIds.length
+        || replacements.some((item) => item.role !== 'STAFF' || !item.is_active)) {
+        throw new AppError('INVALID_REPLACEMENT_STAFF', 409, 'Replacement Staff geçersiz veya aktif değil.');
+      }
 
       const summary = await this.applyMutations(client, actor, targetUserId, input, currentPlan);
       await client.query(
@@ -431,6 +431,17 @@ export class PostgresStaffOffboardingService {
     const currentJobs = new Map(plan.jobs.map((item) => [item.id, item]));
     const currentFollowUps = new Map(plan.followUps.map((item) => [item.jobCardId, item]));
     for (const jobId of [...new Set([...jobDecision.keys(), ...followUpDecision.keys()])].sort()) {
+      const replacementForJob = jobDecision.get(jobId);
+      if (replacementForJob) {
+        const jobInterval = await client.query<{ scheduled_at: Date | null; scheduled_ends_at: Date | null }>(
+          `SELECT scheduled_at, scheduled_ends_at FROM job_cards WHERE organization_id = $1 AND id = $2`,
+          [actor.organizationId, jobId],
+        );
+        const row = jobInterval.rows[0];
+        const scheduledAt = row?.scheduled_at ? row.scheduled_at.toISOString() : null;
+        const scheduledEndsAt = row?.scheduled_ends_at ? row.scheduled_ends_at.toISOString() : null;
+        await this.assertJobCardAssignmentAvailable(client, actor.organizationId, replacementForJob, jobId, scheduledAt, scheduledEndsAt);
+      }
       const updated = await client.query(
         `UPDATE job_cards SET
             assigned_to = CASE WHEN $2::uuid IS NULL THEN assigned_to ELSE $2::uuid END,
@@ -605,18 +616,47 @@ export class PostgresStaffOffboardingService {
   ) {
     const conflict = await client.query(
       `SELECT 1
-         FROM calendar_events e
-        WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
-          AND e.id <> $3 AND e.starts_at < $5 AND $4 < e.ends_at
-       UNION ALL
-       SELECT 1
-         FROM job_cards j
-        WHERE j.organization_id = $1 AND j.assigned_to = $2
-          AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
-          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-          AND j.scheduled_at < $5 AND $4 < j.scheduled_ends_at
-       LIMIT 1`,
+          FROM calendar_events e
+         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
+           AND e.id <> $3 AND e.starts_at < $5 AND $4 < e.ends_at
+        UNION ALL
+        SELECT 1
+          FROM job_cards j
+         WHERE j.organization_id = $1 AND j.assigned_to = $2
+           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+           AND j.scheduled_at < $5 AND $4 < j.scheduled_ends_at
+        LIMIT 1`,
       [organizationId, replacementUserId, event.id, event.startsAt, event.endsAt],
+    );
+    if (conflict.rows.length > 0) {
+      throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
+    }
+  }
+
+  private async assertJobCardAssignmentAvailable(
+    client: PoolClient,
+    organizationId: string,
+    replacementUserId: string,
+    jobCardId: string,
+    scheduledAt: string | null,
+    scheduledEndsAt: string | null,
+  ) {
+    if (!scheduledAt || !scheduledEndsAt) return;
+    const conflict = await client.query(
+      `SELECT 1
+          FROM calendar_events e
+         WHERE e.organization_id = $1 AND e.assigned_user_id = $2 AND e.status = 'ACTIVE'
+           AND e.starts_at < $4 AND $3 < e.ends_at
+        UNION ALL
+        SELECT 1
+          FROM job_cards j
+         WHERE j.organization_id = $1 AND j.assigned_to = $2
+           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+        LIMIT 1`,
+      [organizationId, replacementUserId, scheduledAt, scheduledEndsAt, jobCardId],
     );
     if (conflict.rows.length > 0) {
       throw new AppError('CALENDAR_CONFLICT', 409, 'Seçilen replacement Staff için çakışan bir takvim sorumluluğu bulunuyor.');
@@ -673,12 +713,31 @@ export class PostgresStaffOffboardingService {
   private async readPlan(queryable: Queryable, target: UserSnapshot, lock: boolean): Promise<StaffOffboardingPlan> {
     const suffix = lock ? ' FOR UPDATE' : '';
     const at = this.now();
-    const jobs = await queryable.query<{ id: string; status: string; version: number; assigned_to: string }>(
-      `SELECT id, status, version, assigned_to FROM job_cards
-        WHERE organization_id = $1 AND assigned_to = $2 AND status = ANY($3::varchar[])
+    const affectedJobs = await queryable.query<{
+      id: string;
+      status: string;
+      version: number;
+      assigned_to: string;
+      follow_up_proposed_assignee: string | null;
+      follow_up_proposed_at: Date | null;
+    }>(
+      `SELECT id, status, version, assigned_to,
+              follow_up_proposed_assignee, follow_up_proposed_at
+         FROM job_cards
+        WHERE organization_id = $1
+          AND (
+            (assigned_to = $2 AND status = ANY($3::varchar[]))
+            OR (follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $4)
+          )
         ORDER BY id${suffix}`,
-      [target.organizationId, target.id, ACTIVE_JOB_STATUSES],
+      [target.organizationId, target.id, ACTIVE_JOB_STATUSES, at],
     );
+    const jobs = affectedJobs.rows.filter((row) => row.assigned_to === target.id);
+    const followUps = affectedJobs.rows.filter((row) => (
+      row.follow_up_proposed_assignee === target.id
+      && row.follow_up_proposed_at !== null
+      && row.follow_up_proposed_at > at
+    ));
     const customers = await queryable.query<{ id: string; assigned_staff_user_id: string; version: number }>(
       `SELECT id, assigned_staff_user_id, version FROM customers
         WHERE organization_id = $1 AND assigned_staff_user_id = $2 ORDER BY id${suffix}`,
@@ -687,12 +746,6 @@ export class PostgresStaffOffboardingService {
     const calendar = await queryable.query<{ id: string; assigned_user_id: string; status: string; version: number; starts_at: Date; ends_at: Date }>(
       `SELECT id, assigned_user_id, status, version, starts_at, ends_at FROM calendar_events
         WHERE organization_id = $1 AND assigned_user_id = $2 AND status = 'ACTIVE' AND starts_at > $3
-        ORDER BY id${suffix}`,
-      [target.organizationId, target.id, at],
-    );
-    const followUps = await queryable.query<{ job_card_id: string; follow_up_proposed_assignee: string; follow_up_proposed_at: Date; version: number }>(
-      `SELECT id AS job_card_id, follow_up_proposed_assignee, follow_up_proposed_at, version FROM job_cards
-        WHERE organization_id = $1 AND follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $3
         ORDER BY id${suffix}`,
       [target.organizationId, target.id, at],
     );
@@ -707,7 +760,7 @@ export class PostgresStaffOffboardingService {
       `SELECT id, job_id FROM conversations
         WHERE organization_id = $1 AND context_type = 'JOB'
           AND job_id = ANY($2::uuid[]) ORDER BY id${suffix}`,
-      [target.organizationId, jobs.rows.map((item) => item.id)],
+      [target.organizationId, jobs.map((item) => item.id)],
     );
     const sessions = await queryable.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sessions
@@ -716,10 +769,10 @@ export class PostgresStaffOffboardingService {
     );
     const base = {
       target,
-      jobs: jobs.rows.map((row) => ({ id: row.id, status: row.status, version: row.version, assignedTo: row.assigned_to })),
+      jobs: jobs.map((row) => ({ id: row.id, status: row.status, version: row.version, assignedTo: row.assigned_to })),
       customers: customers.rows.map((row) => ({ id: row.id, assignedStaffUserId: row.assigned_staff_user_id, version: row.version })),
       calendar: calendar.rows.map((row) => ({ id: row.id, assignedUserId: row.assigned_user_id, status: row.status, version: row.version, startsAt: row.starts_at.toISOString(), endsAt: row.ends_at.toISOString() })),
-      followUps: followUps.rows.map((row) => ({ jobCardId: row.job_card_id, proposedAssignee: row.follow_up_proposed_assignee, proposedAt: row.follow_up_proposed_at.toISOString(), version: row.version })),
+      followUps: followUps.map((row) => ({ jobCardId: row.id, proposedAssignee: row.follow_up_proposed_assignee!, proposedAt: row.follow_up_proposed_at!.toISOString(), version: row.version })),
       reminders: reminders.rows.map((row) => ({ id: row.id, recipientUserId: row.recipient_user_id, state: row.state, remindAt: row.remind_at.toISOString(), nextAttemptAt: row.next_attempt_at.toISOString() })),
       jobConversations: conversations.rows.map((row) => ({ jobCardId: row.job_id, conversationId: row.id })),
       sessions: { activeCount: Number(sessions.rows[0]?.count ?? 0) },

@@ -362,7 +362,7 @@ export type JobCardInvalidationInput = {
 };
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
 export type FollowUpProposalInput = {
-  scheduledAt: string;
+  scheduledAt?: string;
   type: JobCardType;
   assignedTo: string;
   followUpInstructions: string;

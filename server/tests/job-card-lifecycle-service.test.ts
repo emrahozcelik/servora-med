@@ -112,6 +112,8 @@ class LifecycleRepository implements JobCardRepository {
 
   private tx(): JobCardTransaction {
     return {
+      getJob: async (org, id) =>
+        org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id
@@ -169,6 +171,7 @@ class LifecycleRepository implements JobCardRepository {
       getOrganizationTimezone: async () => this.timezone,
       listActiveOnSiteJobs: async () => this.activeOnSiteJobs,
       listRecentOnSiteVisits: async () => this.recentOnSiteVisits,
+      listAssigneeCalendarIntervals: async () => [],
       getFollowUpSource: async (_org, id) => (
         id === this.job.id ? {
           id: this.job.id,
@@ -1102,7 +1105,7 @@ describe('JobCard lifecycle commands', () => {
     ]);
   });
 
-  it('requires a structured reason and a follow-up proposal for unsuccessful visits', async () => {
+  it('requires a structured reason and auto-schedules omitted unsuccessful-visit proposals', async () => {
     const withoutReason = salesMeetingRepository();
     withoutReason.meetingDetails = {
       ...withoutReason.meetingDetails!, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: null,
@@ -1119,7 +1122,13 @@ describe('JobCard lifecycle commands', () => {
     };
     await expect(new JobCardService(withoutProposal, () => time).submitForApproval(
       staff, 'job-1', input('follow-up-without-proposal'),
-    )).rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_REQUIRED', statusCode: 400 });
+    )).resolves.toMatchObject({ status: 'WAITING_APPROVAL' });
+    expect(withoutProposal.transitions[0]?.followUpProposal).toMatchObject({
+      scheduledAt: new Date('2026-07-13T12:15:00.000Z'),
+      type: 'SALES_MEETING',
+      assignedTo: staff.id,
+      origin: 'SYSTEM',
+    });
 
     const exactBoundary = salesMeetingRepository();
     exactBoundary.meetingDetails = {

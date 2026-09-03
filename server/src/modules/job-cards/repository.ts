@@ -284,6 +284,7 @@ export interface JobCardTransaction extends SubmissionReader {
   getFollowUpSource(
     organizationId: string,
     sourceJobCardId: string,
+    forUpdate?: boolean,
   ): Promise<FollowUpSourceReference | null>;
   listActiveFollowUpChildrenForUpdate(
     organizationId: string,
@@ -1123,9 +1124,13 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
   }
 
-  async getFollowUpSource(organizationId: string, sourceJobCardId: string) {
+  async getFollowUpSource(
+    organizationId: string,
+    sourceJobCardId: string,
+    forUpdate = true,
+  ) {
     const result = await this.client.query<FollowUpSourceRow>(
-      `${FOLLOW_UP_SOURCE_QUERY} FOR UPDATE OF j`,
+      `${FOLLOW_UP_SOURCE_QUERY}${forUpdate ? ' FOR UPDATE OF j' : ''}`,
       [organizationId, sourceJobCardId],
     );
     return result.rows[0] ? mapFollowUpSource(result.rows[0]) : null;

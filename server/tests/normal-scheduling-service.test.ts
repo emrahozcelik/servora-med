@@ -613,7 +613,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(repository.lockOrder.indexOf('job')).toBeLessThan(repository.lockOrder.indexOf('customer'));
   });
 
-  it('P0-C5: same-assignee interval patch locks User before Customer availability evaluation', async () => {
+  it('P0-C5: same-assignee interval patch locks User before Job and Customer', async () => {
     const repository = new SchedulingMemoryRepository();
     const service = calendarServiceOf(repository);
     const created = await service.create(manager, deliveryInput({ clientActionId: 'p0-same-assignee-lock' }));
@@ -624,8 +624,8 @@ describe('normal customer scheduling — patch / reschedule', () => {
       scheduledAt: '2026-07-30T10:00:00.000Z',
     });
 
-    expect(repository.lockOrder.indexOf('job')).toBeLessThan(repository.lockOrder.indexOf('assignee'));
-    expect(repository.lockOrder.indexOf('assignee')).toBeLessThan(repository.lockOrder.indexOf('customer'));
+    expect(repository.lockOrder.indexOf('assignee')).toBeLessThan(repository.lockOrder.indexOf('job'));
+    expect(repository.lockOrder.indexOf('job')).toBeLessThan(repository.lockOrder.indexOf('customer'));
   });
 
   it('P0-C6: metadata-only patch does not acquire calendar capacity lock', async () => {
