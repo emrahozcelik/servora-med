@@ -191,3 +191,34 @@ export function normalizeTaxNumber(value: string | null | undefined) {
   const normalized = value.trim().replace(/[\s.\-/]+/g, '').toUpperCase();
   return normalized || null;
 }
+
+/**
+ * Canonical search folding shared by the customer `q` filter. Plain
+ * `LOWER()` keeps two Turkish asymmetries that break remote customer
+ * search: a dotted capital `İ` lowercases to `i` + combining dot (U+0307)
+ * in JavaScript while PostgreSQL folds it to a plain `i`, and the dotless
+ * `ı` never matches a stored `I` (and vice versa). Folding strips the
+ * combining dot and unifies `ı` with `i` so both query and column compare
+ * on the same form. Stored data is never rewritten.
+ */
+export function foldCustomerSearchText(value: string) {
+  return value.toLowerCase().replace(/\u0307/g, '').replace(/ı/g, 'i');
+}
+
+/** Keeps only decimal digits so phone queries tolerate spaces, dashes and country prefixes. */
+export function digitsOnly(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+/**
+ * Bounded digit variants so `+90 532 ...`, `0532 ...` and `532 ...` match the
+ * same stored number without rewriting stored phone values.
+ */
+export function phoneDigitVariants(value: string) {
+  const digits = digitsOnly(value);
+  if (!digits) return [];
+  const variants = [digits];
+  if (digits.length === 12 && digits.startsWith('90')) variants.push(digits.slice(2));
+  if (digits.length === 11 && digits.startsWith('0')) variants.push(digits.slice(1));
+  return Array.from(new Set(variants));
+}

@@ -3,10 +3,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ApiError,
   createProductDelivery as createProductDeliveryRequest,
-  listReferenceCustomers,
   type CurrentUser,
   type DeliveryPurpose,
-  type ReferenceCustomer,
 } from './services/api';
 import { ProductSelect } from './ProductSelect';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
@@ -17,9 +15,9 @@ import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
+import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import type { Product } from './services/products-api';
-import type { Customer } from './services/crm-api';
+import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 export type DeliveryFormValues = {
@@ -73,9 +71,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
-  const [customerState, setCustomerState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
+  const [customerReady, setCustomerReady] = useState(false);
+  const [pinnedCustomer, setPinnedCustomer] = useState<CustomerSummary | null>(null);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
@@ -92,11 +91,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
-  const customerLoadGate = useRef(createRequestGate());
-  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<ReferenceCustomer>());
-  const selectedCreatedCustomerRef = useRef<string | null>(null);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  useEffect(() => () => { customerLoadGate.current.next(); }, []);
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
   useEffect(() => {
@@ -108,7 +103,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     type: 'PRODUCT_DELIVERY',
     customerId: customerId || null,
     scheduledLocal,
-    enabled: customerState === 'ready',
+    enabled: customerReady,
   });
   const availableSlotSearch = useAvailableSlotSearch({
     type: 'PRODUCT_DELIVERY',
@@ -117,7 +112,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     scheduledStartLocal: scheduledLocal,
     jobCardId: null,
     enabled: user.capabilities?.calendar === true
-      && customerState === 'ready',
+      && customerReady,
   });
 
   function useSuggestedAlternative() {
@@ -130,7 +125,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
   }
 
-  function applyCustomerSelection(customer: ReferenceCustomer | undefined) {
+  function applyCustomerSelection(customer: CustomerSummary | undefined) {
     const responsibleId = customer?.assignedStaffUserId ?? null;
     responsibleStaffId.current = responsibleId;
     assigneeModified.current = false;
@@ -141,51 +136,16 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     }
   }
 
-  async function loadCustomers() {
-    const generation = customerLoadGate.current.next();
-    setCustomerState('loading');
-    try {
-      const next = await listReferenceCustomers();
-      if (!customerLoadGate.current.isCurrent(generation)) return;
-      const reconciled = createdCustomersRef.current.reconcile(next, generation);
-      setCustomers(reconciled);
-      const selectedCreatedCustomer = selectedCreatedCustomerRef.current
-        ? reconciled.find((customer) => customer.id === selectedCreatedCustomerRef.current)
-        : undefined;
-      const initialCustomer = reconciled.find((customer) => (
-        customer.id === initialCustomerId && customer.status !== 'inactive'
-      ));
-      if (selectedCreatedCustomer) {
-        setCustomerId(selectedCreatedCustomer.id);
-        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
-      } else if (initialCustomer) {
-        setCustomerId(initialCustomer.id);
-        applyCustomerSelection(initialCustomer);
-      } else if (initialCustomerId) {
-        setCustomerId('');
-        applyCustomerSelection(undefined);
-      }
-      setCustomerState('ready');
-    } catch {
-      if (!customerLoadGate.current.isCurrent(generation)) return;
-      const created = createdCustomersRef.current.values();
-      if (created.length > 0) {
-        setCustomers(created);
-        const selectedCreatedCustomer = selectedCreatedCustomerRef.current
-          ? created.find((customer) => customer.id === selectedCreatedCustomerRef.current)
-          : undefined;
-        setCustomerId(selectedCreatedCustomer?.id ?? '');
-        if (!assigneeModified.current) applyCustomerSelection(selectedCreatedCustomer);
-        setCustomerState('ready');
-      } else {
-        setCustomers([]);
-        setCustomerId('');
-        applyCustomerSelection(undefined);
-        setCustomerState('error');
-      }
-    }
+  function handleCustomerChange(nextCustomerId: string) {
+    setCustomerId(nextCustomerId);
+    // A manual pick reevaluates responsible staff from the new customer.
+    assigneeModified.current = false;
   }
-  useEffect(() => { void loadCustomers(); }, []);
+
+  function handleCustomerResolved(customer: CustomerSummary | null) {
+    setSelectedCustomer(customer);
+    if (!assigneeModified.current) applyCustomerSelection(customer ?? undefined);
+  }
   useEffect(() => {
     if (user.role === 'STAFF') return;
     let active = true; setStaffState('loading');
@@ -198,19 +158,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     }).catch(() => { if (active) setStaffState('error'); });
     return () => { active = false; };
   }, [user.role]);
-  function changeCustomer(nextCustomerId: string, preserveCreated = false) {
-    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
-    setCustomerId(nextCustomerId);
-    applyCustomerSelection(customers.find((customer) => customer.id === nextCustomerId));
-  }
-
   function addCreatedCustomer(customer: Customer) {
-    createdCustomersRef.current.add(customer, customerLoadGate.current.current());
-    selectedCreatedCustomerRef.current = customer.id;
-    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
+    setPinnedCustomer({ ...customer, assignedStaffName: null, primaryContact: null });
     setCustomerId(customer.id);
-    if (!assigneeModified.current) applyCustomerSelection(customer);
-    setCustomerState('ready');
     setCustomerCreateOpen(false);
   }
 
@@ -235,8 +185,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true); setError('');
     const data = new FormData(event.currentTarget);
-    const selectedCustomerId = String(data.get('customerId') ?? '');
-    const customer = customers.find((item) => item.id === selectedCustomerId && item.status !== 'inactive');
+    const customer = selectedCustomer && selectedCustomer.id === customerId && selectedCustomer.status !== 'inactive'
+      ? selectedCustomer
+      : null;
     try {
       if (!customer) throw new Error('Geçerli bir müşteri seçin.');
       if (selectedProducts.length === 0) throw new Error('En az bir ürün seçin.');
@@ -250,7 +201,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         return { productId: entry.product.id, quantity: entry.quantity };
       });
       const result = await createProductDelivery(user, {
-        customerId: selectedCustomerId,
+        customerId: customer.id,
         customerName: customer.name,
         assignedTo: selectedAssignee,
         items,
@@ -288,10 +239,8 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     }
   }
 
-  const availableCustomers = customers.filter((customer) => customer.status !== 'inactive');
-  const unavailable = customerState === 'ready' && availableCustomers.length === 0;
-  const referencesPending = customerState === 'loading' || staffState === 'loading';
-  const submitDisabled = pending || unavailable || customerState !== 'ready' || selectedProducts.length === 0
+  const referencesPending = !customerReady || staffState === 'loading';
+  const submitDisabled = pending || !customerReady || selectedProducts.length === 0
     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
@@ -303,16 +252,21 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         </p>
       ))}
     </div>}
-    {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
-    {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
-      <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
-    {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
         <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={pending} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
-        <select id="delivery-customer" name="customerId" required disabled={pending || unavailable || customerState !== 'ready'} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
-          <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select></div>
+        <CustomerSearchSelect
+          id="delivery-customer"
+          value={customerId}
+          onChange={handleCustomerChange}
+          onCustomerResolved={handleCustomerResolved}
+          pinnedCustomer={pinnedCustomer}
+          onReadyChange={setCustomerReady}
+          clearValueWhenMissing
+          isEligible={(customer) => customer.status !== 'inactive'}
+          disabled={pending}
+        />
+      </div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
         <select id="delivery-assignee" name="assignedTo" required disabled={pending || staffState !== 'ready'} value={assignedTo}
           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
@@ -322,7 +276,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
       </div>}
       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
-        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={pending || unavailable} />
+        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={pending || !customerReady} />
       {selectedProducts.length > 0 && <div className="delivery-selected-quantities" aria-labelledby="delivery-quantities-heading">
         <h2 id="delivery-quantities-heading">Miktarlar</h2>
         {selectedProducts.map((entry) => <div className="field-group" key={entry.product.id}>

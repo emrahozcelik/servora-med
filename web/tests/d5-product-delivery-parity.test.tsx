@@ -5,17 +5,17 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DeliveryCreateView } from '../src/DeliveryCreate';
-import type { CurrentUser, ReferenceCustomer } from '../src/services/api';
+import type { CurrentUser } from '../src/services/api';
 import type { StaffProfile } from '../src/services/people-api';
 import type { Product } from '../src/services/products-api';
+import { stubMatchMedia } from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({
   createProductDelivery: vi.fn(),
-  listReferenceCustomers: vi.fn(),
 }));
-const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), getCustomer: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));
@@ -43,9 +43,11 @@ const manager: CurrentUser = {
   role: 'MANAGER', mustChangePassword: false,
 };
 const customer = {
-  id: 'customer-new', name: 'Yeni Klinik', customerType: 'clinic', status: 'prospect',
-  assignedStaffUserId: 'staff-1',
-} satisfies ReferenceCustomer & { assignedStaffUserId: string | null };
+  id: 'customer-new', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
+  taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+  assignedStaffUserId: 'staff-1', assignedStaffName: null, status: 'prospect',
+  version: 1, primaryContact: null,
+};
 const product: Product = {
   id: 'product-1', organizationId: 'org-1', name: 'İmplant', sku: 'I1', brand: null,
   category: null, model: null, unit: 'adet', referencePrice: null, isActive: true,
@@ -88,7 +90,9 @@ describe('D5 Product Delivery create parity', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    api.listReferenceCustomers.mockResolvedValue([customer]);
+    stubMatchMedia();
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
+    crm.getCustomer.mockResolvedValue(customer);
     api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
     people.listStaff.mockResolvedValue([profile]);
     products.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 8, offset: 0 });
@@ -102,6 +106,8 @@ describe('D5 Product Delivery create parity', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
   });
 
   it('returns from shared Customer create with a usable selection and no Contact write path', async () => {
@@ -119,13 +125,16 @@ describe('D5 Product Delivery create parity', () => {
 
     expect(host.querySelector('button')?.textContent)
       .toBe('Yeni müşteri ekle');
-    expect((host.querySelector('#delivery-customer') as HTMLSelectElement).value)
-      .toBe('customer-new');
+    const customerSelect = host.querySelector('#delivery-customer')?.closest('.ant-select');
+    expect(customerSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Yeni Klinik');
+    expect(crm.getCustomer).toHaveBeenCalledWith('customer-new');
+    // The bounded first page is still the only catalog request.
+    expect(crm.listCustomers.mock.calls.every((call) => ((call[0] as { limit?: number }).limit ?? 0) <= 20))
+      .toBe(true);
     expect((host.querySelector('#delivery-assignee') as HTMLSelectElement).value)
       .toBe('staff-1');
     expect(host.querySelector('#delivery-contact')).toBeNull();
     expect(host.textContent).not.toContain('İlgili kişiler yükleniyor');
-    expect(crm.getCustomer).not.toHaveBeenCalled();
 
     await selectProduct(host);
     await act(async () => {

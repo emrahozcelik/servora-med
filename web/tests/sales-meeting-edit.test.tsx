@@ -6,11 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesMeetingEditForm } from '../src/jobs/SalesMeetingEditForm';
 import type { JobCard } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
+import { clearCustomerSelection, stubMatchMedia } from './customer-search-select-harness';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn(), getCustomer: vi.fn() }));
 vi.mock('../src/services/people-api', async (original) => ({
   ...await original<typeof import('../src/services/people-api')>(), ...people,
 }));
@@ -55,15 +56,21 @@ describe('SalesMeetingEditForm', () => {
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     crm.listCustomers.mockResolvedValue({
       items: [customer('customer-1', 'A Klinik'), customer('customer-2', 'B Klinik')],
-      total: 2, limit: 200, offset: 0,
+      total: 2, limit: 20, offset: 0,
     });
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'A Klinik'));
     crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Sezer Dener'), profile('staff-2', 'Bora')]);
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => {
+    await act(async () => root.unmount()); container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
 
   it('loads canonical fields, keeps Staff assignment fixed, and shows no Contact selector', async () => {
     await act(async () => root.render(<SalesMeetingEditForm job={job} user={staff} pending={false}
@@ -72,7 +79,9 @@ describe('SalesMeetingEditForm', () => {
     expect((container.querySelector('#meeting-edit-title') as HTMLInputElement).value).toBe(job.title);
     expect((container.querySelector('#meeting-edit-description') as HTMLTextAreaElement).value).toBe(job.description);
     expect(container.querySelector('#meeting-edit-due-date')).toBeNull();
-    expect((container.querySelector('#meeting-edit-customer') as HTMLSelectElement).value).toBe(job.customerId);
+    expect(container.querySelector('#meeting-edit-customer')).not.toBeNull();
+    const customerSelect = container.querySelector('#meeting-edit-customer')?.closest('.ant-select');
+    expect(customerSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('A Klinik');
     expect(container.querySelector('#meeting-edit-contact')).toBeNull();
     expect(container.textContent).not.toContain('Görüşülecek kişi');
     expect(container.textContent).not.toContain('Kişi seçilmedi');
@@ -124,7 +133,7 @@ describe('SalesMeetingEditForm', () => {
       pending={false} onCancel={onCancel} onSave={onSave} />));
     await settle();
     change(container.querySelector('#meeting-edit-title')!, ' ');
-    change(container.querySelector('#meeting-edit-customer')!, '');
+    await clearCustomerSelection(container, 'meeting-edit-customer');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(onSave).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();

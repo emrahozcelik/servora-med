@@ -7,12 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import {
+  pickCustomerByName,
+  settleCustomerSearch,
+  stubMatchMedia,
+} from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), getCustomer: vi.fn(), listContacts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
@@ -80,17 +85,35 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
+    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 20, offset: 0 });
+    crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
     crm.listContacts.mockResolvedValue({ items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0 });
     jobs.createJobCard.mockResolvedValue({ id: 'meeting-1', version: 1 });
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
     root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
+
+  function selectedCustomerLabel() {
+    const select = container.querySelector('#meeting-customer')?.closest('.ant-select');
+    return select?.querySelector('.ant-select-content')?.textContent ?? '';
+  }
+
+  function retryCustomerLoad() {
+    const retry = Array.from(container.querySelectorAll('.inline-action'))
+      .find((node) => node.textContent === 'Tekrar dene') as HTMLButtonElement;
+    return retry;
+  }
 
   it('keeps Staff ownership fixed and submits start-only scheduling without dueDate', async () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
@@ -102,7 +125,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(container.textContent).toContain('Görüşme / ziyaret planla');
     change(container.querySelector('#meeting-title')!, '  İmplant değerlendirme görüşmesi  ');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByName(container, 'meeting-customer', 'A Klinik'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -125,20 +148,19 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).not.toHaveBeenCalled();
     expect(scheduled.value).toBe('2026-08-05T15:00');
-    await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement | null)?.click());
-    await settle();
+    await settleCustomerSearch();
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-05T15:00');
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
   });
 
-  it('blocks on required Customer loading, supports retry, and loads active Staff for managers', async () => {
+  it('blocks submit while the bounded customer page loads and recovers through retry', async () => {
     crm.listCustomers.mockRejectedValueOnce(new Error('CRM yok'));
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
-    await settle();
+    await settleCustomerSearch();
     expect(container.textContent).toContain('Müşteriler yüklenemedi');
     expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement).click());
-    await settle();
+    await act(async () => { retryCustomerLoad().click(); });
+    await settleCustomerSearch();
     expect(crm.listCustomers).toHaveBeenCalledTimes(2);
     expect((container.querySelector('#meeting-assignee') as HTMLSelectElement).textContent).toContain('Bora');
   });
@@ -166,7 +188,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(container.textContent).not.toContain('Görüşülecek kişi');
     expect(container.textContent).not.toContain('Kişi seçilmedi');
     expect(container.textContent).not.toContain('muhatap');
-    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1'));
+    await pickCustomerByName(container, 'meeting-customer', 'A Klinik');
     await settle();
     expect(crm.listContacts).not.toHaveBeenCalled();
     change(container.querySelector('#meeting-title')!, 'Görüşme');
@@ -181,23 +203,27 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
-  it('auto-selects Customer when initialCustomerId matches without loading Contacts', async () => {
-    crm.listCustomers.mockResolvedValue({
-      items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
-    });
+  it('resolves the initial customer through direct lookup without a catalog loop', async () => {
+    crm.getCustomer.mockResolvedValue(customer('c1', 'A Klinik'));
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" /></MemoryRouter>));
     await settle();
-    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('c1');
+    await settleCustomerSearch();
+    expect(crm.getCustomer).toHaveBeenCalledWith('c1');
+    expect(selectedCustomerLabel()).toContain('A Klinik');
+    // Bounded pages only: no full-catalog pagination loop.
+    expect(crm.listCustomers.mock.calls.every(
+      (call) => ((call[0] as { limit: number }).limit ?? 0) <= 20,
+    )).toBe(true);
     expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
-  it('resets Customer when initialCustomerId does not match any loaded customer', async () => {
-    crm.listCustomers.mockResolvedValue({
-      items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
-    });
+  it('clears an unknown initialCustomerId instead of keeping a stale id', async () => {
+    crm.getCustomer.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Bulunamadı.'));
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" /></MemoryRouter>));
     await settle();
-    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('');
+    await settleCustomerSearch();
+    expect(crm.getCustomer).toHaveBeenCalledWith('c404');
+    expect(selectedCustomerLabel()).not.toContain('A Klinik');
     expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
@@ -220,7 +246,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle(); change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'PRODUCT_DEMO');
-    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
+    await pickCustomerByName(container, 'meeting-customer', 'A Klinik'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
     const form = container.querySelector('form') as HTMLFormElement;
     await act(async () => form.requestSubmit()); form.requestSubmit();

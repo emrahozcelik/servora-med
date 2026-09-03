@@ -9,6 +9,12 @@ import { DeliveryCreateView } from '../src/DeliveryCreate';
 import { CustomerScheduleNotice } from '../src/jobs/CustomerScheduleNotice';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import {
+  clearCustomerSelection,
+  pickCustomerByName,
+  pickCustomerByNameWithFakeTimers,
+  stubMatchMedia,
+} from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -138,11 +144,12 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     vi.useFakeTimers();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
+    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 20, offset: 0 });
     crm.listContacts.mockResolvedValue({ items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0 });
     jobs.createJobCard.mockResolvedValue({ id: 'meeting-1', version: 1 });
     jobs.previewCustomerSchedule.mockResolvedValue({ level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null });
@@ -151,6 +158,8 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -167,7 +176,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(jobs.previewCustomerSchedule).toHaveBeenCalledWith({
@@ -181,7 +190,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
@@ -200,7 +209,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(container.textContent).toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
@@ -215,7 +224,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
@@ -227,11 +236,11 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(jobs.previewCustomerSchedule).toHaveBeenCalledTimes(1);
-    change(container.querySelector('#meeting-customer')!, ''); await settle();
+    await clearCustomerSelection(container, 'meeting-customer');
     await act(async () => { resolvePreview(staffConflictEvaluation); });
     await settle();
     expect(container.textContent).not.toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
@@ -243,7 +252,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-17T14:30');
     await advancePreview();
     expect(container.textContent).toContain('ziyaret sıklığı sınırı aşılıyor');
@@ -256,7 +265,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-17T14:30');
     await advancePreview();
     const reason = container.querySelector('#customer-visit-override-reason') as HTMLTextAreaElement;
@@ -289,7 +298,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -358,13 +367,13 @@ describe('Delivery authoritative conflict alternative', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     vi.useFakeTimers();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
+    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 20, offset: 0 });
     crm.listContacts.mockResolvedValue({ items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0 });
-    api.listReferenceCustomers.mockResolvedValue([customer('c1', 'A Klinik')]);
     crm.getCustomer.mockResolvedValue({ ...customer('c1', 'A Klinik'), contacts: [contact('c1', 'ct1', 'Dr. Ayşe')] });
     products.listProducts.mockResolvedValue({
       items: [{
@@ -380,6 +389,8 @@ describe('Delivery authoritative conflict alternative', () => {
   });
   afterEach(async () => {
     await act(async () => root.unmount()); container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -399,7 +410,7 @@ describe('Delivery authoritative conflict alternative', () => {
     ));
     await act(async () => root.render(<MemoryRouter><DeliveryCreateView user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
-    change(container.querySelector('#delivery-customer')!, 'c1'); await settle();
+    await pickCustomerByNameWithFakeTimers(container, 'delivery-customer', 'A Klinik');
     await selectProduct(container);
     change(container.querySelector('#delivery-scheduled-at')!, '2026-07-01T10:00');
     change(container.querySelector('#delivery-quantity-p1')!, '2');
