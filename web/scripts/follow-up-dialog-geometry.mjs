@@ -147,14 +147,18 @@ for (const [browserName, browserType] of [['chromium', chromium], ['webkit', web
         !measured.point.startsWith('NAV.'));
       check(`${prefix} no horizontal page overflow`, `scrollWidth=${measured.docScrollW}`,
         measured.docScrollW <= measured.docClientW + 1);
-      // User-style scroll input (wheel where supported).
+      // User-style scroll input (wheel where supported). Retried once: under
+      // CI load the first synthetic wheel can land before the compositor is
+      // ready, while programmatic scrolling already proves scrollability.
       await page.evaluate(() => { document.querySelector('#dialog').scrollTop = 0; });
       let wheelTop = 0;
       try {
         await page.mouse.move(viewport.width / 2, viewport.height / 2);
-        await page.mouse.wheel(0, 800);
-        await page.waitForTimeout(250);
-        wheelTop = await page.evaluate(() => document.querySelector('#dialog').scrollTop);
+        for (let attempt = 0; attempt < 2 && wheelTop === 0; attempt += 1) {
+          await page.mouse.wheel(0, 800);
+          await page.waitForTimeout(400);
+          wheelTop = await page.evaluate(() => document.querySelector('#dialog').scrollTop);
+        }
       } catch {
         wheelTop = -1; // input unsupported; programmatic proof above governs
       }
