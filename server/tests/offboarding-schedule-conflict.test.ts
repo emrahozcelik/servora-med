@@ -6,10 +6,13 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
+import { PostgresCalendarRepository } from '../src/modules/calendar/repository.js';
+import { CalendarService } from '../src/modules/calendar/service.js';
 import { canonicalScheduledEnd } from '../src/modules/job-cards/job-card-duration.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import { PostgresStaffOffboardingService } from '../src/modules/people/offboarding.js';
+import type { CalendarActor } from '../src/modules/calendar/types.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -107,6 +110,20 @@ async function waitForBlockingPid(pool: Pool, waitingPid: number, blockingPid: n
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   throw new Error(`Expected PostgreSQL pid ${waitingPid} to be blocked by ${blockingPid}.`);
+}
+
+async function bounded<T>(promise: Promise<T>) {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Lock-order race timed out')), 2_500);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function insertUser(pool: Pool, organizationId: string, role: string, name: string) {
@@ -422,6 +439,310 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
       await expect(service.execute(adminUser, target.id, input)).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT' });
       const after = await pool.query<{ count: string }>(`SELECT COUNT(*) FROM job_cards WHERE assigned_to = $1 AND status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') AND scheduled_at IS NOT NULL`, [replacement.id]);
       expect(Number(after.rows[0]!.count)).toBe(1);
+    });
+  });
+
+  it('forces a real Calendar writer and offboarding writer lock-order race', async () => {
+    await withFixture(async ({
+      pool, createPool, organizationId, admin, target, replacement, customerId,
+    }) => {
+      const raceNow = new Date('2026-09-10T09:00:00.000Z');
+      const calendarPool = createPool();
+      const offboardingPool = createPool();
+      const calendarUserLockAcquired = deferred<number>();
+      const releaseCalendarUserLock = deferred<void>();
+      const offboardingReplacementLockAttempted = deferred<number>();
+      let calendarUserLockObserved = false;
+      let offboardingReplacementLockObserved = false;
+      let calendarPromise: Promise<unknown> | undefined;
+      let offboardingPromise: Promise<unknown> | undefined;
+
+      try {
+        const adminActor: CalendarActor = {
+          id: admin.id,
+          organizationId,
+          role: 'ADMIN',
+        };
+        const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+        const eventId = await insertCalendar(
+          pool,
+          organizationId,
+          target.id,
+          admin.id,
+          '2026-09-10T10:00:00.000Z',
+          '2026-09-10T11:00:00.000Z',
+        );
+        const calendarService = new CalendarService(
+          true,
+          new PostgresCalendarRepository(calendarPool, 30, false),
+          () => raceNow,
+        );
+        const offboardingService = new PostgresStaffOffboardingService(
+          offboardingPool,
+          undefined,
+          () => raceNow,
+        );
+        const plan = await offboardingService.preview(adminUser, target.id);
+        const input = {
+          clientActionId: randomUUID(),
+          planHash: plan.planHash,
+          reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+          jobDecisions: [],
+          calendarDecisions: plan.calendar.map((item) => ({
+            calendarEventId: item.id,
+            replacementUserId: replacement.id,
+          })),
+          followUpDecisions: [],
+          customerDecisions: plan.customers.map((item) => ({
+            customerId: item.id,
+            action: 'UNASSIGN' as const,
+          })),
+          reminderDecisions: [],
+        };
+        expect(input.calendarDecisions).toEqual([
+          { calendarEventId: eventId, replacementUserId: replacement.id },
+        ]);
+        expect(input.customerDecisions).toEqual([{ customerId, action: 'UNASSIGN' }]);
+
+        observePoolQueries(calendarPool, {
+          after: async (query) => {
+            if (!calendarUserLockObserved
+              && query.text.includes('SELECT id, organization_id, role, is_active')
+              && query.text.includes('FROM users')
+              && query.text.includes('FOR UPDATE')
+              && query.values[1] === replacement.id) {
+              calendarUserLockObserved = true;
+              calendarUserLockAcquired.resolve(query.processId);
+              await releaseCalendarUserLock.promise;
+            }
+          },
+        });
+        observePoolQueries(offboardingPool, {
+          before: (query) => {
+            if (!offboardingReplacementLockObserved
+              && query.text.includes('FROM users')
+              && query.text.includes('id = ANY')
+              && query.text.includes('FOR UPDATE')
+              && queryIncludesUserId(query.values, replacement.id)) {
+              offboardingReplacementLockObserved = true;
+              offboardingReplacementLockAttempted.resolve(query.processId);
+            }
+          },
+        });
+
+        calendarPromise = calendarService.patch(adminActor, eventId, {
+          clientActionId: randomUUID(),
+          expectedVersion: 1,
+          assignedUserId: replacement.id,
+        });
+        const calendarProcessId = await bounded(calendarUserLockAcquired.promise);
+        expect(calendarUserLockObserved).toBe(true);
+
+        offboardingPromise = offboardingService.execute(adminUser, target.id, input);
+        const offboardingProcessId = await bounded(offboardingReplacementLockAttempted.promise);
+        expect(offboardingReplacementLockObserved).toBe(true);
+        expect(offboardingProcessId).not.toBe(calendarProcessId);
+
+        const blockingState = await bounded(
+          waitForBlockingPid(pool, offboardingProcessId, calendarProcessId),
+        );
+        expect(blockingState.wait_event_type).toBe('Lock');
+
+        releaseCalendarUserLock.resolve(undefined);
+        const outcomes = await bounded(Promise.allSettled([
+          calendarPromise,
+          offboardingPromise,
+        ]));
+        const rejectedCodes = outcomes
+          .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+          .map((outcome) => (outcome.reason as { code?: string }).code);
+        expect(rejectedCodes).not.toContain('40P01');
+        expect(outcomes.some((outcome) => outcome.status === 'fulfilled')).toBe(true);
+
+        const finalState = await pool.query<{
+          assigned_user_id: string;
+          version: number;
+          target_active: boolean;
+        }>(
+          `SELECT e.assigned_user_id, e.version, u.is_active AS target_active
+             FROM calendar_events e
+             JOIN users u ON u.organization_id = e.organization_id AND u.id = $2
+            WHERE e.organization_id = $1 AND e.id = $3`,
+          [organizationId, target.id, eventId],
+        );
+        expect(finalState.rows[0]).toMatchObject({
+          assigned_user_id: replacement.id,
+        });
+        expect(finalState.rows[0]!.version).toBeGreaterThanOrEqual(1);
+      } finally {
+        releaseCalendarUserLock.resolve(undefined);
+        const pending = [calendarPromise, offboardingPromise]
+          .filter((promise): promise is Promise<unknown> => promise !== undefined);
+        await Promise.allSettled(pending);
+        await Promise.all([calendarPool.end(), offboardingPool.end()]);
+      }
+    });
+  });
+
+  it('proves a same-Customer JobCard writer serializes with offboarding', async () => {
+    await withFixture(async ({
+      pool, createPool, organizationId, admin, target, replacement, customerId,
+    }) => {
+      const raceNow = new Date('2026-09-10T09:00:00.000Z');
+      const targetJob = await insertJob(pool, {
+        organizationId,
+        assignedTo: target.id,
+        createdBy: admin.id,
+        customerId,
+        type: 'GENERAL_TASK',
+      });
+      const jobPool = createPool();
+      const offboardingPool = createPool();
+      const jobUserLockAcquired = deferred<number>();
+      const jobCustomerLockAcquired = deferred<void>();
+      const releaseJobUserLock = deferred<void>();
+      const offboardingReplacementLockAttempted = deferred<number>();
+      let jobUserLockObserved = false;
+      let offboardingReplacementLockObserved = false;
+      let jobPromise: Promise<unknown> | undefined;
+      let offboardingPromise: Promise<unknown> | undefined;
+
+      try {
+        const adminActor: JobCardActor = {
+          id: admin.id,
+          organizationId,
+          role: 'ADMIN',
+        };
+        const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+        const jobService = new JobCardService(
+          new PostgresJobCardRepository(jobPool),
+          () => raceNow,
+          undefined,
+          undefined,
+          undefined,
+          { enabled: true, reminderLeadMinutes: 30 },
+        );
+        const offboardingService = new PostgresStaffOffboardingService(
+          offboardingPool,
+          undefined,
+          () => raceNow,
+        );
+        const plan = await offboardingService.preview(adminUser, target.id);
+        const input = {
+          clientActionId: randomUUID(),
+          planHash: plan.planHash,
+          reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+          jobDecisions: plan.jobs.map((item) => ({
+            jobCardId: item.id,
+            replacementUserId: replacement.id,
+          })),
+          calendarDecisions: [],
+          followUpDecisions: [],
+          customerDecisions: plan.customers.map((item) => ({
+            customerId: item.id,
+            action: 'REASSIGN' as const,
+            replacementUserId: replacement.id,
+          })),
+          reminderDecisions: [],
+        };
+
+        observePoolQueries(jobPool, {
+          after: async (query) => {
+            if (!jobUserLockObserved
+              && query.text.includes('SELECT id, organization_id, role, is_active')
+              && query.text.includes('FROM users')
+              && query.text.includes('FOR UPDATE')
+              && query.values[1] === replacement.id) {
+              jobUserLockObserved = true;
+              jobUserLockAcquired.resolve(query.processId);
+              await releaseJobUserLock.promise;
+            }
+          },
+        });
+        observePoolQueries(jobPool, {
+          after: (query) => {
+            if (query.text.includes('FROM customers')
+              && query.text.includes('FOR UPDATE')
+              && query.values[1] === customerId) {
+              jobCustomerLockAcquired.resolve(undefined);
+            }
+          },
+        });
+        observePoolQueries(offboardingPool, {
+          before: (query) => {
+            if (!offboardingReplacementLockObserved
+              && query.text.includes('FROM users')
+              && query.text.includes('id = ANY')
+              && query.text.includes('FOR UPDATE')
+              && queryIncludesUserId(query.values, replacement.id)) {
+              offboardingReplacementLockObserved = true;
+              offboardingReplacementLockAttempted.resolve(query.processId);
+            }
+          },
+        });
+
+        jobPromise = jobService.create(adminActor, {
+          clientActionId: randomUUID(),
+          type: 'GENERAL_TASK',
+          title: 'Customer writer lock race',
+          description: null,
+          customerId,
+          contactId: null,
+          assignedTo: replacement.id,
+          priority: 'normal',
+          dueDate: null,
+          scheduledAt: null,
+        } as never);
+        const jobProcessId = await bounded(jobUserLockAcquired.promise);
+        expect(jobUserLockObserved).toBe(true);
+
+        offboardingPromise = offboardingService.execute(adminUser, target.id, input);
+        const offboardingProcessId = await bounded(offboardingReplacementLockAttempted.promise);
+        expect(offboardingReplacementLockObserved).toBe(true);
+        expect(offboardingProcessId).not.toBe(jobProcessId);
+        const blockingState = await bounded(
+          waitForBlockingPid(pool, offboardingProcessId, jobProcessId),
+        );
+        expect(blockingState.wait_event_type).toBe('Lock');
+
+        releaseJobUserLock.resolve(undefined);
+        await bounded(jobCustomerLockAcquired.promise);
+        const outcomes = await bounded(Promise.allSettled([
+          jobPromise,
+          offboardingPromise,
+        ]));
+        expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBe(true);
+        const rejectedCodes = outcomes
+          .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+          .map((outcome) => (outcome.reason as { code?: string }).code);
+        expect(rejectedCodes).not.toContain('40P01');
+
+        const finalState = await pool.query<{
+          target_active: boolean;
+          target_job_assignee: string;
+          created_job_assignee: string;
+          customer_assignee: string;
+        }>(
+          `SELECT
+             (SELECT is_active FROM users WHERE organization_id = $1 AND id = $2) AS target_active,
+             (SELECT assigned_to FROM job_cards WHERE organization_id = $1 AND id = $3) AS target_job_assignee,
+             (SELECT assigned_to FROM job_cards WHERE organization_id = $1 AND title = 'Customer writer lock race') AS created_job_assignee,
+             (SELECT assigned_staff_user_id FROM customers WHERE organization_id = $1 AND id = $4) AS customer_assignee`,
+          [organizationId, target.id, targetJob, customerId],
+        );
+        expect(finalState.rows[0]).toEqual({
+          target_active: false,
+          target_job_assignee: replacement.id,
+          created_job_assignee: replacement.id,
+          customer_assignee: replacement.id,
+        });
+      } finally {
+        releaseJobUserLock.resolve(undefined);
+        const pending = [jobPromise, offboardingPromise]
+          .filter((promise): promise is Promise<unknown> => promise !== undefined);
+        await Promise.allSettled(pending);
+        await Promise.all([jobPool.end(), offboardingPool.end()]);
+      }
     });
   });
 

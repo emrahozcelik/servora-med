@@ -241,10 +241,10 @@ export class PostgresStaffOffboardingService {
     const client = await this.pool.connect();
     let committed = false;
     try {
-      // Explicit target/resource row locks provide atomic offboarding and
-      // serialize replacement scheduling. READ COMMITTED is intentional: the
-      // conflict statements issued after the replacement lock must observe
-      // commits that won while this transaction was waiting for that lock.
+      // Lock all User rows before any mutable responsibility row. READ
+      // COMMITTED is intentional: the conflict statements issued after a
+      // replacement lock must observe commits that won while this transaction
+      // was waiting for that lock.
       await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
       const actorRow = await client.query<{ role: string; is_active: boolean }>(
         `SELECT role, is_active FROM users WHERE organization_id = $1 AND id = $2 FOR SHARE`,
@@ -305,14 +305,17 @@ export class PostgresStaffOffboardingService {
       }
       if (claim.status !== 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
 
-      const lockedTargetRow = await client.query<{
+      const replacementIds = this.replacementIds(input);
+      const userIds = [...new Set([targetUserId, ...replacementIds])].sort();
+      const lockedUsers = await client.query<{
         id: string; organization_id: string; role: string; is_active: boolean; version: number;
       }>(
         `SELECT id, organization_id, role, is_active, version FROM users
-          WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
-        [actor.organizationId, targetUserId],
+          WHERE organization_id = $1 AND id = ANY($2::uuid[])
+          ORDER BY id FOR UPDATE`,
+        [actor.organizationId, userIds],
       );
-      const lockedTarget = lockedTargetRow.rows[0];
+      const lockedTarget = lockedUsers.rows.find((item) => item.id === targetUserId);
       if (!lockedTarget) throw notFound();
       if (lockedTarget.role !== 'STAFF') throw new AppError('OFFBOARDING_TARGET_NOT_STAFF', 409, 'Offboarding hedefi Staff olmalıdır.');
       if (!lockedTarget.is_active) throw new AppError('USER_ALREADY_INACTIVE', 409, 'Staff zaten pasiftir.');
@@ -321,17 +324,10 @@ export class PostgresStaffOffboardingService {
       if (currentPlan.planHash !== input.planHash) throw new AppError('STALE_PLAN', 409, 'Offboarding planı güncel değil.');
       this.validateDecisions(currentPlan, input);
 
-      const replacementIds = this.replacementIds(input);
-      if (replacementIds.length > 0) {
-        const replacements = await client.query<{ id: string; role: string; is_active: boolean }>(
-          `SELECT id, role, is_active FROM users
-            WHERE organization_id = $1 AND id = ANY($2::uuid[])
-            ORDER BY id FOR UPDATE`,
-          [actor.organizationId, replacementIds],
-        );
-        if (replacements.rows.length !== replacementIds.length || replacements.rows.some((item) => item.role !== 'STAFF' || !item.is_active || item.id === targetUserId)) {
-          throw new AppError('INVALID_REPLACEMENT_STAFF', 409, 'Replacement Staff geçersiz veya aktif değil.');
-        }
+      const replacements = lockedUsers.rows.filter((item) => item.id !== targetUserId);
+      if (replacements.length !== replacementIds.length
+        || replacements.some((item) => item.role !== 'STAFF' || !item.is_active)) {
+        throw new AppError('INVALID_REPLACEMENT_STAFF', 409, 'Replacement Staff geçersiz veya aktif değil.');
       }
 
       const summary = await this.applyMutations(client, actor, targetUserId, input, currentPlan);
@@ -723,6 +719,12 @@ export class PostgresStaffOffboardingService {
         ORDER BY id${suffix}`,
       [target.organizationId, target.id, ACTIVE_JOB_STATUSES],
     );
+    const followUps = await queryable.query<{ job_card_id: string; follow_up_proposed_assignee: string; follow_up_proposed_at: Date; version: number }>(
+      `SELECT id AS job_card_id, follow_up_proposed_assignee, follow_up_proposed_at, version FROM job_cards
+        WHERE organization_id = $1 AND follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $3
+        ORDER BY id${suffix}`,
+      [target.organizationId, target.id, at],
+    );
     const customers = await queryable.query<{ id: string; assigned_staff_user_id: string; version: number }>(
       `SELECT id, assigned_staff_user_id, version FROM customers
         WHERE organization_id = $1 AND assigned_staff_user_id = $2 ORDER BY id${suffix}`,
@@ -731,12 +733,6 @@ export class PostgresStaffOffboardingService {
     const calendar = await queryable.query<{ id: string; assigned_user_id: string; status: string; version: number; starts_at: Date; ends_at: Date }>(
       `SELECT id, assigned_user_id, status, version, starts_at, ends_at FROM calendar_events
         WHERE organization_id = $1 AND assigned_user_id = $2 AND status = 'ACTIVE' AND starts_at > $3
-        ORDER BY id${suffix}`,
-      [target.organizationId, target.id, at],
-    );
-    const followUps = await queryable.query<{ job_card_id: string; follow_up_proposed_assignee: string; follow_up_proposed_at: Date; version: number }>(
-      `SELECT id AS job_card_id, follow_up_proposed_assignee, follow_up_proposed_at, version FROM job_cards
-        WHERE organization_id = $1 AND follow_up_proposed_assignee = $2 AND follow_up_proposed_at > $3
         ORDER BY id${suffix}`,
       [target.organizationId, target.id, at],
     );

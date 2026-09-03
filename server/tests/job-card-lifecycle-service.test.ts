@@ -112,6 +112,8 @@ class LifecycleRepository implements JobCardRepository {
 
   private tx(): JobCardTransaction {
     return {
+      getJob: async (org, id) =>
+        org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id

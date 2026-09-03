@@ -106,6 +106,8 @@ class MemoryJobCardRepository implements JobCardRepository {
     const activityCount = this.activities.length;
     const locationCount = this.locationAppends.length;
     const tx: JobCardTransaction = {
+      getJob: async (organizationId, id) =>
+        this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
       getJobForUpdate: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
       getJobDetail: async (organizationId, id) =>
