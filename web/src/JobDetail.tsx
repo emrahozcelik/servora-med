@@ -17,6 +17,8 @@ import {
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
   type StartJobCardInput,
   type AvailableSlot,
+  buildStaffFollowUpProposalInput,
+  isAutoSchedulableFollowUpType,
 } from './jobs/jobs-api';
 import { listCalendarAssignees } from './services/calendar-api';
 import {
@@ -82,6 +84,7 @@ import {
   FollowUpCreateAction,
   FollowUpRecommendation,
   FollowUpSourcePanel,
+  SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
 
 type StaffCommand = 'start' | 'submit';
@@ -608,6 +611,9 @@ export function JobDetailPanel({
       )}
       {realtimeStaleNotice}
       {continuity}
+      {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
+        <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
+      )}
       {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
       <div data-job-detail-section="lifecycle">
         <WorkflowSteps
@@ -898,6 +904,12 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     assignees: RelatedName[];
     overrideReason: string;
     inlineError: string | null;
+    /**
+     * Staff AUTO no-slot fallback. False in the normal automatic path (the
+     * server selects the slot); true when no automatic slot exists and the
+     * user must pick an explicit date/time instead.
+     */
+    explicitScheduleAllowed: boolean;
   } | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
@@ -1434,7 +1446,19 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         ];
         if (caught instanceof ApiError && dialogErrorCodes.includes(caught.code)
           && dialog !== null && (dialog.kind === 'submit' || dialog.kind === 'approve')) {
-          setFollowUp((current) => current ? { ...current, inlineError: caught.message } : current);
+          setFollowUp((current) => {
+            if (!current) return current;
+            const staffAutoFailed = dialog.kind === 'submit'
+              && caught.code === 'FOLLOW_UP_PROPOSAL_INVALID'
+              && current.draft !== null
+              && current.draft.scheduledAt === ''
+              && !current.explicitScheduleAllowed;
+            return {
+              ...current,
+              inlineError: caught.message,
+              explicitScheduleAllowed: current.explicitScheduleAllowed || staffAutoFailed,
+            };
+          });
           if (caught.code === 'FOLLOW_UP_CUSTOMER_CONFLICT'
             && typeof caught.details?.suggestedAlternativeAt === 'string') {
             setFollowUp((current) => current ? {
@@ -1791,7 +1815,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       const suggestion = await getFollowUpSuggestion(job.id);
       setFollowUp({
         draft: {
-          scheduledAt: suggestion.scheduledAt ?? '',
+          // Staff AUTO: never prefill a server time. An empty value omits
+          // scheduledAt from the request so the backend selects the slot.
+          // An explicit value is only ever Staff-chosen via the no-slot fallback.
+          scheduledAt: '',
           type: suggestion.type,
           assignedTo: suggestion.assignedTo,
           followUpInstructions: suggestion.followUpInstructions,
@@ -1802,11 +1829,25 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         assignees: [],
         overrideReason: '',
         inlineError: null,
+        explicitScheduleAllowed: suggestion.scheduledAt === null,
       });
     } catch {
+      // Suggestion unavailable: still offer an actionable draft with explicit
+      // scheduling instead of a dead-end message.
       setFollowUp({
-        draft: null, origin: null, evaluation: null,
-        assigneeName: job.assignee.name, assignees: [], overrideReason: '', inlineError: null,
+        draft: {
+          scheduledAt: '',
+          type: 'SALES_MEETING',
+          assignedTo: job.assignee.id,
+          followUpInstructions: '',
+        },
+        origin: null,
+        evaluation: null,
+        assigneeName: job.assignee.name,
+        assignees: [],
+        overrideReason: '',
+        inlineError: null,
+        explicitScheduleAllowed: true,
       });
     }
   }
@@ -1858,6 +1899,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       assignees,
       overrideReason: '',
       inlineError: null,
+      explicitScheduleAllowed: false,
     });
   }
 
@@ -1946,21 +1988,22 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         if (!followUpRequired) void execute('SUBMIT_FOR_APPROVAL', reason);
         return;
       }
+      const staffAuto = isAutoSchedulableFollowUpType(followUp.draft.type);
       if (!followUp.draft.scheduledAt) {
-        setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
-        return;
+        if (staffAuto && !followUp.explicitScheduleAllowed) {
+          // Normal Staff AUTO path: omit scheduledAt so the backend selects
+          // the earliest suitable slot. No empty-date block here.
+        } else {
+          setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
+          return;
+        }
       }
       if (!followUp.draft.followUpInstructions.trim()) {
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
         return;
       }
       void execute('SUBMIT_FOR_APPROVAL', reason, {
-        followUpProposal: {
-          scheduledAt: followUp.draft.scheduledAt,
-          type: followUp.draft.type,
-          assignedTo: followUp.draft.assignedTo,
-          followUpInstructions: followUp.draft.followUpInstructions.trim(),
-        },
+        followUpProposal: buildStaffFollowUpProposalInput(followUp.draft),
       });
       return;
     }
@@ -2115,6 +2158,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             allowTypeEdit: dialog.kind === 'approve',
             overrideReason: followUp.overrideReason,
             inlineError: followUp.inlineError,
+            autoSupported: dialog.kind === 'submit'
+              && followUp.draft !== null
+              && isAutoSchedulableFollowUpType(followUp.draft.type),
+            allowExplicitSchedule: followUp.explicitScheduleAllowed,
             onChange: updateFollowUpDraft,
             onOverrideReasonChange: (value) => setFollowUp((current) => current
               ? { ...current, overrideReason: value }

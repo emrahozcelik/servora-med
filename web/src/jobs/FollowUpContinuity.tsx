@@ -7,7 +7,9 @@ import { jobCardStatusLabel, jobTypeLabels } from './job-labels';
 import {
   getJobCard,
   listFollowUps,
+  type FollowUpProposal,
   type JobCard,
+  type JobCardType,
   type MeetingDetails,
   type FollowUpListItem,
 } from './jobs-api';
@@ -27,6 +29,41 @@ function formatInstant(value: string | null) {
 
 export function FollowUpBadge({ visible }: { visible: boolean }) {
   return visible ? <span className="follow-up-badge">{FOLLOW_UP_BADGE_LABEL}</span> : null;
+}
+
+/**
+ * Display-only durations for system-selected follow-up slots. Mirrors the
+ * backend canonical durations for presentation only; the server remains the
+ * authoritative scheduler.
+ */
+const SYSTEM_SELECTED_FOLLOW_UP_DURATION_MINUTES: Readonly<Partial<Record<JobCardType, number>>> = {
+  SALES_MEETING: 60,
+};
+
+/**
+ * Read-only confirmation shown when the server selected the follow-up slot
+ * (proposal origin SYSTEM). Renders only server-returned data; never
+ * fabricates a time before the proposal exists.
+ */
+export function SystemSelectedFollowUpNotice({ proposal }: { proposal: FollowUpProposal }) {
+  const durationMinutes = SYSTEM_SELECTED_FOLLOW_UP_DURATION_MINUTES[proposal.type];
+  return <section className="follow-up-proposal-card follow-up-system-notice" role="status"
+    aria-label="Otomatik takip bilgisi">
+    <div className="follow-up-proposal-heading">
+      <h3>Otomatik takip planı</h3>
+      <span className="follow-up-proposal-badge">SİSTEM SEÇTİ</span>
+    </div>
+    <p className="follow-up-proposal-summary">
+      <time dateTime={proposal.scheduledAt}>{formatInstant(proposal.scheduledAt)}</time>
+      {' · '}{jobTypeLabels[proposal.type]}
+      {durationMinutes !== undefined && durationMinutes !== null
+        ? <> · Yaklaşık süre {durationMinutes} dakika</>
+        : null}
+    </p>
+    <p className="form-help follow-up-proposal-notice">
+      Uygun takip zamanı sistem tarafından seçildi. Yönetici onayı bekleniyor; yönetici gerekirse zamanı değiştirebilir.
+    </p>
+  </section>;
 }
 
 export function FollowUpSourcePanel({ job }: { job: JobCard }) {
