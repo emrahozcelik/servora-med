@@ -183,6 +183,155 @@ describe('SystemSelectedFollowUpNotice', () => {
   });
 });
 
+describe('JobDetail suggestion failure semantics', () => {
+  const staffCard = {
+    id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS',
+    version: 3, title: 'Klinik ziyareti', description: null, customerId: 'c1', contactId: null,
+    assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+    scheduledAt: '2026-08-01T10:00:00.000Z', scheduledEndsAt: '2026-08-01T11:00:00.000Z',
+    engagementKind: 'CUSTOMER_VISIT',
+    assignee: { id: 's1', name: 'Ayşe Personel' },
+    customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
+    workflowContext: {
+      allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+      allowedActions: ['VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE'],
+      startLocationCaptureEnabled: false,
+      lifecycle: {
+        createdAt: '2026-08-01T09:00:00.000Z',
+        acceptedAt: '2026-08-01T09:05:00.000Z', acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-08-01T10:00:00.000Z',
+        submittedAt: null, submittedBy: null, submissionNote: null,
+        approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
+      submissionReadiness: null,
+    },
+    followUpContext: null,
+    followUpProposal: null,
+  };
+
+  const staff = {
+    id: 's1', organizationId: 'org-1', name: 'Ayşe Personel',
+    email: 'ayse@test.local', role: 'STAFF', mustChangePassword: false,
+    isActive: true, version: 1,
+  };
+
+  const meeting = {
+    jobCardId: 'job-1', meetingAt: '2026-08-01T10:00:00.000Z',
+    outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+    meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
+  };
+
+  const suggestionBox: { mode: 'slot' | 'no-slot' | 'network' | 'forbidden' | 'server' | 'malformed' } = { mode: 'slot' };
+
+  function stubSuggestionFetch() {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json({ items: [], total: 0, limit: 25, nextCursor: null });
+      if (url.includes('/activity?')) return Response.json({ items: [], total: 0, limit: 50, offset: 0 });
+      if (url.includes('/meeting-details') && method === 'GET') return Response.json(meeting);
+      if (url.includes('/follow-up-suggestion')) {
+        if (suggestionBox.mode === 'network') throw new TypeError('fetch failed');
+        if (suggestionBox.mode === 'forbidden') {
+          return Response.json({ code: 'FORBIDDEN', error: 'Bu işlem için yetkiniz bulunmuyor.' }, { status: 403 });
+        }
+        if (suggestionBox.mode === 'server') {
+          return Response.json({ code: 'REQUEST_FAILED', error: 'İşlem tamamlanamadı. Lütfen tekrar deneyin.' }, { status: 500 });
+        }
+        if (suggestionBox.mode === 'malformed') return Response.json({ unexpected: true });
+        return Response.json({
+          scheduledAt: suggestionBox.mode === 'no-slot' ? null : '2026-08-08T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip: Ziyaret',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(staffCard);
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    }));
+  }
+
+  async function flush() {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  async function openSubmitDialog(host: HTMLElement) {
+    const submit = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kontrole gönder')!;
+    await act(async () => { submit.click(); await flush(); await flush(); });
+    return host.querySelector<HTMLElement>('[role="dialog"]')!;
+  }
+
+  it.each([
+    ['network failure', 'network'],
+    ['auth/forbidden failure', 'forbidden'],
+    ['server failure', 'server'],
+    ['malformed response', 'malformed'],
+  ] as const)('%s shows a retryable load error, never a no-slot fallback', async (_label, mode) => {
+    suggestionBox.mode = mode;
+    stubSuggestionFetch();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff as never} onBack={() => {}} onChanged={() => {}} />);
+        await flush(); await flush();
+      });
+      const dialog = await openSubmitDialog(host);
+      expect(dialog.textContent).not.toContain('Uygun otomatik zaman bulunamadı');
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')).toBeNull();
+      expect(dialog.querySelector('#follow-up-proposal-instructions')).toBeNull();
+      const retry = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Tekrar dene');
+      expect(retry).not.toBeUndefined();
+      // Retry recovers into the normal AUTO flow once the backend responds.
+      suggestionBox.mode = 'slot';
+      await act(async () => { retry!.click(); await flush(); await flush(); });
+      expect(dialog.textContent).toContain('sistem tarafından seçilecek');
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('does not leak explicit fallback state across dialog reopen', async () => {
+    suggestionBox.mode = 'no-slot';
+    stubSuggestionFetch();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff as never} onBack={() => {}} onChanged={() => {}} />);
+        await flush(); await flush();
+      });
+      let dialog = await openSubmitDialog(host);
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')).not.toBeNull();
+      const cancel = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Vazgeç')!;
+      await act(async () => { cancel.click(); await flush(); });
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      suggestionBox.mode = 'slot';
+      dialog = await openSubmitDialog(host);
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')).toBeNull();
+      expect(dialog.textContent).toContain('sistem tarafından seçilecek');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe('JobDetail Staff AUTO submit integration', () => {
   const staffCard = {
     id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS',
@@ -226,8 +375,11 @@ describe('JobDetail Staff AUTO submit integration', () => {
   function stubFetch(overrides: {
     suggestionScheduledAt?: string | null;
     submitResult?: Record<string, unknown>;
+    submitFailure?: { status: number; code: string; message: string };
   } = {}) {
-    const { suggestionScheduledAt = '2026-08-08T10:00:00.000Z', submitResult } = overrides;
+    const {
+      suggestionScheduledAt = '2026-08-08T10:00:00.000Z', submitResult, submitFailure,
+    } = overrides;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -248,6 +400,12 @@ describe('JobDetail Staff AUTO submit integration', () => {
         });
       }
       if (url.endsWith('/submit-for-approval') && method === 'POST') {
+        if (submitFailure) {
+          return Response.json(
+            { code: submitFailure.code, error: submitFailure.message },
+            { status: submitFailure.status },
+          );
+        }
         return Response.json(submitResult ?? { ...staffCard, status: 'WAITING_APPROVAL', version: 4 });
       }
       if (url.endsWith('/api/job-cards/job-1')) return Response.json(staffCard);
@@ -350,6 +508,63 @@ describe('JobDetail Staff AUTO submit integration', () => {
       expect(submitBody()).not.toBeNull();
       expect(host.textContent).toContain('SİSTEM SEÇTİ');
       expect(host.textContent).toContain('Yönetici onayı bekleniyor');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it.each([
+    ['minimum-lead validation', { status: 400, code: 'FOLLOW_UP_PROPOSAL_INVALID', message: 'Takip işi planı için en az 15 dakika sonrası seçilmelidir.' }],
+    ['canonical no-slot validation', { status: 409, code: 'FOLLOW_UP_PROPOSAL_INVALID', message: 'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.' }],
+    ['unsupported-type validation', { status: 400, code: 'FOLLOW_UP_PROPOSAL_INVALID', message: 'Müşteri ziyareti takip işi Sales Meeting olmalıdır.' }],
+  ])('POST %s shows the server error without auto-opening manual fallback', async (_label, submitFailure) => {
+    stubFetch({ submitFailure });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff as never} onBack={() => {}} onChanged={() => {}} />);
+        await flush(); await flush();
+      });
+      const dialog = await openSubmitDialog(host);
+      await fillReason(dialog);
+      await confirm(dialog);
+      // Server validation stays visible; no silent fallback, dialog stays open.
+      expect(dialog.textContent).toContain(submitFailure.message);
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')).toBeNull();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('guides empty instructions to the collapsed scope field', async () => {
+    stubFetch({ suggestionScheduledAt: '2026-08-08T10:00:00.000Z' });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff as never} onBack={() => {}} onChanged={() => {}} />);
+        await flush(); await flush();
+      });
+      const dialog = await openSubmitDialog(host);
+      // Empty the scope field, then submit.
+      const scope = dialog.querySelector<HTMLTextAreaElement>('#follow-up-proposal-instructions')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(scope.constructor.prototype, 'value')
+          ?.set?.call(scope, '   ');
+        scope.dispatchEvent(new Event('input', { bubbles: true }));
+        await flush();
+      });
+      await fillReason(dialog);
+      await confirm(dialog);
+      expect(submitBody()).toBeNull();
+      expect(dialog.textContent).toContain('Takip kapsamını düzenle');
+      expect(dialog.querySelector('details[open]')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

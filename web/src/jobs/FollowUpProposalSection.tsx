@@ -49,6 +49,17 @@ export type FollowUpProposalSectionProps = {
    * with a dead-end message.
    */
   allowExplicitSchedule?: boolean;
+  /**
+   * Suggestion load failure message. Rendered with a retry action instead of
+   * any scheduling controls; a failed load must never masquerade as no-slot.
+   */
+  loadError?: string | null;
+  onRetrySuggestion?: () => void;
+  /**
+   * Forces the Staff instructions disclosure open so a required-instructions
+   * validation error is discoverable instead of hidden in collapsed details.
+   */
+  expandInstructions?: boolean;
 };
 
 function formatDateTime(value: string): string {
@@ -86,6 +97,9 @@ export function FollowUpProposalSection({
   initialFocusRef,
   autoSupported = false,
   allowExplicitSchedule = false,
+  loadError = null,
+  onRetrySuggestion,
+  expandInstructions = false,
 }: FollowUpProposalSectionProps): ReactNode {
   const scheduledLocal = draft?.scheduledAt
     ? isoInstantToLocalDateTime(draft.scheduledAt)
@@ -101,7 +115,18 @@ export function FollowUpProposalSection({
       </div>
 
       {draft === null ? (
-        <p className="form-help">Takip için uygun bir tarih bulunamadı. Lütfen tarih ve saat seçin.</p>
+        loadError ? (
+          <>
+            <p className="field-error" role="alert">{loadError}</p>
+            {onRetrySuggestion && (
+              <button className="secondary-button compact-button" type="button" onClick={onRetrySuggestion}>
+                Tekrar dene
+              </button>
+            )}
+          </>
+        ) : (
+          <p className="form-help">Takip için uygun bir tarih bulunamadı. Lütfen tarih ve saat seçin.</p>
+        )
       ) : (
         <>
           <p className="follow-up-proposal-summary">
@@ -156,7 +181,7 @@ export function FollowUpProposalSection({
               <p className="form-help">Saat dilimi: {timeZone}</p>
             </div>
           )}
-          <details className="task-optional-fields follow-up-edit">
+          <details className="task-optional-fields follow-up-edit" open={expandInstructions || undefined}>
             <summary
               ref={!allowExplicitSchedule && initialFocusRef
                 ? (node) => { initialFocusRef.current = node; }
@@ -175,6 +200,7 @@ export function FollowUpProposalSection({
           </details>
         </>
       ) : mode === 'staff' ? (
+        draft === null && loadError ? null : (
         <>
           <details className="task-optional-fields follow-up-edit">
             <summary
@@ -211,6 +237,7 @@ export function FollowUpProposalSection({
             </div>
           </details>
         </>
+        )
       ) : (
         <div className="follow-up-proposal-fields">
           <div className="field-group">
