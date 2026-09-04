@@ -596,6 +596,110 @@ derive_health_schema_target() {
   printf '%s\n' "$target"
 }
 
+transition_release_sha() {
+  local target="${1:-$SHA}"
+  [[ "$target" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=invalid_target target=${target}" >&2
+    return 1
+  }
+
+  [[ -f "$APP_ENV_FILE" && ! -L "$APP_ENV_FILE" ]] || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=env_contract_missing target=${target}" >&2
+    return 1
+  }
+
+  local current=""
+  local current_count=0
+  current_count="$(grep -c '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" 2>/dev/null || true)"
+  if [[ "$current_count" -gt 0 ]]; then
+    current="$(grep -E '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" | tail -n 1 | cut -d= -f2-)"
+  fi
+
+  # Already current and exactly one line — no mutation needed.
+  if [[ "$current" == "$target" && "$current_count" -eq 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION skipped target=${target} reason=already_current"
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp "$(dirname -- "$APP_ENV_FILE")/.servora-med.env.XXXXXX")" || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=mktemp_failed target=${target}" >&2
+    return 1
+  }
+  TEMP_FILES+=("$tmp")
+
+  # Preserve all keys except SERVORA_RELEASE_SHA, then append exactly one
+  # canonical entry. grep -v exits 1 when no lines remain — treat as success
+  # when the file only contained the old SERVORA_RELEASE_SHA line.
+  local grep_status=0
+  grep -v '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" >"$tmp" 2>/dev/null || grep_status=$?
+  if [[ "$grep_status" -ne 0 && "$grep_status" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=filter_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if [[ "$grep_status" -eq 1 ]]; then
+    # Every line was SERVORA_RELEASE_SHA — truncate is intentional
+    : >"$tmp"
+  fi
+  printf 'SERVORA_RELEASE_SHA=%s\n' "$target" >>"$tmp" || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=write_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  local new_count
+  new_count="$(grep -c '^SERVORA_RELEASE_SHA=' "$tmp" 2>/dev/null || true)"
+  if [[ "$new_count" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=duplicate_validation target=${target} count=${new_count}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! grep -F -x "SERVORA_RELEASE_SHA=${target}" "$tmp" >/dev/null 2>&1; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=target_not_found target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+
+  chown root:servora-med "$tmp" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=chown_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+  chmod 640 "$tmp" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=chmod_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  mv -- "$tmp" "$APP_ENV_FILE" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=rename_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  # Post-move contract validation
+  if [[ "$(stat -c '%U:%G:%a' "$APP_ENV_FILE" 2>/dev/null)" != 'root:servora-med:640' ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=contract_drift_after_move target=${target}" >&2
+    return 1
+  fi
+  if [[ "$(grep -c '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" 2>/dev/null || true)" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=duplicate_after_move target=${target}" >&2
+    return 1
+  fi
+
+  # Secret-safe: log only key and old/new identifiers, never secret values.
+  echo "SERVORA_RELEASE_SHA_TRANSITION old=${current:-unset} new=${target}"
+  return 0
+}
+
+verify_release_identity() {
+  local health_body
+  health_body="$(curl --fail --silent --show-error --max-time 5 'http://127.0.0.1:3000/api/health' 2>/dev/null)" || return 1
+  printf '%s' "$health_body" | grep -F -q "\"releaseSha\":\"${SHA}\"" || return 1
+  return 0
+}
+
 transition_health_schema_version() {
   local target
   target="$(derive_health_schema_target)" || {
@@ -819,6 +923,9 @@ rollback_internal() {
   [[ -n "$OLD_RELEASE" ]] || fail ROLLBACK_TARGET_MISSING
   assert_release_dir "$OLD_RELEASE" || fail ROLLBACK_TARGET_INVALID
   atomic_switch "$OLD_RELEASE"
+  # A rolled-back service must report the restored release, not the failed
+  # candidate. Release directories are SHA-named by construction.
+  transition_release_sha "$(basename -- "$OLD_RELEASE")" || fail ROLLBACK_RELEASE_IDENTITY_FAILED
   systemctl restart "$SERVICE" >/dev/null 2>&1 || fail ROLLBACK_SERVICE_RESTART_FAILED
   SERVICE_STOPPED=false
   CURRENT_SWITCHED=false
@@ -906,6 +1013,10 @@ deploy_phase() {
   # Zero-migration preserves the env untouched; failures before this point
   # never reach the transition and therefore preserve the old value.
   transition_health_schema_version || fail HEALTH_SCHEMA_VERSION_TRANSITION_FAILED
+  # Every deployment pins the exact candidate SHA as the server release
+  # identity (read by /api/health), including zero-migration deploys, so the
+  # restarted service can never report a stale release.
+  transition_release_sha || fail SERVORA_RELEASE_SHA_TRANSITION_FAILED
   if ! run_schema_check "$release"; then
     if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
       systemctl start "$SERVICE" >/dev/null 2>&1 || true
@@ -961,6 +1072,7 @@ deploy_phase() {
     fi
     fail HEALTH_FAILED
   fi
+  verify_release_identity || fail RELEASE_IDENTITY_MISMATCH
   echo "HEALTH=PASS"
   echo "ACTIVATION=PASS"
   echo "OLD_RELEASE=${OLD_RELEASE}"

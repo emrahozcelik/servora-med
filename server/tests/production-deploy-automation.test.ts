@@ -159,9 +159,11 @@ assert_candidate_backup_contract() { :; }
 run_predeploy_backup() { log_event backup; ${mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
 run_schema_check() { log_event schema; return 0; }
 transition_health_schema_version() { log_event "transition:$STATE_CATALOG_HEAD:$MIGRATIONS_APPLIED"; return 0; }
+transition_release_sha() { log_event "release_transition:\${1:-$SHA}"; return 0; }
 write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
+verify_release_identity() { log_event release_identity; return 0; }
 restart_candidate_or_fail() { log_event candidate_start; ${mode === 'zero-rollback' || mode === 'migrated-no-rollback' ? 'return 1' : 'return 0'}; }
 systemctl() {
   log_event "systemctl:$*"
@@ -235,9 +237,11 @@ capture_data_invariants() { :; }
 assert_data_invariants_unchanged() { :; }
 run_schema_check() { log_event schema; return 0; }
 transition_health_schema_version() { log_event transition; return 0; }
+transition_release_sha() { log_event "release_transition:\${1:-$SHA}"; return 0; }
 write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
+verify_release_identity() { log_event release_identity; return 0; }
 restart_candidate_or_fail() { log_event candidate_start; SERVICE_STARTED=true; return 0; }
 run_release_node() { log_event migrate; return 0; }
 systemctl() {
@@ -446,8 +450,9 @@ stage_release() { log_event stage; }
 validate_release_tree() { :; }
 assert_candidate_backup_contract() { :; }
 run_predeploy_backup() { log_event backup; ${opts.mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
-# Mock chown/stat for env transition
+# Mock chown/stat for env transition, curl for release-identity verification
 chown() { return 0; }
+curl() { printf '{"status":"ok","releaseSha":"%s"}' "$SHA"; return 0; }
 stat() {
   case "$*" in
     *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
@@ -539,6 +544,23 @@ describe('controlled production deployment automation contract', () => {
       expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
       expect(harness.events).not.toContain('systemctl:start servora-med.service');
       expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('pins the release SHA before activation and verifies identity after health', () => {
+    const harness = runBootEnablementHarness(hostHelper, 'disabled');
+    try {
+      expect(harness.result.status).toBe(0);
+      const transitionIndex = harness.events.indexOf(`release_transition:${TEST_SHA}`);
+      const switchIndex = harness.events.findIndex((event) => event.startsWith('switch:'));
+      const healthIndex = harness.events.indexOf('health');
+      const identityIndex = harness.events.indexOf('release_identity');
+      expect(transitionIndex).toBeGreaterThan(-1);
+      expect(switchIndex).toBeGreaterThan(transitionIndex);
+      expect(healthIndex).toBeGreaterThan(-1);
+      expect(identityIndex).toBeGreaterThan(healthIndex);
     } finally {
       harness.cleanup();
     }
@@ -1122,6 +1144,13 @@ describe('controlled production deployment automation contract', () => {
       expect(pendingAllowed.result.status).toBe(0);
       expect(pendingAllowed.events).toContain('migrate');
       expect(pendingAllowed.events).toContain('systemctl:stop servora-med.service');
+      const transitionIndex = pendingAllowed.events.indexOf(`release_transition:${TEST_SHA}`);
+      const switchIndex = pendingAllowed.events.findIndex((event) => event.startsWith('switch:'));
+      const healthIndex = pendingAllowed.events.indexOf('health');
+      const identityIndex = pendingAllowed.events.indexOf('release_identity');
+      expect(transitionIndex).toBeGreaterThan(-1);
+      expect(switchIndex).toBeGreaterThan(transitionIndex);
+      expect(identityIndex).toBeGreaterThan(healthIndex);
     } finally {
       pendingAllowed.cleanup();
     }
@@ -1146,6 +1175,9 @@ describe('controlled production deployment automation contract', () => {
       expect(zeroRollback.events.some((event) => event === 'switch:/opt/servora-med/releases/old')).toBe(true);
       expect(zeroRollback.events).toContain('systemctl:restart servora-med.service');
       expect(zeroRollback.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
+      // Rollback restores the previous release identity before restarting.
+      expect(zeroRollback.events.some((event) => event.startsWith('release_transition:'))).toBe(true);
+      expect(zeroRollback.events).toContain('release_identity');
     } finally {
       zeroRollback.cleanup();
     }
@@ -1354,6 +1386,7 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('PREDEPLOY_BACKUP_FAILED');
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).not.toContain('SERVORA_RELEASE_SHA');
       expect(harness.events).not.toContain('migrate');
     } finally {
       harness.cleanup();
@@ -1371,6 +1404,7 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('MIGRATION_FAILED');
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).not.toContain('SERVORA_RELEASE_SHA');
       // Must not have restarted old release
       expect(harness.events).not.toContain('systemctl:restart servora-med.service');
       expect(harness.events.some((e) => e === 'switch:/opt/servora-med/releases/old')).toBe(false);
@@ -1395,6 +1429,8 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(harness.envAfter).toContain('HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation');
       expect(harness.envAfter).toContain('OTHER=keep');
       expect((harness.envAfter.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
       expect(harness.events).toContain('migrate');
       expect(harness.events).toContain('schema');
       expect(harness.events).toContain('systemctl:stop servora-med.service');
@@ -1414,6 +1450,7 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(harness.result.status).toBe(0);
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
       expect(harness.events).toContain('migrate');
     } finally {
       harness.cleanup();
