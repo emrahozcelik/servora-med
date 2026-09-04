@@ -90,6 +90,25 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.6rem;
 }
+/* Release identity: secondary build metadata (login, sidebar, drawer). */
+.build-identity {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.login-form-wrap .build-identity {
+  margin-top: 1.25rem;
+  text-align: center;
+}
+.shell-sidebar-footer .build-identity {
+  text-align: center;
+}
+.shell-drawer .build-identity {
+  margin-top: 0.75rem;
+  text-align: center;
+}
 /* Apple install guidance: dismissible inline card, not a modal. */
 .apple-install-guidance {
   margin: 0 0 1.15rem;

@@ -5,13 +5,14 @@ import { getPublicHealthStatus } from './service.js';
 
 export function createHealthHandlers(
   readiness: HealthReadinessPort,
+  releaseSha: string,
   backupReadiness?: BackupHealthReadinessPort,
 ) {
   return {
     async getHealth(_request: FastifyRequest, reply: FastifyReply) {
       const result = await readiness.check();
       const statusCode = result === 'ok' ? 200 : 503;
-      const body = getPublicHealthStatus(result);
+      const body = getPublicHealthStatus(result, releaseSha);
       if (backupReadiness) {
         return reply.code(statusCode).send({
           ...body,

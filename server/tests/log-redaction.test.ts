@@ -33,6 +33,7 @@ describe('buildApp serialized logger redaction', () => {
       rateLimitWindowMs: 60_000,
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
+      releaseSha: 'dev',
       actionScopedGeolocationEnabled: false,
       reverseGeocoderProvider: null,
       googleGeocodingApiKey: null,

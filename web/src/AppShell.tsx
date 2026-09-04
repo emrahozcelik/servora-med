@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
 import { NewJobMenu } from './jobs/NewJobMenu';
+import { BuildIdentity } from './BuildIdentity';
 import { setDocumentTitle } from './document-title';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
@@ -199,6 +200,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
             <div className="shell-sidebar-footer">
               <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
               <small className="shell-copyright">© {new Date().getFullYear()} Dünya Dental</small>
+              <BuildIdentity />
             </div>
           </aside>
           <header className="desktop-shell-topbar">
@@ -269,6 +271,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
               label={drawerMode === 'overflow' ? 'Diğer destinasyonlar' : 'Tüm destinasyonlar'}
             />
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
+            <BuildIdentity />
           </div>
         </div>
       )}

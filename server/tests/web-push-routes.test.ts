@@ -32,6 +32,7 @@ const config = {
   rateLimitWindowMs: 60_000,
   trustedProxy: 'loopback' as const,
   healthSchemaVersion: null,
+  releaseSha: 'dev',
   actionScopedGeolocationEnabled: false,
   reverseGeocoderProvider: null,
   googleGeocodingApiKey: null,

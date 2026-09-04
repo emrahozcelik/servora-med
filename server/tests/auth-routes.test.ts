@@ -38,7 +38,7 @@ const baseConfig = {
   databaseUrl: 'postgresql://unused', logLevel: 'silent',
   corsOrigin: 'https://app.example.com', sessionTtlSeconds: 28_800,
   loginRateLimitMax: 2, rateLimitWindowMs: 60_000,
-  trustedProxy: 'loopback' as const, healthSchemaVersion: null,
+  trustedProxy: 'loopback' as const, healthSchemaVersion: null, releaseSha: 'dev',
   capabilities: {
     overviewDashboard: true,
     calendar: false,

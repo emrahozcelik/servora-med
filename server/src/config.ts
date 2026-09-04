@@ -61,6 +61,12 @@ export type AppConfig = {
   rateLimitWindowMs: number;
   trustedProxy: TrustedProxy;
   healthSchemaVersion: string | null;
+  /**
+   * Exact deployment Git SHA surfaced via health. Production requires an
+   * exact 40-character SHA and fails closed otherwise; developer/test
+   * environments fall back to `dev` unless a valid SHA is provided.
+   */
+  releaseSha: string;
   actionScopedGeolocationEnabled: boolean;
   reverseGeocoderProvider: ReverseGeocoderProvider | null;
   googleGeocodingApiKey: string | null;
@@ -276,6 +282,18 @@ function readHealthSchemaVersion(
     return resolved;
   }
   return resolved || null;
+}
+
+const RELEASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
+export const DEVELOPMENT_RELEASE_SHA = 'dev';
+
+function readReleaseSha(value: string | undefined, nodeEnv: NodeEnvironment): string {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (RELEASE_SHA_PATTERN.test(normalized)) return normalized;
+  if (nodeEnv === 'production') {
+    throw new Error('SERVORA_RELEASE_SHA must be an exact 40-character lowercase Git SHA in production');
+  }
+  return DEVELOPMENT_RELEASE_SHA;
 }
 
 function readRequiredWebPushValue(
@@ -505,6 +523,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
     trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
     healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
+    releaseSha: readReleaseSha(env.SERVORA_RELEASE_SHA, typedNodeEnv),
     actionScopedGeolocationEnabled,
     ...geocoding,
     capabilities: {
