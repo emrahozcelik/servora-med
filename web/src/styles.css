@@ -4537,3 +4537,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.8125rem;
 }
+
+.customer-option-label { display: inline-flex; min-width: 0; max-width: 100%; }
+.customer-option-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.customer-option-meta { flex: none; color: var(--muted); font-size: 0.8125rem; }
+.customer-search-more { padding: 0.4rem 0.75rem; color: var(--muted); font-size: 0.8125rem; }
+.customer-search-empty { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }

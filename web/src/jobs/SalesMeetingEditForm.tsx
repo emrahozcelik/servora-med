@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { listCustomers, type CustomerSummary } from '../services/crm-api';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import type { CurrentUser } from '../services/api';
+import { CustomerSearchSelect } from './CustomerSearchSelect';
 import {
   JOB_CARD_ENGAGEMENT_KINDS,
   type JobCard,
@@ -15,16 +15,6 @@ import { JOB_CARD_ENGAGEMENT_LABELS } from './job-labels';
 type LoadState = 'loading' | 'ready' | 'error';
 type FieldErrors = Partial<Record<'title' | 'customerId' | 'assignedTo' | 'engagementKind', string>>;
 
-async function loadAllCustomers() {
-  const result: CustomerSummary[] = []; let offset = 0;
-  while (true) {
-    const page = await listCustomers({ limit: 200, offset });
-    result.push(...page.items);
-    if (result.length >= page.total || page.items.length === 0) return result;
-    offset += page.items.length;
-  }
-}
-
 export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
   job: JobCard & { type: 'SALES_MEETING' }; user: CurrentUser; pending: boolean;
   onCancel: () => void; onSave: (input: PatchJobCardInput) => Promise<void>;
@@ -36,20 +26,15 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
     job.engagementKind ?? 'SALES_MEETING',
   );
   const [customerId, setCustomerId] = useState(job.customerId ?? '');
+  const [customerReady, setCustomerReady] = useState(false);
   const [assignedTo, setAssignedTo] = useState(job.assignedTo);
-  const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
-  const [customerState, setCustomerState] = useState<LoadState>('loading');
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  useEffect(() => {
-    void loadAllCustomers().then((items) => { setCustomers(items); setCustomerState('ready'); })
-      .catch(() => { setCustomers([]); setCustomerState('error'); });
-  }, []);
   useEffect(() => {
     if (user.role === 'STAFF') return;
     void listStaff('active').then((items) => {
@@ -83,12 +68,11 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
     });
   }
 
-  const referencesLoading = customerState !== 'ready'
+  const referencesLoading = !customerReady
     || (user.role !== 'STAFF' && staffState !== 'ready');
   return <section className="meeting-details" aria-labelledby="meeting-edit-title-heading">
     <h2 id="meeting-edit-title-heading">Görüşme / ziyareti düzenle</h2>
     {error && <div ref={errorRef} className="form-error" role="alert" tabIndex={-1}>{error}</div>}
-    {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.</p>}
     {staffState === 'error' && <p className="field-error" role="alert">Personel listesi yüklenemedi.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-edit-title">Başlık</label>
@@ -125,11 +109,15 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
         )}
       </div>
       <div className="field-group"><label htmlFor="meeting-edit-customer">Müşteri</label>
-        <select id="meeting-edit-customer" value={customerId} disabled={customerState !== 'ready'}
-          aria-invalid={fieldErrors.customerId ? true : undefined}
-          aria-describedby={fieldErrors.customerId ? 'meeting-edit-customer-error' : undefined}
-          onChange={(event) => setCustomerId(event.target.value)}>
-          <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <CustomerSearchSelect
+          id="meeting-edit-customer"
+          value={customerId}
+          onChange={setCustomerId}
+          onReadyChange={setCustomerReady}
+          invalid={fieldErrors.customerId ? true : undefined}
+          describedBy={fieldErrors.customerId ? 'meeting-edit-customer-error' : undefined}
+          allowClear
+        />
         {fieldErrors.customerId && <span id="meeting-edit-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="meeting-edit-assignee">Sorumlu personel</label>
         <select id="meeting-edit-assignee" value={assignedTo} disabled={staffState !== 'ready'}

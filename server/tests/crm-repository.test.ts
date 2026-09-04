@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PostgresCrmRepository } from '../src/modules/crm/repository.js';
-import { normalizeTaxNumber } from '../src/modules/crm/types.js';
+import { digitsOnly, foldCustomerSearchText, normalizeTaxNumber, phoneDigitVariants } from '../src/modules/crm/types.js';
 
 type QueryCall = { text: string; values: unknown[] };
 
@@ -21,6 +21,23 @@ describe('CRM persistence', () => {
     expect(normalizeTaxNumber(' ab 12.3-4/ ')).toBe('AB1234');
     expect(normalizeTaxNumber(' . - / ')).toBeNull();
     expect(normalizeTaxNumber(null)).toBeNull();
+  });
+
+  it('folds Turkish dotted-İ and dotless-ı symmetrically for search', () => {
+    expect(foldCustomerSearchText('İSTANBUL')).toBe('istanbul');
+    expect(foldCustomerSearchText('Istanbul')).toBe('istanbul');
+    expect(foldCustomerSearchText('YILMAZ')).toBe('yilmaz');
+    expect(foldCustomerSearchText('Yılmaz')).toBe('yilmaz');
+    expect(foldCustomerSearchText('IŞIK')).toBe(foldCustomerSearchText('ışık'));
+    expect(foldCustomerSearchText('IŞIK')).toBe(foldCustomerSearchText('Işık'));
+  });
+
+  it('derives bounded phone digit variants without touching stored values', () => {
+    expect(digitsOnly('0532 123 45 67')).toBe('05321234567');
+    expect(phoneDigitVariants('+90 532 123 45 67')).toEqual(['905321234567', '5321234567']);
+    expect(phoneDigitVariants('0532 123 45 67')).toEqual(['05321234567', '5321234567']);
+    expect(phoneDigitVariants('5321234567')).toEqual(['5321234567']);
+    expect(phoneDigitVariants('. - /')).toEqual([]);
   });
 
   it('commits successful work and rolls back failed work', async () => {

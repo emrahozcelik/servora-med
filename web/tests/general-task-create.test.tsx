@@ -7,14 +7,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GeneralTaskCreateScreen } from '../src/GeneralTaskCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
-import type { CurrentUser } from '../src/services/api';
+import { ApiError, type CurrentUser } from '../src/services/api';
+import {
+  clearCustomerSelection,
+  customerOptionTitles,
+  openCustomerSearchDropdown,
+  pickCustomerByName,
+  searchCustomer,
+  selectCustomerOption,
+  settleCustomerSearch,
+  stubMatchMedia,
+} from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({
-  listCustomers: vi.fn(), listContacts: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn(),
+  listCustomers: vi.fn(), getCustomer: vi.fn(), listContacts: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn(),
 }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
@@ -78,10 +88,12 @@ describe('General Task quick create', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
+    crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
     crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     crm.createCustomer.mockResolvedValue({
       id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
@@ -93,7 +105,23 @@ describe('General Task quick create', () => {
     onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
     root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
+
+  function selectedCustomerLabel() {
+    const select = container.querySelector('#task-customer')?.closest('.ant-select');
+    return select?.querySelector('.ant-select-content')?.textContent ?? '';
+  }
+
+  function openOptional() {
+    const details = container.querySelector('details')!;
+    details.open = true;
+    return act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+  }
 
   it('keeps Staff ownership fixed and submits the prefilled planned time', async () => {
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
@@ -167,7 +195,7 @@ describe('General Task quick create', () => {
 
   it('submits the exact manager body with optional operational context', async () => {
     crm.listCustomers.mockResolvedValue({
-      items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
+      items: [customer('c1', 'A Klinik')], total: 1, limit: 20, offset: 0,
     });
     crm.listContacts.mockResolvedValue({
       items: [contact('c1', 'contact-1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
@@ -188,8 +216,7 @@ describe('General Task quick create', () => {
       change(container.querySelector('#task-priority') as HTMLSelectElement, 'high');
       change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-20T14:00');
     });
-    await act(async () => change(container.querySelector('#task-customer') as HTMLSelectElement, 'c1'));
-    await settle();
+    await pickCustomerByName(container, 'task-customer', 'A Klinik');
     await act(async () => change(container.querySelector('#task-contact') as HTMLSelectElement, 'contact-1'));
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
 
@@ -234,10 +261,14 @@ describe('General Task quick create', () => {
       .toContain('Başlık 1 ile 255 karakter arasında olmalıdır');
   });
 
-  it('loads all optional Customer and Contact pages and clears stale Contact state', async () => {
-    crm.listCustomers.mockImplementation(({ offset }: { offset: number }) => Promise.resolve(offset === 0
-      ? { items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 3, limit: 200, offset: 0 }
-      : { items: [customer('c3', 'C Klinik')], total: 3, limit: 200, offset: 2 }));
+  it('bounds optional Customer search pages and clears stale Contact state', async () => {
+    crm.listCustomers.mockImplementation(({ q, offset }: { q?: string; offset: number }) => Promise.resolve(
+      q === 'B'
+        ? { items: [customer('c2', 'B Klinik')], total: 1, limit: 20, offset: 0 }
+        : offset === 0
+          ? { items: [customer('c1', 'A Klinik')], total: 3, limit: 20, offset: 0 }
+          : { items: [], total: 0, limit: 20, offset },
+    ));
     const first = deferred<unknown>();
     crm.listContacts.mockImplementation((id: string, { offset }: { offset: number }) => {
       if (id === 'c1') return first.promise;
@@ -249,19 +280,26 @@ describe('General Task quick create', () => {
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
-    expect(crm.listCustomers.mock.calls.map((call) => call[0].offset)).toEqual([0, 2]);
+    // The selector loads only the bounded first page; no full-catalog loop.
+    expect(crm.listCustomers.mock.calls.map((call) => call[0].offset)).toEqual([0]);
+    expect(crm.listCustomers.mock.calls.every((call) => (call[0].limit ?? 0) <= 20)).toBe(true);
 
-    const customerSelect = container.querySelector('#task-customer') as HTMLSelectElement;
-    await act(async () => change(customerSelect, 'c1'));
-    await act(async () => change(customerSelect, 'c2'));
+    await pickCustomerByName(container, 'task-customer', 'A Klinik');
+    await clearCustomerSelection(container, 'task-customer');
+    await openCustomerSearchDropdown(container, 'task-customer');
+    await searchCustomer(container, 'B');
+    await selectCustomerOption(0);
     await settle();
+    expect(crm.listCustomers.mock.calls.every((call) => (call[0].limit ?? 0) <= 20)).toBe(true);
     expect(crm.listContacts.mock.calls.filter((call) => call[0] === 'c2').map((call) => call[1].offset))
       .toEqual([0, 1]);
+
+    // The stale c1 response resolved after the switch must not win.
     await act(async () => first.resolve({ items: [contact('c1', 'old', 'Dr. Eski')], total: 1, limit: 200, offset: 0 }));
     const contactSelect = container.querySelector('#task-contact') as HTMLSelectElement;
     expect(contactSelect.textContent).toContain('Dr. Bora');
     expect(contactSelect.textContent).not.toContain('Dr. Eski');
-    await act(async () => change(customerSelect, ''));
+    await clearCustomerSelection(container, 'task-customer');
     expect(contactSelect.value).toBe('');
     expect(contactSelect.disabled).toBe(true);
   });
@@ -278,10 +316,11 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({ customerId: null, contactId: null }));
   });
 
-  it('auto-selects Customer and loads Contacts when initialCustomerId matches a loaded customer', async () => {
+  it('auto-selects Customer and loads Contacts when initialCustomerId resolves directly', async () => {
     crm.listCustomers.mockResolvedValue({
-      items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
+      items: [customer('c2', 'B Klinik')], total: 1, limit: 20, offset: 0,
     });
+    crm.getCustomer.mockResolvedValue(customer('c1', 'A Klinik'));
     crm.listContacts.mockResolvedValue({
       items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
     });
@@ -289,8 +328,11 @@ describe('General Task quick create', () => {
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
-    expect((container.querySelector('#task-customer') as HTMLSelectElement).value).toBe('c1');
+    const customerSelect = container.querySelector('#task-customer')?.closest('.ant-select');
+    expect(customerSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('A Klinik');
     expect(container.querySelector('#task-contact')?.textContent).toContain('Dr. Ayşe');
+    // The direct initial resolution never prefetches the whole catalog.
+    expect(crm.listCustomers.mock.calls.every((call) => (call[0].limit ?? 0) <= 20)).toBe(true);
   });
 
   it('shows an embedded create-customer action when the customer list is empty', async () => {
@@ -312,7 +354,7 @@ describe('General Task quick create', () => {
 
   it('creates and selects a customer while preserving task fields and clearing only Contact', async () => {
     crm.listCustomers.mockResolvedValue({
-      items: [customer('c1', 'Eski Klinik')], total: 1, limit: 200, offset: 0,
+      items: [customer('c1', 'Eski Klinik')], total: 1, limit: 20, offset: 0,
     });
     crm.listContacts.mockImplementation((id: string) => Promise.resolve(id === 'c1'
       ? { items: [contact('c1', 'contact-1', 'Dr. Eski')], total: 1, limit: 200, offset: 0 }
@@ -328,8 +370,7 @@ describe('General Task quick create', () => {
     change(container.querySelector('#task-assignee') as HTMLSelectElement, 'staff-2');
     change(container.querySelector('#task-priority') as HTMLSelectElement, 'high');
     change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
-    await act(async () => change(container.querySelector('#task-customer') as HTMLSelectElement, 'c1'));
-    await settle();
+    await pickCustomerByName(container, 'task-customer', 'Eski Klinik');
     await act(async () => change(container.querySelector('#task-contact') as HTMLSelectElement, 'contact-1'));
 
     await act(async () => {
@@ -341,7 +382,8 @@ describe('General Task quick create', () => {
 
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
-    expect((container.querySelector('#task-customer') as HTMLSelectElement).value).toBe('customer-created');
+    const createdSelect = container.querySelector('#task-customer')?.closest('.ant-select');
+    expect(createdSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Yeni Klinik');
     expect((container.querySelector('#task-contact') as HTMLSelectElement).value).toBe('');
     expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Taslak görev');
     expect((container.querySelector('#task-description') as HTMLTextAreaElement).value).toBe('Açıklama korunmalı');
@@ -410,7 +452,6 @@ describe('General Task quick create', () => {
     const details = container.querySelector('details.task-optional')!;
     details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
-    expect((container.querySelector('#task-customer') as HTMLSelectElement).disabled).toBe(true);
 
     change(container.querySelector('#task-title') as HTMLInputElement, 'Taslak görev');
     await act(async () => {
@@ -420,14 +461,15 @@ describe('General Task quick create', () => {
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
-    const select = container.querySelector('#task-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    initial.resolve({ items: [customer('customer-1', 'Eski Klinik')], total: 1, limit: 200, offset: 0 });
+    const pinnedSelect = container.querySelector('#task-customer')?.closest('.ant-select');
+    expect(pinnedSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Yeni Klinik');
+    initial.resolve({ items: [customer('customer-1', 'Eski Klinik')], total: 1, limit: 20, offset: 0 });
     await settle();
 
-    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-1', 'customer-created']);
-    expect(select.value).toBe('customer-created');
+    expect(pinnedSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Yeni Klinik');
+    await openCustomerSearchDropdown(container, 'task-customer');
+    await settleCustomerSearch();
+    expect(customerOptionTitles().join(' ')).toContain('Yeni Klinik');
     expect(container.querySelector('#task-title')).toHaveProperty('value', 'Taslak görev');
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
   });
@@ -448,10 +490,10 @@ describe('General Task quick create', () => {
     initial.reject(new Error('İlk müşteri listesi başarısız'));
     await settle();
 
-    const select = container.querySelector('#task-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    expect(container.querySelector('[role="alert"]')?.textContent ?? '').not.toContain('Müşteriler yüklenemedi');
+    const failedSelect = container.querySelector('#task-customer')?.closest('.ant-select');
+    expect(failedSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Yeni Klinik');
+    // The failed first page keeps its retry path while the pinned selection stays usable.
+    expect(container.textContent).toContain('Tekrar dene');
   });
 
   it('uses a later same-ID canonical Customer without resetting the task draft or Contact dependency', async () => {
@@ -464,7 +506,7 @@ describe('General Task quick create', () => {
     };
     crm.listCustomers
       .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
-      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 200, offset: 0 });
+      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 20, offset: 0 });
     crm.createCustomer.mockReturnValueOnce(create.promise);
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     const details = container.querySelector('details.task-optional')!;
@@ -493,11 +535,15 @@ describe('General Task quick create', () => {
     });
     await settle();
 
-    const select = container.querySelector('#task-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    await openCustomerSearchDropdown(container, 'task-customer');
+    await settleCustomerSearch();
+    const titles = customerOptionTitles().join(' ');
+    expect(titles).toContain('Canonical Klinik');
+    expect(titles).not.toContain('Snapshot Klinik');
+    expect(customerOptionTitles().filter((title) => title.includes('Canonical Klinik'))).toHaveLength(1);
+    const canonicalSelect = container.querySelector('#task-customer')?.closest('.ant-select');
+    expect(canonicalSelect?.querySelector('.ant-select-content')?.textContent ?? '').toContain('Canonical Klinik');
     expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Canonical refresh görevi');
-    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
     expect(crm.listContacts).toHaveBeenCalledTimes(1);
   });
 

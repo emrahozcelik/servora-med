@@ -5,28 +5,17 @@ import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/schedulin
 import { ApiError, type CurrentUser } from './services/api';
 import {
   listContacts,
-  listCustomers,
   type Contact,
   type Customer,
   type CustomerSummary,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
-import { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
+import { createRequestGate } from './services/request-gate';
+import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = { title?: string; assignedTo?: string };
-
-async function loadAllCustomers() {
-  const all: CustomerSummary[] = [];
-  let offset = 0;
-  while (true) {
-    const page = await listCustomers({ limit: 200, offset });
-    all.push(...page.items);
-    if (all.length >= page.total || page.items.length === 0) return all;
-    offset += page.items.length;
-  }
-}
 
 async function loadAllContacts(customerId: string) {
   const all: Contact[] = [];
@@ -54,9 +43,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
-  const [customers, setCustomers] = useState<CustomerSummary[]>([]);
-  const [customerState, setCustomerState] = useState<LoadState>('idle');
   const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [pinnedCustomer, setPinnedCustomer] = useState<CustomerSummary | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactState, setContactState] = useState<LoadState>('idle');
   const [contactId, setContactId] = useState('');
@@ -66,9 +54,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const errorRef = useRef<HTMLDivElement>(null);
   const actionIdRef = useRef<string | null>(null);
   const contactGate = useRef(createRequestGate());
-  const customerLoadGate = useRef(createRequestGate());
-  const createdCustomersRef = useRef(createTemporaryReferenceBuffer<CustomerSummary>());
-  const selectedCreatedCustomerRef = useRef<string | null>(null);
+  const contactsLoadedForRef = useRef<string | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -93,46 +79,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
 
   useEffect(() => () => {
     contactGate.current.next();
-    customerLoadGate.current.next();
   }, []);
 
-  async function loadActiveCustomers() {
-    const generation = customerLoadGate.current.next();
-    setCustomerState('loading');
-    try {
-      const next = await loadAllCustomers();
-      if (!customerLoadGate.current.isCurrent(generation)) return;
-      const reconciled = createdCustomersRef.current.reconcile(next, generation);
-      setCustomers(reconciled); setCustomerState('ready');
-      const selectedCreatedId = selectedCreatedCustomerRef.current;
-      if (selectedCreatedId && reconciled.some((item) => item.id === selectedCreatedId)) {
-        setCustomerId(selectedCreatedId);
-      } else if (initialCustomerId && reconciled.some((item) => item.id === initialCustomerId)) {
-        setCustomerId(initialCustomerId);
-        void changeCustomer(initialCustomerId);
-      } else if (initialCustomerId) {
-        setCustomerId('');
-      }
-    } catch {
-      if (!customerLoadGate.current.isCurrent(generation)) return;
-      const created = createdCustomersRef.current.values();
-      if (created.length > 0) {
-        setCustomers(created);
-        setCustomerId(selectedCreatedCustomerRef.current ?? '');
-        setCustomerState('ready');
-      } else {
-        setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
-        setContactState('idle'); setCustomerState('error');
-      }
-    }
-  }
-
-  function openOptional(event: SyntheticEvent<HTMLDetailsElement>) {
-    if (event.currentTarget.open && customerState === 'idle') void loadActiveCustomers();
-  }
-
-  async function changeCustomer(nextCustomerId: string, preserveCreated = false) {
-    if (!preserveCreated) selectedCreatedCustomerRef.current = null;
+  async function loadContactsForCustomer(nextCustomerId: string) {
+    if (contactsLoadedForRef.current === nextCustomerId) return;
+    contactsLoadedForRef.current = nextCustomerId;
     setCustomerId(nextCustomerId); setContactId(''); setContacts([]);
     const generation = contactGate.current.next();
     if (!nextCustomerId) { setContactState('idle'); return; }
@@ -147,13 +98,26 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     }
   }
 
+  function handleCustomerChange(nextCustomerId: string) {
+    contactsLoadedForRef.current = null;
+    setContactId('');
+    void loadContactsForCustomer(nextCustomerId);
+  }
+
+  function handleCustomerResolved(customer: CustomerSummary | null) {
+    if (customer) void loadContactsForCustomer(customer.id);
+    else if (!customerId) {
+      contactsLoadedForRef.current = '';
+      setContacts([]);
+      setContactId('');
+      setContactState('idle');
+    }
+  }
+
   function addCreatedCustomer(customer: Customer) {
-    const summary = { ...customer, assignedStaffName: null, primaryContact: null };
-    createdCustomersRef.current.add(summary, customerLoadGate.current.current());
-    selectedCreatedCustomerRef.current = customer.id;
-    setCustomers((current) => createdCustomersRef.current.mergeCurrent(current));
-    setCustomerState('ready');
-    void changeCustomer(customer.id, true);
+    setPinnedCustomer({ ...customer, assignedStaffName: null, primaryContact: null });
+    setCustomerId(customer.id);
+    void loadContactsForCustomer(customer.id);
     setCustomerCreateOpen(false);
   }
 
@@ -237,7 +201,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {fieldErrors.assignedTo && <span id="task-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
             </div>}
 
-        <details className="task-optional" onToggle={openOptional}>
+        <details className="task-optional">
           <summary>Ek bilgiler</summary>
           <div className="task-optional-fields">
             <div className="task-field-pair">
@@ -251,15 +215,15 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
             <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
-              <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}
-                onChange={(event) => void changeCustomer(event.target.value)}>
-                <option value="">Müşteri seçilmedi</option>
-                {customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-              {customerState === 'loading' && <span className="field-status" role="status">Müşteriler yükleniyor…</span>}
-              {customerState === 'error' && <span className="field-error" role="alert">Müşteriler yüklenemedi. Görevi müşterisiz kaydedebilirsiniz.{' '}
-                <button className="inline-action" type="button" onClick={() => void loadActiveCustomers()}>Tekrar dene</button></span>}
-              {customerState === 'ready' && customers.length === 0 && <span className="field-status">Henüz müşteri yok.</span>}
+              <CustomerSearchSelect
+                id="task-customer"
+                value={customerId}
+                onChange={handleCustomerChange}
+                onCustomerResolved={handleCustomerResolved}
+                pinnedCustomer={pinnedCustomer}
+                clearValueWhenMissing
+                allowClear
+              />
             </div>
             <div className="field-group"><label htmlFor="task-contact">İlgili kişi (isteğe bağlı)</label>
               <select id="task-contact" value={contactId}

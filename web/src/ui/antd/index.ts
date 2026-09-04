@@ -59,3 +59,5 @@ export { ServoraPagination } from './ServoraPagination';
 export type { ServoraPaginationProps } from './ServoraPagination';
 export { ServoraTable } from './ServoraTable';
 export type { ServoraTableProps, ServoraTableColumnsType } from './ServoraTable';
+export { ServoraSelect } from './ServoraSelect';
+export type { ServoraSelectProps } from './ServoraSelect';

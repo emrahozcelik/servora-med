@@ -6,11 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import {
+  customerOptionTitles,
+  openCustomerSearchDropdown,
+  pickCustomerByName,
+  searchCustomer,
+  settleCustomerSearch,
+} from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), getCustomer: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const scheduling = vi.hoisted(() => {
   return {
@@ -46,7 +53,9 @@ const manager: CurrentUser = {
 const staffUser: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
 const customer = {
   id: 'customer-1', organizationId: 'org-1', name: 'ABC Klinik', customerType: 'clinic',
-  status: 'active', version: 1,
+  taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+  assignedStaffUserId: null, status: 'active', version: 1,
+  assignedStaffName: null, primaryContact: null,
 };
 const profile = {
   id: 'profile-2', user: { id: 'staff-2', organizationId: 'org-1', name: 'Bora Personel',
@@ -94,7 +103,8 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     });
     jobs.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 });
     jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
-    crm.listCustomers.mockResolvedValue({ items: [customer], total: 1, limit: 200, offset: 0 });
+    crm.listCustomers.mockResolvedValue({ items: [customer], total: 1, limit: 20, offset: 0 });
+    crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
     crm.createCustomer.mockResolvedValue({
       id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
       taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
@@ -107,7 +117,12 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   });
 
-  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
 
   async function render(user = manager) {
     await act(async () => root.render(<MemoryRouter>
@@ -116,10 +131,15 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     await flush();
   }
 
+  function selectedCustomerLabel() {
+    const select = host.querySelector('#meeting-customer')?.closest('.ant-select');
+    return select?.querySelector('.ant-select-content')?.textContent ?? '';
+  }
+
   async function fillAndSubmit() {
     change(host.querySelector('#meeting-title') as HTMLInputElement, 'Kontrol görüşmesi');
     change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
-    change(host.querySelector('#meeting-customer') as HTMLSelectElement, 'customer-1');
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
   }
 
@@ -147,7 +167,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     ));
     await render(manager);
     change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
-    change(host.querySelector('#meeting-customer') as HTMLSelectElement, 'customer-1');
+    await pickCustomerByName(host, 'meeting-customer', 'ABC Klinik');
     change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
     await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
     await flush();
@@ -275,7 +295,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
 
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
     expect(host.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
-    expect((host.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('customer-created');
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Taslak görüşme');
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
     expect((host.querySelector('#meeting-description') as HTMLTextAreaElement).value).toBe('Klinik ihtiyaçlarını görüş');
@@ -319,11 +339,9 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(jobs.createJobCard).not.toHaveBeenCalled();
   });
 
-  it('keeps a newly-created Customer selected when the initial list resolves late', async () => {
-    const initial = deferred<{ items: typeof customer[]; total: number; limit: number; offset: number }>();
-    crm.listCustomers.mockReturnValueOnce(initial.promise);
+  it('keeps a newly-created customer selected without any catalog fetch', async () => {
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
     await render(staffUser);
-    expect((host.querySelector('#meeting-customer') as HTMLSelectElement).disabled).toBe(true);
 
     change(host.querySelector('#meeting-title') as HTMLInputElement, 'Taslak görüşme');
     await act(async () => {
@@ -333,21 +351,19 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
 
-    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    initial.resolve({ items: [customer], total: 1, limit: 200, offset: 0 });
-    await flush();
-
-    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-1', 'customer-created']);
-    expect(select.value).toBe('customer-created');
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
+    expect(crm.listCustomers.mock.calls.every(
+      (call) => ((call[0] as { limit: number }).limit ?? 0) <= 20,
+    )).toBe(true);
+    await openCustomerSearchDropdown(host, 'meeting-customer');
+    await settleCustomerSearch();
+    expect(customerOptionTitles().join(' ')).toContain('Yeni Klinik');
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Taslak görüşme');
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the Customer reference state ready when the initial list fails after creation', async () => {
-    const initial = deferred<{ items: typeof customer[]; total: number; limit: number; offset: number }>();
-    crm.listCustomers.mockReturnValueOnce(initial.promise);
+  it('keeps the meeting draft submittable when the initial page fails but a customer is created', async () => {
+    crm.listCustomers.mockRejectedValue(new Error('İlk müşteri sayfası başarısız'));
     await render(staffUser);
     await act(async () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
@@ -355,16 +371,16 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
-    initial.reject(new Error('İlk müşteri listesi başarısız'));
-    await flush();
 
-    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    expect(host.querySelector('[data-retry-customers]')).toBeNull();
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
+    // The failed list keeps its retry path, but the created selection makes
+    // the draft submittable.
+    expect(host.textContent ?? '').toContain('Tekrar dene');
+    const submit = host.querySelector('form .primary-button') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
   });
 
-  it('accepts a later same-ID canonical Customer refresh without clearing the draft or selection', async () => {
+  it('shows the server projection for a created id without duplicating rows', async () => {
     const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
     const canonical = {
       ...customer,
@@ -374,13 +390,9 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       primaryContact: { id: 'contact-canonical', name: 'Dr. Canonical', title: 'Doktor' },
       version: 2,
     };
-    crm.listCustomers
-      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
-      .mockResolvedValueOnce({ items: [canonical], total: 1, limit: 200, offset: 0 });
     crm.createCustomer.mockReturnValueOnce(create.promise);
     await render(staffUser);
 
-    const retry = host.querySelector('[data-retry-customers]') as HTMLButtonElement;
     change(host.querySelector('#meeting-title') as HTMLInputElement, 'Canonical refresh taslağı');
     await act(async () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
@@ -394,16 +406,16 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
         taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
         assignedStaffUserId: null, status: 'prospect', version: 1,
       });
-      await Promise.resolve();
-      await Promise.resolve();
-      retry.click();
     });
     await flush();
 
-    const select = host.querySelector('#meeting-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
+    crm.listCustomers.mockResolvedValue({ items: [canonical], total: 1, limit: 20, offset: 0 });
+    await openCustomerSearchDropdown(host, 'meeting-customer');
+    await searchCustomer(host, 'canonical');
+    const titles = customerOptionTitles().join(' ');
+    expect(titles).toContain('Canonical Klinik');
+    expect(titles).not.toContain('Snapshot Klinik');
+    expect(customerOptionTitles().filter((title) => title.includes('Canonical Klinik'))).toHaveLength(1);
     expect((host.querySelector('#meeting-title') as HTMLInputElement).value).toBe('Canonical refresh taslağı');
-    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
   });
 });

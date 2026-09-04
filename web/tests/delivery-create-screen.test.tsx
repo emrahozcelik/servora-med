@@ -6,15 +6,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DeliveryCreateView } from '../src/DeliveryCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
-import { ApiError, type CurrentUser, type ReferenceCustomer } from '../src/services/api';
+import { ApiError, type CurrentUser } from '../src/services/api';
+import type { CustomerSummary } from '../src/services/crm-api';
 import type { Product } from '../src/services/products-api';
 import type { StaffProfile } from '../src/services/people-api';
+import {
+  customerOptionTitles,
+  openCustomerSearchDropdown,
+  pickCustomerByName,
+  searchCustomer,
+  settle,
+  settleCustomerSearch,
+  stubMatchMedia,
+} from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({
   createProductDelivery: vi.fn(),
-  listReferenceCustomers: vi.fn(),
 }));
 const crm = vi.hoisted(() => ({ getCustomer: vi.fn(), listCustomers: vi.fn(), createCustomer: vi.fn(), createContact: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
@@ -47,10 +56,11 @@ vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false };
 const staffUser: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
-const customers: ReferenceCustomer[] = [
-  { id: 'customer-a', name: 'A Klinik', customerType: 'clinic', status: 'active', assignedStaffUserId: 'staff-1' },
-  { id: 'customer-b', name: 'B Klinik', customerType: 'clinic', status: 'active', assignedStaffUserId: 'staff-2' },
-  { id: 'customer-inactive', name: 'Pasif Klinik', customerType: 'clinic', status: 'inactive', assignedStaffUserId: null },
+const customers: CustomerSummary[] = [
+  { id: 'customer-a', organizationId: 'org-1', name: 'A Klinik', customerType: 'clinic', taxNumber: null, phone: null, email: null,
+    city: null, district: null, address: null, assignedStaffUserId: 'staff-1', status: 'active', version: 1, assignedStaffName: 'Ayşe', primaryContact: null },
+  { id: 'customer-b', organizationId: 'org-1', name: 'B Klinik', customerType: 'clinic', taxNumber: null, phone: null, email: null,
+    city: null, district: null, address: null, assignedStaffUserId: 'staff-2', status: 'active', version: 1, assignedStaffName: 'Bora', primaryContact: null },
 ];
 const product: Product = { id: 'product-1', organizationId: 'org-1', name: 'İmplant', sku: 'I1', brand: null, category: null,
   model: null, unit: 'adet', referencePrice: null, isActive: true, version: 1, createdAt: '', updatedAt: '' };
@@ -62,13 +72,6 @@ function profile(id: string, name: string): StaffProfile {
     version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 } };
 }
 
-async function settle() { await act(async () => { await Promise.resolve(); }); }
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
-}
 function change(select: HTMLSelectElement, value: string) { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }
 function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -93,11 +96,12 @@ describe('Delivery create CRM defaults', () => {
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => {
     vi.clearAllMocks();
+    stubMatchMedia();
     scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
     jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
-    api.listReferenceCustomers.mockResolvedValue(customers);
-    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
+    crm.listCustomers.mockResolvedValue({ items: customers, total: customers.length, limit: 20, offset: 0 });
     crm.createCustomer.mockResolvedValue({
       id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
       taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
@@ -110,15 +114,32 @@ describe('Delivery create CRM defaults', () => {
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
 
-  it('loads active Customers, suggests responsible Staff, and submits without a Contact', async () => {
+  function selectedCustomerLabel() {
+    const select = container.querySelector('#delivery-customer')?.closest('.ant-select');
+    return select?.querySelector('.ant-select-content')?.textContent ?? '';
+  }
+
+  it('loads a bounded remote customer page, suggests responsible Staff, and submits without a Contact', async () => {
     await act(async () => root.render(view(manager))); await settle();
-    expect(api.listReferenceCustomers).toHaveBeenCalled();
+    await settleCustomerSearch();
+    expect(crm.listCustomers).toHaveBeenCalledWith({ limit: 20, offset: 0 });
+    // No full-catalog pagination loop: only bounded offsets are ever requested.
+    expect(crm.listCustomers.mock.calls.every(
+      (call) => ((call[0] as { offset: number }).offset ?? 0) < 200
+        && ((call[0] as { limit: number }).limit ?? 0) <= 50,
+    )).toBe(true);
     expect(productsApi.listProducts).not.toHaveBeenCalled();
-    const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
-    expect(Array.from(customer.options).map((option) => option.text)).not.toContain('Pasif Klinik');
-    await act(async () => change(customer, 'customer-a')); await settle();
+    await openCustomerSearchDropdown(container, 'delivery-customer');
+    await settleCustomerSearch();
+    expect(customerOptionTitles().join(' ')).not.toContain('Pasif Klinik');
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     expect(container.querySelector('#delivery-contact')).toBeNull();
     expect(crm.getCustomer).not.toHaveBeenCalled();
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement; expect(assignee.value).toBe('staff-1');
@@ -149,7 +170,7 @@ describe('Delivery create CRM defaults', () => {
     ));
     await act(async () => root.render(view(calendarManager)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
@@ -170,7 +191,7 @@ describe('Delivery create CRM defaults', () => {
     expect(scheduled.value).toBe('2026-07-17T14:30');
     expect(container.textContent).toContain('Planlanan teslim zamanı');
     await act(async () => changeInput(scheduled, '2026-08-01T09:00'));
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T09:00');
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
@@ -179,7 +200,7 @@ describe('Delivery create CRM defaults', () => {
   it('sends scheduledAt on the JobCard and null deliveredAt on the planned item', async () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-07-20T11:00'));
@@ -192,12 +213,11 @@ describe('Delivery create CRM defaults', () => {
     }));
   });
 
-  it('switches the responsible Staff from the reference projection without loading Contacts', async () => {
+  it('switches the responsible Staff from the remote customer summary without loading Contacts', async () => {
     await act(async () => root.render(view(manager))); await settle();
-    const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
-    await act(async () => change(customer, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-1');
-    await act(async () => change(customer, 'customer-b'));
+    await pickCustomerByName(container, 'delivery-customer', 'B Klinik');
     expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
     expect(container.querySelector('#delivery-contact')).toBeNull();
     expect(crm.getCustomer).not.toHaveBeenCalled();
@@ -205,7 +225,7 @@ describe('Delivery create CRM defaults', () => {
 
   it('does not overwrite a management assignee after the Customer default is applied', async () => {
     await act(async () => root.render(view(manager))); await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement;
     await act(async () => change(assignee, 'staff-2'));
     expect(assignee.value).toBe('staff-2');
@@ -214,7 +234,7 @@ describe('Delivery create CRM defaults', () => {
   it('does not expose an assignee selector for Staff and always submits the signed-in user', async () => {
     await act(async () => root.render(view(staffUser))); await settle();
     expect(container.querySelector('#delivery-assignee')).toBeNull();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a')); await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await selectProduct(container);
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
     expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({ assignedTo: 'staff-1' }));
@@ -223,7 +243,7 @@ describe('Delivery create CRM defaults', () => {
   it('keeps quantities independent for multiple selected products and sends one batch', async () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container, 'product-1', 'implant');
     await selectProduct(container, 'product-2', 'vida');
@@ -240,7 +260,7 @@ describe('Delivery create CRM defaults', () => {
   it('blocks a non-positive selected quantity before the atomic request', async () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0'));
@@ -255,7 +275,7 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container);
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
@@ -304,7 +324,7 @@ describe('Delivery create CRM defaults', () => {
     });
     await act(async () => root.render(view(staffUser)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
@@ -328,7 +348,7 @@ describe('Delivery create CRM defaults', () => {
     ));
     await act(async () => root.render(view(staffUser)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
@@ -351,7 +371,7 @@ describe('Delivery create CRM defaults', () => {
   it('cancels the customer side flow without resetting delivery fields', async () => {
     await act(async () => root.render(view(manager)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
     await selectProduct(container);
@@ -368,7 +388,7 @@ describe('Delivery create CRM defaults', () => {
 
     expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
     expect(crm.createCustomer).not.toHaveBeenCalled();
-    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).value).toBe('customer-a');
+    expect(selectedCustomerLabel()).toContain('A Klinik');
     expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
     expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('2');
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
@@ -379,7 +399,7 @@ describe('Delivery create CRM defaults', () => {
   it('creates and selects a customer without resetting delivery fields or creating a duplicate delivery', async () => {
     await act(async () => root.render(view(manager)));
     await settle();
-    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
     await settle();
     await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
     await selectProduct(container);
@@ -396,7 +416,7 @@ describe('Delivery create CRM defaults', () => {
 
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-servora-form-drawer="true"]')).toBeNull();
-    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).value).toBe('customer-created');
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
     expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
     expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('2');
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
@@ -404,11 +424,10 @@ describe('Delivery create CRM defaults', () => {
     expect(api.createProductDelivery).not.toHaveBeenCalled();
   });
 
-  it('keeps a newly-created Customer selected when the initial reference list resolves late', async () => {
-    const initial = deferred<ReferenceCustomer[]>();
-    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+  it('keeps a newly-created customer selected without any catalog fetch', async () => {
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
     await act(async () => root.render(view(staffUser)));
-    expect((container.querySelector('#delivery-customer') as HTMLSelectElement).disabled).toBe(true);
+    await settleCustomerSearch();
 
     await act(async () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
@@ -417,77 +436,64 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
-    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    initial.resolve(customers.slice(0, 1));
-    await settle();
-
-    expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'customer-a', 'customer-created']);
-    expect(select.value).toBe('customer-created');
+    // The created record is pinned: visible immediately, no full-list load.
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.listCustomers.mock.calls.every(
+      (call) => ((call[0] as { limit: number }).limit ?? 0) <= 20,
+    )).toBe(true);
+    await openCustomerSearchDropdown(container, 'delivery-customer');
+    await settleCustomerSearch();
+    expect(customerOptionTitles().join(' ')).toContain('Yeni Klinik');
   });
 
-  it('keeps the Customer reference state ready when the initial list fails after creation', async () => {
-    const initial = deferred<ReferenceCustomer[]>();
-    api.listReferenceCustomers.mockReturnValueOnce(initial.promise);
+  it('keeps the delivery draft submittable when the initial page fails but a customer is created', async () => {
+    crm.listCustomers.mockRejectedValue(new Error('İlk müşteri sayfası başarısız'));
     await act(async () => root.render(view(staffUser)));
+    await settleCustomerSearch();
     await act(async () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
-    initial.reject(new Error('İlk müşteri listesi başarısız'));
-    await settle();
 
-    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.disabled).toBe(false);
-    expect(container.querySelector('[data-retry-customers]')).toBeNull();
+    expect(selectedCustomerLabel()).toContain('Yeni Klinik');
+    await selectProduct(container);
+    const submit = container.querySelector('.delivery-form .primary-button') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
   });
 
-  it('uses a later same-ID canonical Customer projection while preserving the delivery draft', async () => {
-    const create = deferred<Awaited<ReturnType<typeof crm.createCustomer>>>();
-    const canonical: ReferenceCustomer = {
-      id: 'customer-created',
-      name: 'Canonical Klinik',
-      customerType: 'clinic',
-      status: 'active',
-      assignedStaffUserId: 'staff-2',
-    };
-    api.listReferenceCustomers
-      .mockRejectedValueOnce(new Error('İlk müşteri listesi başarısız'))
-      .mockResolvedValueOnce([canonical]);
-    crm.createCustomer.mockReturnValueOnce(create.promise);
+  it('prefers the server projection for a created id while keeping a single row', async () => {
     await act(async () => root.render(view(manager)));
     await settle();
-
-    const retry = container.querySelector('[data-retry-customers]') as HTMLButtonElement;
     await act(async () => changeInput(container.querySelector('#delivery-note') as HTMLTextAreaElement, 'Canonical refresh notu'));
     await act(async () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
-
-    await act(async () => {
-      create.resolve({
-        id: 'customer-created', organizationId: 'org-1', name: 'Snapshot Klinik', customerType: 'clinic',
-        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
-        assignedStaffUserId: null, status: 'prospect', version: 1,
-      });
-      await Promise.resolve();
-      await Promise.resolve();
-      retry.click();
-    });
     await settle();
 
-    const select = container.querySelector('#delivery-customer') as HTMLSelectElement;
-    expect(select.value).toBe('customer-created');
-    expect(select.selectedOptions[0]?.textContent).toBe('Canonical Klinik');
-    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    // A later search returns the canonical server projection for the same id.
+    crm.listCustomers.mockResolvedValue({
+      items: [{
+        id: 'customer-created', organizationId: 'org-1', name: 'Canonical Klinik', customerType: 'clinic',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: 'staff-2', status: 'active', version: 2,
+        assignedStaffName: 'Bora', primaryContact: null,
+      }],
+      total: 1, limit: 20, offset: 0,
+    });
+    await openCustomerSearchDropdown(container, 'delivery-customer');
+    await searchCustomer(container, 'canonical');
+    const titles = customerOptionTitles().join(' ');
+    expect(titles).toContain('Canonical Klinik');
+    expect(titles).not.toContain('Snapshot Klinik');
+    expect(customerOptionTitles().filter((title) => title.includes('Canonical Klinik'))).toHaveLength(1);
+    // The selection itself is stable: background pages never reselect or
+    // re-derive the assignee from the created snapshot.
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('');
     expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Canonical refresh notu');
-    expect(Array.from(select.options).filter((option) => option.value === 'customer-created')).toHaveLength(1);
   });
 });

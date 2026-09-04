@@ -22,7 +22,7 @@ import type {
   UpdateContactRecord,
   UpdateCustomerRecord,
 } from './types.js';
-import { mapContact, mapContactDetail, mapCustomer, mapCustomerSummary, normalizeTaxNumber } from './types.js';
+import { mapContact, mapContactDetail, mapCustomer, mapCustomerSummary, foldCustomerSearchText, normalizeTaxNumber, phoneDigitVariants } from './types.js';
 
 const CUSTOMER_COLUMNS = `c.id, c.organization_id, c.name, c.customer_type, c.tax_number,
   c.phone, c.email, c.city, c.district, c.address, c.assigned_staff_user_id,
@@ -32,6 +32,16 @@ const CONTACT_COLUMNS = `id, organization_id, customer_id, name, title, phone, e
 
 function boundedLimit(limit: number) {
   return Math.min(Math.max(limit, 1), 200);
+}
+
+/**
+ * Mirrors foldCustomerSearchText on the SQL side: lowercase, strip the
+ * combining dot (U+0307) left by a dotted capital İ, then unify dotless ı
+ * with i. Applied to both query pattern (JS) and column (SQL) so Turkish
+ * search matches regardless of İ/i/I/ı spelling.
+ */
+function foldSearchColumn(expression: string) {
+  return `replace(replace(lower(${expression}), chr(775), ''), 'ı', 'i')`;
 }
 
 
@@ -302,19 +312,29 @@ export class PostgresCrmRepository implements CrmRepository {
     if (filters.city) where.push(`LOWER(c.city) = ${add(filters.city.toLowerCase())}`);
     if (filters.unassigned) where.push('c.assigned_staff_user_id IS NULL');
     if (filters.q?.trim()) {
-      const textPattern = add(`%${filters.q.trim().toLowerCase()}%`);
+      // Fold both sides identically: plain LOWER() keeps the Turkish dotted-İ
+      // (combining dot) and dotless-ı asymmetries that break remote search.
+      const foldedPattern = add(`%${foldCustomerSearchText(filters.q.trim())}%`);
+      const digitPatterns = phoneDigitVariants(filters.q).map((digits) => add(`%${digits}%`));
+      const digitColumn = (column: string) =>
+        `regexp_replace(COALESCE(${column},''), '[^0-9]', '', 'g')`;
+      const phoneCondition = digitPatterns
+        .map((pattern) => ` OR ${digitColumn('c.phone')} LIKE ${pattern}`).join('');
+      const contactPhoneCondition = digitPatterns
+        .map((pattern) => ` OR ${digitColumn('contact.phone')} LIKE ${pattern}`).join('');
       const normalizedTax = normalizeTaxNumber(filters.q);
       const taxCondition = normalizedTax ? ` OR c.tax_number LIKE ${add(`%${normalizedTax}%`)}` : '';
       where.push(`(
-        LOWER(c.name) LIKE ${textPattern}${taxCondition}
-        OR LOWER(COALESCE(c.phone,'')) LIKE ${textPattern}
-        OR LOWER(COALESCE(c.email,'')) LIKE ${textPattern}
+        ${foldSearchColumn('c.name')} LIKE ${foldedPattern}${taxCondition}
+        OR ${foldSearchColumn("COALESCE(c.phone,'')")} LIKE ${foldedPattern}
+        OR ${foldSearchColumn("COALESCE(c.email,'')")} LIKE ${foldedPattern}${phoneCondition}
         OR EXISTS (
           SELECT 1 FROM contacts contact
           WHERE contact.organization_id = c.organization_id AND contact.customer_id = c.id
-          AND (LOWER(contact.name) LIKE ${textPattern} OR LOWER(COALESCE(contact.title,'')) LIKE ${textPattern}
-            OR LOWER(COALESCE(contact.phone,'')) LIKE ${textPattern}
-            OR LOWER(COALESCE(contact.email,'')) LIKE ${textPattern})
+          AND (${foldSearchColumn('contact.name')} LIKE ${foldedPattern}
+            OR ${foldSearchColumn("COALESCE(contact.title,'')")} LIKE ${foldedPattern}
+            OR ${foldSearchColumn("COALESCE(contact.phone,'')")} LIKE ${foldedPattern}
+            OR ${foldSearchColumn("COALESCE(contact.email,'')")} LIKE ${foldedPattern}${contactPhoneCondition})
         )
       )`);
     }
