@@ -1173,12 +1173,24 @@ describe('controlled production deployment automation contract', () => {
   });
 
   it('executes zero-migration rollback and refuses automatic rollback after migration', () => {
+    // Capable old target: real release dir carrying the exact marker, so the
+    // rollback must prove exact API identity against the OLD SHA.
+    const capableOldRoot = realpathSync(temporaryDirectory('capable-old-release'));
+    const capableOldReleases = join(capableOldRoot, 'releases');
+    const capableOldRelease = join(capableOldReleases, OLD_RELEASE_SHA);
+    mkdirSync(join(capableOldRelease, 'ops', 'release-capabilities'), { recursive: true });
+    writeFileSync(
+      join(capableOldRelease, 'ops', 'release-capabilities', 'release-identity-v1'),
+      'RELEASE_IDENTITY_V1\n',
+    );
     const zeroRollback = runDeployPhaseHarness('zero-rollback', {
-      HARNESS_OLD_RELEASE: `/opt/servora-med/releases/${OLD_RELEASE_SHA}`,
+      HARNESS_OLD_RELEASE: capableOldRelease,
+      SERVORA_DEPLOY_TEST_MODE: '1',
+      SERVORA_TEST_RELEASE_ROOT: capableOldReleases,
     });
     try {
       expect(zeroRollback.result.status).toBe(0);
-      expect(zeroRollback.events.some((event) => event === `switch:/opt/servora-med/releases/${OLD_RELEASE_SHA}`)).toBe(true);
+      expect(zeroRollback.events.some((event) => event === `switch:${capableOldRelease}`)).toBe(true);
       expect(zeroRollback.events).toContain('systemctl:restart servora-med.service');
       expect(zeroRollback.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
       // Rollback restores the previous release identity before restarting.
@@ -1188,7 +1200,7 @@ describe('controlled production deployment automation contract', () => {
       // against the candidate SHA is asserted separately by the
       // release-identity failure harness with a stateful health stub.)
       const oldSwitchIndex = zeroRollback.events.findIndex(
-        (event) => event === `switch:/opt/servora-med/releases/${OLD_RELEASE_SHA}`,
+        (event) => event === `switch:${capableOldRelease}`,
       );
       const oldVerifyIndex = zeroRollback.events.findIndex(
         (event) => event === `release_identity:${OLD_RELEASE_SHA}`,
@@ -1197,6 +1209,7 @@ describe('controlled production deployment automation contract', () => {
       expect(oldVerifyIndex).toBeGreaterThan(oldSwitchIndex);
     } finally {
       zeroRollback.cleanup();
+      rmSync(capableOldRoot, { recursive: true, force: true });
     }
 
     const migrated = runDeployPhaseHarness('migrated-no-rollback');
@@ -1392,8 +1405,20 @@ echo EXIT:$?
   });
 });
 
+const WRONG_RELEASE_SHA = 'cccccccccccccccccccccccccccccccccccccccc';
+
 function runReleaseIdentityFailureHarness(opts: {
-  mode: 'schema-failure-zero' | 'schema-restore-failure' | 'identity-mismatch-zero' | 'identity-mismatch-migrated';
+  mode:
+    | 'schema-failure-zero'
+    | 'schema-restore-failure'
+    | 'identity-mismatch-zero'
+    | 'identity-mismatch-migrated'
+    | 'legacy-start-failure'
+    | 'capable-missing-sha'
+    | 'capable-wrong-sha'
+    | 'legacy-health-failure'
+    | 'marker-symlink'
+    | 'marker-wrong-content';
 }) {
   const root = realpathSync(temporaryDirectory(`release-identity-${opts.mode}`));
   const releases = join(root, 'releases');
@@ -1407,6 +1432,51 @@ function runReleaseIdentityFailureHarness(opts: {
   const schemaRc =
     opts.mode === 'schema-failure-zero' || opts.mode === 'schema-restore-failure' ? 1 : 0;
   const failRestoreTarget = opts.mode === 'schema-restore-failure' ? OLD_RELEASE_SHA : '';
+  const failCandidateStart =
+    opts.mode === 'legacy-start-failure' ||
+    opts.mode === 'capable-missing-sha' ||
+    opts.mode === 'capable-wrong-sha' ||
+    opts.mode === 'legacy-health-failure' ||
+    opts.mode === 'marker-symlink' ||
+    opts.mode === 'marker-wrong-content'
+      ? 1
+      : 0;
+  // Capability fixture: 6325e44-class legacy targets carry no marker;
+  // capable targets carry the exact versioned marker file.
+  const markerMode: 'absent' | 'ok' | 'symlink' | 'wrong' =
+    opts.mode === 'identity-mismatch-zero' ||
+    opts.mode === 'identity-mismatch-migrated' ||
+    opts.mode === 'capable-missing-sha' ||
+    opts.mode === 'capable-wrong-sha'
+      ? 'ok'
+      : opts.mode === 'marker-symlink'
+        ? 'symlink'
+        : opts.mode === 'marker-wrong-content'
+          ? 'wrong'
+          : 'absent';
+  const markerDir = join(oldRelease, 'ops', 'release-capabilities');
+  const markerPath = join(markerDir, 'release-identity-v1');
+  if (markerMode !== 'absent') {
+    mkdirSync(markerDir, { recursive: true });
+    if (markerMode === 'ok') {
+      writeFileSync(markerPath, 'RELEASE_IDENTITY_V1\n');
+    } else if (markerMode === 'wrong') {
+      writeFileSync(markerPath, 'RELEASE_IDENTITY_V0\n');
+    } else {
+      const target = join(root, 'marker-target.txt');
+      writeFileSync(target, 'RELEASE_IDENTITY_V1\n');
+      symlinkSync(target, markerPath);
+    }
+  }
+  const curlMode =
+    opts.mode === 'legacy-start-failure' || opts.mode === 'legacy-health-failure'
+      ? 'legacy'
+      : opts.mode === 'capable-missing-sha'
+        ? 'wrongbody'
+        : opts.mode === 'capable-wrong-sha'
+          ? 'wrongsha'
+          : 'stateful';
+  const healthMode = opts.mode === 'legacy-health-failure' ? 'fail-old' : 'ok';
   const body = `
 EVENT_LOG="$2"
 SHA="${TEST_SHA}"
@@ -1419,6 +1489,9 @@ OLD_PTR="${oldRelease}"
 CANDIDATE_PTR="${join(releases, TEST_SHA)}"
 CURRENT_PTR="$OLD_PTR"
 FAIL_RESTORE_TARGET="${failRestoreTarget}"
+FAIL_CANDIDATE_START="${failCandidateStart}"
+CURL_MODE="${curlMode}"
+HEALTH_MODE="${healthMode}"
 log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
 require_commands() { log_event require; }
 validate_sha() { :; }
@@ -1442,19 +1515,27 @@ stat() {
 }
 curl() {
   log_event "curl:\$*"
-  if [[ "\$CURRENT_PTR" == "\$CANDIDATE_PTR" ]]; then
+  if [[ "\$CURL_MODE" == legacy || "\$CURL_MODE" == wrongbody ]]; then
+    printf '{"status":"ok"}'
+  elif [[ "\$CURL_MODE" == wrongsha ]]; then
+    printf '{"status":"ok","releaseSha":"${WRONG_RELEASE_SHA}"}'
+  elif [[ "\$CURRENT_PTR" == "\$CANDIDATE_PTR" ]]; then
     printf '{"status":"ok"}'
   else
     printf '{"status":"ok","releaseSha":"${OLD_RELEASE_SHA}"}'
   fi
   return 0
 }
+START_COUNT=0
 systemctl() {
   log_event "systemctl:\$*"
   case "\$1" in
     is-active) return 0 ;;
     stop) CURRENT_PTR="stopped"; return 0 ;;
-    start|restart) CURRENT_PTR="\$(readlink "\$TEST_LINK")"; return 0 ;;
+    start|restart)
+      START_COUNT=\$((START_COUNT + 1))
+      if [[ "\$FAIL_CANDIDATE_START" == 1 && "\$START_COUNT" -eq 1 ]]; then return 1; fi
+      CURRENT_PTR="\$(readlink "\$TEST_LINK")"; return 0 ;;
     *) return 0 ;;
   esac
 }
@@ -1484,8 +1565,12 @@ atomic_switch() {
   CURRENT_SWITCHED=true
   CURRENT_PTR="\$1"
 }
-health_gate() { log_event health; return 0; }
-_real_transition_src="\$(declare -f transition_release_sha)"
+health_gate() {
+  log_event health
+  if [[ "$HEALTH_MODE" == fail-old && "$CURRENT_PTR" == "$OLD_PTR" ]]; then return 1; fi
+  return 0
+}
+_real_transition_src="$(declare -f transition_release_sha)"
 eval "_real_transition_release_sha\${_real_transition_src#transition_release_sha}"
 transition_release_sha() {
   log_event "release_transition:\${1:-\$SHA}"
@@ -1518,6 +1603,72 @@ deploy_phase
     envAfter,
     pointer,
     releases,
+    oldRelease,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+function runExplicitLegacyRollbackHarness() {
+  // Operator is live on a capable candidate; rollback target is a
+  // 6325e44-class legacy release (no marker, pre-identity health body).
+  const root = realpathSync(temporaryDirectory('explicit-legacy-rollback'));
+  const releases = join(root, 'releases');
+  const oldRelease = join(releases, OLD_RELEASE_SHA);
+  const candidateRelease = join(releases, TEST_SHA);
+  mkdirSync(oldRelease, { recursive: true });
+  mkdirSync(candidateRelease, { recursive: true });
+  const currentLink = join(root, 'current');
+  symlinkSync(candidateRelease, currentLink);
+  const eventLog = join(root, 'events.log');
+  const envFile = createEnvFile(root, `OTHER=keep\nSERVORA_RELEASE_SHA=${TEST_SHA}\n`);
+  const body = `
+EVENT_LOG="$2"
+SHA="${TEST_SHA}"
+FQDN="fixture.example"
+TEST_LINK="${currentLink}"
+log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
+require_commands() { log_event require; }
+validate_sha() { :; }
+validate_fqdn() { :; }
+read_state() { MIGRATIONS_APPLIED=0; OLD_RELEASE="${oldRelease}"; }
+chown() { return 0; }
+stat() {
+  case "\$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "\$@" ;;
+  esac
+}
+curl() { printf '{"status":"ok"}'; return 0; }
+systemctl() { log_event "systemctl:\$*"; return 0; }
+write_state() { log_event "write_state:\$1"; }
+atomic_switch() {
+  log_event "switch:\$1"
+  rm -f -- "$TEST_LINK"
+  ln -s -- "\$1" "\$TEST_LINK"
+  CURRENT_SWITCHED=true
+}
+rollback_phase
+`;
+  const result = runPatchedHost(
+    body,
+    {
+      APP_ENV_FILE: envFile,
+      SERVORA_DEPLOY_TEST_MODE: '1',
+      SERVORA_TEST_RELEASE_ROOT: releases,
+      SERVORA_TEST_CURRENT_LINK: currentLink,
+    },
+    [eventLog],
+  );
+  const events = existsSync(eventLog)
+    ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean)
+    : [];
+  const envAfter = readFileSync(envFile, 'utf8');
+  const pointer = readlinkSync(currentLink);
+  return {
+    result,
+    events,
+    envAfter,
+    pointer,
     oldRelease,
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
@@ -1657,6 +1808,9 @@ describe('release identity failure-state truthfulness — ACCEPT-F1/F2/F3', () =
       const output = `${harness.result.stdout}${harness.result.stderr}`;
       expect(harness.result.status).not.toBe(0);
       expect(output).toContain('ROLLBACK=PASS');
+      // Capable old target: exact API identity verification proven.
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=CAPABLE_EXACT_SHA');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
       expect(output).toContain('reason=RELEASE_IDENTITY_MISMATCH');
       expect(output).not.toContain('MANUAL_ROLLBACK');
       expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
@@ -1695,6 +1849,196 @@ describe('release identity failure-state truthfulness — ACCEPT-F1/F2/F3', () =
       expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
     } finally {
       harness.cleanup();
+    }
+  });
+
+  it('legacy start failure rolls back via pre-identity compatibility path', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'legacy-start-failure' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      // 6325e44-class target: no exact API verification possible, explicit
+      // legacy outcome instead of a misleading verify failure.
+      expect(output).toContain('ROLLBACK=PASS');
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE');
+      expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('CAPABLE_EXACT_SHA');
+      // Final state is fully OLD: pointer, env, restarted service.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+      const switchOld = harness.events.indexOf(`switch:${harness.oldRelease}`);
+      const restartIndex = harness.events.indexOf('systemctl:restart servora-med.service');
+      expect(switchOld).toBeGreaterThan(-1);
+      expect(restartIndex).toBeGreaterThan(switchOld);
+      // Exactly one rollback: candidate switch, then a single old switch.
+      // The CURRENT_SWITCHED guard must prevent a second rollback cycle.
+      expect(harness.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
+      expect(
+        harness.events.filter((event) => event === `switch:${harness.oldRelease}`).length,
+      ).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('capable target with missing health SHA fails closed, never legacy', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'capable-missing-sha' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('capable target with wrong health SHA fails closed, never legacy', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'capable-wrong-sha' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('legacy target with failing health fails closed via health contract', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'legacy-health-failure' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_HEALTH_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('malformed capability evidence fails closed, never downgrades to legacy', () => {
+    for (const mode of ['marker-symlink', 'marker-wrong-content'] as const) {
+      const harness = runReleaseIdentityFailureHarness({ mode });
+      try {
+        const output = `${harness.result.stdout}${harness.result.stderr}`;
+        expect(harness.result.status).not.toBe(0);
+        expect(output).toContain('reason=ROLLBACK_CAPABILITY_EVIDENCE_INVALID');
+        expect(output).not.toContain('ROLLBACK=PASS');
+        expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+      } finally {
+        harness.cleanup();
+      }
+    }
+  });
+
+  it('explicit operator rollback to a pre-identity release completes via legacy path', () => {
+    const harness = runExplicitLegacyRollbackHarness();
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).toBe(0);
+      expect(output).toContain('ROLLBACK=PASS');
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE');
+      expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('CAPABLE_EXACT_SHA');
+      expect(output).toContain('ROLLBACK=COMPLETE');
+      expect(harness.events).toContain('systemctl:restart servora-med.service');
+      // Governed restoration: pointer, env, and no candidate residue.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe('release identity capability evidence — artifact binding', () => {
+  const markerRepoPath = fileURLToPath(
+    new URL('../../ops/release-capabilities/release-identity-v1', import.meta.url),
+  );
+
+  it('tracks the exact versioned marker file', () => {
+    expect(readFileSync(markerRepoPath, 'utf8')).toBe('RELEASE_IDENTITY_V1\n');
+  });
+
+  it('does not forbid the marker path in release archives', () => {
+    const allowed = runHostHarness(
+      'is_forbidden_artifact_path "ops/release-capabilities/release-identity-v1"',
+    );
+    expect(allowed.status).not.toBe(0);
+    const stillForbidden = runHostHarness('is_forbidden_artifact_path "data/password.txt"');
+    expect(stillForbidden.status).toBe(0);
+  });
+
+  it('passes archive entry verification with the marker inside', () => {
+    const root = temporaryDirectory('marker-archive');
+    try {
+      const opsDir = join(root, 'ops', 'release-capabilities');
+      mkdirSync(opsDir, { recursive: true });
+      copyFileSync(markerRepoPath, join(opsDir, 'release-identity-v1'));
+      const artifact = join(root, 'release.tar.gz');
+      execFileSync('tar', ['-czf', artifact, '-C', root, 'ops']);
+      const result = runHostHarness('ARTIFACT="$2"; verify_archive_entries', [artifact]);
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function releaseTreeFixture(withMarker: boolean) {
+    const root = realpathSync(temporaryDirectory('release-tree'));
+    const dirs = [
+      'server/dist',
+      'server/dist/db/migrations',
+      'server/node_modules',
+      'web/dist',
+      'ops/scripts',
+      'ops/systemd',
+      'ops/release-capabilities',
+    ];
+    for (const dir of dirs) mkdirSync(join(root, dir), { recursive: true });
+    const files = [
+      'server/package.json',
+      'server/package-lock.json',
+      'server/dist/db/migrate.js',
+      'server/dist/db/schema-check.js',
+      'ops/scripts/backup-postgres.sh',
+      'ops/scripts/migration-state.mjs',
+      'ops/scripts/migration-reconciliation.mjs',
+      'ops/scripts/deploy-production-host.sh',
+      'ops/scripts/predeploy-backup-launcher.sh',
+      'ops/systemd/servora-med-predeploy-backup@.service',
+    ];
+    for (const file of files) writeFileSync(join(root, file), 'fixture');
+    chmodSync(join(root, 'ops/scripts/backup-postgres.sh'), 0o755);
+    if (withMarker) {
+      copyFileSync(markerRepoPath, join(root, 'ops/release-capabilities/release-identity-v1'));
+    }
+    return root;
+  }
+
+  it('requires the marker in candidate release trees', () => {
+    const withMarker = releaseTreeFixture(true);
+    try {
+      const ok = runHostHarness('validate_release_tree "$2"', [withMarker]);
+      expect(ok.status).toBe(0);
+    } finally {
+      rmSync(withMarker, { recursive: true, force: true });
+    }
+    const withoutMarker = releaseTreeFixture(false);
+    try {
+      const missing = runHostHarness('validate_release_tree "$2"', [withoutMarker]);
+      expect(missing.status).not.toBe(0);
+      expect(`${missing.stdout}${missing.stderr}`).toContain('RELEASE_TREE_INVALID');
+    } finally {
+      rmSync(withoutMarker, { recursive: true, force: true });
     }
   });
 });

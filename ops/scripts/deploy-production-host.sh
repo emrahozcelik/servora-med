@@ -31,6 +31,12 @@ readonly EXPECTED_LAUNCHER_SHA256="166aab1e43a88f317f0d4a429de09e3f07d205e910ca0
 readonly EXPECTED_UNIT_SHA256="bb59f68869582585794d406090eb6abf6b738b7d95e981b1ca884a027659d3a0"
 readonly NODE_BIN="/usr/bin/node"
 readonly SERVICE_USER="servora-med"
+# Immutable release-tree evidence for Release Identity V1. The marker file is
+# tracked in source, packaged inside the immutable release artifact (ops/ is
+# included verbatim), and therefore attributable to the TARGET release — never
+# inferred from runtime health and never stamped by the host helper.
+readonly RELEASE_IDENTITY_CAPABILITY_MARKER='ops/release-capabilities/release-identity-v1'
+readonly RELEASE_IDENTITY_V1_SENTINEL='RELEASE_IDENTITY_V1'
 
 PHASE=""
 SHA=""
@@ -343,6 +349,7 @@ validate_release_tree() {
     "$root/ops/scripts/migration-reconciliation.mjs" \
     "$root/ops/scripts/deploy-production-host.sh" \
     "$root/ops/scripts/predeploy-backup-launcher.sh" \
+    "$root/ops/release-capabilities/release-identity-v1" \
     "$root/ops/systemd/servora-med-predeploy-backup@.service"; do
     assert_release_file "$required" || fail RELEASE_TREE_INVALID
   done
@@ -948,8 +955,65 @@ rollback_internal() {
   SERVICE_STOPPED=false
   CURRENT_SWITCHED=false
   health_gate || fail ROLLBACK_HEALTH_FAILED
-  verify_release_identity "$rollback_sha" || fail ROLLBACK_IDENTITY_VERIFY_FAILED
+  [[ "$(current_release)" == "$OLD_RELEASE" ]] || fail ROLLBACK_POINTER_MISMATCH
+  local capability
+  capability="$(release_identity_capability "$OLD_RELEASE")"
+  case "$capability" in
+    CAPABLE)
+      verify_release_identity "$rollback_sha" || fail ROLLBACK_IDENTITY_VERIFY_FAILED
+      echo "ROLLBACK_IDENTITY_VERIFICATION=CAPABLE_EXACT_SHA"
+      ;;
+    LEGACY)
+      # Pre-identity target: exact pointer, exact env identity, and health
+      # availability are verified above. The health releaseSha API does not
+      # exist on this target, so exact API verification is explicitly
+      # unsupported — never failed, never faked.
+      echo "ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE"
+      ;;
+    *)
+      fail ROLLBACK_CAPABILITY_EVIDENCE_INVALID
+      ;;
+  esac
   echo "ROLLBACK=PASS"
+}
+
+# Classifies a rollback target release from immutable artifact evidence:
+# CAPABLE (exact health verification mandatory), LEGACY (pre-identity target;
+# API verification unsupported), or INVALID (untrustworthy evidence).
+# Pure predicate: deterministic, side-effect free, target-release scoped —
+# no network, no env override, no git, no mutable host registry, and never
+# inferred from the runtime health response.
+release_identity_capability() {
+  local release="$1"
+  local canonical
+  canonical="$(cd -- "$release" 2>/dev/null && pwd -P)" || {
+    printf 'INVALID\n'
+    return 0
+  }
+  [[ "$canonical" == "$RELEASE_ROOT"/* ]] || {
+    printf 'INVALID\n'
+    return 0
+  }
+  local marker="${canonical}/${RELEASE_IDENTITY_CAPABILITY_MARKER}"
+  if [[ ! -e "$marker" && ! -L "$marker" ]]; then
+    printf 'LEGACY\n'
+    return 0
+  fi
+  [[ -f "$marker" && ! -L "$marker" ]] || {
+    printf 'INVALID\n'
+    return 0
+  }
+  local content
+  content="$(cat -- "$marker" 2>/dev/null)" || {
+    printf 'INVALID\n'
+    return 0
+  }
+  if [[ "$content" == "$RELEASE_IDENTITY_V1_SENTINEL" ]]; then
+    printf 'CAPABLE\n'
+  else
+    printf 'INVALID\n'
+  fi
+  return 0
 }
 
 deploy_phase() {
