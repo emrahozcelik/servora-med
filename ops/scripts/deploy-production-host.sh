@@ -45,6 +45,10 @@ STAGING_DIR=""
 STATE_FILE=""
 TEMP_FILES=()
 CURRENT_SWITCHED=false
+# Tracks whether SERVORA_RELEASE_SHA was already transitioned to the
+# candidate SHA in this process. Generic recovery paths must restore the OLD
+# release identity before (re)starting OLD code whenever this is true.
+RELEASE_IDENTITY_TRANSITIONED=false
 
 usage() {
   cat >&2 <<'EOF'
@@ -84,6 +88,16 @@ on_error() {
     if [[ "$CURRENT_SWITCHED" == true ]]; then
       atomic_switch "$OLD_RELEASE" >/dev/null 2>&1 || true
       CURRENT_SWITCHED=false
+    fi
+    if [[ "$RELEASE_IDENTITY_TRANSITIONED" == true ]]; then
+      # The OLD service must never be (re)started while the env still
+      # reports the failed candidate SHA. Restore OLD identity first;
+      # on restoration failure stay stopped with an explicit reason.
+      if ! transition_release_sha "$(basename -- "$OLD_RELEASE")" >/dev/null 2>&1; then
+        echo "PRODUCTION_DEPLOYMENT_FAILED phase=${PHASE:-UNKNOWN} sha=${SHA:-UNKNOWN} reason=old_release_identity_restore_failed" >&2
+        exit "$code"
+      fi
+      RELEASE_IDENTITY_TRANSITIONED=false
     fi
     systemctl start "$SERVICE" >/dev/null 2>&1 || true
   fi
@@ -694,9 +708,11 @@ transition_release_sha() {
 }
 
 verify_release_identity() {
+  local expected="${1:-$SHA}"
+  [[ "$expected" =~ ^[0-9a-f]{40}$ ]] || return 1
   local health_body
   health_body="$(curl --fail --silent --show-error --max-time 5 'http://127.0.0.1:3000/api/health' 2>/dev/null)" || return 1
-  printf '%s' "$health_body" | grep -F -q "\"releaseSha\":\"${SHA}\"" || return 1
+  printf '%s' "$health_body" | grep -F -q "\"releaseSha\":\"${expected}\"" || return 1
   return 0
 }
 
@@ -925,11 +941,14 @@ rollback_internal() {
   atomic_switch "$OLD_RELEASE"
   # A rolled-back service must report the restored release, not the failed
   # candidate. Release directories are SHA-named by construction.
-  transition_release_sha "$(basename -- "$OLD_RELEASE")" || fail ROLLBACK_RELEASE_IDENTITY_FAILED
+  local rollback_sha
+  rollback_sha="$(basename -- "$OLD_RELEASE")"
+  transition_release_sha "$rollback_sha" || fail ROLLBACK_RELEASE_IDENTITY_FAILED
   systemctl restart "$SERVICE" >/dev/null 2>&1 || fail ROLLBACK_SERVICE_RESTART_FAILED
   SERVICE_STOPPED=false
   CURRENT_SWITCHED=false
   health_gate || fail ROLLBACK_HEALTH_FAILED
+  verify_release_identity "$rollback_sha" || fail ROLLBACK_IDENTITY_VERIFY_FAILED
   echo "ROLLBACK=PASS"
 }
 
@@ -1017,8 +1036,17 @@ deploy_phase() {
   # identity (read by /api/health), including zero-migration deploys, so the
   # restarted service can never report a stale release.
   transition_release_sha || fail SERVORA_RELEASE_SHA_TRANSITION_FAILED
+  RELEASE_IDENTITY_TRANSITIONED=true
   if ! run_schema_check "$release"; then
     if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+      # The OLD release is about to be restarted while the pointer still
+      # addresses it. Restore OLD release identity FIRST so the running
+      # release can never report the failed candidate SHA. If restoration
+      # itself fails, stay stopped with an explicit reason instead of
+      # starting OLD code under a NEW identity.
+      transition_release_sha "$(basename -- "$OLD_RELEASE")" \
+        || fail SCHEMA_CHECK_IDENTITY_RESTORE_FAILED
+      RELEASE_IDENTITY_TRANSITIONED=false
       systemctl start "$SERVICE" >/dev/null 2>&1 || true
       SERVICE_STOPPED=false
     fi
@@ -1072,7 +1100,27 @@ deploy_phase() {
     fi
     fail HEALTH_FAILED
   fi
-  verify_release_identity || fail RELEASE_IDENTITY_MISMATCH
+  if ! verify_release_identity; then
+    if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+      # Safe to roll back: no migration was applied. Restore OLD pointer,
+      # OLD identity, and OLD service, then still fail the deployment —
+      # a rolled-back deploy is a failed deploy, never a success.
+      # Roll back only while the candidate is still current: the
+      # start/health failure branches above already rolled back and fall
+      # through here, and rolling back twice would restart OLD code
+      # needlessly.
+      if [[ "$CURRENT_SWITCHED" == true ]]; then
+        rollback_internal
+      fi
+    else
+      # Migrations were applied: automatic rollback is prohibited by the
+      # migration safety contract. Classify explicitly so the operator can
+      # distinguish a live/migrated/identity-unverified release from an
+      # ordinary failure. Do not touch any other release.
+      fail RELEASE_IDENTITY_MISMATCH_MANUAL_ROLLBACK_REQUIRED
+    fi
+    fail RELEASE_IDENTITY_MISMATCH
+  fi
   echo "HEALTH=PASS"
   echo "ACTIVATION=PASS"
   echo "OLD_RELEASE=${OLD_RELEASE}"
