@@ -2700,13 +2700,24 @@ export class JobCardService {
       meetingAt: meetingAt === null ? null : new Date(meetingAt),
       requestAt: requestTime,
     });
-    const earliestAllowedAt = preferredAt
-      && preferredAt.valueOf() > policyEarliestAt.valueOf()
-      ? preferredAt
-      : policyEarliestAt;
     const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    // Target-first automatic scheduling (TARGET_TOLERANCE=NONE): the desired
+    // start is the persisted SYSTEM target when re-running at Manager
+    // approval, otherwise the +7-day policy target. The effective start never
+    // precedes the 15-minute floor, and the 30-day horizon stays anchored to
+    // the floor so target-first search cannot shift the envelope forward.
+    const desiredTargetAt = preferredAt
+      ?? suggestedFollowUpInstant({
+        evaluatedAt: requestTime,
+        sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
+        timezone,
+      });
+    const effectiveTargetAt = desiredTargetAt.valueOf() > policyEarliestAt.valueOf()
+      ? desiredTargetAt
+      : policyEarliestAt;
     const candidates = generateFollowUpSlotCandidates({
-      earliestAllowedAt,
+      earliestAllowedAt: effectiveTargetAt,
+      horizonAnchorAt: policyEarliestAt,
       type,
       timezone,
     });

@@ -282,7 +282,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 const appError = (code: string, statusCode: number) => expect.objectContaining({ code, statusCode });
 
 describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract', () => {
-  it('AUTO-1: creates the earliest deterministic proposal when Staff omits the schedule', async () => {
+  it('AUTO-1: creates the target-date proposal when Staff omits the schedule', async () => {
     await withFixture(async ({ service, pool, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'SALES_MEETING',
@@ -297,7 +297,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       expect(submitted.status).toBe('WAITING_APPROVAL');
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: '2026-08-01T10:15:00.000Z',
+        scheduledAt: '2026-08-08T10:00:00.000Z',
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
         origin: 'SYSTEM',
@@ -344,6 +344,62 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
+  it('AUTO-1D: auto target scheduling still succeeds on a recent-visit WARNING', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,
+    }) => {
+      const visit = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
+           started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by,
+           engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'COMPLETED', 'Geçen haftaki ziyaret', $2, $3, $4, NOW(), NOW(), $3, NOW(), $4, 'SALES_MEETING')
+         RETURNING id`,
+        [organizationId, customerId, staffB.id, manager.id],
+      );
+      await pool.query(
+        `INSERT INTO job_card_meeting_details (organization_id, job_card_id, meeting_at, outcome, meeting_summary)
+         VALUES ($1, $2, '2026-07-30T09:00:00.000Z', 'POSITIVE', 'Geçmiş ziyaret')`,
+        [organizationId, visit.rows[0]!.id],
+      );
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', title: 'Uyarılı takip', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+      });
+      expect(submitted.followUpProposal).toMatchObject({
+        scheduledAt: '2026-08-08T10:00:00.000Z',
+        origin: 'SYSTEM',
+      });
+    });
+  });
+
+  it('AUTO-1E: explicit Staff schedule before the target stays valid under floor-only manual policy', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', title: 'Erken manuel takip', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: '2026-08-02T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Erken kontrol araması.',
+        },
+      });
+      // The +7-day target is a SYSTEM preference, not a universal minimum.
+      expect(submitted.followUpProposal).toMatchObject({
+        scheduledAt: '2026-08-02T10:00:00.000Z',
+        origin: 'STAFF_ADJUSTED',
+      });
+    });
+  });
+
   it('AUTO-1C: accepts an additive proposal payload with scheduledAt omitted', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
@@ -361,7 +417,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
 
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: '2026-08-01T10:15:00.000Z',
+        scheduledAt: '2026-08-08T10:00:00.000Z',
         followUpInstructions: 'Klinik kararını teyit edin.',
         origin: 'SYSTEM',
       });
@@ -1145,7 +1201,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('AUTO-2: approval atomically reselects the next slot when an auto proposal becomes stale', async () => {
+  it('AUTO-2: approval reselects forward from the persisted target when it becomes stale', async () => {
     await withFixture(async ({
       service, calendar, manager, staffA, createInProgressJob,
     }) => {
@@ -1157,15 +1213,15 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: job.version,
         note: 'Görüşme tamamlandı.',
       });
-      expect(submitted.followUpProposal?.scheduledAt).toBe('2026-08-01T10:15:00.000Z');
+      expect(submitted.followUpProposal?.scheduledAt).toBe('2026-08-08T10:00:00.000Z');
 
       await calendar.create(manager, {
         clientActionId: randomUUID(),
         assignedUserId: staffA.id,
         title: 'Sonradan oluşan engel',
         description: null,
-        startsAt: '2026-08-01T11:00:00.000Z',
-        endsAt: '2026-08-01T12:00:00.000Z',
+        startsAt: '2026-08-08T10:00:00.000Z',
+        endsAt: '2026-08-08T11:00:00.000Z',
         timezone: 'Europe/Istanbul',
       });
 
@@ -1174,8 +1230,11 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: submitted.version,
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
-      expect(child.scheduledAt).toBe('2026-08-01T12:00:00.000Z');
-      expect(child.scheduledEndsAt).toBe('2026-08-01T13:00:00.000Z');
+      // Approval re-runs from the persisted target (not approvalTime + 7d):
+      // the blocked 10:00 target moves forward to 11:00, never backward,
+      // and never a second +7 days out.
+      expect(child.scheduledAt).toBe('2026-08-08T11:00:00.000Z');
+      expect(child.scheduledEndsAt).toBe('2026-08-08T12:00:00.000Z');
     });
   });
 
@@ -1203,8 +1262,8 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       const secondSubmitted = await service.submitForApproval(staffA, secondJob.id, {
         clientActionId: randomUUID(), expectedVersion: secondJob.version, note: 'Tamamlandı.',
       });
-      expect(firstSubmitted.followUpProposal?.scheduledAt).toBe('2026-08-01T10:15:00.000Z');
-      expect(secondSubmitted.followUpProposal?.scheduledAt).toBe('2026-08-01T10:15:00.000Z');
+      expect(firstSubmitted.followUpProposal?.scheduledAt).toBe('2026-08-08T08:00:00.000Z');
+      expect(secondSubmitted.followUpProposal?.scheduledAt).toBe('2026-08-08T09:00:00.000Z');
 
       const [firstApproved, secondApproved] = await Promise.all([
         service.approve(manager, firstJob.id, {
@@ -1219,8 +1278,8 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         service.detail(manager, secondApproved.followUpJobCardId),
       ]);
       expect(children.map((child) => child.scheduledAt).sort()).toEqual([
-        '2026-08-01T10:15:00.000Z',
-        '2026-08-01T11:15:00.000Z',
+        '2026-08-08T08:00:00.000Z',
+        '2026-08-08T09:00:00.000Z',
       ]);
     });
   });

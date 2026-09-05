@@ -1124,7 +1124,7 @@ describe('JobCard lifecycle commands', () => {
       staff, 'job-1', input('follow-up-without-proposal'),
     )).resolves.toMatchObject({ status: 'WAITING_APPROVAL' });
     expect(withoutProposal.transitions[0]?.followUpProposal).toMatchObject({
-      scheduledAt: new Date('2026-07-13T12:15:00.000Z'),
+      scheduledAt: new Date('2026-07-20T12:00:00.000Z'),
       type: 'SALES_MEETING',
       assignedTo: staff.id,
       origin: 'SYSTEM',

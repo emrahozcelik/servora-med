@@ -867,7 +867,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         });
         const proposal = submitted.followUpProposal;
         if (!proposal) throw new Error('Expected an AUTO follow-up proposal.');
-        expect(proposal.scheduledAt).toBe('2026-09-10T09:15:00.000Z');
+        expect(proposal.scheduledAt).toBe('2026-09-17T08:00:00.000Z');
 
         const jobToTransfer = await insertJob(pool, {
           organizationId,
@@ -1148,7 +1148,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         });
         const proposal = submitted.followUpProposal;
         if (!proposal) throw new Error('Expected a reverse AUTO follow-up proposal.');
-        expect(proposal.scheduledAt).toBe('2026-09-10T09:15:00.000Z');
+        expect(proposal.scheduledAt).toBe('2026-09-17T08:00:00.000Z');
 
         const jobToTransfer = await insertJob(pool, {
           organizationId,

@@ -14,6 +14,13 @@ export const AUTO_SCHEDULER_GRID_MINUTES = 15;
 
 export type FindEarliestFollowUpSlotInput = Readonly<{
   earliestAllowedAt: Date;
+  /**
+   * Floor anchor for the bounded search horizon. Search starts at
+   * earliestAllowedAt, but the +30-day envelope stays anchored here so a
+   * target-first search never accidentally shifts the horizon forward.
+   * Defaults to earliestAllowedAt, preserving prior caller semantics.
+   */
+  horizonAnchorAt?: Date;
   type: JobCardType;
   timezone: string;
   blockers: readonly AvailableSlotBlocker[];
@@ -43,14 +50,17 @@ export function generateFollowUpSlotCandidates(
   const firstMinuteOfDay = firstClock.hour * 60 + firstClock.minute;
   const firstGridMinute = Math.ceil(firstMinuteOfDay / AUTO_SCHEDULER_GRID_MINUTES)
     * AUTO_SCHEDULER_GRID_MINUTES;
+  const horizonAnchorAt = input.horizonAnchorAt ?? input.earliestAllowedAt;
+  const horizonAnchorDateKey = localDateKey(horizonAnchorAt, input.timezone);
+  const horizonAnchorClock = localClockParts(horizonAnchorAt, input.timezone);
   const horizonDateKey = addCalendarDaysToDateKey(
-    firstDateKey,
+    horizonAnchorDateKey,
     FOLLOW_UP_SEARCH_HORIZON_DAYS,
   );
   const horizonAt = instantFromLocal(
     horizonDateKey,
-    firstClock.hour,
-    firstClock.minute,
+    horizonAnchorClock.hour,
+    horizonAnchorClock.minute,
     input.timezone,
   );
   const candidates: AvailableSlotCandidate[] = [];
