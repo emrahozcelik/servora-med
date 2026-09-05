@@ -450,6 +450,35 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
         revoked_sessions: '1', audit_count: '1', completed_receipts: '1',
       });
 
+      // FOUNDATION-1: every assigned_to change through offboarding writes an
+      // OFFBOARDING assignment-history row atomically with the mutation.
+      const offboardingHistory = await fixture.pool.query<{
+        job_card_id: string; from_user_id: string; to_user_id: string;
+        changed_by: string; source: string; activity_id: string | null;
+      }>(
+        `SELECT job_card_id, from_user_id, to_user_id, changed_by, source, activity_id
+           FROM job_card_assignment_history
+          WHERE source = 'OFFBOARDING'
+          ORDER BY job_card_id`,
+      );
+      expect(offboardingHistory.rows).toHaveLength(plan.jobs.length);
+      for (const row of offboardingHistory.rows) {
+        expect(row).toMatchObject({
+          from_user_id: fixture.target.id,
+          to_user_id: fixture.replacementB.id,
+          changed_by: fixture.admin.id,
+          source: 'OFFBOARDING',
+        });
+        expect(row.activity_id).not.toBeNull();
+      }
+      const completedHistory = await fixture.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM job_card_assignment_history
+          WHERE job_card_id = ANY($1::uuid[])`,
+        [[fixture.ids.completedJob, fixture.ids.cancelledJob, fixture.ids.invalidatedJob]],
+      );
+      expect(completedHistory.rows[0]!.count).toBe('0');
+
       const participants = await fixture.pool.query<{ user_id: string }>(
         `SELECT user_id FROM conversation_participants WHERE conversation_id = $1 ORDER BY user_id`,
         [fixture.ids.jobConversation],

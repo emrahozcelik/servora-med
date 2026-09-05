@@ -205,6 +205,26 @@ export class PostgresSetupRepository implements SetupRepository {
           [organizationId, insertedJob.rows[0]!.id, userIds.get('STAFF'),
             { status: jobCard.status, assignedTo: userIds.get('STAFF'), version: 1 }],
         );
+        // FOUNDATION-1: bootstrap-created JobCards also carry schedule
+        // revision #1 and the initial assignment history row.
+        const bootstrapJobId = insertedJob.rows[0]!.id;
+        const bootstrapTimezone = await client.query<{ timezone: string }>(
+          `SELECT timezone FROM organizations WHERE id = $1`,
+          [organizationId],
+        );
+        await client.query(
+          `INSERT INTO job_card_schedule_revisions
+             (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+              due_date, organization_timezone, source, created_by)
+           VALUES ($1, $2, 1, NULL, NULL, NULL, $3, 'CREATE', $4)`,
+          [organizationId, bootstrapJobId, bootstrapTimezone.rows[0]!.timezone, userIds.get('STAFF')],
+        );
+        await client.query(
+          `INSERT INTO job_card_assignment_history
+             (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at)
+           VALUES ($1, $2, NULL, $3, $4, 'CREATE', NOW())`,
+          [organizationId, bootstrapJobId, userIds.get('STAFF'), userIds.get('STAFF')],
+        );
       }
       await client.query('COMMIT');
     } catch (error) {

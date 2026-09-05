@@ -154,6 +154,8 @@ class CrudMemoryRepository implements JobCardRepository {
         }
         return job;
       },
+      appendScheduleRevision: async () => ({ id: 'revision-memory', revisionNo: 1 }),
+      appendAssignmentHistory: async () => {},
       createMeetingDetails: async () => {},
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
@@ -224,6 +226,8 @@ class CrudMemoryRepository implements JobCardRepository {
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createJobCard: async () => { throw new Error('unused'); },
+      appendScheduleRevision: async () => ({ id: 'revision-memory', revisionNo: 1 }),
+      appendAssignmentHistory: async () => {},
       createMeetingDetails: async () => { throw new Error('unused'); },
       updateFieldsWithVersion: async (input) => {
         const index = this.jobs.findIndex((job) => job.organizationId === input.organizationId && job.id === input.jobCardId && job.version === input.expectedVersion);

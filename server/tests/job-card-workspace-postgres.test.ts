@@ -52,6 +52,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '035_demo_data_purge_foundation.sql',
         '036_job_card_invalidated.sql',
         '042_unsuccessful_visit_reason.sql',
+        '043_job_card_schedule_and_assignment_history.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

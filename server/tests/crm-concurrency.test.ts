@@ -96,6 +96,8 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
       );
       expect(customerInvariant.rows[0]!.invalid).toBe(false);
 
+      await pool!.query('DELETE FROM job_card_schedule_revisions WHERE organization_id=$1', [organizationId]);
+      await pool!.query('DELETE FROM job_card_assignment_history WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM job_card_activity_logs WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM job_cards WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM processed_actions WHERE organization_id=$1', [organizationId]);
@@ -133,6 +135,8 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
       await blocker.query('ROLLBACK').catch(() => undefined);
       blocker.release();
       await Promise.allSettled(inFlight);
+      await pool!.query('DELETE FROM job_card_schedule_revisions WHERE organization_id=$1', [organizationId]);
+      await pool!.query('DELETE FROM job_card_assignment_history WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM job_card_activity_logs WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM job_cards WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM processed_actions WHERE organization_id=$1', [organizationId]);

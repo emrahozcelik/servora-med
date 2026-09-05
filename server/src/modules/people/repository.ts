@@ -170,6 +170,19 @@ class PostgresPeopleTransaction implements PeopleTransaction {
               )
           )
           OR EXISTS (
+            SELECT 1 FROM job_card_schedule_revisions revision
+            WHERE revision.organization_id = u.organization_id
+              AND revision.created_by = u.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM job_card_assignment_history assignment
+            WHERE assignment.organization_id = u.organization_id
+              AND (
+                assignment.from_user_id = u.id OR assignment.to_user_id = u.id
+                OR assignment.changed_by = u.id
+              )
+          )
+          OR EXISTS (
             SELECT 1 FROM job_card_activity_logs activity
             WHERE activity.organization_id = u.organization_id AND activity.actor_id = u.id
           )
