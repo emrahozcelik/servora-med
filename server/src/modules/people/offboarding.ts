@@ -544,8 +544,8 @@ export class PostgresStaffOffboardingService {
         JSON.stringify({ assignedTo: previousAssignee }), JSON.stringify({ assignedTo: nextAssignee }),
         JSON.stringify({ reason: 'STAFF_OFFBOARDED' }), `${input.clientActionId}:job:${jobCardId}`],
     );
-    // FOUNDATION-1: authoritative ownership history rides the same
-    // SERIALIZABLE transaction as the assigned_to mutation.
+    // FOUNDATION-1: authoritative ownership history rides the same database
+    // transaction as the assigned_to mutation.
     await client.query(
       `INSERT INTO job_card_assignment_history
         (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at, activity_id)
