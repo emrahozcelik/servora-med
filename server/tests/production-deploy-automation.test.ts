@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   copyFileSync,
@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
 import {
   classifyMigrationState,
   formatMigrationVersions,
@@ -2473,6 +2474,58 @@ describe('production-recovery helper — contract validation', () => {
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}${result.stderr}`).toContain('BACKUP_TIMESTAMP_MISMATCH');
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)('first-deploy bootstrap ordering', () => {
+  it('legacy env runs real migrate before persistent SHA transition', async () => {
+    // Mirrors Production Deploy run 33940068964: legacy production env has no
+    // SERVORA_RELEASE_SHA while candidate maintenance tooling must run, and
+    // the persistent SHA transition happens afterwards at the safe point.
+    const adminUrl = process.env.TEST_DATABASE_URL as string;
+    const admin = new Pool({ connectionString: adminUrl });
+    const schema = `sc_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const urlObj = new URL(adminUrl);
+    urlObj.searchParams.set('options', `-c search_path=${schema}`);
+    const dbUrl = urlObj.toString();
+    const root = temporaryDirectory('bootstrap-ordering');
+    try {
+      const migrateDist = fileURLToPath(new URL('../dist/db/migrate.js', import.meta.url));
+      const { SERVORA_RELEASE_SHA: _absent, ...rest } = process.env;
+      void _absent;
+      // 1. Maintenance runs first, with SHA absent (would previously throw).
+      execFileSync(process.execPath, [migrateDist], {
+        env: { ...rest, NODE_ENV: 'production', DATABASE_URL: dbUrl },
+        stdio: 'pipe',
+        timeout: 60_000,
+      });
+      // 2. Persistent SHA transition still occurs afterwards.
+      const envFile = createEnvFile(root, 'OTHER=keep\n');
+      const transitioned = runPatchedHost(
+        `
+chown() { return 0; }
+stat() {
+  case "$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "$@" ;;
+  esac
+}
+transition_release_sha "$2"
+`,
+        { APP_ENV_FILE: envFile },
+        [TEST_SHA],
+      );
+      expect(transitioned.status).toBe(0);
+      const envAfter = readFileSync(envFile, 'utf8');
+      expect(envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
+      expect((envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+      expect(envAfter).toContain('OTHER=keep');
+    } finally {
+      await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await admin.end();
       rmSync(root, { recursive: true, force: true });
     }
   });

@@ -106,6 +106,18 @@ function readNonEmpty(value: string | undefined, fallback: string, name: string)
   return resolved;
 }
 
+/**
+ * Canonical NODE_ENV validation, shared by the application config and the
+ * narrow database-maintenance config so the accepted values cannot drift.
+ */
+export function readNodeEnvironment(value: string | undefined): NodeEnvironment {
+  const nodeEnv = readNonEmpty(value, 'development', 'NODE_ENV');
+  if (!NODE_ENVIRONMENTS.has(nodeEnv as NodeEnvironment)) {
+    throw new Error('NODE_ENV must be development, test, or production');
+  }
+  return nodeEnv as NodeEnvironment;
+}
+
 function readPort(value: string | undefined): number {
   const port = Number(value ?? '3000');
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -201,7 +213,12 @@ function readSupportConfig(env: NodeJS.ProcessEnv): AuthenticatedSupport {
   return { displayLabel, email, helpUrl };
 }
 
-function readDatabaseUrl(value: string | undefined): string {
+/**
+ * Single validation authority for DATABASE_URL semantics. Shared by the
+ * application config and the narrow database-maintenance config (migrate,
+ * schema-check) so maintenance tooling never needs full application config.
+ */
+export function readDatabaseUrl(value: string | undefined): string {
   const databaseUrl = value?.trim();
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required');
@@ -270,7 +287,12 @@ function readTrustedProxy(
   return raw as TrustedProxy;
 }
 
-function readHealthSchemaVersion(
+/**
+ * Single validation authority for HEALTH_SCHEMA_VERSION semantics. Shared by
+ * the application config and schema-check so the production requirement
+ * cannot drift between them.
+ */
+export function readHealthSchemaVersion(
   value: string | undefined,
   nodeEnv: NodeEnvironment,
 ): string | null {
@@ -498,12 +520,7 @@ export function resolveTrustProxyOption(trustedProxy: TrustedProxy): boolean | s
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const databaseUrl = readDatabaseUrl(env.DATABASE_URL);
 
-  const nodeEnv = readNonEmpty(env.NODE_ENV, 'development', 'NODE_ENV');
-  if (!NODE_ENVIRONMENTS.has(nodeEnv as NodeEnvironment)) {
-    throw new Error('NODE_ENV must be development, test, or production');
-  }
-
-  const typedNodeEnv = nodeEnv as NodeEnvironment;
+  const typedNodeEnv = readNodeEnvironment(env.NODE_ENV);
   const actionScopedGeolocationEnabled = readBoolean(
     env.ACTION_SCOPED_GEOLOCATION_ENABLED,
     'ACTION_SCOPED_GEOLOCATION_ENABLED',
