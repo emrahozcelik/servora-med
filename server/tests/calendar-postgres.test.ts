@@ -113,6 +113,8 @@ describe.skipIf(!databaseUrl)('calendar PostgreSQL authorization and transaction
     await pool.query('DELETE FROM realtime_events WHERE organization_id = ANY($1::uuid[])', [orgs]);
     await pool.query('DELETE FROM calendar_reminders WHERE organization_id = ANY($1::uuid[])', [orgs]);
     await pool.query('DELETE FROM calendar_events WHERE organization_id = ANY($1::uuid[])', [orgs]);
+    await pool.query('DELETE FROM job_card_schedule_revisions WHERE organization_id = ANY($1::uuid[])', [orgs]);
+    await pool.query('DELETE FROM job_card_assignment_history WHERE organization_id = ANY($1::uuid[])', [orgs]);
     await pool.query('DELETE FROM job_cards WHERE organization_id = ANY($1::uuid[])', [orgs]);
     await pool.query('DELETE FROM staff_profiles WHERE organization_id = ANY($1::uuid[])', [orgs]);
     await pool.query('DELETE FROM users WHERE organization_id = ANY($1::uuid[])', [orgs]);

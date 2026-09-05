@@ -535,14 +535,23 @@ export class PostgresStaffOffboardingService {
     previousAssignee: string,
     nextAssignee: string,
   ) {
-    const activity = await client.query<{ id: string }>(
+    const activity = await client.query<{ id: string; created_at: Date }>(
       `INSERT INTO job_card_activity_logs
         (organization_id, job_card_id, actor_id, event_type, old_value, new_value, metadata, client_action_id)
        VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb, $6::jsonb, $7)
-       RETURNING id`,
+       RETURNING id, created_at`,
       [actor.organizationId, jobCardId, actor.id,
         JSON.stringify({ assignedTo: previousAssignee }), JSON.stringify({ assignedTo: nextAssignee }),
         JSON.stringify({ reason: 'STAFF_OFFBOARDED' }), `${input.clientActionId}:job:${jobCardId}`],
+    );
+    // FOUNDATION-1: authoritative ownership history rides the same database
+    // transaction as the assigned_to mutation.
+    await client.query(
+      `INSERT INTO job_card_assignment_history
+        (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at, activity_id)
+       VALUES ($1, $2, $3, $4, $5, 'OFFBOARDING', $6, $7)`,
+      [actor.organizationId, jobCardId, previousAssignee, nextAssignee, actor.id,
+        activity.rows[0]!.created_at, activity.rows[0]!.id],
     );
     await client.query(
       `INSERT INTO realtime_events
@@ -551,7 +560,8 @@ export class PostgresStaffOffboardingService {
        VALUES ($1, $2, 'job.assignment_changed', 'job-card', $3::uuid, $4,
          ARRAY['ADMIN','MANAGER']::varchar(20)[], ARRAY[$5]::uuid[],
          ARRAY['jobs','job:' || $3::text,'overview'], $6)`,
-      [actor.organizationId, activity.rows[0]!.id, jobCardId, actor.id, nextAssignee, this.now()],
+      [actor.organizationId, activity.rows[0]!.id, jobCardId, actor.id,
+        nextAssignee, activity.rows[0]!.created_at],
     );
   }
 
