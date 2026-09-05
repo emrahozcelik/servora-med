@@ -258,6 +258,48 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
+  it('production without SERVORA_RELEASE_SHA → exit 0 COMPATIBLE', async () => {
+    // First-deploy bootstrap ordering: the legacy production env has no
+    // release identity yet, but schema tooling must still run.
+    await withSchema(async (_pool, _schema, dbUrl) => {
+      const migrPool = new Pool({ connectionString: dbUrl });
+      try {
+        await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
+      } finally {
+        await migrPool.end();
+      }
+      const catalog = await loadMigrationCatalog(migrationsDirectory);
+      const { SERVORA_RELEASE_SHA: _absent, HEALTH_SCHEMA_VERSION: _unused, ...rest } = process.env;
+      void _absent;
+      void _unused;
+      const result = runSchemaCheckViaNode(schemaCheckDist, {
+        ...rest,
+        NODE_ENV: 'production',
+        DATABASE_URL: dbUrl,
+        HEALTH_SCHEMA_VERSION: catalog.head?.version ?? '',
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toMatch(/COMPATIBLE/);
+      expect(result.stdout + result.stderr).not.toMatch(/SERVORA_RELEASE_SHA/);
+    });
+  });
+
+  it('production without HEALTH_SCHEMA_VERSION → fail closed', async () => {
+    await withSchema(async (_pool, _schema, dbUrl) => {
+      const { SERVORA_RELEASE_SHA: _absent, HEALTH_SCHEMA_VERSION: _unused, ...rest } = process.env;
+      void _absent;
+      void _unused;
+      const result = runSchemaCheckViaNode(schemaCheckDist, {
+        ...rest,
+        NODE_ENV: 'production',
+        DATABASE_URL: dbUrl,
+      });
+      expect(result.exitCode).not.toBe(0);
+      // Must fail on the missing version, not on release-identity coupling.
+      expect(result.stdout + result.stderr).not.toMatch(/SERVORA_RELEASE_SHA/);
+    });
+  });
+
   it('produces dist catalog 42 head 042', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
     expect(distCatalog.count).toBe(42);

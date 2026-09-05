@@ -1,4 +1,4 @@
-import { loadConfig } from '../config.js';
+import { readDatabaseUrl, readHealthSchemaVersion, readNodeEnvironment } from '../config.js';
 import { closeDatabase, createDatabase } from './index.js';
 import {
   compareMigrationState,
@@ -35,7 +35,12 @@ let exitCode = 0;
 let database: ReturnType<typeof createDatabase> | null = null;
 
 try {
-  const config = loadConfig();
+  // Narrow database-maintenance config: schema-check needs only DATABASE_URL
+  // and HEALTH_SCHEMA_VERSION. It must NOT require unrelated
+  // application-runtime config (notably SERVORA_RELEASE_SHA).
+  const nodeEnv = readNodeEnvironment(process.env.NODE_ENV);
+  const databaseUrl = readDatabaseUrl(process.env.DATABASE_URL);
+  const healthSchemaVersion = readHealthSchemaVersion(process.env.HEALTH_SCHEMA_VERSION, nodeEnv);
   const directory = getMigrationsDirectory();
   let catalog: MigrationCatalog;
   try {
@@ -59,7 +64,7 @@ try {
     throw new Error('Catalog empty');
   }
 
-  const mismatch = getHealthSchemaVersionMismatchError(catalog, config.healthSchemaVersion);
+  const mismatch = getHealthSchemaVersionMismatchError(catalog, healthSchemaVersion);
   if (mismatch) {
     console.error(mismatch.message);
     console.error('HEALTH_SCHEMA_VERSION must equal the current release catalog head.');
@@ -67,7 +72,7 @@ try {
     throw mismatch;
   }
 
-  database = createDatabase(config.databaseUrl);
+  database = createDatabase(databaseUrl);
 
   let appliedVersions: string[];
   try {
