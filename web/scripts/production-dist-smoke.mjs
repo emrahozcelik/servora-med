@@ -7,7 +7,7 @@
  * check exercises frontend startup without requiring a backend or database.
  */
 import { createServer } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -15,6 +15,18 @@ import { chromium } from 'playwright';
 const scriptDirectory = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const defaultDistDirectory = resolve(scriptDirectory, '..', 'dist');
 const distDirectory = resolve(process.env.SERVORA_PRODUCTION_DIST_DIR ?? defaultDistDirectory);
+
+/**
+ * Optional fail-closed release-identity gate. When the deploy path builds
+ * with an exact SHA it exports SERVORA_EXPECTED_BUILD_SHA, and this smoke
+ * proves the dist embeds that SHA (deterministic evidence beyond hashed
+ * asset filenames) plus the browser-visible parity contract.
+ */
+const expectedBuildSha = (process.env.SERVORA_EXPECTED_BUILD_SHA ?? '').trim().toLowerCase();
+if (expectedBuildSha !== '' && !/^[0-9a-f]{40}$/.test(expectedBuildSha)) {
+  console.error('SERVORA_EXPECTED_BUILD_SHA must be an exact 40-character lowercase Git SHA.');
+  process.exit(2);
+}
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -133,10 +145,13 @@ async function assertLoginBoot(browser, baseUrl, routePath) {
     auth401Observed
       && message === 'Failed to load resource: the server responded with a status of 401 (Unauthorized)'
   ));
+  const buildIdentity = page.locator('.build-identity').first();
   const result = {
     route: routePath,
     loginVisible: await page.locator('#login-title').isVisible().catch(() => false),
     rootNonEmpty: rootHtml.trim().length > 0,
+    buildSha: await buildIdentity.getAttribute('data-build-sha').catch(() => null),
+    buildLabel: (await buildIdentity.textContent().catch(() => null))?.trim() ?? null,
     pageErrors,
     consoleErrors: actionableConsoleErrors,
     auth401Observed,
@@ -145,6 +160,17 @@ async function assertLoginBoot(browser, baseUrl, routePath) {
   };
   await context.close();
   return result;
+}
+
+async function assertDistEmbedsSha(distDir, sha) {
+  const entries = await readdir(resolve(distDir, 'assets')).catch(() => null);
+  if (!entries) return false;
+  for (const entry of entries) {
+    if (!entry.endsWith('.js')) continue;
+    const body = await readFile(resolve(distDir, 'assets', entry), 'utf8').catch(() => null);
+    if (body !== null && body.includes(sha)) return true;
+  }
+  return false;
 }
 
 const { server, baseUrl } = await startStaticServer();
@@ -156,15 +182,26 @@ try {
     results.push(await assertLoginBoot(browser, baseUrl, routePath));
   }
 
+  let distIdentityOk = true;
+  if (expectedBuildSha !== '') {
+    distIdentityOk = await assertDistEmbedsSha(distDirectory, expectedBuildSha);
+    console.log(`production-dist build-sha embedded=${distIdentityOk ? 'PASS' : 'FAIL'}`);
+  }
+
+  const expectedShortSha = expectedBuildSha.slice(0, 7);
   for (const result of results) {
-    console.log(`production-dist ${result.route} login=${result.loginVisible ? 'PASS' : 'FAIL'} root=${result.rootNonEmpty ? 'PASS' : 'FAIL'} auth401=${result.auth401Observed ? 'PASS' : 'FAIL'} pageErrors=${result.pageErrors.length} consoleErrors=${result.consoleErrors.length} failedRequests=${result.failedRequests.length}`);
+    const parityOk = expectedBuildSha === ''
+      || (result.buildSha === expectedBuildSha
+        && (result.buildLabel ?? '').includes(expectedShortSha));
+    console.log(`production-dist ${result.route} login=${result.loginVisible ? 'PASS' : 'FAIL'} root=${result.rootNonEmpty ? 'PASS' : 'FAIL'} auth401=${result.auth401Observed ? 'PASS' : 'FAIL'} pageErrors=${result.pageErrors.length} consoleErrors=${result.consoleErrors.length} failedRequests=${result.failedRequests.length}${expectedBuildSha === '' ? '' : ` parity=${parityOk ? 'PASS' : `FAIL (data-build-sha=${result.buildSha ?? 'none'} label=${result.buildLabel ?? 'none'})`}`}`);
     if (result.navigationError) console.log(`  navigationError=${result.navigationError}`);
     for (const message of [...result.pageErrors, ...result.consoleErrors, ...result.failedRequests]) {
       console.log(`  error=${message}`);
     }
+    if (!parityOk) result.navigationError = result.navigationError || 'build identity parity mismatch';
   }
 
-  const failed = results.some((result) => !result.loginVisible
+  const failed = !distIdentityOk || results.some((result) => !result.loginVisible
     || !result.rootNonEmpty
     || !result.auth401Observed
     || result.pageErrors.length > 0

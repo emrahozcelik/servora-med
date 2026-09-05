@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { AppRouter } from './AppRouter';
 import { AppShell } from './AppShell';
+import { BuildIdentity } from './BuildIdentity';
 import { setDocumentTitle } from './document-title';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
@@ -91,6 +92,7 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
             </button>
             <p className="form-help" id="login-help">Erişim sorunu yaşıyorsanız sistem yöneticinizle iletişime geçin.</p>
           </form>
+          <BuildIdentity />
         </div>
       </section>
     </main>

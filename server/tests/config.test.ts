@@ -15,6 +15,7 @@ const productionBase = {
   CORS_ORIGIN: 'https://app.example.com',
   TRUSTED_PROXY: 'loopback',
   HEALTH_SCHEMA_VERSION: '007_sales_meeting',
+  SERVORA_RELEASE_SHA: '6325e44bf774d2cb0de2c4cd27ba93443b57d4c0',
 };
 
 const webPushPrivateKeyBytes = Buffer.alloc(32, 0);
@@ -118,6 +119,7 @@ describe('loadConfig', () => {
       rateLimitWindowMs: 90000,
       trustedProxy: '127.0.0.1',
       healthSchemaVersion: '007_sales_meeting',
+      releaseSha: 'dev',
       actionScopedGeolocationEnabled: false,
       calendarReminderLeadMinutes: 30,
       reverseGeocoderProvider: null,
@@ -164,6 +166,7 @@ describe('loadConfig', () => {
       rateLimitWindowMs: 60000,
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
+      releaseSha: 'dev',
       actionScopedGeolocationEnabled: false,
       calendarReminderLeadMinutes: 30,
       reverseGeocoderProvider: null,
@@ -529,6 +532,7 @@ describe('loadConfig', () => {
       corsOrigin: 'https://app.example.com',
       trustedProxy: 'loopback',
       healthSchemaVersion: '007_sales_meeting',
+      releaseSha: '6325e44bf774d2cb0de2c4cd27ba93443b57d4c0',
     });
   });
 
@@ -537,6 +541,34 @@ describe('loadConfig', () => {
     expect(() => loadConfig(without)).toThrow(
       'HEALTH_SCHEMA_VERSION is required in production',
     );
+  });
+
+  it('requires an exact SERVORA_RELEASE_SHA in production', () => {
+    const { SERVORA_RELEASE_SHA: _omit, ...without } = productionBase;
+    expect(() => loadConfig(without)).toThrow(
+      'SERVORA_RELEASE_SHA must be an exact 40-character lowercase Git SHA in production',
+    );
+    for (const sha of ['6325e44', 'xyz', '  ']) {
+      expect(() => loadConfig({ ...productionBase, SERVORA_RELEASE_SHA: sha })).toThrow(
+        'SERVORA_RELEASE_SHA must be an exact 40-character lowercase Git SHA in production',
+      );
+    }
+  });
+
+  it('normalizes the production release SHA deterministically', () => {
+    expect(loadConfig({
+      ...productionBase,
+      SERVORA_RELEASE_SHA: '6325E44BF774D2CB0DE2C4CD27BA93443B57D4C0',
+    }).releaseSha).toBe('6325e44bf774d2cb0de2c4cd27ba93443b57d4c0');
+  });
+
+  it('falls back to a dev release SHA outside production', () => {
+    expect(loadConfig(validEnvironment).releaseSha).toBe('dev');
+    expect(loadConfig({ ...validEnvironment, SERVORA_RELEASE_SHA: 'not-a-sha' }).releaseSha).toBe('dev');
+    expect(loadConfig({
+      ...validEnvironment,
+      SERVORA_RELEASE_SHA: '6325e44bf774d2cb0de2c4cd27ba93443b57d4c0',
+    }).releaseSha).toBe('6325e44bf774d2cb0de2c4cd27ba93443b57d4c0');
   });
 
   it('requires a database URL', () => {

@@ -13,6 +13,8 @@ import { createPostgresReadiness } from '../src/modules/health/postgres-readines
 import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
 import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 
+const TEST_RELEASE_SHA = '6325e44bf774d2cb0de2c4cd27ba93443b57d4c0';
+
 const testConfig: AppConfig = {
   nodeEnv: 'test',
   host: '127.0.0.1',
@@ -25,6 +27,7 @@ const testConfig: AppConfig = {
   rateLimitWindowMs: 60_000,
   trustedProxy: 'loopback',
   healthSchemaVersion: null,
+  releaseSha: TEST_RELEASE_SHA,
   actionScopedGeolocationEnabled: false,
   reverseGeocoderProvider: null,
   googleGeocodingApiKey: null,
@@ -54,7 +57,17 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
+    expect(response.json()).toEqual({ status: 'ok', releaseSha: TEST_RELEASE_SHA });
+  });
+
+  it('exposes the dev release identity outside controlled releases', async () => {
+    const readiness: HealthReadinessPort = { check: async () => 'ok' };
+    const app = await buildApp({ ...testConfig, releaseSha: 'dev' }, { healthReadiness: readiness });
+    apps.push(app);
+
+    const response = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ok', releaseSha: 'dev' });
   });
 
   it('returns 503 unavailable when readiness fails', async () => {
@@ -64,7 +77,7 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toEqual({ status: 'unavailable' });
+    expect(response.json()).toEqual({ status: 'unavailable', releaseSha: TEST_RELEASE_SHA });
     expect(JSON.stringify(response.json())).not.toMatch(/database|migration|error|host/i);
   });
 
@@ -83,7 +96,7 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toEqual({ status: 'unavailable' });
+    expect(response.json()).toEqual({ status: 'unavailable', releaseSha: TEST_RELEASE_SHA });
     expect(JSON.stringify(response.json())).not.toContain('secret-db-host');
   });
 

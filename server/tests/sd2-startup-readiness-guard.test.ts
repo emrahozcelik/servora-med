@@ -34,6 +34,7 @@ const testConfig: AppConfig = {
   rateLimitWindowMs: 60_000,
   trustedProxy: 'loopback',
   healthSchemaVersion: null,
+  releaseSha: 'dev',
   actionScopedGeolocationEnabled: false,
   reverseGeocoderProvider: null,
   googleGeocodingApiKey: null,
@@ -260,13 +261,13 @@ describe('SD2 readiness matrix', () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     const r = await healthStatusFor(catalog.entries.map((e) => e.version));
     expect(r.statusCode).toBe(200);
-    expect(r.body).toEqual({ status: 'ok' });
+    expect(r.body).toEqual({ status: 'ok', releaseSha: 'dev' });
   });
   it('BEHIND → 503', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     const r = await healthStatusFor(catalog.entries.filter((e) => e.number <= 36).map((e) => e.version));
     expect(r.statusCode).toBe(503);
-    expect(r.body).toEqual({ status: 'unavailable' });
+    expect(r.body).toEqual({ status: 'unavailable', releaseSha: 'dev' });
   });
   it('AHEAD → 503', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
@@ -296,14 +297,14 @@ describe('SD2 readiness matrix', () => {
     await app.close();
     expect(response.statusCode).toBe(503);
     expect(JSON.stringify(response.json())).not.toMatch(/secret-db-host/);
-    expect(response.json()).toEqual({ status: 'unavailable' });
+    expect(response.json()).toEqual({ status: 'unavailable', releaseSha: 'dev' });
   });
   it('public response does not expose migration internals', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     const r = await healthStatusFor(catalog.entries.filter((e) => e.number <= 29).map((e) => e.version));
     const body = JSON.stringify(r.body);
     expect(body).not.toMatch(/037_staff|029_messaging|030|pending/i);
-    expect(r.body).toEqual({ status: 'unavailable' });
+    expect(r.body).toEqual({ status: 'unavailable', releaseSha: 'dev' });
   });
 });
 

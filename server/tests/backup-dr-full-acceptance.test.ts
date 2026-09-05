@@ -278,7 +278,7 @@ const testConfig = {
   nodeEnv: 'test' as const,
   host: '127.0.0.1', port: 0, databaseUrl: 'postgresql://restored-target', logLevel: 'silent',
   corsOrigin: 'http://127.0.0.1:5173', sessionTtlSeconds: 28_800, loginRateLimitMax: 5,
-  rateLimitWindowMs: 60_000, trustedProxy: 'loopback' as const, healthSchemaVersion: null,
+  rateLimitWindowMs: 60_000, trustedProxy: 'loopback' as const, healthSchemaVersion: null, releaseSha: 'dev',
   actionScopedGeolocationEnabled: false, reverseGeocoderProvider: null, googleGeocodingApiKey: null,
   reverseGeocoderTimeoutMs: 2_000, geocodingUserDailyLimit: 15,
   geocodingOrganizationDailyLimit: 250, geocodingGlobalMonthlyLimit: 8_000,

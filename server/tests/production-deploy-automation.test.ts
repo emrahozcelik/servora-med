@@ -8,8 +8,10 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,6 +45,7 @@ const workflow = fileURLToPath(new URL('../../.github/workflows/deploy-productio
 const deploymentDoc = fileURLToPath(new URL('../../docs/operations/production-deployment.md', import.meta.url));
 
 const TEST_SHA = '0123456789abcdef0123456789abcdef01234567';
+const OLD_RELEASE_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 function temporaryDirectory(prefix: string) {
   return mkdtempSync(join(tmpdir(), `servora-deploy-${prefix}-`));
@@ -131,6 +134,7 @@ function runDeployPhaseHarness(
     | 'divergent-allow'
     | 'ahead-allow'
     | 'enable-failure',
+  extraEnv: NodeJS.ProcessEnv = {},
 ) {
   const root = temporaryDirectory(`phase-${mode}`);
   const eventLog = join(root, 'events.log');
@@ -149,7 +153,7 @@ validate_artifact() { :; }
 assert_env_contract() { :; }
 assert_host_backup_contract() { :; }
 assert_release_dir() { return 0; }
-current_release() { printf '%s\\n' /opt/servora-med/releases/old; }
+current_release() { printf '%s\\n' "\${HARNESS_OLD_RELEASE:-/opt/servora-med/releases/old}"; }
 assert_service_and_health() { log_event preflight; }
 verify_archive_entries() { log_event archive; }
 verify_artifact_checksum() { log_event checksum; ${mode === 'checksum-failure' ? 'fail ARTIFACT_CHECKSUM_MISMATCH' : ':'}; }
@@ -159,9 +163,11 @@ assert_candidate_backup_contract() { :; }
 run_predeploy_backup() { log_event backup; ${mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
 run_schema_check() { log_event schema; return 0; }
 transition_health_schema_version() { log_event "transition:$STATE_CATALOG_HEAD:$MIGRATIONS_APPLIED"; return 0; }
+transition_release_sha() { log_event "release_transition:\${1:-$SHA}"; return 0; }
 write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
+verify_release_identity() { log_event "release_identity:\${1:-$SHA}"; return 0; }
 restart_candidate_or_fail() { log_event candidate_start; ${mode === 'zero-rollback' || mode === 'migrated-no-rollback' ? 'return 1' : 'return 0'}; }
 systemctl() {
   log_event "systemctl:$*"
@@ -187,7 +193,7 @@ read_migration_state() {
 run_release_node() { log_event migrate; return 0; }
 deploy_phase
 `;
-  const result = runHostHarness(body, [eventLog]);
+  const result = runHostHarness(body, [eventLog], extraEnv);
   const events = existsSync(eventLog) ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean) : [];
   return { result, events, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -235,9 +241,11 @@ capture_data_invariants() { :; }
 assert_data_invariants_unchanged() { :; }
 run_schema_check() { log_event schema; return 0; }
 transition_health_schema_version() { log_event transition; return 0; }
+transition_release_sha() { log_event "release_transition:\${1:-$SHA}"; return 0; }
 write_state() { log_event write_state; }
 atomic_switch() { log_event "switch:$1"; CURRENT_SWITCHED=true; }
 health_gate() { log_event health; return 0; }
+verify_release_identity() { log_event release_identity; return 0; }
 restart_candidate_or_fail() { log_event candidate_start; SERVICE_STARTED=true; return 0; }
 run_release_node() { log_event migrate; return 0; }
 systemctl() {
@@ -446,8 +454,9 @@ stage_release() { log_event stage; }
 validate_release_tree() { :; }
 assert_candidate_backup_contract() { :; }
 run_predeploy_backup() { log_event backup; ${opts.mode === 'backup-failure' ? 'fail PREDEPLOY_BACKUP_FAILED' : ':'}; }
-# Mock chown/stat for env transition
+# Mock chown/stat for env transition, curl for release-identity verification
 chown() { return 0; }
+curl() { printf '{"status":"ok","releaseSha":"%s"}' "$SHA"; return 0; }
 stat() {
   case "$*" in
     *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
@@ -539,6 +548,23 @@ describe('controlled production deployment automation contract', () => {
       expect(harness.events.some((event) => event.includes('systemctl:enable --now'))).toBe(false);
       expect(harness.events).not.toContain('systemctl:start servora-med.service');
       expect(earlyServiceActivationEvents(harness.events)).toEqual([]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('pins the release SHA before activation and verifies identity after health', () => {
+    const harness = runBootEnablementHarness(hostHelper, 'disabled');
+    try {
+      expect(harness.result.status).toBe(0);
+      const transitionIndex = harness.events.indexOf(`release_transition:${TEST_SHA}`);
+      const switchIndex = harness.events.findIndex((event) => event.startsWith('switch:'));
+      const healthIndex = harness.events.indexOf('health');
+      const identityIndex = harness.events.indexOf('release_identity');
+      expect(transitionIndex).toBeGreaterThan(-1);
+      expect(switchIndex).toBeGreaterThan(transitionIndex);
+      expect(healthIndex).toBeGreaterThan(-1);
+      expect(identityIndex).toBeGreaterThan(healthIndex);
     } finally {
       harness.cleanup();
     }
@@ -1122,6 +1148,13 @@ describe('controlled production deployment automation contract', () => {
       expect(pendingAllowed.result.status).toBe(0);
       expect(pendingAllowed.events).toContain('migrate');
       expect(pendingAllowed.events).toContain('systemctl:stop servora-med.service');
+      const transitionIndex = pendingAllowed.events.indexOf(`release_transition:${TEST_SHA}`);
+      const switchIndex = pendingAllowed.events.findIndex((event) => event.startsWith('switch:'));
+      const healthIndex = pendingAllowed.events.indexOf('health');
+      const identityIndex = pendingAllowed.events.findIndex((event) => event.startsWith('release_identity:'));
+      expect(transitionIndex).toBeGreaterThan(-1);
+      expect(switchIndex).toBeGreaterThan(transitionIndex);
+      expect(identityIndex).toBeGreaterThan(healthIndex);
     } finally {
       pendingAllowed.cleanup();
     }
@@ -1140,14 +1173,43 @@ describe('controlled production deployment automation contract', () => {
   });
 
   it('executes zero-migration rollback and refuses automatic rollback after migration', () => {
-    const zeroRollback = runDeployPhaseHarness('zero-rollback');
+    // Capable old target: real release dir carrying the exact marker, so the
+    // rollback must prove exact API identity against the OLD SHA.
+    const capableOldRoot = realpathSync(temporaryDirectory('capable-old-release'));
+    const capableOldReleases = join(capableOldRoot, 'releases');
+    const capableOldRelease = join(capableOldReleases, OLD_RELEASE_SHA);
+    mkdirSync(join(capableOldRelease, 'ops', 'release-capabilities'), { recursive: true });
+    writeFileSync(
+      join(capableOldRelease, 'ops', 'release-capabilities', 'release-identity-v1'),
+      'RELEASE_IDENTITY_V1\n',
+    );
+    const zeroRollback = runDeployPhaseHarness('zero-rollback', {
+      HARNESS_OLD_RELEASE: capableOldRelease,
+      SERVORA_DEPLOY_TEST_MODE: '1',
+      SERVORA_TEST_RELEASE_ROOT: capableOldReleases,
+    });
     try {
       expect(zeroRollback.result.status).toBe(0);
-      expect(zeroRollback.events.some((event) => event === 'switch:/opt/servora-med/releases/old')).toBe(true);
+      expect(zeroRollback.events.some((event) => event === `switch:${capableOldRelease}`)).toBe(true);
       expect(zeroRollback.events).toContain('systemctl:restart servora-med.service');
       expect(zeroRollback.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
+      // Rollback restores the previous release identity before restarting.
+      expect(zeroRollback.events.some((event) => event.startsWith('release_transition:'))).toBe(true);
+      // Rollback identity verification must target the OLD release SHA,
+      // never the failed candidate SHA. (The deploy-path verification
+      // against the candidate SHA is asserted separately by the
+      // release-identity failure harness with a stateful health stub.)
+      const oldSwitchIndex = zeroRollback.events.findIndex(
+        (event) => event === `switch:${capableOldRelease}`,
+      );
+      const oldVerifyIndex = zeroRollback.events.findIndex(
+        (event) => event === `release_identity:${OLD_RELEASE_SHA}`,
+      );
+      expect(oldSwitchIndex).toBeGreaterThan(-1);
+      expect(oldVerifyIndex).toBeGreaterThan(oldSwitchIndex);
     } finally {
       zeroRollback.cleanup();
+      rmSync(capableOldRoot, { recursive: true, force: true });
     }
 
     const migrated = runDeployPhaseHarness('migrated-no-rollback');
@@ -1343,6 +1405,275 @@ echo EXIT:$?
   });
 });
 
+const WRONG_RELEASE_SHA = 'cccccccccccccccccccccccccccccccccccccccc';
+
+function runReleaseIdentityFailureHarness(opts: {
+  mode:
+    | 'schema-failure-zero'
+    | 'schema-restore-failure'
+    | 'identity-mismatch-zero'
+    | 'identity-mismatch-migrated'
+    | 'legacy-start-failure'
+    | 'capable-missing-sha'
+    | 'capable-wrong-sha'
+    | 'legacy-health-failure'
+    | 'marker-symlink'
+    | 'marker-wrong-content';
+}) {
+  const root = realpathSync(temporaryDirectory(`release-identity-${opts.mode}`));
+  const releases = join(root, 'releases');
+  const oldRelease = join(releases, OLD_RELEASE_SHA);
+  mkdirSync(oldRelease, { recursive: true });
+  const currentLink = join(root, 'current');
+  symlinkSync(oldRelease, currentLink);
+  const eventLog = join(root, 'events.log');
+  const envFile = createEnvFile(root, `OTHER=keep\nSERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}\n`);
+  const migrated = opts.mode === 'identity-mismatch-migrated';
+  const schemaRc =
+    opts.mode === 'schema-failure-zero' || opts.mode === 'schema-restore-failure' ? 1 : 0;
+  const failRestoreTarget = opts.mode === 'schema-restore-failure' ? OLD_RELEASE_SHA : '';
+  const failCandidateStart =
+    opts.mode === 'legacy-start-failure' ||
+    opts.mode === 'capable-missing-sha' ||
+    opts.mode === 'capable-wrong-sha' ||
+    opts.mode === 'legacy-health-failure' ||
+    opts.mode === 'marker-symlink' ||
+    opts.mode === 'marker-wrong-content'
+      ? 1
+      : 0;
+  // Capability fixture: 6325e44-class legacy targets carry no marker;
+  // capable targets carry the exact versioned marker file.
+  const markerMode: 'absent' | 'ok' | 'symlink' | 'wrong' =
+    opts.mode === 'identity-mismatch-zero' ||
+    opts.mode === 'identity-mismatch-migrated' ||
+    opts.mode === 'capable-missing-sha' ||
+    opts.mode === 'capable-wrong-sha'
+      ? 'ok'
+      : opts.mode === 'marker-symlink'
+        ? 'symlink'
+        : opts.mode === 'marker-wrong-content'
+          ? 'wrong'
+          : 'absent';
+  const markerDir = join(oldRelease, 'ops', 'release-capabilities');
+  const markerPath = join(markerDir, 'release-identity-v1');
+  if (markerMode !== 'absent') {
+    mkdirSync(markerDir, { recursive: true });
+    if (markerMode === 'ok') {
+      writeFileSync(markerPath, 'RELEASE_IDENTITY_V1\n');
+    } else if (markerMode === 'wrong') {
+      writeFileSync(markerPath, 'RELEASE_IDENTITY_V0\n');
+    } else {
+      const target = join(root, 'marker-target.txt');
+      writeFileSync(target, 'RELEASE_IDENTITY_V1\n');
+      symlinkSync(target, markerPath);
+    }
+  }
+  const curlMode =
+    opts.mode === 'legacy-start-failure' || opts.mode === 'legacy-health-failure'
+      ? 'legacy'
+      : opts.mode === 'capable-missing-sha'
+        ? 'wrongbody'
+        : opts.mode === 'capable-wrong-sha'
+          ? 'wrongsha'
+          : 'stateful';
+  const healthMode = opts.mode === 'legacy-health-failure' ? 'fail-old' : 'ok';
+  const body = `
+EVENT_LOG="$2"
+SHA="${TEST_SHA}"
+FQDN="fixture.example"
+ARTIFACT="/tmp/fixture.tar.gz"
+ARTIFACT_SHA="${'a'.repeat(64)}"
+ALLOW_MIGRATIONS=false
+TEST_LINK="${currentLink}"
+OLD_PTR="${oldRelease}"
+CANDIDATE_PTR="${join(releases, TEST_SHA)}"
+CURRENT_PTR="$OLD_PTR"
+FAIL_RESTORE_TARGET="${failRestoreTarget}"
+FAIL_CANDIDATE_START="${failCandidateStart}"
+CURL_MODE="${curlMode}"
+HEALTH_MODE="${healthMode}"
+log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
+require_commands() { log_event require; }
+validate_sha() { :; }
+validate_fqdn() { :; }
+validate_artifact() { :; }
+assert_env_contract() { :; }
+assert_host_backup_contract() { :; }
+assert_service_and_health() { log_event preflight; }
+verify_archive_entries() { :; }
+verify_artifact_checksum() { :; }
+stage_release() { log_event stage; }
+validate_release_tree() { :; }
+assert_candidate_backup_contract() { :; }
+run_predeploy_backup() { log_event backup; }
+chown() { return 0; }
+stat() {
+  case "\$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "\$@" ;;
+  esac
+}
+curl() {
+  log_event "curl:\$*"
+  if [[ "\$CURL_MODE" == legacy || "\$CURL_MODE" == wrongbody ]]; then
+    printf '{"status":"ok"}'
+  elif [[ "\$CURL_MODE" == wrongsha ]]; then
+    printf '{"status":"ok","releaseSha":"${WRONG_RELEASE_SHA}"}'
+  elif [[ "\$CURRENT_PTR" == "\$CANDIDATE_PTR" ]]; then
+    printf '{"status":"ok"}'
+  else
+    printf '{"status":"ok","releaseSha":"${OLD_RELEASE_SHA}"}'
+  fi
+  return 0
+}
+START_COUNT=0
+systemctl() {
+  log_event "systemctl:\$*"
+  case "\$1" in
+    is-active) return 0 ;;
+    stop) CURRENT_PTR="stopped"; return 0 ;;
+    start|restart)
+      START_COUNT=\$((START_COUNT + 1))
+      if [[ "\$FAIL_CANDIDATE_START" == 1 && "\$START_COUNT" -eq 1 ]]; then return 1; fi
+      CURRENT_PTR="\$(readlink "\$TEST_LINK")"; return 0 ;;
+    *) return 0 ;;
+  esac
+}
+STATE_READ_COUNT=0
+read_migration_state() {
+  STATE_READ_COUNT=\$((STATE_READ_COUNT + 1))
+  STATE_CATALOG_COUNT=41; STATE_CATALOG_HEAD=041_user_lifecycle_reconciliation
+  STATE_APPLIED_HEAD=041_user_lifecycle_reconciliation
+  STATE_APPLIED_COUNT=41
+  ${migrated ? 'if [[ "$STATE_READ_COUNT" -gt 1 ]]; then STATE_APPLIED_COUNT=42; fi' : ':'}
+  STATE_PENDING_VERSIONS=""; STATE_PENDING_COUNT=0; STATE_UNEXPECTED_VERSIONS=""; STATE_UNEXPECTED_COUNT=0
+  STATE_MIGRATION_STATUS=EXACT; STATE_MIGRATION_REASON=EXACT; STATE_DUPLICATE_VERSIONS=""; STATE_EXACT_CATALOG=true
+  STATE_ORGANIZATIONS=0; STATE_ADMINS=0; STATE_STAFF=0; STATE_CUSTOMERS=0; STATE_PRODUCTS=0; STATE_JOBS=0; STATE_DEMO_DATA=0
+}
+capture_data_invariants() { :; }
+assert_data_invariants_unchanged() { :; }
+run_release_node() {
+  log_event "migrate:\$2"
+  if [[ "\$2" == *schema-check* ]]; then return ${schemaRc}; fi
+  return 0
+}
+write_state() { log_event write_state; }
+atomic_switch() {
+  log_event "switch:\$1"
+  rm -f -- "\$TEST_LINK"
+  ln -s -- "\$1" "\$TEST_LINK"
+  CURRENT_SWITCHED=true
+  CURRENT_PTR="\$1"
+}
+health_gate() {
+  log_event health
+  if [[ "$HEALTH_MODE" == fail-old && "$CURRENT_PTR" == "$OLD_PTR" ]]; then return 1; fi
+  return 0
+}
+_real_transition_src="$(declare -f transition_release_sha)"
+eval "_real_transition_release_sha\${_real_transition_src#transition_release_sha}"
+transition_release_sha() {
+  log_event "release_transition:\${1:-\$SHA}"
+  if [[ -n "\$FAIL_RESTORE_TARGET" && "\${1:-\$SHA}" == "\$FAIL_RESTORE_TARGET" ]]; then
+    log_event "release_transition_injected_failure:\${1:-\$SHA}"
+    return 1
+  fi
+  _real_transition_release_sha "\$@"
+}
+deploy_phase
+`;
+  const result = runPatchedHost(
+    body,
+    {
+      APP_ENV_FILE: envFile,
+      SERVORA_DEPLOY_TEST_MODE: '1',
+      SERVORA_TEST_RELEASE_ROOT: releases,
+      SERVORA_TEST_CURRENT_LINK: currentLink,
+    },
+    [eventLog],
+  );
+  const events = existsSync(eventLog)
+    ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean)
+    : [];
+  const envAfter = readFileSync(envFile, 'utf8');
+  const pointer = readlinkSync(currentLink);
+  return {
+    result,
+    events,
+    envAfter,
+    pointer,
+    releases,
+    oldRelease,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+function runExplicitLegacyRollbackHarness() {
+  // Operator is live on a capable candidate; rollback target is a
+  // 6325e44-class legacy release (no marker, pre-identity health body).
+  const root = realpathSync(temporaryDirectory('explicit-legacy-rollback'));
+  const releases = join(root, 'releases');
+  const oldRelease = join(releases, OLD_RELEASE_SHA);
+  const candidateRelease = join(releases, TEST_SHA);
+  mkdirSync(oldRelease, { recursive: true });
+  mkdirSync(candidateRelease, { recursive: true });
+  const currentLink = join(root, 'current');
+  symlinkSync(candidateRelease, currentLink);
+  const eventLog = join(root, 'events.log');
+  const envFile = createEnvFile(root, `OTHER=keep\nSERVORA_RELEASE_SHA=${TEST_SHA}\n`);
+  const body = `
+EVENT_LOG="$2"
+SHA="${TEST_SHA}"
+FQDN="fixture.example"
+TEST_LINK="${currentLink}"
+log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
+require_commands() { log_event require; }
+validate_sha() { :; }
+validate_fqdn() { :; }
+read_state() { MIGRATIONS_APPLIED=0; OLD_RELEASE="${oldRelease}"; }
+chown() { return 0; }
+stat() {
+  case "\$*" in
+    *servora-med.env*) printf 'root:servora-med:640\\n'; return 0 ;;
+    *) command stat "\$@" ;;
+  esac
+}
+curl() { printf '{"status":"ok"}'; return 0; }
+systemctl() { log_event "systemctl:\$*"; return 0; }
+write_state() { log_event "write_state:\$1"; }
+atomic_switch() {
+  log_event "switch:\$1"
+  rm -f -- "$TEST_LINK"
+  ln -s -- "\$1" "\$TEST_LINK"
+  CURRENT_SWITCHED=true
+}
+rollback_phase
+`;
+  const result = runPatchedHost(
+    body,
+    {
+      APP_ENV_FILE: envFile,
+      SERVORA_DEPLOY_TEST_MODE: '1',
+      SERVORA_TEST_RELEASE_ROOT: releases,
+      SERVORA_TEST_CURRENT_LINK: currentLink,
+    },
+    [eventLog],
+  );
+  const events = existsSync(eventLog)
+    ? readFileSync(eventLog, 'utf8').trim().split('\n').filter(Boolean)
+    : [];
+  const envAfter = readFileSync(envFile, 'utf8');
+  const pointer = readlinkSync(currentLink);
+  return {
+    result,
+    events,
+    envAfter,
+    pointer,
+    oldRelease,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
 describe('deploy phase ENV integration — zero, failure, partial, full', () => {
   it('failure before migration preserves old env (backup failure)', () => {
     const harness = runDeployEnvHarness({
@@ -1354,6 +1685,7 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('PREDEPLOY_BACKUP_FAILED');
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).not.toContain('SERVORA_RELEASE_SHA');
       expect(harness.events).not.toContain('migrate');
     } finally {
       harness.cleanup();
@@ -1371,6 +1703,7 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(`${harness.result.stdout}${harness.result.stderr}`).toContain('MIGRATION_FAILED');
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).not.toContain('SERVORA_RELEASE_SHA');
       // Must not have restarted old release
       expect(harness.events).not.toContain('systemctl:restart servora-med.service');
       expect(harness.events.some((e) => e === 'switch:/opt/servora-med/releases/old')).toBe(false);
@@ -1395,6 +1728,8 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(harness.envAfter).toContain('HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation');
       expect(harness.envAfter).toContain('OTHER=keep');
       expect((harness.envAfter.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
       expect(harness.events).toContain('migrate');
       expect(harness.events).toContain('schema');
       expect(harness.events).toContain('systemctl:stop servora-med.service');
@@ -1414,9 +1749,296 @@ describe('deploy phase ENV integration — zero, failure, partial, full', () => 
       expect(harness.result.status).toBe(0);
       expect(harness.envAfter).toContain('037_staff_offboarding_audit');
       expect(harness.envAfter).not.toContain('041_user_lifecycle_reconciliation');
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
       expect(harness.events).toContain('migrate');
     } finally {
       harness.cleanup();
+    }
+  });
+});
+
+describe('release identity failure-state truthfulness — ACCEPT-F1/F2/F3', () => {
+  it('schema-check failure restores OLD identity before restarting OLD service', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'schema-failure-zero' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=SCHEMA_CHECK_FAILED');
+      expect(output).not.toContain('IDENTITY_RESTORE');
+      // Final env reports the OLD release, never the failed candidate.
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+      expect(harness.envAfter).toContain('OTHER=keep');
+      // Pointer never moved away from the OLD release.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.events.filter((event) => event.startsWith('switch:'))).toEqual([]);
+      // Restoration happened strictly before the OLD service restart.
+      const candidateTransition = harness.events.indexOf(`release_transition:${TEST_SHA}`);
+      const restoreIndex = harness.events.indexOf(`release_transition:${OLD_RELEASE_SHA}`);
+      const startIndex = harness.events.indexOf('systemctl:start servora-med.service');
+      expect(candidateTransition).toBeGreaterThan(-1);
+      expect(restoreIndex).toBeGreaterThan(candidateTransition);
+      expect(startIndex).toBeGreaterThan(restoreIndex);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('schema restore failure stays stopped with an explicit reason', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'schema-restore-failure' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=SCHEMA_CHECK_IDENTITY_RESTORE_FAILED');
+      // OLD service must NOT be restarted while the env still names the
+      // failed candidate SHA.
+      expect(harness.events).not.toContain('systemctl:start servora-med.service');
+      expect(harness.events).not.toContain('systemctl:restart servora-med.service');
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
+      expect(harness.pointer).toBe(harness.oldRelease);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('identity mismatch with zero migrations rolls back before failing', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'identity-mismatch-zero' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('ROLLBACK=PASS');
+      // Capable old target: exact API identity verification proven.
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=CAPABLE_EXACT_SHA');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+      expect(output).toContain('reason=RELEASE_IDENTITY_MISMATCH');
+      expect(output).not.toContain('MANUAL_ROLLBACK');
+      expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
+      // Final state is fully OLD: pointer, env, and no candidate residue.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      // Exactly one rollback cycle: candidate switch, then old switch.
+      const candidateRelease = join(harness.releases, TEST_SHA);
+      const switchCandidate = harness.events.indexOf(`switch:${candidateRelease}`);
+      const switchOld = harness.events.indexOf(`switch:${harness.oldRelease}`);
+      expect(switchCandidate).toBeGreaterThan(-1);
+      expect(switchOld).toBeGreaterThan(switchCandidate);
+      expect(harness.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
+      const restoreIndex = harness.events.indexOf(`release_transition:${OLD_RELEASE_SHA}`);
+      const restartIndex = harness.events.indexOf('systemctl:restart servora-med.service');
+      expect(restoreIndex).toBeGreaterThan(switchOld);
+      expect(restartIndex).toBeGreaterThan(restoreIndex);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('identity mismatch after migration refuses rollback with explicit classification', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'identity-mismatch-migrated' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=RELEASE_IDENTITY_MISMATCH_MANUAL_ROLLBACK_REQUIRED');
+      // No automatic old-release switch, no restart, no fake rollback.
+      expect(harness.events.some((event) => event === `switch:${harness.oldRelease}`)).toBe(false);
+      expect(harness.events).not.toContain('systemctl:restart servora-med.service');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      // Migrated candidate state is preserved untouched for the operator.
+      expect(harness.pointer).toBe(join(harness.releases, TEST_SHA));
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${TEST_SHA}`);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('legacy start failure rolls back via pre-identity compatibility path', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'legacy-start-failure' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      // 6325e44-class target: no exact API verification possible, explicit
+      // legacy outcome instead of a misleading verify failure.
+      expect(output).toContain('ROLLBACK=PASS');
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE');
+      expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('CAPABLE_EXACT_SHA');
+      // Final state is fully OLD: pointer, env, restarted service.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+      const switchOld = harness.events.indexOf(`switch:${harness.oldRelease}`);
+      const restartIndex = harness.events.indexOf('systemctl:restart servora-med.service');
+      expect(switchOld).toBeGreaterThan(-1);
+      expect(restartIndex).toBeGreaterThan(switchOld);
+      // Exactly one rollback: candidate switch, then a single old switch.
+      // The CURRENT_SWITCHED guard must prevent a second rollback cycle.
+      expect(harness.events.filter((event) => event.startsWith('switch:')).length).toBe(2);
+      expect(
+        harness.events.filter((event) => event === `switch:${harness.oldRelease}`).length,
+      ).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('capable target with missing health SHA fails closed, never legacy', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'capable-missing-sha' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('capable target with wrong health SHA fails closed, never legacy', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'capable-wrong-sha' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('legacy target with failing health fails closed via health contract', () => {
+    const harness = runReleaseIdentityFailureHarness({ mode: 'legacy-health-failure' });
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).not.toBe(0);
+      expect(output).toContain('reason=ROLLBACK_HEALTH_FAILED');
+      expect(output).not.toContain('ROLLBACK=PASS');
+      expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('malformed capability evidence fails closed, never downgrades to legacy', () => {
+    for (const mode of ['marker-symlink', 'marker-wrong-content'] as const) {
+      const harness = runReleaseIdentityFailureHarness({ mode });
+      try {
+        const output = `${harness.result.stdout}${harness.result.stderr}`;
+        expect(harness.result.status).not.toBe(0);
+        expect(output).toContain('reason=ROLLBACK_CAPABILITY_EVIDENCE_INVALID');
+        expect(output).not.toContain('ROLLBACK=PASS');
+        expect(output).not.toContain('LEGACY_PRE_IDENTITY_RELEASE');
+      } finally {
+        harness.cleanup();
+      }
+    }
+  });
+
+  it('explicit operator rollback to a pre-identity release completes via legacy path', () => {
+    const harness = runExplicitLegacyRollbackHarness();
+    try {
+      const output = `${harness.result.stdout}${harness.result.stderr}`;
+      expect(harness.result.status).toBe(0);
+      expect(output).toContain('ROLLBACK=PASS');
+      expect(output).toContain('ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE');
+      expect(output).not.toContain('ROLLBACK_IDENTITY_VERIFY_FAILED');
+      expect(output).not.toContain('CAPABLE_EXACT_SHA');
+      expect(output).toContain('ROLLBACK=COMPLETE');
+      expect(harness.events).toContain('systemctl:restart servora-med.service');
+      // Governed restoration: pointer, env, and no candidate residue.
+      expect(harness.pointer).toBe(harness.oldRelease);
+      expect(harness.envAfter).toContain(`SERVORA_RELEASE_SHA=${OLD_RELEASE_SHA}`);
+      expect(harness.envAfter).not.toContain(TEST_SHA);
+      expect((harness.envAfter.match(/^SERVORA_RELEASE_SHA=/gm) || []).length).toBe(1);
+    } finally {
+      harness.cleanup();
+    }
+  });
+});
+
+describe('release identity capability evidence — artifact binding', () => {
+  const markerRepoPath = fileURLToPath(
+    new URL('../../ops/release-capabilities/release-identity-v1', import.meta.url),
+  );
+
+  it('tracks the exact versioned marker file', () => {
+    expect(readFileSync(markerRepoPath, 'utf8')).toBe('RELEASE_IDENTITY_V1\n');
+  });
+
+  it('does not forbid the marker path in release archives', () => {
+    const allowed = runHostHarness(
+      'is_forbidden_artifact_path "ops/release-capabilities/release-identity-v1"',
+    );
+    expect(allowed.status).not.toBe(0);
+    const stillForbidden = runHostHarness('is_forbidden_artifact_path "data/password.txt"');
+    expect(stillForbidden.status).toBe(0);
+  });
+
+  it('passes archive entry verification with the marker inside', () => {
+    const root = temporaryDirectory('marker-archive');
+    try {
+      const opsDir = join(root, 'ops', 'release-capabilities');
+      mkdirSync(opsDir, { recursive: true });
+      copyFileSync(markerRepoPath, join(opsDir, 'release-identity-v1'));
+      const artifact = join(root, 'release.tar.gz');
+      execFileSync('tar', ['-czf', artifact, '-C', root, 'ops']);
+      const result = runHostHarness('ARTIFACT="$2"; verify_archive_entries', [artifact]);
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function releaseTreeFixture(withMarker: boolean) {
+    const root = realpathSync(temporaryDirectory('release-tree'));
+    const dirs = [
+      'server/dist',
+      'server/dist/db/migrations',
+      'server/node_modules',
+      'web/dist',
+      'ops/scripts',
+      'ops/systemd',
+      'ops/release-capabilities',
+    ];
+    for (const dir of dirs) mkdirSync(join(root, dir), { recursive: true });
+    const files = [
+      'server/package.json',
+      'server/package-lock.json',
+      'server/dist/db/migrate.js',
+      'server/dist/db/schema-check.js',
+      'ops/scripts/backup-postgres.sh',
+      'ops/scripts/migration-state.mjs',
+      'ops/scripts/migration-reconciliation.mjs',
+      'ops/scripts/deploy-production-host.sh',
+      'ops/scripts/predeploy-backup-launcher.sh',
+      'ops/systemd/servora-med-predeploy-backup@.service',
+    ];
+    for (const file of files) writeFileSync(join(root, file), 'fixture');
+    chmodSync(join(root, 'ops/scripts/backup-postgres.sh'), 0o755);
+    if (withMarker) {
+      copyFileSync(markerRepoPath, join(root, 'ops/release-capabilities/release-identity-v1'));
+    }
+    return root;
+  }
+
+  it('requires the marker in candidate release trees', () => {
+    const withMarker = releaseTreeFixture(true);
+    try {
+      const ok = runHostHarness('validate_release_tree "$2"', [withMarker]);
+      expect(ok.status).toBe(0);
+    } finally {
+      rmSync(withMarker, { recursive: true, force: true });
+    }
+    const withoutMarker = releaseTreeFixture(false);
+    try {
+      const missing = runHostHarness('validate_release_tree "$2"', [withoutMarker]);
+      expect(missing.status).not.toBe(0);
+      expect(`${missing.stdout}${missing.stderr}`).toContain('RELEASE_TREE_INVALID');
+    } finally {
+      rmSync(withoutMarker, { recursive: true, force: true });
     }
   });
 });

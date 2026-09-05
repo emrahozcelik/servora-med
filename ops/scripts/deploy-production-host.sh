@@ -31,6 +31,12 @@ readonly EXPECTED_LAUNCHER_SHA256="166aab1e43a88f317f0d4a429de09e3f07d205e910ca0
 readonly EXPECTED_UNIT_SHA256="bb59f68869582585794d406090eb6abf6b738b7d95e981b1ca884a027659d3a0"
 readonly NODE_BIN="/usr/bin/node"
 readonly SERVICE_USER="servora-med"
+# Immutable release-tree evidence for Release Identity V1. The marker file is
+# tracked in source, packaged inside the immutable release artifact (ops/ is
+# included verbatim), and therefore attributable to the TARGET release — never
+# inferred from runtime health and never stamped by the host helper.
+readonly RELEASE_IDENTITY_CAPABILITY_MARKER='ops/release-capabilities/release-identity-v1'
+readonly RELEASE_IDENTITY_V1_SENTINEL='RELEASE_IDENTITY_V1'
 
 PHASE=""
 SHA=""
@@ -45,6 +51,10 @@ STAGING_DIR=""
 STATE_FILE=""
 TEMP_FILES=()
 CURRENT_SWITCHED=false
+# Tracks whether SERVORA_RELEASE_SHA was already transitioned to the
+# candidate SHA in this process. Generic recovery paths must restore the OLD
+# release identity before (re)starting OLD code whenever this is true.
+RELEASE_IDENTITY_TRANSITIONED=false
 
 usage() {
   cat >&2 <<'EOF'
@@ -84,6 +94,16 @@ on_error() {
     if [[ "$CURRENT_SWITCHED" == true ]]; then
       atomic_switch "$OLD_RELEASE" >/dev/null 2>&1 || true
       CURRENT_SWITCHED=false
+    fi
+    if [[ "$RELEASE_IDENTITY_TRANSITIONED" == true ]]; then
+      # The OLD service must never be (re)started while the env still
+      # reports the failed candidate SHA. Restore OLD identity first;
+      # on restoration failure stay stopped with an explicit reason.
+      if ! transition_release_sha "$(basename -- "$OLD_RELEASE")" >/dev/null 2>&1; then
+        echo "PRODUCTION_DEPLOYMENT_FAILED phase=${PHASE:-UNKNOWN} sha=${SHA:-UNKNOWN} reason=old_release_identity_restore_failed" >&2
+        exit "$code"
+      fi
+      RELEASE_IDENTITY_TRANSITIONED=false
     fi
     systemctl start "$SERVICE" >/dev/null 2>&1 || true
   fi
@@ -329,6 +349,7 @@ validate_release_tree() {
     "$root/ops/scripts/migration-reconciliation.mjs" \
     "$root/ops/scripts/deploy-production-host.sh" \
     "$root/ops/scripts/predeploy-backup-launcher.sh" \
+    "$root/ops/release-capabilities/release-identity-v1" \
     "$root/ops/systemd/servora-med-predeploy-backup@.service"; do
     assert_release_file "$required" || fail RELEASE_TREE_INVALID
   done
@@ -596,6 +617,112 @@ derive_health_schema_target() {
   printf '%s\n' "$target"
 }
 
+transition_release_sha() {
+  local target="${1:-$SHA}"
+  [[ "$target" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=invalid_target target=${target}" >&2
+    return 1
+  }
+
+  [[ -f "$APP_ENV_FILE" && ! -L "$APP_ENV_FILE" ]] || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=env_contract_missing target=${target}" >&2
+    return 1
+  }
+
+  local current=""
+  local current_count=0
+  current_count="$(grep -c '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" 2>/dev/null || true)"
+  if [[ "$current_count" -gt 0 ]]; then
+    current="$(grep -E '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" | tail -n 1 | cut -d= -f2-)"
+  fi
+
+  # Already current and exactly one line — no mutation needed.
+  if [[ "$current" == "$target" && "$current_count" -eq 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION skipped target=${target} reason=already_current"
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp "$(dirname -- "$APP_ENV_FILE")/.servora-med.env.XXXXXX")" || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=mktemp_failed target=${target}" >&2
+    return 1
+  }
+  TEMP_FILES+=("$tmp")
+
+  # Preserve all keys except SERVORA_RELEASE_SHA, then append exactly one
+  # canonical entry. grep -v exits 1 when no lines remain — treat as success
+  # when the file only contained the old SERVORA_RELEASE_SHA line.
+  local grep_status=0
+  grep -v '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" >"$tmp" 2>/dev/null || grep_status=$?
+  if [[ "$grep_status" -ne 0 && "$grep_status" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=filter_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if [[ "$grep_status" -eq 1 ]]; then
+    # Every line was SERVORA_RELEASE_SHA — truncate is intentional
+    : >"$tmp"
+  fi
+  printf 'SERVORA_RELEASE_SHA=%s\n' "$target" >>"$tmp" || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=write_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  local new_count
+  new_count="$(grep -c '^SERVORA_RELEASE_SHA=' "$tmp" 2>/dev/null || true)"
+  if [[ "$new_count" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=duplicate_validation target=${target} count=${new_count}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! grep -F -x "SERVORA_RELEASE_SHA=${target}" "$tmp" >/dev/null 2>&1; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=target_not_found target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  fi
+
+  chown root:servora-med "$tmp" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=chown_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+  chmod 640 "$tmp" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=chmod_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  mv -- "$tmp" "$APP_ENV_FILE" 2>/dev/null || {
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=rename_failed target=${target}" >&2
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 1
+  }
+
+  # Post-move contract validation
+  if [[ "$(stat -c '%U:%G:%a' "$APP_ENV_FILE" 2>/dev/null)" != 'root:servora-med:640' ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=contract_drift_after_move target=${target}" >&2
+    return 1
+  fi
+  if [[ "$(grep -c '^SERVORA_RELEASE_SHA=' "$APP_ENV_FILE" 2>/dev/null || true)" -ne 1 ]]; then
+    echo "SERVORA_RELEASE_SHA_TRANSITION_FAILED reason=duplicate_after_move target=${target}" >&2
+    return 1
+  fi
+
+  # Secret-safe: log only key and old/new identifiers, never secret values.
+  echo "SERVORA_RELEASE_SHA_TRANSITION old=${current:-unset} new=${target}"
+  return 0
+}
+
+verify_release_identity() {
+  local expected="${1:-$SHA}"
+  [[ "$expected" =~ ^[0-9a-f]{40}$ ]] || return 1
+  local health_body
+  health_body="$(curl --fail --silent --show-error --max-time 5 'http://127.0.0.1:3000/api/health' 2>/dev/null)" || return 1
+  printf '%s' "$health_body" | grep -F -q "\"releaseSha\":\"${expected}\"" || return 1
+  return 0
+}
+
 transition_health_schema_version() {
   local target
   target="$(derive_health_schema_target)" || {
@@ -819,11 +946,74 @@ rollback_internal() {
   [[ -n "$OLD_RELEASE" ]] || fail ROLLBACK_TARGET_MISSING
   assert_release_dir "$OLD_RELEASE" || fail ROLLBACK_TARGET_INVALID
   atomic_switch "$OLD_RELEASE"
+  # A rolled-back service must report the restored release, not the failed
+  # candidate. Release directories are SHA-named by construction.
+  local rollback_sha
+  rollback_sha="$(basename -- "$OLD_RELEASE")"
+  transition_release_sha "$rollback_sha" || fail ROLLBACK_RELEASE_IDENTITY_FAILED
   systemctl restart "$SERVICE" >/dev/null 2>&1 || fail ROLLBACK_SERVICE_RESTART_FAILED
   SERVICE_STOPPED=false
   CURRENT_SWITCHED=false
   health_gate || fail ROLLBACK_HEALTH_FAILED
+  [[ "$(current_release)" == "$OLD_RELEASE" ]] || fail ROLLBACK_POINTER_MISMATCH
+  local capability
+  capability="$(release_identity_capability "$OLD_RELEASE")"
+  case "$capability" in
+    CAPABLE)
+      verify_release_identity "$rollback_sha" || fail ROLLBACK_IDENTITY_VERIFY_FAILED
+      echo "ROLLBACK_IDENTITY_VERIFICATION=CAPABLE_EXACT_SHA"
+      ;;
+    LEGACY)
+      # Pre-identity target: exact pointer, exact env identity, and health
+      # availability are verified above. The health releaseSha API does not
+      # exist on this target, so exact API verification is explicitly
+      # unsupported — never failed, never faked.
+      echo "ROLLBACK_IDENTITY_VERIFICATION=LEGACY_PRE_IDENTITY_RELEASE"
+      ;;
+    *)
+      fail ROLLBACK_CAPABILITY_EVIDENCE_INVALID
+      ;;
+  esac
   echo "ROLLBACK=PASS"
+}
+
+# Classifies a rollback target release from immutable artifact evidence:
+# CAPABLE (exact health verification mandatory), LEGACY (pre-identity target;
+# API verification unsupported), or INVALID (untrustworthy evidence).
+# Pure predicate: deterministic, side-effect free, target-release scoped —
+# no network, no env override, no git, no mutable host registry, and never
+# inferred from the runtime health response.
+release_identity_capability() {
+  local release="$1"
+  local canonical
+  canonical="$(cd -- "$release" 2>/dev/null && pwd -P)" || {
+    printf 'INVALID\n'
+    return 0
+  }
+  [[ "$canonical" == "$RELEASE_ROOT"/* ]] || {
+    printf 'INVALID\n'
+    return 0
+  }
+  local marker="${canonical}/${RELEASE_IDENTITY_CAPABILITY_MARKER}"
+  if [[ ! -e "$marker" && ! -L "$marker" ]]; then
+    printf 'LEGACY\n'
+    return 0
+  fi
+  [[ -f "$marker" && ! -L "$marker" ]] || {
+    printf 'INVALID\n'
+    return 0
+  }
+  local content
+  content="$(cat -- "$marker" 2>/dev/null)" || {
+    printf 'INVALID\n'
+    return 0
+  }
+  if [[ "$content" == "$RELEASE_IDENTITY_V1_SENTINEL" ]]; then
+    printf 'CAPABLE\n'
+  else
+    printf 'INVALID\n'
+  fi
+  return 0
 }
 
 deploy_phase() {
@@ -906,8 +1096,21 @@ deploy_phase() {
   # Zero-migration preserves the env untouched; failures before this point
   # never reach the transition and therefore preserve the old value.
   transition_health_schema_version || fail HEALTH_SCHEMA_VERSION_TRANSITION_FAILED
+  # Every deployment pins the exact candidate SHA as the server release
+  # identity (read by /api/health), including zero-migration deploys, so the
+  # restarted service can never report a stale release.
+  transition_release_sha || fail SERVORA_RELEASE_SHA_TRANSITION_FAILED
+  RELEASE_IDENTITY_TRANSITIONED=true
   if ! run_schema_check "$release"; then
     if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+      # The OLD release is about to be restarted while the pointer still
+      # addresses it. Restore OLD release identity FIRST so the running
+      # release can never report the failed candidate SHA. If restoration
+      # itself fails, stay stopped with an explicit reason instead of
+      # starting OLD code under a NEW identity.
+      transition_release_sha "$(basename -- "$OLD_RELEASE")" \
+        || fail SCHEMA_CHECK_IDENTITY_RESTORE_FAILED
+      RELEASE_IDENTITY_TRANSITIONED=false
       systemctl start "$SERVICE" >/dev/null 2>&1 || true
       SERVICE_STOPPED=false
     fi
@@ -960,6 +1163,27 @@ deploy_phase() {
       fail HEALTH_FAILED_MANUAL_ROLLBACK_REQUIRED
     fi
     fail HEALTH_FAILED
+  fi
+  if ! verify_release_identity; then
+    if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+      # Safe to roll back: no migration was applied. Restore OLD pointer,
+      # OLD identity, and OLD service, then still fail the deployment —
+      # a rolled-back deploy is a failed deploy, never a success.
+      # Roll back only while the candidate is still current: the
+      # start/health failure branches above already rolled back and fall
+      # through here, and rolling back twice would restart OLD code
+      # needlessly.
+      if [[ "$CURRENT_SWITCHED" == true ]]; then
+        rollback_internal
+      fi
+    else
+      # Migrations were applied: automatic rollback is prohibited by the
+      # migration safety contract. Classify explicitly so the operator can
+      # distinguish a live/migrated/identity-unverified release from an
+      # ordinary failure. Do not touch any other release.
+      fail RELEASE_IDENTITY_MISMATCH_MANUAL_ROLLBACK_REQUIRED
+    fi
+    fail RELEASE_IDENTITY_MISMATCH
   fi
   echo "HEALTH=PASS"
   echo "ACTIVATION=PASS"

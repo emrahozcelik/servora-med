@@ -489,8 +489,8 @@ build_artifact() {
   (cd "$REPO_ROOT/server" && npm run build)
   (cd "$REPO_ROOT/server" && npm ci --omit=dev)
   (cd "$REPO_ROOT/web" && npm ci)
-  (cd "$REPO_ROOT/web" && npm run build)
-  (cd "$REPO_ROOT/web" && npm run smoke:production-dist)
+  (cd "$REPO_ROOT/web" && VITE_SERVORA_BUILD_SHA="$SHA" npm run build)
+  (cd "$REPO_ROOT/web" && SERVORA_EXPECTED_BUILD_SHA="$SHA" npm run smoke:production-dist)
   (cd "$REPO_ROOT/web" && npm run smoke:responsive)
 
   ARTIFACT="$WORK_DIR/servora-med-${SHA}.tar.gz"
@@ -593,7 +593,7 @@ run_browser_smoke() {
   local output_file
   output_file="$(mktemp)"
   LOCAL_TEMP_FILES+=("$output_file")
-  if ! SERVORA_PROD_FQDN="$FQDN" node "$REPO_ROOT/web/scripts/production-browser-smoke.mjs" >"$output_file" 2>&1; then
+  if ! SERVORA_PROD_FQDN="$FQDN" SERVORA_EXPECTED_DEPLOY_SHA="$SHA" node "$REPO_ROOT/web/scripts/production-browser-smoke.mjs" >"$output_file" 2>&1; then
     cat "$output_file" >&2
     BROWSER_STATUS=FAIL
     rm -f -- "$output_file"

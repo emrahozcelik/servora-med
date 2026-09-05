@@ -13,6 +13,18 @@ if (!/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(fqdn)) {
   process.exit(2);
 }
 
+/**
+ * Optional fail-closed parity gate. The deploy path exports
+ * SERVORA_EXPECTED_DEPLOY_SHA, and this smoke proves
+ * FRONTEND_BUILD_SHA == SERVER_RELEASE_SHA == EXPECTED_DEPLOY_SHA.
+ * When unset, the legacy boot assertions still run (local/CI usage).
+ */
+const expectedDeploySha = (process.env.SERVORA_EXPECTED_DEPLOY_SHA ?? '').trim().toLowerCase();
+if (expectedDeploySha !== '' && !/^[0-9a-f]{40}$/.test(expectedDeploySha)) {
+  console.error('SERVORA_EXPECTED_DEPLOY_SHA must be an exact 40-character lowercase Git SHA.');
+  process.exit(2);
+}
+
 const baseUrl = `https://${fqdn}`;
 const routes = ['/', '/login'];
 
@@ -63,6 +75,7 @@ async function smokeRoute(browser, routePath) {
 
   const rootHtml = await page.locator('#root').innerHTML().catch(() => '');
   const loginVisible = await page.locator('#login-title').isVisible().catch(() => false);
+  const buildIdentity = page.locator('.build-identity').first();
   const actionableConsoleErrors = consoleErrors.filter((message) => !(
     auth401Observed && /401\s*\(Unauthorized\)|responded with a status of 401/i.test(message)
   ));
@@ -71,6 +84,8 @@ async function smokeRoute(browser, routePath) {
     documentStatus,
     rootNonEmpty: rootHtml.trim().length > 0,
     loginVisible,
+    frontendBuildSha: await buildIdentity.getAttribute('data-build-sha').catch(() => null),
+    frontendBuildLabel: (await buildIdentity.textContent().catch(() => null))?.trim() ?? null,
     pageErrors,
     consoleErrors: actionableConsoleErrors,
     failedRequests,
@@ -88,10 +103,34 @@ try {
     results.push(await smokeRoute(browser, routePath));
   }
 
+  let serverReleaseSha = null;
+  if (expectedDeploySha !== '') {
+    try {
+      const healthResponse = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(15_000) });
+      const healthBody = await healthResponse.json();
+      serverReleaseSha = typeof healthBody?.releaseSha === 'string' ? healthBody.releaseSha : null;
+    } catch {
+      serverReleaseSha = null;
+    }
+  }
+
   let failed = false;
+  const expectedShortSha = expectedDeploySha.slice(0, 7);
   for (const result of results) {
     const errors = [...result.pageErrors, ...result.consoleErrors, ...result.failedRequests, ...result.badResponses];
     const typeErrorPresent = errors.some((message) => /TypeError:\s*pt is not a function/i.test(message));
+    let parityOk = true;
+    if (expectedDeploySha !== '') {
+      parityOk = result.frontendBuildSha === expectedDeploySha
+        && serverReleaseSha === expectedDeploySha
+        && (result.frontendBuildLabel ?? '').includes(expectedShortSha);
+      if (!parityOk) {
+        errors.push(
+          `release parity mismatch: frontend=${result.frontendBuildSha ?? 'none'} `
+          + `server=${serverReleaseSha ?? 'none'} expected=${expectedDeploySha}`,
+        );
+      }
+    }
     const routeFailed = result.documentStatus !== 200
       || !result.rootNonEmpty
       || !result.loginVisible
@@ -100,10 +139,11 @@ try {
       || result.failedRequests.length > 0
       || result.badResponses.length > 0
       || Boolean(result.navigationError)
-      || typeErrorPresent;
+      || typeErrorPresent
+      || !parityOk;
     failed ||= routeFailed;
     console.log(
-      `production-browser ${result.route} document=${result.documentStatus === 200 ? 'PASS' : 'FAIL'} root=${result.rootNonEmpty ? 'PASS' : 'FAIL'} login=${result.loginVisible ? 'PASS' : 'FAIL'} pageErrors=${result.pageErrors.length} consoleErrors=${result.consoleErrors.length} failedRequests=${result.failedRequests.length} badResponses=${result.badResponses.length}${result.navigationError ? ` navigation=${result.navigationError}` : ''}`,
+      `production-browser ${result.route} document=${result.documentStatus === 200 ? 'PASS' : 'FAIL'} root=${result.rootNonEmpty ? 'PASS' : 'FAIL'} login=${result.loginVisible ? 'PASS' : 'FAIL'} pageErrors=${result.pageErrors.length} consoleErrors=${result.consoleErrors.length} failedRequests=${result.failedRequests.length} badResponses=${result.badResponses.length}${expectedDeploySha === '' ? '' : ` parity=${parityOk ? 'PASS' : 'FAIL'}`}${result.navigationError ? ` navigation=${result.navigationError}` : ''}`,
     );
     for (const message of errors) console.log(`  error=${message}`);
   }

@@ -1,5 +1,7 @@
 export type PublicHealthStatus = {
   status: 'ok' | 'unavailable';
+  /** Exact server release SHA (`dev` outside controlled releases). */
+  releaseSha: string;
 };
 
 export type PublicBackupHealth = {
@@ -27,6 +29,9 @@ export const alwaysOkReadiness: HealthReadinessPort = {
   },
 };
 
-export function getPublicHealthStatus(result: 'ok' | 'unavailable'): PublicHealthStatus {
-  return { status: result };
+export function getPublicHealthStatus(
+  result: 'ok' | 'unavailable',
+  releaseSha: string,
+): PublicHealthStatus {
+  return { status: result, releaseSha };
 }

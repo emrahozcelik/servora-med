@@ -16,6 +16,7 @@ const testConfig = {
   rateLimitWindowMs: 60_000,
   trustedProxy: 'loopback' as const,
   healthSchemaVersion: null,
+  releaseSha: 'dev',
   actionScopedGeolocationEnabled: false,
   reverseGeocoderProvider: null,
   googleGeocodingApiKey: null,
@@ -36,14 +37,14 @@ afterEach(async () => {
 });
 
 describe('GET /api/health', () => {
-  it('returns only the generic public health status when readiness is ok', async () => {
+  it('returns the generic public health status with the server release SHA', async () => {
     const app = await buildApp(testConfig);
     apps.push(app);
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
+    expect(response.json()).toEqual({ status: 'ok', releaseSha: 'dev' });
   });
 });
 

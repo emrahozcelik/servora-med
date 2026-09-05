@@ -200,6 +200,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
   await app.register(healthRoutes, {
     prefix: '/api/health',
     readiness: dependencies.healthReadiness ?? alwaysOkReadiness,
+    releaseSha: config.releaseSha,
     backupReadiness: dependencies.backupHealthReadiness,
   });
   if (dependencies.authRepository) {

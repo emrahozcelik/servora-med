@@ -5,11 +5,12 @@ import type { BackupHealthReadinessPort, HealthReadinessPort } from './service.j
 
 export type HealthRoutesOptions = {
   readiness: HealthReadinessPort;
+  releaseSha: string;
   backupReadiness?: BackupHealthReadinessPort;
 };
 
 export const healthRoutes: FastifyPluginAsync<HealthRoutesOptions> = async (app, options) => {
-  const handlers = createHealthHandlers(options.readiness, options.backupReadiness);
+  const handlers = createHealthHandlers(options.readiness, options.releaseSha, options.backupReadiness);
   app.get('/', handlers.getHealth);
   app.get('/backup', handlers.getBackupHealth);
 };
