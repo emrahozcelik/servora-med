@@ -153,7 +153,7 @@ async function deleteUuidRows(
  */
 async function deleteJobHistoryRows(
   client: PoolClient,
-  table: 'job_card_schedule_revisions' | 'job_card_assignment_history',
+  table: 'job_card_schedule_revisions' | 'job_card_assignment_history' | 'job_card_accountability_facts',
   organizationId: string,
   jobCardIds: readonly string[],
 ) {
@@ -369,6 +369,7 @@ async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDa
   await lockUuidRows(client, 'job_card_notes', organizationId, plan.jobNotes);
   await lockUuidRows(client, 'job_card_meeting_details', organizationId, plan.meetingDetails, 'job_card_id');
   await lockUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
+  await lockUuidRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_assignment_history', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
@@ -406,10 +407,12 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   await deleteUuidRows(client, 'calendar_event_activity_logs', organizationId, plan.calendarActivities);
   await deleteUuidRows(client, 'calendar_reminders', organizationId, plan.reminders);
   await deleteUuidRows(client, 'staff_confidential_notes', organizationId, plan.confidentialNotes);
-  // FOUNDATION-1: history rows use ON DELETE RESTRICT against job_cards, so
-  // the authorized purge deletes them explicitly, scoped to the targeted demo
-  // JobCards only, before the JobCard rows themselves (and before their
-  // referenced activity rows).
+  // FOUNDATION-2: accountability facts reference both schedule revisions and
+  // activities (ON DELETE RESTRICT), so they are deleted first, scoped to the
+  // targeted demo JobCards only, before the revision/assignment/activity rows
+  // they point at. Foundation-1 history rows are deleted explicitly before
+  // their JobCard rows for the same reason.
+  await deleteJobHistoryRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_assignment_history', organizationId, plan.jobCards);
   await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
@@ -551,6 +554,9 @@ async function assertNoTargetUserReferences(
      UNION ALL
      SELECT 'job_card_activity_logs'
        WHERE EXISTS (SELECT 1 FROM job_card_activity_logs WHERE organization_id = $1 AND actor_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'job_card_accountability_facts'
+       WHERE EXISTS (SELECT 1 FROM job_card_accountability_facts WHERE organization_id = $1 AND (responsible_user_id = ANY($2::uuid[]) OR actor_user_id = ANY($2::uuid[])))
      UNION ALL
      SELECT 'job_card_notes'
        WHERE EXISTS (SELECT 1 FROM job_card_notes WHERE organization_id = $1 AND author_id = ANY($2::uuid[]))

@@ -224,6 +224,19 @@ export type AppendAssignmentHistoryInput = {
   changedAt: Date;
   activityId: string | null;
 };
+/** FOUNDATION-2 accountability fact type. Scanner types belong to OVR. */
+export type JobCardAccountabilityFactType = 'STARTED' | 'SUBMITTED';
+export type AppendAccountabilityFactInput = {
+  organizationId: string;
+  jobCardId: string;
+  factType: JobCardAccountabilityFactType;
+  seqNo: number;
+  occurredAt: Date;
+  scheduleRevisionNo: number;
+  responsibleUserId: string;
+  actorUserId: string;
+  sourceActivityId: string;
+};
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
   jobCardId: string;
@@ -405,6 +418,11 @@ export interface JobCardTransaction extends SubmissionReader {
     input: AppendScheduleRevisionInput,
   ): Promise<{ id: string; revisionNo: number }>;
   appendAssignmentHistory(input: AppendAssignmentHistoryInput): Promise<void>;
+  /** Current governing schedule revision number, or null when none exists. */
+  getCurrentScheduleRevisionNo(organizationId: string, jobCardId: string): Promise<number | null>;
+  /** Next SUBMITTED seq_no for the JobCard, serialized under the caller's job lock. */
+  getNextSubmittedSeqNo(organizationId: string, jobCardId: string): Promise<number>;
+  appendAccountabilityFact(input: AppendAccountabilityFactInput): Promise<{ id: string }>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -1780,6 +1798,42 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       [input.organizationId, input.jobCardId, input.fromUserId, input.toUserId,
         input.changedBy, input.source, input.changedAt, input.activityId],
     );
+  }
+
+  async getCurrentScheduleRevisionNo(organizationId: string, jobCardId: string) {
+    // Callers hold the JobCard row lock (FOR UPDATE), so the returned MAX is
+    // the stable governing revision for the enclosing mutation.
+    const result = await this.client.query<{ revision_no: number | null }>(
+      `SELECT MAX(revision_no) AS revision_no FROM job_card_schedule_revisions
+        WHERE organization_id = $1 AND job_card_id = $2`,
+      [organizationId, jobCardId],
+    );
+    const revisionNo = result.rows[0]?.revision_no;
+    return revisionNo === null || revisionNo === undefined ? null : Number(revisionNo);
+  }
+
+  async getNextSubmittedSeqNo(organizationId: string, jobCardId: string) {
+    // Same job-lock discipline as schedule revision MAX+1: no sequence table.
+    const result = await this.client.query<{ seq_no: number | null }>(
+      `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM job_card_accountability_facts
+        WHERE organization_id = $1 AND job_card_id = $2 AND fact_type = 'SUBMITTED'`,
+      [organizationId, jobCardId],
+    );
+    return Number(result.rows[0]?.seq_no ?? 1);
+  }
+
+  async appendAccountabilityFact(input: AppendAccountabilityFactInput) {
+    const result = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_accountability_facts
+         (organization_id, job_card_id, fact_type, seq_no, occurred_at,
+          schedule_revision_no, responsible_user_id, actor_user_id, source_activity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.factType, input.seqNo,
+        input.occurredAt, input.scheduleRevisionNo, input.responsibleUserId,
+        input.actorUserId, input.sourceActivityId],
+    );
+    return { id: result.rows[0]!.id };
   }
 
   async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {

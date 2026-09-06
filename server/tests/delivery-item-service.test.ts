@@ -28,6 +28,9 @@ class DeliveryRepository implements JobCardRepository {
       this.activity.push({ event: i.event, oldValue: i.oldValue, newValue: i.newValue });
       return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
     },
+    getCurrentScheduleRevisionNo: async () => 1,
+      getNextSubmittedSeqNo: async () => 1,
+      appendAccountabilityFact: async () => ({ id: 'fact-1' }),
     appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     listActiveManagementRecipients: async () => [],
     appendNotifications: async () => [],

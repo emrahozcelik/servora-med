@@ -132,8 +132,8 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(migrationResult.appliedVersions).toHaveLength(43);
-      expect(migrationResult.appliedVersions.at(-1)).toBe('043_job_card_schedule_and_assignment_history');
+      expect(migrationResult.appliedVersions).toHaveLength(44);
+      expect(migrationResult.appliedVersions.at(-1)).toBe('044_job_card_accountability_facts');
 
       const organizationId = await createOrganization(pool, 'U3 deletion organization');
       const otherOrganizationId = await createOrganization(pool, 'U3 other organization');
@@ -396,7 +396,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history']);
+      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts']);
       await expect(pool.query('SELECT id, name FROM customers WHERE id = $1', [customer]))
         .resolves.toMatchObject({ rows: [{ id: customer, name: 'Existing clinic' }] });
       await expect(pool.query(

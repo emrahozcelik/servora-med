@@ -42,6 +42,7 @@ async function applyMigrations(pool: Pool) {
     '036_job_card_invalidated.sql',
     '042_unsuccessful_visit_reason.sql',
     '043_job_card_schedule_and_assignment_history.sql',
+  '044_job_card_accountability_facts.sql',
 
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

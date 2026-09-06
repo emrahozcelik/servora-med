@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('043_job_card_schedule_and_assignment_history');
+      expect(cmp.pendingVersions).toContain('044_job_card_accountability_facts');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '044_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '045_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('044_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('045_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -300,10 +300,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 43 head 043', async () => {
+  it('produces dist catalog 44 head 044', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(43);
-    expect(distCatalog.head?.version).toBe('043_job_card_schedule_and_assignment_history');
+    expect(distCatalog.count).toBe(44);
+    expect(distCatalog.head?.version).toBe('044_job_card_accountability_facts');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {
