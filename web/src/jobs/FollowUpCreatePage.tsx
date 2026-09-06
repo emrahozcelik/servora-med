@@ -9,6 +9,7 @@ import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels } from './job-labels';
 import {
   createFollowUp,
   getJobCard,
+  getFollowUpSuggestion,
   getMeetingDetails,
   JOB_CARD_ENGAGEMENT_KINDS,
   type AvailableSlot,
@@ -26,7 +27,6 @@ import {
 } from './follow-up-presentation';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
 import {
-  defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './scheduling';
@@ -92,6 +92,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
   const [scheduledLocal, setScheduledLocal] = useState('');
+  const [suggestionFeedback, setSuggestionFeedback] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
@@ -114,6 +115,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     titleInitializedSourceRef.current = null;
     setInstructions('');
     setScheduledLocal('');
+    setSuggestionFeedback('');
     setDueDate('');
     setAssignedTo('');
     setPriority('normal');
@@ -143,6 +145,21 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         if (!active) return;
         const customerless = source.customer === null;
         const initialType = customerless ? 'GENERAL_TASK' : defaultFollowUpType(source.type);
+        const explicitNextFollowUpAt = meeting?.nextFollowUpAt ?? null;
+        const shouldLoadSuggestion = source.status === 'COMPLETED'
+          && !customerless
+          && (source.type === 'PRODUCT_DELIVERY' || source.type === 'SALES_MEETING')
+          && explicitNextFollowUpAt === null;
+        let suggestionScheduledAt: string | null = null;
+        let suggestionFailed = false;
+        if (shouldLoadSuggestion) {
+          try {
+            suggestionScheduledAt = (await getFollowUpSuggestion(sourceId)).scheduledAt;
+          } catch {
+            suggestionFailed = true;
+          }
+        }
+        if (!active) return;
         setType(initialType);
         if (titleInitializedSourceRef.current !== source.id) {
           setTitle(defaultFollowUpTitle(source.title));
@@ -150,9 +167,28 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         }
         setEngagementKind(source.type === 'SALES_MEETING'
           ? source.engagementKind ?? 'FOLLOW_UP' : 'FOLLOW_UP');
-        setScheduledLocal(meeting?.nextFollowUpAt
-          ? isoInstantToLocalDateTime(meeting.nextFollowUpAt)
-          : defaultScheduledLocalValue(new Date()));
+        if (explicitNextFollowUpAt !== null) {
+          setScheduledLocal(isoInstantToLocalDateTime(explicitNextFollowUpAt));
+          setSuggestionFeedback('');
+        } else if (suggestionScheduledAt !== null) {
+          setScheduledLocal(isoInstantToLocalDateTime(suggestionScheduledAt));
+          setSuggestionFeedback(
+            'Sistem takip için 7 günlük hedefi başlangıç önerisi olarak gösterir. Gerekirse daha erken veya daha geç bir zaman seçebilirsiniz.',
+          );
+        } else if (shouldLoadSuggestion) {
+          // Never recreate the old misleading "now + 1 hour" default when a
+          // server-owned suggestion cannot be loaded. The form remains usable
+          // and the manager can choose a time manually.
+          setScheduledLocal('');
+          setSuggestionFeedback(
+            suggestionFailed
+              ? 'Önerilen takip zamanı yüklenemedi. Planlanan zamanı manuel olarak seçebilirsiniz.'
+              : 'Bu aralıkta otomatik öneri bulunamadı. Planlanan zamanı manuel olarak seçebilirsiniz.',
+          );
+        } else {
+          setScheduledLocal('');
+          setSuggestionFeedback('');
+        }
         setState({
           kind: 'ready', source,
           staff: staff.filter((profile) => profile.user.isActive),
@@ -424,6 +460,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
               <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
             </div>}
           </div>
+          {suggestionFeedback && <p className="field-status" role="status">{suggestionFeedback}</p>}
           <CustomerScheduleNotice
             evaluation={evaluation}
             mode="manager"

@@ -94,6 +94,7 @@ type Fixture = {
   published: RealtimeEventRecord[];
   organizationId: string;
   otherOrganizationId: string;
+  admin: JobCardActor;
   manager: JobCardActor;
   staffA: JobCardActor;
   staffB: JobCardActor;
@@ -149,6 +150,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       `INSERT INTO organizations (name) VALUES ('Other org') RETURNING id`,
     )).rows[0]!.id;
     const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Manager');
+    const adminId = await insertUser(pool, organizationId, 'ADMIN', 'Admin');
     const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Staff A');
     const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Staff B');
     const otherStaffId = await insertUser(pool, otherOrganizationId, 'STAFF', 'Other Staff');
@@ -181,6 +183,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       () => CLOCK,
     );
     const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
+    const admin: JobCardActor = { id: adminId, organizationId, role: 'ADMIN' };
     const staffA: JobCardActor = { id: staffAId, organizationId, role: 'STAFF' };
     const staffB: JobCardActor = { id: staffBId, organizationId, role: 'STAFF' };
     const otherStaff: JobCardActor = { id: otherStaffId, organizationId: otherOrganizationId, role: 'STAFF' };
@@ -263,6 +266,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       published,
       organizationId,
       otherOrganizationId,
+      admin,
       manager,
       staffA,
       staffB,
@@ -443,6 +447,71 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       expect(approved.status).toBe('COMPLETED');
       expect(approved.followUpProposal).toBeNull();
+    });
+  });
+
+  it('FUP-POSTHOC: authorized managers get the Product Delivery target without making +7 a floor', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'PRODUCT_DELIVERY', title: 'Tamamlanan teslim', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(), expectedVersion: job.version, note: 'Teslim tamamlandı.',
+      });
+      const completed = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(), expectedVersion: submitted.version,
+      });
+      expect(completed.status).toBe('COMPLETED');
+
+      const suggestion = await service.getFollowUpSuggestion(manager, job.id);
+      expect(suggestion).toMatchObject({
+        scheduledAt: PROPOSAL_AT,
+        type: 'SALES_MEETING',
+        assignedTo: staffA.id,
+      });
+
+      await expect(service.getFollowUpSuggestion(staffA, job.id))
+        .rejects.toMatchObject(appError('FORBIDDEN', 403));
+
+      const early = await service.createFollowUp(manager, job.id, {
+        clientActionId: randomUUID(),
+        type: 'SALES_MEETING',
+        title: 'Erken manuel takip',
+        followUpInstructions: 'Müşteriyi erken arayın.',
+        scheduledAt: '2026-08-01T10:16:00.000Z',
+        assignedTo: staffA.id,
+        priority: 'normal',
+        dueDate: null,
+        contactId: null,
+        engagementKind: 'FOLLOW_UP',
+      });
+      expect(early).toMatchObject({ scheduledAt: '2026-08-01T10:16:00.000Z' });
+    });
+  });
+
+  it('FUP-POSTHOC: cancelled and invalidated sources remain ineligible for suggestions', async () => {
+    await withFixture(async ({ service, manager, admin, staffA, createInProgressJob }) => {
+      const cancelledJob = await createInProgressJob({
+        type: 'PRODUCT_DELIVERY', title: 'İptal teslim', assignedTo: staffA.id,
+      });
+      const cancelled = await service.cancel(staffA, cancelledJob.id, {
+        clientActionId: randomUUID(), expectedVersion: cancelledJob.version,
+        cancelReason: 'Müşteri vazgeçti.',
+      });
+      expect(cancelled.status).toBe('CANCELLED');
+      await expect(service.getFollowUpSuggestion(manager, cancelledJob.id))
+        .rejects.toMatchObject(appError('INVALID_TRANSITION', 409));
+
+      const invalidatedJob = await createInProgressJob({
+        type: 'PRODUCT_DELIVERY', title: 'Geçersiz teslim', assignedTo: staffA.id,
+      });
+      const invalidated = await service.invalidate(admin, invalidatedJob.id, {
+        clientActionId: randomUUID(), expectedVersion: invalidatedJob.version,
+        reasonCode: 'DUPLICATE', note: null,
+      });
+      expect(invalidated.status).toBe('INVALIDATED');
+      await expect(service.getFollowUpSuggestion(manager, invalidatedJob.id))
+        .rejects.toMatchObject(appError('INVALID_TRANSITION', 409));
     });
   });
 

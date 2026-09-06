@@ -2976,13 +2976,19 @@ export class JobCardService {
     at?: string,
   ): Promise<FollowUpSuggestion> {
     const detail = await this.detail(actor, jobCardId);
-    if (isTerminalJobStatus(detail.status)) {
+    const completedPostHoc = detail.status === 'COMPLETED';
+    if (completedPostHoc) {
+      // Post-hoc suggestions use the same management authorization as the
+      // mutating createFollowUp path. Staff may still use this endpoint for
+      // non-terminal mandatory proposal flows below.
+      assertCanCreateFollowUp(actor);
+    } else if (isTerminalJobStatus(detail.status)) {
       throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
     }
     const meetingDetails = detail.type === 'SALES_MEETING'
       ? await this.repository.findMeetingDetails(actor.organizationId, detail.id)
       : null;
-    if (at === undefined && !requiresMandatoryFollowUpProposal({
+    if (at === undefined && !completedPostHoc && !requiresMandatoryFollowUpProposal({
       ...detail,
       ...meetingDetails,
     })) {

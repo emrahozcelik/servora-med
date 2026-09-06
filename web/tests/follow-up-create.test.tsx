@@ -12,16 +12,21 @@ import { workflowContext } from './fixtures/job-workflow';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({
-  getJobCard: vi.fn(), getMeetingDetails: vi.fn(), createFollowUp: vi.fn(), findAvailableSlots: vi.fn(),
+  getJobCard: vi.fn(), getMeetingDetails: vi.fn(), getFollowUpSuggestion: vi.fn(),
+  createFollowUp: vi.fn(), findAvailableSlots: vi.fn(),
 }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listContacts: vi.fn() }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
   isoInstantToLocalDateTime: vi.fn((value: string) => value === '2026-08-17T10:00:00.000Z'
-    ? '2026-08-17T13:00' : '2026-08-10T09:30'),
+    ? '2026-08-17T13:00'
+    : value === '2026-08-08T10:00:00.000Z' ? '2026-08-08T13:00' : '2026-08-10T09:30'),
   localDateTimeToIso: vi.fn((value: string) => value === '2026-08-10T09:30'
-    ? '2026-08-10T06:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
+    ? '2026-08-10T06:30:00.000Z'
+    : value === '2026-08-08T13:00' ? '2026-08-08T10:00:00.000Z'
+      : value === '2026-08-01T13:16' ? '2026-08-01T10:16:00.000Z'
+        : '2026-08-01T09:30:00.000Z'),
 }));
 
 vi.mock('../src/jobs/jobs-api', async (original) => ({
@@ -114,6 +119,14 @@ describe('Follow-up create page', () => {
       outcome: 'FOLLOW_UP_REQUIRED', meetingSummary: 'MEETING_SUMMARY_MARKER',
       nextFollowUpAt: '2026-08-10T06:30:00.000Z', jobCardVersion: 7,
     });
+    jobs.getFollowUpSuggestion.mockResolvedValue({
+      scheduledAt: '2026-08-08T10:00:00.000Z', type: 'SALES_MEETING', assignedTo: 'staff-1',
+      followUpInstructions: 'Takip: Kaynak görüşme',
+      evaluation: {
+        level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+        suggestedAlternativeAt: null,
+      },
+    });
     jobs.createFollowUp.mockResolvedValue({ ...source, id: 'created-1', followUpContext: {
       sourceJobCardId: source.id, followUpInstructions: 'Yeni talimat', sourceAccess: 'FULL',
       sourceJobPath: `/jobs/${source.id}`, sourceSummary: {
@@ -176,6 +189,7 @@ describe('Follow-up create page', () => {
     expect(host.textContent).not.toContain('SOURCE_OPERATIONAL_NOTE_MARKER');
     expect(host.textContent).not.toContain('MEETING_SUMMARY_MARKER');
     expect(host.querySelector('form')?.textContent).not.toContain('Source Staff Marker');
+    expect(jobs.getFollowUpSuggestion).not.toHaveBeenCalled();
   });
 
   it('renders the source context immediately visible without a disclosure', async () => {
@@ -251,6 +265,49 @@ describe('Follow-up create page', () => {
   it('defaults a Product Delivery source to a Sales Meeting follow-up type', async () => {
     await render(manager, { ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
     expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('SALES_MEETING');
+  });
+
+  it('uses the server-owned target for a completed Product Delivery and anchors slot search there', async () => {
+    const productDelivery = { ...source, type: 'PRODUCT_DELIVERY' as const, engagementKind: null };
+    await render(manager, productDelivery);
+
+    expect(jobs.getMeetingDetails).not.toHaveBeenCalled();
+    expect(jobs.getFollowUpSuggestion).toHaveBeenCalledWith(productDelivery.id);
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value)
+      .toBe('2026-08-08T13:00');
+    expect(host.textContent).toContain('7 günlük hedefi başlangıç önerisi');
+    expect(scheduling.defaultScheduledLocalValue).not.toHaveBeenCalled();
+
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+      scheduledAt: '2026-08-08T10:00:00.000Z',
+    }));
+  });
+
+  it('keeps the form usable without inserting a misleading now-based time when suggestion loading fails', async () => {
+    jobs.getFollowUpSuggestion.mockRejectedValueOnce(new Error('suggestion unavailable'));
+    await render(manager, { ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
+
+    expect(host.querySelector('form')).not.toBeNull();
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('');
+    expect(host.textContent).toContain('Önerilen takip zamanı yüklenemedi');
+    expect(scheduling.defaultScheduledLocalValue).not.toHaveBeenCalled();
+  });
+
+  it('allows choosing an earlier time after the suggested target', async () => {
+    await render(manager, { ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Erken takip');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Erken arama');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    expect(jobs.createFollowUp).toHaveBeenCalledWith(source.id, expect.objectContaining({
+      scheduledAt: '2026-08-01T10:16:00.000Z',
+    }));
   });
 
   it('keeps a General Task source default type as General Task', async () => {
