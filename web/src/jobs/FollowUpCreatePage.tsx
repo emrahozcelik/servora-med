@@ -27,6 +27,7 @@ import {
 } from './follow-up-presentation';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
 import {
+  defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './scheduling';
@@ -185,6 +186,9 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
               ? 'Önerilen takip zamanı yüklenemedi. Planlanan zamanı manuel olarak seçebilirsiniz.'
               : 'Bu aralıkta otomatik öneri bulunamadı. Planlanan zamanı manuel olarak seçebilirsiniz.',
           );
+        } else if (source.type === 'GENERAL_TASK') {
+          setScheduledLocal(defaultScheduledLocalValue(new Date()));
+          setSuggestionFeedback('');
         } else {
           setScheduledLocal('');
           setSuggestionFeedback('');

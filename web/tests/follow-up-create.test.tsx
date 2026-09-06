@@ -315,6 +315,18 @@ describe('Follow-up create page', () => {
     expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('GENERAL_TASK');
   });
 
+  it('preserves the existing now-based default for a completed General Task follow-up', async () => {
+    await render(manager, { ...source, type: 'GENERAL_TASK', engagementKind: null });
+
+    expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('GENERAL_TASK');
+    expect(jobs.getFollowUpSuggestion).not.toHaveBeenCalled();
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value)
+      .toBe('2026-08-01T12:30');
+    expect(host.textContent).not.toContain('7 günlük hedefi');
+    expect(host.querySelector('form')).not.toBeNull();
+  });
+
   it('prefills the title with the Takip: prefix and keeps a user edit across a re-render', async () => {
     await render();
     const titleInput = host.querySelector('#follow-up-title') as HTMLInputElement;
