@@ -193,7 +193,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
           const versions = await targetPool.query<{ version: string }>(
             'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
           );
-          expect(versions.rows[0]?.version).toBe('042_unsuccessful_visit_reason');
+          expect(versions.rows[0]?.version).toBe('043_job_card_schedule_and_assignment_history');
           const users = await targetPool.query<{ count: string }>(
             'SELECT COUNT(*)::text AS count FROM users',
           );

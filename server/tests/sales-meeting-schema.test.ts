@@ -151,8 +151,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(42);
-      expect(firstRun.appliedVersions.at(-1)).toBe('042_unsuccessful_visit_reason');
+      expect(firstRun.appliedVersions).toHaveLength(43);
+      expect(firstRun.appliedVersions.at(-1)).toBe('043_job_card_schedule_and_assignment_history');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -233,6 +233,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '040_demo_lifecycle_simplification',
           '041_user_lifecycle_reconciliation',
           '042_unsuccessful_visit_reason',
+          '043_job_card_schedule_and_assignment_history',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -242,7 +243,9 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
   it('adds the nullable reason column without changing existing meeting rows', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const migrationsBeforeReason = (await readdir(MIGRATIONS_DIRECTORY))
-        .filter((file) => file.endsWith('.sql') && file !== '042_unsuccessful_visit_reason.sql')
+        .filter((file) => file.endsWith('.sql')
+          && file !== '042_unsuccessful_visit_reason.sql'
+          && file !== '043_job_card_schedule_and_assignment_history.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -265,7 +268,12 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       await expect(runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
-      })).resolves.toEqual({ appliedVersions: ['042_unsuccessful_visit_reason'] });
+      })).resolves.toEqual({
+        appliedVersions: [
+          '042_unsuccessful_visit_reason',
+          '043_job_card_schedule_and_assignment_history',
+        ],
+      });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(
         `SELECT unsuccessful_reason_code FROM job_card_meeting_details WHERE job_card_id = $1`,
         [jobCardId],

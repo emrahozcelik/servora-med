@@ -125,15 +125,15 @@ async function createTechnicalRows(pool: Pool, organizationId: string, userId: s
 }
 
 describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () => {
-  it('runs 0→042 and permanently deletes a pristine Staff atomically', async () => {
+  it('runs 0→043 and permanently deletes a pristine Staff atomically', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const migrationResult = await runMigrations({
         migrationsDirectory,
         store,
         logger: { info() {}, error() {} },
       });
-      expect(migrationResult.appliedVersions).toHaveLength(42);
-      expect(migrationResult.appliedVersions.at(-1)).toBe('042_unsuccessful_visit_reason');
+      expect(migrationResult.appliedVersions).toHaveLength(43);
+      expect(migrationResult.appliedVersions.at(-1)).toBe('043_job_card_schedule_and_assignment_history');
 
       const organizationId = await createOrganization(pool, 'U3 deletion organization');
       const otherOrganizationId = await createOrganization(pool, 'U3 other organization');
@@ -373,7 +373,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
     });
   });
 
-  it('upgrades 040→042 without changing existing business rows', async () => {
+  it('upgrades 040→043 without changing existing business rows', async () => {
     const baselineDirectory = await createMigrationSubset(40);
     await withIsolatedDatabase(async (pool, store) => {
       const baseline = await runMigrations({
@@ -396,7 +396,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason']);
+      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history']);
       await expect(pool.query('SELECT id, name FROM customers WHERE id = $1', [customer]))
         .resolves.toMatchObject({ rows: [{ id: customer, name: 'Existing clinic' }] });
       await expect(pool.query(

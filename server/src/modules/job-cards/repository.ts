@@ -150,6 +150,23 @@ export type NoteAuthorSnapshot = Pick<JobCardAssignee, 'id' | 'role' | 'isActive
   name: string;
 };
 
+export type JobCardScheduleRevisionSource =
+  | 'CREATE'
+  | 'RESCHEDULE'
+  | 'FOLLOW_UP_CREATE'
+  | 'BASELINE';
+export type JobCardAssignmentHistorySource =
+  | 'CREATE'
+  | 'PATCH_REASSIGN'
+  | 'OFFBOARDING'
+  | 'FOLLOW_UP_CREATE'
+  | 'BASELINE';
+/** Creation-time history source; distinguishes ordinary creates from linked follow-up children. */
+export type JobCardCreationHistorySource = Extract<
+  JobCardScheduleRevisionSource,
+  'CREATE' | 'FOLLOW_UP_CREATE'
+>;
+
 export type CreateJobCardRecord = {
   organizationId: string; type: JobCard['type']; status: JobCard['status'];
   title: string; description: string | null;
@@ -161,6 +178,51 @@ export type CreateJobCardRecord = {
   sourceJobCardId: string | null; followUpInstructions: string | null;
   dataClass?: 'BUSINESS' | 'DEMO';
   demoDatasetId?: string | null;
+  historySource: JobCardCreationHistorySource;
+  historyRecordedAt: Date;
+};
+export type ScheduleRevisionRecord = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  revisionNo: number;
+  scheduledAt: Date | null;
+  scheduledEndsAt: Date | null;
+  dueDate: string | null;
+  organizationTimezone: string;
+  source: JobCardScheduleRevisionSource;
+  createdBy: string | null;
+  createdAt: Date;
+};
+export type AssignmentHistoryRecord = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  fromUserId: string | null;
+  toUserId: string;
+  changedBy: string | null;
+  source: JobCardAssignmentHistorySource;
+  changedAt: Date;
+  activityId: string | null;
+};
+export type AppendScheduleRevisionInput = {
+  organizationId: string;
+  jobCardId: string;
+  scheduledAt: string | null;
+  scheduledEndsAt: string | null;
+  dueDate: string | null;
+  source: JobCardScheduleRevisionSource;
+  createdBy: string | null;
+};
+export type AppendAssignmentHistoryInput = {
+  organizationId: string;
+  jobCardId: string;
+  fromUserId: string | null;
+  toUserId: string;
+  changedBy: string | null;
+  source: JobCardAssignmentHistorySource;
+  changedAt: Date;
+  activityId: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -339,6 +401,10 @@ export interface JobCardTransaction extends SubmissionReader {
   ): Promise<AssigneeCalendarInterval[]>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
+  appendScheduleRevision(
+    input: AppendScheduleRevisionInput,
+  ): Promise<{ id: string; revisionNo: number }>;
+  appendAssignmentHistory(input: AppendAssignmentHistoryInput): Promise<void>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -384,6 +450,18 @@ function assertCriticalActionRequestHash(
 }
 
 export interface JobCardRepository extends SubmissionReader {
+  getCurrentScheduleRevision(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<ScheduleRevisionRecord | null>;
+  listScheduleRevisions(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly ScheduleRevisionRecord[]>;
+  listAssignmentHistory(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly AssignmentHistoryRecord[]>;
   findCompletedCriticalAction<T>(
     claim: CriticalActionClaim,
   ): Promise<T | null>;
@@ -763,6 +841,69 @@ function mapCalendarDate(value: string | Date | null) {
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+type ScheduleRevisionRow = {
+  id: string;
+  organization_id: string;
+  job_card_id: string;
+  revision_no: number;
+  scheduled_at: Date | null;
+  scheduled_ends_at: Date | null;
+  due_date: string | Date | null;
+  organization_timezone: string;
+  source: ScheduleRevisionRecord['source'];
+  created_by: string | null;
+  created_at: Date;
+};
+
+type AssignmentHistoryRow = {
+  id: string;
+  organization_id: string;
+  job_card_id: string;
+  from_user_id: string | null;
+  to_user_id: string;
+  changed_by: string | null;
+  source: AssignmentHistoryRecord['source'];
+  changed_at: Date;
+  activity_id: string | null;
+};
+
+const SCHEDULE_REVISION_COLUMNS = `id, organization_id, job_card_id, revision_no,
+  scheduled_at, scheduled_ends_at, due_date, organization_timezone, source,
+  created_by, created_at`;
+
+const ASSIGNMENT_HISTORY_COLUMNS = `id, organization_id, job_card_id,
+  from_user_id, to_user_id, changed_by, source, changed_at, activity_id`;
+
+function mapScheduleRevision(row: ScheduleRevisionRow): ScheduleRevisionRecord {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    revisionNo: Number(row.revision_no),
+    scheduledAt: row.scheduled_at,
+    scheduledEndsAt: row.scheduled_ends_at,
+    dueDate: mapCalendarDate(row.due_date),
+    organizationTimezone: row.organization_timezone,
+    source: row.source,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function mapAssignmentHistory(row: AssignmentHistoryRow): AssignmentHistoryRecord {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    fromUserId: row.from_user_id,
+    toUserId: row.to_user_id,
+    changedBy: row.changed_by,
+    source: row.source,
+    changedAt: row.changed_at,
+    activityId: row.activity_id,
+  };
 }
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
@@ -1550,6 +1691,15 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async createJobCard(input: CreateJobCardRecord) {
+    const jobCard = await this.insertJobCardRow(input);
+    // FOUNDATION-1 invariant: every newly created JobCard commits with
+    // schedule revision #1 and its initial assignment history row in the
+    // same transaction. A history failure rolls back the whole creation.
+    await this.appendCreationHistory(input, jobCard);
+    return jobCard;
+  }
+
+  private async insertJobCardRow(input: CreateJobCardRecord): Promise<JobCard> {
     if (input.dataClass === 'DEMO' && input.demoDatasetId) {
       // Server-authoritative DEMO provenance for linked children: a follow-up of a
       // DEMO source inherits the source dataset directly at creation.
@@ -1582,6 +1732,54 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions],
     );
     return mapJobCard(result.rows[0]!);
+  }
+
+  private async appendCreationHistory(input: CreateJobCardRecord, job: JobCard) {
+    const timezone = await this.getOrganizationTimezone(input.organizationId);
+    await this.client.query(
+      `INSERT INTO job_card_schedule_revisions
+         (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+          due_date, organization_timezone, source, created_by, created_at)
+       VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9)`,
+      [input.organizationId, job.id, input.scheduledAt, input.scheduledEndsAt,
+        input.dueDate, timezone, input.historySource, input.createdBy, input.historyRecordedAt],
+    );
+    await this.client.query(
+      `INSERT INTO job_card_assignment_history
+         (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at)
+       VALUES ($1, $2, NULL, $3, $4, $5, $6)`,
+      [input.organizationId, job.id, input.assignedTo, input.createdBy,
+        input.historySource, input.historyRecordedAt],
+    );
+  }
+
+  async appendScheduleRevision(input: AppendScheduleRevisionInput) {
+    const timezone = await this.getOrganizationTimezone(input.organizationId);
+    // Callers hold the JobCard row lock (FOR UPDATE) or create the JobCard in
+    // the same transaction, so MAX+1 is concurrency-safe per JobCard.
+    const result = await this.client.query<{ id: string; revision_no: number }>(
+      `INSERT INTO job_card_schedule_revisions
+         (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+          due_date, organization_timezone, source, created_by)
+       SELECT $1, $2, COALESCE(MAX(revision_no), 0) + 1, $3, $4, $5, $6, $7, $8
+       FROM job_card_schedule_revisions
+       WHERE organization_id = $1 AND job_card_id = $2
+       RETURNING id, revision_no`,
+      [input.organizationId, input.jobCardId, input.scheduledAt, input.scheduledEndsAt,
+        input.dueDate, timezone, input.source, input.createdBy],
+    );
+    const row = result.rows[0]!;
+    return { id: row.id, revisionNo: Number(row.revision_no) };
+  }
+
+  async appendAssignmentHistory(input: AppendAssignmentHistoryInput) {
+    await this.client.query(
+      `INSERT INTO job_card_assignment_history
+         (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at, activity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [input.organizationId, input.jobCardId, input.fromUserId, input.toUserId,
+        input.changedBy, input.source, input.changedAt, input.activityId],
+    );
   }
 
   async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
@@ -2021,6 +2219,40 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       [organizationId],
     );
     return result.rows[0]?.timezone ?? 'Europe/Istanbul';
+  }
+
+  async getCurrentScheduleRevision(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<ScheduleRevisionRow>(
+      `SELECT ${SCHEDULE_REVISION_COLUMNS}
+         FROM job_card_schedule_revisions
+        WHERE organization_id = $1 AND job_card_id = $2
+        ORDER BY revision_no DESC
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapScheduleRevision(result.rows[0]) : null;
+  }
+
+  async listScheduleRevisions(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<ScheduleRevisionRow>(
+      `SELECT ${SCHEDULE_REVISION_COLUMNS}
+         FROM job_card_schedule_revisions
+        WHERE organization_id = $1 AND job_card_id = $2
+        ORDER BY revision_no ASC`,
+      [organizationId, jobCardId],
+    );
+    return result.rows.map(mapScheduleRevision);
+  }
+
+  async listAssignmentHistory(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<AssignmentHistoryRow>(
+      `SELECT ${ASSIGNMENT_HISTORY_COLUMNS}
+         FROM job_card_assignment_history
+        WHERE organization_id = $1 AND job_card_id = $2
+        ORDER BY changed_at DESC, id DESC`,
+      [organizationId, jobCardId],
+    );
+    return result.rows.map(mapAssignmentHistory);
   }
 
   async listActiveOnSiteJobs(

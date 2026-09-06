@@ -101,6 +101,8 @@ async function cleanupOrganization(organizationId: string) {
   await pool.query('DELETE FROM job_card_delivery_items WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_meeting_details WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM staff_confidential_notes WHERE organization_id = $1', [organizationId]);
+  await pool.query('DELETE FROM job_card_schedule_revisions WHERE organization_id = $1', [organizationId]);
+  await pool.query('DELETE FROM job_card_assignment_history WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_activity_logs WHERE organization_id = $1', [organizationId]);
   await pool.query('UPDATE job_cards SET source_job_card_id = NULL, follow_up_instructions = NULL WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_cards WHERE organization_id = $1', [organizationId]);
@@ -680,7 +682,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     const migration = await pool!.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    expect(migration.rows[0]?.version).toBe('042_unsuccessful_visit_reason');
+    expect(migration.rows[0]?.version).toBe('043_job_card_schedule_and_assignment_history');
     const constraints = await pool!.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
        WHERE conname = ANY($1::text[])

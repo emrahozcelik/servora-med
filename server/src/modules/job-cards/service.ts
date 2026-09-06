@@ -764,6 +764,8 @@ export class JobCardService {
           acceptedBy: selfAccepted ? actor.id : null,
           sourceJobCardId: null,
           followUpInstructions: null,
+          historySource: 'CREATE',
+          historyRecordedAt: requestTime,
         });
         if (this.calendar.enabled) {
           await transaction.synchronizeCalendarReminder({
@@ -901,6 +903,8 @@ export class JobCardService {
             acceptedAt: selfAccepted ? requestTime : null,
             acceptedBy: selfAccepted ? actor.id : null,
             sourceJobCardId: null, followUpInstructions: null,
+            historySource: 'CREATE',
+            historyRecordedAt: requestTime,
           });
           if (this.calendar.enabled) {
             await transaction.synchronizeCalendarReminder({
@@ -1188,6 +1192,8 @@ export class JobCardService {
       acceptedBy: input.acceptance?.acceptedBy ?? null,
       sourceJobCardId: input.sourceJobCardId,
       followUpInstructions: input.followUpInstructions,
+      historySource: 'FOLLOW_UP_CREATE',
+      historyRecordedAt: input.requestTime,
       ...(input.dataClass ? { dataClass: input.dataClass, demoDatasetId: input.demoDatasetId ?? null } : {}),
     });
     if (this.calendar.enabled) {
@@ -1539,6 +1545,12 @@ export class JobCardService {
         && fields.scheduledAt !== job.scheduledAt
         || fields.scheduledEndsAt !== undefined
         && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
+      // FOUNDATION-1: a dueDate change is an authoritative schedule revision
+      // even though it is not a calendar interval change; it must not alter
+      // the existing calendar/acceptance-reset semantics of `scheduleChanged`.
+      const dueDateChanged = fields.dueDate !== undefined
+        && fields.dueDate !== (job.dueDate ?? null);
+      const scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const assigneeChanged = fields.assignedTo !== undefined
         && fields.assignedTo !== job.assignedTo;
       const needsCalendarAssigneeLock = this.calendar.enabled
@@ -1731,6 +1743,24 @@ export class JobCardService {
           notifyCalendarRescheduled: this.calendar.enabled && scheduleChanged,
           customerId: updated.customerId,
         }));
+      }
+      // FOUNDATION-1: authoritative history rides the same critical-action
+      // transaction. Schedule revision uses the locked pre-state numbering
+      // (MAX+1 under the job row lock) and snapshots the final schedule.
+      if (scheduleRevisionChanged) {
+        await transaction.appendScheduleRevision({
+          organizationId: actor.organizationId, jobCardId,
+          scheduledAt: updated.scheduledAt, scheduledEndsAt: updated.scheduledEndsAt,
+          dueDate: updated.dueDate, source: 'RESCHEDULE', createdBy: actor.id,
+        });
+      }
+      if (assignmentTransitionId !== null) {
+        await transaction.appendAssignmentHistory({
+          organizationId: actor.organizationId, jobCardId,
+          fromUserId: job.assignedTo, toUserId: updated.assignedTo,
+          changedBy: actor.id, source: 'PATCH_REASSIGN', changedAt: requestTime,
+          activityId: assignmentTransitionId,
+        });
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');

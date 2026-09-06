@@ -105,6 +105,12 @@ describe.skipIf(!databaseUrl)('available slots PostgreSQL authority', () => {
     await pool.query('DELETE FROM calendar_events WHERE organization_id = ANY($1::uuid[])', [
       [organizationId, otherOrganizationId],
     ]);
+    await pool.query('DELETE FROM job_card_schedule_revisions WHERE organization_id = ANY($1::uuid[])', [
+      [organizationId, otherOrganizationId],
+    ]);
+    await pool.query('DELETE FROM job_card_assignment_history WHERE organization_id = ANY($1::uuid[])', [
+      [organizationId, otherOrganizationId],
+    ]);
     await pool.query('DELETE FROM job_cards WHERE organization_id = ANY($1::uuid[])', [
       [organizationId, otherOrganizationId],
     ]);

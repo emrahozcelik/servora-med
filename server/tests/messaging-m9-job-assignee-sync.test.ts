@@ -42,6 +42,13 @@ const MIGRATIONS = [
   '034_demo_data_foundation.sql',
   '035_demo_data_purge_foundation.sql',
   '036_job_card_invalidated.sql',
+  '037_staff_offboarding_audit.sql',
+  '038_demo_dataset_audit_types.sql',
+  '039_contact_deleted_audit.sql',
+  '040_demo_lifecycle_simplification.sql',
+  '041_user_lifecycle_reconciliation.sql',
+  '042_unsuccessful_visit_reason.sql',
+  '043_job_card_schedule_and_assignment_history.sql',
 ] as const;
 
 type Fixture = {

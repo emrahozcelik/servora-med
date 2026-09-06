@@ -102,9 +102,10 @@ describe('runMigrations', () => {
       '040_demo_lifecycle_simplification.sql',
       '041_user_lifecycle_reconciliation.sql',
       '042_unsuccessful_visit_reason.sql',
+      '043_job_card_schedule_and_assignment_history.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('042_unsuccessful_visit_reason.sql');
-    expect(expectedSchemaVersion).toBe(42);
+    expect(migrations.at(-1)?.name).toBe('043_job_card_schedule_and_assignment_history.sql');
+    expect(expectedSchemaVersion).toBe(43);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

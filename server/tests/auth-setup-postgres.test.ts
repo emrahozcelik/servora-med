@@ -19,6 +19,8 @@ afterEach(async () => {
   );
   const organizationId = organization.rows[0]?.id;
   if (!organizationId) return;
+  await pool.query('DELETE FROM job_card_schedule_revisions WHERE organization_id=$1', [organizationId]);
+  await pool.query('DELETE FROM job_card_assignment_history WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM job_card_activity_logs WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM job_cards WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM products WHERE organization_id=$1', [organizationId]);

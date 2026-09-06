@@ -146,6 +146,36 @@ async function deleteUuidRows(
 }
 
 /**
+ * Deletes 1:N JobCard history rows (schedule revisions / assignment history)
+ * scoped to exactly the targeted JobCards. A targeted legacy-derived fixture
+ * may own zero or several history rows, so validate subset semantics: every
+ * deleted row must belong to a targeted JobCard and no unrelated row is touched.
+ */
+async function deleteJobHistoryRows(
+  client: PoolClient,
+  table: 'job_card_schedule_revisions' | 'job_card_assignment_history',
+  organizationId: string,
+  jobCardIds: readonly string[],
+) {
+  if (jobCardIds.length === 0) return;
+  const result = await client.query<{ job_card_id: string }>(
+    `WITH deleted AS (
+       DELETE FROM ${table}
+        WHERE organization_id = $1 AND job_card_id = ANY($2::uuid[])
+        RETURNING job_card_id
+     ) SELECT DISTINCT job_card_id::text AS job_card_id FROM deleted`,
+    [organizationId, jobCardIds],
+  );
+  const targeted = new Set(jobCardIds.map(String));
+  for (const row of result.rows) {
+    if (!targeted.has(row.job_card_id)) {
+      throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+        'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.', { table });
+    }
+  }
+}
+
+/**
  * Deletes planned JobCard rows. True DEMO-owned rows keep the dataset guard;
  * legacy misclassified follow-ups (BUSINESS / demo_dataset_id NULL) that the
  * double-analyzed purge plan proved DEMO-derived are deleted by exact id.
@@ -339,6 +369,8 @@ async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDa
   await lockUuidRows(client, 'job_card_notes', organizationId, plan.jobNotes);
   await lockUuidRows(client, 'job_card_meeting_details', organizationId, plan.meetingDetails, 'job_card_id');
   await lockUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
+  await lockUuidRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards, 'job_card_id');
+  await lockUuidRows(client, 'job_card_assignment_history', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
   await lockUuidRows(client, 'staff_confidential_notes', organizationId, plan.confidentialNotes);
   await lockUuidRows(client, 'calendar_events', organizationId, plan.calendarEvents);
@@ -374,6 +406,12 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   await deleteUuidRows(client, 'calendar_event_activity_logs', organizationId, plan.calendarActivities);
   await deleteUuidRows(client, 'calendar_reminders', organizationId, plan.reminders);
   await deleteUuidRows(client, 'staff_confidential_notes', organizationId, plan.confidentialNotes);
+  // FOUNDATION-1: history rows use ON DELETE RESTRICT against job_cards, so
+  // the authorized purge deletes them explicitly, scoped to the targeted demo
+  // JobCards only, before the JobCard rows themselves (and before their
+  // referenced activity rows).
+  await deleteJobHistoryRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards);
+  await deleteJobHistoryRows(client, 'job_card_assignment_history', organizationId, plan.jobCards);
   await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
   await deleteRootRows(client, 'calendar_events', organizationId, plan.datasetId, plan.calendarEvents);
   for (const jobCardId of plan.jobCardDeleteOrder) {
@@ -1104,6 +1142,26 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
               (organization_id, job_card_id, actor_id, event_type, new_value, client_action_id)
             VALUES ($1, $2, $3, 'JOB_CREATED', '{}'::jsonb, $4)`,
           [organizationId, jobId, createdBy, rawClientActionId],
+        );
+
+        // FOUNDATION-1: demo-created JobCards also carry schedule revision #1
+        // and the initial assignment history row (same transaction).
+        const demoTimezone = await client.query<{ timezone: string }>(
+          `SELECT timezone FROM organizations WHERE id = $1`,
+          [organizationId],
+        );
+        await client.query(
+          `INSERT INTO job_card_schedule_revisions
+              (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+               due_date, organization_timezone, source, created_by)
+            VALUES ($1, $2, 1, NULL, NULL, NULL, $3, 'CREATE', $4)`,
+          [organizationId, jobId, demoTimezone.rows[0]!.timezone, createdBy],
+        );
+        await client.query(
+          `INSERT INTO job_card_assignment_history
+              (organization_id, job_card_id, from_user_id, to_user_id, changed_by, source, changed_at)
+            VALUES ($1, $2, NULL, $3, $4, 'CREATE', NOW())`,
+          [organizationId, jobId, assignedTo, createdBy],
         );
       }
 

@@ -174,6 +174,8 @@ class SchedulingMemoryRepository implements JobCardRepository {
         }
       },
       synchronizeCalendarReminder: async () => {},
+      appendScheduleRevision: async () => ({ id: 'revision-memory', revisionNo: 1 }),
+      appendAssignmentHistory: async () => {},
       getProduct: async () => null,
       getDeliveryItemForUpdate: async () => null,
       createDeliveryItem: async () => { throw new Error('unused'); },

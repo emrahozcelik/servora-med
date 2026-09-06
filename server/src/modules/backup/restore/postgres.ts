@@ -14,6 +14,8 @@ const CORE_RELATIONS = [
   'contacts',
   'products',
   'job_cards',
+  'job_card_schedule_revisions',
+  'job_card_assignment_history',
   'backup_runs',
   'restore_runs',
   'audit_events',

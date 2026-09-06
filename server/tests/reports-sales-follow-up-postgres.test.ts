@@ -47,6 +47,7 @@ const MIGRATIONS = [
   '035_demo_data_purge_foundation.sql',
   '036_job_card_invalidated.sql',
   '042_unsuccessful_visit_reason.sql',
+  '043_job_card_schedule_and_assignment_history.sql',
 ] as const;
 
 const range = { from: '2026-08-01', to: '2026-08-04' } as const;
