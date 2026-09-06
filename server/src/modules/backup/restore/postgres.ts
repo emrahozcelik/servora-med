@@ -16,6 +16,7 @@ const CORE_RELATIONS = [
   'job_cards',
   'job_card_schedule_revisions',
   'job_card_assignment_history',
+  'job_card_accountability_facts',
   'backup_runs',
   'restore_runs',
   'audit_events',
@@ -259,6 +260,7 @@ export async function validateRestoredDatabase(
       users: string;
       job_cards: string;
       orphan_job_cards: string;
+      orphan_accountability_facts: string;
       non_terminal_backup_runs: string;
       active_restore_runs: string;
       worker_state_rows: string;
@@ -268,6 +270,21 @@ export async function validateRestoredDatabase(
          (SELECT COUNT(*)::text FROM job_cards) AS job_cards,
          (SELECT COUNT(*)::text FROM job_cards j LEFT JOIN users u ON u.id = j.assigned_to
             WHERE j.assigned_to IS NOT NULL AND u.id IS NULL) AS orphan_job_cards,
+         (SELECT COUNT(*)::text FROM job_card_accountability_facts f
+            LEFT JOIN job_cards j
+              ON j.organization_id = f.organization_id AND j.id = f.job_card_id
+            LEFT JOIN users responsible
+              ON responsible.organization_id = f.organization_id AND responsible.id = f.responsible_user_id
+            LEFT JOIN users actor
+              ON actor.organization_id = f.organization_id AND actor.id = f.actor_user_id
+            LEFT JOIN job_card_schedule_revisions r
+              ON r.organization_id = f.organization_id AND r.job_card_id = f.job_card_id
+             AND r.revision_no = f.schedule_revision_no
+            LEFT JOIN job_card_activity_logs a
+              ON a.organization_id = f.organization_id AND a.job_card_id = f.job_card_id
+             AND a.id = f.source_activity_id
+            WHERE j.id IS NULL OR responsible.id IS NULL OR actor.id IS NULL
+               OR r.revision_no IS NULL OR a.id IS NULL) AS orphan_accountability_facts,
          (SELECT COUNT(*)::text FROM backup_runs WHERE status IN ('QUEUED', 'RUNNING')) AS non_terminal_backup_runs,
          (SELECT COUNT(*)::text FROM restore_runs WHERE status = 'RUNNING') AS active_restore_runs,
          (SELECT COUNT(*)::text FROM backup_worker_state) AS worker_state_rows`,
@@ -276,6 +293,10 @@ export async function validateRestoredDatabase(
     const orphanJobCards = Number(row.orphan_job_cards);
     if (!Number.isSafeInteger(orphanJobCards) || orphanJobCards !== 0) {
       throw new RestorePostgresError('restored job card references are inconsistent', 'RESTORE_INTEGRITY_FAILED');
+    }
+    const orphanAccountabilityFacts = Number(row.orphan_accountability_facts);
+    if (!Number.isSafeInteger(orphanAccountabilityFacts) || orphanAccountabilityFacts !== 0) {
+      throw new RestorePostgresError('restored accountability fact references are inconsistent', 'RESTORE_INTEGRITY_FAILED');
     }
     return {
       schemaVersion,

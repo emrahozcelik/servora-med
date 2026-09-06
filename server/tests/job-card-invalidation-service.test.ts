@@ -66,6 +66,9 @@ function makeRepository() {
       activities.push(input);
       return { id: 'activity-1', createdAt: new Date('2026-08-24T10:00:00.000Z') };
     },
+    getCurrentScheduleRevisionNo: async () => 1,
+    getNextSubmittedSeqNo: async () => 1,
+    appendAccountabilityFact: async () => ({ id: 'fact-1' }),
     appendAudit: async (input: JobCardAuditInput) => { audits.push(input); },
     synchronizeCalendarReminder: async (input: unknown) => { reminders.push(input); },
     appendRealtimeEvent: async (input: unknown) => {

@@ -112,7 +112,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 migration 043 legacy baseline backfi
     await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
 
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.head?.filename).toBe('043_job_card_schedule_and_assignment_history.sql');
+    expect(catalog.head?.filename).toBe('044_job_card_accountability_facts.sql');
 
     const baseline = await pool.query<{
       job_id: string; scheduled_at: Date | null; scheduled_ends_at: Date | null;

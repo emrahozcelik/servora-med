@@ -2289,6 +2289,16 @@ export class JobCardService {
             capture: startLocation,
           });
         }
+        if (definition.command === 'START' || definition.command === 'SUBMIT_FOR_APPROVAL') {
+          await this.appendLifecycleAccountabilityFact(tx, {
+            actor,
+            jobCardId,
+            job,
+            occurredAt,
+            activityId: activity.id,
+            command: definition.command,
+          });
+        }
         let childRealtimeEvents: RealtimeEventRecord[] = [];
         let followUpJobCardId: string | null = null;
         if (approval) {
@@ -2358,6 +2368,52 @@ export class JobCardService {
       return { ...detail, followUpJobCardId: receipt.followUpJobCardId };
     }
     return detail;
+  }
+
+  /**
+   * FOUNDATION-2: freeze the STARTED/SUBMITTED accountability fact in the same
+   * critical-action transaction. The JobCard row is already locked FOR UPDATE
+   * and the lifecycle activity already inserted; any failure here rolls back
+   * the whole business mutation.
+   *
+   * occurredAt is the same instant persisted by the transition into
+   * started_at / staff_completed_at (runLifecycle passes requestTime as the
+   * transition occurredAt), so the fact carries the exact persisted instant
+   * without re-reading the row.
+   */
+  private async appendLifecycleAccountabilityFact(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      jobCardId: string;
+      job: JobCard;
+      occurredAt: Date;
+      activityId: string;
+      command: 'START' | 'SUBMIT_FOR_APPROVAL';
+    },
+  ) {
+    const factType = input.command === 'START' ? 'STARTED' : 'SUBMITTED';
+    const revisionNo = await tx.getCurrentScheduleRevisionNo(
+      input.actor.organizationId, input.jobCardId,
+    );
+    if (revisionNo === null) {
+      throw new AppError(
+        'ACCOUNTABILITY_REVISION_MISSING', 500, 'İş zaman planı kaydı bulunamadı.');
+    }
+    const seqNo = factType === 'STARTED'
+      ? 1
+      : await tx.getNextSubmittedSeqNo(input.actor.organizationId, input.jobCardId);
+    await tx.appendAccountabilityFact({
+      organizationId: input.actor.organizationId,
+      jobCardId: input.jobCardId,
+      factType,
+      seqNo,
+      occurredAt: input.occurredAt,
+      scheduleRevisionNo: revisionNo,
+      responsibleUserId: input.job.assignedTo,
+      actorUserId: input.actor.id,
+      sourceActivityId: input.activityId,
+    });
   }
 
   private lifecycleClaim(

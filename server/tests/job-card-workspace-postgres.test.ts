@@ -53,6 +53,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '036_job_card_invalidated.sql',
         '042_unsuccessful_visit_reason.sql',
         '043_job_card_schedule_and_assignment_history.sql',
+  '044_job_card_accountability_facts.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -95,11 +96,18 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         `INSERT INTO products (organization_id, name, unit) VALUES ($1, 'İmplant Seti', 'adet') RETURNING id`, [organizationId],
       )).rows[0]!.id;
       async function job(title: string, assignee = staffId) {
-        return (await pool!.query<{ id: string }>(
+        const jobCardId = (await pool!.query<{ id: string }>(
           `INSERT INTO job_cards (organization_id, type, title, customer_id, assigned_to, created_by)
            VALUES ($1, 'PRODUCT_DELIVERY', $2, $3, $4, $4) RETURNING id`,
           [organizationId, title, customerId, assignee],
         )).rows[0]!.id;
+        await pool!.query(
+          `INSERT INTO job_card_schedule_revisions
+             (organization_id, job_card_id, revision_no, organization_timezone, source, created_by)
+           VALUES ($1, $2, 1, 'Europe/Istanbul', 'CREATE', $3)`,
+          [organizationId, jobCardId, assignee],
+        );
+        return jobCardId;
       }
       const completedJobId = await job('Tamamlanacak teslim');
       const cancelledJobId = await job('Düzeltilecek teslim');

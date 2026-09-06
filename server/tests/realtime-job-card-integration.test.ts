@@ -48,6 +48,8 @@ const MIGRATIONS = [
   '034_demo_data_foundation.sql',
   '035_demo_data_purge_foundation.sql',
   '036_job_card_invalidated.sql',
+  '043_job_card_schedule_and_assignment_history.sql',
+  '044_job_card_accountability_facts.sql',
 
 ] as const;
 
@@ -116,6 +118,12 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
        RETURNING id, version`,
       [organizationId, assignedStaffUserId],
     )).rows[0]!;
+    await pool.query(
+      `INSERT INTO job_card_schedule_revisions
+         (organization_id, job_card_id, revision_no, organization_timezone, source, created_by)
+       VALUES ($1, $2, 1, 'Europe/Istanbul', 'CREATE', $3)`,
+      [organizationId, job.id, assignedStaffUserId],
+    );
 
     await run({
       pool,

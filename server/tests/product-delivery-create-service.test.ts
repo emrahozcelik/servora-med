@@ -75,6 +75,9 @@ class ProductDeliveryRepository {
         this.activities.push(input);
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-08-17T10:00:00.000Z') };
       },
+      getCurrentScheduleRevisionNo: async () => 1,
+      getNextSubmittedSeqNo: async () => 1,
+      appendAccountabilityFact: async () => ({ id: 'fact-1' }),
       appendRealtimeEvent: async (input: any) => {
         const event = { ...input, id: BigInt(this.realtimeRows.length + 1) };
         this.realtimeRows.push(event);

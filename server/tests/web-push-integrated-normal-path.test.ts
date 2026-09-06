@@ -55,6 +55,8 @@ const MIGRATIONS = [
   '034_demo_data_foundation.sql',
   '035_demo_data_purge_foundation.sql',
   '036_job_card_invalidated.sql',
+  '043_job_card_schedule_and_assignment_history.sql',
+  '044_job_card_accountability_facts.sql',
 
 ] as const;
 
@@ -135,6 +137,12 @@ describe.skipIf(!databaseUrl)('Web Push integrated normal path (PostgreSQL → w
          VALUES ($1, 'GENERAL_TASK', 'Integrated path task', $2, $2) RETURNING id`,
         [organizationId, staffId],
       )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, organization_timezone, source, created_by)
+         VALUES ($1, $2, 1, 'Europe/Istanbul', 'CREATE', $3)`,
+        [organizationId, jobCardId, staffId],
+      );
 
       const repository = new PostgresJobCardRepository(pool);
       const service = new JobCardService(

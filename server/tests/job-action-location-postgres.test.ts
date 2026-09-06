@@ -45,6 +45,7 @@ const migrations = [
   '036_job_card_invalidated.sql',
   '042_unsuccessful_visit_reason.sql',
   '043_job_card_schedule_and_assignment_history.sql',
+  '044_job_card_accountability_facts.sql',
 
 ] as const;
 
@@ -98,7 +99,7 @@ async function createStartedJob(
   organizationId: string,
   actorUserId: string,
 ) {
-  return (await pool.query<{ id: string }>(
+  const jobCardId = (await pool.query<{ id: string }>(
     `INSERT INTO job_cards
        (organization_id, type, status, title, assigned_to, created_by,
         started_at)
@@ -107,6 +108,8 @@ async function createStartedJob(
      RETURNING id`,
     [organizationId, actorUserId],
   )).rows[0]!.id;
+  await insertCreationRevision(pool, organizationId, jobCardId, actorUserId);
+  return jobCardId;
 }
 
 async function createAcceptedJob(
@@ -114,7 +117,7 @@ async function createAcceptedJob(
   organizationId: string,
   actorUserId: string,
 ) {
-  return (await pool.query<{ id: string }>(
+  const jobCardId = (await pool.query<{ id: string }>(
     `INSERT INTO job_cards
        (organization_id, type, status, title, assigned_to, created_by,
         accepted_at, accepted_by)
@@ -123,6 +126,22 @@ async function createAcceptedJob(
      RETURNING id`,
     [organizationId, actorUserId],
   )).rows[0]!.id;
+  await insertCreationRevision(pool, organizationId, jobCardId, actorUserId);
+  return jobCardId;
+}
+
+async function insertCreationRevision(
+  pool: Pool,
+  organizationId: string,
+  jobCardId: string,
+  createdBy: string,
+) {
+  await pool.query(
+    `INSERT INTO job_card_schedule_revisions
+       (organization_id, job_card_id, revision_no, organization_timezone, source, created_by)
+     VALUES ($1, $2, 1, 'Europe/Istanbul', 'CREATE', $3)`,
+    [organizationId, jobCardId, createdBy],
+  );
 }
 
 async function createActivity(

@@ -156,6 +156,9 @@ class SalesMeetingRepository implements JobCardRepository {
         this.activityMetadata.push(input.metadata ?? null);
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      getCurrentScheduleRevisionNo: async () => 1,
+      getNextSubmittedSeqNo: async () => 1,
+      appendAccountabilityFact: async () => ({ id: 'fact-1' }),
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
