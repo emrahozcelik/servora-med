@@ -214,8 +214,13 @@ function makeFetch(options: {
 describe('UXA-001: Product Delivery reassignment reachability', () => {
   let host: HTMLDivElement;
   let root: Root;
+  let originalScrollIntoView: typeof HTMLElement.prototype.scrollIntoView;
 
   beforeEach(() => {
+    originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true, value: vi.fn(),
+    });
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
       matches: false, media: '', onchange: null,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -229,6 +234,9 @@ describe('UXA-001: Product Delivery reassignment reachability', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true, value: originalScrollIntoView,
+    });
     vi.unstubAllGlobals();
   });
 
@@ -262,6 +270,25 @@ describe('UXA-001: Product Delivery reassignment reachability', () => {
     await renderScreen(managerUser, harness);
 
     expect(buttonByName(host, 'Sorumlu personeli değiştir')).not.toBeNull();
+  });
+
+  it('scrolls and focuses the single reassignment editor with opening feedback', async () => {
+    const harness = makeFetch({ card: deliveryJob(), conversationLookup: 'none' });
+    await renderScreen(managerUser, harness);
+
+    await act(async () => {
+      buttonByName(host, 'Sorumlu personeli değiştir')?.click();
+      await Promise.resolve();
+    });
+    await settle();
+
+    const editor = host.querySelector('.delivery-assignee-details');
+    const select = host.querySelector('#delivery-edit-assignee');
+    expect(editor).not.toBeNull();
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+    expect(document.activeElement).toBe(select);
+    expect(host.textContent).toContain('Sorumlu personel düzenleme alanı açıldı.');
+    expect(host.querySelectorAll('#delivery-edit-assignee')).toHaveLength(1);
   });
 
   it('Staff does not see the reassignment action', async () => {

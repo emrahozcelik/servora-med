@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { listStaff, type StaffProfile } from '../services/people-api';
 
@@ -15,12 +15,23 @@ export function DeliveryAssigneeEditForm({ job, pending, onCancel, onSave }: {
   const [staffState, setStaffState] = useState<LoadState>('loading');
   const [fieldError, setFieldError] = useState('');
   const [error, setError] = useState('');
+  const editorRef = useRef<HTMLElement>(null);
+  const assigneeSelectRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    editorRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+  }, []);
 
   useEffect(() => {
     void listStaff('active').then((items) => {
       setStaff(items.filter((item) => item.user.isActive)); setStaffState('ready');
     }).catch(() => { setStaff([]); setStaffState('error'); });
   }, []);
+
+  useEffect(() => {
+    if (staffState !== 'ready') return;
+    assigneeSelectRef.current?.focus({ preventScroll: true });
+  }, [staffState]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (pending) return;
@@ -32,13 +43,14 @@ export function DeliveryAssigneeEditForm({ job, pending, onCancel, onSave }: {
     await onSave(assignedTo);
   }
 
-  return <section className="delivery-assignee-details" aria-labelledby="delivery-assignee-edit-title-heading">
+  return <section ref={editorRef} className="delivery-assignee-details" aria-labelledby="delivery-assignee-edit-title-heading">
     <h2 id="delivery-assignee-edit-title-heading">Sorumlu personeli değiştir</h2>
+    <p className="field-status" role="status">Sorumlu personel düzenleme alanı açıldı.</p>
     {error && <div className="form-error" role="alert">{error}</div>}
     {staffState === 'error' && <p className="field-error" role="alert">Personel listesi yüklenemedi.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="delivery-edit-assignee">Sorumlu personel</label>
-        <select id="delivery-edit-assignee" value={assignedTo} disabled={staffState !== 'ready'}
+        <select ref={assigneeSelectRef} id="delivery-edit-assignee" value={assignedTo} disabled={staffState !== 'ready'}
           aria-invalid={fieldError ? true : undefined}
           aria-describedby={fieldError ? 'delivery-edit-assignee-error' : undefined}
           onChange={(event) => setAssignedTo(event.target.value)}>
