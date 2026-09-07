@@ -1499,6 +1499,27 @@ button:disabled { cursor: wait; opacity: 0.65; }
   padding-top: 1rem;
   min-width: 0;
 }
+/* AntD checkbox owns its dimensions; this container only aligns it with the
+   other filter controls. Deliberately NOT a .field-group so the generic
+   full-width control rules cannot restyle the checkbox input, and the
+   global `input { min-height }` rule is scoped out here. */
+.job-filter-checkbox {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  min-width: 0;
+}
+.job-filter-checkbox input {
+  min-height: 0;
+}
+.job-filter-checkbox .ant-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 680;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
 .job-results {
   min-width: 0;
   max-width: 100%;

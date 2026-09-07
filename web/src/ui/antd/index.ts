@@ -61,3 +61,5 @@ export { ServoraTable } from './ServoraTable';
 export type { ServoraTableProps, ServoraTableColumnsType } from './ServoraTable';
 export { ServoraSelect } from './ServoraSelect';
 export type { ServoraSelectProps } from './ServoraSelect';
+export { ServoraCheckbox } from './ServoraCheckbox';
+export type { ServoraCheckboxProps } from './ServoraCheckbox';

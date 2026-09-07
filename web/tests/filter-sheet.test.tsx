@@ -89,6 +89,49 @@ describe('filter sheets and active counts', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('applies the compact sheet follow-up checkbox through the same AntD control', async () => {
+    setNarrow(true);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const onApply = vi.fn();
+    const onChange = vi.fn();
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active' }}
+          onApply={onApply}
+          onChange={onChange}
+          onViewChange={() => {}}
+          showViewControl={false}
+        />,
+      );
+    });
+    const trigger = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Filtreler'));
+    await act(async () => trigger?.click());
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    const checkbox = host.querySelector<HTMLInputElement>('#job-follow-up')!;
+    expect(checkbox.checked).toBe(false);
+    expect(checkbox.classList.contains('ant-checkbox-input')).toBe(true);
+    expect(checkbox.closest('label')?.textContent).toContain('Yalnız takip işleri');
+    expect(checkbox.closest('.field-group')).toBeNull();
+    await act(async () => checkbox.click());
+    expect(checkbox.checked).toBe(true);
+    const apply = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Uygula');
+    await act(async () => apply?.click());
+    const payload = onApply.mock.calls.at(-1)?.[0];
+    expect(payload).toMatchObject({ followUp: 'only', status: 'active' });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+
+    // Clear filters resets the checkbox draft back to unchecked.
+    const triggerAgain = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.startsWith('Filtreler'));
+    await act(async () => triggerAgain?.click());
+    const clear = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Temizle');
+    await act(async () => clear?.click());
+    expect(onApply.mock.calls.at(-1)?.[0]).toMatchObject({ followUp: undefined, status: 'active' });
+  });
+
   it('exposes immediate compact view controls outside the filter sheet', async () => {
     setNarrow(true);
     host = document.createElement('div');

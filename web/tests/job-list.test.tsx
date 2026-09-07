@@ -691,6 +691,11 @@ describe('routed JobCard workspace', () => {
     await act(async () => { await Promise.resolve(); });
     const checkbox = container.querySelector<HTMLInputElement>('#job-follow-up')!;
     expect(checkbox.checked).toBe(false);
+    // AntD owns the checkbox: accessible name via the wrapper label, and the
+    // input must NOT inherit the generic .field-group control presentation.
+    expect(checkbox.closest('label')?.textContent).toContain('Yalnız takip işleri');
+    expect(checkbox.classList.contains('ant-checkbox-input')).toBe(true);
+    expect(checkbox.closest('.field-group')).toBeNull();
     await act(async () => checkbox.click());
     await act(async () => checkbox.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     expect(router.state.location.search).toBe('?followUp=only');
