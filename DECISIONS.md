@@ -769,6 +769,93 @@ OPS-002, BR0 zamanında henüz somut uygulama seçimi yapılmadan önce şifrele
 - Uygulama: `server/src/modules/backup/encryption.ts` (LocalEncryptionEngine, recipient policy)
 - age 1.3.0 sürüm notları (native post-quantum recipients, `age1pq1…`, `AGE-SECRET-KEY-PQ-1…`, `age-keygen -pq`, `age-inspect`)
 
+## OPS-004: Production backup gözlemlenebilirliğinin kaynağı atomik host-side durum artifact'idir
+
+- **Date:** 2026-09-07
+- **Status:** Accepted design; implementation is not authorized by this decision record
+- **Scope:** `OPS-BACKUP-OBS-1` — aktif host-side PostgreSQL backup yolunun health ve gelecekteki operator alerting için gözlemlenebilirlik sınırı
+
+### Context
+
+Production'ın aktif backup yolu `servora-med-backup.timer` →
+`servora-med-backup.service` → `ops/scripts/backup-postgres.sh` zinciridir.
+Günlük `02:30 UTC` timer `Persistent=true` ile aktiftir. Buna karşılık
+`GET /api/health` içindeki mevcut backup alanları yalnızca production'da kapalı
+olan BR5 worker'ın PostgreSQL tabanlı `backup_runs` / `backup_worker_state`
+durumunu okur. Bu nedenle aktif host-side backup yolu sağlıklı olsa bile public
+health projection'ı `status=unavailable`, `latestRunStatus=null` dönebilir.
+
+`backup_runs` genel yaşam döngüsü alanlarıyla BR5/R2'ye özgü remote-object,
+upload, verification ve phase alanlarını birlikte taşıdığı için **mixed** bir
+modeldir. `backup_worker_state` ise BR5 scheduler/lease state'idir ve
+**BR5-specific** kabul edilir. Host-side script bu tablolara yazmayacaktır.
+
+### Decision
+
+1. Aktif host backup gözlemlenebilirliği için SSOT, atomik güncellenen ve sürümlü
+   bir machine-readable state artifact olacaktır:
+   `/var/lib/servora-med-backup/observation-v1.json`.
+2. Writer yalnızca `backup-postgres.sh` olacaktır; yazım dar bir helper üzerinden
+   temp-file + aynı filesystem üzerinde atomic rename ile yapılacaktır. Dizin
+   `servora-med:servora-med` / `0700`, dosya `servora-med:servora-med` / `0600`
+   olacaktır. `/var/backups/servora-med` izinleri gevşetilmeyecektir.
+3. Artifact, en son deneme ile en son başarılı ve checksum doğrulanmış local
+   restore point'i birbirinden ayıracaktır. Başarısız veya yarım bir deneme,
+   önceki başarılı restore-point kanıtını silemez ya da başarı gibi gösteremez.
+4. Public health'ın backup anlamı "aktif production provider yeterince yeni,
+   checksum-doğrulanmış bir local restore point sağlıyor mu?" olacaktır. Public
+   projection yalnızca güvenli status ve timestamp alanlarını taşıyacak; path,
+   filename, DB adı, hostname, object key, credential veya raw error içermeyecektir.
+5. Freshness kuralı, gelecekteki timestamp'leri geçersiz sayarak son başarılı ve
+   checksum-doğrulanmış local artifact'in yaşının **26 saat veya daha az**
+   olmasıdır. Bu eşik 24 saatlik RPO'ya günlük timer ve normal çalışma süresi
+   için iki saatlik operasyon toleransı ekler. Health ve operator alerting aynı
+   helper/kuralı kullanmalıdır; ikinci bir freshness tanımı eklenmeyecektir.
+6. Predeploy, postdeploy ve manuel çalıştırmalar geçerli artifact + sidecar atomik
+   olarak tamamlanıp checksum doğrulanmışsa local recoverability freshness'ına
+   sayılır. Ancak günlük timer'ın çalıştığını kanıtlamaz.
+7. Timer liveness ayrı bir schedule heartbeat boyutudur. İlk doğal scheduled slot
+   kabul edildikten sonra en son scheduled denemenin başarılı olması ve son
+   scheduled checksum-doğrulanmış artifact'in 26 saat içinde bulunması gerekir.
+   Deploy/manual backup bu heartbeat'i karşılayamaz. Böylece sık deploy, bozuk
+   timer'ı gizleyemez.
+8. Gelecekteki operator alerting aynı observation artifact/helper'ı okur;
+   alert kurulumu ayrı `OPS-BACKUP-ALERT-1` gate'idir. Local ve offsite durumları
+   bağımsız boyutlardır; offsite eksikliği local backup'ı sahte biçimde başarısız
+   yapmaz ve ayrı `OPS-BACKUP-OFFSITE-1` gate'inde görünür kılınır.
+9. BR5/R2 daha sonra etkinleştirilirse provider'lar zorla tek tabloya
+   dönüştürülmez. Stable health adapter `HOST_PGDUMP` ve `BR5_R2` provider
+   projection'larını açıkça birleştirir; production'da etkin provider politikası
+   ayrıca belirlenir.
+10. İlk doğal timer zinciri ayrıca
+    `OPS_BACKUP_TIMER_1_FIRST_RUN_ACCEPTANCE` gate'inde kanıtlanacaktır:
+    timer trigger → service `SUCCESS` → doğrulanmış artifact + sidecar → bir
+    sonraki trigger'ın yeniden planlanması. OBS uygulaması bu kabulü taklit etmek
+    için manuel backup çalıştırmayacaktır.
+
+### Consequences
+
+- İlk implementation slice migration veya backend backup tablolarını yeniden
+  kullanmayı gerektirmez; backup script writer'ı, scoped state directory/systemd
+  erişimi ve health adapter'ı değişir. Public health değişikliği additive kalır.
+- Directory taraması health SSOT'u değildir: filename convention, retention ve
+  her request'te checksum maliyetine bağlanmaz. Artifact bütünlüğü yine backup
+  çalışması sırasında doğrulanır ve state'e sonuç olarak yazılır.
+- Operator alerting tek başına truth sahibi değildir; health ve alert aynı
+  observation modelinden farklı güvenli projection'lar üretir.
+- Ayrı program gate'leri korunur:
+  `OPS-BACKUP-ALERT-1`, `OPS-BACKUP-OFFSITE-1`,
+  `OPS-BACKUP-RESTORE-1`.
+
+### References
+
+- Ayrıntılı tasarım sözleşmesi:
+  `docs/operations/backup-recovery/host-backup-observability.md`
+- Aktif MVP host backup işletim sözleşmesi:
+  `docs/operations/backup-restore.md`
+- BR5/R2 mimarisi:
+  `docs/operations/backup-recovery/architecture.md`
+
 ## Current-state reconciliation addendum — 2026-08-30
 
 Bu ek, önceki kronolojik kararları değiştirmeden, 041 şema ve yaşam döngüsü
