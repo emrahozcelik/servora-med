@@ -70,6 +70,16 @@ const profile = {
   title: null, phone: null, region: null, managerUserId: null, managerName: null, version: 1,
   counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
 };
+const sourceProfile = {
+  ...profile,
+  id: 'profile-1',
+  user: { ...profile.user, id: 'staff-1', name: 'Aylin Personel', email: 'a@test.local' },
+};
+const nextSourceProfile = {
+  ...profile,
+  id: 'profile-3',
+  user: { ...profile.user, id: 'staff-3', name: 'Cem Personel', email: 'c@test.local' },
+};
 const contact = {
   id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1', name: 'Dr. Deniz',
   title: null, phone: null, email: null, isPrimary: true, isActive: true, version: 1,
@@ -223,6 +233,133 @@ describe('Follow-up create page', () => {
     await render();
     expect(jobs.getJobCard).toHaveBeenCalledTimes(1);
     expect(host.querySelector('.follow-up-create-source-summary')).not.toBeNull();
+  });
+
+  it('defaults the assignee to the active eligible source assignee', async () => {
+    people.listStaff.mockResolvedValue([sourceProfile, profile]);
+
+    await render();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-1');
+  });
+
+  it('preserves a user-selected replacement when the same source is refetched', async () => {
+    people.listStaff.mockResolvedValue([sourceProfile, profile]);
+    await render();
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    const admin = { ...manager, role: 'ADMIN' as const };
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={admin}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+
+    expect(jobs.getJobCard).toHaveBeenCalledTimes(2);
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-2');
+  });
+
+  it('derives the source default again after a fresh remount', async () => {
+    people.listStaff.mockResolvedValue([sourceProfile, profile]);
+    await render();
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-1');
+  });
+
+  it('leaves the assignee blank when the source assignee is inactive or offboarded', async () => {
+    people.listStaff.mockResolvedValue([
+      { ...sourceProfile, user: { ...sourceProfile.user, isActive: false } },
+      profile,
+    ]);
+
+    await render();
+
+    const assignee = host.querySelector('#follow-up-assignee') as HTMLSelectElement;
+    expect(assignee.value).toBe('');
+    expect(Array.from(assignee.options).map((option) => option.value)).not.toContain('staff-1');
+  });
+
+  it('reinitializes the assignee from the next source identity', async () => {
+    people.listStaff.mockResolvedValue([sourceProfile, profile, nextSourceProfile]);
+    await render();
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    const nextSource = {
+      ...source,
+      id: '22222222-2222-4222-8222-222222222222',
+      assignedTo: 'staff-3',
+      assignee: { id: 'staff-3', name: 'Cem Personel' },
+    };
+    jobs.getJobCard.mockResolvedValue(nextSource);
+    await act(async () => root.render(<FollowUpCreatePage sourceId={nextSource.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-3');
+  });
+
+  it('initializes when eligible Staff resolves before the source', async () => {
+    const sourceRequest = deferred<JobCard>();
+    const staffRequest = deferred<typeof sourceProfile[]>();
+    jobs.getJobCard.mockReturnValue(sourceRequest.promise);
+    people.listStaff.mockReturnValue(staffRequest.promise);
+
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+
+    expect(people.listStaff).toHaveBeenCalledWith('active');
+    await act(async () => staffRequest.resolve([sourceProfile]));
+    await act(async () => sourceRequest.resolve(source));
+    await flush();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-1');
+  });
+
+  it('initializes when the source resolves before eligible Staff', async () => {
+    const sourceRequest = deferred<JobCard>();
+    const staffRequest = deferred<typeof sourceProfile[]>();
+    jobs.getJobCard.mockReturnValue(sourceRequest.promise);
+    people.listStaff.mockReturnValue(staffRequest.promise);
+
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => sourceRequest.resolve(source));
+    expect(host.querySelector('#follow-up-assignee')).toBeNull();
+    await act(async () => staffRequest.resolve([sourceProfile]));
+    await flush();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-1');
+  });
+
+  it('ignores a late response from the previous source', async () => {
+    const firstSourceRequest = deferred<JobCard>();
+    const nextSource = {
+      ...source,
+      id: '22222222-2222-4222-8222-222222222222',
+      assignedTo: 'staff-3',
+      assignee: { id: 'staff-3', name: 'Cem Personel' },
+    };
+    jobs.getJobCard.mockImplementation((id: string) => id === source.id
+      ? firstSourceRequest.promise
+      : Promise.resolve(nextSource));
+    people.listStaff.mockResolvedValue([sourceProfile, profile, nextSourceProfile]);
+
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<FollowUpCreatePage sourceId={nextSource.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-3');
+
+    await act(async () => firstSourceRequest.resolve(source));
+    await flush();
+
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('staff-3');
   });
 
   it('clears form state and action identity when the source changes on the same route', async () => {
@@ -414,6 +551,20 @@ describe('Follow-up create page', () => {
     expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('sourceJobCardId');
     await act(async () => pending.resolve({ ...source, id: 'created-1' }));
     expect(onCreated).toHaveBeenCalledWith('created-1');
+  });
+
+  it('submits the existing request contract with the eligible source default', async () => {
+    people.listStaff.mockResolvedValue([sourceProfile, profile]);
+    await render();
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Yeni talimat');
+
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+
+    expect(jobs.createFollowUp).toHaveBeenCalledWith(source.id, expect.objectContaining({
+      assignedTo: 'staff-1',
+    }));
+    expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('sourceAssigneeId');
   });
 
   it('removes Contact from a Product Delivery follow-up and submits null', async () => {
