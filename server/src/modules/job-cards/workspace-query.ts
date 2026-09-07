@@ -4,6 +4,7 @@ import {
   JOB_CARD_TYPES,
   type JobCardBaseFilters,
   type JobCardBoardQuery,
+  type JobCardFollowUpFilter,
   type JobCardListQuery,
   type JobCardPriority,
   type JobCardStatusFilter,
@@ -13,10 +14,10 @@ import { boundedTrimmedString, isoDate, validation } from './validation.js';
 
 const LIST_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'overdue', 'limit', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'followUp', 'limit', 'offset',
 ] as const;
 const BOARD_KEYS = [
-  'q', 'type', 'assignedTo', 'customerId', 'priority', 'dueBefore', 'dueAfter', 'limit',
+  'q', 'type', 'assignedTo', 'customerId', 'priority', 'dueBefore', 'dueAfter', 'followUp', 'limit',
 ] as const;
 const STATUS_FILTERS = ['active', 'closed', 'all', ...JOB_CARD_STATUSES] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +56,12 @@ function optionalPriority(value: unknown) {
   return value as JobCardPriority;
 }
 
+function optionalFollowUp(value: unknown): JobCardFollowUpFilter {
+  if (value === undefined) return null;
+  if (value === 'only') return 'only';
+  throw validation('followUp');
+}
+
 function optionalDate(value: unknown, field: string) {
   return value === undefined ? null : isoDate(value, field);
 }
@@ -88,6 +95,7 @@ function baseFilters(value: Record<string, unknown>): JobCardBaseFilters {
     priority: optionalPriority(value.priority),
     dueBefore,
     dueAfter,
+    followUp: optionalFollowUp(value.followUp),
   };
 }
 

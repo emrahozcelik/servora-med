@@ -71,6 +71,7 @@ describe('JobCard workspace list query', () => {
       priority: 'high',
       dueBefore: '2026-07-31',
       dueAfter: '2026-07-01',
+      followUp: 'only',
       limit: '100',
       offset: '12',
     })).toEqual({
@@ -82,10 +83,54 @@ describe('JobCard workspace list query', () => {
       priority: 'high',
       dueBefore: '2026-07-31',
       dueAfter: '2026-07-01',
+      followUp: 'only',
       limit: 100,
       offset: 12,
       overdue: false,
     });
+  });
+
+  it.each([
+    [{ followUp: 'only' }, { followUp: 'only' }],
+    [{}, { followUp: null }],
+  ])('parses the follow-up workspace filter %j', (raw, expected) => {
+    expect(parseJobCardListQuery(raw)).toMatchObject(expected);
+    expect(parseJobCardBoardQuery(raw)).toMatchObject(expected);
+  });
+
+  it('composes followUp=only with status and ordinary filters', () => {
+    expect(parseJobCardListQuery({
+      followUp: 'only',
+      status: 'closed',
+      type: 'SALES_MEETING',
+      priority: 'high',
+    })).toMatchObject({
+      followUp: 'only',
+      status: 'closed',
+      type: 'SALES_MEETING',
+      priority: 'high',
+    });
+    expect(parseJobCardBoardQuery({
+      followUp: 'only',
+      type: 'GENERAL_TASK',
+    })).toMatchObject({ followUp: 'only', type: 'GENERAL_TASK' });
+  });
+
+  it.each([
+    { followUp: 'true' },
+    { followUp: 'false' },
+    { followUp: 'exclude' },
+    { followUp: '1' },
+    { followUp: 'ONLY' },
+    { followUp: '' },
+  ])('rejects invalid followUp value %j', (raw) => {
+    expect(() => parseJobCardListQuery(raw)).toThrowError(validationError);
+    expect(() => parseJobCardBoardQuery(raw)).toThrowError(validationError);
+  });
+
+  it('rejects repeated followUp parameters', () => {
+    expect(() => parseJobCardListQuery({ followUp: ['only', 'only'] })).toThrowError(validationError);
+    expect(() => parseJobCardBoardQuery({ followUp: ['only', 'only'] })).toThrowError(validationError);
   });
 
   it.each([
@@ -183,7 +228,7 @@ describe('JobCard workspace list query', () => {
     expect(() => parseJobCardListQuery({ unexpected: 'value' })).toThrowError(validationError);
     for (const field of [
       'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-      'dueBefore', 'dueAfter', 'limit', 'offset',
+      'dueBefore', 'dueAfter', 'followUp', 'limit', 'offset',
     ]) {
       expect(() => parseJobCardListQuery({ [field]: ['one', 'two'] }))
         .toThrowError(validationError);
@@ -214,6 +259,7 @@ describe('JobCard board query', () => {
       priority: 'normal',
       dueBefore: '2026-07-31',
       dueAfter: '2026-07-01',
+      followUp: null,
       limit: 1,
     });
     expect(parseJobCardBoardQuery({})).toMatchObject({ limit: 25, q: null });

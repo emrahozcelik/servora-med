@@ -11,7 +11,7 @@ import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
-import { canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch, selectStatus, statusQuickSearch, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, enterBoard, followUpJobsSearch, forceMobileList, overdueJobsSearch, parseJobSearch, selectStatus, statusQuickSearch, updateJobSearch, type JobSearchState } from './job-search';
 import { NewJobMenu } from './NewJobMenu';
 
 const PAGE_SIZE = 25;
@@ -26,6 +26,10 @@ function closedFilterHref(params: URLSearchParams) {
 
 function overdueFilterHref(params: URLSearchParams) {
   return `?${overdueJobsSearch(params).toString()}`;
+}
+
+function followUpFilterHref(params: URLSearchParams) {
+  return `?${followUpJobsSearch(params).toString()}`;
 }
 
 type BoardState =
@@ -119,7 +123,11 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   }, [canonicalKey, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
-    || filters.dueAfter || filters.dueBefore || filters.status !== 'active' || filters.overdue);
+    || filters.dueAfter || filters.dueBefore || filters.status !== 'active' || filters.overdue || filters.followUp === 'only');
+
+  const isFollowUpView = filters.followUp === 'only' && !filters.overdue
+    && !filters.dueBefore && !filters.dueAfter && filters.view === 'list'
+    && (filters.status ?? 'active') === 'active';
 
   const quickViews = [
     {
@@ -127,27 +135,33 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       label: 'Aktif işler',
       href: filterHref(params, 'active'),
       current: filters.status === 'active' && !filters.dueBefore && !filters.dueAfter
-        && !filters.overdue,
+        && !filters.overdue && filters.followUp !== 'only',
+    },
+    {
+      key: 'followUp' as const,
+      label: 'Takip işleri',
+      href: followUpFilterHref(params),
+      current: isFollowUpView,
     },
     ...(user.role !== 'STAFF'
       ? [{
           key: 'WAITING_APPROVAL' as const,
           label: 'Onay kuyruğu',
           href: filterHref(params, 'WAITING_APPROVAL'),
-          current: filters.status === 'WAITING_APPROVAL',
+          current: filters.status === 'WAITING_APPROVAL' && filters.followUp !== 'only',
         }]
       : []),
     {
       key: 'REVISION_REQUESTED' as const,
       label: 'Düzeltme istenenler',
       href: filterHref(params, 'REVISION_REQUESTED'),
-      current: filters.status === 'REVISION_REQUESTED',
+      current: filters.status === 'REVISION_REQUESTED' && filters.followUp !== 'only',
     },
     {
       key: 'closed' as const,
       label: 'Biten işler',
       href: closedFilterHref(params),
-      current: filters.status === 'closed',
+      current: filters.status === 'closed' && filters.followUp !== 'only',
     },
     {
       key: 'overdue' as const,

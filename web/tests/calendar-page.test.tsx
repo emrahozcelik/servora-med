@@ -391,13 +391,34 @@ describe('CalendarPage', () => {
     });
   });
 
-  it('opens the form drawer when clicking Yeni plan', async () => {
+  it('opens the manual plan drawer when clicking Manuel plan ekle', async () => {
     await render();
     const createBtn = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Yeni plan'))!;
+      .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+    expect(container.textContent).not.toContain('Yeni plan');
     await act(async () => createBtn.click());
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
     expect(dialog).toBeTruthy();
+    expect(dialog?.textContent).toContain('Manuel plan ekle');
+  });
+
+  it('creates a manual calendar record from the reconciled CTA without calling JobCard APIs', async () => {
+    calendarApi.createManualEvent.mockResolvedValue({});
+    await render();
+    const createBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+    await act(async () => createBtn.click());
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    const title = dialog.querySelector('input[maxlength="200"]') as HTMLInputElement;
+    await act(async () => {
+      setReactValue(title, 'Depo sayımı');
+      dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(calendarApi.createManualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Depo sayımı',
+    }));
+    expect(jobsApi.patchJobCard).not.toHaveBeenCalled();
   });
 
   it('edits a General Task as a point without an end field or implicit duration', async () => {

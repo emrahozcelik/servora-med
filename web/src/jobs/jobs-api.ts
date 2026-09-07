@@ -344,7 +344,7 @@ export type PatchJobCardInput = {
 export type JobCardListFilters = Partial<{
   q: string; status: JobCardStatusFilter; type: JobCardType; assignedTo: string;
   customerId: string; priority: JobCardPriority; dueBefore: string; dueAfter: string;
-  overdue: true; limit: number; offset: number;
+  overdue: true; followUp: 'only'; limit: number; offset: number;
 }>;
 export type JobCardBoardFilters = Omit<JobCardListFilters, 'status' | 'offset' | 'overdue'>;
 type DeliveryInput = {
