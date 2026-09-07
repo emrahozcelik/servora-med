@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
+import { ServoraCheckbox } from '../ui/antd';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { activeWorkflowStatusOptions } from './job-status-presentation';
@@ -205,10 +206,15 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
         <input id="job-due-after" type="date" value={advanced.dueAfter} onChange={(event) => setAdvanced({ ...advanced, dueAfter: event.target.value })} /></div>
       <div className="field-group"><label htmlFor="job-due-before">Bitiş tarihi</label>
         <input id="job-due-before" type="date" value={advanced.dueBefore} onChange={(event) => setAdvanced({ ...advanced, dueBefore: event.target.value })} /></div>
-      <div className="field-group job-filter-follow-up"><label htmlFor="job-follow-up">
-        <input id="job-follow-up" type="checkbox" checked={advanced.followUpOnly}
-          onChange={(event) => setAdvanced({ ...advanced, followUpOnly: event.target.checked })} />
-        Yalnız takip işleri</label></div>
+      <div className="job-filter-checkbox">
+        <ServoraCheckbox
+          id="job-follow-up"
+          checked={advanced.followUpOnly}
+          onChange={(checked) => setAdvanced({ ...advanced, followUpOnly: checked })}
+        >
+          Yalnız takip işleri
+        </ServoraCheckbox>
+      </div>
     </div>
   );
 
