@@ -91,7 +91,7 @@ type Draft = {
 };
 
 function drawerTitle(event: CalendarEvent | null): string {
-  if (!event) return 'Yeni plan';
+  if (!event) return 'Manuel plan ekle';
   if (event.source === 'JOB') return 'İş zamanını güncelle';
   return 'Planı düzenle';
 }
@@ -489,7 +489,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
           disabled={user.role !== 'STAFF' && assignees.length === 0}
           onClick={openNewPlan}
         >
-          Yeni plan
+          Manuel plan ekle
         </button>
       </header>
 

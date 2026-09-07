@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { listJobCards, type JobCardBoardFilters } from '../src/jobs/jobs-api';
+import { getJobCardBoard, listJobCards, type JobCardBoardFilters } from '../src/jobs/jobs-api';
 import {
-  canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch,
+  canonicalJobSearchParams, enterBoard, followUpJobsSearch, forceMobileList, overdueJobsSearch, parseJobSearch,
   selectStatus, statusQuickSearch, updateJobSearch,
 } from '../src/jobs/job-search';
 
@@ -181,5 +181,81 @@ describe('JobCard API filter contract', () => {
     const invalid: JobCardBoardFilters = { overdue: true };
     void invalid;
     expect(board).toEqual({});
+  });
+
+  it('serializes followUp=only on list and board transports', async () => {
+    const urls: string[] = [];
+    const column = { items: [], count: 0 };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(
+        url.includes('/board')
+          ? {
+              columns: {
+                NEW: column, ACCEPTED: column, IN_PROGRESS: column,
+                WAITING_APPROVAL: column, REVISION_REQUESTED: column,
+              },
+              closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+            }
+          : { items: [], total: 0, limit: 25, offset: 0 },
+      ), { status: 200 });
+    }));
+    try {
+      await listJobCards({ followUp: 'only' });
+      await getJobCardBoard({ followUp: 'only' });
+      expect(urls).toEqual(['/api/job-cards?followUp=only', '/api/job-cards/board?followUp=only']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('follow-up workspace query state', () => {
+  it('parses followUp=only and drops malformed values', () => {
+    expect(parseJobSearch(new URLSearchParams('followUp=only'))).toMatchObject({ followUp: 'only' });
+    for (const value of ['true', 'false', 'exclude', '1', 'ONLY', '']) {
+      expect(parseJobSearch(new URLSearchParams(`followUp=${value}`))).not.toHaveProperty('followUp');
+      expect(canonicalJobSearchParams(new URLSearchParams(`followUp=${value}`)).toString()).toBe('');
+    }
+    expect(parseJobSearch(new URLSearchParams('followUp=only&followUp=only')))
+      .not.toHaveProperty('followUp');
+  });
+
+  it('serializes followUp=only canonically and preserves pagination and board', () => {
+    expect(canonicalJobSearchParams(new URLSearchParams('followUp=only')).toString())
+      .toBe('followUp=only');
+    expect(canonicalJobSearchParams(new URLSearchParams('followUp=only&offset=25')).toString())
+      .toBe('followUp=only&offset=25');
+    expect(enterBoard(new URLSearchParams('q=klinik&followUp=only')).toString())
+      .toBe('q=klinik&followUp=only&view=board');
+    expect(parseJobSearch(new URLSearchParams('followUp=only&view=board')))
+      .toMatchObject({ followUp: 'only', view: 'board' });
+  });
+
+  it('builds the Takip işleri quick view from a clean state and preserves narrowing filters', () => {
+    expect(followUpJobsSearch(new URLSearchParams()).toString()).toBe('followUp=only');
+    expect(followUpJobsSearch(new URLSearchParams('q=klinik&type=GENERAL_TASK&priority=high')).toString())
+      .toBe('q=klinik&type=GENERAL_TASK&priority=high&followUp=only');
+    expect(followUpJobsSearch(new URLSearchParams(
+      'q=klinik&status=WAITING_APPROVAL&view=board&offset=25&overdue=true&dueBefore=2026-07-31&dueAfter=2026-07-01',
+    )).toString()).toBe('q=klinik&followUp=only');
+  });
+
+  it('clears followUp when entering named quick views but composes with filter status changes', () => {
+    expect(statusQuickSearch(new URLSearchParams('q=klinik&followUp=only'), 'active').toString())
+      .toBe('q=klinik');
+    expect(statusQuickSearch(new URLSearchParams('followUp=only'), 'closed').toString())
+      .toBe('status=closed');
+    expect(overdueJobsSearch(new URLSearchParams('q=klinik&followUp=only')).toString())
+      .toBe('q=klinik&overdue=true');
+    expect(selectStatus(new URLSearchParams('followUp=only'), 'closed').toString())
+      .toBe('status=closed&followUp=only');
+  });
+
+  it('preserves followUp on filter changes and removes it on reset', () => {
+    expect(updateJobSearch(new URLSearchParams('followUp=only'), { q: 'klinik' }).toString())
+      .toBe('q=klinik&followUp=only');
+    expect(updateJobSearch(new URLSearchParams('q=klinik&followUp=only'), { followUp: undefined }).toString())
+      .toBe('q=klinik');
   });
 });

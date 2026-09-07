@@ -306,9 +306,9 @@ describe('routed JobCard workspace', () => {
     await act(async () => { await Promise.resolve(); });
     const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'));
     expect(links.map((link) => link.textContent)).toEqual([
-      'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
+      'Aktif işler', 'Takip işleri', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
     ]);
-    const closed = links[3]!;
+    const closed = links[4]!;
     expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high');
     expect(closed.getAttribute('aria-current')).toBe('page');
     expect(closed.getAttribute('data-state')).toBe('current');
@@ -328,7 +328,7 @@ describe('routed JobCard workspace', () => {
     await mount('/jobs', load, manager); await act(async () => { await Promise.resolve(); });
     const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'));
     expect(links.map((link) => link.textContent)).toEqual([
-      'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
+      'Aktif işler', 'Takip işleri', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
     ]);
     const overdue = links.at(-1)!;
     expect(overdue.getAttribute('href')).toBe('/jobs?overdue=true');
@@ -616,5 +616,90 @@ describe('routed JobCard workspace', () => {
     expect(row.textContent).not.toContain('ürün kalemi');
     expect(row.querySelector('[aria-expanded]')).toBeNull();
     expect(row.textContent).not.toContain('Özeti aç');
+  });
+
+  it('exposes the Takip işleri quick view and loads active follow-ups', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/jobs', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    const followUp = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .find((link) => link.textContent === 'Takip işleri')!;
+    expect(followUp.getAttribute('href')).toBe('/jobs?followUp=only');
+    await act(async () => followUp.click());
+    expect(router.state.location.search).toBe('?followUp=only');
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', followUp: 'only', limit: 25, offset: 0 });
+    const current = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .filter((link) => link.getAttribute('aria-current') === 'page');
+    expect(current.map((link) => link.textContent)).toEqual(['Takip işleri']);
+  });
+
+  it('requests follow-ups without a Staff assignee override', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?followUp=only', load, staff);
+    await act(async () => { await Promise.resolve(); });
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', followUp: 'only', limit: 25, offset: 0 });
+    expect(container.textContent).toContain('Takip işleri');
+  });
+
+  it('exits the Takip işleri view when clicking Aktif işler and one other quick view', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/jobs?followUp=only', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    const active = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .find((link) => link.textContent === 'Aktif işler')!;
+    await act(async () => active.click());
+    expect(router.state.location.search).toBe('');
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', limit: 25, offset: 0 });
+
+    await act(async () => { await router.navigate('/jobs?followUp=only'); });
+    await act(async () => { await Promise.resolve(); });
+    const closed = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .find((link) => link.textContent === 'Biten işler')!;
+    await act(async () => closed.click());
+    expect(router.state.location.search).toBe('?status=closed');
+  });
+
+  it('composes followUp=only with a status change from the filter control', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/jobs?followUp=only', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => change(container.querySelector<HTMLSelectElement>('#job-status')!, 'closed'));
+    expect(router.state.location.search).toBe('?status=closed&followUp=only');
+    expect(load).toHaveBeenLastCalledWith({ status: 'closed', followUp: 'only', limit: 25, offset: 0 });
+  });
+
+  it('preserves followUp=only when switching to the board without client-only filtering', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const loadBoard = vi.fn().mockResolvedValue({
+      columns: {
+        NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
+        IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
+        REVISION_REQUESTED: { items: [], count: 0 },
+      },
+      closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+    });
+    const router = await mount('/jobs?followUp=only', load, manager, loadBoard);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => change(container.querySelector<HTMLSelectElement>('#job-view')!, 'board'));
+    expect(router.state.location.search).toBe('?followUp=only&view=board');
+    expect(loadBoard).toHaveBeenCalledWith({ followUp: 'only' });
+  });
+
+  it('applies and clears the follow-up filter from the desktop filter control', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/jobs', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    const checkbox = container.querySelector<HTMLInputElement>('#job-follow-up')!;
+    expect(checkbox.checked).toBe(false);
+    await act(async () => checkbox.click());
+    await act(async () => checkbox.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(router.state.location.search).toBe('?followUp=only');
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', followUp: 'only', limit: 25, offset: 0 });
+
+    const applied = container.querySelector<HTMLInputElement>('#job-follow-up')!;
+    expect(applied.checked).toBe(true);
+    await act(async () => applied.click());
+    await act(async () => applied.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(router.state.location.search).toBe('');
   });
 });

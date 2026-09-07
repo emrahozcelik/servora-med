@@ -17,6 +17,7 @@ const baseQuery: JobCardListQuery = {
   priority: null,
   dueBefore: null,
   dueAfter: null,
+  followUp: null,
   limit: 25,
   offset: 0,
   overdue: false,
@@ -386,5 +387,74 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(method).toContain('${WORKSPACE_ITEM_JOINS}');
     expect(method).toContain('...mapJobCardListItem(row)');
     expect(method).toContain('waitingMinutes: Number(row.waiting_minutes)');
+  });
+
+  it('adds source_job_card_id IS NOT NULL to item and total queries for followUp=only', async () => {
+    const { pool, calls } = poolDouble();
+    await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...baseQuery, followUp: 'only' },
+      new Date('2026-07-14T12:00:00.000Z')
+    );
+
+    expect(calls).toHaveLength(2);
+    for (const { sql } of calls) {
+      expect(sql).toContain('j.organization_id = $1');
+      expect(sql).toContain('j.source_job_card_id IS NOT NULL');
+      expect(sql).not.toContain('source_job_card_id = $');
+    }
+    expect(calls[0]!.values).toEqual([
+      'org-1',
+      ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+    ]);
+    expect(calls[1]!.values).toEqual([
+      'org-1',
+      ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+      25,
+      0,
+    ]);
+  });
+
+  it('preserves organization and Staff scope alongside the follow-up predicate', async () => {
+    const { pool, calls } = poolDouble();
+    await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: 'staff-1' },
+      { ...baseQuery, followUp: 'only', status: 'closed' },
+      new Date('2026-07-14T12:00:00.000Z')
+    );
+
+    expect(calls[0]!.sql).toContain('j.organization_id = $1');
+    expect(calls[0]!.sql).toContain('j.source_job_card_id IS NOT NULL');
+    expect(calls[0]!.sql.match(/j\.assigned_to = \$\d+/g)).toHaveLength(1);
+    expect(calls[0]!.values).toEqual(['org-1', 'staff-1', ['COMPLETED', 'CANCELLED']]);
+  });
+
+  it('omits the follow-up predicate when the filter is absent', async () => {
+    const { pool, calls } = poolDouble();
+    await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: null },
+      baseQuery,
+      new Date('2026-07-14T12:00:00.000Z')
+    );
+
+    for (const { sql } of calls) {
+      expect(sql).not.toContain('source_job_card_id IS NOT NULL');
+    }
+  });
+
+  it('applies the same follow-up criterion to board counts and items', async () => {
+    const { pool, calls } = poolDouble();
+    await new PostgresJobCardRepository(pool as never).listBoard(
+      { organizationId: 'org-1', assignedTo: null },
+      {
+        q: null, type: null, assignedTo: null, customerId: null, priority: null,
+        dueBefore: null, dueAfter: null, followUp: 'only', limit: 25,
+      },
+    );
+
+    expect(calls).toHaveLength(2);
+    for (const { sql } of calls) {
+      expect(sql).toContain('j.source_job_card_id IS NOT NULL');
+    }
   });
 });

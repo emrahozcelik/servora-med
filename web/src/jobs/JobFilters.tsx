@@ -17,6 +17,7 @@ type AdvancedDraft = {
   priority: string;
   dueAfter: string;
   dueBefore: string;
+  followUpOnly: boolean;
 };
 
 function advancedFromFilters(filters: JobSearchState): AdvancedDraft {
@@ -27,6 +28,7 @@ function advancedFromFilters(filters: JobSearchState): AdvancedDraft {
     priority: filters.priority ?? '',
     dueAfter: filters.dueAfter ?? '',
     dueBefore: filters.dueBefore ?? '',
+    followUpOnly: filters.followUp === 'only',
   };
 }
 
@@ -73,6 +75,7 @@ export function countActiveJobFilters(filters: JobSearchState): number {
     filters.priority,
     filters.dueAfter,
     filters.dueBefore,
+    filters.followUp === 'only',
   ]);
 }
 
@@ -98,7 +101,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     setAdvanced(advancedFromFilters(filters));
     setDraftStatus(filters.status ?? 'active');
     setErrors({});
-  }, [filters.type, filters.assignedTo, filters.customerId, filters.priority, filters.dueAfter, filters.dueBefore, filters.status]);
+  }, [filters.type, filters.assignedTo, filters.customerId, filters.priority, filters.dueAfter, filters.dueBefore, filters.status, filters.followUp]);
 
   function syncDraftFromUrl() {
     setSearch(filters.q ?? '');
@@ -139,6 +142,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
         ? nextAdvanced.priority : undefined,
       dueAfter: nextAdvanced.dueAfter || undefined,
       dueBefore: nextAdvanced.dueBefore || undefined,
+      followUp: nextAdvanced.followUpOnly ? 'only' as const : undefined,
     };
   }
 
@@ -163,12 +167,13 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     setSearch('');
     setAdvanced({
       type: '', assignedTo: '', customerId: '', priority: '', dueAfter: '', dueBefore: '',
+      followUpOnly: false,
     });
     setDraftStatus('active');
     setErrors({});
     onApply({
       q: undefined, type: undefined, assignedTo: undefined, customerId: undefined,
-      priority: undefined, dueAfter: undefined, dueBefore: undefined,
+      priority: undefined, dueAfter: undefined, dueBefore: undefined, followUp: undefined,
       status: 'active',
     });
     setSheetOpen(false);
@@ -200,6 +205,10 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
         <input id="job-due-after" type="date" value={advanced.dueAfter} onChange={(event) => setAdvanced({ ...advanced, dueAfter: event.target.value })} /></div>
       <div className="field-group"><label htmlFor="job-due-before">Bitiş tarihi</label>
         <input id="job-due-before" type="date" value={advanced.dueBefore} onChange={(event) => setAdvanced({ ...advanced, dueBefore: event.target.value })} /></div>
+      <div className="field-group job-filter-follow-up"><label htmlFor="job-follow-up">
+        <input id="job-follow-up" type="checkbox" checked={advanced.followUpOnly}
+          onChange={(event) => setAdvanced({ ...advanced, followUpOnly: event.target.checked })} />
+        Yalnız takip işleri</label></div>
     </div>
   );
 

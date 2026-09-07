@@ -378,6 +378,8 @@ export type SubmissionReadiness = {
 
 export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
+export type JobCardFollowUpFilter = 'only' | null;
+
 export type JobCardBaseFilters = {
   q: string | null;
   type: JobCardType | null;
@@ -386,6 +388,7 @@ export type JobCardBaseFilters = {
   priority: JobCardPriority | null;
   dueBefore: string | null;
   dueAfter: string | null;
+  followUp: JobCardFollowUpFilter;
 };
 
 export type JobCardWorkspaceFilters = JobCardBaseFilters & { status: JobCardStatusFilter };

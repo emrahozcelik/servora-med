@@ -11,13 +11,15 @@ export type JobSearchState = {
   dueAfter?: string;
   /** Server-owned overdue query state; only `true` is representable. */
   overdue?: true;
+  /** Follow-up workspace filter; only `only` is representable. */
+  followUp?: 'only';
   view: 'list' | 'board';
   offset: number;
 };
 
 const ALLOWED_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'overdue', 'view', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'followUp', 'view', 'offset',
 ] as const;
 const STATUSES = [
   'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS',
@@ -59,6 +61,8 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   if (customerId && isValidJobFilterUuid(customerId)) state.customerId = customerId;
   const priority = scalar(params, 'priority');
   if (PRIORITIES.includes(priority as JobCardPriority)) state.priority = priority as JobCardPriority;
+  const followUp = scalar(params, 'followUp');
+  if (followUp === 'only') state.followUp = 'only';
   if (overdue) {
     // Overdue is a list-only server-owned view: active status, no manual date bounds.
     state.overdue = true;
@@ -138,6 +142,7 @@ export function overdueJobsSearch(current: URLSearchParams) {
   next.delete('dueBefore');
   next.delete('dueAfter');
   next.delete('view');
+  next.delete('followUp');
   next.set('overdue', 'true');
   return next;
 }
@@ -147,6 +152,24 @@ export function statusQuickSearch(current: URLSearchParams, status: JobCardStatu
   const next = selectStatus(current, status);
   next.delete('dueBefore');
   next.delete('dueAfter');
+  next.delete('followUp');
+  return canonicalJobSearchParams(next);
+}
+
+/**
+ * Canonical follow-up jobs query: active follow-up JobCards. Clears
+ * shortcut-specific state (overdue, date bounds, board view, explicit
+ * non-active status) while preserving ordinary narrowing filters.
+ */
+export function followUpJobsSearch(current: URLSearchParams) {
+  const next = canonicalJobSearchParams(current);
+  next.delete('status');
+  next.delete('offset');
+  next.delete('dueBefore');
+  next.delete('dueAfter');
+  next.delete('overdue');
+  next.delete('view');
+  next.set('followUp', 'only');
   return canonicalJobSearchParams(next);
 }
 

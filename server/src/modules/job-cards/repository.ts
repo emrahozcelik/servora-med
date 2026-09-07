@@ -1137,6 +1137,7 @@ function workspaceWhere(
   if (filters.type) add((position) => `j.type = $${position}`, filters.type);
   if (filters.customerId) add((position) => `j.customer_id = $${position}`, filters.customerId);
   if (filters.priority) add((position) => `j.priority = $${position}`, filters.priority);
+  if (filters.followUp === 'only') predicates.push('j.source_job_card_id IS NOT NULL');
   if (filters.dueAfter) add((position) => `j.due_date >= $${position}::date`, filters.dueAfter);
   if (filters.dueBefore) add((position) => `j.due_date <= $${position}::date`, filters.dueBefore);
   const statuses = statusValues(filters.status ?? 'all');
