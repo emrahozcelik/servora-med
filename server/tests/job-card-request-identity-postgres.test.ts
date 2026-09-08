@@ -366,20 +366,59 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
       })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });
       expect(await snapshot()).toEqual(afterMeeting);
 
-      // ---- DELIVERY_ITEM_CREATE: payload + expectedVersion mismatch ----
+      // ---- DELIVERY_ITEM_CREATE: canonical expiry, exact equivalent replay, and validation ----
       const itemJobId = pdJobId;
+      const expiryInput = {
+        clientActionId: 'expiry-key-1', expectedVersion: pdReplay.version,
+        productId, deliveryPurpose: 'SALE' as const, deliveredAt: null, quantity: 1,
+        expiryDate: '2026-09-01',
+      };
+      const expiryCreated = await service.addDeliveryItem(staff, itemJobId, expiryInput);
+      const expiryReplay = await service.addDeliveryItem(staff, itemJobId, {
+        ...expiryInput, expiryDate: '2026-9-1',
+      });
+      expect(expiryReplay.item.id).toBe(expiryCreated.item.id);
+      expect(expiryReplay.jobCardVersion).toBe(expiryCreated.jobCardVersion);
+      const persistedExpiry = (await pool!.query<{ expiry_date: string }>(
+        `SELECT expiry_date::text FROM job_card_delivery_items WHERE id = $1`,
+        [expiryCreated.item.id],
+      )).rows[0]!.expiry_date;
+      expect(persistedExpiry).toBe('2026-09-01');
+      await expect(service.addDeliveryItem(staff, itemJobId, {
+        ...expiryInput, expiryDate: '2026-09-02',
+      })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });
+      const beforeInvalidExpiry = await snapshot();
+      await expect(service.addDeliveryItem(staff, itemJobId, {
+        ...expiryInput, clientActionId: 'expiry-invalid-1',
+        expectedVersion: expiryCreated.jobCardVersion, expiryDate: '2026-02-29',
+      })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+      expect(await snapshot()).toEqual(beforeInvalidExpiry);
+
+      // PATCH uses the same date-only contract and accepts the unpadded form.
+      const patchedExpiry = await service.patchDeliveryItem(staff, itemJobId, expiryCreated.item.id, {
+        expectedVersion: expiryCreated.jobCardVersion, expiryDate: '2028-2-29',
+      });
+      expect(patchedExpiry.item.expiryDate).toBe('2028-02-29');
+      const persistedPatchedExpiry = (await pool!.query<{ expiry_date: string }>(
+        `SELECT expiry_date::text FROM job_card_delivery_items WHERE id = $1`,
+        [expiryCreated.item.id],
+      )).rows[0]!.expiry_date;
+      expect(persistedPatchedExpiry).toBe('2028-02-29');
+
+      // ---- DELIVERY_ITEM_CREATE: quantity + expectedVersion independently mismatch ----
+      const itemExpectedVersion = expiryCreated.jobCardVersion + 1;
       await service.addDeliveryItem(staff, itemJobId, {
-        clientActionId: 'item-key-1', expectedVersion: pdReplay.version,
+        clientActionId: 'item-key-1', expectedVersion: itemExpectedVersion,
         productId, deliveryPurpose: 'SALE', deliveredAt: null, quantity: 3,
       });
       expect((await claimRow('item-key-1', 'DELIVERY_ITEM_CREATE'))[0]!.request_hash).not.toBeNull();
       const afterItem = await snapshot();
       await expect(service.addDeliveryItem(staff, itemJobId, {
-        clientActionId: 'item-key-1', expectedVersion: pdReplay.version + 1,
+        clientActionId: 'item-key-1', expectedVersion: itemExpectedVersion,
         productId, deliveryPurpose: 'SALE', deliveredAt: null, quantity: 4,
       })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });
       await expect(service.addDeliveryItem(staff, itemJobId, {
-        clientActionId: 'item-key-1', expectedVersion: pdReplay.version + 2,
+        clientActionId: 'item-key-1', expectedVersion: itemExpectedVersion + 1,
         productId, deliveryPurpose: 'SALE', deliveredAt: null, quantity: 3,
       })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });
       expect(await snapshot()).toEqual(afterItem);

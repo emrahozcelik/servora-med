@@ -1,0 +1,258 @@
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:net';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { chromium } from 'playwright';
+import { createServer as createViteServer, loadConfigFromFile } from 'vite';
+
+const root = fileURLToPath(new URL('../../', import.meta.url));
+const web = fileURLToPath(new URL('../', import.meta.url));
+const server = fileURLToPath(new URL('../../server/', import.meta.url));
+const requireServer = createRequire(new URL('../../server/package.json', import.meta.url));
+const { Client } = requireServer('pg');
+const postgresBins = [process.env.JCID_POSTGRES_BIN, '/opt/homebrew/opt/postgresql@16/bin', '/opt/homebrew/opt/postgresql@17/bin', '/opt/homebrew/opt/postgresql/bin', '/Applications/Postgres.app/Contents/Versions/latest/bin'].filter(Boolean);
+const postgresBin = postgresBins.find((p) => existsSync(`${p}/initdb`) && existsSync(`${p}/pg_ctl`));
+if (!postgresBin) throw new Error('JCID_POSTGRES_BIN or a local PostgreSQL installation is required');
+
+const evidenceDir = process.env.JCID_EVIDENCE_DIR || mkdtempSync('/private/tmp/servora-jobcard-idempotency-');
+const assertions = [];
+const screenshots = [];
+const processes = [];
+let cluster = '';
+let clusterPort = 0;
+let database = '';
+let adminUrl = '';
+let databaseUrl = '';
+let databaseCreated = false;
+let page;
+let browser;
+let viteServer;
+let failure = null;
+const browserExecutable = process.env.JCID_BROWSER_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browserLaunchOptions = existsSync(browserExecutable)
+  ? { headless: true, executablePath: browserExecutable }
+  : { headless: true };
+
+const clean = (value) => String(value).replaceAll(/postgres(?:ql)?:\/\/[^@\s]+@/gi, 'postgresql://***@').slice(0, 2000);
+function record(id, pass, observed) {
+  assertions.push({ id, status: pass ? 'PASS' : 'FAIL', observed: clean(observed) });
+  if (!pass) throw new Error(`${id}: ${clean(observed)}`);
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function port() {
+  return new Promise((resolve, reject) => {
+    const socket = createServer();
+    socket.once('error', reject);
+    socket.listen(0, '127.0.0.1', () => {
+      const address = socket.address();
+      socket.close(() => resolve(typeof address === 'object' && address ? address.port : 0));
+    });
+  });
+}
+async function command(cmd, args, options = {}) {
+  const child = spawn(cmd, args, { cwd: options.cwd, env: options.env || process.env, stdio: options.stdio || 'inherit' });
+  const [code, signal] = await once(child, 'exit');
+  if (code !== 0) throw new Error(`${cmd} ${args.join(' ')} exited with ${code ?? signal}`);
+}
+function start(label, cmd, args, options = {}) {
+  const child = spawn(cmd, args, { cwd: options.cwd, env: options.env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', (b) => process.stdout.write(`[${label}] ${b}`));
+  child.stderr.on('data', (b) => process.stderr.write(`[${label}] ${b}`));
+  processes.push(child);
+  return child;
+}
+async function stop(child) {
+  if (!child || child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  await Promise.race([once(child, 'exit'), sleep(5000)]);
+  if (child.exitCode === null) child.kill('SIGKILL');
+}
+async function ready(url, child) {
+  const started = Date.now();
+  while (Date.now() - started < 30000) {
+    if (child.exitCode !== null) throw new Error(`${url} process exited`);
+    try { if ((await fetch(url)).ok) return; } catch { /* startup */ }
+    await sleep(150);
+  }
+  throw new Error(`${url} did not become ready`);
+}
+async function startPostgres() {
+  cluster = mkdtempSync('/private/tmp/servora-jcid-postgres-');
+  clusterPort = await port();
+  await command(`${postgresBin}/initdb`, ['-D', cluster, '--auth=trust', '--username=servora_jcid', '--encoding=UTF8', '--no-locale'], { cwd: root });
+  await command(`${postgresBin}/pg_ctl`, ['-D', cluster, '-l', `${cluster}/postgres.log`, '-o', `-h 127.0.0.1 -p ${clusterPort} -F`, 'start', '-w'], { cwd: root });
+  adminUrl = `postgresql://servora_jcid@127.0.0.1:${clusterPort}/postgres`;
+  record('POSTGRES-ISOLATED-CLUSTER', true, `port=${clusterPort}`);
+}
+async function createDatabase() {
+  database = `servora_jcid_${randomBytes(6).toString('hex')}`;
+  const client = new Client({ connectionString: adminUrl }); await client.connect();
+  try { await client.query(`CREATE DATABASE "${database}"`); } finally { await client.end(); }
+  databaseUrl = new URL(`/${database}`, adminUrl).toString(); databaseCreated = true;
+  record('POSTGRES-DISPOSABLE-CREATED', true, database);
+}
+function env(overrides = {}) {
+  return { ...process.env, NODE_ENV: 'development', HOST: '127.0.0.1', DATABASE_URL: databaseUrl, CORS_ORIGIN: webOrigin, HEALTH_SCHEMA_VERSION: '', CALENDAR_ENABLED: 'false', MESSAGING_ENABLED: 'true', WEB_PUSH_ENABLED: 'false', ACTION_SCOPED_GEOLOCATION_ENABLED: 'false', ...overrides };
+}
+let serverOrigin;
+let webOrigin;
+async function seed() {
+  const admin = { email: 'jcid-admin@example.test', password: `JCID-${randomBytes(18).toString('base64url')}!` };
+  await command('node', ['dist/db/bootstrap-admin.js'], { cwd: server, env: env({ BOOTSTRAP_ORGANIZATION_NAME: 'JCID Acceptance', BOOTSTRAP_ADMIN_NAME: 'JCID Admin', BOOTSTRAP_ADMIN_EMAIL: admin.email, BOOTSTRAP_ADMIN_PASSWORD: admin.password }) });
+  const { hashPassword } = await import(pathToFileURL(`${server}/dist/modules/auth/crypto.js`).href);
+  const client = new Client({ connectionString: databaseUrl }); await client.connect();
+  try {
+    const identity = (await client.query('SELECT id, organization_id FROM users WHERE lower(email)=lower($1)', [admin.email])).rows[0];
+    if (!identity) throw new Error('bootstrap admin missing');
+    const staffHash = await hashPassword(`JCID-Staff-${randomBytes(10).toString('base64url')}!`);
+    const staff = (await client.query(`INSERT INTO users (organization_id,name,email,password_hash,role) VALUES ($1,'JCID Staff','jcid-staff@example.test',$2,'STAFF') RETURNING id`, [identity.organization_id, staffHash])).rows[0].id;
+    async function job(title, status) {
+      const row = (await client.query(`INSERT INTO job_cards (organization_id,type,status,version,title,assigned_to,created_by,priority,accepted_at,accepted_by,started_at,staff_completed_at,staff_completed_by,manager_approved_at,manager_approved_by) VALUES ($1,'GENERAL_TASK',$2::varchar,1,$3,$4::uuid,$5::uuid,'normal',CASE WHEN $6::boolean THEN NOW() END,CASE WHEN $6::boolean THEN $5::uuid END,CASE WHEN $7::boolean THEN NOW() END,CASE WHEN $8::boolean THEN NOW() END,CASE WHEN $8::boolean THEN $4::uuid END,CASE WHEN $9::boolean THEN NOW() END,CASE WHEN $9::boolean THEN $5::uuid END) RETURNING id`, [identity.organization_id, status, title, staff, identity.id, status !== 'NEW', ['IN_PROGRESS','WAITING_APPROVAL','COMPLETED'].includes(status), ['WAITING_APPROVAL','COMPLETED'].includes(status), status === 'COMPLETED'])).rows[0];
+      await client.query(`INSERT INTO job_card_activity_logs (organization_id,job_card_id,actor_id,event_type,old_value,new_value) VALUES ($1,$2,$3,'JOB_CREATED',NULL,jsonb_build_object('status',$4::text))`, [identity.organization_id, row.id, identity.id, status]);
+      await client.query(`INSERT INTO job_card_schedule_revisions (organization_id,job_card_id,revision_no,organization_timezone,source,created_by) VALUES ($1,$2,1,'Europe/Istanbul','CREATE',$3)`, [identity.organization_id, row.id, identity.id]);
+      return row.id;
+    }
+    const meetingJob = (await client.query(`INSERT INTO job_cards (organization_id,type,status,version,title,assigned_to,created_by,priority,accepted_at,accepted_by,started_at,engagement_kind) VALUES ($1,'SALES_MEETING','IN_PROGRESS',1,'JCID meeting response loss',$2,$3,'normal',NOW(),$3,NOW(),'SALES_MEETING') RETURNING id`, [identity.organization_id, staff, identity.id])).rows[0].id;
+    await client.query(`INSERT INTO job_card_meeting_details (job_card_id,organization_id) VALUES ($1,$2)`, [meetingJob, identity.organization_id]);
+    await client.query(`INSERT INTO job_card_schedule_revisions (organization_id,job_card_id,revision_no,organization_timezone,source,created_by) VALUES ($1,$2,1,'Europe/Istanbul','CREATE',$3)`, [identity.organization_id, meetingJob, identity.id]);
+    return {
+      organizationId: identity.organization_id,
+      admin,
+      revisionJob: await job('JCID revision response loss', 'WAITING_APPROVAL'),
+      browserRevisionJob: await job('JCID browser revision response loss', 'WAITING_APPROVAL'),
+      cancelJob: await job('JCID cancel response loss', 'IN_PROGRESS'),
+      meetingJob,
+      staff,
+    };
+  } finally { await client.end(); }
+}
+async function login(credentials) {
+  const response = await fetch(`${serverOrigin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: webOrigin }, body: JSON.stringify(credentials) });
+  const body = await response.json(); const cookie = response.headers.get('set-cookie')?.split(';', 1)[0];
+  if (!response.ok || !cookie) throw new Error(`login ${response.status}`); return { cookie, user: body.user };
+}
+async function loginBrowser(context, credentials) {
+  const session = await login(credentials);
+  const [name, value] = session.cookie.split('=', 2);
+  await context.addCookies([{ name, value, domain: '127.0.0.1', path: '/', httpOnly: true }]);
+}
+async function api(cookie, path, body) {
+  const response = await fetch(`${serverOrigin}${path}`, { method: body ? 'POST' : 'GET', headers: { origin: webOrigin, cookie, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  let parsed = null; try { parsed = await response.json(); } catch { /* no body */ }
+  return { status: response.status, body: parsed };
+}
+async function screenshot(name) { const path = `${evidenceDir}/${name}`; await page.screenshot({ path, fullPage: true }); screenshots.push(path); }
+
+async function browserCase(fixture) {
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } }); page = await context.newPage();
+  const requests = []; let committed = null; let loseNext = true;
+  await page.route('**/api/job-cards/**', async (route) => {
+    if (route.request().method() !== 'POST' || !/\/(cancel|request-revision)$/.test(new URL(route.request().url()).pathname)) return route.continue();
+    const request = route.request(); const body = JSON.parse(request.postData() || '{}');
+    requests.push({ url: new URL(request.url()).pathname, body });
+    if (!loseNext) return route.continue();
+    loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  await loginBrowser(context, fixture.admin);
+  await page.goto(`/jobs/${fixture.browserRevisionJob}`); await page.getByRole('heading', { name: 'JCID browser revision response loss', exact: true }).waitFor();
+  const revision = page.getByRole('button', { name: /geri gönder/i }).first(); await revision.waitFor(); await revision.click();
+  const revisionDialog = page.getByRole('dialog'); await revisionDialog.getByRole('textbox').fill('JCID original revision reason'); await revisionDialog.getByRole('button', { name: /geri gönder/i }).click();
+  await page.getByText(/doğrulanamadı|belirsiz|tekrar/i).first().waitFor();
+  record('UI-LOST-RESPONSE-COMMITTED', committed?.status === 200 && committed?.body?.status === 'REVISION_REQUESTED', `status=${committed?.status}; state=${committed?.body?.status}`);
+  const frozenInputs = page.getByRole('dialog').locator('input, textarea, select');
+  record('UI-INPUTS-FROZEN-AFTER-LOSS', await frozenInputs.count() > 0
+    && await frozenInputs.evaluateAll((nodes) => nodes.every((node) => node.disabled)),
+  'original lifecycle fields remain disabled while retry is pending');
+  const firstBody = requests[0]?.body;
+  const retry = page.getByRole('button', { name: /tekrar dene|tekrar gönder|yeniden dene|aynı işlemi/i }).first(); await retry.waitFor();
+  await retry.click(); await page.waitForTimeout(250);
+  record('UI-RETRY-EXACT-ORIGINAL-REQUEST', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests));
+  record('UI-RETRY-USES-ORIGINAL-VERSION', Number(firstBody?.expectedVersion) === 1 && requests[1]?.body?.expectedVersion === 1, JSON.stringify(requests[1]?.body));
+  await screenshot('jcid-revision-retry.png');
+}
+
+async function meetingCase(fixture) {
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
+  const meetingPage = await context.newPage();
+  const requests = []; let committed = null; let loseNext = true;
+  await meetingPage.route(`**/api/job-cards/${fixture.meetingJob}/meeting-details`, async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
+    if (!loseNext) return route.continue();
+    loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  await loginBrowser(context, fixture.admin);
+  await meetingPage.goto(`/jobs/${fixture.meetingJob}`);
+  await meetingPage.getByRole('heading', { name: 'JCID meeting response loss', exact: true }).waitFor();
+  await meetingPage.locator('#meeting-outcome').selectOption('FOLLOW_UP_REQUIRED');
+  await meetingPage.locator('#meeting-unsuccessful-reason').selectOption('REQUESTED_LATER');
+  await meetingPage.locator('#meeting-summary').fill('JCID meeting A original summary');
+  await meetingPage.getByRole('button', { name: /sonucunu kaydet/i }).click();
+  await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('MEETING-A-COMMITTED-RESPONSE-LOST', committed?.status === 200 && committed?.body?.jobCardVersion === 2, `status=${committed?.status}; version=${committed?.body?.jobCardVersion}`);
+  const fields = meetingPage.locator('.meeting-result-form input, .meeting-result-form select, .meeting-result-form textarea');
+  record('MEETING-A-INPUTS-FROZEN', await fields.evaluateAll((nodes) => nodes.every((node) => node.disabled || node.closest('fieldset')?.disabled)), 'meeting inputs disabled after lost response');
+  await injectRealtimeUpdate(fixture);
+  await meetingPage.waitForTimeout(500);
+  record('MEETING-A-REALTIME-UPDATE-OBSERVED', await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).count() === 1, 'retry affordance survives a realtime invalidation');
+  await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await meetingPage.waitForTimeout(300);
+  record('MEETING-A-EXACT-RETRY', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests));
+  record('MEETING-A-RETRY-SAME-VERSION-KEY', requests[0]?.expectedVersion === 1 && requests[0]?.clientActionId === requests[1]?.clientActionId, JSON.stringify(requests[1]));
+  await meetingPage.waitForTimeout(200);
+  const b = { ...requests[0], clientActionId: `${requests[0]?.clientActionId}-B`, expectedVersion: 2, meetingSummary: 'JCID meeting B new summary' };
+  const bResponse = await meetingPage.evaluate(async ({ id, input }) => {
+    const response = await fetch(`/api/job-cards/${id}/meeting-details`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+    return { status: response.status, body: await response.json() };
+  }, { id: fixture.meetingJob, input: b });
+  record('MEETING-B-NEW-KEY-CURRENT-VERSION', bResponse.status === 200 && bResponse.body?.jobCardVersion === 3 && bResponse.body?.meetingSummary === 'JCID meeting B new summary', `status=${bResponse.status}; version=${bResponse.body?.jobCardVersion}`);
+  record('MEETING-B-FOLLOWUP-BEARING-PRESERVED', bResponse.body?.outcome === 'FOLLOW_UP_REQUIRED' && bResponse.body?.unsuccessfulReason === 'REQUESTED_LATER', JSON.stringify(bResponse.body));
+  await context.close();
+}
+
+async function injectRealtimeUpdate(fixture) {
+  const client = new Client({ connectionString: databaseUrl }); await client.connect();
+  try {
+    const activity = (await client.query(`INSERT INTO job_card_activity_logs (organization_id,job_card_id,actor_id,event_type,old_value,new_value) VALUES ($1,$2,$3,'MEETING_DETAILS_UPDATED',NULL,'{}') RETURNING id`, [fixture.organizationId, fixture.meetingJob, fixture.staff])).rows[0].id;
+    await client.query(`INSERT INTO realtime_events (organization_id,source_activity_id,event_type,entity_type,entity_id,actor_user_id,audience_roles,audience_user_ids,resource_keys) VALUES ($1,$2,'job.updated','job-card',$3,NULL,ARRAY['ADMIN']::varchar[],ARRAY[]::uuid[],ARRAY[$4])`, [fixture.organizationId, activity, fixture.meetingJob, `job-detail:${fixture.meetingJob}`]);
+  } finally { await client.end(); }
+}
+
+async function backendCases(fixture) {
+  const session = await login(fixture.admin);
+  const cancel = { clientActionId: 'jcid-cancel-original', expectedVersion: 1, cancelReason: 'JCID cancellation reason' };
+  const revision = { clientActionId: 'jcid-revision-original', expectedVersion: 1, revisionReason: 'JCID revision reason' };
+  const firstCancel = await api(session.cookie, `/api/job-cards/${fixture.cancelJob}/cancel`, cancel);
+  const replayCancel = await api(session.cookie, `/api/job-cards/${fixture.cancelJob}/cancel`, cancel);
+  record('CANCEL-PAYLOAD-AND-IDEMPOTENCY', firstCancel.status === 200 && replayCancel.status === 200 && firstCancel.body?.status === 'CANCELLED' && replayCancel.body?.version === 2, `first=${firstCancel.status}; replay=${replayCancel.status}`);
+  const firstRevision = await api(session.cookie, `/api/job-cards/${fixture.revisionJob}/request-revision`, revision);
+  const replayRevision = await api(session.cookie, `/api/job-cards/${fixture.revisionJob}/request-revision`, revision);
+  record('REVISION-PAYLOAD-AND-IDEMPOTENCY', firstRevision.status === 200 && replayRevision.status === 200 && firstRevision.body?.status === 'REVISION_REQUESTED' && replayRevision.body?.version === 2, `first=${firstRevision.status}; replay=${replayRevision.status}`);
+}
+
+try {
+  serverOrigin = `http://127.0.0.1:${await port()}`; webOrigin = `http://127.0.0.1:${await port()}`;
+  await startPostgres(); await createDatabase(); const runtime = env({ PORT: serverOrigin.split(':').pop() });
+  await command('npm', ['run', 'build'], { cwd: server, env: runtime }); await command('node', ['dist/db/migrate.js'], { cwd: server, env: runtime });
+  const fixture = await seed(); const apiServer = start('fastify', 'node', ['dist/index.js'], { cwd: server, env: runtime }); await ready(`${serverOrigin}/api/health`, apiServer);
+  const loaded = await loadConfigFromFile({ command: 'serve', mode: 'development' }, `${web}/vite.config.ts`, web);
+  viteServer = await createViteServer({ ...(loaded?.config || {}), configFile: false, root: web, server: { ...(loaded?.config.server || {}), host: '127.0.0.1', port: Number(webOrigin.split(':').pop()), strictPort: true, proxy: { '/api': { target: serverOrigin, changeOrigin: true } } } });
+  await viteServer.listen();
+  await backendCases(fixture); await meetingCase(fixture); await browserCase(fixture);
+} catch (error) { failure = error; if (page) try { await screenshot('failure.png'); } catch { /* best effort */ } }
+finally {
+  if (viteServer) await viteServer.close().catch(() => {});
+  for (const child of processes.reverse()) await stop(child);
+  if (databaseCreated) { const client = new Client({ connectionString: adminUrl }); try { await client.connect(); await client.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid<>pg_backend_pid()', [database]); await client.query(`DROP DATABASE "${database}"`); } finally { await client.end(); } }
+  if (cluster) { await command(`${postgresBin}/pg_ctl`, ['-D', cluster, 'stop', '-m', 'fast', '-w'], { cwd: root }).catch(() => {}); rmSync(cluster, { recursive: true, force: true }); }
+  if (browser) await browser.close().catch(() => {});
+  mkdirSync(evidenceDir, { recursive: true });
+  writeFileSync(`${evidenceDir}/runtime-results.json`, `${JSON.stringify({ gate: 'JOBCARD_IDEMPOTENCY_RESPONSE_LOSS', result: failure ? 'FAIL' : 'PASS', assertions, screenshots, failure: failure ? clean(failure.message) : null }, null, 2)}\n`);
+}
+if (failure) throw failure;
+console.info(`JobCard idempotency response-loss acceptance passed (${assertions.length} assertions). Evidence: ${evidenceDir}`);

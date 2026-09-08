@@ -25,6 +25,7 @@ export type JobWorkflowDialogKind =
 export function JobWorkflowDialog(props: {
   dialog: JobWorkflowDialogKind;
   pending: boolean;
+  uncertain?: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
   followUp?: FollowUpProposalSectionProps;
@@ -32,7 +33,7 @@ export function JobWorkflowDialog(props: {
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
-    dialog, pending, onClose, onConfirm, followUp, returnFocusRef, restoreFocusEnabledRef,
+    dialog, pending, uncertain = false, onClose, onConfirm, followUp, returnFocusRef, restoreFocusEnabledRef,
   } = props;
   const followUpInitialFocusRef = useRef<HTMLElement>(null);
 
@@ -47,7 +48,7 @@ export function JobWorkflowDialog(props: {
         title={title}
         description={dialog.presentation.consequence}
         details={details}
-        confirmLabel={confirmLabel}
+        confirmLabel={uncertain ? 'Özgün isteği tekrar dene' : confirmLabel}
         pending={pending}
         returnFocusRef={returnFocusRef}
         onCancel={onClose}
@@ -85,14 +86,14 @@ export function JobWorkflowDialog(props: {
         : 'İşi iptal et';
 
   const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
-    ? <FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} />
+    ? <fieldset disabled={pending || uncertain}><FollowUpProposalSection {...followUp} initialFocusRef={followUpInitialFocusRef} /></fieldset>
     : undefined;
 
   return (
     <ReasonDialog
       open
       title={title}
-      description={description}
+      description={uncertain ? 'İşlemin sonucu henüz doğrulanamadı. Alanlar kilitli; tekrar deneme özgün isteği gönderir.' : description}
       reasonLabel={reasonLabel}
       helperText={dialog.kind === 'submit'
         ? 'Bu açıklama, yönetici kontrolüne gönderilen iş kaydında saklanır.'
@@ -100,10 +101,11 @@ export function JobWorkflowDialog(props: {
       requiredMessage={dialog.kind === 'submit'
         ? 'Tamamlanma sonucu zorunludur.'
         : undefined}
-      confirmLabel={confirmLabel}
+      confirmLabel={uncertain ? 'Özgün isteği tekrar dene' : confirmLabel}
       maxLength={2000}
       required={dialog.kind !== 'approve'}
       pending={pending}
+      inputsDisabled={uncertain}
       destructive={dialog.kind === 'cancel'}
       prelude={prelude}
       initialFocusRef={followUp ? followUpInitialFocusRef : undefined}

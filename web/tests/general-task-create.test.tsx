@@ -20,6 +20,7 @@ import {
 } from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+let uuidSeq = 0;
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
@@ -90,7 +91,7 @@ describe('General Task quick create', () => {
     vi.clearAllMocks();
     stubMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
-    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
+    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `action-${++uuidSeq}`) });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
     crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
@@ -549,8 +550,7 @@ describe('General Task quick create', () => {
 
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
-      .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }))
-      .mockResolvedValueOnce({ id: 'job-task-1', version: 1 });
+      .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }));
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     change(container.querySelector('#task-title') as HTMLInputElement, 'Değeri koru');
     change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
@@ -566,6 +566,32 @@ describe('General Task quick create', () => {
     await act(async () => form.requestSubmit());
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
     expect(jobs.createJobCard.mock.calls[1]![0].scheduledAt).toBe(localDateTimeToIso('2026-07-22T13:00'));
+  });
+
+  it('freezes the ambiguous request, retries its original body, then starts a fresh edited intent', async () => {
+    const first = deferred<never>();
+    jobs.createJobCard.mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ id: 'job-1', version: 1 })
+      .mockResolvedValueOnce({ id: 'job-2', version: 1 });
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    change(container.querySelector('#task-title')!, 'Özgün görev');
+    change(container.querySelector('#task-scheduled-at')!, '2026-07-22T13:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await act(async () => first.reject(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true)));
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect(container.querySelector('[data-cancel-task]')).toHaveProperty('disabled', true);
+    expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(jobs.createJobCard.mock.calls[1]![0]).toMatchObject({
+      clientActionId: jobs.createJobCard.mock.calls[0]![0].clientActionId,
+      title: 'Özgün görev', scheduledAt: localDateTimeToIso('2026-07-22T13:00'),
+    });
+    await settle();
+    change(container.querySelector('#task-title')!, 'Yeni görev');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard.mock.calls[2]![0].clientActionId).not.toBe(jobs.createJobCard.mock.calls[0]![0].clientActionId);
+    expect(jobs.createJobCard.mock.calls[2]![0].title).toBe('Yeni görev');
   });
 
   it('uses the shared create-heading and form-actions contract (T4A)', async () => {

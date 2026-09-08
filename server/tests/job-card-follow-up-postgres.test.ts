@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
-import { hashRequestIdentity } from '../src/modules/job-cards/critical-action-request-hash.js';
+import { followUpCreateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type {
@@ -216,23 +216,6 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await adminPool.end();
   }
-}
-
-function hashFollowUpRequestIdentity(sourceJobCardId: string, _assignedTo: string, followUp: FollowUpCreateInput): string {
-  return hashRequestIdentity({
-    operation: 'JOB_FOLLOW_UP_CREATE:v1',
-    sourceJobCardId,
-    type: followUp.type,
-    title: followUp.title,
-    followUpInstructions: followUp.followUpInstructions,
-    scheduledAt: followUp.scheduledAt ?? null,
-    assignedTo: followUp.assignedTo ?? null,
-    priority: followUp.priority,
-    dueDate: followUp.dueDate ?? null,
-    contactId: followUp.contactId ?? null,
-    engagementKind: followUp.engagementKind ?? null,
-    overrideReason: followUp.overrideReason ?? null,
-  });
 }
 
 function input(
@@ -852,7 +835,7 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
           fixture.admin.id,
           processingActionId,
           `JOB_FOLLOW_UP_CREATE:${root}`,
-          hashFollowUpRequestIdentity(root, fixture.admin.id, input(fixture.staffA.id, { clientActionId: processingActionId })),
+          followUpCreateRequestHash(root, input(fixture.staffA.id, { clientActionId: processingActionId })),
         ],
       );
       await expect(fixture.service.createFollowUp(

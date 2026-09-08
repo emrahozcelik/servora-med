@@ -16,6 +16,7 @@ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = { title?: string; assignedTo?: string };
+type CreateAttempt = { input: Parameters<typeof createJobCard>[0] };
 
 async function loadAllContacts(customerId: string) {
   const all: Contact[] = [];
@@ -52,7 +53,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const errorRef = useRef<HTMLDivElement>(null);
-  const actionIdRef = useRef<string | null>(null);
+  const attemptRef = useRef<CreateAttempt | null>(null);
+  const [ambiguous, setAmbiguous] = useState(false);
   const contactGate = useRef(createRequestGate());
   const contactsLoadedForRef = useRef<string | null>(null);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
@@ -121,9 +123,27 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     setCustomerCreateOpen(false);
   }
 
+  async function sendAttempt(input: Parameters<typeof createJobCard>[0]) {
+    setPending(true); setError('');
+    try {
+      const job = await createJobCard(input);
+      attemptRef.current = null; setAmbiguous(false);
+      onCreated(job.id);
+    } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves the
+      // attempt resolved; anything else (transport loss, unknown error) keeps the
+      // immutable attempt ambiguous so a retry replays the original request.
+      const definitive = caught instanceof ApiError && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      setError(caught instanceof Error ? caught.message : 'Görev oluşturulamadı. Tekrar deneyin.');
+    } finally { setPending(false); }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    if (ambiguous) { const attempt = attemptRef.current; if (attempt) await sendAttempt(attempt.input); return; }
     const trimmedTitle = title.trim();
     const nextErrors: FieldErrors = {};
     if (!trimmedTitle || Array.from(trimmedTitle).length > 255) {
@@ -137,11 +157,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
       return;
     }
 
-    setPending(true); setError('');
-    actionIdRef.current ??= crypto.randomUUID();
-    try {
-      const job = await createJobCard({
-        clientActionId: actionIdRef.current,
+    const input = {
+        clientActionId: crypto.randomUUID(),
         type: 'GENERAL_TASK',
         title: trimmedTitle,
         assignedTo: selectedAssignee,
@@ -151,13 +168,9 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         scheduledAt: scheduledLocal ? localDateTimeToIso(scheduledLocal) : null,
         customerId: customerId || null,
         contactId: contactId || null,
-      });
-      onCreated(job.id);
-    } catch (caught) {
-      if (caught instanceof ApiError && !caught.retryable) actionIdRef.current = null;
-      setError(caught instanceof Error ? caught.message : 'Görev oluşturulamadı. Tekrar deneyin.');
-      setPending(false);
-    }
+      } satisfies Parameters<typeof createJobCard>[0];
+    attemptRef.current = { input };
+    await sendAttempt(input);
   }
 
   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
@@ -169,7 +182,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
     <p className="form-intro">Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="task-form" onSubmit={submit} noValidate>
-      <fieldset disabled={pending}>
+      <fieldset disabled={pending || ambiguous}>
         <div className="field-group">
           <label htmlFor="task-title">Başlık</label>
           <input id="task-title" name="title" required maxLength={255} value={title}
@@ -238,8 +251,10 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         </details>
       </fieldset>
       <div className="form-actions">
-        <button data-cancel-task className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
-        <button className="primary-button" type="submit" disabled={pending || staffUnavailable}>
+        <button data-cancel-task className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
+        {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={pending}
+          onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}
+        <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable}>
           {pending ? 'Görev oluşturuluyor…' : 'Görevi oluştur'}
         </button>
       </div>

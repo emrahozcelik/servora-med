@@ -7,6 +7,7 @@ import type {
 } from './types.js';
 import type { StartLocationCapture } from './start-location-input.js';
 import type { JobActionLocationCapture } from './location-types.js';
+import { normalizeExpiryDate } from './delivery-input.js';
 
 /** Resolved captures carry provider metadata; request identity reads core fields only. */
 export type LifecycleLocationCapture = StartLocationCapture | JobActionLocationCapture;
@@ -247,7 +248,7 @@ export function followUpCreateRequestHash(
 /**
  * Normalized delivery-item create intent. Mirrors the exact normalization
  * deliveryRecord applies (deliveredAt → canonical Date, lot/serial/note
- * trimmed-or-null, expiryDate passthrough-or-null) so semantically
+ * trimmed-or-null, canonical expiryDate-or-null) so semantically
  * equivalent requests hash identically.
  */
 export function deliveryItemCreateRequestHash(
@@ -265,7 +266,7 @@ export function deliveryItemCreateRequestHash(
     quantity: input.quantity,
     lotNo: trimmedTextOrNull(input.lotNo),
     serialNo: trimmedTextOrNull(input.serialNo),
-    expiryDate: input.expiryDate ?? null,
+    expiryDate: normalizeExpiryDate(input.expiryDate),
     deliveryNote: trimmedTextOrNull(input.deliveryNote),
   });
 }

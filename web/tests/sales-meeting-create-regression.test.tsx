@@ -14,6 +14,7 @@ import {
 } from './customer-search-select-harness';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+let uuidSeq = 0;
 
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
@@ -87,7 +88,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     vi.clearAllMocks();
     stubMatchMedia();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
-    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
+    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `action-${++uuidSeq}`) });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 20, offset: 0 });
     crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
@@ -256,6 +257,33 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-15T11:00');
     expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
+  });
+
+  it('freezes the ambiguous meeting request and uses a fresh key after the original succeeds', async () => {
+    const first = deferred<never>();
+    jobs.createJobCard.mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ id: 'job-1', version: 1 })
+      .mockResolvedValueOnce({ id: 'job-2', version: 1 });
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle(); change(container.querySelector('#meeting-title')!, 'Özgün görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'PRODUCT_DEMO');
+    await pickCustomerByName(container, 'meeting-customer', 'A Klinik'); await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await act(async () => first.reject(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true)));
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect(container.querySelector('[data-cancel-meeting]')).toHaveProperty('disabled', true);
+    expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(jobs.createJobCard.mock.calls[1]![0]).toMatchObject({
+      clientActionId: jobs.createJobCard.mock.calls[0]![0].clientActionId,
+      title: 'Özgün görüşme', scheduledAt: localDateTimeToIso('2026-07-15T11:00'),
+    });
+    await settle(); change(container.querySelector('#meeting-title')!, 'Yeni görüşme');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard.mock.calls[2]![0].clientActionId).not.toBe(jobs.createJobCard.mock.calls[0]![0].clientActionId);
+    expect(jobs.createJobCard.mock.calls[2]![0].title).toBe('Yeni görüşme');
   });
 
   it('uses the shared create-heading and form-actions contract (T4A)', async () => {

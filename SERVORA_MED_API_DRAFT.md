@@ -645,6 +645,14 @@ because they represent different business facts.
 | PATCH | `/:jobCardId/delivery-items/:itemId` | edit policy | not processed-cache by default |
 | DELETE | `/:jobCardId/delivery-items/:itemId` | edit policy | not processed-cache by default |
 
+Delivery-item POST and PATCH share a date-only `expiryDate` normalizer. Valid
+`YYYY-MM-DD` and unpadded `YYYY-M-D` values normalize to `YYYY-MM-DD` before
+hashing and persistence; null/undefined normalize to null when creating a record.
+PATCH omission preserves the current field. Invalid calendar dates, year zero,
+timestamps and ambiguous locale formats return `400 VALIDATION_ERROR`. For example,
+`2026-9-1` and `2026-09-01` have the same request identity; `2026-02-29` is invalid.
+No migration or historical backfill is performed.
+
 ### POST delivery item
 
 ```json

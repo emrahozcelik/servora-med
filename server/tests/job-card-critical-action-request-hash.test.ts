@@ -6,7 +6,9 @@ import {
   jobCardCreateRequestHash,
   lifecycleRequestHash,
   meetingDetailsUpdateRequestHash,
+  deliveryItemCreateRequestHash,
 } from '../src/modules/job-cards/critical-action-request-hash.js';
+import { normalizeExpiryDate } from '../src/modules/job-cards/delivery-input.js';
 import { jobCardInvalidationRequestHash } from '../src/modules/job-cards/invalidation-input.js';
 
 // Deterministic fixed-input digest captured from the exact base commit
@@ -146,5 +148,55 @@ describe('JobCard critical-action request identity', () => {
       .not.toBe(meetingDetailsUpdateRequestHash('job-1', explicitNull));
     expect(meetingDetailsUpdateRequestHash('job-1', omitted))
       .toBe(meetingDetailsUpdateRequestHash('job-1', omitted));
+  });
+
+  it('delivery expiry dates use one validated canonical date-only representation', () => {
+    expect(normalizeExpiryDate('2026-9-1')).toBe('2026-09-01');
+    expect(normalizeExpiryDate('2026-09-01')).toBe('2026-09-01');
+    expect(normalizeExpiryDate(null)).toBeNull();
+    expect(normalizeExpiryDate(undefined)).toBeNull();
+    for (const value of ['0000-01-01', '2026-2-29', '2026-13-01', '2026-04-31', '2026-09-01T00:00:00Z']) {
+      expect(() => normalizeExpiryDate(value)).toThrowError('Teslim ürünü bilgileri geçersiz.');
+    }
+    expect(normalizeExpiryDate('2028-2-29')).toBe('2028-02-29');
+  });
+
+  it('delivery expiry equivalents share identity while different dates do not', () => {
+    const base = {
+      expectedVersion: 4, productId: 'product-1', deliveryPurpose: 'SALE',
+      deliveredAt: null, quantity: 2, lotNo: null, serialNo: null, deliveryNote: null,
+    };
+    expect(deliveryItemCreateRequestHash('job-1', { ...base, expiryDate: '2026-9-1' }))
+      .toBe(deliveryItemCreateRequestHash('job-1', { ...base, expiryDate: '2026-09-01' }));
+    expect(deliveryItemCreateRequestHash('job-1', { ...base, expiryDate: '2026-09-01' }))
+      .not.toBe(deliveryItemCreateRequestHash('job-1', { ...base, expiryDate: '2026-09-02' }));
+    const canonical = deliveryItemCreateRequestHash('job-1', { ...base, expiryDate: '2026-09-01' });
+    expect(canonical).not.toBe(deliveryItemCreateRequestHash('job-1', {
+      ...base, expiryDate: '2026-09-01', quantity: 3,
+    }));
+    expect(canonical).not.toBe(deliveryItemCreateRequestHash('job-1', {
+      ...base, expiryDate: '2026-09-01', expectedVersion: 5,
+    }));
+  });
+
+  it('approval follow-up hashes normalized defaults and equivalent values identically', () => {
+    const base = {
+      command: 'APPROVE', jobCardId: 'job-1', expectedVersion: 2,
+      note: null, revisionReason: null, cancelReason: null,
+    };
+    const proposal = {
+      type: 'SALES_MEETING' as const, assignedTo: 'staff-1',
+      followUpInstructions: ' Arayın ', scheduledAt: '2026-09-20T13:00:00.000Z',
+    };
+    expect(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal } }))
+      .toBe(lifecycleRequestHash({ ...base, approveFollowUp: {
+        ...proposal, followUpInstructions: 'Arayın', priority: 'normal', dueDate: null,
+      } }));
+    expect(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal, dueDate: undefined } }))
+      .toBe(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal, dueDate: null } }));
+    expect(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal, scheduledAt: '2026-09-20T16:00:00.000+03:00' } }))
+      .toBe(lifecycleRequestHash({ ...base, approveFollowUp: proposal }));
+    expect(lifecycleRequestHash({ ...base, approveFollowUp: proposal }))
+      .not.toBe(lifecycleRequestHash({ ...base, approveFollowUp: { ...proposal, overrideReason: 'farklı' } }));
   });
 });

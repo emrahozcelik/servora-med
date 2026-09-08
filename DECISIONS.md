@@ -177,6 +177,18 @@ JobCard stores `version INTEGER NOT NULL DEFAULT 1`. Field updates and named lif
 
 Processed-action idempotency is required for JobCard creation, delivery-item creation, approval submission, manager approval, revision request, and cancellation. Ordinary reference-data updates do not use response-caching idempotency by default.
 
+JobCard critical-action keys are bound to normalized semantic request identity, including
+`expectedVersion` where applicable. Reusing a key with different intent returns
+`409 CLIENT_ACTION_REUSED`; historical rows without a request hash fail closed.
+Operation-key namespaces remain unchanged.
+
+An unresolved client attempt retains its original key, version and complete request.
+Retryable/ambiguous failures do not authorize a new key or edited request. The lifecycle,
+meeting-result and retained-key JobCard create forms freeze semantic inputs and retry
+the original request until replay/reconciliation succeeds or a definitive response
+resolves the attempt. Realtime refresh must not rebind its version or payload.
+
+
 ### Consequences
 
 - Successful JobCard writes increment version atomically.

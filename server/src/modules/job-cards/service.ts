@@ -160,6 +160,7 @@ import {
 import type { JobActionLocationCapture } from './location-types.js';
 import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
 import type { NotificationDraft } from '../notifications/types.js';
+import { normalizeExpiryDate } from './delivery-input.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -248,7 +249,7 @@ function deliveryRecord(organizationId: string, jobCardId: string, input: Delive
   return { organizationId, jobCardId, productId: product.id, deliveryPurpose: input.deliveryPurpose,
     deliveredAt, quantity: input.quantity, unit: product.unit, productNameSnapshot: product.name,
     productSkuSnapshot: product.sku, productModelSnapshot: product.model, lotNo: input.lotNo?.trim() || null,
-    serialNo: input.serialNo?.trim() || null, expiryDate: input.expiryDate ?? null,
+    serialNo: input.serialNo?.trim() || null, expiryDate: normalizeExpiryDate(input.expiryDate),
     deliveryNote: input.deliveryNote?.trim() || null };
 }
 
