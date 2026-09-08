@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 
 import { hashPassword } from '../auth/crypto.js';
+import { canonicalScheduledDurationMs, canonicalScheduledEnd } from '../job-cards/job-card-duration.js';
 import { DemoDatasetImpactAnalyzer } from './analyzer.js';
 import { demoDatasetPlanHash } from './plan.js';
 import type {
@@ -1108,10 +1109,27 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
           cancelReason = 'Demo iptal senaryosu';
         }
 
+        // Interval domain invariant: every generated SM/PD carries a complete
+        // canonical schedule from the duration SSOT. NEW work is plausibly
+        // future-planned; already-started states are planned to end exactly at
+        // their recorded start so scheduledAt <= startedAt holds coherently.
+        // GENERAL_TASK stays OPEN_ENDED with no synthesized end.
+        let scheduledAt: Date | null = null;
+        let scheduledEndsAt: Date | null = null;
+        if (def.type === 'SALES_MEETING' || def.type === 'PRODUCT_DELIVERY') {
+          const intervalDurationMs = canonicalScheduledDurationMs(def.type)!;
+          if (startedAt) {
+            scheduledAt = new Date(startedAt.getTime() - intervalDurationMs);
+          } else {
+            scheduledAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+          }
+          scheduledEndsAt = new Date(canonicalScheduledEnd(def.type, scheduledAt.toISOString())!);
+        }
+
         const row = await client.query<{ id: string }>(
           `INSERT INTO job_cards
               (organization_id, type, status, title, description, customer_id, assigned_to, created_by,
-               priority, due_date, version, planned_at, started_at,
+               priority, due_date, version, planned_at, started_at, scheduled_at, scheduled_ends_at,
                engagement_kind,
                accepted_at, accepted_by,
                staff_completed_at, staff_completed_by,
@@ -1120,7 +1138,7 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
                cancelled_at, cancelled_by, cancel_reason,
                data_class, demo_dataset_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                    'normal', NULL, 1, NULL, $9,
+                    'normal', NULL, 1, NULL, $9, $24, $25,
                     $10,
                     $11, $12,
                     $13, $14,
@@ -1137,7 +1155,8 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
             managerApprovedAt, managerApprovedBy,
             revisionRequestedAt, revisionRequestedBy, revisionReason,
             cancelledAt, cancelledBy, cancelReason,
-            datasetId],
+            datasetId,
+            scheduledAt, scheduledEndsAt],
         );
         const jobId = row.rows[0]!.id;
         demoJobIds.push(jobId);
@@ -1160,8 +1179,8 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
           `INSERT INTO job_card_schedule_revisions
               (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
                due_date, organization_timezone, source, created_by)
-            VALUES ($1, $2, 1, NULL, NULL, NULL, $3, 'CREATE', $4)`,
-          [organizationId, jobId, demoTimezone.rows[0]!.timezone, createdBy],
+            VALUES ($1, $2, 1, $5, $6, NULL, $3, 'CREATE', $4)`,
+          [organizationId, jobId, demoTimezone.rows[0]!.timezone, createdBy, scheduledAt, scheduledEndsAt],
         );
         await client.query(
           `INSERT INTO job_card_assignment_history

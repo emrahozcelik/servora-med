@@ -153,6 +153,65 @@ describe.skipIf(!databaseUrl)('D1 demo dataset -- managed backend creation', () 
     });
   });
 
+  it('generates canonical complete intervals for every demo SM/PD and open-ended GT', async () => {
+    await withIsolatedDatabase(async (fixture) => {
+      await fixture.createService.create(fixture.admin, { clientActionId: randomUUID() });
+
+      const jobs = await fixture.pool.query<{
+        id: string; type: string; title: string; status: string;
+        scheduled_at: Date | null; scheduled_ends_at: Date | null;
+        started_at: Date | null;
+      }>(
+        `SELECT id, type, title, status, scheduled_at, scheduled_ends_at, started_at
+           FROM job_cards WHERE organization_id = $1 AND data_class = 'DEMO'`,
+        [fixture.organizationId],
+      );
+      expect(jobs.rows).toHaveLength(8);
+      const intervalJobs = jobs.rows.filter((job) => job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY');
+      const generalTasks = jobs.rows.filter((job) => job.type === 'GENERAL_TASK');
+      expect(intervalJobs).toHaveLength(5);
+      expect(generalTasks).toHaveLength(3);
+
+      // R2 invariant: every interval job has a complete canonical interval
+      // (PD +30m, SM +60m) and GENERAL_TASK remains open-ended.
+      for (const job of intervalJobs) {
+        expect(job.scheduled_at, job.title).not.toBeNull();
+        expect(job.scheduled_ends_at, job.title).not.toBeNull();
+        expect(job.scheduled_ends_at! > job.scheduled_at!, job.title).toBe(true);
+        const elapsedMinutes = (job.scheduled_ends_at!.getTime() - job.scheduled_at!.getTime()) / 60_000;
+        expect(elapsedMinutes, job.title).toBe(job.type === 'PRODUCT_DELIVERY' ? 30 : 60);
+        if (job.started_at) {
+          expect(job.scheduled_at! <= job.started_at, job.title).toBe(true);
+        } else {
+          expect(['NEW', 'ACCEPTED', 'CANCELLED'], job.title).toContain(job.status);
+          expect(job.scheduled_at!.getTime(), job.title).toBeGreaterThan(Date.now());
+        }
+      }
+      for (const job of generalTasks) {
+        expect(job.scheduled_ends_at, job.title).toBeNull();
+      }
+
+      // R2 invariant: writer-created revision #1 snapshots match the row.
+      const revisions = await fixture.pool.query<{
+        job_card_id: string; revision_no: number;
+        scheduled_at: Date | null; scheduled_ends_at: Date | null;
+      }>(
+        `SELECT r.job_card_id, r.revision_no, r.scheduled_at, r.scheduled_ends_at
+           FROM job_card_schedule_revisions r
+           JOIN job_cards j ON j.id = r.job_card_id
+          WHERE j.organization_id = $1 AND j.data_class = 'DEMO'`,
+        [fixture.organizationId],
+      );
+      expect(revisions.rows).toHaveLength(8);
+      for (const revision of revisions.rows) {
+        expect(revision.revision_no).toBe(1);
+        const job = jobs.rows.find((row) => row.id === revision.job_card_id)!;
+        expect(revision.scheduled_at?.toISOString() ?? null).toEqual(job.scheduled_at?.toISOString() ?? null);
+        expect(revision.scheduled_ends_at?.toISOString() ?? null).toEqual(job.scheduled_ends_at?.toISOString() ?? null);
+      }
+    });
+  });
+
   it('replays the same clientActionId idempotently without creating duplicates', async () => {
     await withIsolatedDatabase(async (fixture) => {
       const actionId = randomUUID();

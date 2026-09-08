@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 
 import { hashPassword } from '../src/modules/auth/crypto.js';
+import { canonicalScheduledEnd } from '../src/modules/job-cards/job-card-duration.js';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const password = process.env.F4_SEED_PASSWORD;
@@ -63,6 +64,15 @@ const depthChain = Array.from({ length: 10 }, (_, index) =>
 
 async function insertJob(spec: JobSpec) {
   const actorId = spec.organizationId === ids.otherOrg ? ids.crossStaff : ids.manager;
+  // Interval domain invariant: synthetic SM/PD fixtures must carry a complete
+  // canonical schedule from the duration SSOT. An interval JobSpec without a
+  // scheduledAt is a fixture-authoring bug and fails fast instead of
+  // generating a NULL/NULL or START_ONLY row. GENERAL_TASK stays OPEN_ENDED.
+  if (spec.type === 'SALES_MEETING' || spec.type === 'PRODUCT_DELIVERY') {
+    if (!spec.scheduledAt) {
+      throw new Error(`F4 interval fixture '${spec.title}' requires scheduledAt`);
+    }
+  }
   const values: Record<string, unknown> = {
     id: spec.id,
     organization_id: spec.organizationId ?? ids.org,
@@ -75,6 +85,9 @@ async function insertJob(spec: JobSpec) {
     customer_id: spec.customerId ?? null,
     contact_id: spec.contactId ?? null,
     scheduled_at: spec.scheduledAt ?? null,
+    scheduled_ends_at: spec.scheduledAt
+      ? canonicalScheduledEnd(spec.type, spec.scheduledAt)
+      : null,
     engagement_kind: spec.engagementKind ?? null,
     source_job_card_id: spec.sourceJobCardId ?? null,
     follow_up_instructions: spec.followUpInstructions ?? null,
@@ -211,6 +224,9 @@ try {
   await insertJob({
     id: ids.p1, type: 'PRODUCT_DELIVERY', status: 'COMPLETED', title: 'P1 — completed product delivery',
     assignedTo: ids.staffA, customerId: ids.customerA, contactId: ids.contactA,
+    // Planned interval coherent with the synthetic delivery evidence
+    // (deliveredAt 2026-07-20T10:00:00Z): planned 09:30–10:00 (+30m canonical).
+    scheduledAt: '2026-07-20T09:30:00.000Z',
   });
   await client.query(
     `INSERT INTO job_card_delivery_items
