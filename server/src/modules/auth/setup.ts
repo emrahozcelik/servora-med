@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 
 import type { NodeEnvironment } from '../../config.js';
 import { AppError } from '../../errors/index.js';
+import { canonicalScheduledEnd } from '../job-cards/job-card-duration.js';
 import { hashPassword } from './crypto.js';
 import type { UserRole } from './types.js';
 
@@ -171,6 +172,16 @@ export class PostgresSetupRepository implements SetupRepository {
       }
       if (request.referenceData) {
         const { customer, contact, product, jobCard } = request.referenceData;
+        // Interval domain invariant: bootstrap reference JobCards of interval
+        // type carry a complete canonical schedule from the duration SSOT
+        // (plausibly future start, canonical end). GENERAL_TASK stays
+        // OPEN_ENDED with no synthesized end.
+        const bootstrapScheduledAt = jobCard.type === 'PRODUCT_DELIVERY' || jobCard.type === 'SALES_MEETING'
+          ? new Date(Date.now() + 48 * 60 * 60 * 1000)
+          : null;
+        const bootstrapScheduledEndsAt = bootstrapScheduledAt
+          ? new Date(canonicalScheduledEnd(jobCard.type, bootstrapScheduledAt.toISOString())!)
+          : null;
         const insertedCustomer = await client.query<{ id: string }>(
           `INSERT INTO customers
              (organization_id, name, customer_type, assigned_staff_user_id, status, data_class, demo_dataset_id)
@@ -192,11 +203,13 @@ export class PostgresSetupRepository implements SetupRepository {
         const insertedJob = await client.query<{ id: string }>(
           `INSERT INTO job_cards
              (organization_id, type, status, title, customer_id, contact_id,
-              assigned_to, created_by, priority, data_class, demo_dataset_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10) RETURNING id`,
+              assigned_to, created_by, priority, scheduled_at, scheduled_ends_at,
+              data_class, demo_dataset_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$11,$12,$9,$10) RETURNING id`,
           [organizationId, jobCard.type, jobCard.status, jobCard.title,
             insertedCustomer.rows[0]!.id, insertedContact.rows[0]!.id,
-            userIds.get('STAFF'), jobCard.priority, dataClass, demoDatasetId],
+            userIds.get('STAFF'), jobCard.priority, dataClass, demoDatasetId,
+            bootstrapScheduledAt, bootstrapScheduledEndsAt],
         );
         await client.query(
           `INSERT INTO job_card_activity_logs
@@ -216,8 +229,9 @@ export class PostgresSetupRepository implements SetupRepository {
           `INSERT INTO job_card_schedule_revisions
              (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
               due_date, organization_timezone, source, created_by)
-           VALUES ($1, $2, 1, NULL, NULL, NULL, $3, 'CREATE', $4)`,
-          [organizationId, bootstrapJobId, bootstrapTimezone.rows[0]!.timezone, userIds.get('STAFF')],
+           VALUES ($1, $2, 1, $5, $6, NULL, $3, 'CREATE', $4)`,
+          [organizationId, bootstrapJobId, bootstrapTimezone.rows[0]!.timezone, userIds.get('STAFF'),
+            bootstrapScheduledAt, bootstrapScheduledEndsAt],
         );
         await client.query(
           `INSERT INTO job_card_assignment_history

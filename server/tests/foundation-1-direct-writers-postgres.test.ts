@@ -77,6 +77,38 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 direct writers', () => {
     }
   });
 
+  it('auth/setup seedDevelopment-created delivery carries a canonical complete interval matching revision #1', async () => {
+    const fixture = await createSchemaPool();
+    try {
+      await seedDevelopment(new PostgresSetupRepository(fixture.pool), {
+        organizationName: `F1 Setup Interval ${randomUUID()}`,
+        password: 'development-password',
+      }, 'test');
+      const job = await fixture.pool.query<{
+        id: string; type: string; scheduled_at: Date | null; scheduled_ends_at: Date | null;
+      }>(
+        `SELECT id, type, scheduled_at, scheduled_ends_at FROM job_cards WHERE type = 'PRODUCT_DELIVERY'`,
+      );
+      expect(job.rows).toHaveLength(1);
+      expect(job.rows[0]!.scheduled_at).not.toBeNull();
+      expect(job.rows[0]!.scheduled_ends_at).not.toBeNull();
+      const elapsedMinutes = (job.rows[0]!.scheduled_ends_at!.getTime()
+        - job.rows[0]!.scheduled_at!.getTime()) / 60_000;
+      expect(elapsedMinutes).toBe(30);
+      expect(job.rows[0]!.scheduled_at!.getTime()).toBeGreaterThan(Date.now());
+      const revision = await fixture.pool.query<{
+        scheduled_at: Date | null; scheduled_ends_at: Date | null;
+      }>(
+        `SELECT scheduled_at, scheduled_ends_at FROM job_card_schedule_revisions WHERE job_card_id = $1`,
+        [job.rows[0]!.id],
+      );
+      expect(revision.rows[0]!.scheduled_at?.toISOString()).toEqual(job.rows[0]!.scheduled_at!.toISOString());
+      expect(revision.rows[0]!.scheduled_ends_at?.toISOString()).toEqual(job.rows[0]!.scheduled_ends_at!.toISOString());
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it('demo-data repository-created JobCards carry revision #1 + assignment history', async () => {
     const fixture = await createSchemaPool();
     try {
