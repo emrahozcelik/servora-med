@@ -1514,8 +1514,21 @@ export class JobCardService {
         && fields.scheduledEndsAt !== (snapshot.scheduledEndsAt ?? null);
       const snapshotAssigneeChanged = fields.assignedTo !== undefined
         && fields.assignedTo !== snapshot.assignedTo;
+      // R1 compatibility prediction (lock planning only): a start-only patch
+      // on an interval job without a persisted end will derive a canonical end
+      // after the row lock, producing an effective schedule mutation even when
+      // the raw request start equals the persisted start (same-start Save).
+      // Predict that repair here so the assignee lock covers the effective
+      // mutation. The authoritative end is still derived from the locked row.
+      const snapshotNeedsIntervalRepair = snapshotIsCalendarIntervalJob
+        && fields.scheduledAt !== undefined
+        && fields.scheduledAt !== null
+        && fields.scheduledEndsAt === undefined
+        && (snapshot.scheduledEndsAt ?? null) === null;
+      const snapshotEffectiveScheduleMutation = snapshotScheduleChanged
+        || snapshotNeedsIntervalRepair;
       const snapshotNeedsAssigneeLock = snapshotAssigneeChanged
-        || (this.calendar.enabled && snapshotIsCalendarIntervalJob && snapshotScheduleChanged);
+        || (this.calendar.enabled && snapshotIsCalendarIntervalJob && snapshotEffectiveScheduleMutation);
       const lockedAssignees = snapshotNeedsAssigneeLock
         ? await this.lockUsersInOrder(
           transaction,
@@ -1541,7 +1554,10 @@ export class JobCardService {
       }
 
       const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
-      const scheduleChanged = fields.scheduledAt !== undefined
+      // Preliminary request-level signal for lock-map validation below; the
+      // authoritative scheduleChanged is recomputed after schedule
+      // normalization/fallback injection (Phase B).
+      let scheduleChanged = fields.scheduledAt !== undefined
         && fields.scheduledAt !== job.scheduledAt
         || fields.scheduledEndsAt !== undefined
         && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
@@ -1550,7 +1566,7 @@ export class JobCardService {
       // the existing calendar/acceptance-reset semantics of `scheduleChanged`.
       const dueDateChanged = fields.dueDate !== undefined
         && fields.dueDate !== (job.dueDate ?? null);
-      const scheduleRevisionChanged = scheduleChanged || dueDateChanged;
+      let scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       const assigneeChanged = fields.assignedTo !== undefined
         && fields.assignedTo !== job.assignedTo;
       const needsCalendarAssigneeLock = this.calendar.enabled
@@ -1614,6 +1630,29 @@ export class JobCardService {
         nextScheduledEndsAt = new Date(Date.parse(job.scheduledEndsAt) + delta).toISOString();
         fields.scheduledEndsAt = nextScheduledEndsAt;
       }
+      // Compatibility repair for interval jobs without a valid persisted
+      // duration (NULL/NULL or START_ONLY legacy/demo rows): a start-only
+      // patch derives the canonical domain end instead of failing. Requires
+      // an explicitly supplied start so unrelated patches (e.g. assignee-only)
+      // never synthesize a schedule.
+      if (isCalendarIntervalJob
+        && fields.scheduledEndsAt === undefined
+        && fields.scheduledAt !== undefined
+        && nextScheduledAt !== null
+        && nextScheduledEndsAt === null) {
+        const canonicalEnd = canonicalScheduledEnd(job.type, nextScheduledAt);
+        if (canonicalEnd !== null) {
+          nextScheduledEndsAt = canonicalEnd;
+          fields.scheduledEndsAt = nextScheduledEndsAt;
+        }
+      }
+      // Phase B: authoritative change signals describe the effective persisted
+      // mutation, not only the raw request. A START_ONLY same-start repair
+      // (10:30/null → 10:30/11:00) must traverse the full scheduling chain
+      // even though the supplied start did not differ.
+      scheduleChanged = nextScheduledAt !== (job.scheduledAt ?? null)
+        || nextScheduledEndsAt !== (job.scheduledEndsAt ?? null);
+      scheduleRevisionChanged = scheduleChanged || dueDateChanged;
       if (isCalendarIntervalJob && scheduleFieldProvided
         && (nextScheduledAt === null || nextScheduledEndsAt === null)) {
         throw new AppError(
