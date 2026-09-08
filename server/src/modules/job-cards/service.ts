@@ -1614,6 +1614,22 @@ export class JobCardService {
         nextScheduledEndsAt = new Date(Date.parse(job.scheduledEndsAt) + delta).toISOString();
         fields.scheduledEndsAt = nextScheduledEndsAt;
       }
+      // Compatibility repair for interval jobs without a valid persisted
+      // duration (NULL/NULL or START_ONLY legacy/demo rows): a start-only
+      // patch derives the canonical domain end instead of failing. Requires
+      // an explicitly supplied start so unrelated patches (e.g. assignee-only)
+      // never synthesize a schedule.
+      if (isCalendarIntervalJob
+        && fields.scheduledEndsAt === undefined
+        && fields.scheduledAt !== undefined
+        && nextScheduledAt !== null
+        && nextScheduledEndsAt === null) {
+        const canonicalEnd = canonicalScheduledEnd(job.type, nextScheduledAt);
+        if (canonicalEnd !== null) {
+          nextScheduledEndsAt = canonicalEnd;
+          fields.scheduledEndsAt = nextScheduledEndsAt;
+        }
+      }
       if (isCalendarIntervalJob && scheduleFieldProvided
         && (nextScheduledAt === null || nextScheduledEndsAt === null)) {
         throw new AppError(

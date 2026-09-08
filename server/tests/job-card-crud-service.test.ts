@@ -1030,6 +1030,180 @@ describe('JobCardService create and reads', () => {
     });
   });
 
+  it('derives the canonical end when a NULL/NULL delivery receives its first start', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-null-null',
+    });
+    repository.jobs[0]!.scheduledAt = null;
+    repository.jobs[0]!.scheduledEndsAt = null;
+    repository.calendarChecks = [];
+    repository.calendarSyncs = [];
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      version: 2,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    });
+    expect(repository.calendarChecks).toEqual([expect.objectContaining({
+      startsAt: '2026-07-21T10:30:00.000Z',
+      endsAt: '2026-07-21T11:00:00.000Z',
+    })]);
+    expect(repository.calendarSyncs).toEqual([expect.objectContaining({
+      startsAt: '2026-07-21T10:30:00.000Z',
+      endsAt: '2026-07-21T11:00:00.000Z',
+    })]);
+  });
+
+  it('derives the canonical end when a NULL/NULL meeting receives its first start', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      clientActionId: 'compat-seed-sm-null',
+      type: 'SALES_MEETING',
+      title: 'Klinik görüşmesi',
+      description: null,
+      customerId: 'customer-1',
+      contactId: 'contact-1',
+      assignedTo: 'staff-1',
+      priority: 'normal',
+      dueDate: null,
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+      engagementKind: 'SALES_MEETING',
+    });
+    repository.jobs[0]!.scheduledAt = null;
+    repository.jobs[0]!.scheduledEndsAt = null;
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:30:00.000Z',
+    });
+  });
+
+  it('derives the canonical end for START_ONLY interval rows instead of preserving an absent duration', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-start-only',
+    });
+    repository.jobs[0]!.scheduledAt = '2026-07-20T09:00:00.000Z';
+    repository.jobs[0]!.scheduledEndsAt = null;
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    });
+  });
+
+  it('preserves a legacy non-canonical persisted duration on start-only reschedule', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-legacy',
+    });
+    repository.jobs[0]!.scheduledAt = '2026-07-20T09:00:00.000Z';
+    repository.jobs[0]!.scheduledEndsAt = '2026-07-20T10:00:00.000Z';
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T13:00:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      scheduledAt: '2026-07-21T13:00:00.000Z',
+      scheduledEndsAt: '2026-07-21T14:00:00.000Z',
+    });
+  });
+
+  it('still rejects an end-only patch when no start exists anywhere', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-end-only',
+    });
+    repository.jobs[0]!.scheduledAt = null;
+    repository.jobs[0]!.scheduledEndsAt = null;
+
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+  });
+
+  it('does not synthesize a schedule on assignee-only patch of a NULL/NULL interval job', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-reassign',
+    });
+    repository.jobs[0]!.scheduledAt = null;
+    repository.jobs[0]!.scheduledEndsAt = null;
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      assignedTo: 'staff-2',
+    });
+
+    expect(updated).toMatchObject({
+      assignedTo: 'staff-2',
+      scheduledAt: null,
+      scheduledEndsAt: null,
+    });
+  });
+
+  it('repairs the first schedule after management reassignment of an unscheduled delivery', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-reassign-repair',
+    });
+    repository.jobs[0]!.scheduledAt = null;
+    repository.jobs[0]!.scheduledEndsAt = null;
+
+    const reassigned = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      assignedTo: 'staff-2',
+    });
+    expect(reassigned).toMatchObject({
+      assignedTo: 'staff-2',
+      scheduledAt: null,
+      scheduledEndsAt: null,
+    });
+
+    const repaired = await service.patch(manager, created.id, {
+      expectedVersion: 2,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    });
+    expect(repaired).toMatchObject({
+      version: 3,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    });
+  });
+
   it('moves reminders to the new recipient without duplicating assignment notification kinds', async () => {
     const repository = new CrudMemoryRepository();
     const service = calendarServiceOf(repository);
