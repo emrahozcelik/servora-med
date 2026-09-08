@@ -181,4 +181,18 @@ describe('shiftInterval', () => {
     expect(start).toBe('2026-08-10T09:30');
     expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   });
+
+  it('preserves elapsed duration across a DST spring-forward boundary', () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      // 2026-03-08: clocks jump 02:00 → 03:00. 01:30 EST → 03:30 EDT is 60
+      // elapsed minutes; moving the start must keep 60 elapsed minutes.
+      expect(shiftInterval('2026-03-08T01:30', '2026-03-08T03:30', '2026-03-08T04:00'))
+        .toEqual(['2026-03-08T04:00', '2026-03-08T05:00']);
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
+  });
 });

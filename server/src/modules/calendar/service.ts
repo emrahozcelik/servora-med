@@ -12,6 +12,35 @@ import type {
 const unavailable = () => new AppError('NOT_FOUND', 404, 'Sayfa bulunamadı.');
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
 
+/**
+ * Duration-preserving manual-event patch semantics. A manual calendar event
+ * owns a user-planned interval: when a patch moves only the start, the
+ * persisted end is delta-shifted by the same amount so the interval duration
+ * survives rescheduling. Explicit ends are always respected; unrelated
+ * patches leave scheduling untouched. Pure elapsed-time arithmetic, matching
+ * the persisted-instant semantics of calendar_events.
+ */
+export function preserveManualEventDuration(
+  current: Pick<CalendarEvent, 'startsAt' | 'endsAt'>,
+  input: ManualEventPatchInput,
+): ManualEventPatchInput {
+  if (input.startsAt === undefined || input.endsAt !== undefined) return input;
+  if (current.endsAt === null) return input;
+  const previousStart = Date.parse(current.startsAt);
+  const previousEnd = Date.parse(current.endsAt);
+  const nextStart = Date.parse(input.startsAt);
+  if (
+    Number.isNaN(previousStart) || Number.isNaN(previousEnd)
+    || Number.isNaN(nextStart) || previousEnd <= previousStart
+  ) {
+    return input;
+  }
+  return {
+    ...input,
+    endsAt: new Date(previousEnd + (nextStart - previousStart)).toISOString(),
+  };
+}
+
 export class CalendarService {
   constructor(
     private readonly enabled: boolean,
@@ -92,7 +121,12 @@ export class CalendarService {
     if (input.assignedUserId) await this.requireAssignable(actor, input.assignedUserId);
     return this.present(
       actor,
-      await this.repository.patchManual(actor, eventId, input, this.now()),
+      await this.repository.patchManual(
+        actor,
+        eventId,
+        preserveManualEventDuration(current, input),
+        this.now(),
+      ),
     );
   }
 

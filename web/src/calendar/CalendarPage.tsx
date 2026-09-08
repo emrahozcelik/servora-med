@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { patchJobCard } from '../jobs/jobs-api';
 import type { AvailableSlot } from '../jobs/jobs-api';
 import { AvailableSlotsNotice } from '../jobs/AvailableSlotsNotice';
+import { shiftInterval } from '../jobs/scheduling';
 import { useAvailableSlotSearch } from '../jobs/useAvailableSlotSearch';
 import { useReassignmentConversationSync } from '../jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
@@ -156,12 +157,42 @@ function EventForm({
     }));
   }
 
+  /**
+   * User-planned interval semantics: moving the start preserves the current
+   * interval duration (elapsed time) instead of leaving a stale absolute end.
+   * Editing the end directly is a plain value set — the resulting duration
+   * then owns later start moves. Invalid current pairs only move the start;
+   * submit-time validation rejects end <= start without inventing a duration.
+   */
+  function handleStartChange(value: string) {
+    setDraft((current) => {
+      const parts = [current.startsAt, current.endsAt, value];
+      if (parts.some((part) => !part || Number.isNaN(Date.parse(part)))) {
+        return { ...current, startsAt: value };
+      }
+      try {
+        const [, shiftedEnd] = shiftInterval(current.startsAt, current.endsAt, value);
+        return { ...current, startsAt: value, endsAt: shiftedEnd };
+      } catch {
+        return { ...current, startsAt: value };
+      }
+    });
+  }
+
   const submit = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
     setPending(true);
     setError(null);
     setConflicts([]);
     try {
+      if (!event || event.source === 'MANUAL') {
+        const startMs = Date.parse(draft.startsAt);
+        const endMs = Date.parse(draft.endsAt);
+        if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
+          setError('Bitiş zamanı başlangıç zamanından sonra olmalıdır.');
+          return;
+        }
+      }
       if (!event) {
         await createManualEvent({
           clientActionId: actionId(),
@@ -247,7 +278,7 @@ function EventForm({
       <div className="calendar-form-times">
         <label className="field-group"><span className="field-label">Başlangıç</span>
           <input required type="datetime-local" value={draft.startsAt}
-            onChange={(e) => setDraft({ ...draft, startsAt: e.target.value })} />
+            onChange={(e) => handleStartChange(e.target.value)} />
         </label>
         {event?.source !== 'JOB' && (
           <label className="field-group"><span className="field-label">Bitiş</span>

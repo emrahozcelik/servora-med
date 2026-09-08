@@ -42,6 +42,7 @@ const manual: CalendarEvent = {
 
 class MemoryCalendarRepository implements CalendarRepository {
   lastQuery: CalendarQuery | null = null;
+  lastPatchInput: ManualEventPatchInput | null = null;
   users: CalendarUser[] = [{
     id: staff.id,
     organizationId: staff.organizationId,
@@ -75,7 +76,10 @@ class MemoryCalendarRepository implements CalendarRepository {
     _actor: CalendarActor,
     _eventId: string,
     _input: ManualEventPatchInput,
-  ) { return { ...manual, version: 2 }; }
+  ) {
+    this.lastPatchInput = _input;
+    return { ...manual, version: 2 };
+  }
   async cancelManual(
     _actor: CalendarActor,
     _eventId: string,
@@ -136,5 +140,57 @@ describe('CalendarService', () => {
       source: 'MANUAL',
       canEdit: true,
     });
+  });
+
+  it('delta-shifts the persisted end when a manual patch moves only the start', async () => {
+    const repository = new MemoryCalendarRepository();
+    await new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'duration-shift-1',
+      expectedVersion: 1,
+      startsAt: '2026-07-26T12:00:00.000Z',
+    });
+    // Persisted interval is 09:00 → 10:00 (60m); the moved start must keep it.
+    expect(repository.lastPatchInput).toMatchObject({
+      startsAt: '2026-07-26T12:00:00.000Z',
+      endsAt: '2026-07-26T13:00:00.000Z',
+    });
+  });
+
+  it('respects an explicitly supplied end without shifting again', async () => {
+    const repository = new MemoryCalendarRepository();
+    await new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'explicit-end-1',
+      expectedVersion: 1,
+      startsAt: '2026-07-26T12:00:00.000Z',
+      endsAt: '2026-07-26T15:00:00.000Z',
+    });
+    expect(repository.lastPatchInput).toMatchObject({
+      startsAt: '2026-07-26T12:00:00.000Z',
+      endsAt: '2026-07-26T15:00:00.000Z',
+    });
+  });
+
+  it('passes an end-only patch through with the persisted start untouched', async () => {
+    const repository = new MemoryCalendarRepository();
+    await new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'end-only-1',
+      expectedVersion: 1,
+      endsAt: '2026-07-26T11:00:00.000Z',
+    });
+    expect(repository.lastPatchInput).toMatchObject({
+      endsAt: '2026-07-26T11:00:00.000Z',
+    });
+    expect(repository.lastPatchInput).not.toHaveProperty('startsAt');
+  });
+
+  it('leaves scheduling untouched when a manual patch changes unrelated fields', async () => {
+    const repository = new MemoryCalendarRepository();
+    await new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'unrelated-1',
+      expectedVersion: 1,
+      title: 'Güncellenmiş başlık',
+    });
+    expect(repository.lastPatchInput).not.toHaveProperty('startsAt');
+    expect(repository.lastPatchInput).not.toHaveProperty('endsAt');
   });
 });

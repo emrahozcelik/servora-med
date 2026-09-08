@@ -96,11 +96,6 @@ export function addMinutesLocal(value: string, minutes: number): string {
     + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** One-hour compatibility helper retained for historical UI utility callers. */
-export function addOneHourLocal(value: string): string {
-  return addMinutesLocal(value, 60);
-}
-
 /**
  * Shift a device-local interval so that it starts at `newStartLocal`,
  * preserving the original duration exactly. Used by the "use suggested
