@@ -274,6 +274,7 @@ BR7 delivered (operator CLI only; no production cutover):
 | [br7-restore-cli.md](./br7-restore-cli.md) | Operator-only list/inspect/verify/new-target restore contract |
 | [real-r2-dr-acceptance.md](./real-r2-dr-acceptance.md) | Dedicated real Cloudflare R2 synthetic DR acceptance command, evidence, cleanup, and security boundary |
 | [production-cutover-runbook.md](./production-cutover-runbook.md) | Read-only production readiness matrix, G0–G10 future authorization order, monitoring transition, and rollback |
+| [host-backup-observability.md](./host-backup-observability.md) | Accepted OPS-BACKUP-OBS-1 design: host-side observation SSOT, freshness, schedule heartbeat, health/alert boundaries |
 
 ## Relationship to existing documents
 
@@ -302,3 +303,4 @@ BR7 delivered (operator CLI only; no production cutover):
 4. `br7-restore-cli.md` — how an operator verifies and restores to a new target.
 5. `real-r2-dr-acceptance.md` — how to prove the path on disposable R2.
 6. `production-cutover-runbook.md` — how a later authorized worker transition is gated.
+7. `host-backup-observability.md` — how the active host-side provider will expose one safe observation source to health and future alerting.

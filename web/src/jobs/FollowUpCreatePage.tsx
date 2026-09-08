@@ -107,6 +107,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const pendingRef = useRef(false);
   const sourceRef = useRef(sourceId);
   const titleInitializedSourceRef = useRef<string | null>(null);
+  const assigneeInitializedSourceRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +115,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setType('GENERAL_TASK');
     setTitle('');
     titleInitializedSourceRef.current = null;
+    assigneeInitializedSourceRef.current = null;
     setInstructions('');
     setScheduledLocal('');
     setSuggestionFeedback('');
@@ -136,12 +138,15 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setState({ kind: 'loading' });
     (async () => {
       try {
-        const source = await getJobCard(sourceId);
-        const [staff, meeting] = await Promise.all([
+        const sourceWithMeeting = getJobCard(sourceId).then(async (source) => ({
+          source,
+          meeting: source.type === 'SALES_MEETING'
+            ? await getMeetingDetails(sourceId).catch(() => null)
+            : null,
+        }));
+        const [{ source, meeting }, staff] = await Promise.all([
+          sourceWithMeeting,
           listStaff('active'),
-          source.type === 'SALES_MEETING'
-            ? getMeetingDetails(sourceId).catch(() => null)
-            : Promise.resolve(null),
         ]);
         if (!active) return;
         const customerless = source.customer === null;
@@ -161,6 +166,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           }
         }
         if (!active) return;
+        const eligibleStaff = staff.filter((profile) => profile.user.isActive);
         setType(initialType);
         if (titleInitializedSourceRef.current !== source.id) {
           setTitle(defaultFollowUpTitle(source.title));
@@ -168,6 +174,12 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         }
         setEngagementKind(source.type === 'SALES_MEETING'
           ? source.engagementKind ?? 'FOLLOW_UP' : 'FOLLOW_UP');
+        if (assigneeInitializedSourceRef.current !== source.id) {
+          setAssignedTo(eligibleStaff.some((profile) => profile.user.id === source.assignedTo)
+            ? source.assignedTo
+            : '');
+          assigneeInitializedSourceRef.current = source.id;
+        }
         if (explicitNextFollowUpAt !== null) {
           setScheduledLocal(isoInstantToLocalDateTime(explicitNextFollowUpAt));
           setSuggestionFeedback('');
@@ -195,7 +207,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         }
         setState({
           kind: 'ready', source,
-          staff: staff.filter((profile) => profile.user.isActive),
+          staff: eligibleStaff,
         });
       } catch (error) {
         if (active) setState(sourceLoadError(error));
