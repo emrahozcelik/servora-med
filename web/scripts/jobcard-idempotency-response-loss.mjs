@@ -29,6 +29,7 @@ let adminUrl = '';
 let databaseUrl = '';
 let databaseCreated = false;
 let page;
+let deliveryPage;
 let browser;
 let viteServer;
 let failure = null;
@@ -110,6 +111,7 @@ async function seed() {
     if (!identity) throw new Error('bootstrap admin missing');
     const staffHash = await hashPassword(`JCID-Staff-${randomBytes(10).toString('base64url')}!`);
     const staff = (await client.query(`INSERT INTO users (organization_id,name,email,password_hash,role) VALUES ($1,'JCID Staff','jcid-staff@example.test',$2,'STAFF') RETURNING id`, [identity.organization_id, staffHash])).rows[0].id;
+    await client.query(`INSERT INTO staff_profiles (organization_id,user_id) VALUES ($1,$2)`, [identity.organization_id, staff]);
     async function job(title, status) {
       const row = (await client.query(`INSERT INTO job_cards (organization_id,type,status,version,title,assigned_to,created_by,priority,accepted_at,accepted_by,started_at,staff_completed_at,staff_completed_by,manager_approved_at,manager_approved_by) VALUES ($1,'GENERAL_TASK',$2::varchar,1,$3,$4::uuid,$5::uuid,'normal',CASE WHEN $6::boolean THEN NOW() END,CASE WHEN $6::boolean THEN $5::uuid END,CASE WHEN $7::boolean THEN NOW() END,CASE WHEN $8::boolean THEN NOW() END,CASE WHEN $8::boolean THEN $4::uuid END,CASE WHEN $9::boolean THEN NOW() END,CASE WHEN $9::boolean THEN $5::uuid END) RETURNING id`, [identity.organization_id, status, title, staff, identity.id, status !== 'NEW', ['IN_PROGRESS','WAITING_APPROVAL','COMPLETED'].includes(status), ['WAITING_APPROVAL','COMPLETED'].includes(status), status === 'COMPLETED'])).rows[0];
       await client.query(`INSERT INTO job_card_activity_logs (organization_id,job_card_id,actor_id,event_type,old_value,new_value) VALUES ($1,$2,$3,'JOB_CREATED',NULL,jsonb_build_object('status',$4::text))`, [identity.organization_id, row.id, identity.id, status]);
@@ -119,21 +121,34 @@ async function seed() {
     const meetingJob = (await client.query(`INSERT INTO job_cards (organization_id,type,status,version,title,assigned_to,created_by,priority,accepted_at,accepted_by,started_at,engagement_kind) VALUES ($1,'SALES_MEETING','IN_PROGRESS',1,'JCID meeting response loss',$2,$3,'normal',NOW(),$3,NOW(),'SALES_MEETING') RETURNING id`, [identity.organization_id, staff, identity.id])).rows[0].id;
     await client.query(`INSERT INTO job_card_meeting_details (job_card_id,organization_id) VALUES ($1,$2)`, [meetingJob, identity.organization_id]);
     await client.query(`INSERT INTO job_card_schedule_revisions (organization_id,job_card_id,revision_no,organization_timezone,source,created_by) VALUES ($1,$2,1,'Europe/Istanbul','CREATE',$3)`, [identity.organization_id, meetingJob, identity.id]);
+    const customer = (await client.query(`INSERT INTO customers (organization_id,name,customer_type,status) VALUES ($1,'JCID Delivery Klinik','clinic','active') RETURNING id`, [identity.organization_id])).rows[0].id;
+    const product = (await client.query(`INSERT INTO products (organization_id,sku,name,unit,is_active) VALUES ($1,'JCID-P1','JCID İmplant','adet',true) RETURNING id`, [identity.organization_id])).rows[0].id;
     return {
       organizationId: identity.organization_id,
       admin,
+      staff,
+      customer,
+      product,
       revisionJob: await job('JCID revision response loss', 'WAITING_APPROVAL'),
       browserRevisionJob: await job('JCID browser revision response loss', 'WAITING_APPROVAL'),
       cancelJob: await job('JCID cancel response loss', 'IN_PROGRESS'),
+      noteJob: await job('JCID note response loss', 'IN_PROGRESS'),
+      followUpSource: await job('JCID follow-up source', 'COMPLETED'),
       meetingJob,
       staff,
     };
   } finally { await client.end(); }
 }
+const loginCache = new Map();
 async function login(credentials) {
+  const cached = loginCache.get(credentials.email);
+  if (cached) return cached;
   const response = await fetch(`${serverOrigin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', origin: webOrigin }, body: JSON.stringify(credentials) });
   const body = await response.json(); const cookie = response.headers.get('set-cookie')?.split(';', 1)[0];
-  if (!response.ok || !cookie) throw new Error(`login ${response.status}`); return { cookie, user: body.user };
+  if (!response.ok || !cookie) throw new Error(`login ${response.status}`);
+  const session = { cookie, user: body.user };
+  loginCache.set(credentials.email, session);
+  return session;
 }
 async function loginBrowser(context, credentials) {
   const session = await login(credentials);
@@ -145,7 +160,7 @@ async function api(cookie, path, body) {
   let parsed = null; try { parsed = await response.json(); } catch { /* no body */ }
   return { status: response.status, body: parsed };
 }
-async function screenshot(name) { const path = `${evidenceDir}/${name}`; await page.screenshot({ path, fullPage: true }); screenshots.push(path); }
+async function screenshot(name, target = page) { const path = `${evidenceDir}/${name}`; await target.screenshot({ path, fullPage: true }); screenshots.push(path); }
 
 async function browserCase(fixture) {
   if (!browser) browser = await chromium.launch(browserLaunchOptions);
@@ -215,6 +230,121 @@ async function meetingCase(fixture) {
   await context.close();
 }
 
+async function deliveryCase(fixture) {
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
+  deliveryPage = await context.newPage();
+  const requests = []; let committed = null; let loseNext = true;
+  await deliveryPage.route('**/api/job-cards/product-deliveries', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
+    if (!loseNext) return route.continue();
+    loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  await loginBrowser(context, fixture.admin);
+  await deliveryPage.goto('/jobs/new-delivery');
+  await deliveryPage.getByText('Arama yaparak ürün seçin.').waitFor();
+  // Choose the seeded customer (antd select: open via the selector container).
+  await deliveryPage.locator('.delivery-form .servora-ant-select').first().click();
+  await deliveryPage.locator('.servora-ant-select-dropdown .servora-ant-select-item-option').first().waitFor({ timeout: 10000 }).catch(async () => {
+    await screenshot('jcid-delivery-dropdown-fail.png', deliveryPage);
+    throw new Error('customer dropdown did not open');
+  });
+  await deliveryPage.locator('.servora-ant-select-dropdown .servora-ant-select-item-option', { hasText: 'JCID Delivery Klinik' }).first().click();
+  await deliveryPage.locator('#delivery-assignee option', { hasText: 'JCID Staff' }).first().waitFor({ state: 'attached', timeout: 10000 });
+  await deliveryPage.locator('#delivery-assignee').selectOption(fixture.staff);
+  // Search and select the seeded product.
+  await deliveryPage.locator('#delivery-product-search').fill('JCID İmplant');
+  await deliveryPage.getByRole('button', { name: 'Ürün ara' }).click();
+  await deliveryPage.locator('[data-product-id]').first().waitFor();
+  await deliveryPage.locator('[data-product-id]').first().click();
+  await deliveryPage.locator('.delivery-selected-quantities input').first().fill('2');
+  await deliveryPage.getByRole('button', { name: 'Teslimi kaydet' }).click();
+  await deliveryPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('DELIVERY-COMMITTED-RESPONSE-LOST', committed?.status === 201 && committed?.body?.jobCardId, `status=${committed?.status}; jobCardId=${committed?.body?.jobCardId}`);
+  const frozen = deliveryPage.locator('.delivery-form input, .delivery-form select, .delivery-form textarea');
+  record('DELIVERY-INPUTS-FROZEN', await frozen.count() > 0
+    && await frozen.evaluateAll((nodes) => nodes.every((node) => node.disabled || node.closest('fieldset')?.disabled)),
+  'delivery inputs disabled after lost response');
+  await deliveryPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await deliveryPage.waitForTimeout(400);
+  record('DELIVERY-EXACT-RETRY', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests[1] ?? null));
+  const client = new Client({ connectionString: databaseUrl }); await client.connect();
+  try {
+    const jobs = (await client.query(`SELECT count(*)::int AS n FROM job_cards WHERE organization_id=$1 AND type='PRODUCT_DELIVERY' AND title LIKE 'JCID Delivery Klinik%'`, [fixture.organizationId])).rows[0].n;
+    record('DELIVERY-DB-NO-DUPLICATE', jobs === 1, `product delivery job cards=${jobs}`);
+    const processed = (await client.query(`SELECT count(DISTINCT client_action_id)::int AS n FROM processed_actions WHERE organization_id=$1 AND operation_key = 'PRODUCT_DELIVERY_CREATE'`, [fixture.organizationId])).rows[0].n;
+    record('DELIVERY-DB-SINGLE-ACTION-ID', processed === 1, `distinct PRODUCT_DELIVERY_CREATE clientActionIds=${processed}`);
+  } finally { await client.end(); }
+  await context.close(); deliveryPage = null;
+}
+
+async function followUpCase(fixture) {
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
+  const followUpPage = await context.newPage();
+  const requests = []; let committed = null; let loseNext = true;
+  await followUpPage.route(`**/api/job-cards/${fixture.followUpSource}/follow-ups`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
+    if (!loseNext) return route.continue();
+    loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  await loginBrowser(context, fixture.admin);
+  await followUpPage.goto(`/jobs/new-follow-up?source=${fixture.followUpSource}`);
+  await followUpPage.getByRole('heading', { name: 'Takip işi oluştur', exact: true }).waitFor();
+  await followUpPage.locator('#follow-up-title').fill('JCID follow-up A');
+  await followUpPage.locator('#follow-up-instructions').fill('JCID follow-up A kapsam');
+  await followUpPage.locator('#follow-up-assignee').selectOption(fixture.staff);
+  await followUpPage.getByRole('button', { name: 'Takip işini oluştur' }).click();
+  await followUpPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('FOLLOWUP-COMMITTED-RESPONSE-LOST', committed?.status === 201 && committed?.body?.id, `status=${committed?.status}; childId=${committed?.body?.id}`);
+  record('FOLLOWUP-FORM-FROZEN', await followUpPage.locator('#follow-up-title').isDisabled()
+    && await followUpPage.locator('#follow-up-instructions').isDisabled(), 'follow-up semantic fields disabled while ambiguous');
+  await followUpPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await followUpPage.waitForTimeout(400);
+  record('FOLLOWUP-EXACT-RETRY-SAME-SOURCE-KEY', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests[1] ?? null));
+  const client = new Client({ connectionString: databaseUrl }); await client.connect();
+  try {
+    const children = (await client.query(`SELECT count(*)::int AS n FROM job_cards WHERE source_job_card_id=$1`, [fixture.followUpSource])).rows[0].n;
+    record('FOLLOWUP-DB-NO-DUPLICATE', children === 1, `follow-up children=${children}`);
+  } finally { await client.end(); }
+  await context.close();
+}
+
+async function noteCase(fixture) {
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
+  const notePage = await context.newPage();
+  const requests = []; let committed = null; let loseNext = true;
+  await notePage.route(`**/api/job-cards/${fixture.noteJob}/notes`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
+    if (!loseNext) return route.continue();
+    loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  await loginBrowser(context, fixture.admin);
+  await notePage.goto(`/jobs/${fixture.noteJob}`);
+  await notePage.getByRole('heading', { name: 'Notlar', exact: true }).waitFor();
+  await notePage.locator('#job-note').fill('JCID note A original');
+  await notePage.getByRole('button', { name: 'Not ekle' }).click();
+  await notePage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('NOTE-COMMITTED-RESPONSE-LOST', committed?.status === 201 && committed?.body?.note === 'JCID note A original', `status=${committed?.status}; note=${committed?.body?.note}`);
+  record('NOTE-FIELDS-FROZEN', await notePage.locator('#job-note').isDisabled(), 'note textarea disabled while ambiguous');
+  await notePage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await notePage.waitForTimeout(400);
+  record('NOTE-EXACT-RETRY', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests[1] ?? null));
+  // After reconciliation a deliberately new note B works with a new key.
+  await notePage.locator('#job-note').fill('JCID note B later');
+  await notePage.getByRole('button', { name: 'Not ekle' }).click(); await notePage.waitForTimeout(400);
+  const noteBRequests = requests.length - 2;
+  record('NOTE-NEW-INTENT-AFTER-RECONCILIATION', noteBRequests === 1 && requests[2]?.note === 'JCID note B later' && requests[2]?.clientActionId !== requests[0]?.clientActionId, JSON.stringify(requests[2] ?? null));
+  const client = new Client({ connectionString: databaseUrl }); await client.connect();
+  try {
+    const noteA = (await client.query(`SELECT count(*)::int AS n FROM job_card_notes WHERE job_card_id=$1 AND note='JCID note A original'`, [fixture.noteJob])).rows[0].n;
+    const noteB = (await client.query(`SELECT count(*)::int AS n FROM job_card_notes WHERE job_card_id=$1 AND note='JCID note B later'`, [fixture.noteJob])).rows[0].n;
+    record('NOTE-DB-NO-DUPLICATE', noteA === 1 && noteB === 1, `noteA=${noteA}; noteB=${noteB}`);
+  } finally { await client.end(); }
+  await context.close();
+}
+
 async function injectRealtimeUpdate(fixture) {
   const client = new Client({ connectionString: databaseUrl }); await client.connect();
   try {
@@ -244,7 +374,8 @@ try {
   viteServer = await createViteServer({ ...(loaded?.config || {}), configFile: false, root: web, server: { ...(loaded?.config.server || {}), host: '127.0.0.1', port: Number(webOrigin.split(':').pop()), strictPort: true, proxy: { '/api': { target: serverOrigin, changeOrigin: true } } } });
   await viteServer.listen();
   await backendCases(fixture); await meetingCase(fixture); await browserCase(fixture);
-} catch (error) { failure = error; if (page) try { await screenshot('failure.png'); } catch { /* best effort */ } }
+  await deliveryCase(fixture); await followUpCase(fixture); await noteCase(fixture);
+} catch (error) { failure = error; if (page) try { await screenshot('failure.png'); } catch { /* best effort */ } if (deliveryPage) try { await screenshot('failure-delivery.png', deliveryPage); } catch { /* best effort */ } }
 finally {
   if (viteServer) await viteServer.close().catch(() => {});
   for (const child of processes.reverse()) await stop(child);

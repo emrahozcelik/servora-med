@@ -624,3 +624,94 @@ describe('JobNotes visual contracts (T2C)', () => {
   });
 });
 });
+
+describe('JobNotes ambiguous attempt contract', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  function changeTextarea(value: string) {
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea#job-note')!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, value);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return textarea;
+  }
+
+  async function submitForm() {
+    await act(async () => {
+      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+  }
+
+  it('freezes the ambiguous note, retries the frozen original despite edit attempts, then starts a fresh key', async () => {
+    let keySeq = 0;
+    const createActionId = vi.fn(() => `note-key-${++keySeq}`);
+    const add = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true))
+      .mockResolvedValueOnce(savedNote)
+      .mockResolvedValueOnce({ ...savedNote, id: 'note-2', note: 'Not B' });
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    await act(async () => root.render(<JobNotes jobId="job-1" load={load} add={add} createActionId={createActionId} />));
+    await act(async () => {});
+
+    changeTextarea('Not A');
+    await submitForm();
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(add.mock.calls[0]![1]).toMatchObject({ clientActionId: 'note-key-1', note: 'Not A' });
+    expect(host.querySelector('[data-original-retry]')).not.toBeNull();
+    expect((host.querySelector<HTMLTextAreaElement>('textarea#job-note')!).disabled).toBe(true);
+    expect((host.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+
+    // Programmatic edit attempts cannot authorize a second key; the retry must
+    // still send the frozen original attempt.
+    changeTextarea('Değiştirilemez taslak');
+    await act(async () => {
+      (host.querySelector('[data-original-retry]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(add.mock.calls[1]![1]).toMatchObject({ clientActionId: 'note-key-1', note: 'Not A' });
+    expect(createActionId).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect(host.querySelectorAll('.job-note-list li')).toHaveLength(1);
+
+    changeTextarea('Not B');
+    await submitForm();
+    expect(add).toHaveBeenCalledTimes(3);
+    expect(add.mock.calls[2]![1]).toMatchObject({ clientActionId: 'note-key-2', note: 'Not B' });
+    expect(createActionId).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves the attempt on a definitive response and permits a corrected new key', async () => {
+    let keySeq = 0;
+    const createActionId = vi.fn(() => `note-key-${++keySeq}`);
+    const add = vi.fn()
+      .mockRejectedValueOnce(new ApiError(422, 'VALIDATION_ERROR', 'Not kaydedilemedi.', false))
+      .mockResolvedValueOnce(savedNote);
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    await act(async () => root.render(<JobNotes jobId="job-1" load={load} add={add} createActionId={createActionId} />));
+    await act(async () => {});
+
+    changeTextarea('Not A');
+    await submitForm();
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect((host.querySelector<HTMLTextAreaElement>('textarea#job-note')!).disabled).toBe(false);
+
+    changeTextarea('Not B');
+    await submitForm();
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(add.mock.calls[1]![1]).toMatchObject({ clientActionId: 'note-key-2', note: 'Not B' });
+  });
+});

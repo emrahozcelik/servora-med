@@ -593,7 +593,7 @@ describe('Follow-up create page', () => {
     expect(jobs.createFollowUp).not.toHaveBeenCalled();
   });
 
-  it('keeps one action id for ACTION_IN_PROGRESS retry and replaces it after payload edit', async () => {
+  it('keeps one action id for ACTION_IN_PROGRESS retry; an edited payload cannot silently replace it', async () => {
     jobs.createFollowUp
       .mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'busy', true))
       .mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'busy', true))
@@ -609,9 +609,12 @@ describe('Follow-up create page', () => {
     expect(jobs.createFollowUp.mock.calls[1]?.[1].clientActionId).toBe('action-1');
     expect(host.textContent).toContain('Kısa bir süre bekleyip');
 
+    // Remediation-3: ambiguity freezes the form; the edited payload B cannot
+    // abandon the unresolved attempt, only the exact original can be retried.
     change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Değişen görüşme');
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
-    expect(jobs.createFollowUp.mock.calls[2]?.[1].clientActionId).toBe('action-2');
+    expect(jobs.createFollowUp.mock.calls[2]?.[1].clientActionId).toBe('action-1');
+    expect(jobs.createFollowUp.mock.calls[2]?.[1].title).toBe('Yeni görüşme');
     expect(onCreated).toHaveBeenCalledWith('created-2');
   });
 
@@ -645,5 +648,129 @@ describe('Follow-up create page', () => {
     await setDraft('a'.repeat(3_900));
     expect(host.querySelector('[data-follow-up-instructions-counter]')!.getAttribute('data-counter-state'))
       .toBe('attention');
+  });
+});
+
+describe('Follow-up create ambiguous attempt contract', () => {
+  let root: Root;
+  let host: HTMLDivElement;
+  let onCreated: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: false, media: '', onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    }));
+    let action = 0;
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      configurable: true, value: vi.fn(() => `fu-action-${++action}`),
+    });
+    jobs.getJobCard.mockResolvedValue(source);
+    jobs.getMeetingDetails.mockResolvedValue({
+      jobCardId: source.id, meetingAt: '2026-08-01T09:15:00.000Z',
+      outcome: 'FOLLOW_UP_REQUIRED', meetingSummary: 'MEETING_SUMMARY_MARKER',
+      nextFollowUpAt: '2026-08-10T06:30:00.000Z', jobCardVersion: 7,
+    });
+    jobs.getFollowUpSuggestion.mockResolvedValue({
+      scheduledAt: '2026-08-08T10:00:00.000Z', type: 'SALES_MEETING', assignedTo: 'staff-1',
+      followUpInstructions: 'Takip: Kaynak görüşme',
+      evaluation: { level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null },
+    });
+    jobs.createFollowUp.mockResolvedValue({ ...source, id: 'created-1', followUpContext: {
+      sourceJobCardId: source.id, followUpInstructions: 'Yeni talimat', sourceAccess: 'FULL',
+      sourceJobPath: `/jobs/${source.id}`, sourceSummary: {
+        sourceType: source.type, sourcePlannedAt: source.scheduledAt,
+        sourceOccurredAt: '2026-08-01T09:15:00.000Z',
+        sourceCompletedAt: '2026-08-01T10:00:00.000Z', customer: source.customer,
+        contact: source.contact, outcome: 'FOLLOW_UP_REQUIRED',
+      },
+    } });
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
+    people.listStaff.mockResolvedValue([profile]);
+    crm.listContacts.mockResolvedValue({ items: [contact], total: 1, limit: 200, offset: 0 });
+    onCreated = vi.fn();
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  });
+
+  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
+
+  async function renderAmbiguously() {
+    jobs.getJobCard.mockResolvedValue({ ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Özgün takip');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Özgün kapsam');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    jobs.createFollowUp.mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true));
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+  }
+
+  it('removes the fingerprint escape: an edited payload cannot create a new key while ambiguous', async () => {
+    await renderAmbiguously();
+    expect(jobs.createFollowUp).toHaveBeenCalledTimes(1);
+    const firstCall = jobs.createFollowUp.mock.calls[0];
+    expect(firstCall![0]).toBe(source.id);
+    expect(firstCall![1]).toMatchObject({ title: 'Özgün takip', clientActionId: 'fu-action-1' });
+    expect(host.querySelector('[data-original-retry]')).not.toBeNull();
+    expect((host.querySelector('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+    expect((host.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+
+    // Editing is frozen; even a forced change must not authorize a new key.
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Değiştirilemez');
+    await act(async () => (host.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    await flush();
+    expect(jobs.createFollowUp).toHaveBeenCalledTimes(2);
+    expect(jobs.createFollowUp.mock.calls[1]![0]).toBe(source.id);
+    expect(jobs.createFollowUp.mock.calls[1]![1]).toEqual(firstCall![1]);
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves the attempt on a definitive response and permits corrected new intent', async () => {
+    jobs.getJobCard.mockResolvedValue({ ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
+    await act(async () => root.render(<FollowUpCreatePage sourceId={source.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    change(host.querySelector('#follow-up-scheduled-at') as HTMLInputElement, '2026-08-01T13:16');
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Özgün takip');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Özgün kapsam');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    jobs.createFollowUp
+      .mockRejectedValueOnce(new ApiError(400, 'FOLLOW_UP_INSTRUCTIONS_REQUIRED', 'kapsam yazın', false))
+      .mockResolvedValueOnce({ ...source, id: 'created-4', followUpContext: {
+        sourceJobCardId: source.id, followUpInstructions: 'Düzeltilmiş kapsam', sourceAccess: 'FULL',
+        sourceJobPath: `/jobs/${source.id}`, sourceSummary: {
+          sourceType: source.type, sourcePlannedAt: source.scheduledAt,
+          sourceOccurredAt: '2026-08-01T09:15:00.000Z',
+          sourceCompletedAt: '2026-08-01T10:00:00.000Z', customer: source.customer,
+          contact: source.contact, outcome: 'FOLLOW_UP_REQUIRED',
+        },
+      } });
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    // Definitive validation failure: the attempt resolved, the form is editable.
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
+    expect(host.querySelector('form')).not.toBeNull();
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Düzeltilmiş kapsam');
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(jobs.createFollowUp).toHaveBeenCalledTimes(2);
+    expect(jobs.createFollowUp.mock.calls[1]![1].clientActionId).toBe('fu-action-2');
+    expect(jobs.createFollowUp.mock.calls[1]![1].followUpInstructions).toBe('Düzeltilmiş kapsam');
+  });
+
+  it('abandons the attempt when the source changes without replaying it against the new source', async () => {
+    await renderAmbiguously();
+    expect(jobs.createFollowUp).toHaveBeenCalledTimes(1);
+    await act(async () => root.render(<FollowUpCreatePage sourceId="22222222-2222-4222-8222-222222222222" user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+    expect(jobs.createFollowUp).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-original-retry]')).toBeNull();
   });
 });

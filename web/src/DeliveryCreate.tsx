@@ -42,13 +42,20 @@ const defaultDependencies: FlowDependencies = {
   createActionId: () => crypto.randomUUID(),
 };
 
-export async function createProductDelivery(
+export type ProductDeliveryCreateRequest = Parameters<typeof createProductDeliveryRequest>[0];
+
+/**
+ * Pure request builder; transport-free so the component can freeze the fully
+ * constructed request (including clientActionId) for exact retry after an
+ * ambiguous committed-response-loss failure.
+ */
+export function buildProductDeliveryRequest(
   user: CurrentUser,
   values: DeliveryFormValues,
-  dependencies: FlowDependencies = defaultDependencies,
-) {
-  const result = await dependencies.createDelivery({
-    clientActionId: dependencies.createActionId(),
+  createActionId: () => string = defaultDependencies.createActionId,
+): ProductDeliveryCreateRequest {
+  return {
+    clientActionId: createActionId(),
     type: 'PRODUCT_DELIVERY',
     title: `${values.customerName} ürün teslimi`,
     customerId: values.customerId,
@@ -59,8 +66,15 @@ export async function createProductDelivery(
     deliveryNote: values.deliveryNote?.trim() || null,
     items: values.items,
     ...(values.overrideReason?.trim() ? { overrideReason: values.overrideReason.trim() } : {}),
-  });
-  return result;
+  };
+}
+
+export async function createProductDelivery(
+  user: CurrentUser,
+  values: DeliveryFormValues,
+  dependencies: FlowDependencies = defaultDependencies,
+) {
+  return dependencies.createDelivery(buildProductDeliveryRequest(user, values, dependencies.createActionId));
 }
 
 export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerId = '' }: {
@@ -86,6 +100,8 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
+  const attemptRef = useRef<ProductDeliveryCreateRequest | null>(null);
+  const [ambiguous, setAmbiguous] = useState(false);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
   const activeStaffIds = useRef(new Set<string>());
@@ -182,36 +198,21 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     )));
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setPending(true); setError('');
-    const data = new FormData(event.currentTarget);
-    const customer = selectedCustomer && selectedCustomer.id === customerId && selectedCustomer.status !== 'inactive'
-      ? selectedCustomer
-      : null;
+  async function sendAttempt(request: ProductDeliveryCreateRequest) {
+    setPending(true); setError('');
     try {
-      if (!customer) throw new Error('Geçerli bir müşteri seçin.');
-      if (selectedProducts.length === 0) throw new Error('En az bir ürün seçin.');
-      if (!scheduledLocal) throw new Error('Planlanan teslim zamanını seçin.');
-      const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
-      if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
-      const items = selectedProducts.map((entry) => {
-        if (entry.quantity === '' || !Number.isFinite(entry.quantity) || entry.quantity <= 0) {
-          throw new Error(`${entry.product.name} için geçerli bir miktar girin.`);
-        }
-        return { productId: entry.product.id, quantity: entry.quantity };
-      });
-      const result = await createProductDelivery(user, {
-        customerId: customer.id,
-        customerName: customer.name,
-        assignedTo: selectedAssignee,
-        items,
-        deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
-        scheduledAt: scheduledLocal,
-        deliveryNote: String(data.get('deliveryNote') ?? ''),
-        overrideReason: overrideReason.trim() || null,
-      });
+      const result = await createProductDeliveryRequest(request);
+      attemptRef.current = null;
+      setAmbiguous(false);
       onCreated(result);
     } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved; anything else keeps the frozen attempt so the
+      // exact retry replays the original request (committed-response-loss
+      // must never escalate into a second Product Delivery JobCard).
+      const definitive = caught instanceof ApiError && caught.status !== 0 && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
       if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
         const details = caught.details ?? {};
         setAuthoritativeEvaluation({
@@ -235,13 +236,61 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
       }
       setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    if (ambiguous) {
+      const attempt = attemptRef.current;
+      if (attempt) await sendAttempt(attempt);
+      return;
+    }
+    setPending(true); setError('');
+    const data = new FormData(event.currentTarget);
+    const customer = selectedCustomer && selectedCustomer.id === customerId && selectedCustomer.status !== 'inactive'
+      ? selectedCustomer
+      : null;
+    try {
+      if (!customer) throw new Error('Geçerli bir müşteri seçin.');
+      if (selectedProducts.length === 0) throw new Error('En az bir ürün seçin.');
+      if (!scheduledLocal) throw new Error('Planlanan teslim zamanını seçin.');
+      const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
+      if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
+      const items = selectedProducts.map((entry) => {
+        if (entry.quantity === '' || !Number.isFinite(entry.quantity) || entry.quantity <= 0) {
+          throw new Error(`${entry.product.name} için geçerli bir miktar girin.`);
+        }
+        return { productId: entry.product.id, quantity: entry.quantity };
+      });
+      const request = buildProductDeliveryRequest(user, {
+        customerId: customer.id,
+        customerName: customer.name,
+        assignedTo: selectedAssignee,
+        items,
+        deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
+        scheduledAt: scheduledLocal,
+        deliveryNote: String(data.get('deliveryNote') ?? ''),
+        overrideReason: overrideReason.trim() || null,
+      });
+      attemptRef.current = request;
+      setPending(false);
+      await sendAttempt(request);
+      return;
+    } catch (caught) {
+      attemptRef.current = null;
+      setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
       setPending(false);
     }
   }
 
   const referencesPending = !customerReady || staffState === 'loading';
-  const submitDisabled = pending || !customerReady || selectedProducts.length === 0
+  const submitDisabled = pending || ambiguous || !customerReady || selectedProducts.length === 0
     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
+  const semanticInputsDisabled = pending || ambiguous;
   return <main className="delivery-create">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
@@ -252,9 +301,15 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         </p>
       ))}
     </div>}
+    {ambiguous && <div className="detail-feedback" role="status">
+      <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
+      <button type="button" className="primary-button" data-original-retry disabled={pending}
+        onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
+    </div>}
     <form className="delivery-form" onSubmit={submit}>
+      <fieldset disabled={semanticInputsDisabled} className="delivery-form-fieldset">
       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
-        <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={pending} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+        <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={semanticInputsDisabled} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
         <CustomerSearchSelect
           id="delivery-customer"
           value={customerId}
@@ -264,11 +319,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           onReadyChange={setCustomerReady}
           clearValueWhenMissing
           isEligible={(customer) => customer.status !== 'inactive'}
-          disabled={pending}
+          disabled={semanticInputsDisabled}
         />
       </div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
-        <select id="delivery-assignee" name="assignedTo" required disabled={pending || staffState !== 'ready'} value={assignedTo}
+        <select id="delivery-assignee" name="assignedTo" required disabled={semanticInputsDisabled || staffState !== 'ready'} value={assignedTo}
           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
           <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
         </select>
@@ -276,24 +331,24 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
       </div>}
       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
-        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={pending || !customerReady} />
+        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady} />
       {selectedProducts.length > 0 && <div className="delivery-selected-quantities" aria-labelledby="delivery-quantities-heading">
         <h2 id="delivery-quantities-heading">Miktarlar</h2>
         {selectedProducts.map((entry) => <div className="field-group" key={entry.product.id}>
           <label htmlFor={`delivery-quantity-${entry.product.id}`}>Miktar: {entry.product.name}</label>
           <input id={`delivery-quantity-${entry.product.id}`} type="number" min="0.001" step="0.001"
-            inputMode="decimal" value={entry.quantity} required disabled={pending}
+            inputMode="decimal" value={entry.quantity} required disabled={semanticInputsDisabled}
             onChange={(event) => updateSelectedQuantity(entry.product.id, event.target.value)} />
         </div>)}
       </div>}
       <div className="delivery-pair">
         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
-          <select id="delivery-purpose" name="deliveryPurpose" required disabled={pending} defaultValue="SALE">
+          <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
           </select></div>
       </div>
       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
-        <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={pending}
+        <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
       <CustomerScheduleNotice
         evaluation={authoritativeEvaluation ?? evaluation}
@@ -308,9 +363,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         onSelect={useAvailableSlot}
       />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
-        <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
+        <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={semanticInputsDisabled} /></div>
+      </fieldset>
       <div className="form-actions">
-        <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={semanticInputsDisabled}>Vazgeç</button>
         <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
       </div>
     </form>
