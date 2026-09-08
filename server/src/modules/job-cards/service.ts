@@ -32,6 +32,15 @@ import type {
   SubmissionReader,
 } from './repository.js';
 import {
+  deliveryItemCreateRequestHash,
+  followUpCreateRequestHash,
+  jobCardCreateRequestHash,
+  lifecycleRequestHash,
+  meetingDetailsUpdateRequestHash,
+  productDeliveryCreateRequestHash,
+  type LifecycleLocationCapture,
+} from './critical-action-request-hash.js';
+import {
   ACTIVE_JOB_CARD_STATUSES,
   DELIVERY_PURPOSES,
   JOB_CARD_ENGAGEMENT_KINDS,
@@ -720,6 +729,9 @@ export class JobCardService {
         {
           organizationId: actor.organizationId, userId: actor.id,
           clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
+          // JobCard critical-action request identity (AUDIT-0 remediation):
+          // full normalized create intent binds this key to its content.
+          requestHash: jobCardCreateRequestHash(input),
         },
         async (transaction) => {
         const lockedAssignees = await this.lockUsersInOrder(
@@ -855,6 +867,7 @@ export class JobCardService {
         {
           organizationId: actor.organizationId, userId: actor.id,
           clientActionId: input.clientActionId, operationKey: 'PRODUCT_DELIVERY_CREATE',
+          requestHash: productDeliveryCreateRequestHash(input),
         },
         async (transaction) => {
           const lockedAssignees = await this.lockUsersInOrder(
@@ -997,6 +1010,7 @@ export class JobCardService {
         userId: actor.id,
         clientActionId: input.clientActionId,
         operationKey: `JOB_FOLLOW_UP_CREATE:${sourceJobCardId}`,
+        requestHash: followUpCreateRequestHash(sourceJobCardId, input),
       },
       async (transaction) => {
         assertCanCreateFollowUp(actor);
@@ -1370,6 +1384,7 @@ export class JobCardService {
         userId: actor.id,
         clientActionId,
         operationKey: `MEETING_DETAILS_UPDATE:${jobCardId}`,
+        requestHash: meetingDetailsUpdateRequestHash(jobCardId, input),
       },
       async (transaction) => {
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
@@ -1864,7 +1879,8 @@ export class JobCardService {
     assertKnownFields(input, ['clientActionId', ...DELIVERY_FIELDS]);
     if (!input.clientActionId.trim()) throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
     const result = await this.repository.executeCriticalAction(
-      { organizationId: actor.organizationId, userId: actor.id, clientActionId: input.clientActionId, operationKey: 'DELIVERY_ITEM_CREATE' },
+      { organizationId: actor.organizationId, userId: actor.id, clientActionId: input.clientActionId, operationKey: 'DELIVERY_ITEM_CREATE',
+        requestHash: deliveryItemCreateRequestHash(jobCardId, input) },
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -2022,7 +2038,7 @@ export class JobCardService {
     }
 
     const capture = parseStartLocationCapture(input.locationCapture);
-    const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition);
+    const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition, lifecycleInput, capture);
     const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
@@ -2124,7 +2140,7 @@ export class JobCardService {
   ) {
     const requestTime = requestTimeOverride ?? this.now();
     const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
-      this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
+      this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition, input, startLocation),
       async (tx) => {
         let lockedAssignees = new Map<string, JobCardAssignee>();
         const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
@@ -2460,12 +2476,28 @@ export class JobCardService {
     jobCardId: string,
     clientActionId: string,
     definition: LifecycleDefinition,
+    input: { expectedVersion: number },
+    startLocation?: LifecycleLocationCapture,
   ) {
     return {
       organizationId: actor.organizationId,
       userId: actor.id,
       clientActionId,
       operationKey: `${definition.operationKey}:${jobCardId}`,
+      // JobCard critical-action request identity (AUDIT-0 remediation, F5):
+      // expectedVersion is a concurrency precondition and part of the
+      // semantic request.
+      requestHash: lifecycleRequestHash({
+        command: definition.command,
+        jobCardId,
+        expectedVersion: input.expectedVersion,
+        note: definition.note,
+        revisionReason: definition.revisionReason,
+        cancelReason: definition.cancelReason,
+        followUpProposal: definition.followUpProposal ?? null,
+        approveFollowUp: definition.approveFollowUp ?? null,
+        locationCapture: startLocation ?? null,
+      }),
     };
   }
 

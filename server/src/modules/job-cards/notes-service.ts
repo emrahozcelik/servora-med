@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { AppError } from '../../errors/index.js';
 import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
+import { noteAddRequestHash } from './critical-action-request-hash.js';
 import type { JobCardRepository, NotePageQuery } from './repository.js';
 import type { JobCard, JobCardActor } from './types.js';
 import {
@@ -40,6 +41,8 @@ export class JobCardNotesService {
       {
         organizationId: actor.organizationId, userId: actor.id, clientActionId,
         operationKey: `JOB_NOTE_ADD:${jobCardId}`,
+        // JobCard critical-action request identity (AUDIT-0 remediation).
+        requestHash: noteAddRequestHash(jobCardId, { note, invoiceNumber }),
       },
       async (transaction) => {
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
