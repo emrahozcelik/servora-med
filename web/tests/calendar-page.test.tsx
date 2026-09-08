@@ -503,6 +503,102 @@ describe('CalendarPage', () => {
     expect(selected).toBeTruthy();
   });
 
+  describe('manual event duration preservation', () => {
+    function toLocalInputValue(date: Date) {
+      const pad = (part: number) => String(part).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+        + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    async function openManualDrawer() {
+      await render();
+      const createBtn = Array.from(container.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Manuel plan ekle'))!;
+      await act(async () => createBtn.click());
+      const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+      const [startInput, endInput] = Array.from(
+        dialog.querySelectorAll('input[type="datetime-local"]'),
+      ) as HTMLInputElement[];
+      return { dialog, startInput, endInput };
+    }
+
+    it('shifts the end when the start moves, preserving the default duration', async () => {
+      const { startInput, endInput } = await openManualDrawer();
+      const initialDurationMs = new Date(endInput.value).getTime()
+        - new Date(startInput.value).getTime();
+      expect(initialDurationMs).toBe(60 * 60_000);
+
+      const movedStart = new Date(new Date(startInput.value).getTime() + 2 * 60 * 60_000);
+      await act(async () => {
+        setReactValue(startInput, toLocalInputValue(movedStart));
+      });
+      expect(new Date(endInput.value).getTime() - movedStart.getTime())
+        .toBe(initialDurationMs);
+    });
+
+    it('preserves a user-customized duration across later start moves', async () => {
+      const { startInput, endInput } = await openManualDrawer();
+      const customEnd = new Date(new Date(startInput.value).getTime() + 90 * 60_000);
+      await act(async () => {
+        setReactValue(endInput, toLocalInputValue(customEnd));
+      });
+      const movedStart = new Date(new Date(startInput.value).getTime() + 2 * 60 * 60_000);
+      await act(async () => {
+        setReactValue(startInput, toLocalInputValue(movedStart));
+      });
+      expect(endInput.value).toBe(
+        toLocalInputValue(new Date(movedStart.getTime() + 90 * 60_000)),
+      );
+    });
+
+    it('preserves duration across midnight for cross-day intervals', async () => {
+      const { startInput, endInput } = await openManualDrawer();
+      const base = new Date(startInput.value);
+      base.setHours(23, 30, 0, 0);
+      await act(async () => {
+        setReactValue(startInput, toLocalInputValue(base));
+      });
+      const crossDayEnd = new Date(base.getTime() + 90 * 60_000);
+      await act(async () => {
+        setReactValue(endInput, toLocalInputValue(crossDayEnd));
+      });
+      expect(crossDayEnd.getDate()).not.toBe(base.getDate());
+
+      const movedStart = new Date(base.getTime() + 60 * 60_000);
+      await act(async () => {
+        setReactValue(startInput, toLocalInputValue(movedStart));
+      });
+      expect(new Date(endInput.value).getTime() - movedStart.getTime())
+        .toBe(90 * 60_000);
+    });
+
+    it('blocks submit with a visible error when the end is not after the start', async () => {
+      calendarApi.createManualEvent.mockResolvedValue({});
+      const { dialog, startInput, endInput } = await openManualDrawer();
+      await act(async () => {
+        setReactValue(endInput, startInput.value);
+        dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      await act(async () => {});
+      expect(dialog.textContent).toContain('Bitiş zamanı başlangıç zamanından sonra olmalıdır.');
+      expect(calendarApi.createManualEvent).not.toHaveBeenCalled();
+    });
+
+    it('accepts a legitimate interval longer than 24 hours', async () => {
+      calendarApi.createManualEvent.mockResolvedValue({});
+      const { dialog, startInput, endInput } = await openManualDrawer();
+      const longEnd = new Date(new Date(startInput.value).getTime() + 30 * 60 * 60_000);
+      await act(async () => {
+        setReactValue(endInput, toLocalInputValue(longEnd));
+        dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      await act(async () => {});
+      expect(calendarApi.createManualEvent).toHaveBeenCalledWith(expect.objectContaining({
+        endsAt: longEnd.toISOString(),
+      }));
+    });
+  });
+
   describe('cancellation with ReasonDialog', () => {
     it('opens ReasonDialog instead of window.prompt', async () => {
       await render();

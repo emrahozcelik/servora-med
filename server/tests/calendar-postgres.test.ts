@@ -184,6 +184,71 @@ describe.skipIf(!databaseUrl)('calendar PostgreSQL authorization and transaction
     expect(patched.version).toBe(created.version + 1);
   });
 
+  it('R2-C4b: start-only manual patch preserves the user-owned interval duration', async () => {
+    const created = await service!.create(manager, {
+      ...input('r2-c4b-create', teamStaffId, '2026-08-02T09:00:00.000Z', 'R2 C4b Süre'),
+      endsAt: '2026-08-02T10:30:00.000Z',
+    });
+    const patched = await service!.patch(manager, created.id, {
+      clientActionId: 'r2-c4b-patch',
+      expectedVersion: created.version,
+      startsAt: '2026-08-02T12:00:00.000Z',
+    });
+    expect(patched.startsAt).toBe('2026-08-02T12:00:00.000Z');
+    expect(patched.endsAt).toBe('2026-08-02T13:30:00.000Z');
+  });
+
+  it('R2-C4c: end-only manual patch merges with the persisted start', async () => {
+    const created = await service!.create(manager, input(
+      'r2-c4c-create', teamStaffId, '2026-08-02T15:00:00.000Z', 'R2 C4c Bitiş',
+    ));
+    const patched = await service!.patch(manager, created.id, {
+      clientActionId: 'r2-c4c-patch',
+      expectedVersion: created.version,
+      endsAt: '2026-08-02T17:00:00.000Z',
+    });
+    expect(patched.startsAt).toBe('2026-08-02T15:00:00.000Z');
+    expect(patched.endsAt).toBe('2026-08-02T17:00:00.000Z');
+
+    const invalid = await service!.create(manager, input(
+      'r2-c4c-invalid-create', extraStaffId, '2026-08-02T15:00:00.000Z', 'R2 C4c Geçersiz',
+    ));
+    await expect(service!.patch(manager, invalid.id, {
+      clientActionId: 'r2-c4c-invalid-patch',
+      expectedVersion: invalid.version,
+      endsAt: '2026-08-02T14:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+  });
+
+  it('R2-C4d: explicit both-field patch persists exactly; unrelated patch keeps scheduling', async () => {
+    const created = await service!.create(manager, input(
+      'r2-c4d-create', teamStaffId, '2026-08-02T19:00:00.000Z', 'R2 C4d Çift',
+    ));
+    const patched = await service!.patch(manager, created.id, {
+      clientActionId: 'r2-c4d-patch',
+      expectedVersion: created.version,
+      startsAt: '2026-08-02T20:00:00.000Z',
+      endsAt: '2026-08-04T02:00:00.000Z',
+    });
+    expect(patched.startsAt).toBe('2026-08-02T20:00:00.000Z');
+    expect(patched.endsAt).toBe('2026-08-04T02:00:00.000Z');
+
+    await expect(service!.patch(manager, patched.id, {
+      clientActionId: 'r2-c4d-both-invalid',
+      expectedVersion: patched.version,
+      startsAt: '2026-08-02T20:00:00.000Z',
+      endsAt: '2026-08-02T19:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+
+    const untouched = await service!.patch(manager, patched.id, {
+      clientActionId: 'r2-c4d-unrelated',
+      expectedVersion: patched.version,
+      title: 'R2 C4d Başlık',
+    });
+    expect(untouched.startsAt).toBe(patched.startsAt);
+    expect(untouched.endsAt).toBe(patched.endsAt);
+  });
+
   it('R2-C5: Manager cancels a cancellable event assigned to Staff outside the former team', async () => {
     const created = await service!.create(manager, input(
       'r2-c5-create', outsideStaffId, '2026-07-30T13:00:00.000Z', 'R2 C5 İptal',
