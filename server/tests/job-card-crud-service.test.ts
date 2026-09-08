@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   CreateJobCardRecord,
@@ -8,6 +8,7 @@ import type {
   JobCardTransaction,
 } from '../src/modules/job-cards/repository.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { AppError } from '../src/errors/index.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type {
   JobCard,
@@ -47,6 +48,8 @@ class CrudMemoryRepository implements JobCardRepository {
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
   calendarChecks: unknown[] = [];
   calendarSyncs: unknown[] = [];
+  scheduleRevisions: unknown[] = [];
+  availabilityError: unknown = null;
   notificationDrafts: unknown[] = [];
   realtimeResourceKeys: string[][] = [];
 
@@ -154,7 +157,7 @@ class CrudMemoryRepository implements JobCardRepository {
         }
         return job;
       },
-      appendScheduleRevision: async () => ({ id: 'revision-memory', revisionNo: 1 }),
+      appendScheduleRevision: async (input) => { this.scheduleRevisions.push(input); return { id: 'revision-memory', revisionNo: 1 }; },
       appendAssignmentHistory: async () => {},
       getCurrentScheduleRevisionNo: async () => 1,
       getNextSubmittedSeqNo: async () => 1,
@@ -169,7 +172,7 @@ class CrudMemoryRepository implements JobCardRepository {
       listActiveManagementRecipients: async () => [],
         appendNotifications: async () => [],
         appendWebPushDeliveries: async () => [],
-      assertCalendarAvailability: async (input) => { this.calendarChecks.push(input); },
+      assertCalendarAvailability: async (input) => { if (this.availabilityError) throw this.availabilityError; this.calendarChecks.push(input); },
       synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
     };
     try {
@@ -229,7 +232,7 @@ class CrudMemoryRepository implements JobCardRepository {
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createJobCard: async () => { throw new Error('unused'); },
-      appendScheduleRevision: async () => ({ id: 'revision-memory', revisionNo: 1 }),
+      appendScheduleRevision: async (input) => { this.scheduleRevisions.push(input); return { id: 'revision-memory', revisionNo: 1 }; },
       appendAssignmentHistory: async () => {},
       getCurrentScheduleRevisionNo: async () => 1,
       getNextSubmittedSeqNo: async () => 1,
@@ -261,7 +264,7 @@ class CrudMemoryRepository implements JobCardRepository {
         return [];
       },
         appendWebPushDeliveries: async () => [],
-      assertCalendarAvailability: async (input) => { this.calendarChecks.push(input); },
+      assertCalendarAvailability: async (input) => { if (this.availabilityError) throw this.availabilityError; this.calendarChecks.push(input); },
       synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
     };
     try { return await work(tx); } catch (error) { this.jobs = before; this.activities.splice(eventCount); throw error; }
@@ -1202,6 +1205,150 @@ describe('JobCardService create and reads', () => {
       scheduledAt: '2026-07-21T10:30:00.000Z',
       scheduledEndsAt: '2026-07-21T11:00:00.000Z',
     });
+  });
+
+  it('runs the full scheduling chain when a START_ONLY delivery is saved with the same start', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-same-start',
+    });
+    repository.jobs[0]!.scheduledAt = '2026-07-21T10:30:00.000Z';
+    repository.jobs[0]!.scheduledEndsAt = null;
+    repository.calendarChecks = [];
+    repository.calendarSyncs = [];
+    repository.scheduleRevisions = [];
+    repository.notificationDrafts = [];
+    repository.realtimeResourceKeys = [];
+    const enforceSpy = vi.spyOn(
+      service as unknown as { enforceCustomerSchedule: (...args: unknown[]) => Promise<unknown> },
+      'enforceCustomerSchedule',
+    );
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      version: 2,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    });
+    expect(repository.calendarChecks).toEqual([expect.objectContaining({
+      jobCardId: created.id,
+      startsAt: '2026-07-21T10:30:00.000Z',
+      endsAt: '2026-07-21T11:00:00.000Z',
+    })]);
+    expect(enforceSpy).toHaveBeenCalledTimes(1);
+    expect(repository.calendarSyncs).toEqual([expect.objectContaining({
+      jobCardId: created.id,
+      startsAt: '2026-07-21T10:30:00.000Z',
+      endsAt: '2026-07-21T11:00:00.000Z',
+    })]);
+    expect(repository.scheduleRevisions).toEqual([expect.objectContaining({
+      source: 'RESCHEDULE',
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-21T11:00:00.000Z',
+    })]);
+    expect(repository.notificationDrafts).toContainEqual(expect.objectContaining({
+      kind: 'calendar.rescheduled',
+      entityId: created.id,
+    }));
+    expect(repository.realtimeResourceKeys[0]).toEqual(expect.arrayContaining([
+      'calendar',
+      'calendar:staff-1',
+    ]));
+    expect(repository.activities).toContain('JOB_FIELDS_UPDATED');
+  });
+
+  it('clears acceptance when management saves the same start on a START_ONLY ACCEPTED delivery', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, {
+      ...createInput,
+      clientActionId: 'compat-seed-same-start-accepted',
+    });
+    expect(created.status).toBe('ACCEPTED');
+    repository.jobs[0]!.scheduledEndsAt = null;
+    repository.calendarChecks = [];
+    repository.scheduleRevisions = [];
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: SCHEDULED_AT,
+    });
+
+    expect(updated).toMatchObject({
+      status: 'NEW',
+      version: 2,
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
+      workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } },
+    });
+    expect(repository.acceptance.has(created.id)).toBe(false);
+    expect(repository.calendarChecks).toHaveLength(1);
+    expect(repository.scheduleRevisions).toHaveLength(1);
+  });
+
+  it('rejects a same-start START_ONLY repair after START with JOB_NOT_EDITABLE and no mutation', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, {
+      ...createInput,
+      clientActionId: 'compat-seed-same-start-progress',
+    });
+    repository.jobs[0]!.status = 'IN_PROGRESS';
+    repository.jobs[0]!.scheduledEndsAt = null;
+    repository.calendarChecks = [];
+    repository.calendarSyncs = [];
+    repository.scheduleRevisions = [];
+
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: SCHEDULED_AT,
+    })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
+
+    expect(repository.jobs[0]).toMatchObject({
+      status: 'IN_PROGRESS',
+      version: 1,
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: null,
+    });
+    expect(repository.calendarChecks).toEqual([]);
+    expect(repository.calendarSyncs).toEqual([]);
+    expect(repository.scheduleRevisions).toEqual([]);
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('rejects a same-start START_ONLY repair on calendar conflict with no mutation', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'compat-seed-same-start-conflict',
+    });
+    repository.jobs[0]!.scheduledAt = '2026-07-21T10:30:00.000Z';
+    repository.jobs[0]!.scheduledEndsAt = null;
+    repository.calendarChecks = [];
+    repository.calendarSyncs = [];
+    repository.scheduleRevisions = [];
+    repository.availabilityError = new AppError('CALENDAR_CONFLICT', 409, 'Takvim çakışması.');
+
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+    })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+
+    expect(repository.jobs[0]).toMatchObject({
+      version: 1,
+      scheduledAt: '2026-07-21T10:30:00.000Z',
+      scheduledEndsAt: null,
+    });
+    expect(repository.calendarSyncs).toEqual([]);
+    expect(repository.scheduleRevisions).toEqual([]);
+    expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
   it('moves reminders to the new recipient without duplicating assignment notification kinds', async () => {

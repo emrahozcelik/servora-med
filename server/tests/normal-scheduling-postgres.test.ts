@@ -369,6 +369,189 @@ describe.skipIf(!databaseUrl)('normal customer scheduling PostgreSQL contract', 
         expectedVersion: 1,
         scheduledAt: '2026-08-21T10:30:00.000Z',
       })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+      // Rollback proof: the rejected repair must leave no persisted trace.
+      const conflictRow = await pool.query<{
+        scheduled_at: Date | null; scheduled_ends_at: Date | null; version: number;
+      }>(
+        `SELECT scheduled_at, scheduled_ends_at, version FROM job_cards
+          WHERE organization_id = $1 AND id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictRow.rows[0]!.scheduled_at).toBeNull();
+      expect(conflictRow.rows[0]!.scheduled_ends_at).toBeNull();
+      expect(conflictRow.rows[0]!.version).toBe(1);
+      const conflictRevisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictRevisions.rows[0]!.count).toBe('0');
+      const conflictReminders = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM calendar_reminders
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictReminders.rows[0]!.count).toBe('0');
+      expect(published.filter((event) => event.entityId === conflictJobId)).toEqual([]);
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('NJS-15: same-start patch on a START_ONLY delivery repairs the canonical end with history', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `normal_sched_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await runMigrations({
+        migrationsDirectory: MIGRATIONS_DIRECTORY,
+        store: new PostgresMigrationStore(pool),
+      });
+
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('Normal scheduling same-start', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Manager');
+      const staffId = await insertUser(pool, organizationId, 'STAFF', 'Staff');
+      const customerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Dünya Klinik', 'clinic', 'active') RETURNING id`,
+        [organizationId],
+      )).rows[0]!.id;
+      const customerB = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Yıldız Klinik', 'clinic', 'active') RETURNING id`,
+        [organizationId],
+      )).rows[0]!.id;
+
+      const published: RealtimeEventRecord[] = [];
+      const publisher: RealtimeEventPublisher = { publish: (event) => published.push(event) };
+      const service = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => CLOCK,
+        publisher,
+        { enabled: false },
+        { enabled: false },
+        { enabled: true, reminderLeadMinutes: 30 },
+      );
+      const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
+
+      // Legacy START_ONLY row: start persisted, end absent.
+      const jobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, customer_id, assigned_to, created_by,
+            scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'Başı olan teslim', $2, $3, $4,
+           '2026-08-21T10:30:00.000Z', NULL)
+         RETURNING id`,
+        [organizationId, customerId, staffId, managerId],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_schedule_revisions
+           (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+            due_date, organization_timezone, source, created_by)
+         VALUES ($1, $2, 1, '2026-08-21T10:30:00.000Z', NULL, NULL, 'Europe/Istanbul', 'CREATE', $3)`,
+        [organizationId, jobId, managerId],
+      );
+
+      // Client round-trips the visible start unchanged and presses Save.
+      const updated = await service.patch(manager, jobId, {
+        expectedVersion: 1,
+        scheduledAt: '2026-08-21T10:30:00.000Z',
+      });
+
+      expect(updated).toMatchObject({
+        version: 2,
+        scheduledAt: '2026-08-21T10:30:00.000Z',
+        scheduledEndsAt: '2026-08-21T11:00:00.000Z',
+      });
+      const row = await pool.query<{
+        scheduled_at: Date; scheduled_ends_at: Date; version: number;
+      }>(
+        `SELECT scheduled_at, scheduled_ends_at, version FROM job_cards
+          WHERE organization_id = $1 AND id = $2`,
+        [organizationId, jobId],
+      );
+      expect(row.rows[0]!.scheduled_at.toISOString()).toBe('2026-08-21T10:30:00.000Z');
+      expect(row.rows[0]!.scheduled_ends_at.toISOString()).toBe('2026-08-21T11:00:00.000Z');
+      expect(row.rows[0]!.version).toBe(2);
+      const revisions = await pool.query<{ revision_no: number; source: string }>(
+        `SELECT revision_no, source FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2 ORDER BY revision_no`,
+        [organizationId, jobId],
+      );
+      expect(revisions.rows).toHaveLength(2);
+      expect(revisions.rows[1]).toMatchObject({ revision_no: 2, source: 'RESCHEDULE' });
+      const snapshot = await pool.query<{ scheduled_at: Date; scheduled_ends_at: Date }>(
+        `SELECT scheduled_at, scheduled_ends_at FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2 AND revision_no = 2`,
+        [organizationId, jobId],
+      );
+      expect(snapshot.rows[0]!.scheduled_at.toISOString()).toBe('2026-08-21T10:30:00.000Z');
+      expect(snapshot.rows[0]!.scheduled_ends_at.toISOString()).toBe('2026-08-21T11:00:00.000Z');
+      const reminders = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM calendar_reminders
+          WHERE organization_id = $1 AND job_card_id = $2 AND state <> 'CANCELLED'`,
+        [organizationId, jobId],
+      );
+      expect(reminders.rows[0]!.count).toBe('1');
+      expect(published.some((event) => event.entityId === jobId)).toBe(true);
+
+      // Same-start repair on a conflicting START_ONLY row must fail with
+      // CALENDAR_CONFLICT: the repaired scheduleChanged signal drives
+      // availability over the derived interval.
+      await pool.query(
+        `INSERT INTO calendar_events
+           (organization_id, assigned_user_id, title, starts_at, ends_at,
+            timezone, created_by, updated_by)
+         VALUES ($1, $2, 'Çakışan plan', '2026-08-21T10:40:00.000Z',
+           '2026-08-21T10:50:00.000Z', 'Europe/Istanbul', $3, $3)`,
+        [organizationId, staffId, managerId],
+      );
+      const conflictJobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, customer_id, assigned_to, created_by,
+            scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'Çakışacak başlı teslim', $2, $3, $4,
+           '2026-08-21T10:30:00.000Z', NULL)
+         RETURNING id`,
+        [organizationId, customerB, staffId, managerId],
+      )).rows[0]!.id;
+      await expect(service.patch(manager, conflictJobId, {
+        expectedVersion: 1,
+        scheduledAt: '2026-08-21T10:30:00.000Z',
+      })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+      const conflictRow = await pool.query<{
+        scheduled_at: Date; scheduled_ends_at: Date | null; version: number;
+      }>(
+        `SELECT scheduled_at, scheduled_ends_at, version FROM job_cards
+          WHERE organization_id = $1 AND id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictRow.rows[0]!.scheduled_at.toISOString()).toBe('2026-08-21T10:30:00.000Z');
+      expect(conflictRow.rows[0]!.scheduled_ends_at).toBeNull();
+      expect(conflictRow.rows[0]!.version).toBe(1);
+      const conflictRevisions = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_card_schedule_revisions
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictRevisions.rows[0]!.count).toBe('0');
+      const conflictReminders = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM calendar_reminders
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, conflictJobId],
+      );
+      expect(conflictReminders.rows[0]!.count).toBe('0');
+      expect(published.filter((event) => event.entityId === conflictJobId)).toEqual([]);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
