@@ -13,6 +13,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = { title?: string; assignedTo?: string };
@@ -130,10 +131,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
       attemptRef.current = null; setAmbiguous(false);
       onCreated(job.id);
     } catch (caught) {
-      // Fail-safe: only an authoritative non-retryable server response proves the
-      // attempt resolved; anything else (transport loss, unknown error) keeps the
-      // immutable attempt ambiguous so a retry replays the original request.
-      const definitive = caught instanceof ApiError && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
       setError(caught instanceof Error ? caught.message : 'Görev oluşturulamadı. Tekrar deneyin.');

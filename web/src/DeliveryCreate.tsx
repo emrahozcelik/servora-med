@@ -7,6 +7,7 @@ import {
   type DeliveryPurpose,
 } from './services/api';
 import { ProductSelect } from './ProductSelect';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
@@ -210,7 +211,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       // the attempt resolved; anything else keeps the frozen attempt so the
       // exact retry replays the original request (committed-response-loss
       // must never escalate into a second Product Delivery JobCard).
-      const definitive = caught instanceof ApiError && caught.status !== 0 && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      const definitive = isDefinitiveMutationError(caught);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
       if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {

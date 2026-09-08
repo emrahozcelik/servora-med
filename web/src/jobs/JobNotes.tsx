@@ -12,6 +12,7 @@ import {
   type JobCardNotePage,
 } from './jobs-api';
 import { jobCardStatusLabel } from './job-labels';
+import { isDefinitiveMutationError } from './mutation-attempt-error';
 
 const PAGE_SIZE = 25;
 const codePointLength = (value: string) => Array.from(value).length;
@@ -181,7 +182,7 @@ export function JobNotes({
       // Fail-safe: only an authoritative non-retryable server response proves
       // the attempt resolved; anything else keeps the frozen attempt so the
       // exact retry replays the original note.
-      const definitive = caught instanceof ApiError && caught.status !== 0 && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      const definitive = isDefinitiveMutationError(caught);
       if (definitive) { actionRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
       const error = caught instanceof Error ? caught.message : 'Not kaydedilemedi.';

@@ -30,6 +30,7 @@ let databaseUrl = '';
 let databaseCreated = false;
 let page;
 let deliveryPage;
+let activePage;
 let browser;
 let viteServer;
 let failure = null;
@@ -194,7 +195,7 @@ async function browserCase(fixture) {
 async function meetingCase(fixture) {
   if (!browser) browser = await chromium.launch(browserLaunchOptions);
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
-  const meetingPage = await context.newPage();
+  const meetingPage = await context.newPage(); activePage = meetingPage;
   const requests = []; let committed = null; let loseNext = true;
   await meetingPage.route(`**/api/job-cards/${fixture.meetingJob}/meeting-details`, async (route) => {
     if (route.request().method() !== 'PATCH') return route.continue();
@@ -233,7 +234,7 @@ async function meetingCase(fixture) {
 async function deliveryCase(fixture) {
   if (!browser) browser = await chromium.launch(browserLaunchOptions);
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
-  deliveryPage = await context.newPage();
+  deliveryPage = await context.newPage(); activePage = deliveryPage;
   const requests = []; let committed = null; let loseNext = true;
   await deliveryPage.route('**/api/job-cards/product-deliveries', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
@@ -281,7 +282,7 @@ async function deliveryCase(fixture) {
 async function followUpCase(fixture) {
   if (!browser) browser = await chromium.launch(browserLaunchOptions);
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
-  const followUpPage = await context.newPage();
+  const followUpPage = await context.newPage(); activePage = followUpPage;
   const requests = []; let committed = null; let loseNext = true;
   await followUpPage.route(`**/api/job-cards/${fixture.followUpSource}/follow-ups`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
@@ -313,7 +314,7 @@ async function followUpCase(fixture) {
 async function noteCase(fixture) {
   if (!browser) browser = await chromium.launch(browserLaunchOptions);
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
-  const notePage = await context.newPage();
+  const notePage = await context.newPage(); activePage = notePage;
   const requests = []; let committed = null; let loseNext = true;
   await notePage.route(`**/api/job-cards/${fixture.noteJob}/notes`, async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
@@ -353,6 +354,79 @@ async function injectRealtimeUpdate(fixture) {
   } finally { await client.end(); }
 }
 
+
+async function invalidResponseCase(fixture) {
+  // Two create screens, one failure mode: the backend COMMITS the mutation and
+  // returns HTTP 201, but the response body delivered to the browser is
+  // corrupted so the real api parser raises ApiError(0, INVALID_RESPONSE).
+  if (!browser) browser = await chromium.launch(browserLaunchOptions);
+  const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
+  const gtPage = await context.newPage(); activePage = gtPage;
+  const gtRequests = []; let gtCommitted = null; let gtCorruptNext = true;
+  await gtPage.route('**/api/job-cards', async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'POST' || url.pathname !== '/api/job-cards') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); gtRequests.push(body);
+    if (!gtCorruptNext) return route.continue();
+    gtCorruptNext = false;
+    const response = await route.fetch(); gtCommitted = { status: response.status(), body: await response.json() };
+    await route.fulfill({ status: response.status(), contentType: 'application/json', body: '{"jobCardId":"截断' });
+  });
+  await loginBrowser(context, fixture.admin);
+  await gtPage.goto('/jobs/new-task');
+  await gtPage.getByText('Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.').waitFor();
+  await gtPage.locator('#task-title').fill('JCID invalid response task A');
+  await gtPage.locator('#task-assignee option', { hasText: 'JCID Staff' }).first().waitFor({ state: 'attached', timeout: 10000 });
+  await gtPage.locator('#task-assignee').selectOption(fixture.staff);
+  await gtPage.getByRole('button', { name: 'Görevi oluştur' }).click();
+  await gtPage.waitForTimeout(800); await screenshot('gt-after-submit.png', gtPage).catch(() => {});
+  await gtPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('GT-INVALID-RESPONSE-COMMITTED', gtCommitted?.status === 201 && gtCommitted?.body?.id, `status=${gtCommitted?.status}; id=${gtCommitted?.body?.id}`);
+  record('GT-INVALID-RESPONSE-FROZEN', await gtPage.locator('#task-title').isDisabled(), 'general task form frozen after invalid success response');
+  await gtPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await gtPage.waitForTimeout(400);
+  record('GT-INVALID-RESPONSE-EXACT-RETRY', gtRequests.length === 2 && JSON.stringify(gtRequests[0]) === JSON.stringify(gtRequests[1]), JSON.stringify(gtRequests[1] ?? null));
+  const gtClient = new Client({ connectionString: databaseUrl }); await gtClient.connect();
+  try {
+    const gtJobs = (await gtClient.query(`SELECT count(*)::int AS n FROM job_cards WHERE organization_id=$1 AND type='GENERAL_TASK' AND title='JCID invalid response task A'`, [fixture.organizationId])).rows[0].n;
+    record('GT-INVALID-RESPONSE-DB-NO-DUPLICATE', gtJobs === 1, `general task job cards=${gtJobs}`);
+  } finally { await gtClient.end(); }
+
+  // Sales meeting create: same failure mode, duplicate durable JobCard risk.
+  const smPage = await context.newPage(); activePage = smPage;
+  const smRequests = []; let smCommitted = null; let smCorruptNext = true;
+  await smPage.route('**/api/job-cards', async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'POST' || url.pathname !== '/api/job-cards') return route.continue();
+    const body = JSON.parse(route.request().postData() || '{}'); smRequests.push(body);
+    if (!smCorruptNext) return route.continue();
+    smCorruptNext = false;
+    const response = await route.fetch(); smCommitted = { status: response.status(), body: await response.json() };
+    await route.fulfill({ status: response.status(), contentType: 'application/json', body: '{"jobCardId":"截断' });
+  });
+  await smPage.goto('/jobs/new-meeting');
+  await smPage.getByRole('heading', { name: 'Görüşme / ziyaret planla', exact: true }).waitFor();
+  await smPage.locator('#meeting-title').fill('JCID invalid response meeting A');
+  await smPage.locator('#meeting-engagement-kind').selectOption('PRODUCT_DEMO');
+  await smPage.locator('.servora-ant-select').first().click();
+  await smPage.locator('.servora-ant-select-dropdown .servora-ant-select-item-option', { hasText: 'JCID Delivery Klinik' }).first().waitFor({ timeout: 10000 });
+  await smPage.locator('.servora-ant-select-dropdown .servora-ant-select-item-option', { hasText: 'JCID Delivery Klinik' }).first().click();
+  await smPage.locator('#meeting-assignee option', { hasText: 'JCID Staff' }).first().waitFor({ state: 'attached', timeout: 10000 });
+  await smPage.locator('#meeting-assignee').selectOption(fixture.staff);
+  await smPage.locator('#meeting-scheduled-at').fill('2026-09-20T11:00');
+  await smPage.getByRole('button', { name: /planla/i }).click();
+  await smPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
+  record('SM-INVALID-RESPONSE-COMMITTED', smCommitted?.status === 201 && smCommitted?.body?.id, `status=${smCommitted?.status}; id=${smCommitted?.body?.id}`);
+  record('SM-INVALID-RESPONSE-FROZEN', await smPage.locator('#meeting-title').isDisabled(), 'sales meeting form frozen after invalid success response');
+  await smPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await smPage.waitForTimeout(400);
+  record('SM-INVALID-RESPONSE-EXACT-RETRY', smRequests.length === 2 && JSON.stringify(smRequests[0]) === JSON.stringify(smRequests[1]), JSON.stringify(smRequests[1] ?? null));
+  const smClient = new Client({ connectionString: databaseUrl }); await smClient.connect();
+  try {
+    const smJobs = (await smClient.query(`SELECT count(*)::int AS n FROM job_cards WHERE organization_id=$1 AND type='SALES_MEETING' AND title='JCID invalid response meeting A'`, [fixture.organizationId])).rows[0].n;
+    record('SM-INVALID-RESPONSE-DB-NO-DUPLICATE', smJobs === 1, `sales meeting job cards=${smJobs}`);
+  } finally { await smClient.end(); }
+  await context.close();
+}
+
 async function backendCases(fixture) {
   const session = await login(fixture.admin);
   const cancel = { clientActionId: 'jcid-cancel-original', expectedVersion: 1, cancelReason: 'JCID cancellation reason' };
@@ -374,8 +448,8 @@ try {
   viteServer = await createViteServer({ ...(loaded?.config || {}), configFile: false, root: web, server: { ...(loaded?.config.server || {}), host: '127.0.0.1', port: Number(webOrigin.split(':').pop()), strictPort: true, proxy: { '/api': { target: serverOrigin, changeOrigin: true } } } });
   await viteServer.listen();
   await backendCases(fixture); await meetingCase(fixture); await browserCase(fixture);
-  await deliveryCase(fixture); await followUpCase(fixture); await noteCase(fixture);
-} catch (error) { failure = error; if (page) try { await screenshot('failure.png'); } catch { /* best effort */ } if (deliveryPage) try { await screenshot('failure-delivery.png', deliveryPage); } catch { /* best effort */ } }
+  await deliveryCase(fixture); await followUpCase(fixture); await noteCase(fixture); await invalidResponseCase(fixture);
+} catch (error) { failure = error; if (activePage) try { await screenshot('failure.png', activePage); } catch { /* best effort */ } }
 finally {
   if (viteServer) await viteServer.close().catch(() => {});
   for (const child of processes.reverse()) await stop(child);

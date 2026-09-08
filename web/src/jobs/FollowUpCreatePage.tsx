@@ -26,6 +26,7 @@ import {
   FOLLOW_UP_ERROR_MESSAGES,
 } from './follow-up-presentation';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
+import { isDefinitiveMutationError } from './mutation-attempt-error';
 import {
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
@@ -350,7 +351,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       // Fail-safe: only an authoritative non-retryable server response proves
       // the attempt resolved; anything else keeps the frozen attempt so the
       // exact retry replays the original request against the original source.
-      const definitive = apiError !== null && apiError.status !== 0 && !apiError.retryable && apiError.code !== 'ACTION_IN_PROGRESS';
+      const definitive = isDefinitiveMutationError(apiError);
       if (!definitive) setAmbiguous(true);
       else setAmbiguous(false);
       if (!definitive) attempt.current = attemptValue;

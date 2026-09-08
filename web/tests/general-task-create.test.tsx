@@ -614,4 +614,39 @@ describe('General Task quick create', () => {
     expect(buttons[0]?.textContent).toBe('Vazgeç');
     expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
   });
+
+
+  it('freezes the attempt when a committed success response cannot be parsed, then exact-retries', async () => {
+    // Committed server-side + malformed successful body: the parser raises
+    // ApiError(0, INVALID_RESPONSE, retryable=false) — the attempt MUST stay.
+    let keySeq = 0;
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      configurable: true, value: vi.fn(() => `action-${++keySeq}`),
+    });
+    const first = deferred<never>();
+    jobs.createJobCard.mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ id: 'job-1', version: 1 })
+      .mockResolvedValueOnce({ id: 'job-2', version: 1 });
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    change(container.querySelector('#task-title')!, 'Özgün görev');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await act(async () => first.reject(new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.', false)));
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-cancel-task]') as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(jobs.createJobCard.mock.calls[1]![0]).toMatchObject({
+      clientActionId: jobs.createJobCard.mock.calls[0]![0].clientActionId,
+      title: 'Özgün görev',
+    });
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+
+    change(container.querySelector('#task-title')!, 'Yeni görev');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard.mock.calls[2]![0].clientActionId)
+      .not.toBe(jobs.createJobCard.mock.calls[0]![0].clientActionId);
+  });
 });

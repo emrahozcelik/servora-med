@@ -6026,4 +6026,104 @@ describe('Staff JobCard detail', () => {
     expect(panel!.textContent).toContain('İşi kabul et');
     expect(panel!.textContent).toContain('İşi iptal et');
   });
+
+
+  it('freezes the lifecycle attempt when a committed success response body cannot be parsed', async () => {
+    const meeting = inProgressMeeting();
+    const submission = {
+      ...meeting,
+      engagementKind: 'CUSTOMER_VISIT' as const,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const next = {
+      ...submission,
+      status: 'WAITING_APPROVAL' as const,
+      version: submission.version + 1,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T12:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    // First POST: backend returns HTTP 200 but a malformed body — the real
+    // api parser raises ApiError(0, 'INVALID_RESPONSE', retryable=false).
+    // The unresolved attempt must stay frozen; retry must resend exactly.
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          outcome: 'FOLLOW_UP_REQUIRED',
+          unsuccessfulReason: 'REQUESTED_LATER',
+          meetingSummary: 'Takip gerekli',
+          jobCardVersion: submission.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-25T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip görüşmesini planla',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length === 1) {
+          return new Response('{"jobCardId":"截断', { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return Response.json(next);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(submission);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(submission, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reasonTextareas = dialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const reason = reasonTextareas.item(reasonTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görüşme tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(1);
+    // status-0 must NOT resolve the attempt: dialog stays, confirm = exact retry.
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).not.toBeNull();
+    const dialogFrozen = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    // jsdom does not propagate fieldset disabled to descendants; assert the
+    // explicit reason textarea plus the frozen fieldset and uncertain banner.
+    const frozenReason = dialogFrozen.querySelectorAll<HTMLTextAreaElement>('textarea');
+    expect(frozenReason.item(frozenReason.length - 1)!.disabled).toBe(true);
+    expect(dialogFrozen.querySelector('fieldset')).toHaveProperty('disabled', true);
+    expect(host.textContent).toContain('İşlemin sonucu henüz doğrulanamadı');
+
+    await act(async () => {
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
 });

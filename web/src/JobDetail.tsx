@@ -86,6 +86,7 @@ import {
   FollowUpSourcePanel,
   SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 
 type StaffCommand = 'start' | 'submit';
 type CommandDependencies = {
@@ -1457,7 +1458,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setFollowUp(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
-        if (caught instanceof ApiError && !caught.retryable) {
+        if (isDefinitiveMutationError(caught)) {
           lifecycleAttempt.current = null;
           setUncertain(false);
           if (command === 'START') startCapture.current = null;
@@ -1608,7 +1609,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
       } else {
-        if (caught instanceof ApiError && !caught.retryable) {
+        if (isDefinitiveMutationError(caught)) {
           withdrawEditAttempt.current = null;
           setUncertain(false);
         } else {

@@ -220,4 +220,26 @@ describe('MeetingDetailsSection', () => {
     expect(container.querySelector('form')).toBeNull();
     expect(container.querySelector('dl')).not.toBeNull();
   });
+
+  it('freezes the attempt on status-0 INVALID_RESPONSE from a committed success response', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.', false))
+      .mockResolvedValueOnce({ ...details, meetingAt: '2026-07-15T12:30:00.000Z', jobCardVersion: 4 });
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user} mutationPending={false} onSave={onSave} />));
+    change(container.querySelector('#meeting-actual-at')!, '2026-07-15T12:30');
+    change(container.querySelector('#meeting-summary')!, 'Özgün özet');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', true);
+
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(onSave.mock.calls[1]![0]).toMatchObject({
+      clientActionId: onSave.mock.calls[0]![0].clientActionId,
+      expectedVersion: onSave.mock.calls[0]![0].expectedVersion,
+      meetingSummary: 'Özgün özet',
+    });
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+  });
 });

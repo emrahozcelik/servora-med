@@ -10,6 +10,7 @@ import {
 } from './jobs/jobs-api';
 import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
@@ -118,10 +119,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       const job = await createJobCard(input);
       attemptRef.current = null; setAmbiguous(false); onCreated(job.id);
     } catch (caught) {
-      // Fail-safe: only an authoritative non-retryable server response proves the
-      // attempt resolved; anything else (transport loss, unknown error) keeps the
-      // immutable attempt ambiguous so a retry replays the original request.
-      const definitive = caught instanceof ApiError && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
       if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {

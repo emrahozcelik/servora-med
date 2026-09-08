@@ -10,6 +10,8 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
+import { isDefinitiveMutationError } from './mutation-attempt-error';
+
 const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
   CONTACT_NOT_AVAILABLE: 'İlgili kişi mevcut değil',
   CONTACT_BUSY: 'İlgili kişi meşgul',
@@ -88,10 +90,12 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       await onSave(input);
       attemptRef.current = null; setAmbiguous(false); setFeedback('Görüşme sonucu kaydedildi.');
     } catch (caught) {
-      // Fail-safe: only an authoritative non-retryable server response proves the
-      // attempt resolved; anything else (transport loss, unknown error) keeps the
-      // immutable attempt ambiguous so a retry replays the original request.
-      const definitive = caught instanceof ApiError && !caught.retryable && caught.code !== 'ACTION_IN_PROGRESS';
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
       setFieldErrors(serverFieldErrors(caught));
