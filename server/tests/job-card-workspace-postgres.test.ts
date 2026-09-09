@@ -112,6 +112,20 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       const completedJobId = await job('Tamamlanacak teslim');
       const cancelledJobId = await job('Düzeltilecek teslim');
       const hiddenJobId = await job('Başka personelin işi', otherStaffId);
+      // R3: START requires a valid planned interval for PRODUCT_DELIVERY.
+      // Previous-day intervals: START-eligible, no same-day customer conflict.
+      await pool!.query(
+        `UPDATE job_cards SET scheduled_at = '2026-07-13T08:00:00.000Z',
+                              scheduled_ends_at = '2026-07-13T08:30:00.000Z'
+         WHERE id = $1`,
+        [completedJobId],
+      );
+      await pool!.query(
+        `UPDATE job_cards SET scheduled_at = '2026-07-13T10:00:00.000Z',
+                              scheduled_ends_at = '2026-07-13T10:30:00.000Z'
+         WHERE id = $1`,
+        [cancelledJobId],
+      );
 
       const repository = new PostgresJobCardRepository(pool);
       const service = new JobCardService(repository, () => new Date('2026-07-14T09:00:00.000Z'));

@@ -31,6 +31,7 @@ class MemoryJobCardRepository implements JobCardRepository {
     version: 1, title: 'Klinik teslimi', customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
     description: null, scheduledAt: '2026-07-16T11:30:00.000Z',
+    scheduledEndsAt: '2026-07-16T12:00:00.000Z',
   };
   activities: Activity[] = [];
   realtimeEvents: RealtimeEventRecord[] = [];

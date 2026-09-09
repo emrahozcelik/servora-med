@@ -23,8 +23,8 @@ class LifecycleRepository implements JobCardRepository {
     id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS',
     version: 2, title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
-    scheduledAt: null,
-    scheduledEndsAt: null,
+    scheduledAt: '2026-07-13T11:00:00.000Z',
+    scheduledEndsAt: '2026-07-13T11:30:00.000Z',
     engagementKind: null,
     sourceJobCardId: null,
     followUpInstructions: null,
@@ -381,6 +381,9 @@ function salesMeetingRepository() {
     contactId: null,
     dueDate: '2026-07-15',
     engagementKind: 'CUSTOMER_VISIT',
+    // Submission-path fixtures keep an unscheduled job: R3 gates START only.
+    scheduledAt: null,
+    scheduledEndsAt: null,
   };
   repository.items = [];
   return repository;
@@ -732,14 +735,14 @@ describe('JobCard lifecycle commands', () => {
   });
 
   it.each([
-    ['at', time.toISOString()],
-    ['after', '2026-07-13T11:59:59.999Z'],
-    ['without a schedule', null],
-  ] as const)('allows START %s its scheduled instant', async (_boundary, scheduledAt) => {
+    ['at', time.toISOString(), '2026-07-13T12:30:00.000Z'],
+    ['after', '2026-07-13T11:59:59.999Z', '2026-07-13T12:30:00.000Z'],
+  ] as const)('allows START %s its scheduled instant', async (_boundary, scheduledAt, scheduledEndsAt) => {
     const repo = new LifecycleRepository();
     repo.job.status = 'ACCEPTED';
     repo.job.version = 2;
     repo.job.scheduledAt = scheduledAt;
+    repo.job.scheduledEndsAt = scheduledEndsAt;
 
     await expect(new JobCardService(repo, () => time).start(
       staff,
@@ -747,6 +750,23 @@ describe('JobCard lifecycle commands', () => {
       input(`start-${_boundary}`, 2),
     )).resolves.toMatchObject({ status: 'IN_PROGRESS', version: 3 });
     expect(repo.transitions).toHaveLength(1);
+  });
+
+  it('rejects START without a planned interval', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'ACCEPTED';
+    repo.job.version = 2;
+    repo.job.scheduledAt = null;
+    repo.job.scheduledEndsAt = null;
+
+    await expect(new JobCardService(repo, () => time).start(
+      staff,
+      'job-1',
+      input('start-without-schedule', 2),
+    )).rejects.toMatchObject({ code: 'SCHEDULED_INTERVAL_REQUIRED', statusCode: 400 });
+    expect(repo.job).toMatchObject({ status: 'ACCEPTED', version: 2 });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
   });
 
   it('rejects stale and non-waiting withdrawals without mutation', async () => {
