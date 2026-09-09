@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright';
@@ -197,11 +198,37 @@ async function meetingCase(fixture) {
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
   const meetingPage = await context.newPage(); activePage = meetingPage;
   const requests = []; let committed = null; let loseNext = true;
+  let canonicalCaptureArmed = false; let canonicalRefresh = null; let canonicalGets = 0;
+  let notesCaptureArmed = false; let notesGets = 0;
   await meetingPage.route(`**/api/job-cards/${fixture.meetingJob}/meeting-details`, async (route) => {
     if (route.request().method() !== 'PATCH') return route.continue();
     const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
     if (!loseNext) return route.continue();
     loseNext = false; const response = await route.fetch(); committed = { status: response.status(), body: await response.json() }; await route.abort('connectionfailed');
+  });
+  // Passive capture of the browser-originated canonical refetch and notes
+  // refetch from real network traffic (no request interception, so the
+  // reconcile drains are never disturbed). A's own commit pushes a live
+  // `job.updated` event through the server bus; the NOTE_ADDED stimulus below
+  // is delivered live as well; the durable DB-inserted invalidation is
+  // delivered through the SSE reconnect replay after the offline/online
+  // cycle. All three trigger real client reconcile paths without rebinding
+  // the frozen attempt.
+  meetingPage.on('response', async (response) => {
+    try {
+      const req = response.request();
+      if (req.method() !== 'GET') return;
+      const pathname = new URL(req.url()).pathname;
+      if (pathname === `/api/job-cards/${fixture.meetingJob}/notes` && notesCaptureArmed) {
+        notesGets += 1;
+        return;
+      }
+      if (pathname !== `/api/job-cards/${fixture.meetingJob}` || !canonicalCaptureArmed) return;
+      canonicalGets += 1;
+      if (canonicalRefresh === null) {
+        try { canonicalRefresh = { status: response.status(), body: await response.json() }; } catch { canonicalRefresh = null; }
+      }
+    } catch { /* ignore listener errors */ }
   });
   await loginBrowser(context, fixture.admin);
   await meetingPage.goto(`/jobs/${fixture.meetingJob}`);
@@ -209,25 +236,92 @@ async function meetingCase(fixture) {
   await meetingPage.locator('#meeting-outcome').selectOption('FOLLOW_UP_REQUIRED');
   await meetingPage.locator('#meeting-unsuccessful-reason').selectOption('REQUESTED_LATER');
   await meetingPage.locator('#meeting-summary').fill('JCID meeting A original summary');
+  canonicalCaptureArmed = true;
   await meetingPage.getByRole('button', { name: /sonucunu kaydet/i }).click();
   await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
   record('MEETING-A-COMMITTED-RESPONSE-LOST', committed?.status === 200 && committed?.body?.jobCardVersion === 2, `status=${committed?.status}; version=${committed?.body?.jobCardVersion}`);
   const fields = meetingPage.locator('.meeting-result-form input, .meeting-result-form select, .meeting-result-form textarea');
   record('MEETING-A-INPUTS-FROZEN', await fields.evaluateAll((nodes) => nodes.every((node) => node.disabled || node.closest('fieldset')?.disabled)), 'meeting inputs disabled after lost response');
+  // Live external stimulus through the REAL application path: an
+  // admin-authenticated NOTE_ADDED mutation appends a durable realtime event
+  // AND pushes it through the server's in-memory event bus, so the frame
+  // reaches the browser live (no reconnect) and the client refetches notes.
+  // This proves end-to-end live SSE delivery through the harness proxy.
+  const adminSession = await login(fixture.admin);
+  const notesWait = meetingPage.waitForResponse((response) => {
+    try {
+      const req = response.request();
+      return req.method() === 'GET' && new URL(req.url()).pathname === `/api/job-cards/${fixture.meetingJob}/notes` && response.status() === 200;
+    } catch { return false; }
+  }, { timeout: 15000 });
+  notesCaptureArmed = true;
+  const liveNote = await api(adminSession.cookie, `/api/job-cards/${fixture.meetingJob}/notes`, {
+    clientActionId: `jcid-live-${crypto.randomUUID()}`,
+    note: 'JCID live realtime trigger note',
+  });
+  if (liveNote.status !== 201) throw new Error(`live realtime trigger note failed: ${liveNote.status}`);
+  await notesWait;
+  record('MEETING-A-LIVE-EVENT-PROCESSED', notesGets >= 1, `browser notes refetch after live note event=${notesGets}`);
+  // Durable realtime invalidation for the frozen attempt: same shape as the
+  // application's own job.updated events (DURABLE record only). The offline/
+  // online cycle forces the browser EventSource to reconnect, and the app
+  // server replays the durable event from the database; the browser processes
+  // the stream frame through the unmodified RealtimeProvider → JobDetail
+  // drain chain, which must NOT rebind the frozen attempt.
   await injectRealtimeUpdate(fixture);
-  await meetingPage.waitForTimeout(500);
-  record('MEETING-A-REALTIME-UPDATE-OBSERVED', await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).count() === 1, 'retry affordance survives a realtime invalidation');
-  await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click(); await meetingPage.waitForTimeout(300);
+  await meetingPage.context().setOffline(true);
+  await meetingPage.waitForTimeout(700);
+  const reconnectWait = meetingPage.waitForResponse((response) => {
+    try {
+      const req = response.request();
+      return req.method() === 'GET' && new URL(req.url()).pathname === `/api/job-cards/${fixture.meetingJob}` && response.status() === 200;
+    } catch { return false; }
+  }, { timeout: 30000 });
+  await meetingPage.context().setOffline(false);
+  await reconnectWait;
+  record('MEETING-A-REALTIME-EVENT-PROCESSED', canonicalGets >= 1, `canonical GETs since A submit=${canonicalGets}`);
+  // The response listener parses the body asynchronously; wait for the parse
+  // instead of racing it — proxied dev-server bodies can lag headers.
+  const refreshDeadline = Date.now() + 25000;
+  while (canonicalRefresh === null && Date.now() < refreshDeadline) {
+    await meetingPage.waitForTimeout(250);
+  }
+  record('MEETING-A-CANONICAL-REFRESH-OBSERVED', canonicalRefresh?.status === 200, `status=${canonicalRefresh?.status}`);
+  const refreshedVersion = canonicalRefresh?.body?.version ?? canonicalRefresh?.body?.job?.version;
+  record('MEETING-A-CANONICAL-REFRESH-VERSION', refreshedVersion === 2, `canonical version=${refreshedVersion}`);
+  record('MEETING-A-RETRY-AFFORDANCE-SURVIVES-REALTIME', await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).count() === 1, 'retry affordance survives a realtime invalidation');
+  const retryResponsePromise = meetingPage.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().includes('/meeting-details') && response.status() === 200, { timeout: 15000 });
+  await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click();
+  const retryResponse = await retryResponsePromise;
+  const retryResponseBody = await retryResponse.json();
   record('MEETING-A-EXACT-RETRY', requests.length === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]), JSON.stringify(requests));
   record('MEETING-A-RETRY-SAME-VERSION-KEY', requests[0]?.expectedVersion === 1 && requests[0]?.clientActionId === requests[1]?.clientActionId, JSON.stringify(requests[1]));
-  await meetingPage.waitForTimeout(200);
-  const b = { ...requests[0], clientActionId: `${requests[0]?.clientActionId}-B`, expectedVersion: 2, meetingSummary: 'JCID meeting B new summary' };
-  const bResponse = await meetingPage.evaluate(async ({ id, input }) => {
-    const response = await fetch(`/api/job-cards/${id}/meeting-details`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
-    return { status: response.status, body: await response.json() };
-  }, { id: fixture.meetingJob, input: b });
-  record('MEETING-B-NEW-KEY-CURRENT-VERSION', bResponse.status === 200 && bResponse.body?.jobCardVersion === 3 && bResponse.body?.meetingSummary === 'JCID meeting B new summary', `status=${bResponse.status}; version=${bResponse.body?.jobCardVersion}`);
-  record('MEETING-B-FOLLOWUP-BEARING-PRESERVED', bResponse.body?.outcome === 'FOLLOW_UP_REQUIRED' && bResponse.body?.unsuccessfulReason === 'REQUESTED_LATER', JSON.stringify(bResponse.body));
+  record('MEETING-A-RETRY-REPLAYS-ORIGINAL-SUCCESS', retryResponseBody?.jobCardVersion === 2 && retryResponseBody?.meetingSummary === 'JCID meeting A original summary', `status=${retryResponse.status()}; version=${retryResponseBody?.jobCardVersion}`);
+  // NOTE: the success feedback text is intentionally not awaited here. The
+  // failed attempt A's NETWORK_ERROR message stays rendered because the
+  // feedback element shows `{error || feedback}` and the success path does
+  // not clear the previous error — a pre-existing cosmetic wart unrelated to
+  // the idempotency contract. The contract signal is editability (ambiguous
+  // cleared), asserted below.
+  await meetingPage.waitForFunction(() => {
+    const nodes = document.querySelectorAll('.meeting-result-form input, .meeting-result-form select, .meeting-result-form textarea');
+    return nodes.length > 0 && [...nodes].every((node) => !node.disabled && !node.closest('fieldset')?.disabled);
+  }, { timeout: 15000 });
+  record('MEETING-A-FORM-EDITABLE-AFTER-RECONCILIATION', await fields.evaluateAll((nodes) => nodes.every((node) => !node.disabled && !node.closest('fieldset')?.disabled)), 'meeting inputs re-enabled after exact retry reconciled');
+  // Intent B must go through the real MeetingDetails form: edit the summary,
+  // submit via the actual button. The client generates key Y itself and must
+  // use the refreshed canonical version — no manual key/version construction.
+  await meetingPage.locator('#meeting-summary').fill('JCID meeting B new summary');
+  const bResponsePromise = meetingPage.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().includes('/meeting-details') && response.status() === 200, { timeout: 15000 });
+  await meetingPage.getByRole('button', { name: /sonucunu kaydet/i }).click();
+  const bResponse = await bResponsePromise;
+  const bBody = await bResponse.json();
+  const bRequest = requests[2];
+  const keyA = requests[0]?.clientActionId;
+  record('MEETING-B-UI-SUBMISSION', bRequest !== undefined && bRequest?.meetingSummary === 'JCID meeting B new summary', `intercepted UI PATCH=${JSON.stringify(bRequest)}`);
+  record('MEETING-B-NEW-KEY-CURRENT-VERSION', bRequest?.clientActionId !== keyA && bRequest?.expectedVersion === 2 && bBody?.jobCardVersion === 3, `keyA=${keyA}; keyB=${bRequest?.clientActionId}; expectedVersion=${bRequest?.expectedVersion}; resultVersion=${bBody?.jobCardVersion}`);
+  record('MEETING-B-FOLLOWUP-BEARING-PRESERVED', bBody?.outcome === 'FOLLOW_UP_REQUIRED' && bBody?.unsuccessfulReason === 'REQUESTED_LATER', JSON.stringify(bBody));
+  await screenshot('jcid-meeting-ui-b-reconciled.png', meetingPage);
   await context.close();
 }
 
@@ -446,6 +540,34 @@ try {
   const fixture = await seed(); const apiServer = start('fastify', 'node', ['dist/index.js'], { cwd: server, env: runtime }); await ready(`${serverOrigin}/api/health`, apiServer);
   const loaded = await loadConfigFromFile({ command: 'serve', mode: 'development' }, `${web}/vite.config.ts`, web);
   viteServer = await createViteServer({ ...(loaded?.config || {}), configFile: false, root: web, server: { ...(loaded?.config.server || {}), host: '127.0.0.1', port: Number(webOrigin.split(':').pop()), strictPort: true, proxy: { '/api': { target: serverOrigin, changeOrigin: true } } } });
+  // Live SSE delivery must reach the browser for the realtime acceptance, but
+  // the default dev proxy pipeline does not reliably flush streamed
+  // text/event-stream frames (production uses Caddy, separately verified by
+  // ops/ci/verify-sse-streaming-behavior.sh). Bypass the proxy for the SSE
+  // route only with a raw streaming pipe that mirrors production proxy
+  // semantics. Registered ahead of vite's own proxy middleware so it runs
+  // first. Test-harness-only configuration.
+  const sseStack = viteServer.middlewares.stack;
+  const sseStackBefore = sseStack.length;
+  viteServer.middlewares.use('/api/realtime/events', (req, res) => {
+    // connect strips the matched route prefix from req.url, leaving '/' or
+    // '/?query' — rebuild the exact upstream path to avoid a trailing-slash
+    // 404 on the SSE endpoint.
+    const remainder = req.url ?? '';
+    const [suffix, query] = remainder.split('?');
+    const upstreamPath = `/api/realtime/events${suffix === '/' || suffix === '' ? '' : suffix}${query ? `?${query}` : ''}`;
+    const upstream = httpRequest(serverOrigin, { path: upstreamPath, method: req.method, headers: { ...req.headers, host: serverOrigin.replace('http://', '') } }, (upstreamRes) => {
+      if (res.writableEnded) { upstreamRes.resume(); return; }
+      res.writeHead(upstreamRes.statusCode ?? 200, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    });
+    req.pipe(upstream);
+    upstream.on('error', () => { try { res.destroy(); } catch { /* already gone */ } });
+  });
+  {
+    const added = sseStack.splice(sseStackBefore);
+    sseStack.unshift(...added);
+  }
   await viteServer.listen();
   await backendCases(fixture); await meetingCase(fixture); await browserCase(fixture);
   await deliveryCase(fixture); await followUpCase(fixture); await noteCase(fixture); await invalidResponseCase(fixture);
