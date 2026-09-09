@@ -1,10 +1,9 @@
-import { createHash } from 'node:crypto';
-
 import {
   JOB_CARD_INVALIDATION_REASON_CODES,
   type JobCardInvalidationInput,
 } from './types.js';
 import { AppError } from '../../errors/index.js';
+import { hashRequestIdentity } from './critical-action-request-hash.js';
 import {
   optionalLifecycleNote,
   requireActionId,
@@ -52,13 +51,13 @@ export function jobCardInvalidationRequestHash(
   jobCardId: string,
   input: JobCardInvalidationInput,
 ): string {
-  return createHash('sha256')
-    .update(JSON.stringify({
-      operation: JOB_CARD_INVALIDATION_OPERATION_VERSION,
-      jobCardId,
-      expectedVersion: input.expectedVersion,
-      reasonCode: input.reasonCode,
-      note: input.note,
-    }))
-    .digest('hex');
+  // Backward-compatible digest: must remain byte-identical to the original
+  // inline createHash implementation (see request-identity compat test).
+  return hashRequestIdentity({
+    operation: JOB_CARD_INVALIDATION_OPERATION_VERSION,
+    jobCardId,
+    expectedVersion: input.expectedVersion,
+    reasonCode: input.reasonCode,
+    note: input.note,
+  });
 }

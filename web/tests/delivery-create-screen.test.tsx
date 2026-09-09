@@ -497,3 +497,93 @@ describe('Delivery create CRM defaults', () => {
     expect((container.querySelector('#delivery-note') as HTMLTextAreaElement).value).toBe('Canonical refresh notu');
   });
 });
+
+describe('Delivery create ambiguous attempt contract', () => {
+  let root: Root; let container: HTMLDivElement;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubMatchMedia();
+    scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
+    scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
+    crm.getCustomer.mockRejectedValue(new Error('bulunamadı'));
+    crm.listCustomers.mockResolvedValue({ items: customers, total: customers.length, limit: 20, offset: 0 });
+    crm.createCustomer.mockResolvedValue({
+      id: 'customer-created', organizationId: 'org-1', name: 'Yeni Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, assignedStaffName: null, status: 'prospect', version: 1, primaryContact: null,
+    });
+    crm.createContact.mockResolvedValue({});
+    people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
+    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 8, offset: 0 });
+    api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
+    preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    document.querySelectorAll('.ant-select-dropdown').forEach((node) => node.remove());
+    vi.unstubAllGlobals();
+  });
+
+  async function fillValidForm() {
+    await act(async () => root.render(view(staffUser))); await settle();
+    await openCustomerSearchDropdown(container, 'delivery-customer');
+    await settleCustomerSearch();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
+  }
+
+  it('freezes the ambiguous request, retries the exact original, then starts a fresh edited intent', async () => {
+    let keySeq = 0;
+    api.createProductDelivery.mockReset();
+    api.createProductDelivery.mockImplementation((request: { clientActionId: string }) => {
+      if (keySeq === 0) { keySeq += 1; return Promise.reject(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true)); }
+      if (keySeq === 1) { keySeq += 1; return Promise.resolve({ jobCardId: 'job-1', version: 2 }); }
+      return Promise.resolve({ jobCardId: 'job-2', version: 1 });
+    });
+    await fillValidForm();
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(1);
+    const originalRequest = api.createProductDelivery.mock.calls[0]![0];
+    expect(originalRequest).toMatchObject({ customerId: 'customer-a', items: [{ productId: 'product-1', quantity: 2 }] });
+    expect(container.querySelector('[data-original-retry]')).not.toBeNull();
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click()); await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(2);
+    expect(api.createProductDelivery.mock.calls[1]![0]).toEqual(originalRequest);
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+
+    // Fresh edited intent after reconciliation: new key, new payload.
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '4'));
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(3);
+    expect(api.createProductDelivery.mock.calls[2]![0].clientActionId)
+      .not.toBe(originalRequest.clientActionId);
+    expect(api.createProductDelivery.mock.calls[2]![0]).toMatchObject({
+      customerId: 'customer-a', items: [{ productId: 'product-1', quantity: 4 }],
+    });
+  });
+
+  it('resolves the attempt on a definitive response and permits a corrected new submission', async () => {
+    api.createProductDelivery.mockReset();
+    api.createProductDelivery.mockRejectedValueOnce(new ApiError(409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Çakışma', false))
+      .mockResolvedValueOnce({ jobCardId: 'job-3', version: 1 });
+    await fillValidForm();
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).disabled).toBe(false);
+
+    await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-07-20T10:00'));
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(2);
+    expect(api.createProductDelivery.mock.calls[1]![0].clientActionId)
+      .not.toBe(api.createProductDelivery.mock.calls[0]![0].clientActionId);
+  });
+});

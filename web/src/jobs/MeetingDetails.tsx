@@ -10,6 +10,8 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
+import { isDefinitiveMutationError } from './mutation-attempt-error';
+
 const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
   CONTACT_NOT_AVAILABLE: 'İlgili kişi mevcut değil',
   CONTACT_BUSY: 'İlgili kişi meşgul',
@@ -18,6 +20,7 @@ const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
   OTHER: 'Diğer',
 };
 type MeetingFieldErrors = Partial<Record<MeetingDetailField, string>>;
+type MeetingAttempt = { input: PatchMeetingDetailsInput };
 const meetingFields: MeetingDetailField[] = [
   'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ];
@@ -63,12 +66,14 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
-  const actionId = useRef<string | null>(null); const feedbackRef = useRef<HTMLDivElement>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const attemptRef = useRef<MeetingAttempt | null>(null); const [ambiguous, setAmbiguous] = useState(false);
   const canonicalRef = useRef({ jobCardId: details.jobCardId, version: details.jobCardVersion });
   useEffect(() => {
     if (canonicalRef.current.jobCardId === details.jobCardId
       && canonicalRef.current.version === details.jobCardVersion) return;
     canonicalRef.current = { jobCardId: details.jobCardId, version: details.jobCardVersion };
+    if (attemptRef.current) return;
     setMeetingAt(meetingLocalValue(details.meetingAt)); setOutcome(details.outcome ?? '');
     setUnsuccessfulReason(details.unsuccessfulReason ?? '');
     setSummary(details.meetingSummary ?? '');
@@ -80,8 +85,26 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     && (user.role !== 'STAFF' || user.id === job.assignedTo)
   );
 
+  async function sendAttempt(input: PatchMeetingDetailsInput) {
+    try {
+      await onSave(input);
+      attemptRef.current = null; setAmbiguous(false); setFeedback('Görüşme sonucu kaydedildi.');
+    } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      setFieldErrors(serverFieldErrors(caught));
+      setError(caught instanceof Error ? caught.message : 'Görüşme sonucu kaydedilemedi.');
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (mutationPending) return; setError(''); setFeedback(''); setFieldErrors({});
+    event.preventDefault(); if (mutationPending || ambiguous || !canEdit) return; setError(''); setFeedback(''); setFieldErrors({});
     const normalizedSummary = summary.trim();
     if (Array.from(normalizedSummary).length > 4_000) {
       setFieldErrors({ meetingSummary: 'Görüşme özeti en fazla 4.000 karakter olabilir.' });
@@ -103,16 +126,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       setFeedback('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
       return;
     }
-    actionId.current ??= crypto.randomUUID();
-    try {
-      await onSave({ clientActionId: actionId.current, expectedVersion: job.version,
-        ...candidate });
-      actionId.current = null; setFeedback('Görüşme sonucu kaydedildi.');
-    } catch (caught) {
-      if (caught instanceof ApiError && !caught.retryable) actionId.current = null;
-      setFieldErrors(serverFieldErrors(caught));
-      setError(caught instanceof Error ? caught.message : 'Görüşme sonucu kaydedilemedi.');
-    }
+    const input = { clientActionId: crypto.randomUUID(), expectedVersion: job.version, ...candidate } satisfies PatchMeetingDetailsInput;
+    attemptRef.current = { input };
+    await sendAttempt(input);
   }
 
   if (!canEdit) return <section className="meeting-details" aria-labelledby="meeting-details-title">
@@ -124,14 +140,15 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       </dd></div>}
       <div><dt>Takip zamanı</dt><dd>{formatInstant(details.nextFollowUpAt)}</dd></div>
       <div className="detail-summary-wide"><dt>Görüşme özeti</dt><dd>{details.meetingSummary ?? 'Belirtilmedi'}</dd></div>
-    </dl></section>;
+    </dl>{ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={mutationPending}
+      onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}</section>;
 
   const followUpHint = 'Takip işi planı, işi kontrole gönderirken oluşturulur.';
   return <section className="meeting-details" aria-labelledby="meeting-details-title">
     <h2 id="meeting-details-title">Görüşme sonucu</h2>
     {(feedback || error) && <div ref={feedbackRef} className={`detail-feedback${error ? ' detail-feedback-error' : ''}`}
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
-    <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending}>
+    <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending || ambiguous}>
       <div className="field-group"><label htmlFor="meeting-actual-at">Gerçekleşme zamanı</label>
         <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
           aria-invalid={fieldErrors.meetingAt ? true : undefined}
@@ -171,7 +188,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
         {fieldErrors.meetingSummary && <span id="meeting-summary-error" className="field-error">{fieldErrors.meetingSummary}</span>}</div>
       <p className="form-help">{followUpHint}</p>
     </fieldset><div className="review-buttons inline-form-actions">
-      <button className="primary-button compact-button" type="submit" disabled={mutationPending}>
+      {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={mutationPending}
+        onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}
+      <button className="primary-button compact-button" type="submit" disabled={mutationPending || ambiguous}>
         {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}
       </button>
     </div></form>

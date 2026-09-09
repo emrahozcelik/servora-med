@@ -9,6 +9,7 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+let uuidSeq = 0;
 const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@x', role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 };
 const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS', version: 3,
   title: 'Görüşme', description: null, customerId: 'c1', contactId: null, assignedTo: 'staff-1', createdBy: 'staff-1',
@@ -24,11 +25,12 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
   Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
   element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
 }
+async function settle() { await act(async () => { await Promise.resolve(); }); }
 
 describe('MeetingDetailsSection', () => {
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'save-1') }); });
+    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `save-${++uuidSeq}`) }); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); });
 
   it('defaults a null meeting time once to the current local minute', async () => {
@@ -66,7 +68,8 @@ describe('MeetingDetailsSection', () => {
     await act(async () => root.render(<MeetingDetailsSection job={job} details={persisted}
       user={user} mutationPending={false} onSave={onSave} />));
 
-    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await act(async () => { (container.querySelector('form') as HTMLFormElement).requestSubmit(); await Promise.resolve(); });
+    await settle();
 
     expect(onSave).not.toHaveBeenCalled();
     expect(container.querySelector('[role="status"]')?.textContent)
@@ -90,6 +93,35 @@ describe('MeetingDetailsSection', () => {
       meetingSummary: 'Ürün sunumu yapıldı.', nextFollowUpAt: null,
     }));
     expect(new Date(onSave.mock.calls[0]![0].meetingAt as string).toString()).not.toBe('Invalid Date');
+  });
+
+  it('keeps the original version and body across canonical refresh, then allows a fresh edit after success', async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true))
+      .mockResolvedValueOnce({ ...details, meetingAt: '2026-07-15T12:30:00.000Z', jobCardVersion: 4 })
+      .mockResolvedValueOnce({ ...details, meetingAt: '2026-07-16T12:30:00.000Z', jobCardVersion: 6 });
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user} mutationPending={false} onSave={onSave} />));
+    change(container.querySelector('#meeting-actual-at')!, '2026-07-15T12:30');
+    change(container.querySelector('#meeting-summary')!, 'Özgün özet');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ expectedVersion: 3, meetingSummary: 'Özgün özet' });
+    // Ambiguous failure: original attempt is retained while truth refreshes under it.
+    await act(async () => root.render(<MeetingDetailsSection job={{ ...job, version: 4 }} details={{ ...details, jobCardVersion: 4 }} user={user} mutationPending={false} onSave={onSave} />));
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', true);
+    // Edits are blocked while the result is uncertain; only the original attempt can be retried.
+    change(container.querySelector('#meeting-summary')!, 'Değiştirilemez özet');
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(onSave.mock.calls[1]![0]).toMatchObject({
+      clientActionId: onSave.mock.calls[0]![0].clientActionId, expectedVersion: 3, meetingSummary: 'Özgün özet',
+    });
+    await settle();
+    // After reconciliation the form is editable again; a new intent gets a new key and canonical version.
+    await act(async () => root.render(<MeetingDetailsSection job={{ ...job, version: 4 }} details={{ ...details, jobCardVersion: 4, meetingSummary: 'Özgün özet' }} user={user} mutationPending={false} onSave={onSave} />));
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+    change(container.querySelector('#meeting-actual-at')!, '2026-07-16T12:30');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave.mock.calls[2]![0].clientActionId).not.toBe(onSave.mock.calls[0]![0].clientActionId);
+    expect(onSave.mock.calls[2]![0].expectedVersion).toBe(4);
   });
 
   it('shows the unsuccessful reason selector only for the follow-up-required outcome', async () => {
@@ -187,5 +219,27 @@ describe('MeetingDetailsSection', () => {
       canEdit={false} mutationPending={false} onSave={vi.fn()} />));
     expect(container.querySelector('form')).toBeNull();
     expect(container.querySelector('dl')).not.toBeNull();
+  });
+
+  it('freezes the attempt on status-0 INVALID_RESPONSE from a committed success response', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.', false))
+      .mockResolvedValueOnce({ ...details, meetingAt: '2026-07-15T12:30:00.000Z', jobCardVersion: 4 });
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user} mutationPending={false} onSave={onSave} />));
+    change(container.querySelector('#meeting-actual-at')!, '2026-07-15T12:30');
+    change(container.querySelector('#meeting-summary')!, 'Özgün özet');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', true);
+
+    await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click());
+    expect(onSave.mock.calls[1]![0]).toMatchObject({
+      clientActionId: onSave.mock.calls[0]![0].clientActionId,
+      expectedVersion: onSave.mock.calls[0]![0].expectedVersion,
+      meetingSummary: 'Özgün özet',
+    });
+    await settle();
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
   });
 });

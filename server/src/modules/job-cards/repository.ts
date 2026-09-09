@@ -753,7 +753,7 @@ function mapNote(row: NoteRow): JobCardNoteDto {
 }
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
-  product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note`;
+  product_model_snapshot, lot_no, serial_no, expiry_date::text AS expiry_date, delivery_note`;
 function mapDelivery(row: DeliveryRow): DeliveryItemRecord {
   return { id: row.id, organizationId: row.organization_id, jobCardId: row.job_card_id,
     productId: row.product_id, deliveryPurpose: row.delivery_purpose, deliveredAt: row.delivered_at,

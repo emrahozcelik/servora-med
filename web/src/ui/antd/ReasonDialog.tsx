@@ -31,6 +31,7 @@ export type ReasonDialogProps = {
   required: boolean;
   pending: boolean;
   pendingLabel?: string;
+  inputsDisabled?: boolean;
   destructive?: boolean;
   prelude?: ReactNode;
   /** Optional focus target for content that is loaded after the dialog opens. */
@@ -59,6 +60,7 @@ export function ReasonDialog({
   required,
   pending,
   pendingLabel = 'İşleniyor…',
+  inputsDisabled = false,
   destructive = false,
   prelude,
   initialFocusRef,
@@ -122,7 +124,7 @@ export function ReasonDialog({
   if (!open) return null;
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape' && !pending) {
+    if (event.key === 'Escape' && !pending && !inputsDisabled) {
       event.preventDefault();
       onCancel();
       return;
@@ -131,7 +133,7 @@ export function ReasonDialog({
   }
 
   function handleCancel() {
-    if (pending) return;
+    if (pending || inputsDisabled) return;
     onCancel();
   }
 
@@ -187,7 +189,7 @@ export function ReasonDialog({
               id={reasonId}
               rows={4}
               value={reason}
-              disabled={pending}
+              disabled={pending || inputsDisabled}
               required={required}
               aria-invalid={error ? 'true' : undefined}
               aria-describedby={[
@@ -217,7 +219,7 @@ export function ReasonDialog({
               ref={cancelRef}
               className="secondary-button"
               type="button"
-              disabled={pending}
+              disabled={pending || inputsDisabled}
               onClick={handleCancel}
             >
               {cancelLabel}

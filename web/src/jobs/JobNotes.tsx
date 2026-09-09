@@ -12,6 +12,7 @@ import {
   type JobCardNotePage,
 } from './jobs-api';
 import { jobCardStatusLabel } from './job-labels';
+import { isDefinitiveMutationError } from './mutation-attempt-error';
 
 const PAGE_SIZE = 25;
 const codePointLength = (value: string) => Array.from(value).length;
@@ -65,6 +66,7 @@ export function JobNotes({
   const [draftError, setDraftError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [pending, setPending] = useState(false);
+  const [ambiguous, setAmbiguous] = useState(false);
   const actionRef = useRef<{ id: string; note: string; invoiceNumber: string | null } | null>(null);
   const showInvoiceField = jobType === 'SALES_MEETING' || jobType === 'PRODUCT_DELIVERY';
 
@@ -117,23 +119,26 @@ export function JobNotes({
   }, [realtimeKey, jobId, load]);
 
   function updateDraft(value: string) {
-    if (actionRef.current && actionRef.current.note !== value.trim()) actionRef.current = null;
+    // The retained attempt is never cleared by editing; while an attempt is
+    // ambiguous the fields are frozen so edits cannot happen, and after a
+    // definitive response the attempt is already resolved.
     setDraft(value);
     setDraftError(codePointLength(value.trim()) > 4000 ? 'Not 1 ile 4.000 karakter arasında olmalıdır.' : '');
     setSubmitError('');
   }
 
   function updateInvoiceDraft(value: string) {
-    const invoiceNumber = value.trim() || null;
-    if (actionRef.current && actionRef.current.invoiceNumber !== invoiceNumber) {
-      actionRef.current = null;
-    }
     setInvoiceDraft(value);
     setSubmitError('');
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (ambiguous) {
+      const attempt = actionRef.current;
+      if (attempt) await sendAttempt(attempt);
+      return;
+    }
     const note = draft.trim();
     const length = codePointLength(note);
     if (length < 1 || length > 4000) {
@@ -144,15 +149,20 @@ export function JobNotes({
     const action = actionRef.current?.note === note && actionRef.current?.invoiceNumber === invoiceNumber
       ? actionRef.current : { id: createActionId(), note, invoiceNumber };
     actionRef.current = action;
+    await sendAttempt(action);
+  }
+
+  async function sendAttempt(attempt: { id: string; note: string; invoiceNumber: string | null }) {
     setPending(true);
     setSubmitError('');
     try {
       const created = await add(jobId, {
-        clientActionId: action.id,
-        note,
-        ...(invoiceNumber ? { invoiceNumber } : {}),
+        clientActionId: attempt.id,
+        note: attempt.note,
+        ...(attempt.invoiceNumber ? { invoiceNumber: attempt.invoiceNumber } : {}),
       });
       actionRef.current = null;
+      setAmbiguous(false);
       setDraft('');
       setInvoiceDraft('');
       setState((current) => current.kind !== 'ready'
@@ -169,6 +179,12 @@ export function JobNotes({
           });
       onAdded();
     } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved; anything else keeps the frozen attempt so the
+      // exact retry replays the original note.
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { actionRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
       const error = caught instanceof Error ? caught.message : 'Not kaydedilemedi.';
       setSubmitError(error);
     } finally {
@@ -213,16 +229,21 @@ export function JobNotes({
         {remaining} karakter kaldı
       </ProgressiveCounter>}</div>
     {canAdd && <form onSubmit={submit} noValidate>
+      {ambiguous && <div className="detail-feedback" role="status">
+        <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
+        <button type="button" className="primary-button" data-original-retry disabled={pending}
+          onClick={() => { const attempt = actionRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
+      </div>}
       {showInvoiceField && <div className="field-group">
         <label htmlFor="job-note-invoice">Fatura numarası</label>
         <input id="job-note-invoice" name="invoiceNumber" type="text" maxLength={100}
-          value={invoiceDraft} disabled={pending}
+          value={invoiceDraft} disabled={pending || ambiguous}
           placeholder="Örn: FT-2026-00124"
           onChange={(event) => updateInvoiceDraft(event.target.value)} />
       </div>}
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>
-        <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending}
+        <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending || ambiguous}
           placeholder="Örn: Müşteri 14:00 sonrası uygun; teslim tarihi teyit edilecek."
           aria-invalid={draftError ? 'true' : undefined}
           aria-describedby="job-note-error"
@@ -230,7 +251,7 @@ export function JobNotes({
       </div>
       {draftError && <p id="job-note-error" className="field-error" role="alert">{draftError}</p>}
       {submitError && <p className="field-error" role="alert">{submitError}</p>}
-      <button className="primary-button compact-button" type="submit" disabled={pending}>
+      <button className="primary-button compact-button" type="submit" disabled={pending || ambiguous}>
         {pending ? 'Kaydediliyor…' : 'Not ekle'}
       </button>
     </form>}

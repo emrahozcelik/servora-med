@@ -86,9 +86,9 @@ import {
   FollowUpSourcePanel,
   SystemSelectedFollowUpNotice,
 } from './jobs/FollowUpContinuity';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 
 type StaffCommand = 'start' | 'submit';
-type PendingInteraction = LifecycleCommand | 'WITHDRAW_AND_EDIT_JOB_FIELDS';
 type CommandDependencies = {
   start: typeof startJobCard;
   submit: typeof submitJobCardForApproval;
@@ -924,7 +924,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
   const mutationInFlight = useRef(false);
-  const actionIds = useRef<Partial<Record<PendingInteraction, string>>>({});
+  const lifecycleAttempt = useRef<{
+    command: LifecycleCommand;
+    input: StartJobCardInput & { followUpProposal?: FollowUpProposalInput; followUp?: ApproveFollowUpInput };
+    reason: string;
+  } | null>(null);
+  const withdrawEditAttempt = useRef<{ job: JobCard & { type: 'SALES_MEETING' }; clientActionId: string } | null>(null);
+  const [uncertain, setUncertain] = useState(false);
   const startCapture = useRef<{
     clientActionId: string;
     capture: StartLocationCapture;
@@ -1017,7 +1023,9 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     mutationEpoch.current = 0;
     mutationOwner.current = null;
     mutationInFlight.current = false;
-    actionIds.current = {};
+    lifecycleAttempt.current = null;
+    withdrawEditAttempt.current = null;
+    setUncertain(false);
     startCapture.current = null;
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
@@ -1360,20 +1368,21 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     },
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+    if (withdrawEditAttempt.current || (lifecycleAttempt.current && lifecycleAttempt.current.command !== command)) return;
     const owner = startMutationOperation();
     if (!owner) return;
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
-    actionIds.current[command] ??= crypto.randomUUID();
-    const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
+    const retained = lifecycleAttempt.current;
+    const input = retained?.input ?? { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
     const presentation = presentationFor(state.detail);
     try {
       let commandInput: StartJobCardInput & {
         followUpProposal?: FollowUpProposalInput;
         followUp?: ApproveFollowUpInput;
       } = input;
-      if (command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
+      if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
           setStartPendingPhase('capturing');
           const capture = await captureStartLocation();
@@ -1384,11 +1393,16 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setStartPendingPhase('submitting');
         commandInput = { ...input, locationCapture: startCapture.current.capture };
       }
-      if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
-      if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
-      const updated = await executeLifecycleCommand(operationJobId, command, commandInput, reason);
+      if (!retained) {
+        if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
+        if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
+        lifecycleAttempt.current = { command, input: structuredClone(commandInput), reason };
+      }
+      const attempt = lifecycleAttempt.current;
+      if (!attempt) return;
+      const updated = await executeLifecycleCommand(operationJobId, attempt.command, attempt.input, attempt.reason);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
+      if (retained || (state.detail.kind === 'SALES_MEETING' && command === 'START')) {
         if (!(await refreshTruth())) return;
         if (!(await requestRealtimeDrain())) return;
       } else {
@@ -1409,7 +1423,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         }
       }
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      delete actionIds.current[command];
+      lifecycleAttempt.current = null;
+      setUncertain(false);
       if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
       setLifecycleNoteKey((value) => value + 1);
@@ -1425,7 +1440,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
-        delete actionIds.current[command];
+        lifecycleAttempt.current = null;
+        setUncertain(false);
         if (command === 'START') startCapture.current = null;
         try {
           if (!(await refreshTruth())) return;
@@ -1442,9 +1458,12 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setFollowUp(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
-        if (!(caught instanceof ApiError) || !caught.retryable) {
-          delete actionIds.current[command];
+        if (isDefinitiveMutationError(caught)) {
+          lifecycleAttempt.current = null;
+          setUncertain(false);
           if (command === 'START') startCapture.current = null;
+        } else {
+          setUncertain(lifecycleAttempt.current !== null);
         }
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
@@ -1542,15 +1561,18 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     const operationJobId = jobId;
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
-    actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS ??= crypto.randomUUID();
+    if (lifecycleAttempt.current) { endMutationOperation(owner); return; }
+    withdrawEditAttempt.current ??= { job: structuredClone(state.detail.job), clientActionId: crypto.randomUUID() };
+    const attempt = withdrawEditAttempt.current;
     try {
       const updated = await prepareMeetingEdit(
-        state.detail.job,
-        actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS,
+        attempt.job,
+        attempt.clientActionId,
         withdrawJobCardFromApproval,
       );
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
+      withdrawEditAttempt.current = null;
+      setUncertain(false);
       setState({
         kind: 'ready',
         detail: {
@@ -1574,7 +1596,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
         || caught.code === 'INVALID_TRANSITION')) {
-        delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
+        withdrawEditAttempt.current = null;
+        setUncertain(false);
         try {
           if (!(await refreshTruth())) return;
           if (!(await requestRealtimeDrain())) return;
@@ -1586,8 +1609,11 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
       } else {
-        if (!(caught instanceof ApiError) || !caught.retryable) {
-          delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
+        if (isDefinitiveMutationError(caught)) {
+          withdrawEditAttempt.current = null;
+          setUncertain(false);
+        } else {
+          setUncertain(true);
         }
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
@@ -1951,7 +1977,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     });
   }
 
+  function retryUncertainAttempt() {
+    const attempt = lifecycleAttempt.current;
+    if (attempt) void execute(attempt.command);
+    else if (withdrawEditAttempt.current) void confirmWithdrawAndEdit();
+  }
   function confirmDialog(reason: string) {
+    if (uncertain) { retryUncertainAttempt(); return; }
     if (!dialog) return;
     if (dialog.kind === 'approve') {
       const job = state.kind === 'ready' ? state.detail.job : null;
@@ -2065,7 +2097,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const invalidationMutationLocked = invalidationMutation.kind === 'submitting'
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
-  const invalidationLocked = pending || invalidationMutationLocked;
+  const invalidationLocked = pending || uncertain || invalidationMutationLocked;
 
   const recordContent = editing && detail.kind === 'SALES_MEETING'
     ? <SalesMeetingEditForm job={detail.job} user={user}
@@ -2117,7 +2149,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
-    mutationLocked={invalidationMutationLocked}
+    mutationLocked={invalidationMutationLocked || uncertain}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes
@@ -2160,11 +2192,16 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     ) : undefined}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
+    {uncertain && !dialog && <div className="detail-feedback" role="status">
+      <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
+      <button type="button" className="primary-button" disabled={pending} onClick={retryUncertainAttempt}>Özgün isteği tekrar dene</button>
+    </div>}
     {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} onCountChange={setFollowUpChildrenCount} />}
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}
-      onClose={closeDialog}
+      uncertain={uncertain}
+      onClose={() => { if (!uncertain) closeDialog(); }}
       onConfirm={confirmDialog}
       followUp={(dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
         ? {

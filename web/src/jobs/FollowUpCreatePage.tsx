@@ -26,6 +26,7 @@ import {
   FOLLOW_UP_ERROR_MESSAGES,
 } from './follow-up-presentation';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
+import { isDefinitiveMutationError } from './mutation-attempt-error';
 import {
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
@@ -45,7 +46,7 @@ type FieldErrors = Partial<Record<
   string
 >>;
 
-type Attempt = { id: string; fingerprint: string };
+type Attempt = { sourceId: string; input: FollowUpCreateInput };
 
 function formatDate(value: string | null) {
   if (!value) return 'Belirtilmedi';
@@ -77,10 +78,6 @@ function errorMessage(error: ApiError) {
   return FOLLOW_UP_ERROR_MESSAGES[error.code] ?? error.message;
 }
 
-function payloadFingerprint(input: object) {
-  return JSON.stringify(input);
-}
-
 export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   sourceId: string;
   user: CurrentUser;
@@ -103,6 +100,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [overrideReason, setOverrideReason] = useState('');
   const [fatalError, setFatalError] = useState<{ status: '403' | '404' | 'error'; message: string } | null>(null);
+  const [ambiguous, setAmbiguous] = useState(false);
   const attempt = useRef<Attempt | null>(null);
   const pendingRef = useRef(false);
   const sourceRef = useRef(sourceId);
@@ -112,6 +110,10 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   useEffect(() => {
     sourceRef.current = sourceId;
+    // An attempt is bound to its original source JobCard; a source change
+    // abandons the old screen without ever replaying or migrating the attempt.
+    attempt.current = null;
+    setAmbiguous(false);
     setType('GENERAL_TASK');
     setTitle('');
     titleInitializedSourceRef.current = null;
@@ -128,7 +130,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setFieldErrors({});
     setOverrideReason('');
     setFatalError(null);
-    attempt.current = null;
     pendingRef.current = false;
   }, [sourceId]);
 
@@ -291,6 +292,12 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pendingRef.current) return;
+    // Ambiguous outcome: only the frozen original attempt may be retried.
+    if (ambiguous) {
+      const attemptValue = attempt.current;
+      if (attemptValue) await sendAttempt(attemptValue);
+      return;
+    }
     const nextErrors: FieldErrors = {};
     if (!title.trim()) nextErrors.title = 'Başlık zorunludur.';
     if (!instructions.trim()) nextErrors.followUpInstructions = 'Yeni takip işinin kapsamını yazın.';
@@ -305,6 +312,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       return;
     }
 
+    const sourceIdAtSubmit = sourceId;
     const base = {
       type,
       title: title.trim(),
@@ -317,30 +325,37 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       ...(type === 'SALES_MEETING' ? { engagementKind } : {}),
     };
-    const fingerprint = payloadFingerprint(base);
-    if (!attempt.current || attempt.current.fingerprint !== fingerprint) {
-      attempt.current = { id: crypto.randomUUID(), fingerprint };
-    }
+    const input: FollowUpCreateInput = type === 'SALES_MEETING'
+      ? { ...base, type, engagementKind, clientActionId: crypto.randomUUID() }
+      : { ...base, type, clientActionId: crypto.randomUUID() };
+    const attemptValue: Attempt = { sourceId: sourceIdAtSubmit, input };
+    attempt.current = attemptValue;
+    await sendAttempt(attemptValue);
+  }
+
+  async function sendAttempt(attemptValue: Attempt) {
     pendingRef.current = true;
     setPending(true);
     setFieldErrors({});
     setSubmitError('');
     try {
-      const requestSourceId = sourceId;
-      const input: FollowUpCreateInput = type === 'SALES_MEETING'
-        ? { ...base, type, engagementKind, clientActionId: attempt.current.id }
-        : { ...base, type, clientActionId: attempt.current.id };
-      const created = await createFollowUp(requestSourceId, input);
+      const requestSourceId = attemptValue.sourceId;
+      const created = await createFollowUp(requestSourceId, attemptValue.input);
       if (sourceRef.current !== requestSourceId) return;
       attempt.current = null;
+      setAmbiguous(false);
       onCreated(created.id);
     } catch (error) {
-      if (sourceRef.current !== sourceId) return;
+      if (sourceRef.current !== attemptValue.sourceId) return;
       const apiError = error instanceof ApiError ? error : null;
-      const preserveAttempt = apiError?.status === 0
-        || apiError?.retryable
-        || apiError?.code === 'ACTION_IN_PROGRESS';
-      if (!preserveAttempt) attempt.current = null;
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved; anything else keeps the frozen attempt so the
+      // exact retry replays the original request against the original source.
+      const definitive = isDefinitiveMutationError(apiError);
+      if (!definitive) setAmbiguous(true);
+      else setAmbiguous(false);
+      if (!definitive) attempt.current = attemptValue;
+      else attempt.current = null;
       if (apiError?.status === 403 || apiError?.code === 'FORBIDDEN') {
         setFatalError({ status: '403', message: 'Takip işi oluşturma yetkiniz artık bulunmuyor.' });
       } else if (apiError?.code === 'JOB_CARD_NOT_FOUND') {
@@ -382,8 +397,13 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       ]} />
     </section>
     {submitError && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{submitError}</div>}
+    {ambiguous && <div className="detail-feedback" role="status">
+      <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
+      <button type="button" className="primary-button" data-original-retry disabled={pending}
+        onClick={() => { const attemptValue = attempt.current; if (attemptValue) void sendAttempt(attemptValue); }}>Özgün isteği tekrar dene</button>
+    </div>}
     <form className="task-form follow-up-form" onSubmit={submit} noValidate>
-      <fieldset disabled={pending}>
+      <fieldset disabled={pending || ambiguous}>
         <section className="follow-up-form-section" data-follow-up-section="task" aria-labelledby="follow-up-task-heading">
           <div className="follow-up-form-section-heading">
             <h2 id="follow-up-task-heading">Takip işi</h2>
@@ -492,8 +512,8 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         </section>
       </fieldset>
       <div className="form-actions">
-        <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
-        <button className="primary-button" type="submit" disabled={pending}>{pending ? 'Oluşturuluyor…' : 'Takip işini oluştur'}</button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
+        <button className="primary-button" type="submit" disabled={pending || ambiguous}>{pending ? 'Oluşturuluyor…' : 'Takip işini oluştur'}</button>
       </div>
     </form>
   </main>;

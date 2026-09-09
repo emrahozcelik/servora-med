@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
+import { followUpCreateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type {
@@ -822,15 +823,19 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
       })).resolves.toMatchObject({ customerId: fixture.otherCustomerId });
 
       const processingActionId = randomUUID();
+      // Request identity (AUDIT-0 remediation): seed the in-flight row with the
+      // same request hash the service would derive, so this probe exercises the
+      // ACTION_IN_PROGRESS path rather than fail-closed hash mismatch.
       await fixture.pool.query(
         `INSERT INTO processed_actions
-           (organization_id, user_id, client_action_id, operation_key, status)
-         VALUES ($1, $2, $3, $4, 'processing')`,
+           (organization_id, user_id, client_action_id, operation_key, status, request_hash)
+         VALUES ($1, $2, $3, $4, 'processing', $5)`,
         [
           fixture.organizationId,
           fixture.admin.id,
           processingActionId,
           `JOB_FOLLOW_UP_CREATE:${root}`,
+          followUpCreateRequestHash(root, input(fixture.staffA.id, { clientActionId: processingActionId })),
         ],
       );
       await expect(fixture.service.createFollowUp(

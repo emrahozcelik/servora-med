@@ -421,11 +421,11 @@ describe('Staff JobCard detail', () => {
     expect(host.querySelector('.job-detail-content')).toBeNull();
   });
 
-  async function renderRealtimeScreen(card: JobCard, source: FakeRealtimeEventSource, fetch = mockDetailFetch(card)) {
+  async function renderRealtimeScreen(card: JobCard, source: FakeRealtimeEventSource, fetch = mockDetailFetch(card), user: CurrentUser = staffUser) {
     vi.stubGlobal('fetch', fetch);
     await act(async () => {
       root.render(<RealtimeProvider eventSourceFactory={() => source}>
-        <JobDetailScreen jobId={card.id} user={staffUser} onBack={() => {}} onChanged={() => {}} />
+        <JobDetailScreen jobId={card.id} user={user} onBack={() => {}} onChanged={() => {}} />
       </RealtimeProvider>);
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -959,7 +959,7 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
 
     await act(async () => {
-      buttonByName(host, 'İşi kabul et')?.click();
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -967,6 +967,256 @@ describe('Staff JobCard detail', () => {
     expect(acceptBodies[1]).toEqual(acceptBodies[0]);
     expect(host.textContent).toContain('İş kabul edildi.');
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('freezes an ambiguous reason attempt and replays its original fields after realtime refresh', async () => {
+    const source = new FakeRealtimeEventSource();
+    const card: JobCard = {
+      ...waitingApprovalJob(),
+      workflowContext: contextWith({
+        allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+        lifecycle: {
+          ...baseLifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+          submittedBy: { id: 's1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: null,
+      }),
+    };
+    const refreshed = {
+      ...card,
+      title: 'Başka oturumda güncellenen düzeltme',
+      version: card.version + 1,
+    };
+    const resumed = {
+      ...refreshed,
+      status: 'IN_PROGRESS' as const,
+      version: refreshed.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    let detailRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.endsWith('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: refreshed.version });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/request-revision') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length === 1) throw new TypeError('offline');
+        return Response.json(resumed);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        detailRequests += 1;
+        return Response.json(detailRequests === 1 ? card : refreshed);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(card, source, fetch, managerUser);
+
+    await act(async () => {
+      buttonByName(host, 'Düzeltme için personele geri gönder')?.click();
+      await Promise.resolve();
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reason = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Yeni miktar notu');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      buttonByName(dialog, 'Düzeltme için geri gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain('İşlemin sonucu henüz doğrulanamadı');
+
+    await act(async () => {
+      source.emitJobUpdate('retryable-revision');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const retryDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const frozenReason = retryDialog.querySelector<HTMLTextAreaElement>('textarea')!;
+    expect(frozenReason.value).toBe('Yeni miktar notu');
+    expect(frozenReason.disabled).toBe(true);
+    const retry = buttonByName(retryDialog, 'Özgün isteği tekrar dene');
+    expect(retry).not.toBeNull();
+
+    await act(async () => {
+      retry?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+    expect(bodies[0]).toMatchObject({
+      expectedVersion: card.version,
+      revisionReason: 'Yeni miktar notu',
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.textContent).toContain('İş düzeltme için personele geri gönderildi.');
+  });
+
+  it('keeps a non-dialog transport attempt retryable until the original command succeeds', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    const started: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length === 1) throw new TypeError('offline');
+        return Response.json(started);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    const start = buttonByName(host, 'İşi başlat')!;
+    await act(async () => {
+      start.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('İşlemin sonucu henüz doğrulanamadı');
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).not.toBeNull();
+    expect(bodies).toHaveLength(1);
+
+    await act(async () => {
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+    expect(host.textContent).toContain('İş uygulanmaya başladı.');
+    expect(host.textContent).not.toContain('İşlemin sonucu henüz doğrulanamadı');
+  });
+
+  it('replays a payload-bearing follow-up proposal unchanged after an ambiguous submit', async () => {
+    const meeting = inProgressMeeting();
+    const submission = {
+      ...meeting,
+      engagementKind: 'CUSTOMER_VISIT' as const,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const next = {
+      ...submission,
+      status: 'WAITING_APPROVAL' as const,
+      version: submission.version + 1,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T12:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          outcome: 'FOLLOW_UP_REQUIRED',
+          unsuccessfulReason: 'REQUESTED_LATER',
+          meetingSummary: 'Takip gerekli',
+          jobCardVersion: submission.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-25T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip görüşmesini planla',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length === 1) throw new TypeError('offline');
+        return Response.json(next);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(submission);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(submission, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reasonTextareas = dialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const reason = reasonTextareas.item(reasonTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görüşme tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      note: 'Görüşme tamamlandı',
+      followUpProposal: {
+        type: 'SALES_MEETING',
+        assignedTo: 's1',
+        followUpInstructions: 'Takip görüşmesini planla',
+      },
+    });
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).not.toBeNull();
+
+    await act(async () => {
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
   });
 
   it('follows up with a second canonical fetch when a new invalidation arrives while reconciliation is in flight', async () => {
@@ -2801,7 +3051,7 @@ describe('Staff JobCard detail', () => {
     });
     expect(host.textContent).toContain('Sunucuya ulaşılamadı');
     await act(async () => {
-      buttonByName(host, 'İşi başlat')?.click();
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -5775,5 +6025,105 @@ describe('Staff JobCard detail', () => {
     expect(actionRow).not.toBeNull();
     expect(panel!.textContent).toContain('İşi kabul et');
     expect(panel!.textContent).toContain('İşi iptal et');
+  });
+
+
+  it('freezes the lifecycle attempt when a committed success response body cannot be parsed', async () => {
+    const meeting = inProgressMeeting();
+    const submission = {
+      ...meeting,
+      engagementKind: 'CUSTOMER_VISIT' as const,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const next = {
+      ...submission,
+      status: 'WAITING_APPROVAL' as const,
+      version: submission.version + 1,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T12:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const bodies: Array<Record<string, unknown>> = [];
+    // First POST: backend returns HTTP 200 but a malformed body — the real
+    // api parser raises ApiError(0, 'INVALID_RESPONSE', retryable=false).
+    // The unresolved attempt must stay frozen; retry must resend exactly.
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          outcome: 'FOLLOW_UP_REQUIRED',
+          unsuccessfulReason: 'REQUESTED_LATER',
+          meetingSummary: 'Takip gerekli',
+          jobCardVersion: submission.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-25T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip görüşmesini planla',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length === 1) {
+          return new Response('{"jobCardId":"截断', { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return Response.json(next);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(submission);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(submission, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const reasonTextareas = dialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const reason = reasonTextareas.item(reasonTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görüşme tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(1);
+    // status-0 must NOT resolve the attempt: dialog stays, confirm = exact retry.
+    expect(buttonByName(host, 'Özgün isteği tekrar dene')).not.toBeNull();
+    const dialogFrozen = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    // jsdom does not propagate fieldset disabled to descendants; assert the
+    // explicit reason textarea plus the frozen fieldset and uncertain banner.
+    const frozenReason = dialogFrozen.querySelectorAll<HTMLTextAreaElement>('textarea');
+    expect(frozenReason.item(frozenReason.length - 1)!.disabled).toBe(true);
+    expect(dialogFrozen.querySelector('fieldset')).toHaveProperty('disabled', true);
+    expect(host.textContent).toContain('İşlemin sonucu henüz doğrulanamadı');
+
+    await act(async () => {
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
   });
 });

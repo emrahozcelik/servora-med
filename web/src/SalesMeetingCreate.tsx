@@ -10,6 +10,7 @@ import {
 } from './jobs/jobs-api';
 import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
@@ -33,6 +34,7 @@ type FieldErrors = {
   assignedTo?: string;
   engagementKind?: string;
 };
+type CreateAttempt = { input: Parameters<typeof createJobCard>[0] };
 
 export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser; onCancel: () => void; onCreated: (jobCardId: string) => void;
@@ -55,7 +57,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [overrideReason, setOverrideReason] = useState('');
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
-  const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const attemptRef = useRef<CreateAttempt | null>(null); const [ambiguous, setAmbiguous] = useState(false);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const customerCreateTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -110,8 +113,37 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   }
   useEffect(() => { if (user.role !== 'STAFF') void loadActiveStaff(); }, [user.id, user.role]);
 
+  async function sendAttempt(input: Parameters<typeof createJobCard>[0]) {
+    setPending(true); setError('');
+    try {
+      const job = await createJobCard(input);
+      attemptRef.current = null; setAmbiguous(false); onCreated(job.id);
+    } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      const definitive = isDefinitiveMutationError(caught);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      else setAmbiguous(true);
+      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+        const details = caught.details ?? {};
+        setAuthoritativeEvaluation({ level: 'CONFLICT', safeMessage: null,
+          conflicts: Array.isArray(details.conflicts) ? details.conflicts as CustomerScheduleConflictDetail[] : [], recentVisit: null,
+          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string' ? details.suggestedAlternativeAt : null });
+      }
+      if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
+        const raw = caught.details?.conflicts;
+        setCalendarConflicts(user.role === 'STAFF' ? [] : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
+      }
+      setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
+    } finally { setPending(false); }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (pending) return;
+    if (ambiguous) { const attempt = attemptRef.current; if (attempt) await sendAttempt(attempt.input); return; }
     const trimmedTitle = title.trim(); const selectedAssignee = user.role === 'STAFF' ? user.id : assignedTo;
     const nextErrors: FieldErrors = {};
     if (!trimmedTitle || Array.from(trimmedTitle).length > 255) nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
@@ -124,10 +156,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       setError('Görüşme veya ziyareti planlamadan önce işaretli alanları düzeltin.');
       return;
     }
-    setPending(true); setError(''); actionIdRef.current ??= crypto.randomUUID();
-    try {
-      const job = await createJobCard({
-        clientActionId: actionIdRef.current,
+    const input = {
+        clientActionId: crypto.randomUUID(),
         type: 'SALES_MEETING',
         engagementKind: engagementKind as JobCardEngagementKind,
         title: trimmedTitle,
@@ -135,36 +165,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         scheduledAt: localDateTimeToIso(scheduledLocal),
         description: description.trim() || null, contactId: null, priority,
         ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
-      });
-      onCreated(job.id);
-    } catch (caught) {
-      if (caught instanceof ApiError && !caught.retryable) actionIdRef.current = null;
-      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
-        const details = caught.details ?? {};
-        setAuthoritativeEvaluation({
-          level: 'CONFLICT',
-          safeMessage: null,
-          conflicts: Array.isArray(details.conflicts)
-            ? details.conflicts as CustomerScheduleConflictDetail[]
-            : [],
-          recentVisit: null,
-          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string'
-            ? details.suggestedAlternativeAt
-            : null,
-        });
-      }
-      if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
-        // STAFF never receives conflict details (server projects them away);
-        // MANAGER/ADMIN may see the rich same-org conflict list.
-        const raw = caught.details?.conflicts;
-        setCalendarConflicts(user.role === 'STAFF'
-          ? []
-          : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
-      }
-      // Retain entered form data; show the authoritative server error inline.
-      setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
-      setPending(false);
-    }
+      } satisfies Parameters<typeof createJobCard>[0];
+    attemptRef.current = { input };
+    await sendAttempt(input);
   }
 
   const referencesUnavailable = !customerReady
@@ -182,7 +185,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         </p>
       ))}
     </div>}
-    <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
+    <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
       <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
           aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
@@ -259,8 +262,10 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           <option value="low">Düşük</option><option value="normal">Normal</option>
           <option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
     </fieldset><div className="form-actions">
-      <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
-      <button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
+      <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
+      {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={pending}
+        onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt.input); }}>Özgün isteği tekrar dene</button>}
+      <button className="primary-button" type="submit" disabled={pending || ambiguous || referencesUnavailable}>
         {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></div></form>
     <CustomerCreateSideFlow
       open={customerCreateOpen}
