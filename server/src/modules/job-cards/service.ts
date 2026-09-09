@@ -135,6 +135,7 @@ import {
 } from './follow-up-policy.js';
 import {
   canonicalScheduledEnd,
+  hasValidPlannedInterval,
   persistedScheduledDurationMs,
 } from './job-card-duration.js';
 import {
@@ -333,6 +334,16 @@ function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
 function assertStaffStartActor(actor: JobCardActor) {
   if (actor.role !== 'STAFF') {
     throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+  }
+}
+
+function assertPlannedIntervalForStart(job: Pick<JobCard, 'type' | 'scheduledAt' | 'scheduledEndsAt'>) {
+  if (!hasValidPlannedInterval(job.type, job.scheduledAt, job.scheduledEndsAt)) {
+    throw new AppError(
+      'SCHEDULED_INTERVAL_REQUIRED',
+      400,
+      'Bu iş türü başlatılmadan önce geçerli bir planlanan zaman aralığı gereklidir.',
+    );
   }
 }
 
@@ -2052,6 +2063,7 @@ export class JobCardService {
       throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
     }
     assertCanTransition(actor, job, 'START', undefined, requestTime);
+    assertPlannedIntervalForStart(job);
     if (capture.outcome === 'UNAVAILABLE') {
       throw new AppError(
         'LOCATION_REQUIRED',
@@ -2175,6 +2187,9 @@ export class JobCardService {
           definition.revisionReason ?? definition.cancelReason ?? undefined,
           requestTime,
         );
+        if (definition.command === 'START') {
+          assertPlannedIntervalForStart(job);
+        }
         let persistedProposal: {
           scheduledAt: Date;
           type: JobCardType;
