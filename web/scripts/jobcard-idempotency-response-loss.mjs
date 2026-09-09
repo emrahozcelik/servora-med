@@ -198,8 +198,9 @@ async function meetingCase(fixture) {
   const context = await browser.newContext({ baseURL: webOrigin, viewport: { width: 1440, height: 1000 } });
   const meetingPage = await context.newPage(); activePage = meetingPage;
   const requests = []; let committed = null; let loseNext = true;
-  let canonicalCaptureArmed = false; let canonicalRefresh = null; let canonicalGets = 0;
-  let notesCaptureArmed = false; let notesGets = 0;
+  const canonicalGets = []; // { time, status, body } — every browser-originated canonical refetch
+  const notesGets = []; // { time, status, body } — every browser-originated notes refetch
+  const sseFrames = []; // { eventId, eventName, data, wallTime } — every EventSource frame the browser received
   await meetingPage.route(`**/api/job-cards/${fixture.meetingJob}/meeting-details`, async (route) => {
     if (route.request().method() !== 'PATCH') return route.continue();
     const body = JSON.parse(route.request().postData() || '{}'); requests.push(body);
@@ -208,27 +209,45 @@ async function meetingCase(fixture) {
   });
   // Passive capture of the browser-originated canonical refetch and notes
   // refetch from real network traffic (no request interception, so the
-  // reconcile drains are never disturbed). A's own commit pushes a live
-  // `job.updated` event through the server bus; the NOTE_ADDED stimulus below
-  // is delivered live as well; the durable DB-inserted invalidation is
-  // delivered through the SSE reconnect replay after the offline/online
-  // cycle. All three trigger real client reconcile paths without rebinding
-  // the frozen attempt.
+  // reconcile drains are never disturbed). Every entry carries a timestamp so
+  // a refetch can only satisfy the proof when it occurred AFTER its exact
+  // causally-bound SSE frame.
   meetingPage.on('response', async (response) => {
     try {
       const req = response.request();
       if (req.method() !== 'GET') return;
       const pathname = new URL(req.url()).pathname;
-      if (pathname === `/api/job-cards/${fixture.meetingJob}/notes` && notesCaptureArmed) {
-        notesGets += 1;
+      if (pathname === `/api/job-cards/${fixture.meetingJob}/notes`) {
+        const entry = { time: Date.now(), status: response.status(), body: null };
+        notesGets.push(entry);
+        try { entry.body = await response.json(); } catch { /* body unavailable */ }
         return;
       }
-      if (pathname !== `/api/job-cards/${fixture.meetingJob}` || !canonicalCaptureArmed) return;
-      canonicalGets += 1;
-      if (canonicalRefresh === null) {
-        try { canonicalRefresh = { status: response.status(), body: await response.json() }; } catch { canonicalRefresh = null; }
-      }
+      if (pathname !== `/api/job-cards/${fixture.meetingJob}`) return;
+      const entry = { time: Date.now(), status: response.status(), body: null };
+      canonicalGets.push(entry);
+      try { entry.body = await response.json(); } catch { /* body unavailable */ }
     } catch { /* ignore listener errors */ }
+  });
+  // Chromium DevTools Protocol: passive EventSource frame observation. The
+  // EventSource connection is established at page load and stays stable for
+  // the whole case (no offline/online cycle, no reconnect), so the
+  // open/online reconcileAll paths never fire and cannot compete as causes.
+  // Network.eventSourceMessageReceived reports the exact `id:` field of every
+  // real stream frame the browser received, without altering app behavior.
+  // Network.requestWillBeSent is collected on the SAME CDP clock (monotonic
+  // `timestamp`) so frame→refetch ordering is established without comparing
+  // timestamps across independent listener channels.
+  const cdp = await context.newCDPSession(meetingPage);
+  await cdp.send('Network.enable');
+  const cdpRequests = []; // { url, method, ts } — requestWillBeSent on the CDP clock
+  cdp.on('Network.requestWillBeSent', (params) => {
+    try {
+      cdpRequests.push({ url: params?.request?.url, method: params?.request?.method, ts: params?.timestamp });
+    } catch { /* ignore listener errors */ }
+  });
+  cdp.on('Network.eventSourceMessageReceived', (params) => {
+    sseFrames.push({ eventId: params?.eventId, eventName: params?.eventName, data: params?.data, ts: params?.timestamp, wallTime: Date.now() });
   });
   await loginBrowser(context, fixture.admin);
   await meetingPage.goto(`/jobs/${fixture.meetingJob}`);
@@ -236,59 +255,129 @@ async function meetingCase(fixture) {
   await meetingPage.locator('#meeting-outcome').selectOption('FOLLOW_UP_REQUIRED');
   await meetingPage.locator('#meeting-unsuccessful-reason').selectOption('REQUESTED_LATER');
   await meetingPage.locator('#meeting-summary').fill('JCID meeting A original summary');
-  canonicalCaptureArmed = true;
+  const submitTime = Date.now();
   await meetingPage.getByRole('button', { name: /sonucunu kaydet/i }).click();
   await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).waitFor({ timeout: 10000 });
   record('MEETING-A-COMMITTED-RESPONSE-LOST', committed?.status === 200 && committed?.body?.jobCardVersion === 2, `status=${committed?.status}; version=${committed?.body?.jobCardVersion}`);
   const fields = meetingPage.locator('.meeting-result-form input, .meeting-result-form select, .meeting-result-form textarea');
   record('MEETING-A-INPUTS-FROZEN', await fields.evaluateAll((nodes) => nodes.every((node) => node.disabled || node.closest('fieldset')?.disabled)), 'meeting inputs disabled after lost response');
-  // Live external stimulus through the REAL application path: an
-  // admin-authenticated NOTE_ADDED mutation appends a durable realtime event
-  // AND pushes it through the server's in-memory event bus, so the frame
-  // reaches the browser live (no reconnect) and the client refetches notes.
-  // This proves end-to-end live SSE delivery through the harness proxy.
-  const adminSession = await login(fixture.admin);
-  const notesWait = meetingPage.waitForResponse((response) => {
+  const keyA = requests[0]?.clientActionId;
+  // Causal realtime proof, bound to exact durable event IDs.
+  //
+  // Code fact (server/src/modules/job-cards/service.ts patchMeetingDetails):
+  // A's own MeetingDetails commit appends the MEETING_DETAILS_UPDATED activity
+  // but returns realtimeEvents: [] — the product publishes NO realtime event
+  // for this mutation. Attributing a canonical refresh to "A's own live
+  // event" is therefore impossible without a product behavior change, which
+  // is out of scope. Instead the proof is bound to two exact durable events:
+  //
+  // 1. A meeting invalidation whose source_activity_id is A's OWN committed
+  //    activity (correlated below by organization + jobCard + event type +
+  //    A's exact clientActionId — unambiguous). The row is a harness stimulus
+  //    in the application's own job.updated shape, but the SSE frame, its
+  //    delivery, and the resulting canonical GET are all real.
+  // 2. The live NOTE_ADDED mutation below: a real application commit that
+  //    appends AND live-publishes its own job.updated event through the
+  //    normal bus path. Its bus signal flushes BOTH pending events through
+  //    the already-connected live stream — no reconnect, so open/online
+  //    reconcileAll never fire and cannot compete as causes.
+  const db = new Client({ connectionString: databaseUrl }); await db.connect();
+  let meetingEventId;
+  let liveNoteId;
+  let noteEventId;
+  // Stimulus anchor on the response-listener clock, taken BEFORE the
+  // stimulus is issued: the drain-caused refetches can only land at/after
+  // this point (frames require the note commit, which happens after).
+  const stimulusIssuedTime = Date.now();
+  try {
+    const activityRows = (await db.query(`SELECT id FROM job_card_activity_logs WHERE organization_id=$1 AND job_card_id=$2 AND event_type='MEETING_DETAILS_UPDATED' AND client_action_id=$3`, [fixture.organizationId, fixture.meetingJob, keyA])).rows;
+    record('MEETING-A-ACTIVITY-CORRELATED', activityRows.length === 1, `A activities for keyA=${keyA}: ${activityRows.length}`);
+    const meetingActivityId = activityRows[0].id;
+    meetingEventId = (await db.query(`INSERT INTO realtime_events (organization_id,source_activity_id,event_type,entity_type,entity_id,actor_user_id,audience_roles,audience_user_ids,resource_keys) VALUES ($1,$2,'job.updated','job-card',$3,NULL,ARRAY['ADMIN']::varchar[],ARRAY[]::uuid[],ARRAY[$4]) RETURNING id::text AS id`, [fixture.organizationId, meetingActivityId, fixture.meetingJob, `job-detail:${fixture.meetingJob}`])).rows[0].id;
+    // Real application mutation through the normal path: NOTE_ADDED appends a
+    // durable job.updated event in-tx and the service live-publishes it via
+    // the in-memory bus after commit.
+    const adminSession = await login(fixture.admin);
+    const liveNote = await api(adminSession.cookie, `/api/job-cards/${fixture.meetingJob}/notes`, {
+      clientActionId: `jcid-live-${crypto.randomUUID()}`,
+      note: 'JCID live realtime trigger note',
+    });
+    record('LIVE-NOTE-CREATED', liveNote.status === 201 && typeof liveNote.body?.id === 'string', `status=${liveNote.status}; noteId=${liveNote.body?.id}`);
+    liveNoteId = liveNote.body?.id;
+    const noteEventRows = (await db.query(`SELECT e.id::text AS id FROM realtime_events e JOIN job_card_activity_logs a ON a.id = e.source_activity_id WHERE e.organization_id=$1 AND e.entity_id=$2 AND e.event_type='job.updated' AND a.event_type='NOTE_ADDED' AND a.metadata->>'noteId'=$3`, [fixture.organizationId, fixture.meetingJob, liveNoteId])).rows;
+    record('LIVE-NOTE-EVENT-CORRELATED', noteEventRows.length === 1, `note events for noteId=${liveNoteId}: ${noteEventRows.length}`);
+    noteEventId = noteEventRows[0].id;
+  } finally { await db.end(); }
+  const waitForSseFrame = async (eventId, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = sseFrames.find((frame) => String(frame.eventId) === String(eventId));
+      if (found) return found;
+      if (Date.now() >= deadline) return null;
+      await sleep(250);
+    }
+  };
+  // The frame is observed at network-parse time while the drain it triggers
+  // (React reconcile → fetch roundtrip) lands milliseconds later, so every
+  // downstream expectation below is polled, never asserted immediately.
+  const waitFor = async (probe, timeoutMs) => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = probe();
+      if (found) return found;
+      if (Date.now() >= deadline) return null;
+      await sleep(250);
+    }
+  };
+  const meetingFrame = await waitForSseFrame(meetingEventId, 20000);
+  record('MEETING-A-TARGET-SSE-FRAME-OBSERVED', meetingFrame !== null, `eventId=${meetingEventId}; framesSeen=${sseFrames.length}`);
+  record('MEETING-A-TARGET-SSE-EVENT-ID', meetingFrame !== null && String(meetingFrame.eventId) === String(meetingEventId), `frameEventId=${meetingFrame?.eventId}; expected=${meetingEventId}`);
+  let meetingEnvelope = null;
+  try { meetingEnvelope = JSON.parse(meetingFrame?.data ?? 'null'); } catch { /* keep null */ }
+  record('MEETING-A-TARGET-SSE-TYPE', meetingEnvelope?.type === 'job.updated' && meetingFrame?.eventName === 'servora.change', `eventName=${meetingFrame?.eventName}; type=${meetingEnvelope?.type}`);
+  record('MEETING-A-TARGET-RESOURCE-KEY', Array.isArray(meetingEnvelope?.resourceKeys) && meetingEnvelope.resourceKeys.includes(`job-detail:${fixture.meetingJob}`), `keys=${JSON.stringify(meetingEnvelope?.resourceKeys)}`);
+  const meetingPath = `/api/job-cards/${fixture.meetingJob}`;
+  const bareCdp = (entry) => {
     try {
-      const req = response.request();
-      return req.method() === 'GET' && new URL(req.url()).pathname === `/api/job-cards/${fixture.meetingJob}/notes` && response.status() === 200;
+      const parsed = new URL(entry.url);
+      return entry.method === 'GET' && parsed.pathname === meetingPath;
     } catch { return false; }
-  }, { timeout: 15000 });
-  notesCaptureArmed = true;
-  const liveNote = await api(adminSession.cookie, `/api/job-cards/${fixture.meetingJob}/notes`, {
-    clientActionId: `jcid-live-${crypto.randomUUID()}`,
-    note: 'JCID live realtime trigger note',
+  };
+  // Same-clock causal order: the browser-observed request for the canonical
+  // resource must come after the target frame on the CDP monotonic clock.
+  // Polled: the drain roundtrip lands after frame-parse time.
+  const cdpGetAfterFrame = await waitFor(() => cdpRequests.find((entry) => bareCdp(entry) && entry.ts > (meetingFrame?.ts ?? 0)) ?? null, 20000);
+  record('MEETING-A-CANONICAL-GET-AFTER-TARGET-FRAME', meetingFrame !== null && cdpGetAfterFrame !== null, `cdpBareGetAfterFrame=${cdpGetAfterFrame !== null}`);
+  // Competing-cause exclusion on the same clock: exactly one EventSource
+  // connection (the initial page-load connect), so the `open` reconnect
+  // reconcile path never fired; `online` never fired (no offline toggling).
+  const sseConns = cdpRequests.filter((entry) => {
+    try { return new URL(entry.url).pathname === '/api/realtime/events'; } catch { return false; }
   });
-  if (liveNote.status !== 201) throw new Error(`live realtime trigger note failed: ${liveNote.status}`);
-  await notesWait;
-  record('MEETING-A-LIVE-EVENT-PROCESSED', notesGets >= 1, `browser notes refetch after live note event=${notesGets}`);
-  // Durable realtime invalidation for the frozen attempt: same shape as the
-  // application's own job.updated events (DURABLE record only). The offline/
-  // online cycle forces the browser EventSource to reconnect, and the app
-  // server replays the durable event from the database; the browser processes
-  // the stream frame through the unmodified RealtimeProvider → JobDetail
-  // drain chain, which must NOT rebind the frozen attempt.
-  await injectRealtimeUpdate(fixture);
-  await meetingPage.context().setOffline(true);
-  await meetingPage.waitForTimeout(700);
-  const reconnectWait = meetingPage.waitForResponse((response) => {
+  record('MEETING-A-SSE-CONNECTION-STABLE', sseConns.length === 1, `eventSourceConnects=${sseConns.length}`);
+  // Quiescence on the response-listener clock: A-submit fires no bare GET
+  // (its PATCH response is lost before refreshTruth), so the first
+  // post-stimulus bare GET is drain-caused. Every post-stimulus bare GET
+  // with a parsed body must carry the post-A canonical version.
+  const quietViolation = canonicalGets.filter((entry) => entry.time > submitTime && entry.time < stimulusIssuedTime);
+  record('MEETING-A-QUIESCENCE-BEFORE-STIMULUS', quietViolation.length === 0, `bareGetsBetweenSubmitAndStimulus=${quietViolation.length}`);
+  // Polled: the drain response (and its async body parse) lands after the
+  // frame observation. The first post-stimulus parsed body must carry the
+  // post-A canonical version.
+  const versionedGet = await waitFor(() => canonicalGets.find((entry) => entry.time >= stimulusIssuedTime && entry.status === 200 && (entry.body?.version === 2 || entry.body?.job?.version === 2)) ?? null, 20000);
+  record('MEETING-A-CANONICAL-VERSION-AFTER-SSE', versionedGet !== null, `versionedGet=${versionedGet !== null}; version=${versionedGet?.body?.version ?? versionedGet?.body?.job?.version}`);
+  const noteFrame = await waitForSseFrame(noteEventId, 20000);
+  record('LIVE-NOTE-SSE-FRAME-OBSERVED', noteFrame !== null, `eventId=${noteEventId}; framesSeen=${sseFrames.length}`);
+  const notesPath = `/api/job-cards/${fixture.meetingJob}/notes`;
+  const cdpNotesAfterFrame = await waitFor(() => cdpRequests.find((entry) => {
     try {
-      const req = response.request();
-      return req.method() === 'GET' && new URL(req.url()).pathname === `/api/job-cards/${fixture.meetingJob}` && response.status() === 200;
+      const parsed = new URL(entry.url);
+      return entry.method === 'GET' && parsed.pathname === notesPath && entry.ts > (noteFrame?.ts ?? 0);
     } catch { return false; }
-  }, { timeout: 30000 });
-  await meetingPage.context().setOffline(false);
-  await reconnectWait;
-  record('MEETING-A-REALTIME-EVENT-PROCESSED', canonicalGets >= 1, `canonical GETs since A submit=${canonicalGets}`);
-  // The response listener parses the body asynchronously; wait for the parse
-  // instead of racing it — proxied dev-server bodies can lag headers.
-  const refreshDeadline = Date.now() + 25000;
-  while (canonicalRefresh === null && Date.now() < refreshDeadline) {
-    await meetingPage.waitForTimeout(250);
-  }
-  record('MEETING-A-CANONICAL-REFRESH-OBSERVED', canonicalRefresh?.status === 200, `status=${canonicalRefresh?.status}`);
-  const refreshedVersion = canonicalRefresh?.body?.version ?? canonicalRefresh?.body?.job?.version;
-  record('MEETING-A-CANONICAL-REFRESH-VERSION', refreshedVersion === 2, `canonical version=${refreshedVersion}`);
+  }) ?? null, 20000);
+  record('LIVE-NOTE-REFETCH-AFTER-FRAME', noteFrame !== null && cdpNotesAfterFrame !== null, `cdpNotesGetAfterFrame=${cdpNotesAfterFrame !== null}`);
+  const notesWithNote = await waitFor(() => notesGets.find((entry) => entry.time >= stimulusIssuedTime && entry.status === 200 && Array.isArray(entry.body?.items) && entry.body.items.some((item) => item?.id === liveNoteId)) ?? null, 20000);
+  record('LIVE-NOTE-PRESENT-IN-REFETCH-BODY', notesWithNote !== null, `refetchWithNote=${notesWithNote !== null}; items=${notesWithNote?.body?.items?.length}`);
   record('MEETING-A-RETRY-AFFORDANCE-SURVIVES-REALTIME', await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).count() === 1, 'retry affordance survives a realtime invalidation');
   const retryResponsePromise = meetingPage.waitForResponse((response) => response.request().method() === 'PATCH' && response.url().includes('/meeting-details') && response.status() === 200, { timeout: 15000 });
   await meetingPage.getByRole('button', { name: 'Özgün isteği tekrar dene', exact: true }).click();
@@ -317,7 +406,6 @@ async function meetingCase(fixture) {
   const bResponse = await bResponsePromise;
   const bBody = await bResponse.json();
   const bRequest = requests[2];
-  const keyA = requests[0]?.clientActionId;
   record('MEETING-B-UI-SUBMISSION', bRequest !== undefined && bRequest?.meetingSummary === 'JCID meeting B new summary', `intercepted UI PATCH=${JSON.stringify(bRequest)}`);
   record('MEETING-B-NEW-KEY-CURRENT-VERSION', bRequest?.clientActionId !== keyA && bRequest?.expectedVersion === 2 && bBody?.jobCardVersion === 3, `keyA=${keyA}; keyB=${bRequest?.clientActionId}; expectedVersion=${bRequest?.expectedVersion}; resultVersion=${bBody?.jobCardVersion}`);
   record('MEETING-B-FOLLOWUP-BEARING-PRESERVED', bBody?.outcome === 'FOLLOW_UP_REQUIRED' && bBody?.unsuccessfulReason === 'REQUESTED_LATER', JSON.stringify(bBody));
@@ -438,14 +526,6 @@ async function noteCase(fixture) {
     record('NOTE-DB-NO-DUPLICATE', noteA === 1 && noteB === 1, `noteA=${noteA}; noteB=${noteB}`);
   } finally { await client.end(); }
   await context.close();
-}
-
-async function injectRealtimeUpdate(fixture) {
-  const client = new Client({ connectionString: databaseUrl }); await client.connect();
-  try {
-    const activity = (await client.query(`INSERT INTO job_card_activity_logs (organization_id,job_card_id,actor_id,event_type,old_value,new_value) VALUES ($1,$2,$3,'MEETING_DETAILS_UPDATED',NULL,'{}') RETURNING id`, [fixture.organizationId, fixture.meetingJob, fixture.staff])).rows[0].id;
-    await client.query(`INSERT INTO realtime_events (organization_id,source_activity_id,event_type,entity_type,entity_id,actor_user_id,audience_roles,audience_user_ids,resource_keys) VALUES ($1,$2,'job.updated','job-card',$3,NULL,ARRAY['ADMIN']::varchar[],ARRAY[]::uuid[],ARRAY[$4])`, [fixture.organizationId, activity, fixture.meetingJob, `job-detail:${fixture.meetingJob}`]);
-  } finally { await client.end(); }
 }
 
 
