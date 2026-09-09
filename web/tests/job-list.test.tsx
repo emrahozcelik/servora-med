@@ -170,6 +170,53 @@ describe('structured JobCard list', () => {
     expect(html).toContain('data-job-command="START"');
   });
 
+  it('keeps invalid-schedule START navigation intact and shows a plan-incomplete signal', () => {
+    const html = renderListJob(listJob({
+      status: 'ACCEPTED',
+      type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
+      scheduledAt: '2026-09-09T09:00:00.000Z',
+      scheduledEndsAt: null,
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['START', 'CANCEL'],
+    }), staff);
+
+    // Navigation-only: the START button remains enabled (no disabled state),
+    // and the row carries the plan-incomplete signal next to the schedule.
+    expect(html).not.toMatch(/data-job-command="START"[^>]*disabled/);
+    expect(html).toContain('Bitiş saati eksik');
+    expect(html).toContain('data-job-command="START"');
+  });
+
+  it('signals missing planning without disabling navigation when SM has no schedule', () => {
+    const html = renderListJob(listJob({
+      status: 'ACCEPTED',
+      type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
+      scheduledAt: null,
+      scheduledEndsAt: null,
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['START', 'CANCEL'],
+    }), staff);
+
+    expect(html).not.toMatch(/data-job-command="START"[^>]*disabled/);
+    expect(html).toContain('Planlanmadı');
+  });
+
+  it('never signals planning state on GENERAL_TASK rows', () => {
+    const html = renderListJob(listJob({
+      status: 'ACCEPTED',
+      type: 'GENERAL_TASK',
+      scheduledAt: null,
+      scheduledEndsAt: null,
+      assignee: { id: staff.id, name: staff.name },
+      allowedCommands: ['START', 'CANCEL'],
+    }), staff);
+
+    expect(html).not.toContain('Planlanmadı');
+    expect(html).not.toContain('Bitiş saati eksik');
+  });
+
   it('keeps scannable information order: title, type, customer, then metadata and actions', () => {
     const html = renderListJob(listJob({
       status: 'WAITING_APPROVAL',
