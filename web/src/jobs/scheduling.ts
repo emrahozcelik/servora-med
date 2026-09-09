@@ -3,6 +3,8 @@
  * Uses local getters/setters — never derive datetime-local values from toISOString().
  */
 
+import { plannedIntervalShape } from './job-schedule-integrity';
+
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -126,6 +128,12 @@ export type CardScheduleFact = {
   label: string;
   text: string;
   dateTime: string | null;
+  /**
+   * Advisory R3 planning signal for SM/PD intervals.
+   * 'ok' covers valid intervals (any duration), GT open-ended rows,
+   * and every pre-existing presentation case.
+   */
+  signal: 'ok' | 'missing' | 'incomplete';
 };
 
 function formatCardDate(value: string): string {
@@ -162,40 +170,37 @@ function formatLocalTime(value: string): string {
 export function cardScheduleFact(job: {
   type: 'PRODUCT_DELIVERY' | 'SALES_MEETING' | 'GENERAL_TASK';
   scheduledAt: string | null;
+  scheduledEndsAt?: string | null;
   dueDate: string | null;
 }, now: Date = new Date()): CardScheduleFact {
+  const shape = plannedIntervalShape({
+    type: job.type,
+    scheduledAt: job.scheduledAt,
+    scheduledEndsAt: job.scheduledEndsAt ?? null,
+  });
+  const signal = shape === 'MISSING' ? 'missing'
+    : shape === 'INCOMPLETE' ? 'incomplete'
+      : 'ok';
+  const fact = (label: string, text: string, dateTime: string | null): CardScheduleFact => ({
+    label, text, dateTime, signal,
+  });
   if (job.scheduledAt) {
     const scheduled = new Date(job.scheduledAt);
     if (job.type !== 'SALES_MEETING' && !Number.isNaN(scheduled.getTime())
       && sameLocalCalendarDay(scheduled, now)) {
-      return {
-        label: 'Bugün',
-        text: formatLocalTime(job.scheduledAt),
-        dateTime: job.scheduledAt,
-      };
+      return fact('Bugün', formatLocalTime(job.scheduledAt), job.scheduledAt);
     }
     const label = job.type === 'SALES_MEETING'
       ? 'Planlanan görüşme'
       : job.type === 'PRODUCT_DELIVERY'
         ? 'Planlanan teslim'
         : 'Planlanan zaman';
-    return {
-      label,
-      text: formatCardDateTime(job.scheduledAt),
-      dateTime: job.scheduledAt,
-    };
+    return fact(label, formatCardDateTime(job.scheduledAt), job.scheduledAt);
   }
   // Historical fallback only — new SM/PD writes use scheduledAt.
   if (job.type === 'SALES_MEETING') {
-    return {
-      label: 'Planlanan görüşme günü',
-      text: job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi',
-      dateTime: job.dueDate,
-    };
+    return fact('Planlanan görüşme günü',
+      job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi', job.dueDate);
   }
-  return {
-    label: 'Termin',
-    text: job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi',
-    dateTime: job.dueDate,
-  };
+  return fact('Termin', job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi', job.dueDate);
 }

@@ -156,7 +156,47 @@ describe('cardScheduleFact', () => {
       label: 'Termin',
       text: 'Belirtilmedi',
       dateTime: null,
+      signal: 'ok',
     });
+  });
+});
+
+describe('cardScheduleFact advisory signal (SCHED-3)', () => {
+  it('reports ok for valid SM/PD intervals including noncanonical durations', () => {
+    expect(cardScheduleFact({
+      type: 'SALES_MEETING', scheduledAt: '2026-09-09T09:00:00.000Z',
+      scheduledEndsAt: '2026-09-09T09:45:00.000Z', dueDate: null,
+    }).signal).toBe('ok');
+    expect(cardScheduleFact({
+      type: 'PRODUCT_DELIVERY', scheduledAt: '2026-09-09T10:00:00.000Z',
+      scheduledEndsAt: '2026-09-09T10:50:00.000Z', dueDate: null,
+    }).signal).toBe('ok');
+  });
+
+  it('reports missing for SM/PD with no planned start even when dueDate exists', () => {
+    expect(cardScheduleFact({
+      type: 'SALES_MEETING', scheduledAt: null, scheduledEndsAt: null, dueDate: '2026-09-20',
+    }).signal).toBe('missing');
+    expect(cardScheduleFact({
+      type: 'PRODUCT_DELIVERY', scheduledAt: null, scheduledEndsAt: null, dueDate: null,
+    }).signal).toBe('missing');
+  });
+
+  it('reports incomplete for SM/PD start without end', () => {
+    expect(cardScheduleFact({
+      type: 'SALES_MEETING', scheduledAt: '2026-09-09T09:00:00.000Z',
+      scheduledEndsAt: null, dueDate: null,
+    }).signal).toBe('incomplete');
+  });
+
+  it('never signals for GENERAL_TASK open-ended rows', () => {
+    expect(cardScheduleFact({
+      type: 'GENERAL_TASK', scheduledAt: null, scheduledEndsAt: null, dueDate: null,
+    }).signal).toBe('ok');
+    expect(cardScheduleFact({
+      type: 'GENERAL_TASK', scheduledAt: '2026-09-09T09:00:00.000Z',
+      scheduledEndsAt: null, dueDate: null,
+    }).signal).toBe('ok');
   });
 });
 

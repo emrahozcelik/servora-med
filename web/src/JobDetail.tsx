@@ -38,6 +38,7 @@ import {
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
+import { hasValidPlannedIntervalForStart, plannedIntervalShape } from './jobs/job-schedule-integrity';
 import { ResultState } from './ui/antd/ResultState';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobDecisionPanel } from './jobs/JobDecisionPanel';
@@ -177,6 +178,21 @@ function formatScheduledAt(value: string | null): string {
   if (!value) return 'Belirtilmedi';
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
     .format(new Date(value));
+}
+
+/**
+ * Advisory SCHED-3 reason for the assigned STAFF viewer's START control.
+ * Computed from raw canonical JobCard fields only. The backend remains
+ * authoritative — a stale client can still receive SCHEDULED_INTERVAL_REQUIRED.
+ */
+function startScheduleBlockedReason(job: JobCard): string | null {
+  if (hasValidPlannedIntervalForStart({
+    type: job.type,
+    scheduledAt: job.scheduledAt,
+    scheduledEndsAt: job.scheduledEndsAt ?? null,
+  })) return null;
+  return 'İşi başlatmak için önce geçerli bir planlama yapın. '
+    + 'Planlama bölümünden başlangıç saatini güncelleyin.';
 }
 
 function findTransition(
@@ -489,15 +505,29 @@ export function JobDetailPanel({
       : job.type === 'PRODUCT_DELIVERY'
         ? 'Planlanan teslim zamanı'
         : 'Planlanan zaman');
+  const scheduleShape = plannedIntervalShape({
+    type: job.type,
+    scheduledAt: job.scheduledAt,
+    scheduledEndsAt: job.scheduledEndsAt ?? null,
+  });
+  const scheduleFactContent = scheduleShape === 'MISSING'
+    ? 'Planlanmadı'
+    : scheduleShape === 'INCOMPLETE'
+      ? <span>
+          {job.scheduledAt
+            ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
+            : null} (bitiş saati eksik)
+        </span>
+      : job.scheduledAt
+        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
+        : 'Belirtilmedi';
   const descriptionItems: RecordDescriptionItem[] = [
     { key: 'status', label: 'Durum', content: <StatusChip status={job.status} /> },
     { key: 'assignee', label: 'Sorumlu personel', content: job.assignee.name },
     { key: 'priority', label: 'Öncelik', content: <PriorityChip priority={job.priority} /> },
     {
       key: 'schedule', label: scheduleLabel,
-      content: job.scheduledAt
-        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
-        : 'Belirtilmedi',
+      content: scheduleFactContent,
     },
     ...(job.type === 'PRODUCT_DELIVERY' ? [{
       key: 'submitted-at',
@@ -567,6 +597,7 @@ export function JobDetailPanel({
       pending={localMutationPending}
       pendingLabel={pendingLabel}
       startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
+      startScheduleBlockedReason={startScheduleBlockedReason(job)}
       onCommand={onCommand}
       onRecordEdit={onRecordEdit}
     />

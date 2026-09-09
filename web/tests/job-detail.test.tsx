@@ -109,6 +109,8 @@ const job: JobCard = {
   title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null,
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
   scheduledAt: '2026-07-20T09:00:00.000Z',
+  // R3 precondition for START flows: SM/PD rows carry a valid interval.
+  scheduledEndsAt: '2026-07-20T09:30:00.000Z',
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null,
   followUpContext: null,
@@ -6125,5 +6127,185 @@ describe('Staff JobCard detail', () => {
     });
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  describe('SCHED-3 schedule feedback', () => {
+    function acceptedVariant(overrides: Partial<JobCard>): JobCard {
+      return {
+        ...job,
+        status: 'ACCEPTED',
+        type: 'SALES_MEETING',
+        engagementKind: 'SALES_MEETING',
+        title: 'Planlaması eksik görüşme',
+        workflowContext: staffContext('ACCEPTED', {
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        }, { allowedActions: ['VIEW_NOTES', 'ADD_NOTE'] }),
+        ...overrides,
+      };
+    }
+
+    it('C: disables START with a visible accessible reason when SM end is missing', async () => {
+      await renderDetail(acceptedVariant({
+        scheduledAt: '2026-09-09T09:00:00.000Z',
+        scheduledEndsAt: null,
+      }));
+      const start = buttonByName(host, 'İşi başlat')!;
+      expect(start).not.toBeNull();
+      expect(start.disabled).toBe(true);
+      const reason = host.querySelector('#start-schedule-reason');
+      expect(reason).not.toBeNull();
+      expect(reason!.getAttribute('role')).toBe('status');
+      expect(reason!.getAttribute('aria-live')).toBe('polite');
+      expect(start.getAttribute('aria-describedby')).toBe('start-schedule-reason');
+      expect(host.textContent).toContain('geçerli bir planlama yapın');
+      expect(host.textContent).toContain('bitiş saati eksik');
+    });
+
+    it('D: disables START with a visible reason when PD planning is entirely missing', async () => {
+      await renderDetail(acceptedVariant({
+        type: 'PRODUCT_DELIVERY',
+        engagementKind: null,
+        title: 'Planlanmamış teslim',
+        scheduledAt: null,
+        scheduledEndsAt: null,
+      }));
+      const start = buttonByName(host, 'İşi başlat')!;
+      expect(start.disabled).toBe(true);
+      expect(host.querySelector('#start-schedule-reason')).not.toBeNull();
+      expect(host.textContent).toContain('geçerli bir planlama yapın');
+      expect(host.textContent).toContain('Planlanmadı');
+    });
+
+    it('A/B/I/J: keeps START enabled for valid canonical and noncanonical SM/PD intervals', async () => {
+      const cases: JobCard[] = [
+        acceptedVariant({
+          scheduledAt: '2026-09-09T09:00:00.000Z',
+          scheduledEndsAt: '2026-09-09T10:00:00.000Z',
+        }),
+        acceptedVariant({
+          scheduledAt: '2026-09-09T09:00:00.000Z',
+          scheduledEndsAt: '2026-09-09T09:45:00.000Z',
+        }),
+        acceptedVariant({
+          type: 'PRODUCT_DELIVERY',
+          engagementKind: null,
+          scheduledAt: '2026-09-09T10:00:00.000Z',
+          scheduledEndsAt: '2026-09-09T10:30:00.000Z',
+        }),
+        acceptedVariant({
+          type: 'PRODUCT_DELIVERY',
+          engagementKind: null,
+          scheduledAt: '2026-09-09T10:00:00.000Z',
+          scheduledEndsAt: '2026-09-09T10:50:00.000Z',
+        }),
+      ];
+      for (const card of cases) {
+        await renderDetail(card);
+        const start = buttonByName(host, 'İşi başlat')!;
+        expect(start.disabled).toBe(false);
+        expect(start.getAttribute('aria-describedby')).toBeNull();
+        expect(host.querySelector('#start-schedule-reason')).toBeNull();
+      }
+    });
+
+    it('E: keeps GT open-ended START enabled without a schedule warning', async () => {
+      await renderDetail(acceptedVariant({
+        type: 'GENERAL_TASK',
+        engagementKind: null,
+        title: 'Açık uçlu görev',
+        scheduledAt: null,
+        scheduledEndsAt: null,
+      }));
+      const start = buttonByName(host, 'İşi başlat')!;
+      expect(start.disabled).toBe(false);
+      expect(host.querySelector('#start-schedule-reason')).toBeNull();
+      expect(host.textContent).not.toContain('Planlanmadı');
+    });
+
+    it('F/G/H: never shows START to Admin, Manager or unassigned Staff even when invalid', async () => {
+      const invalid = acceptedVariant({
+        scheduledAt: null,
+        scheduledEndsAt: null,
+      });
+      const unassignedStaff: CurrentUser = { ...staffUser, id: 's2', name: 'Diğer Personel' };
+      for (const viewer of [adminUser, managerUser, unassignedStaff]) {
+        await renderDetail(invalid, viewer);
+        expect(buttonByName(host, 'İşi başlat')).toBeNull();
+        expect(host.querySelector('#start-schedule-reason')).toBeNull();
+      }
+    });
+
+    it('K/L: recomputes advisory state from refreshed canonical truth (realtime invalid→valid→invalid)', async () => {
+      const source = new FakeRealtimeEventSource();
+      let current = acceptedVariant({
+        scheduledAt: '2026-09-09T09:00:00.000Z',
+        scheduledEndsAt: null,
+      });
+      const fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+        if (url.includes('/notes?')) return Response.json(emptyPage);
+        if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+        if (url.endsWith('/meeting-details')) return Response.json({
+          ...meetingDetails, jobCardVersion: current.version,
+        });
+        if (url.endsWith('/api/job-cards/job-1')) return Response.json(current);
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      await renderRealtimeScreen(current, source, fetch);
+      expect(buttonByName(host, 'İşi başlat')!.disabled).toBe(true);
+
+      current = { ...current, scheduledEndsAt: '2026-09-09T10:00:00.000Z', version: current.version + 1 };
+      await act(async () => {
+        source.emitJobUpdate('2');
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(buttonByName(host, 'İşi başlat')!.disabled).toBe(false);
+      expect(host.querySelector('#start-schedule-reason')).toBeNull();
+
+      current = { ...current, scheduledEndsAt: null, version: current.version + 1 };
+      await act(async () => {
+        source.emitJobUpdate('3');
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(buttonByName(host, 'İşi başlat')!.disabled).toBe(true);
+      expect(host.querySelector('#start-schedule-reason')).not.toBeNull();
+    });
+
+    it('keeps the definitive SCHEDULED_INTERVAL_REQUIRED 400 rendering as a stale-truth fallback', async () => {
+      const staleValid: JobCard = acceptedVariant({
+        scheduledAt: '2026-09-09T09:00:00.000Z',
+        scheduledEndsAt: '2026-09-09T10:00:00.000Z',
+      });
+      const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+        if (url.includes('/notes?')) return Response.json(emptyPage);
+        if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+        if (url.endsWith('/meeting-details')) return Response.json({
+          ...meetingDetails, jobCardVersion: staleValid.version,
+        });
+        if (url.endsWith('/start') && init?.method === 'POST') {
+          return Response.json(
+            { error: 'Bu iş türü başlatılmadan önce geçerli bir planlanan zaman aralığı gereklidir.', code: 'SCHEDULED_INTERVAL_REQUIRED' },
+            { status: 400 },
+          );
+        }
+        if (url.endsWith('/api/job-cards/job-1')) return Response.json(staleValid);
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      await renderScreen(staleValid, staffUser, fetch);
+      await act(async () => {
+        buttonByName(host, 'İşi başlat')?.click();
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.textContent).toContain('geçerli bir planlanan zaman aralığı gereklidir');
+      expect(buttonByName(host, 'Özgün isteği tekrar dene')).toBeNull();
+      expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    });
   });
 });

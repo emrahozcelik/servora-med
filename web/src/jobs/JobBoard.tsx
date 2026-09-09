@@ -55,6 +55,12 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
               {schedule.dateTime
                 ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
                 : schedule.text}
+              {schedule.signal === 'missing' && (
+                <span className="job-schedule-signal"> · Planlanmadı</span>
+              )}
+              {schedule.signal === 'incomplete' && (
+                <span className="job-schedule-signal"> · Bitiş saati eksik</span>
+              )}
             </dd>
           </div>
           {job.type === 'PRODUCT_DELIVERY' && (

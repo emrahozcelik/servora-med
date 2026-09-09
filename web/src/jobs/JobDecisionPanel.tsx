@@ -6,6 +6,8 @@ import type {
 } from './job-workflow-presentation';
 import type { LifecycleCommand } from './jobs-api';
 
+const START_SCHEDULE_REASON_ID = 'start-schedule-reason';
+
 export function JobDecisionPanel({
   primary,
   secondary,
@@ -13,6 +15,7 @@ export function JobDecisionPanel({
   pending,
   pendingLabel,
   startLocationCaptureEnabled,
+  startScheduleBlockedReason,
   onCommand,
   onRecordEdit,
 }: {
@@ -22,6 +25,13 @@ export function JobDecisionPanel({
   pending: boolean;
   pendingLabel?: string;
   startLocationCaptureEnabled: boolean;
+  /**
+   * Advisory SCHED-3 reason shown when the assigned STAFF viewer's START
+   * control is locally disabled because the SM/PD planned interval is
+   * structurally incomplete. UX guidance only — the backend remains
+   * authoritative and may still return SCHEDULED_INTERVAL_REQUIRED / 400.
+   */
+  startScheduleBlockedReason?: string | null;
   onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
   onRecordEdit?: (
     action: RecordEditPresentation['action'], trigger: HTMLButtonElement,
@@ -44,11 +54,24 @@ export function JobDecisionPanel({
       Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
       kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
     </p>}
+    {hasStart && startScheduleBlockedReason && (
+      <p
+        className="start-schedule-reason"
+        id={START_SCHEDULE_REASON_ID}
+        role="status"
+        aria-live="polite"
+      >
+        {startScheduleBlockedReason}
+      </p>
+    )}
     <div className="review-buttons">
       {primary && <button
         className="primary-button compact-button"
         type="button"
-        disabled={pending}
+        disabled={pending || Boolean(startScheduleBlockedReason && primary.command === 'START')}
+        aria-describedby={startScheduleBlockedReason && primary.command === 'START'
+          ? START_SCHEDULE_REASON_ID
+          : undefined}
         onClick={(event) => onCommand(primary.command, event.currentTarget)}
       >
         {pending ? (pendingLabel ?? 'İşleniyor…') : primary.label}
@@ -57,7 +80,8 @@ export function JobDecisionPanel({
         key={transition.command}
         className="secondary-button compact-button"
         type="button"
-        disabled={pending}
+        disabled={pending
+          || Boolean(startScheduleBlockedReason && transition.command === 'START')}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
         {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
