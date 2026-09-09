@@ -96,8 +96,6 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       const definitive = isDefinitiveMutationError(caught);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
-      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
-      else setAmbiguous(true);
       setFieldErrors(serverFieldErrors(caught));
       setError(caught instanceof Error ? caught.message : 'Görüşme sonucu kaydedilemedi.');
     }
