@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
+import { acquireRealtimeOrderingLock } from './ordering.js';
 import type {
   RealtimeEventInput,
   RealtimeEventRecord,
@@ -56,10 +57,7 @@ implements RealtimeEventTransaction {
   constructor(private readonly client: Pick<PoolClient, 'query'>) {}
 
   async append(input: RealtimeEventInput): Promise<RealtimeEventRecord> {
-    await this.client.query(
-      'SELECT pg_advisory_xact_lock(1, hashtext($1::text))',
-      [input.organizationId],
-    );
+    await acquireRealtimeOrderingLock(this.client, input.organizationId);
     const hasMsg = input.messagingActivityId != null;
     const columns = hasMsg ? COLUMNS : COLUMNS_NO_MSG;
     const result = await this.client.query<EventRow>(

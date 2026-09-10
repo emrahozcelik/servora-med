@@ -5,6 +5,7 @@ import {
   NOOP_REALTIME_EVENT_PUBLISHER,
   type RealtimeEventPublisher,
 } from '../realtime/event-bus.js';
+import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeEventRecord } from '../realtime/types.js';
 
 export type CalendarReminderClaim = Readonly<{
@@ -173,6 +174,7 @@ implements CalendarReminderWorkerRepository {
         );
         return null;
       }
+      await acquireRealtimeOrderingLock(client, claim.organizationId);
       const realtime = await client.query<{
         id: string; resource_keys: string[]; created_at: Date;
       }>(

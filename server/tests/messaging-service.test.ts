@@ -146,6 +146,8 @@ describe('MessagingService', () => {
       // insertActivity
       client.query.mockResolvedValueOnce({ rows: [{ id: randomUUID(), organization_id: organizationId, conversation_id: conversationId, actor_user_id: actor.id, action: 'MESSAGE_SENT', client_action_id: 'action-html', created_at: new Date() }], rowCount: 1 });
       // appendRealtimeEvent (now returns ID)
+      // B3: organization ordering lock is acquired before the realtime INSERT.
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       client.query.mockResolvedValueOnce({ rows: [{ id: '123' }], rowCount: 1 });
       // appendNotifications
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
@@ -198,6 +200,8 @@ describe('MessagingService', () => {
       // insertActivity
       client.query.mockResolvedValueOnce({ rows: [{ id: randomUUID(), organization_id: organizationId, conversation_id: conversationId, actor_user_id: actor.id, action: 'MESSAGE_SENT', client_action_id: 'action-1', created_at: new Date() }], rowCount: 1 });
       // appendRealtimeEvent
+      // B3: organization ordering lock is acquired before the realtime INSERT.
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       client.query.mockResolvedValueOnce({ rows: [{ id: '1' }], rowCount: 1 });
       // COMMIT
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });

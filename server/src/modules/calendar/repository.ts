@@ -12,6 +12,7 @@ import type {
   ManualEventPatchInput,
 } from './types.js';
 import { resolveSourceAccess } from '../job-cards/policy.js';
+import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 
 type CalendarRow = {
   id: string;
@@ -562,6 +563,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       [input.actor.organizationId, input.eventId, input.actor.id, input.action,
         input.changedFields, input.reason ?? null, input.clientActionId, input.now],
     );
+    await acquireRealtimeOrderingLock(client, input.actor.organizationId);
     const realtime = await client.query<{ id: bigint }>(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, calendar_activity_id, event_type,
