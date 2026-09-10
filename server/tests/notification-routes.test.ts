@@ -22,8 +22,15 @@ class MemoryAuthRepository implements AuthRepository {
 
   async findUserByEmail(email: string) { return this.user.email === email ? this.user : null; }
   async findUserById(id: string) { return this.user.id === id ? this.user : null; }
-  async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
-    const session = { ...input, id: `session-${this.sessions.length + 1}`, revokedAt: null };
+  async createSessionIfCredentialCurrent(
+    input: Omit<SessionRecord, 'id' | 'revokedAt'> & { expectedPasswordHash: string },
+  ) {
+    if (input.userId !== this.user.id || !this.user.isActive
+      || input.expectedPasswordHash !== this.user.passwordHash) return null;
+    const session: SessionRecord = {
+      id: `session-${this.sessions.length + 1}`, userId: input.userId,
+      tokenHash: input.tokenHash, expiresAt: input.expiresAt, revokedAt: null,
+    };
     this.sessions.push(session);
     return session;
   }
