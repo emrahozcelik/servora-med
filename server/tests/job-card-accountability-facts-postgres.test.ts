@@ -186,11 +186,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store: new PostgresMigrationStore(pool),
       });
-      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts']);
+      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(44);
-      expect(catalog.head?.version).toBe('044_job_card_accountability_facts');
+      expect(catalog.count).toBe(45);
+      expect(catalog.head?.version).toBe('045_calendar_request_hash');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');
       expect(after.rows[0]!.count).toBe('1');
@@ -731,10 +731,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await service.start(staffA, job.id, { clientActionId: randomUUID(), expectedVersion: job.version });
 
       const manifest = {
-        database: { schemaVersion: '044_job_card_accountability_facts' },
+        database: { schemaVersion: '045_calendar_request_hash' },
       } as unknown as RestoreManifestV1;
       const evidence = await validateRestoredDatabase(url.toString(), manifest);
-      expect(evidence.schemaVersion).toBe('044_job_card_accountability_facts');
+      expect(evidence.schemaVersion).toBe('045_calendar_request_hash');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
     } finally {

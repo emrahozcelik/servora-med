@@ -151,8 +151,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(44);
-      expect(firstRun.appliedVersions.at(-1)).toBe('044_job_card_accountability_facts');
+      expect(firstRun.appliedVersions).toHaveLength(45);
+      expect(firstRun.appliedVersions.at(-1)).toBe('045_calendar_request_hash');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -235,6 +235,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '042_unsuccessful_visit_reason',
           '043_job_card_schedule_and_assignment_history',
           '044_job_card_accountability_facts',
+          '045_calendar_request_hash',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -247,7 +248,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         .filter((file) => file.endsWith('.sql')
           && file !== '042_unsuccessful_visit_reason.sql'
           && file !== '043_job_card_schedule_and_assignment_history.sql'
-          && file !== '044_job_card_accountability_facts.sql')
+          && file !== '044_job_card_accountability_facts.sql'
+          && file !== '045_calendar_request_hash.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -275,6 +277,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '042_unsuccessful_visit_reason',
           '043_job_card_schedule_and_assignment_history',
           '044_job_card_accountability_facts',
+          '045_calendar_request_hash',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(
