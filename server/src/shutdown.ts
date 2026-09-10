@@ -6,6 +6,32 @@ export type ShutdownDeps = {
   exit?: (code: number) => void;
 };
 
+/**
+ * B4 worker rejection boundary for fire-and-forget signal handlers.
+ * `stop()` awaits the in-flight claim, so it rejects when that claim failed.
+ * The rejection must be contained here — otherwise it escapes as an unhandled
+ * rejection. Shutdown sequencing (`onStopped`) still runs via `finally` in
+ * both cases, and duplicate signals are ignored.
+ */
+export function createWorkerStopHandler(options: Readonly<{
+  stop: () => Promise<void>;
+  onStopped: () => void;
+  onError: (error: unknown) => void;
+}>): () => void {
+  let stopping = false;
+  return () => {
+    if (stopping) return;
+    stopping = true;
+    void options.stop().catch((error: unknown) => {
+      try {
+        options.onError(error);
+      } catch {
+        // best-effort reporting only
+      }
+    }).finally(options.onStopped);
+  };
+}
+
 export function createShutdown(deps: ShutdownDeps) {
   let shuttingDown = false;
   const timeoutMs = deps.timeoutMs ?? 25_000;

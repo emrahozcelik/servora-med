@@ -102,6 +102,9 @@ async function main() {
         {
           publisher: realtimeBus,
           webPushEnabled: config.webPush.enabled,
+          onError: (error) => {
+            console.error('Calendar reminder worker tick failed', error);
+          },
         },
       ),
       staffConfidentialNotesRepository: new PostgresStaffConfidentialNotesRepository(

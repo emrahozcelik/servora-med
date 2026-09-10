@@ -86,6 +86,7 @@ export type DispatcherDeps = Readonly<{
   buildPayload: (notification: PublicNotification) => PushPayloadV1;
   topicBuilder: (notificationId: string) => string;
   clock?: DispatcherClock;
+  onError?: (error: unknown) => void;
 }>;
 
 export interface WebPushDispatcher {
@@ -109,6 +110,15 @@ export function createDispatcher(
     gracePeriodMs: config.gracePeriodMs ?? DEFAULT_CONFIG.gracePeriodMs,
   };
   const now = deps.clock ?? defaultClock;
+
+  // Reporting must never crash the worker: a throwing reporter is contained.
+  const reportError = (error: unknown) => {
+    try {
+      deps.onError?.(error);
+    } catch {
+      // best-effort reporting only
+    }
+  };
 
   let intervalHandle: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
@@ -238,6 +248,13 @@ export function createDispatcher(
           }
         }
       });
+    } catch (error) {
+      // Infrastructure failures (lock acquisition, provider throw, record
+      // writes, commit) must not escape as unhandled rejections from the
+      // fire-and-forget dispatch. The delivery stays CLAIMED under its lease
+      // so the expiry pass reclaims it; report and free the slot instead of
+      // recording a fake terminal outcome.
+      reportError(error);
     } finally {
       activeSends.delete(deliveryId);
       resolveTracked();
@@ -284,7 +301,10 @@ export function createDispatcher(
   function start(): void {
     if (intervalHandle !== null) return;
     intervalHandle = setInterval(() => {
-      void runCycle();
+      // runCycle already handles expected poll failures; this catch contains
+      // any unexpected rejection so the interval callback never escapes as
+      // an unhandled rejection.
+      void runCycle().catch(reportError);
     }, cfg.pollIntervalMs);
   }
 

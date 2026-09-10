@@ -6,6 +6,7 @@ import { BackupWorker } from './modules/backup/worker.js';
 import { reclaimTerminalWorkspaces } from './modules/backup/workspace.js';
 import { loadConfig } from './config.js';
 import { closeDatabase, createDatabase } from './db/index.js';
+import { createWorkerStopHandler } from './shutdown.js';
 
 export async function main(): Promise<void> {
   // Keep the disabled process fail-safe even when an API-only environment
@@ -90,17 +91,20 @@ export async function main(): Promise<void> {
     },
   });
 
-  let stopping = false;
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => { resolveStopped = resolve; });
-  const requestStop = () => {
-    if (stopping) return;
-    stopping = true;
-    void worker.stop().finally(() => {
+  const requestStop = createWorkerStopHandler({
+    stop: () => worker.stop(),
+    onStopped: () => {
       shutdownController.abort();
       resolveStopped();
-    });
-  };
+    },
+    onError: (error) => {
+      console.error('Servora-Med backup worker stop failed', {
+        errorCategory: error instanceof Error ? error.name : 'unknown',
+      });
+    },
+  });
   process.once('SIGINT', requestStop);
   process.once('SIGTERM', requestStop);
   try {

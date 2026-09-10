@@ -295,6 +295,7 @@ export function createCalendarReminderWorker(
     pollIntervalMs?: number;
     leaseMs?: number;
     batchSize?: number;
+    onError?: (error: unknown) => void;
   }> = {},
 ): CalendarReminderWorker {
   const now = options.now ?? (() => new Date());
@@ -305,6 +306,15 @@ export function createCalendarReminderWorker(
   const leaseToken = randomUUID();
   let timer: NodeJS.Timeout | null = null;
   let active: Promise<number> | null = null;
+
+  // Reporting must never crash the worker: a throwing reporter is contained.
+  const reportError = (error: unknown) => {
+    try {
+      options.onError?.(error);
+    } catch {
+      // best-effort reporting only
+    }
+  };
 
   const runOnce = async () => {
     const claimedAt = now();
@@ -324,16 +334,23 @@ export function createCalendarReminderWorker(
         if (realtime) publisher.publish(realtime);
       } catch {
         const failedAt = now();
-        if (claim.attemptCount >= RETRY_DELAYS_MS.length + 1) {
-          await repository.abandon(claim, failedAt, 'PROJECTION_FAILED');
-        } else {
-          const delay = RETRY_DELAYS_MS[Math.max(0, claim.attemptCount - 1)]!;
-          await repository.retry(
-            claim,
-            failedAt,
-            new Date(failedAt.valueOf() + delay),
-            'PROJECTION_FAILED',
-          );
+        try {
+          if (claim.attemptCount >= RETRY_DELAYS_MS.length + 1) {
+            await repository.abandon(claim, failedAt, 'PROJECTION_FAILED');
+          } else {
+            const delay = RETRY_DELAYS_MS[Math.max(0, claim.attemptCount - 1)]!;
+            await repository.retry(
+              claim,
+              failedAt,
+              new Date(failedAt.valueOf() + delay),
+              'PROJECTION_FAILED',
+            );
+          }
+        } catch (bookkeepingError) {
+          // The claim stays CLAIMED under its lease, so the expiry/recovery
+          // pass reclaims it. Report and continue with the remaining claims
+          // instead of rejecting runOnce and aborting the whole batch.
+          reportError(bookkeepingError);
         }
       }
     }
@@ -344,7 +361,13 @@ export function createCalendarReminderWorker(
     start() {
       if (timer) return;
       const tick = () => {
-        active = runOnce().finally(() => {
+        // Contain poll-level failures (e.g. claimDue): report and keep the
+        // loop alive. Without this catch the rejected promise assigned to
+        // `active` escapes as an unhandled rejection.
+        active = runOnce().catch((error: unknown) => {
+          reportError(error);
+          return 0;
+        }).finally(() => {
           active = null;
           if (timer) timer = setTimeout(tick, pollIntervalMs);
         });
