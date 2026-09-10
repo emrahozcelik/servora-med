@@ -362,6 +362,9 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
               }),
               buildPayload: buildPushPayload,
               topicBuilder: buildPushTopic,
+              onError: (error) => {
+                app.log.error({ err: error }, 'Web push delivery failed');
+              },
             },
           );
 
