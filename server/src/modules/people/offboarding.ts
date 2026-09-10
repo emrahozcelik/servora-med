@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeService } from '../realtime/service.js';
 
 export const STAFF_OFFBOARDING_REASON_CODES = [
@@ -553,6 +554,7 @@ export class PostgresStaffOffboardingService {
       [actor.organizationId, jobCardId, previousAssignee, nextAssignee, actor.id,
         activity.rows[0]!.created_at, activity.rows[0]!.id],
     );
+    await acquireRealtimeOrderingLock(client, actor.organizationId);
     await client.query(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
@@ -582,6 +584,7 @@ export class PostgresStaffOffboardingService {
       [actor.organizationId, jobCardId, actor.id, JSON.stringify(oldValue), JSON.stringify(newValue),
         JSON.stringify({ reason: 'STAFF_OFFBOARDED' }), `${input.clientActionId}:follow-up:${jobCardId}`],
     );
+    await acquireRealtimeOrderingLock(client, actor.organizationId);
     await client.query(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
@@ -607,6 +610,7 @@ export class PostgresStaffOffboardingService {
        RETURNING id`,
       [actor.organizationId, calendarEventId, actor.id, `${input.clientActionId}:calendar:${calendarEventId}`],
     );
+    await acquireRealtimeOrderingLock(client, actor.organizationId);
     await client.query(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, calendar_activity_id, event_type, entity_type, entity_id,
@@ -704,6 +708,7 @@ export class PostgresStaffOffboardingService {
             JSON.stringify({ removedUserIds: [targetUserId], addedUserIds: [transfer.replacementUserId] })],
         );
         if (activity.rows[0]) {
+          await acquireRealtimeOrderingLock(client, actor.organizationId);
           await client.query(
             `INSERT INTO realtime_events
               (organization_id, source_activity_id, messaging_activity_id, event_type,

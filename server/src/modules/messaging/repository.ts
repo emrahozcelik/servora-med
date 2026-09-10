@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
+import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type {
   ConversationContextType,
   ConversationListCursor,
@@ -1237,6 +1238,7 @@ export class PostgresMessagingTransaction {
     resourceKeys: readonly string[];
     occurredAt: Date;
   }): Promise<bigint> {
+    await acquireRealtimeOrderingLock(this.client, input.organizationId);
     const result = await this.client.query<{ id: string }>(
       `INSERT INTO realtime_events
         (organization_id, messaging_activity_id, event_type, entity_type,

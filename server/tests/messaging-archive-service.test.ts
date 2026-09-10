@@ -266,6 +266,7 @@ describe('MessagingService conversation archive', () => {
       }],
       rowCount: 1,
     });
+    client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // realtime ordering lock (B3)
     client.query.mockResolvedValueOnce({ rows: [{ id: '1' }], rowCount: 1 }); // realtime event
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // notifications
     client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // COMMIT

@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 
 import type { UserRole } from '../auth/types.js';
+import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeEventInput, RealtimeEventRecord } from '../realtime/types.js';
 import type {
   StaffConfidentialNoteAuditInput,
@@ -212,6 +213,7 @@ implements StaffConfidentialNotesTransaction {
   }
 
   async appendRealtimeEvent(input: RealtimeEventInput) {
+    await acquireRealtimeOrderingLock(this.client, input.organizationId);
     const result = await this.client.query<RealtimeEventRow>(
       `INSERT INTO realtime_events
          (organization_id, staff_note_id, event_type, entity_type,
