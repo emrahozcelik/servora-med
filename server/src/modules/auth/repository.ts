@@ -9,7 +9,9 @@ export type SessionWithUser = {
 export interface AuthRepository {
   findUserByEmail(normalizedEmail: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
-  createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>): Promise<SessionRecord>;
+  createSessionIfCredentialCurrent(
+    input: Omit<SessionRecord, 'id' | 'revokedAt'> & { expectedPasswordHash: string },
+  ): Promise<SessionRecord | null>;
   findSessionWithUser(tokenHash: string): Promise<SessionWithUser | null>;
   revokeSession(tokenHash: string, revokedAt: Date): Promise<void>;
   updatePasswordAndRevokeSessions(
@@ -89,14 +91,35 @@ export class PostgresAuthRepository implements AuthRepository {
     return result.rows[0] ? mapUser(result.rows[0]) : null;
   }
 
-  async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
-    const result = await this.pool.query<SessionRow>(
-      `INSERT INTO sessions (user_id, token_hash, expires_at)
-       VALUES ($1, $2, $3)
-       RETURNING id, user_id, token_hash, expires_at, revoked_at`,
-      [input.userId, input.tokenHash, input.expiresAt],
-    );
-    return mapSession(result.rows[0]!);
+  async createSessionIfCredentialCurrent(
+    input: Omit<SessionRecord, 'id' | 'revokedAt'> & { expectedPasswordHash: string },
+  ) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const userResult = await client.query<UserRow>(
+        `SELECT ${USER_COLUMNS} FROM users WHERE id = $1 FOR UPDATE`,
+        [input.userId],
+      );
+      const user = userResult.rows[0];
+      if (!user || !user.is_active || user.password_hash !== input.expectedPasswordHash) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      const result = await client.query<SessionRow>(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)
+         RETURNING id, user_id, token_hash, expires_at, revoked_at`,
+        [input.userId, input.tokenHash, input.expiresAt],
+      );
+      await client.query('COMMIT');
+      return mapSession(result.rows[0]!);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async findSessionWithUser(tokenHash: string) {

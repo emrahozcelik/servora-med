@@ -17,8 +17,18 @@ class MemoryAuthRepository implements AuthRepository {
     return this.users.find((user) => user.id === id) ?? null;
   }
 
-  async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
-    const session = { ...input, id: `session-${this.sessions.length + 1}`, revokedAt: null };
+  async createSessionIfCredentialCurrent(
+    input: Omit<SessionRecord, 'id' | 'revokedAt'> & { expectedPasswordHash: string },
+  ) {
+    const user = this.users.find((candidate) => candidate.id === input.userId);
+    if (!user || !user.isActive || user.passwordHash !== input.expectedPasswordHash) return null;
+    const session: SessionRecord = {
+      id: `session-${this.sessions.length + 1}`,
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+    };
     this.sessions.push(session);
     return session;
   }
@@ -131,5 +141,48 @@ describe('AuthService', () => {
   it('rejects password change when the current password is wrong', async () => {
     await expect(service.changePassword('user-1', 'wrong-password', 'new-secure-password'))
       .rejects.toMatchObject({ code: 'INVALID_CURRENT_PASSWORD', statusCode: 400 });
+  });
+
+  it('issues a session only when the expected credential state is still current at issuance', async () => {
+    const user = repository.users[0]!;
+    const baseInput = {
+      tokenHash: hashSessionToken('raw-token'),
+      expiresAt: new Date('2026-07-11T16:00:00.000Z'),
+    };
+
+    await expect(repository.createSessionIfCredentialCurrent({
+      userId: user.id, expectedPasswordHash: user.passwordHash, ...baseInput,
+    })).resolves.toBeDefined();
+
+    await expect(repository.createSessionIfCredentialCurrent({
+      userId: user.id, expectedPasswordHash: 'stale-credential-hash', ...baseInput,
+    })).resolves.toBeNull();
+
+    await expect(repository.createSessionIfCredentialCurrent({
+      userId: 'missing-user', expectedPasswordHash: user.passwordHash, ...baseInput,
+    })).resolves.toBeNull();
+
+    repository.users[0]!.isActive = false;
+    await expect(repository.createSessionIfCredentialCurrent({
+      userId: user.id, expectedPasswordHash: user.passwordHash, ...baseInput,
+    })).resolves.toBeNull();
+
+    expect(repository.sessions).toHaveLength(1);
+  });
+
+  it('rejects login and creates no session when credential state is no longer current at issuance', async () => {
+    class StaleCredentialRepository extends MemoryAuthRepository {
+      async createSessionIfCredentialCurrent() {
+        return null;
+      }
+    }
+
+    const staleRepository = new StaleCredentialRepository();
+    staleRepository.users.push({ ...repository.users[0]! });
+    const staleService = new AuthService(staleRepository, 28_800, () => now);
+
+    await expect(staleService.login('admin@example.com', 'correct-password'))
+      .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
+    expect(staleRepository.sessions).toHaveLength(0);
   });
 });

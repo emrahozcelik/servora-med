@@ -48,11 +48,15 @@ export class AuthService {
 
     const { rawToken, tokenHash } = createSessionToken();
     const issuedAt = this.now();
-    await this.repository.createSession({
+    const session = await this.repository.createSessionIfCredentialCurrent({
       userId: user.id,
       tokenHash,
       expiresAt: new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000),
+      expectedPasswordHash: user.passwordHash,
     });
+    if (!session) {
+      throw INVALID_CREDENTIALS;
+    }
 
     return { user: toSafeUser(user), rawToken };
   }
