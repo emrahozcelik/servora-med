@@ -78,4 +78,5 @@ export type StaffConfidentialNoteCriticalActionClaim = {
   userId: string;
   clientActionId: string;
   operationKey: string;
+  requestHash: string;
 };

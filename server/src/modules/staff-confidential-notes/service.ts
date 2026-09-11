@@ -5,6 +5,7 @@ import type { SafeUser } from '../auth/types.js';
 import { NOOP_REALTIME_EVENT_PUBLISHER, type RealtimeEventPublisher } from '../realtime/event-bus.js';
 import type { RealtimeEventRecord } from '../realtime/types.js';
 import { presentNote, type StaffConfidentialNotesRepository } from './repository.js';
+import { confidentialNoteAddRequestHash } from './request-hash.js';
 import type {
   CreateStaffConfidentialNoteInput,
   StaffConfidentialNoteDto,
@@ -85,6 +86,10 @@ export class StaffConfidentialNotesService {
         userId: actor.id,
         clientActionId,
         operationKey: `STAFF_CONFIDENTIAL_NOTE_CREATE:${normalizedStaffUserId}`,
+        // B2-NOTE request identity: bind the idempotency key to the
+        // NORMALIZED note actually persisted, so a reused key with changed
+        // note content fails closed instead of replaying an earlier success.
+        requestHash: confidentialNoteAddRequestHash(normalizedStaffUserId, body),
       },
       async (transaction) => {
         const actorSnapshot = await transaction.lockActor(actor.organizationId, actor.id);

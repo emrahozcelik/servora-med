@@ -8,6 +8,7 @@ import type {
   StaffUserSnapshot,
 } from '../src/modules/staff-confidential-notes/repository.js';
 import { StaffConfidentialNotesService } from '../src/modules/staff-confidential-notes/service.js';
+import { confidentialNoteAddRequestHash } from '../src/modules/staff-confidential-notes/request-hash.js';
 import type {
   CreateStaffConfidentialNoteRecord,
   StaffConfidentialNoteAuditInput,
@@ -64,6 +65,15 @@ implements StaffConfidentialNotesRepository {
     return `${claim.organizationId}|${claim.userId}|${claim.clientActionId}|${claim.operationKey}`;
   }
 
+  private assertRequestHash(expected: string, stored: unknown) {
+    // Mirrors PostgresStaffConfidentialNotesRepository: a reused key whose
+    // stored request identity is absent (legacy NULL row) or differs from
+    // the caller's semantic request fails closed with CLIENT_ACTION_REUSED.
+    if (stored !== expected) {
+      throw new AppError('CLIENT_ACTION_REUSED', 409, 'clientActionId farklı bir işlem içeriğiyle yeniden kullanılamaz.');
+    }
+  }
+
   async execute<T>(work: (tx: StaffConfidentialNotesTransaction) => Promise<T>) {
     return work(this.transaction());
   }
@@ -75,6 +85,10 @@ implements StaffConfidentialNotesRepository {
     const key = this.claimKey(claim);
     const existing = this.processed.find((entry) => this.claimKey(entry.claim) === key);
     if (existing) {
+      this.assertRequestHash(
+        claim.requestHash,
+        (existing.claim as { requestHash?: unknown }).requestHash,
+      );
       if (existing.status === 'completed') {
         return { kind: 'replay', response: existing.response as T, realtimeEvents: [] };
       }
@@ -90,7 +104,14 @@ implements StaffConfidentialNotesRepository {
 
   async findCompletedCriticalAction<T>(claim: StaffConfidentialNoteCriticalActionClaim) {
     const entry = this.processed.find((item) => this.claimKey(item.claim) === this.claimKey(claim));
-    return entry?.status === 'completed' ? (entry.response as T) : null;
+    if (entry?.status === 'completed') {
+      this.assertRequestHash(
+        claim.requestHash,
+        (entry.claim as { requestHash?: unknown }).requestHash,
+      );
+      return entry.response as T;
+    }
+    return null;
   }
 
   async findSubject(organizationId: string, userId: string) {
@@ -384,21 +405,113 @@ describe('StaffConfidentialNotesService idempotency', () => {
     expect(repository.published).toHaveLength(1);
   });
 
-  it('does not recalculate timestamps on replay', async () => {
+  it('replays a normalization-equivalent retry with one row, one audit, one realtime event', async () => {
+    const { repository, service } = setup();
+    const first = await service.createNote(admin, staff.id, { clientActionId: 'action-norm', body: 'Sabah vardiyası' });
+    const second = await service.createNote(admin, staff.id, { clientActionId: 'action-norm', body: '  Sabah vardiyası  ' });
+    expect(second).toEqual(first);
+    expect(repository.notes).toHaveLength(1);
+    expect(repository.audits).toHaveLength(1);
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.published).toHaveLength(1);
+  });
+
+  it('rejects a reused key with a changed body instead of replaying the earlier success', async () => {
     const { repository, service } = setup();
     const first = await service.createNote(admin, staff.id, { clientActionId: 'action-ts', body: 'zaman damgası' });
     expect(first.createdAt).toBe(now.toISOString());
-    const second = await service.createNote(admin, staff.id, { clientActionId: 'action-ts', body: 'farklı gövde' });
-    expect(second).toEqual(first);
+    await expectAppError(
+      service.createNote(admin, staff.id, { clientActionId: 'action-ts', body: 'farklı gövde' }),
+      'CLIENT_ACTION_REUSED', 409,
+    );
+    expect(repository.notes).toHaveLength(1);
     expect(repository.notes[0]!.body).toBe('zaman damgası');
+    expect(repository.audits).toHaveLength(1);
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.published).toHaveLength(1);
+    expect(repository.processed).toHaveLength(1);
   });
 
-  it('returns the original response when replay carries a different body', async () => {
-    const { service } = setup();
+  it('rejects a reused key with a changed body without touching the original response', async () => {
+    const { repository, service } = setup();
     const first = await service.createNote(admin, staff.id, { clientActionId: 'action-diff', body: 'özgün' });
-    const second = await service.createNote(admin, staff.id, { clientActionId: 'action-diff', body: 'değişmiş' });
-    expect(second.body).toBe('özgün');
-    expect(second.id).toBe(first.id);
+    await expectAppError(
+      service.createNote(admin, staff.id, { clientActionId: 'action-diff', body: 'değişmiş' }),
+      'CLIENT_ACTION_REUSED', 409,
+    );
+    expect(repository.notes).toHaveLength(1);
+    expect(repository.notes[0]!.body).toBe('özgün');
+    expect(repository.notes[0]!.id).toBe(first.id);
+  });
+
+  it('fails closed on a legacy processed entry without request identity', async () => {
+    const { repository, service } = setup();
+    const first = await service.createNote(admin, staff.id, { clientActionId: 'action-legacy', body: 'özgün' });
+    const entry = repository.processed.find(
+      (item) => item.claim.clientActionId === 'action-legacy',
+    )!;
+    delete (entry.claim as { requestHash?: unknown }).requestHash;
+    await expectAppError(
+      service.createNote(admin, staff.id, { clientActionId: 'action-legacy', body: 'özgün' }),
+      'CLIENT_ACTION_REUSED', 409,
+    );
+    expect(repository.notes).toHaveLength(1);
+    expect(repository.notes[0]!.id).toBe(first.id);
+    expect(repository.audits).toHaveLength(1);
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.published).toHaveLength(1);
+  });
+
+  it('preserves ACTION_IN_PROGRESS for an exact in-flight request', async () => {
+    const { repository, service } = setup();
+    repository.processed.push({
+      claim: {
+        organizationId: admin.organizationId,
+        userId: admin.id,
+        clientActionId: 'action-inflight',
+        operationKey: `STAFF_CONFIDENTIAL_NOTE_CREATE:${staff.id}`,
+        requestHash: confidentialNoteAddRequestHash(staff.id, 'devam eden not'),
+      },
+      status: 'processing',
+      response: null,
+    });
+    await expectAppError(
+      service.createNote(admin, staff.id, { clientActionId: 'action-inflight', body: 'devam eden not' }),
+      'ACTION_IN_PROGRESS', 409,
+    );
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.audits).toHaveLength(0);
+    expect(repository.realtimeEvents).toHaveLength(0);
+  });
+
+  it('rejects a changed request against an in-flight key instead of reporting ACTION_IN_PROGRESS', async () => {
+    const { repository, service } = setup();
+    repository.processed.push({
+      claim: {
+        organizationId: admin.organizationId,
+        userId: admin.id,
+        clientActionId: 'action-inflight-changed',
+        operationKey: `STAFF_CONFIDENTIAL_NOTE_CREATE:${staff.id}`,
+        requestHash: confidentialNoteAddRequestHash(staff.id, 'başka bir not'),
+      },
+      status: 'processing',
+      response: null,
+    });
+    await expectAppError(
+      service.createNote(admin, staff.id, { clientActionId: 'action-inflight-changed', body: 'devam eden not' }),
+      'CLIENT_ACTION_REUSED', 409,
+    );
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.audits).toHaveLength(0);
+    expect(repository.realtimeEvents).toHaveLength(0);
+  });
+
+  it('stores a deterministic SHA-256 request identity bound to subject and normalized body', async () => {
+    const { repository, service } = setup();
+    await service.createNote(admin, staff.id, { clientActionId: 'action-hash', body: '  karmalı not  ' });
+    const stored = repository.processed[0]!.claim.requestHash;
+    expect(stored).toMatch(/^[0-9a-f]{64}$/);
+    expect(stored).toBe(confidentialNoteAddRequestHash(staff.id, 'karmalı not'));
   });
 
   it('does not emit a second realtime invalidation on replay', async () => {
