@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
+import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import type { CurrentUser } from './services/api';
 import { createRequestGate } from './services/request-gate';
 import {
@@ -13,6 +14,12 @@ import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 
 const PAGE_LIMIT = 10;
+
+type ConfidentialNoteAttempt = {
+  subjectStaffUserId: string;
+  clientActionId: string;
+  body: string;
+};
 
 function formatNoteDate(value: string) {
   return new Date(value).toLocaleString('tr-TR', {
@@ -32,10 +39,15 @@ export function StaffConfidentialNotesSection({
   const [error, setError] = useState('');
   const [body, setBody] = useState('');
   const [pending, setPending] = useState(false);
+  const [ambiguous, setAmbiguous] = useState(false);
   const [createError, setCreateError] = useState('');
   const [notice, setNotice] = useState('');
   const requestGate = useRef(createRequestGate());
-  const actionRef = useRef<{ id: string; body: string } | null>(null);
+  const actionRef = useRef<ConfidentialNoteAttempt | null>(null);
+  // Mutation ownership: replaced on every Staff-subject transition so async
+  // completions belonging to a previous subject become fully inert. Object
+  // identity is the token — a stale sendAttempt holds the old object.
+  const mutationOwner = useRef({ subjectStaffUserId: staffUserId, generation: 0 });
   const noticeRef = useRef<HTMLParagraphElement>(null);
 
   const load = async (offset: number) => {
@@ -59,6 +71,20 @@ export function StaffConfidentialNotesSection({
   };
 
   useEffect(() => {
+    // An unresolved attempt belongs to exactly one Staff subject; never let it
+    // migrate to another subject when the viewed profile changes. Invalidate
+    // the previous mutation ownership first so its late completions stay inert,
+    // then reset all subject-local mutation UI (including a carried-over draft).
+    mutationOwner.current = {
+      subjectStaffUserId: staffUserId,
+      generation: mutationOwner.current.generation + 1,
+    };
+    actionRef.current = null;
+    setAmbiguous(false);
+    setPending(false);
+    setCreateError('');
+    setNotice('');
+    setBody('');
     void load(0);
     return () => { requestGate.current.next(); };
   }, [staffUserId]);
@@ -69,6 +95,7 @@ export function StaffConfidentialNotesSection({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (ambiguous) return;
     const trimmed = body.trim();
     if (!trimmed) {
       setCreateError('Not boş olamaz.');
@@ -78,26 +105,57 @@ export function StaffConfidentialNotesSection({
       setCreateError('Not 4000 karakterden uzun olamaz.');
       return;
     }
+    const action = actionRef.current?.subjectStaffUserId === staffUserId
+      && actionRef.current?.body === trimmed
+      ? actionRef.current
+      : { subjectStaffUserId: staffUserId, clientActionId: crypto.randomUUID(), body: trimmed };
+    actionRef.current = action;
+    await sendAttempt(action);
+  }
+
+  async function sendAttempt(attempt: ConfidentialNoteAttempt) {
+    // Capture ownership before the async mutation: only completions that still
+    // hold the current owner object may touch state. A Staff-subject switch
+    // replaces mutationOwner.current, so stale completions return inertly.
+    // Never rely on the closure staffUserId here — it still holds Staff A.
+    const ownership = mutationOwner.current;
+    const owned = () => mutationOwner.current === ownership;
+    if (attempt.subjectStaffUserId !== ownership.subjectStaffUserId) {
+      actionRef.current = null;
+      setAmbiguous(false);
+      return;
+    }
     setPending(true);
     setCreateError('');
     setNotice('');
-    const action = actionRef.current?.body === trimmed
-      ? actionRef.current
-      : { id: crypto.randomUUID(), body: trimmed };
-    actionRef.current = action;
     try {
-      await createStaffConfidentialNote(staffUserId, {
-        clientActionId: action.id,
-        body: trimmed,
+      await createStaffConfidentialNote(attempt.subjectStaffUserId, {
+        clientActionId: attempt.clientActionId,
+        body: attempt.body,
       });
+      if (!owned()) return;
       actionRef.current = null;
+      setAmbiguous(false);
+      setCreateError('');
       setBody('');
       setNotice('Gizli not eklendi.');
       window.setTimeout(() => noticeRef.current?.focus(), 0);
       await load(page?.offset ?? 0);
     } catch (caught) {
+      if (!owned()) return;
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved; anything else keeps the frozen attempt so the
+      // exact retry replays the original subject/key/body.
+      if (isDefinitiveMutationError(caught)) {
+        actionRef.current = null;
+        setAmbiguous(false);
+      } else {
+        setAmbiguous(true);
+      }
       setCreateError(caught instanceof Error ? caught.message : 'Gizli not eklenemedi.');
     } finally {
+      // A stale completion must not clear pending for a newer request.
+      if (!owned()) return;
       setPending(false);
     }
   }
@@ -118,14 +176,19 @@ export function StaffConfidentialNotesSection({
     {notice && <p className="success-message" role="status" tabIndex={-1} ref={noticeRef}>{notice}</p>}
     {createError && <p className="form-error" role="alert">{createError}</p>}
     <form className="confidential-note-form" onSubmit={submit} noValidate>
+      {ambiguous && <div className="detail-feedback" role="status">
+        <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
+        <button type="button" className="primary-button" data-original-retry disabled={pending}
+          onClick={() => { const attempt = actionRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
+      </div>}
       <label className="field-group" htmlFor="confidential-note-body">Yeni not
         <textarea id="confidential-note-body" name="body" rows={4}
-          value={body} maxLength={4000} disabled={pending} aria-busy={pending}
+          value={body} maxLength={4000} disabled={pending || ambiguous} aria-busy={pending}
           placeholder="Personel hakkında gizli operasyon notu…"
           onChange={(event) => setBody(event.target.value)} />
       </label>
       <div className="form-actions">
-        <button className="primary-button compact-button" type="submit" disabled={pending || loading}>
+        <button className="primary-button compact-button" type="submit" disabled={pending || loading || ambiguous}>
           {pending ? 'Ekleniyor…' : 'Not ekle'}
         </button>
       </div>
