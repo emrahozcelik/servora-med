@@ -2755,6 +2755,11 @@ export class JobCardService {
       && persisted
       && job.followUpProposalOrigin === 'SYSTEM'
       && !managerProvidedSchedule) {
+      // D1: omitting scheduledAt keeps server-side automatic slot selection,
+      // but manager-supplied semantic overrides (type/assignee/instructions)
+      // remain authoritative — the same merge the persisted-proposal branch
+      // below applies. Availability, authorization, and locking therefore run
+      // against the final overridden values, never stale persisted ones.
       const proposal = await this.autoScheduleFollowUpProposal(
         tx,
         actor,
@@ -2763,9 +2768,9 @@ export class JobCardService {
         meetingDetails?.meetingAt ?? null,
         true,
         {
-          type: job.followUpProposedType!,
-          assignedTo: job.followUpProposedAssignee!,
-          followUpInstructions: job.followUpProposalInstructions!,
+          type: input?.type ?? job.followUpProposedType!,
+          assignedTo: input?.assignedTo ?? job.followUpProposedAssignee!,
+          followUpInstructions: input?.followUpInstructions ?? job.followUpProposalInstructions!,
         },
         new Date(job.followUpProposedAt!),
         lockedAssignees,
