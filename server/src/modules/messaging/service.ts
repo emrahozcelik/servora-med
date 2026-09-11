@@ -608,11 +608,30 @@ export class MessagingService {
       );
 
       if (!message) {
-        // Duplicate — fetch existing (idempotent)
+        // Duplicate — the unique (conversation_id, sender_user_id,
+        // client_action_id) key already owns a durable message. A retry is an
+        // idempotent replay ONLY when the validated body matches the persisted
+        // one exactly. The same key with a different payload is a reused
+        // action id, not a replay.
+        //
+        // Body identity is the raw validated string: validateBody() does not
+        // trim or otherwise normalize, so whitespace-only differences are
+        // different payloads and must not be collapsed here.
+        //
+        // The conflict above guarantees the row exists and is visible
+        // (READ COMMITTED: the conflicting insert blocked until the owning
+        // transaction committed), so a missing row is an invariant violation
+        // and must never be reported as a successful replay.
         const existing = await this.repository.findMessageByClientAction(
           conversation.id, actor.id, clientActionId,
         );
-        return { result: { ...existing!, isDuplicate: true }, events: [] as Array<{ id: bigint; event: RealtimeEventInput }> };
+        if (!existing || existing.body !== trimmedBody) {
+          throw new AppError(
+            'CLIENT_ACTION_REUSED', 409,
+            'Bu işlem kodu başka bir işlem için kullanıldı.',
+          );
+        }
+        return { result: { ...existing, isDuplicate: true }, events: [] as Array<{ id: bigint; event: RealtimeEventInput }> };
       }
 
       await tx.clearConversationArchiveState(
