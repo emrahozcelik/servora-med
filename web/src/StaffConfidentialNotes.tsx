@@ -44,6 +44,10 @@ export function StaffConfidentialNotesSection({
   const [notice, setNotice] = useState('');
   const requestGate = useRef(createRequestGate());
   const actionRef = useRef<ConfidentialNoteAttempt | null>(null);
+  // Mutation ownership: replaced on every Staff-subject transition so async
+  // completions belonging to a previous subject become fully inert. Object
+  // identity is the token — a stale sendAttempt holds the old object.
+  const mutationOwner = useRef({ subjectStaffUserId: staffUserId, generation: 0 });
   const noticeRef = useRef<HTMLParagraphElement>(null);
 
   const load = async (offset: number) => {
@@ -68,9 +72,19 @@ export function StaffConfidentialNotesSection({
 
   useEffect(() => {
     // An unresolved attempt belongs to exactly one Staff subject; never let it
-    // migrate to another subject when the viewed profile changes.
+    // migrate to another subject when the viewed profile changes. Invalidate
+    // the previous mutation ownership first so its late completions stay inert,
+    // then reset all subject-local mutation UI (including a carried-over draft).
+    mutationOwner.current = {
+      subjectStaffUserId: staffUserId,
+      generation: mutationOwner.current.generation + 1,
+    };
     actionRef.current = null;
     setAmbiguous(false);
+    setPending(false);
+    setCreateError('');
+    setNotice('');
+    setBody('');
     void load(0);
     return () => { requestGate.current.next(); };
   }, [staffUserId]);
@@ -100,7 +114,13 @@ export function StaffConfidentialNotesSection({
   }
 
   async function sendAttempt(attempt: ConfidentialNoteAttempt) {
-    if (attempt.subjectStaffUserId !== staffUserId) {
+    // Capture ownership before the async mutation: only completions that still
+    // hold the current owner object may touch state. A Staff-subject switch
+    // replaces mutationOwner.current, so stale completions return inertly.
+    // Never rely on the closure staffUserId here — it still holds Staff A.
+    const ownership = mutationOwner.current;
+    const owned = () => mutationOwner.current === ownership;
+    if (attempt.subjectStaffUserId !== ownership.subjectStaffUserId) {
       actionRef.current = null;
       setAmbiguous(false);
       return;
@@ -113,6 +133,7 @@ export function StaffConfidentialNotesSection({
         clientActionId: attempt.clientActionId,
         body: attempt.body,
       });
+      if (!owned()) return;
       actionRef.current = null;
       setAmbiguous(false);
       setCreateError('');
@@ -121,6 +142,7 @@ export function StaffConfidentialNotesSection({
       window.setTimeout(() => noticeRef.current?.focus(), 0);
       await load(page?.offset ?? 0);
     } catch (caught) {
+      if (!owned()) return;
       // Fail-safe: only an authoritative non-retryable server response proves
       // the attempt resolved; anything else keeps the frozen attempt so the
       // exact retry replays the original subject/key/body.
@@ -132,6 +154,8 @@ export function StaffConfidentialNotesSection({
       }
       setCreateError(caught instanceof Error ? caught.message : 'Gizli not eklenemedi.');
     } finally {
+      // A stale completion must not clear pending for a newer request.
+      if (!owned()) return;
       setPending(false);
     }
   }

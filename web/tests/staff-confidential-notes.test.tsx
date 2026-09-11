@@ -510,9 +510,78 @@ describe('StaffConfidentialNotesSection states', () => {
     });
     await act(async () => {});
     const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    const submitButton = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.value).toBe('');
+    expect(submitButton.disabled).toBe(false);
+    expect(submitButton.textContent).toBe('Not ekle');
+    expect(retryButton()).toBeFalsy();
+    expect(host.textContent).not.toContain('Ağ hatası.');
+    expect(host.textContent).not.toContain('Gizli not eklendi.');
+    expect(api.createStaffConfidentialNote).toHaveBeenCalledTimes(1);
+  });
+
+  it('CNR-10: stale success after subject switch is fully inert', async () => {
+    const noteB: StaffConfidentialNote = {
+      ...savedNote, id: 'note-b', staffUserId: 'staff-2', body: 'B personeli notu',
+    };
+    const list = api.listStaffConfidentialNotes.mockImplementation(async (staffUserId: string) =>
+      staffUserId === 'staff-2'
+        ? { items: [noteB], total: 1, limit: 10, offset: 0 }
+        : emptyPage,
+    );
+    let resolveCreate: (value: StaffConfidentialNote) => void = () => {};
+    api.createStaffConfidentialNote.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
+    await act(async () => {
+      root.render(<StaffConfidentialNotesSection staffUserId="staff-1" actor={admin} />);
+    });
+    await act(async () => {});
+    await typeAndSubmit('Note A');
+    await act(async () => {});
+    expect(api.createStaffConfidentialNote).toHaveBeenCalledTimes(1);
+    const listCallsAtSwitch = list.mock.calls.length;
+    await act(async () => {
+      root.render(<StaffConfidentialNotesSection staffUserId="staff-2" actor={admin} />);
+    });
+    await act(async () => {});
+    expect(host.textContent).toContain('B personeli notu');
+    await act(async () => { resolveCreate(savedNote); });
+    await act(async () => {});
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    const submitButton = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(host.textContent).not.toContain('Gizli not eklendi.');
+    expect(textarea.value).toBe('');
+    expect(textarea.disabled).toBe(false);
+    expect(submitButton.disabled).toBe(false);
+    expect(submitButton.textContent).toBe('Not ekle');
+    expect(retryButton()).toBeFalsy();
+    expect(host.textContent).toContain('B personeli notu');
+    expect(host.textContent).not.toContain('Performans takibi sürüyor.');
+    expect(list.mock.calls.slice(listCallsAtSwitch).every((call) => call[0] === 'staff-2')).toBe(true);
+  });
+
+  it('CNR-11: stale ambiguous error after subject switch is fully inert', async () => {
+    let rejectCreate: (reason: unknown) => void = () => {};
+    api.createStaffConfidentialNote.mockReturnValue(new Promise((_, reject) => { rejectCreate = reject; }));
+    await act(async () => {
+      root.render(<StaffConfidentialNotesSection staffUserId="staff-1" actor={admin} />);
+    });
+    await act(async () => {});
+    await typeAndSubmit('Note A');
+    await act(async () => {});
+    await act(async () => {
+      root.render(<StaffConfidentialNotesSection staffUserId="staff-2" actor={admin} />);
+    });
+    await act(async () => {});
+    await act(async () => {
+      rejectCreate(new ApiError(0, 'NETWORK_ERROR', 'Ağ hatası.', true));
+    });
+    await act(async () => {});
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(false);
     expect(retryButton()).toBeFalsy();
-    expect(api.createStaffConfidentialNote).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain('Ağ hatası.');
+    expect((host.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('refetches the current page when a confidential-note realtime change arrives', async () => {
