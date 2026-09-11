@@ -181,6 +181,8 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const pendingOlderRef = useRef<OlderRequest | null>(null);
   const pendingLoadRef = useRef<{ gen: number; convId: string } | null>(null);
   const pendingMarkReadRef = useRef<{ gen: number; convId: string } | null>(null);
+  const sendGenRef = useRef(0);
+  const pendingSendRef = useRef<{ gen: number; convId: string; clientActionId: string } | null>(null);
   const listLoadGenRef = useRef(0);
   const activeViewButtonRef = useRef<HTMLButtonElement>(null);
   const archivedViewButtonRef = useRef<HTMLButtonElement>(null);
@@ -189,8 +191,18 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const conversationActionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const conversationActionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
+  // Send ownership (B5) — a send completion may mutate conversation-local UI
+  // state only while it still owns the visible conversation. Every
+  // conversation transition drops ownership, EXCEPT the current-conversation
+  // realtime refresh, which must not orphan an in-flight send for the thread
+  // on screen (the send's own guard plus the canonical reload reconcile it).
+  const invalidateSendOwnership = useCallback(() => {
+    sendGenRef.current++;
+    pendingSendRef.current = null;
+  }, []);
+
   // Centralized conversation transition — invalidates all pending requests
-  const invalidateThread = useCallback(() => {
+  const invalidateThread = useCallback((options?: { preserveSendOwnership?: boolean }) => {
     loadGenRef.current++;
     olderGenRef.current++;
     markReadGenRef.current++;
@@ -198,6 +210,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     pendingOlderRef.current = null;
     pendingMarkReadRef.current = null;
     olderActiveConvRef.current = null;
+    if (!options?.preserveSendOwnership) {
+      invalidateSendOwnership();
+    }
     setMessageLoading(false);
     setOlderLoading(false);
     setThreadError(null);
@@ -206,7 +221,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     setOlderCursor(null);
     loadedPageRef.current = [];
     scrollModeRef.current = 'bottom';
-  }, []);
+  }, [invalidateSendOwnership]);
 
   // --- Data loading ---
 
@@ -275,7 +290,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     selectedId ? [`conversation:${selectedId}`] : [],
     () => {
       if (selectedId) {
-        invalidateThread();
+        invalidateThread({ preserveSendOwnership: true });
         setSelectedId(selectedId); // keep same conversation
         scrollModeRef.current = 'bottom';
         loadMessages(selectedId);
@@ -307,6 +322,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
           // M9: membership was revoked (e.g. removed from the conversation).
           // Leave the thread; the server remains authoritative.
+          invalidateSendOwnership();
           setSelectedId(null);
           setThreadError(null);
           setMessages([]);
@@ -324,7 +340,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         setMessageLoading(false);
       }
     }
-  }, []);
+  }, [invalidateSendOwnership]);
 
   // --- Older-page load with conversation-scoped invalidation ---
 
@@ -551,20 +567,45 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
       const text = composerText.trim();
       if (!text || !selectedId) return;
+      // The composer is disabled while a send is in flight; a re-entrant call
+      // must not start a second send that would orphan the first completion.
+      if (draft?.status === 'sending') return;
 
+      const requestConvId = selectedId;
       const effectiveActionId = draft?.body === text ? draft.clientActionId : nextClientActionId(user.id);
+      const sendGen = ++sendGenRef.current;
+      pendingSendRef.current = { gen: sendGen, convId: requestConvId, clientActionId: effectiveActionId };
       setDraft({ body: text, clientActionId: effectiveActionId, status: 'sending' });
       setSendError(null);
-      scrollModeRef.current = 'bottom';
 
       try {
-        const msg = await sendMessage(selectedId, text, effectiveActionId);
-        if (!msg.isDuplicate) setMessages((prev) => [...prev, msg]);
+        const msg = await sendMessage(requestConvId, text, effectiveActionId);
+        // Stale-send isolation (B5): only the send that still owns the visible
+        // conversation may mutate conversation-local UI state. A completion
+        // orphaned by a conversation switch — or superseded by a newer send —
+        // stays fully inert; the realtime layer reconciles canonical state.
+        if (pendingSendRef.current?.gen !== sendGen || pendingSendRef.current?.convId !== requestConvId) {
+          return;
+        }
+        pendingSendRef.current = null;
+        scrollModeRef.current = 'bottom';
+        // Local idempotence by message identity (B5 review): a same-conversation
+        // realtime refresh may already have loaded this message before the HTTP
+        // send promise settles. Never append the same message id twice.
+        if (!msg.isDuplicate) {
+          setMessages((prev) => (prev.some((existing) => existing.id === msg.id) ? prev : [...prev, msg]));
+        }
         setComposerText('');
         setDraft(null);
         loadConversations();
         loadUnreadCount();
       } catch (error) {
+        // A stale failure must never leak another conversation's error or
+        // draft into the currently visible thread.
+        if (pendingSendRef.current?.gen !== sendGen || pendingSendRef.current?.convId !== requestConvId) {
+          return;
+        }
+        pendingSendRef.current = null;
         setDraft({ body: text, clientActionId: effectiveActionId, status: 'error', error: error instanceof Error ? error.message : 'Gönderilemedi.' });
         setSendError(error instanceof Error ? error.message : 'Mesaj gönderilemedi.');
       }
