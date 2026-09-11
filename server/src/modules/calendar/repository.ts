@@ -11,6 +11,12 @@ import type {
   ManualEventCreateInput,
   ManualEventPatchInput,
 } from './types.js';
+import {
+  assertCalendarRequestHash,
+  manualEventCancelRequestHash,
+  manualEventCreateRequestHash,
+  manualEventPatchRequestHash,
+} from './request-hash.js';
 import { resolveSourceAccess } from '../job-cards/policy.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 
@@ -167,9 +173,9 @@ export interface CalendarRepository {
   getAssignableUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
   getCalendarUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
   getManualEvent(actor: CalendarActor, eventId: string): Promise<CalendarEvent | null>;
-  createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date): Promise<CalendarEvent>;
-  patchManual(actor: CalendarActor, eventId: string, input: ManualEventPatchInput, now: Date): Promise<CalendarEvent>;
-  cancelManual(actor: CalendarActor, eventId: string, input: ManualEventCancelInput, now: Date): Promise<CalendarEvent>;
+  createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
+  patchManual(actor: CalendarActor, eventId: string, input: ManualEventPatchInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
+  cancelManual(actor: CalendarActor, eventId: string, input: ManualEventCancelInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
 }
 
 export class PostgresCalendarRepository implements CalendarRepository {
@@ -251,9 +257,13 @@ export class PostgresCalendarRepository implements CalendarRepository {
     return result.rows[0] ? event(result.rows[0], actor) : null;
   }
 
-  createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date) {
+  createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date, requestHash?: string) {
     return this.transaction(async (client) => {
-      const replay = await this.findReplay(client, actor, input.clientActionId, 'CREATED');
+      // Fallback covers direct repository callers passing validated input.
+      // Callers that transform input with database-derived values (service
+      // duration preservation) MUST pass the pre-transform hash explicitly.
+      const identityHash = requestHash ?? manualEventCreateRequestHash(input);
+      const replay = await this.findReplay(client, actor, input.clientActionId, 'CREATED', identityHash);
       if (replay) return replay;
       await this.lockUser(client, actor.organizationId, input.assignedUserId);
       await this.assertNoConflict(
@@ -272,6 +282,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       await this.afterMutation(client, {
         actor, eventId, assignedUserId: input.assignedUserId,
         action: 'CREATED', clientActionId: input.clientActionId,
+        requestHash: identityHash,
         changedFields: ['assignedUserId', 'title', 'description', 'startsAt', 'endsAt', 'timezone'],
         startsAt: input.startsAt, version: 1, now,
         notificationKind: 'calendar.assigned',
@@ -286,9 +297,13 @@ export class PostgresCalendarRepository implements CalendarRepository {
     eventId: string,
     input: ManualEventPatchInput,
     now: Date,
+    requestHash?: string,
   ) {
     return this.transaction(async (client) => {
-      const replay = await this.findReplay(client, actor, input.clientActionId, 'UPDATED');
+      // Same fallback contract as createManual: the hash must describe the
+      // caller's original patch, never a duration-preserved form.
+      const identityHash = requestHash ?? manualEventPatchRequestHash(eventId, input);
+      const replay = await this.findReplay(client, actor, input.clientActionId, 'UPDATED', identityHash);
       if (replay) return replay;
       const initial = await this.readManual(client, actor, eventId);
       if (!initial) throw new AppError('NOT_FOUND', 404, 'Takvim kaydı bulunamadı.');
@@ -326,7 +341,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       await this.cancelReminders(client, actor.organizationId, eventId, now);
       await this.afterMutation(client, {
         actor, eventId, assignedUserId, action: 'UPDATED',
-        clientActionId: input.clientActionId, changedFields, startsAt,
+        clientActionId: input.clientActionId, requestHash: identityHash, changedFields, startsAt,
         version: input.expectedVersion + 1, now,
         notificationKind: 'calendar.rescheduled',
       });
@@ -339,9 +354,11 @@ export class PostgresCalendarRepository implements CalendarRepository {
     eventId: string,
     input: ManualEventCancelInput,
     now: Date,
+    requestHash?: string,
   ) {
     return this.transaction(async (client) => {
-      const replay = await this.findReplay(client, actor, input.clientActionId, 'CANCELLED');
+      const identityHash = requestHash ?? manualEventCancelRequestHash(eventId, input);
+      const replay = await this.findReplay(client, actor, input.clientActionId, 'CANCELLED', identityHash);
       if (replay) return replay;
       const current = await this.lockManual(client, actor, eventId);
       if (!current) throw new AppError('NOT_FOUND', 404, 'Takvim kaydı bulunamadı.');
@@ -362,7 +379,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       await this.afterMutation(client, {
         actor, eventId, assignedUserId: current.assigned_user_id,
         action: 'CANCELLED', clientActionId: input.clientActionId,
-        changedFields: ['status'], startsAt: null,
+        requestHash: identityHash, changedFields: ['status'], startsAt: null,
         version: input.expectedVersion + 1, now,
         notificationKind: 'calendar.cancelled', reason: input.cancelReason,
       });
@@ -497,16 +514,24 @@ export class PostgresCalendarRepository implements CalendarRepository {
     actor: CalendarActor,
     clientActionId: string,
     action: string,
+    requestHash: string,
   ) {
-    const result = await client.query<{ calendar_event_id: string }>(
-      `SELECT calendar_event_id FROM calendar_event_activity_logs
+    const result = await client.query<{ calendar_event_id: string; request_hash: string | null }>(
+      `SELECT calendar_event_id, request_hash FROM calendar_event_activity_logs
        WHERE organization_id = $1 AND actor_user_id = $2
          AND client_action_id = $3 AND action = $4`,
       [actor.organizationId, actor.id, clientActionId, action],
     );
-    return result.rows[0]
-      ? this.getManualWithClient(client, actor, result.rows[0].calendar_event_id)
-      : null;
+    const row = result.rows[0];
+    if (!row) return null;
+    // Identity comparison happens BEFORE returning an old success. A legacy
+    // row (request_hash NULL) or any differing semantic request fails closed;
+    // the original caller intent may not be reconstructable.
+    // Note: replay returns the CURRENT persisted event, not a frozen original
+    // response. For an exact retry with no intervening change that is the
+    // original result; after an intervening change it reflects current state.
+    assertCalendarRequestHash(requestHash, row.request_hash);
+    return this.getManualWithClient(client, actor, row.calendar_event_id);
   }
 
   private getManualWithClient(client: PoolClient, actor: CalendarActor, eventId: string) {
@@ -539,6 +564,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
     assignedUserId: string;
     action: 'CREATED' | 'UPDATED' | 'CANCELLED';
     clientActionId: string;
+    requestHash: string;
     changedFields: string[];
     startsAt: string | null;
     version: number;
@@ -558,10 +584,10 @@ export class PostgresCalendarRepository implements CalendarRepository {
     const activity = await client.query<{ id: string }>(
       `INSERT INTO calendar_event_activity_logs
         (organization_id, calendar_event_id, actor_user_id, action,
-         changed_fields, reason, client_action_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+         changed_fields, reason, client_action_id, request_hash, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [input.actor.organizationId, input.eventId, input.actor.id, input.action,
-        input.changedFields, input.reason ?? null, input.clientActionId, input.now],
+        input.changedFields, input.reason ?? null, input.clientActionId, input.requestHash, input.now],
     );
     await acquireRealtimeOrderingLock(client, input.actor.organizationId);
     const realtime = await client.query<{ id: bigint }>(

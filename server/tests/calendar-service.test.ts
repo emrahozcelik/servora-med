@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CalendarRepository } from '../src/modules/calendar/repository.js';
+import { manualEventPatchRequestHash } from '../src/modules/calendar/request-hash.js';
 import { CalendarService } from '../src/modules/calendar/service.js';
 import type {
   CalendarActor,
@@ -43,6 +44,7 @@ const manual: CalendarEvent = {
 class MemoryCalendarRepository implements CalendarRepository {
   lastQuery: CalendarQuery | null = null;
   lastPatchInput: ManualEventPatchInput | null = null;
+  lastPatchHash: string | null = null;
   users: CalendarUser[] = [{
     id: staff.id,
     organizationId: staff.organizationId,
@@ -76,8 +78,11 @@ class MemoryCalendarRepository implements CalendarRepository {
     _actor: CalendarActor,
     _eventId: string,
     _input: ManualEventPatchInput,
+    _now?: Date,
+    _requestHash?: string,
   ) {
     this.lastPatchInput = _input;
+    this.lastPatchHash = _requestHash ?? null;
     return { ...manual, version: 2 };
   }
   async cancelManual(
@@ -192,5 +197,28 @@ describe('CalendarService', () => {
     });
     expect(repository.lastPatchInput).not.toHaveProperty('startsAt');
     expect(repository.lastPatchInput).not.toHaveProperty('endsAt');
+  });
+
+  it('binds patch request identity to the original patch, not the duration-derived end', async () => {
+    const repository = new MemoryCalendarRepository();
+    const original = {
+      clientActionId: 'identity-1',
+      expectedVersion: 1,
+      startsAt: '2026-07-26T12:00:00.000Z',
+    } as const;
+    await new CalendarService(true, repository).patch(staff, manual.id, { ...original });
+    // Persisted interval is 09:00 → 10:00 (60m); the repository receives the
+    // derived end, but the identity must describe only the caller's patch.
+    expect(repository.lastPatchInput).toMatchObject({
+      startsAt: '2026-07-26T12:00:00.000Z',
+      endsAt: '2026-07-26T13:00:00.000Z',
+    });
+    expect(repository.lastPatchHash).toBe(manualEventPatchRequestHash(manual.id, { ...original }));
+    expect(repository.lastPatchHash).not.toBe(
+      manualEventPatchRequestHash(manual.id, {
+        ...original,
+        endsAt: '2026-07-26T13:00:00.000Z',
+      }),
+    );
   });
 });

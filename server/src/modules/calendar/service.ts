@@ -1,5 +1,10 @@
 import { AppError } from '../../errors/index.js';
 import type { CalendarRepository } from './repository.js';
+import {
+  manualEventCancelRequestHash,
+  manualEventCreateRequestHash,
+  manualEventPatchRequestHash,
+} from './request-hash.js';
 import type {
   CalendarActor,
   CalendarEvent,
@@ -105,7 +110,9 @@ export class CalendarService {
     await this.requireAssignable(actor, input.assignedUserId);
     return this.present(
       actor,
-      await this.repository.createManual(actor, input, this.now()),
+      await this.repository.createManual(
+        actor, input, this.now(), manualEventCreateRequestHash(input),
+      ),
     );
   }
 
@@ -119,6 +126,10 @@ export class CalendarService {
     if (!current || current.source !== 'MANUAL') throw unavailable();
     await this.requireAssignable(actor, current.assignedUser.id);
     if (input.assignedUserId) await this.requireAssignable(actor, input.assignedUserId);
+    // Request identity binds the caller's ORIGINAL patch: field presence is
+    // semantic, and preserveManualEventDuration below derives endsAt from
+    // persisted state, which must never participate in the hash.
+    const requestHash = manualEventPatchRequestHash(eventId, input);
     return this.present(
       actor,
       await this.repository.patchManual(
@@ -126,6 +137,7 @@ export class CalendarService {
         eventId,
         preserveManualEventDuration(current, input),
         this.now(),
+        requestHash,
       ),
     );
   }
@@ -141,7 +153,9 @@ export class CalendarService {
     await this.requireAssignable(actor, current.assignedUser.id);
     return this.present(
       actor,
-      await this.repository.cancelManual(actor, eventId, input, this.now()),
+      await this.repository.cancelManual(
+        actor, eventId, input, this.now(), manualEventCancelRequestHash(eventId, input),
+      ),
     );
   }
 }
