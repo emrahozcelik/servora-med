@@ -486,4 +486,33 @@ describe('MessagingPage stale-send isolation (B5)', () => {
     sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick();
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
   });
+
+  it('B5-11: realtime refresh landing before send completion must not duplicate the message', async () => {
+    // Review ordering gap: the server persists the sent message and publishes
+    // the conversation realtime event before the HTTP send promise settles.
+    // The canonical refresh may therefore already contain the new message
+    // when the owned send success (isDuplicate: false) arrives.
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    const convCallback = realtimeCallbacks.get('conversation:ca');
+    expect(convCallback).toBeDefined();
+    const sent = sendResponse('ca', 'msg-a1', 'A one');
+    const realtimeRefresh = deferred<any>();
+    mockListMessages.mockImplementationOnce(() => realtimeRefresh.promise);
+    convCallback!(); await tick(10);
+    realtimeRefresh.resolve({ items: [m('a0', 'A old'), sent], nextCursor: null }); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    sendA.resolve(sent); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    expect(composerValue(container)).toBe('');
+    expect(pendingBubble(container)).toBeNull();
+    expect(container.textContent).not.toContain('Gönderiliyor');
+    unmount();
+  });
 });

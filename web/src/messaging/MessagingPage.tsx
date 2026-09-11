@@ -589,7 +589,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         }
         pendingSendRef.current = null;
         scrollModeRef.current = 'bottom';
-        if (!msg.isDuplicate) setMessages((prev) => [...prev, msg]);
+        // Local idempotence by message identity (B5 review): a same-conversation
+        // realtime refresh may already have loaded this message before the HTTP
+        // send promise settles. Never append the same message id twice.
+        if (!msg.isDuplicate) {
+          setMessages((prev) => (prev.some((existing) => existing.id === msg.id) ? prev : [...prev, msg]));
+        }
         setComposerText('');
         setDraft(null);
         loadConversations();
