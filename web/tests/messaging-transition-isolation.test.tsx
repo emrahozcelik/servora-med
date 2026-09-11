@@ -15,13 +15,15 @@ const mockGetUnread = vi.fn();
 const mockMarkRead = vi.fn();
 const realtimeCallbacks = new Map<string, () => void>();
 
+const mockSendMessage = vi.fn();
+
 vi.mock('../src/services/messaging-api', () => ({
   listConversations: (...a: any[]) => mockListConversations(...a),
   listMessages: (...a: any[]) => mockListMessages(...a),
   getUnreadCount: (...a: any[]) => mockGetUnread(...a),
   listRecipients: vi.fn().mockResolvedValue([]),
   markRead: (...a: any[]) => mockMarkRead(...a),
-  sendMessage: vi.fn(),
+  sendMessage: (...a: any[]) => mockSendMessage(...a),
   createOrGetConversation: vi.fn().mockResolvedValue({ id: 'new-conv', directKey: 'x', contextType: 'GENERAL', jobId: null, jobTitle: null, participantName: 'New', participantId: 'o', participantIsActive: true, unreadCount: 0, lastActivityAt: new Date().toISOString(), updatedAt: new Date().toISOString() }),
 }));
 
@@ -228,5 +230,260 @@ describe('MessagingPage transition isolation', () => {
     await clickConv(container, 0); await tick(10);
     unmount();
     loadA.resolve({ items: [m('a1', 'post-unmount')], nextCursor: null }); await tick();
+  });
+});
+
+describe('MessagingPage stale-send isolation (B5)', () => {
+
+  function threadBodies(container: HTMLElement): string[] {
+    return Array.from(container.querySelectorAll('.thread-messages .message-bubble:not(.pending) .message-body'))
+      .map((el) => el.textContent ?? '');
+  }
+
+  function composerValue(container: HTMLElement): string {
+    return (container.querySelector('.composer-input') as HTMLTextAreaElement)?.value ?? '';
+  }
+
+  function pendingBubble(container: HTMLElement): HTMLElement | null {
+    return container.querySelector('.message-bubble.own.pending');
+  }
+
+  async function typeComposer(container: HTMLElement, text: string) {
+    const ta = container.querySelector('.composer-input') as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(ta, text);
+      ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  }
+
+  async function clickSend(container: HTMLElement) {
+    await act(async () => {
+      (container.querySelector('.send-button') as HTMLElement)?.click();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  }
+
+  async function pressEnter(container: HTMLElement) {
+    const ta = container.querySelector('.composer-input') as HTMLElement;
+    await act(async () => {
+      ta.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  }
+
+  function sendResponse(convId: string, id: string, body: string, extra?: Record<string, unknown>) {
+    return {
+      id, conversationId: convId, organizationId: 'org-1', senderUserId: 'admin-1',
+      senderName: 'Admin', clientActionId: id, body, createdAt: new Date().toISOString(), ...extra,
+    };
+  }
+
+  function twoConversations() {
+    const cA = conv('ca', 'A'), cB = conv('cb', 'B');
+    mockListConversations.mockResolvedValue({ items: [cA, cB], nextCursor: null });
+    mockGetUnread.mockResolvedValue(0);
+  }
+
+  it('B5-1: stale A success does not touch B thread or composer', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage).toHaveBeenCalledWith('ca', 'A one', expect.any(String));
+    mockListMessages.mockResolvedValueOnce({ items: [m('b0', 'B old')], nextCursor: null });
+    await clickConv(container, 1); await tick();
+    await typeComposer(container, 'B draft');
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['B old']);
+    expect(composerValue(container)).toBe('B draft');
+    expect(container.textContent).not.toContain('A one');
+    expect(pendingBubble(container)).toBeNull();
+    unmount();
+  });
+
+  it('B5-2: stale A failure does not leak error or draft into B', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    mockListMessages.mockResolvedValueOnce({ items: [m('b0', 'B old')], nextCursor: null });
+    await clickConv(container, 1); await tick();
+    await typeComposer(container, 'B draft');
+    sendA.reject(new Error('A send failed')); await tick(20);
+    expect(threadBodies(container)).toEqual(['B old']);
+    expect(composerValue(container)).toBe('B draft');
+    expect(container.querySelector('.thread-composer .inline-error')).toBeNull();
+    expect(container.textContent).not.toContain('A send failed');
+    unmount();
+  });
+
+  it('B5-3: out-of-order — A settles after B send started, B state intact, then B completes', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    mockListMessages.mockResolvedValueOnce({ items: [m('b0', 'B old')], nextCursor: null });
+    await clickConv(container, 1); await tick();
+    await typeComposer(container, 'B one');
+    const sendB = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendB.promise);
+    await clickSend(container);
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['B old']);
+    expect(composerValue(container)).toBe('B one');
+    expect(pendingBubble(container)).not.toBeNull();
+    expect(pendingBubble(container)?.textContent).toContain('B one');
+    expect(container.textContent).not.toContain('A one');
+    sendB.resolve(sendResponse('cb', 'msg-b1', 'B one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['B old', 'B one']);
+    expect(composerValue(container)).toBe('');
+    expect(pendingBubble(container)).toBeNull();
+    unmount();
+  });
+
+  it('B5-4: A -> B -> A supersession — obsolete A send never regains ownership', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    mockListMessages.mockResolvedValueOnce({ items: [m('b0', 'B old')], nextCursor: null });
+    await clickConv(container, 1); await tick();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    await clickConv(container, 0); await tick();
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old']);
+    // Established composer-switch contract: selectConversation preserves
+    // composerText across switches (only draft/error are reset). The stale
+    // send neither cleared nor overwrote it — full ownership inertness.
+    expect(composerValue(container)).toBe('A one');
+    unmount();
+  });
+
+  it('B5-5: same-conversation success preserved — append once, composer clears', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    expect(composerValue(container)).toBe('');
+    expect(pendingBubble(container)).toBeNull();
+    unmount();
+  });
+
+  it('B5-6: same-conversation failure keeps retry with the same clientActionId', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    sendA.reject(new Error('A send failed')); await tick(20);
+    const errBox = container.querySelector('.thread-composer .inline-error') as HTMLElement;
+    expect(errBox).not.toBeNull();
+    expect(errBox.textContent).toContain('A send failed');
+    const retryBtn = Array.from(errBox.querySelectorAll('.ghost-button'))
+      .find((b) => b.textContent === 'Tekrar gönder') as HTMLElement;
+    expect(retryBtn).toBeDefined();
+    const sendRetry = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendRetry.promise);
+    await act(async () => { retryBtn.click(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+    expect(mockSendMessage.mock.calls[1][2]).toBe(mockSendMessage.mock.calls[0][2]);
+    sendRetry.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    expect(container.querySelector('.thread-composer .inline-error')).toBeNull();
+    unmount();
+  });
+
+  it('B5-7: duplicate server response is never appended twice', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one', { isDuplicate: true })); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old']);
+    expect(composerValue(container)).toBe('');
+    unmount();
+  });
+
+  it('B5-8: realtime refresh during a pending same-conversation send does not orphan it', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    const convCallback = realtimeCallbacks.get('conversation:ca');
+    expect(convCallback).toBeDefined();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    convCallback!(); await tick(20);
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    expect(composerValue(container)).toBe('');
+    expect(pendingBubble(container)).toBeNull();
+    expect(container.textContent).not.toContain('Gönderiliyor');
+    unmount();
+  });
+
+  it('B5-9: rapid double-Enter starts a single send', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementation(() => sendA.promise);
+    await pressEnter(container);
+    await pressEnter(container);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick(20);
+    expect(threadBodies(container)).toEqual(['A old', 'A one']);
+    unmount();
+  });
+
+  it('B5-10: unmount while send pending leaves no stale local-state application', async () => {
+    twoConversations();
+    mockListMessages.mockResolvedValueOnce({ items: [m('a0', 'A old')], nextCursor: null });
+    const { container, unmount } = render(); await tick();
+    await clickConv(container, 0); await tick();
+    await typeComposer(container, 'A one');
+    const sendA = deferred<any>();
+    mockSendMessage.mockImplementationOnce(() => sendA.promise);
+    await clickSend(container);
+    unmount();
+    sendA.resolve(sendResponse('ca', 'msg-a1', 'A one')); await tick();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
   });
 });
