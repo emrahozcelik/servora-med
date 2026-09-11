@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import type { UserRole } from '../auth/types.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeEventInput, RealtimeEventRecord } from '../realtime/types.js';
+import { assertStaffConfidentialNoteRequestHash } from './request-hash.js';
 import type {
   StaffConfidentialNoteAuditInput,
   StaffConfidentialNoteCriticalActionClaim,
@@ -262,14 +263,17 @@ implements StaffConfidentialNotesRepository {
   async findCompletedCriticalAction<T>(
     claim: StaffConfidentialNoteCriticalActionClaim,
   ): Promise<T | null> {
-    const result = await this.pool.query<{ response_body: T }>(
-      `SELECT response_body
+    const result = await this.pool.query<{ response_body: T; request_hash: string | null }>(
+      `SELECT response_body, request_hash
          FROM processed_actions
         WHERE organization_id = $1 AND user_id = $2
           AND client_action_id = $3 AND operation_key = $4
           AND status = 'completed' AND response_body IS NOT NULL`,
       [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
     );
+    if (result.rows[0]) {
+      assertStaffConfidentialNoteRequestHash(claim.requestHash, result.rows[0].request_hash);
+    }
     return result.rows[0]?.response_body ?? null;
   }
 
@@ -300,22 +304,30 @@ implements StaffConfidentialNotesRepository {
       await client.query('BEGIN');
       const claimed = await client.query<{ id: string }>(
         `INSERT INTO processed_actions
-           (organization_id, user_id, client_action_id, operation_key, status)
-         VALUES ($1, $2, $3, $4, 'processing')
+           (organization_id, user_id, client_action_id, operation_key, request_hash, status)
+         VALUES ($1, $2, $3, $4, $5, 'processing')
          ON CONFLICT (organization_id, user_id, client_action_id, operation_key) DO NOTHING
          RETURNING id`,
-        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey, claim.requestHash],
       );
 
       if (claimed.rowCount === 0) {
-        const existing = await client.query<{ status: string; response_body: T | null }>(
-          `SELECT status, response_body FROM processed_actions
+        const existing = await client.query<{
+          status: string;
+          response_body: T | null;
+          request_hash: string | null;
+        }>(
+          `SELECT status, response_body, request_hash FROM processed_actions
             WHERE organization_id = $1 AND user_id = $2
               AND client_action_id = $3 AND operation_key = $4`,
           [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
         );
-        await client.query('COMMIT');
         const action = existing.rows[0];
+        // Identity comparison happens BEFORE replay/in-progress handling. A
+        // legacy row (request_hash NULL) or any differing semantic request
+        // fails closed; the original caller intent may not be reconstructable.
+        assertStaffConfidentialNoteRequestHash(claim.requestHash, action?.request_hash);
+        await client.query('COMMIT');
         if (action?.status === 'completed' && action.response_body !== null) {
           return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
         }
