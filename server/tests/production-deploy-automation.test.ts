@@ -767,6 +767,48 @@ describe('controlled production deployment automation contract', () => {
     expect(content).not.toContain('StrictHostKeyChecking=no');
   });
 
+  it('binds production deployment to the exact main SHA before checkout', () => {
+    const content = readFileSync(workflow, 'utf8');
+    const validationIndex = content.indexOf('name: Validate immutable deployment identity');
+    const checkoutIndex = content.indexOf('uses: actions/checkout@v6');
+    const checkoutVerificationIndex = content.indexOf('name: Verify checked out deployment SHA');
+    const deployStepIndex = content.indexOf(
+      'name: Build, transfer, activate, smoke, and back up exact main SHA',
+    );
+    const deployIndex = content.indexOf('bash ops/deploy-production.sh');
+
+    expect(content).toContain('deploy_sha:');
+    expect(content).toMatch(/deploy_sha:\n\s+description: Deploy this exact canonical main SHA/);
+    expect(content).toMatch(/deploy_sha:[\s\S]*?required: true[\s\S]*?type: string/);
+    expect(content).toMatch(/allow_migrations:[\s\S]*?required: true[\s\S]*?type: boolean[\s\S]*?default: false/);
+    expect(content).not.toContain('main_ref:');
+    expect(content).not.toContain('ref: ${{ inputs.main_ref }}');
+    expect(content).not.toContain('ref: main');
+
+    expect(validationIndex).toBeGreaterThan(-1);
+    expect(checkoutIndex).toBeGreaterThan(validationIndex);
+    expect(checkoutVerificationIndex).toBeGreaterThan(checkoutIndex);
+    expect(deployIndex).toBeGreaterThan(checkoutVerificationIndex);
+
+    const validationBlock = content.slice(validationIndex, checkoutIndex);
+    expect(validationBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
+    expect(validationBlock).toContain('[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]');
+    expect(validationBlock).toContain('[[ "$GITHUB_REF" == "refs/heads/main" ]]');
+    expect(validationBlock).toContain('[[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]]');
+    expect(content).toContain('ref: ${{ inputs.deploy_sha }}');
+
+    const checkoutVerificationBlock = content.slice(checkoutVerificationIndex, deployIndex);
+    expect(checkoutVerificationBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
+    expect(checkoutVerificationBlock).toContain('git rev-parse --verify HEAD');
+    expect(checkoutVerificationBlock).toContain('[[ "$CHECKED_OUT_SHA" == "$DEPLOY_SHA" ]]');
+
+    const deployBlock = content.slice(deployStepIndex);
+    expect(deployBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
+    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA")');
+    expect(deployBlock).not.toContain('deploy_args=(--sha "$GITHUB_SHA")');
+    expect(deployBlock).toContain('ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}');
+  });
+
   it('documents the environment approval and one-time host bootstrap boundary', () => {
     const content = readFileSync(deploymentDoc, 'utf8');
     expect(content).toContain('Production Deploy');
