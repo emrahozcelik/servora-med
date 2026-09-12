@@ -228,19 +228,25 @@ merge PR to main
 → exact main CI push is green
 → Actions → Production Deploy (manual start)
 → production environment required-reviewer approval
-→ exact main SHA build/package/transfer
+→ operator enters the exact current main SHA as `deploy_sha`
+→ workflow dispatch ref remains `main`
+→ exact `deploy_sha` build/package/transfer
 → preflight → predeploy backup → migration gate
 → atomic current switch → servora-med restart → health
 → public Playwright browser smoke
 → one postdeploy backup → summary
 ```
 
-The workflow accepts only the `main` choice and re-resolves
-`origin/main` at deployment start. The checked-out commit, remote main SHA, and
-the successful `push` CI run (including `server` and `web` jobs) must be the
-same 40-character SHA. The workflow has `contents: read` and `actions: read`
-permissions, uses the `production-deploy` concurrency group, and does not
-cancel an in-flight deployment.
+The workflow must be dispatched from the `main` ref and requires one explicit
+`deploy_sha` string. Before checkout, it requires `deploy_sha` to be a lowercase
+40-character SHA, requires `GITHUB_REF=refs/heads/main`, and requires
+`GITHUB_SHA=deploy_sha`. It then checks out `deploy_sha`, verifies the checked-
+out HEAD again, and passes the same value to `ops/deploy-production.sh --sha`.
+The checked-out commit, remote main SHA, and the successful `push` CI run
+(including `server` and `web` jobs) must be the same 40-character SHA. The
+workflow has `contents: read` and `actions: read` permissions, uses the
+`production-deploy` concurrency group, and does not cancel an in-flight
+deployment.
 
 Before the deployment gates proceed, the root host helper idempotently runs
 `systemctl enable servora-med.service`. This persists normal-boot startup but

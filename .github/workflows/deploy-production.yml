@@ -3,13 +3,10 @@ name: Production Deploy
 on:
   workflow_dispatch:
     inputs:
-      main_ref:
-        description: Deploy the current canonical main branch
+      deploy_sha:
+        description: Deploy this exact canonical main SHA
         required: true
-        type: choice
-        default: main
-        options:
-          - main
+        type: string
       allow_migrations:
         description: Explicitly authorize tracked production migrations
         required: true
@@ -40,11 +37,28 @@ jobs:
       SERVORA_PROD_KNOWN_HOSTS: ${{ secrets.SERVORA_PROD_KNOWN_HOSTS }}
       SERVORA_PROD_FQDN: ${{ vars.SERVORA_PROD_FQDN }}
     steps:
-      - name: Checkout current main
+      - name: Validate immutable deployment identity
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_DEPLOY_SHA" >&2; exit 1; }
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "NON_MAIN_WORKFLOW_REF" >&2; exit 1; }
+          [[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]] || { echo "DEPLOY_SHA_EVENT_MISMATCH" >&2; exit 1; }
+
+      - name: Checkout exact deployment SHA
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.main_ref }}
+          ref: ${{ inputs.deploy_sha }}
           fetch-depth: 0
+
+      - name: Verify checked out deployment SHA
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+        run: |
+          set -Eeuo pipefail
+          CHECKED_OUT_SHA="$(git rev-parse --verify HEAD)"
+          [[ "$CHECKED_OUT_SHA" == "$DEPLOY_SHA" ]] || { echo "CHECKED_OUT_SHA_MISMATCH" >&2; exit 1; }
 
       - name: Setup Node 22
         uses: actions/setup-node@v6
@@ -63,10 +77,13 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Build, transfer, activate, smoke, and back up exact main SHA
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}
         run: |
           set -Eeuo pipefail
-          deploy_args=(--sha "$GITHUB_SHA")
-          if [[ "${{ inputs.allow_migrations }}" == "true" ]]; then
+          deploy_args=(--sha "$DEPLOY_SHA")
+          if [[ "$ALLOW_MIGRATIONS" == "true" ]]; then
             deploy_args+=(--allow-migrations)
           fi
           bash ops/deploy-production.sh "${deploy_args[@]}"
