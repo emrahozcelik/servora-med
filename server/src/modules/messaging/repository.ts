@@ -51,6 +51,16 @@ type MessageRow = {
   created_at: Date;
 };
 
+/**
+ * listMessages additionally selects a canonical UTC microsecond rendering
+ * of created_at, used only for the keyset pagination boundary. Produced
+ * explicitly in UTC so the emitted string is stable regardless of the
+ * PostgreSQL session TimeZone.
+ */
+type MessageCursorRow = MessageRow & {
+  created_at_exact: string;
+};
+
 type ConversationListItemRow = {
   id: string;
   direct_key: string;
@@ -520,20 +530,24 @@ export class PostgresMessagingRepository implements MessagingRepository {
     limit: number,
   ): Promise<MessagePage> {
     const cursorClause = cursor
-      ? `AND (m.created_at, m.id) < ($${cursor ? 3 : 0}, $${cursor ? 4 : 0})`
+      ? `AND (m.created_at, m.id) < ($3::timestamptz, $4)`
       : '';
     const limitParam = cursor ? '$5' : '$3';
     const values: unknown[] = [organizationId, conversationId];
     if (cursor) {
-      values.push(cursor.createdAt, cursor.id);
+      // Prefer the exact microsecond boundary; fall back to the millisecond
+      // Date for legacy cursors that predate exact-boundary issuance.
+      values.push(cursor.createdAtExact ?? cursor.createdAt, cursor.id);
     }
     values.push(limit + 1);
 
     // Query DESC (newest first) to get the bounded window; return ASC for display
-    const result = await this.pool.query<MessageRow>(
+    const result = await this.pool.query<MessageCursorRow>(
       `SELECT m.id, m.conversation_id, m.organization_id, m.sender_user_id,
               u.name AS sender_name,
-              m.client_action_id, m.body, m.created_at
+              m.client_action_id, m.body, m.created_at,
+              to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                AS created_at_exact
          FROM messages m
          JOIN users u
            ON u.organization_id = m.organization_id AND u.id = m.sender_user_id
@@ -549,11 +563,19 @@ export class PostgresMessagingRepository implements MessagingRepository {
     const selected = rows.slice(0, limit);           // newest `limit` in DESC order
     const items = [...selected].reverse();           // ASC for display
     const cursorRow = selected[selected.length - 1]; // oldest in selected
+    // Raw row for the exact boundary: mapMessage intentionally keeps only
+    // the millisecond display Date, while created_at_exact carries the full
+    // PostgreSQL microsecond precision for the next keyset boundary.
+    const cursorSourceRow = result.rows[selected.length - 1];
     const hasMore = result.rows.length > limit;
     return {
       items,
-      nextCursor: hasMore && cursorRow
-        ? { createdAt: cursorRow.createdAt, id: cursorRow.id }
+      nextCursor: hasMore && cursorRow && cursorSourceRow
+        ? {
+          createdAt: cursorRow.createdAt,
+          createdAtExact: cursorSourceRow.created_at_exact,
+          id: cursorRow.id,
+        }
         : null,
     };
   }

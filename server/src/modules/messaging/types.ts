@@ -43,6 +43,13 @@ export type MessageRecord = Readonly<{
 
 export type MessageCursor = Readonly<{
   createdAt: Date;
+  /**
+   * Exact UTC microsecond boundary for keyset pagination, e.g.
+   * "2026-01-15T10:20:30.123900Z". Display/compat paths keep using
+   * createdAt (millisecond Date); only the SQL boundary uses this.
+   * Optional so legacy millisecond cursors keep working.
+   */
+  createdAtExact?: string;
   id: string;
 }>;
 
