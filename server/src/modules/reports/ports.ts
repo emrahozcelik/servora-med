@@ -1,3 +1,4 @@
+import type { SqlExecutor } from '../../db/executor.js';
 import type {
   ApprovalItem,
   ApprovalSummary,
@@ -68,4 +69,25 @@ export interface ApprovalQueueItemPort {
     limit: number;
     offset: number;
   }): Promise<ApprovalItem[]>;
+  /**
+   * Returns an equivalent port whose reads execute on the supplied executor
+   * instead of a pooled connection, so approval items can join the same
+   * request-scoped snapshot as the reports read model.
+   */
+  bindTo(executor: SqlExecutor): ApprovalQueueItemPort;
+}
+
+/** The read ports that a single report response is composed from. */
+export type ReportReaders = {
+  reports: ReportsReadModel;
+  approvalItems: ApprovalQueueItemPort;
+};
+
+/**
+ * Runs a report composition against one database snapshot. Every read the
+ * callback performs on the supplied readers observes the same committed state,
+ * so a response can never mix aggregates from different points in time.
+ */
+export interface ReportReadSnapshot {
+  run<T>(work: (readers: ReportReaders) => Promise<T>): Promise<T>;
 }

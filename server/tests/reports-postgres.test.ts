@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
+import { PostgresReportReadSnapshot } from '../src/modules/reports/read-snapshot.js';
 import { ReportsService } from '../src/modules/reports/service.js';
 import type {
   ApprovalSummary,
@@ -928,7 +929,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   const jobCards = new PostgresJobCardRepository(pool);
   const service = new ReportsService(
     reports,
-    jobCards,
+    new PostgresReportReadSnapshot(pool, jobCards),
     () => fixture.requestTime,
   );
 
@@ -1397,18 +1398,26 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
 
   // Query-plan evidence from production SQL paths
   const calls: Array<{ text: string; values: readonly unknown[] }> = [];
+  // Report reads run on one checked-out client inside a read-only transaction,
+  // so the recorder also captures the transaction envelope; fan-out assertions
+  // count data statements only.
+  const dataStatementCount = () => calls
+    .filter(({ text }) => !/^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(text)).length;
+  const recordQuery = async (text: string, values: readonly unknown[] = []) => {
+    calls.push({ text, values });
+    return pool.query(text, [...values]);
+  };
+  const recordingClient = { query: recordQuery, release: () => {} };
   const recordingPool = {
-    query: async (text: string, values: readonly unknown[] = []) => {
-      calls.push({ text, values });
-      return pool.query(text, [...values]);
-    },
+    query: recordQuery,
+    connect: async () => recordingClient,
   };
   const recordedReports = new PostgresReportsRepository(recordingPool as never);
   const recordedJobCards = new PostgresJobCardRepository(recordingPool as never);
   await exerciseEveryReportQuery(recordedReports, recordedJobCards, fixture);
   const recordedService = new ReportsService(
     recordedReports,
-    recordedJobCards,
+    new PostgresReportReadSnapshot(recordingPool as never, recordedJobCards),
     () => fixture.requestTime,
   );
 
@@ -1432,7 +1441,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
      RETURNING id, organization_id, name, email, role, is_active, version`,
     [emptyOrganizationId, `${randomUUID()}@test.local`],
   )).rows[0]!);
-  const emptyPerformanceQueryStart = calls.length;
+  const emptyPerformanceQueryStart = dataStatementCount();
   const emptyPerformance = await recordedService.getStaffPerformance(
     emptyOrganizationManager,
     { requestedRange: julyRange },
@@ -1450,13 +1459,13 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     },
     items: [],
   });
-  expect(calls.length - emptyPerformanceQueryStart).toBe(1);
+  expect(dataStatementCount() - emptyPerformanceQueryStart).toBe(1);
 
-  const staffPerformanceQueryStart = calls.length;
+  const staffPerformanceQueryStart = dataStatementCount();
   await recordedService.getStaffPerformance(fixture.manager, {
     requestedRange: julyRange,
   });
-  expect(calls.length - staffPerformanceQueryStart).toBe(11);
+  expect(dataStatementCount() - staffPerformanceQueryStart).toBe(11);
 
   const selectCalls = calls.filter(({ text }) => /^\s*(WITH|SELECT)/i.test(text));
   expect(selectCalls.length).toBeGreaterThan(5);
@@ -1702,7 +1711,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       const reports = new PostgresReportsRepository(pool);
       const service = new ReportsService(
         reports,
-        reports,
+        new PostgresReportReadSnapshot(pool, new PostgresJobCardRepository(pool)),
         () => new Date('2026-07-20T12:00:00.000Z'),
       );
       const performance = await service.getStaffPerformance(manager, {
@@ -1903,7 +1912,11 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       );
 
       const reports = new PostgresReportsRepository(pool);
-      const service = new ReportsService(reports, reports, () => new Date('2026-07-31T23:00:00.000Z'));
+      const service = new ReportsService(
+        reports,
+        new PostgresReportReadSnapshot(pool, new PostgresJobCardRepository(pool)),
+        () => new Date('2026-07-31T23:00:00.000Z'),
+      );
       const julyRange = { from: '2026-07-01', to: '2026-07-31' };
       const augustRange = { from: '2026-08-01', to: '2026-08-31' };
 
@@ -2048,7 +2061,11 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       });
 
       const reports = new PostgresReportsRepository(pool);
-      const service = new ReportsService(reports, reports, () => new Date('2026-07-15T12:00:00.000Z'));
+      const service = new ReportsService(
+        reports,
+        new PostgresReportReadSnapshot(pool, new PostgresJobCardRepository(pool)),
+        () => new Date('2026-07-15T12:00:00.000Z'),
+      );
       const report = await service.getStaffReport(manager, staff.id, {
         requestedRange: { from: '2026-07-01', to: '2026-07-31' },
       });

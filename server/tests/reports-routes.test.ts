@@ -11,6 +11,7 @@ import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { reportsRoutes } from '../src/modules/reports/routes.js';
 import { ReportsService } from '../src/modules/reports/service.js';
+import { passThroughReportReadSnapshot } from './support/report-read-snapshot.js';
 
 const ORG_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STAFF_ONE = '11111111-1111-4111-8111-111111111111';
@@ -247,7 +248,7 @@ async function createApp(current: SafeUser, authenticated = true) {
   const ports = dependencies();
   const service = new ReportsService(
     ports.reports as never,
-    ports.approvalItems as never,
+    passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
     () => requestTime,
   );
   app.setErrorHandler((error, _request, reply) => {

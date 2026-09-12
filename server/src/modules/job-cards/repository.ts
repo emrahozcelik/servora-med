@@ -31,6 +31,7 @@ import {
   type RelatedIdentity,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
+import type { SqlExecutor } from '../../db/executor.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
 import type { ApprovalItem } from '../reports/types.js';
 import type {
@@ -2135,8 +2136,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
     requestTime: Date;
     limit: number;
     offset: number;
-  }): Promise<ApprovalItem[]> {
-    const rows = await this.pool.query<JobCardListRow & { waiting_minutes: number }>(
+  }, executor: SqlExecutor = this.pool): Promise<ApprovalItem[]> {
+    const rows = await executor.query<JobCardListRow & { waiting_minutes: number }>(
       `SELECT ${JOB_CARD_LIST_COLUMNS},
        FLOOR(EXTRACT(EPOCH FROM GREATEST(
          $2::timestamptz - j.staff_completed_at,
@@ -2151,6 +2152,13 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       ...mapJobCardListItem(row),
       waitingMinutes: Number(row.waiting_minutes),
     }));
+  }
+
+  bindTo(executor: SqlExecutor): ApprovalQueueItemPort {
+    return {
+      getApprovalItems: (input) => this.getApprovalItems(input, executor),
+      bindTo: (next) => this.bindTo(next),
+    };
   }
 
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery, requestTime: Date) {

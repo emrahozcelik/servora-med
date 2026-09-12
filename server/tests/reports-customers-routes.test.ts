@@ -11,6 +11,7 @@ import { AppError, toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { reportsRoutes } from '../src/modules/reports/routes.js';
 import { ReportsService } from '../src/modules/reports/service.js';
+import { passThroughReportReadSnapshot } from './support/report-read-snapshot.js';
 
 const ORG_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const requestTime = new Date('2026-07-14T12:00:00.000Z');
@@ -71,7 +72,7 @@ async function createApp(current: SafeUser, authenticated = true) {
   const ports = dependencies();
   const service = new ReportsService(
     ports.reports as never,
-    { getApprovalItems: vi.fn(async () => []) } as never,
+    passThroughReportReadSnapshot(ports.reports, { getApprovalItems: vi.fn(async () => []) }),
     () => requestTime,
   );
   app.setErrorHandler((error, _request, reply) => {

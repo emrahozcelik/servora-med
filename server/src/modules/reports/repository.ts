@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 
+import type { SqlExecutor } from '../../db/executor.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_TYPES,
@@ -1525,8 +1526,8 @@ function mapDashboard(row: DashboardRow): DashboardReportResponse {
   };
 }
 
-export class PostgresReportsRepository implements ReportsReadModel {
-  constructor(private readonly pool: Pool) {}
+class PostgresReportsReadModel implements ReportsReadModel {
+  constructor(private readonly executor: SqlExecutor) {}
 
   async getOne(input: StaffOperationalSummaryOneInput) {
     const summaries = await this.getMany({
@@ -1543,7 +1544,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
     if (staffUserIds.length === 0) {
       return new Map<string, StaffOperationalSummary>();
     }
-    const result = await this.pool.query<StaffSummaryRow>(STAFF_SUMMARY_SQL, [
+    const result = await this.executor.query<StaffSummaryRow>(STAFF_SUMMARY_SQL, [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1554,7 +1555,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   }
 
   async getDashboard(input: StaffOperationalSummaryScope) {
-    const result = await this.pool.query<DashboardRow>(DASHBOARD_SQL, [
+    const result = await this.executor.query<DashboardRow>(DASHBOARD_SQL, [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1568,7 +1569,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   async getStaffPerformanceScope(
     input: StaffPerformanceScopeInput,
   ): Promise<StaffPerformanceScope> {
-    const result = await this.pool.query<StaffPerformanceScopeRow>(
+    const result = await this.executor.query<StaffPerformanceScopeRow>(
       STAFF_PERFORMANCE_SCOPE_SQL,
       [
         input.organizationId,
@@ -1595,7 +1596,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   ): Promise<ReadonlyMap<string, StaffCompletionPerformance>> {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
-    const result = await this.pool.query<StaffCompletionPerformanceRow>(
+    const result = await this.executor.query<StaffCompletionPerformanceRow>(
       STAFF_COMPLETION_PERFORMANCE_SQL,
       [
         input.organizationId,
@@ -1623,7 +1624,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   ): Promise<ReadonlyMap<string, StaffExecutionAggregate>> {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
-    const result = await this.pool.query<StaffExecutionRow>(STAFF_EXECUTION_SQL, [
+    const result = await this.executor.query<StaffExecutionRow>(STAFF_EXECUTION_SQL, [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1645,7 +1646,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   ): Promise<ReadonlyMap<string, StaffOnTimeAggregate>> {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
-    const result = await this.pool.query<StaffOnTimeRow>(STAFF_ON_TIME_SQL, [
+    const result = await this.executor.query<StaffOnTimeRow>(STAFF_ON_TIME_SQL, [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1676,7 +1677,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   }
 
   async getStaffDailyCompletionTrend(input: StaffOperationalSummaryOneInput) {
-    const result = await this.pool.query<DailyCompletionRow>(
+    const result = await this.executor.query<DailyCompletionRow>(
       STAFF_DAILY_COMPLETION_TREND_SQL,
       [
         input.organizationId,
@@ -1693,7 +1694,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
     organizationId: string;
     staffUserId: string;
   }): Promise<ReportStaffLifecycleIdentity | null> {
-    const result = await this.pool.query<StaffIdentityRow>(STAFF_IDENTITY_SQL, [
+    const result = await this.executor.query<StaffIdentityRow>(STAFF_IDENTITY_SQL, [
       input.organizationId,
       input.staffUserId,
     ]);
@@ -1711,7 +1712,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   async getStaffDeliveriesByPurpose(
     input: StaffOperationalSummaryOneInput,
   ): Promise<DeliveryPurposeItem[]> {
-    const result = await this.pool.query<DeliveryPurposeRow>(
+    const result = await this.executor.query<DeliveryPurposeRow>(
       STAFF_DELIVERIES_BY_PURPOSE_SQL,
       [
         input.organizationId,
@@ -1731,7 +1732,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
   async getStaffMeetingsByOutcome(
     input: StaffOperationalSummaryOneInput,
   ): Promise<MeetingOutcomeItem[]> {
-    const result = await this.pool.query<MeetingOutcomeRow>(
+    const result = await this.executor.query<MeetingOutcomeRow>(
       STAFF_MEETINGS_BY_OUTCOME_SQL,
       [
         input.organizationId,
@@ -1769,7 +1770,7 @@ ORDER BY ${definition.order}
 LIMIT $${limitParameter}
 OFFSET $${offsetParameter}`;
 
-    const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+    const rangeResult = await this.executor.query<ResolvedReportRangeRow>(
       RESOLVED_REPORT_RANGE_SQL,
       rangeValues,
     );
@@ -1779,8 +1780,8 @@ OFFSET $${offsetParameter}`;
     }
 
     const [countResult, pageResult] = await Promise.all([
-      this.pool.query<{ total: number }>(countSql, groupedValues),
-      this.pool.query<DeliveryGroupRow>(
+      this.executor.query<{ total: number }>(countSql, groupedValues),
+      this.executor.query<DeliveryGroupRow>(
         pageSql,
         [...groupedValues, input.limit, input.offset],
       ),
@@ -1825,7 +1826,7 @@ OFFSET $${offsetParameter}`;
     organizationId: string;
     requestTime: Date;
   }): Promise<ApprovalSummary> {
-    const result = await this.pool.query<ApprovalSummaryRow>(APPROVAL_SUMMARY_SQL, [
+    const result = await this.executor.query<ApprovalSummaryRow>(APPROVAL_SUMMARY_SQL, [
       input.organizationId,
       input.requestTime,
     ]);
@@ -1840,7 +1841,7 @@ OFFSET $${offsetParameter}`;
     const staffFilter = input.staffUserId ? 'AND j.assigned_to = $4' : '';
     const values: unknown[] = [input.organizationId, input.from, input.to];
     if (input.staffUserId) values.push(input.staffUserId);
-    const result = await this.pool.query<{ type: string; count: string }>(
+    const result = await this.executor.query<{ type: string; count: string }>(
       `SELECT j.type, COUNT(*)::int AS count
         FROM job_cards j
          JOIN organizations o ON o.id = j.organization_id
@@ -1867,7 +1868,7 @@ OFFSET $${offsetParameter}`;
       input.requestedRange?.to ?? null,
       input.requestTime,
     ];
-    const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+    const rangeResult = await this.executor.query<ResolvedReportRangeRow>(
       RESOLVED_REPORT_RANGE_SQL,
       rangeValues,
     );
@@ -1879,13 +1880,13 @@ OFFSET $${offsetParameter}`;
     const search = input.search?.replace(/[\\%_]/g, '\\$&') ?? null;
     const searchPattern = search === null ? null : `%${search}%`;
     const [countResult, pageResult, unassignedResult] = await Promise.all([
-      this.pool.query<{ total: string | number }>(CUSTOMER_REPORT_COUNT_SQL, [
+      this.executor.query<{ total: string | number }>(CUSTOMER_REPORT_COUNT_SQL, [
         input.organizationId,
         searchPattern,
         input.status,
         input.customerType,
       ]),
-      this.pool.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
+      this.executor.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
         ...rangeValues,
         searchPattern,
         input.status,
@@ -1893,7 +1894,7 @@ OFFSET $${offsetParameter}`;
         input.limit,
         input.offset,
       ]),
-      this.pool.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL, rangeValues),
+      this.executor.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL, rangeValues),
     ]);
 
     const countRow = countResult.rows[0];
@@ -1923,7 +1924,7 @@ OFFSET $${offsetParameter}`;
       input.requestedRange?.to ?? null,
       input.requestTime,
     ];
-    const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+    const rangeResult = await this.executor.query<ResolvedReportRangeRow>(
       RESOLVED_REPORT_RANGE_SQL,
       rangeValues,
     );
@@ -1934,22 +1935,22 @@ OFFSET $${offsetParameter}`;
     const [aggregateResult, queueCountResult, queuePageResult, proposalCountResult,
       proposalQueueResult]
       = await Promise.all([
-        this.pool.query<SalesFollowUpAggregateRow>(
+        this.executor.query<SalesFollowUpAggregateRow>(
           SALES_FOLLOW_UP_AGGREGATE_SQL,
           rangeValues,
         ),
-        this.pool.query<{ total: string | number }>(SALES_MEETING_QUEUE_COUNT_SQL, [
+        this.executor.query<{ total: string | number }>(SALES_MEETING_QUEUE_COUNT_SQL, [
           input.organizationId,
         ]),
-        this.pool.query<SalesMeetingQueueRow>(SALES_MEETING_QUEUE_SQL, [
+        this.executor.query<SalesMeetingQueueRow>(SALES_MEETING_QUEUE_SQL, [
           input.organizationId,
           input.limit,
           input.offset,
         ]),
-        this.pool.query<{ total: string | number }>(PROPOSAL_QUEUE_COUNT_SQL, [
+        this.executor.query<{ total: string | number }>(PROPOSAL_QUEUE_COUNT_SQL, [
           input.organizationId,
         ]),
-        this.pool.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL, [
+        this.executor.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL, [
           input.organizationId,
           input.proposalLimit,
           input.proposalOffset,
@@ -1997,7 +1998,7 @@ OFFSET $${offsetParameter}`;
   ) {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map<string, number>();
-    const result = await this.pool.query<StaffCountRow>(sql, [
+    const result = await this.executor.query<StaffCountRow>(sql, [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -2005,5 +2006,21 @@ OFFSET $${offsetParameter}`;
       staffUserIds,
     ]);
     return new Map(result.rows.map((row) => [row.staff_user_id, Number(row.count)]));
+  }
+}
+
+/** Binds the reports read model to one executor (pool or checked-out client). */
+export function createReportsReadModel(executor: SqlExecutor): ReportsReadModel {
+  return new PostgresReportsReadModel(executor);
+}
+
+/**
+ * Pool-backed reports read model. Each method issues its own pooled statement;
+ * wrap a multi-read composition in a report read snapshot to pin one MVCC
+ * snapshot for the whole response.
+ */
+export class PostgresReportsRepository extends PostgresReportsReadModel {
+  constructor(pool: Pool) {
+    super(pool);
   }
 }

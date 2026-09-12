@@ -129,19 +129,19 @@ describe('AppDependencies', () => {
     expect(withPool.hasRoute({ method: 'POST', url: '/api/users/:userId/offboarding/execute' })).toBe(true);
   });
 
-  it('registers Reports only with both read-model and approval-item ports', async () => {
-    const withoutApprovalItems = await buildApp(testConfig, {
+  it('registers Reports only with both the read model and the read snapshot', async () => {
+    const withoutSnapshot = await buildApp(testConfig, {
       authRepository: {} as never,
       reportsRepository: {} as never,
     });
     const complete = await buildApp(testConfig, {
       authRepository: {} as never,
       reportsRepository: {} as never,
-      approvalQueueItemPort: {} as never,
+      reportReadSnapshot: {} as never,
     });
-    apps.push(withoutApprovalItems, complete);
+    apps.push(withoutSnapshot, complete);
 
-    expect(withoutApprovalItems.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(false);
+    expect(withoutSnapshot.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(false);
     expect(complete.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(true);
   });
 
