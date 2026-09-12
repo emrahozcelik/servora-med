@@ -40,11 +40,30 @@ function parseMessageCursor(query: Record<string, string | undefined>): MessageC
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
     parseUuid(parsed.id, 'cursor');
-    return { createdAt: new Date(parsed.ca), id: parsed.id };
+    const createdAt = new Date(parsed.ca);
+    // Thread the exact microsecond boundary only for tokens in the exact
+    // canonical UTC format this server issues (see encodeCursor). Anything
+    // else — legacy millisecond tokens, hand-crafted values, malformed
+    // input — keeps the pre-existing Date-path behavior bit-for-bit; this
+    // routing changes no validation policy or error shape.
+    const createdAtExact = typeof parsed.ca === 'string' && EXACT_CURSOR_TIMESTAMP.test(parsed.ca)
+      ? parsed.ca
+      : undefined;
+    return createdAtExact === undefined
+      ? { createdAt, id: parsed.id }
+      : { createdAt, createdAtExact, id: parsed.id };
   } catch {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz imleç.');
   }
 }
+
+/**
+ * Exact canonical UTC microsecond timestamps issued in message cursors, e.g.
+ * "2026-01-15T10:20:30.123900Z". Must mirror the SQL expression producing
+ * created_at_exact in repository listMessages:
+ * to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"').
+ */
+const EXACT_CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 function encodeCursor(input: { id: string } & Record<string, unknown>): string | null {
   if (!input) return null;
@@ -54,7 +73,11 @@ function encodeCursor(input: { id: string } & Record<string, unknown>): string |
     return Buffer.from(JSON.stringify({ ua: (rest.updatedAt as Date).toISOString(), id })).toString('base64url');
   }
   if (keys[0] === 'createdAt') {
-    return Buffer.from(JSON.stringify({ ca: (rest.createdAt as Date).toISOString(), id })).toString('base64url');
+    const exact = rest.createdAtExact;
+    const ca = typeof exact === 'string' && EXACT_CURSOR_TIMESTAMP.test(exact)
+      ? exact
+      : (rest.createdAt as Date).toISOString();
+    return Buffer.from(JSON.stringify({ ca, id })).toString('base64url');
   }
   return null;
 }
