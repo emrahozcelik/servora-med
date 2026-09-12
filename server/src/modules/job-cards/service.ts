@@ -1464,7 +1464,7 @@ export class JobCardService {
             'JobCard başka bir işlem tarafından güncellendi.',
           );
         }
-        await transaction.appendActivity({
+        const activity = await transaction.appendActivity({
           organizationId: actor.organizationId,
           jobCardId,
           actorId: actor.id,
@@ -1472,9 +1472,18 @@ export class JobCardService {
           clientActionId,
           metadata: { changedFields },
         });
+        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'MEETING_DETAILS_UPDATED',
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: job.assignedTo,
+        });
         return {
           response: meetingDetailsResponse(jobCardId, updated.version, candidate),
-          realtimeEvents: [],
+          realtimeEvents,
         };
       },
     );

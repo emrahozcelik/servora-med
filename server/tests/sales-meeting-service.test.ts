@@ -629,3 +629,85 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.activities).toHaveLength(0);
   });
 });
+
+describe('Meeting details realtime publication', () => {
+  function serviceWithPublisher(repository: SalesMeetingRepository) {
+    const published: unknown[] = [];
+    const service = new JobCardService(repository, () => new Date(), {
+      publish: (event) => { published.push(event); },
+    });
+    return { service, published };
+  }
+
+  it('RT-1/RT-2/RT-3/RT-4/RT-5: successful update publishes exactly one job.updated event with correct identity', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+    const { service, published } = serviceWithPublisher(repository);
+
+    const result = await service.patchMeetingDetails(staff, job.id, {
+      clientActionId: 'meeting-rt-1', expectedVersion: 2,
+      outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme.',
+    });
+
+    expect(result).toMatchObject({ jobCardId: job.id, jobCardVersion: 3 });
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({
+      organizationId: 'org-1',
+      type: 'job.updated',
+      entityType: 'job-card',
+      entityId: job.id,
+      actorUserId: 'staff-1',
+      sourceActivityId: 'activity-1',
+    });
+    expect((published[0] as { resourceKeys: string[] }).resourceKeys)
+      .toContain(`job-detail:${job.id}`);
+  });
+
+  it('RT-6: validation failure publishes zero events', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+    const { service, published } = serviceWithPublisher(repository);
+
+    await expect(service.patchMeetingDetails(staff, job.id, {
+      clientActionId: 'meeting-rt-invalid', expectedVersion: 2,
+    } as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(published).toHaveLength(0);
+  });
+
+  it('RT-7: authorization failure publishes zero events', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting({ assignedTo: 'staff-2' });
+    const { service, published } = serviceWithPublisher(repository);
+
+    await expect(service.patchMeetingDetails(staff, job.id, {
+      clientActionId: 'meeting-rt-forbidden', expectedVersion: 2,
+      outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme.',
+    })).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
+    expect(published).toHaveLength(0);
+  });
+
+  it('RT-8: stale-version conflict publishes zero events', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+    const { service, published } = serviceWithPublisher(repository);
+
+    await expect(service.patchMeetingDetails(staff, job.id, {
+      clientActionId: 'meeting-rt-conflict', expectedVersion: 1,
+      outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme.',
+    })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(published).toHaveLength(0);
+  });
+
+  it('RT-9: failed persistence publishes zero events', async () => {
+    const repository = new SalesMeetingRepository();
+    const job = repository.seedMeeting();
+    repository.failActivity = true;
+    const { service, published } = serviceWithPublisher(repository);
+
+    await expect(service.patchMeetingDetails(staff, job.id, {
+      clientActionId: 'meeting-rt-failed', expectedVersion: 2,
+      outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme.',
+    })).rejects.toThrow('activity failed');
+    expect(published).toHaveLength(0);
+  });
+});
