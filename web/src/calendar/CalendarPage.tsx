@@ -40,7 +40,6 @@ const localInput = (instant: string) => {
   return new Date(d.valueOf() - off).toISOString().slice(0, 16);
 };
 const instant = (value: string) => new Date(value).toISOString();
-const actionId = () => crypto.randomUUID();
 
 /** Monday of the week containing `d`. */
 function mondayOf(d: Date): Date {
@@ -97,7 +96,7 @@ function drawerTitle(event: CalendarEvent | null): string {
   return 'Planı düzenle';
 }
 
-function EventForm({
+export function EventForm({
   user,
   assignees,
   event,
@@ -140,6 +139,15 @@ function EventForm({
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
   const [pending, setPending] = useState(false);
+  /**
+   * One logical mutation owns one stable action id. The drawer unmounts this
+   * form on close/success, so mount lifetime is exactly one create/edit
+   * operation: every re-submit of the same draft (including retries after an
+   * ambiguous transport outcome) reuses this id and the backend replays the
+   * original result instead of creating a duplicate. A fresh open mounts a
+   * new form and therefore a new id — ids never leak across operations.
+   */
+  const [actionIdentity] = useState(() => crypto.randomUUID());
   const availableSlotSearch = useAvailableSlotSearch({
     type: intervalJobType ?? 'SALES_MEETING',
     customerId: event?.source === 'JOB' ? event.customer?.id ?? null : null,
@@ -195,7 +203,7 @@ function EventForm({
       }
       if (!event) {
         await createManualEvent({
-          clientActionId: actionId(),
+          clientActionId: actionIdentity,
           assignedUserId: draft.assignedUserId,
           title: draft.title,
           description: draft.description.trim() || null,
@@ -205,7 +213,7 @@ function EventForm({
         });
       } else if (event.source === 'MANUAL') {
         await patchManualEvent(event.id, {
-          clientActionId: actionId(),
+          clientActionId: actionIdentity,
           expectedVersion: event.version,
           assignedUserId: draft.assignedUserId,
           title: draft.title,
@@ -310,7 +318,7 @@ function EventForm({
 
 // ── EventItem (agenda card) ──
 
-function EventItem({
+export function EventItem({
   event,
   onEdit,
   onCancelled,
@@ -326,6 +334,13 @@ function EventItem({
   const [error, setError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
+  /**
+   * Cancel identity is scoped to this agenda item (keyed by source:id by the
+   * parent), so re-confirming after an ambiguous failure replays the same
+   * logical cancellation instead of recording a second one. A different
+   * event mounts a different item and therefore a different id.
+   */
+  const [cancelActionIdentity] = useState(() => crypto.randomUUID());
   const localCancelRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = cancelTriggerRef ?? localCancelRef;
 
@@ -334,7 +349,7 @@ function EventItem({
     setError(null);
     try {
       await cancelManualEvent(event.id, {
-        clientActionId: actionId(),
+        clientActionId: cancelActionIdentity,
         expectedVersion: event.version,
         cancelReason: reason,
       });
