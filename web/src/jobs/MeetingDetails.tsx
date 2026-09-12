@@ -88,7 +88,12 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   async function sendAttempt(input: PatchMeetingDetailsInput) {
     try {
       await onSave(input);
-      attemptRef.current = null; setAmbiguous(false); setFeedback('Görüşme sonucu kaydedildi.');
+      attemptRef.current = null; setAmbiguous(false);
+      // A successful attempt resolves the previous failure state: without
+      // this, an error set by an earlier failed attempt (e.g. an ambiguous
+      // attempt retried via the original-retry button, which bypasses the
+      // form submit clearing) would remain visible next to the success note.
+      setError(''); setFieldErrors({}); setFeedback('Görüşme sonucu kaydedildi.');
     } catch (caught) {
       // Fail-safe: only an authoritative non-retryable server response proves
       // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
