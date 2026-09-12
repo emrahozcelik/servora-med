@@ -22,13 +22,21 @@ function parsePagination(query: Record<string, string | undefined>) {
   return { limit };
 }
 
+function parseCursorTimestamp(value: unknown): Date {
+  const date = new Date(value as string);
+  if (Number.isNaN(date.getTime())) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz imleç.');
+  }
+  return date;
+}
+
 function parseCursor(query: Record<string, string | undefined>): ConversationListCursor | null {
   const cursor = query.cursor;
   if (!cursor) return null;
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
     parseUuid(parsed.id, 'cursor');
-    return { updatedAt: new Date(parsed.ua), id: parsed.id };
+    return { updatedAt: parseCursorTimestamp(parsed.ua), id: parsed.id };
   } catch {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz imleç.');
   }
@@ -40,7 +48,7 @@ function parseMessageCursor(query: Record<string, string | undefined>): MessageC
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
     parseUuid(parsed.id, 'cursor');
-    const createdAt = new Date(parsed.ca);
+    const createdAt = parseCursorTimestamp(parsed.ca);
     // Thread the exact microsecond boundary only for tokens in the exact
     // canonical UTC format this server issues (see encodeCursor). Anything
     // else — legacy millisecond tokens, hand-crafted values, malformed
