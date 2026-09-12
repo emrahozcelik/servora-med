@@ -33,7 +33,7 @@ import { crmRoutes } from './modules/crm/routes.js';
 import type { ProductRepository } from './modules/products/repository.js';
 import { ProductService } from './modules/products/service.js';
 import { productRoutes } from './modules/products/routes.js';
-import type { ApprovalQueueItemPort, ReportsReadModel } from './modules/reports/ports.js';
+import type { ReportReadSnapshot, ReportsReadModel } from './modules/reports/ports.js';
 import { ReportsService } from './modules/reports/service.js';
 import { reportsRoutes } from './modules/reports/routes.js';
 import type {
@@ -129,7 +129,7 @@ export type AppDependencies = {
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
   productRepository?: ProductRepository;
-  approvalQueueItemPort?: ApprovalQueueItemPort;
+  reportReadSnapshot?: ReportReadSnapshot;
   reportsRepository?: ReportsReadModel;
   healthReadiness?: HealthReadinessPort;
   backupHealthReadiness?: BackupHealthReadinessPort;
@@ -259,12 +259,12 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           : undefined,
       });
     }
-    if (dependencies.reportsRepository && dependencies.approvalQueueItemPort) {
+    if (dependencies.reportsRepository && dependencies.reportReadSnapshot) {
       await app.register(reportsRoutes, {
         prefix: '/api/reports',
         service: new ReportsService(
           dependencies.reportsRepository,
-          dependencies.approvalQueueItemPort,
+          dependencies.reportReadSnapshot,
         ),
         authenticate: authenticateDomain,
       });

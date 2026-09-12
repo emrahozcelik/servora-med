@@ -19,6 +19,7 @@ import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.
 import { PostgresCrmRepository } from './modules/crm/repository.js';
 import { PostgresProductRepository } from './modules/products/repository.js';
 import { PostgresReportsRepository } from './modules/reports/repository.js';
+import { PostgresReportReadSnapshot } from './modules/reports/read-snapshot.js';
 import { InMemoryRealtimeEventBus } from './modules/realtime/event-bus.js';
 import { PostgresRealtimeEventRepository } from './modules/realtime/repository.js';
 import { RealtimeService } from './modules/realtime/service.js';
@@ -69,6 +70,7 @@ async function main() {
     const customerAssignments = new PostgresCustomerAssignmentCleanup();
     const jobCards = new PostgresJobCardRepository(database.pool);
     const reports = new PostgresReportsRepository(database.pool);
+    const reportReadSnapshot = new PostgresReportReadSnapshot(database.pool, jobCards);
     const realtimeBus = new InMemoryRealtimeEventBus((error) => {
       app?.log.error({ err: error }, 'Realtime subscriber failed');
     });
@@ -89,7 +91,7 @@ async function main() {
       ),
       crmRepository: new PostgresCrmRepository(database.pool),
       productRepository: new PostgresProductRepository(database.pool),
-      approvalQueueItemPort: jobCards,
+      reportReadSnapshot,
       reportsRepository: reports,
       overviewRepository: new PostgresOverviewRepository(database.pool, reports),
       calendarRepository: new PostgresCalendarRepository(

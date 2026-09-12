@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { SafeUser } from '../src/modules/auth/types.js';
 import { ReportsService } from '../src/modules/reports/service.js';
+import { passThroughReportReadSnapshot } from './support/report-read-snapshot.js';
 
 const ORG_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STAFF_ONE = '11111111-1111-4111-8111-111111111111';
@@ -190,7 +191,7 @@ function createService() {
     ...dependencies,
     service: new ReportsService(
       dependencies.reports as never,
-      dependencies.approvalItems as never,
+      passThroughReportReadSnapshot(dependencies.reports, dependencies.approvalItems),
       () => requestTime,
     ),
   };

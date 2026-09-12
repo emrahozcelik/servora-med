@@ -7,6 +7,7 @@ import {
 } from '../src/modules/reports/range.js';
 import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 import { ReportsService } from '../src/modules/reports/service.js';
+import { passThroughReportReadSnapshot } from './support/report-read-snapshot.js';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ACTIVE_STAFF_ID = '11111111-1111-4111-8111-111111111111';
@@ -164,7 +165,8 @@ describe('ReportsService manager-wide Staff performance', () => {
       staff: [{ userId: ACTIVE_STAFF_ID, name: 'Aktif Personel', isActive: true,
         createdAt: CREATED_BEFORE_PRIOR }],
     });
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     await expect(service.getStaffPerformance(actor('MANAGER'), {
@@ -247,7 +249,8 @@ describe('ReportsService manager-wide Staff performance', () => {
 
   it('includes inactive Staff for Admin and returns neutral zero ratios', async () => {
     const ports = servicePorts();
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     const result = await service.getStaffPerformance(actor('ADMIN'), { requestedRange: null });
@@ -274,7 +277,8 @@ describe('ReportsService manager-wide Staff performance', () => {
 
   it('denies Staff before any manager-wide report read', async () => {
     const ports = servicePorts();
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     await expect(service.getStaffPerformance(actor('STAFF'), { requestedRange: null }))
@@ -285,7 +289,8 @@ describe('ReportsService manager-wide Staff performance', () => {
   it('returns an empty organization after the scope read without aggregate queries', async () => {
     const ports = servicePorts();
     ports.reports.getStaffPerformanceScope.mockResolvedValue({ range, staff: [] });
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     await expect(service.getStaffPerformance(actor('MANAGER'), { requestedRange: null }))
@@ -334,7 +339,8 @@ describe('ReportsService manager-wide Staff performance', () => {
           { type: 'SALES_MEETING', count: 0 },
         ],
       }])));
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     const result = await service.getStaffPerformance(actor('ADMIN'), { requestedRange: null });
@@ -364,7 +370,8 @@ describe('ReportsService manager-wide Staff performance', () => {
         ineligibleOrNoDeadlineCompletedJobs: 2,
       },
     ]]));
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     await expect(service.getStaffPerformance(actor('MANAGER'), { requestedRange: null }))
@@ -382,7 +389,8 @@ describe('ReportsService manager-wide Staff performance', () => {
         missingStaffCompletionTimestamp: 1,
       },
     ]]));
-    const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
+    const service = new ReportsService(ports.reports as never,
+      passThroughReportReadSnapshot(ports.reports, ports.approvalItems),
       () => requestTime);
 
     await expect(service.getStaffPerformance(actor('MANAGER'), { requestedRange: null }))
