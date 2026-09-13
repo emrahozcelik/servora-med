@@ -173,7 +173,9 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     const tx = new CountingTransaction([activeJob('other-1', '2026-08-08T10:00:00.000Z')]);
     const proposal = await autoSchedule(tx);
 
-    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-09T00:00:00.000Z');
+    // Every Saturday 08-08 candidate conflicts; the next date is Sunday 08-09,
+    // which WORKING-DAY V1 skips entirely, so selection lands on Monday 08-10.
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-10T00:00:00.000Z');
     expect(tx.counts).toMatchObject({
       listActiveOnSiteJobs: 1,
       listRecentOnSiteVisits: 1,

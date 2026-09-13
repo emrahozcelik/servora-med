@@ -54,14 +54,19 @@ describe('findEarliestFollowUpSlot', () => {
   });
 
   it('skips nonexistent spring-forward wall clocks', () => {
+    // Asia/Jerusalem springs forward on Friday 2026-03-27 — a working day, so
+    // the WORKING-DAY V1 Sunday rule cannot mask this behaviour. Local
+    // 02:00-02:59 does not exist; the 02:xx grid slots resolve outside that wall
+    // clock and are skipped rather than silently shifted, so the first real
+    // candidate is 03:00 IDT = 2026-03-27T00:00Z.
     const slot = findEarliestFollowUpSlot({
-      earliestAllowedAt: new Date('2026-03-08T06:58:00.000Z'),
+      earliestAllowedAt: new Date('2026-03-26T23:58:00.000Z'),
       type: 'SALES_MEETING',
-      timezone: 'America/New_York',
+      timezone: 'Asia/Jerusalem',
       blockers: [],
     });
 
-    expect(slot?.startsAt.toISOString()).toBe('2026-03-08T07:00:00.000Z');
+    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T00:00:00.000Z');
   });
 
   it('resolves repeated fall-back wall clocks deterministically with increasing UTC candidates', () => {
@@ -219,21 +224,28 @@ describe('target-first search with floor-anchored horizon', () => {
   });
 
   it('skips nonexistent spring-forward wall clocks from a target start', () => {
-    // 2026-03-08 America/New_York springs forward: local 02:00-02:59 does not
-    // exist. The 02:xx grid slots all resolve to 03:xx and are skipped, so a
-    // blocker ending at 02:00 EST lands exactly on 03:00 EDT (07:00Z).
-    const slot = findEarliestFollowUpSlot({
-      earliestAllowedAt: new Date('2026-03-08T06:30:00.000Z'),
-      horizonAnchorAt: new Date('2026-03-01T06:30:00.000Z'),
-      type: 'SALES_MEETING',
-      timezone: 'America/New_York',
-      blockers: [{
-        startsAt: new Date('2026-03-08T06:30:00.000Z'),
-        endsAt: new Date('2026-03-08T07:00:00.000Z'),
-      }],
-    });
+    // Asia/Jerusalem springs forward on Friday 2026-03-27: local 02:00-02:59
+    // does not exist. From a target start the 02:xx grid slots resolve outside
+    // that wall clock, so the stream resumes at 03:00 local.
+    const input = {
+      earliestAllowedAt: new Date('2026-03-26T23:58:00.000Z'),
+      horizonAnchorAt: new Date('2026-03-20T23:58:00.000Z'),
+      type: 'SALES_MEETING' as const,
+      timezone: 'Asia/Jerusalem',
+      blockers: [],
+    };
+    const slot = findEarliestFollowUpSlot(input);
 
-    expect(slot?.startsAt.toISOString()).toBe('2026-03-08T07:00:00.000Z');
+    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T00:00:00.000Z');
+    expect(
+      generateFollowUpSlotCandidates(input)
+        .slice(0, 3)
+        .map((candidate) => candidate.startsAt.toISOString()),
+    ).toEqual([
+      '2026-03-27T00:00:00.000Z',
+      '2026-03-27T00:15:00.000Z',
+      '2026-03-27T00:30:00.000Z',
+    ]);
   });
 
   it('resolves repeated fall-back wall clocks deterministically from a target start', () => {
@@ -274,13 +286,36 @@ describe('iterateFollowUpSlotCandidates', () => {
       timezone: 'UTC',
     };
     const materialized = expectIteratorParity(input);
-    expect(materialized.length).toBe(2880);
+    // 2880 unfiltered candidates minus the WORKING-DAY V1 exclusions:
+    //   5 whole Sundays (08-02, 08-09, 08-16, 08-23, 08-30) x 96 slots = 480
+    //   5 Saturdays x 3 late slots each (23:15/23:30/23:45 spill into Sunday;
+    //     23:00 ends exactly at Sunday 00:00 and stays allowed)     =  15
+    // 2880 - 480 - 15 = 2385.
+    expect(materialized.length).toBe(2385);
 
     const iterator = iterateFollowUpSlotCandidates(input);
     const first = iterator.next();
     expect(first.done).toBe(false);
     expect(first.value!.startsAt.toISOString()).toBe(materialized[0]!.startsAt.toISOString());
     expect(first.value!.endsAt.toISOString()).toBe(materialized[0]!.endsAt.toISOString());
+  });
+
+  it('never yields a candidate whose occupied interval touches Sunday', () => {
+    const materialized = generateFollowUpSlotCandidates({
+      earliestAllowedAt: new Date('2026-08-01T10:07:00.000Z'),
+      type: 'SALES_MEETING',
+      timezone: 'UTC',
+    });
+    for (const candidate of materialized) {
+      const startsWeekday = new Date(`${candidate.startsAt.toISOString().slice(0, 10)}T00:00:00Z`).getUTCDay();
+      const lastOccupied = new Date(candidate.endsAt.valueOf() - 1);
+      const lastKey = lastOccupied.toISOString().slice(0, 10);
+      const lastWeekday = new Date(`${lastKey}T00:00:00Z`).getUTCDay();
+      // A whole-Sunday start is never emitted, and the last occupied instant is
+      // never on a Sunday (the half-open end may land exactly on Sunday 00:00).
+      expect(startsWeekday, candidate.startsAt.toISOString()).not.toBe(0);
+      expect(lastWeekday, candidate.endsAt.toISOString()).not.toBe(0);
+    }
   });
 
   it('preserves PRODUCT_DELIVERY duration and GENERAL_TASK emptiness', () => {

@@ -5,6 +5,7 @@ import {
   localClockSecond,
   localDateKey,
 } from './local-calendar.js';
+import { occupiesNonWorkingDay } from './working-day-policy.js';
 
 export type AvailableSlotCandidate = Readonly<{
   startsAt: Date;
@@ -37,6 +38,15 @@ function representsRequestedWallClock(
     && localClockSecond(instant, timezone) === second;
 }
 
+/**
+ * Generate the same-wall-clock candidates for the following `horizonDays`
+ * local days.
+ *
+ * WORKING-DAY V1: a candidate whose occupied interval touches the
+ * organization-local Sunday is never advertised (skipped at generation time,
+ * not filtered later). This preserves the existing all-results semantics —
+ * every remaining valid day is still returned — and adds no per-slot reads.
+ */
 export function generateAvailableSlotCandidates(
   input: GenerateAvailableSlotCandidatesInput,
 ): AvailableSlotCandidate[] {
@@ -64,10 +74,15 @@ export function generateAvailableSlotCandidates(
       second,
       input.timezone,
     )) continue;
-    candidates.push({
+    const candidateEnd = new Date(candidateStart.valueOf() + durationMs);
+    // Skip a whole-Sunday date and any late Saturday start whose duration
+    // spills past local midnight into Sunday.
+    if (occupiesNonWorkingDay({
       startsAt: candidateStart,
-      endsAt: new Date(candidateStart.valueOf() + durationMs),
-    });
+      endsAt: candidateEnd,
+      timezone: input.timezone,
+    })) continue;
+    candidates.push({ startsAt: candidateStart, endsAt: candidateEnd });
   }
 
   return candidates;

@@ -18,14 +18,18 @@ describe('generateAvailableSlotCandidates', () => {
       horizonDays: 30,
     });
 
-    expect(candidates).toHaveLength(30);
-    expect(localDateKey(candidates[0]!.startsAt, 'America/New_York')).toBe('2026-03-08');
+    // WORKING-DAY V1: the five Sundays in the window (03-08, 03-15, 03-22,
+    // 03-29, 04-05) are never advertised, so 30 candidate days become 25.
+    expect(candidates).toHaveLength(25);
+    expect(localDateKey(candidates[0]!.startsAt, 'America/New_York')).toBe('2026-03-09');
     expect(localClockParts(candidates[0]!.startsAt, 'America/New_York')).toEqual({ hour: 10, minute: 0 });
-    expect(candidates[0]!.startsAt.toISOString()).toBe('2026-03-08T14:00:00.000Z');
-    expect(candidates[0]!.endsAt.toISOString()).toBe('2026-03-08T15:30:00.000Z');
+    expect(candidates[0]!.startsAt.toISOString()).toBe('2026-03-09T14:00:00.000Z');
+    expect(candidates[0]!.endsAt.toISOString()).toBe('2026-03-09T15:30:00.000Z');
 
     for (const candidate of candidates) {
       expect(candidate.endsAt.valueOf() - candidate.startsAt.valueOf()).toBe(90 * 60 * 1000);
+      expect(localDateKey(candidate.startsAt, 'America/New_York')).not.toBe('2026-03-08');
+      expect(localDateKey(candidate.startsAt, 'America/New_York')).not.toBe('2026-04-05');
     }
   });
 

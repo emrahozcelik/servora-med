@@ -65,11 +65,17 @@ describe('JobCardService.availableSlots', () => {
       { enabled: true, reminderLeadMinutes: 30 },
     ).availableSlots(actor, input);
 
-    expect(result.slots).toHaveLength(30);
+    // WORKING-DAY V1: the four Sundays in the 30-day window (08-23, 08-30,
+    // 09-06, 09-13) are never advertised, so 30 candidate days become 26.
+    expect(result.slots).toHaveLength(26);
     expect(result.slots[0]).toEqual({
       startsAt: '2026-08-17T10:00:00.000Z',
       endsAt: '2026-08-17T11:00:00.000Z',
     });
+    for (const slot of result.slots) {
+      const weekday = new Date(`${slot.startsAt.slice(0, 10)}T00:00:00Z`).getUTCDay();
+      expect(weekday, slot.startsAt).not.toBe(0);
+    }
     expect(tx.listActiveOnSiteJobs).toHaveBeenCalledTimes(1);
     expect(tx.listRecentOnSiteVisits).toHaveBeenCalledTimes(1);
     expect(tx.listAssigneeCalendarIntervals).toHaveBeenCalledTimes(1);

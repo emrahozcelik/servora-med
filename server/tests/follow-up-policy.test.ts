@@ -157,13 +157,37 @@ describe('suggestedFollowUpInstant', () => {
     expect(result.toISOString()).toBe('2026-08-08T10:30:00.000Z');
   });
 
-  it('does not skip weekends (no business-day rule exists)', () => {
+  it('keeps a +7 target that lands on a Saturday (no business-day rule exists)', () => {
     const result = suggestedFollowUpInstant({
       evaluatedAt: instant('2026-08-08T10:00:00.000Z'),
       sourceScheduledAt: null,
       timezone: 'UTC',
     });
     expect(result.toISOString()).toBe('2026-08-15T10:00:00.000Z');
+  });
+
+  it('§17: advances a +7 target that lands on a Sunday to the next working day', () => {
+    // 2026-08-09 is a Sunday; +7 calendar days is Sunday 2026-08-16, which must
+    // advance to Monday 2026-08-17 while preserving the organization-local clock.
+    const result = suggestedFollowUpInstant({
+      evaluatedAt: instant('2026-08-09T10:00:00.000Z'),
+      sourceScheduledAt: null,
+      timezone: 'UTC',
+    });
+    expect(result.toISOString()).toBe('2026-08-17T10:00:00.000Z');
+    expect(localClockParts(result, 'UTC')).toEqual({ hour: 10, minute: 0 });
+  });
+
+  it('§17: skips a Saturday target whose canonical duration spills into Sunday', () => {
+    // 2026-08-08 is a Saturday; +7 is Saturday 2026-08-15. A 1-hour meeting at
+    // 23:30 ends Sunday 00:30, so the target advances past Sunday to Monday.
+    const result = suggestedFollowUpInstant({
+      evaluatedAt: instant('2026-08-08T23:30:00.000Z'),
+      sourceScheduledAt: null,
+      timezone: 'UTC',
+      durationMs: 60 * 60_000,
+    });
+    expect(result.toISOString()).toBe('2026-08-17T23:30:00.000Z');
   });
 
   it('R1-3: computes +7 on the organization-local calendar date near midnight', () => {

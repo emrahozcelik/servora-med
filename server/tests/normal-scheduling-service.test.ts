@@ -545,9 +545,11 @@ describe('normal customer scheduling — patch / reschedule', () => {
     const repository = new SchedulingMemoryRepository();
     const created = await createDelivery(repository);
     const updated = await serviceOf(repository).patch(manager, created.id, {
-      expectedVersion: 1, scheduledAt: '2026-07-26T10:00:00.000Z',
+      // WORKING-DAY V1: Monday 2026-07-27 replaces the previous Sunday
+      // 2026-07-26 fixture.
+      expectedVersion: 1, scheduledAt: '2026-07-27T10:00:00.000Z',
     });
-    expect(updated.scheduledAt).toBe('2026-07-26T10:00:00.000Z');
+    expect(updated.scheduledAt).toBe('2026-07-27T10:00:00.000Z');
   });
 
   it('D4-6/D4-7/D4-27: existing interval duration is preserved and immutable', async () => {

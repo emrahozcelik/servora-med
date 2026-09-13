@@ -390,7 +390,9 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: job.version,
         note: 'Tamamlandı.',
         followUpProposal: {
-          scheduledAt: '2026-08-02T10:00:00.000Z',
+          // WORKING-DAY V1: Monday 2026-08-03 replaces the previous Sunday
+          // 2026-08-02 fixture; the intent (a date before the +7 target) holds.
+          scheduledAt: '2026-08-03T10:00:00.000Z',
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Erken kontrol araması.',
@@ -398,7 +400,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       // The +7-day target is a SYSTEM preference, not a universal minimum.
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: '2026-08-02T10:00:00.000Z',
+        scheduledAt: '2026-08-03T10:00:00.000Z',
         origin: 'STAFF_ADJUSTED',
       });
     });
@@ -604,15 +606,43 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: job.version,
         note: 'Görüşme tamamlandı.',
         followUpProposal: {
-          scheduledAt: '2026-08-09T10:00:00.000Z',
+          // WORKING-DAY V1: Monday 2026-08-10 replaces the previous Sunday
+          // 2026-08-09 fixture.
+          scheduledAt: '2026-08-10T10:00:00.000Z',
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Kontrol görüşmesi',
         },
       });
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: '2026-08-09T10:00:00.000Z',
+        scheduledAt: '2026-08-10T10:00:00.000Z',
         origin: 'STAFF_ADJUSTED',
+      });
+    });
+  });
+
+  it('§14/§15: rejects a Staff proposal whose explicit schedule lands on a Sunday', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', title: 'Pazar denemesi', assignedTo: staffA.id,
+      });
+      await expect(service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          // 2026-08-09 is a Sunday in the organization timezone
+          // (Europe/Istanbul) and the CLOCK is 2026-08-01, so the date is a
+          // valid future target that only the working-day rule rejects.
+          scheduledAt: '2026-08-09T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Pazar denemesi',
+        },
+      })).rejects.toMatchObject({
+        code: 'NON_WORKING_DAY',
+        statusCode: 400,
+        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
       });
     });
   });
@@ -1208,7 +1238,9 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         [organizationId, customerId, staffB.id, manager.id, '2026-08-08T09:00:00.000Z'],
       );
       suggestion = await service.getFollowUpSuggestion(staffA, job.id);
-      expect(suggestion.scheduledAt).toBe('2026-08-09T10:00:00.000Z');
+      // WORKING-DAY V1: the base day is Saturday 08-08, so the next date is
+      // Sunday 08-09 — skipped — and the suggestion lands on Monday 08-10.
+      expect(suggestion.scheduledAt).toBe('2026-08-10T10:00:00.000Z');
       expect(suggestion.evaluation.safeMessage).toContain('sonraki uygun tarih önerildi');
       // Staff projection leaks no conflict details (CSI-7).
       expect(suggestion.evaluation.conflicts).toEqual([]);
@@ -1220,7 +1252,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       expect(evaluation.evaluation.conflicts).toEqual([
         expect.objectContaining({ title: 'Başka personelin teslimi' }),
       ]);
-      expect(evaluation.evaluation.suggestedAlternativeAt).toBe('2026-08-09T10:00:00.000Z');
+      expect(evaluation.evaluation.suggestedAlternativeAt).toBe('2026-08-10T10:00:00.000Z');
     });
   });
 
@@ -1259,14 +1291,15 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         clientActionId: randomUUID(),
         expectedVersion: submitted.version,
         followUp: {
-          scheduledAt: '2026-08-09T10:00:00.000Z',
+          // WORKING-DAY V1: Monday 2026-08-10 replaces Sunday 2026-08-09.
+          scheduledAt: '2026-08-10T10:00:00.000Z',
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Kontrol görüşmesi',
         },
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
-      expect(child.scheduledAt).toBe('2026-08-09T10:00:00.000Z');
+      expect(child.scheduledAt).toBe('2026-08-10T10:00:00.000Z');
     });
   });
 

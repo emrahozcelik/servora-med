@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import { assertWorkingDay } from '../job-cards/working-day-policy.js';
 import type { CalendarRepository } from './repository.js';
 import {
   manualEventCancelRequestHash,
@@ -108,6 +109,15 @@ export class CalendarService {
   async create(actor: CalendarActor, input: ManualEventCreateInput) {
     this.requireEnabled();
     await this.requireAssignable(actor, input.assignedUserId);
+    // WORKING-DAY V1 (§21): the request parser knows the syntax but not the
+    // organization timezone, so enforcement lives here, against the
+    // authoritative `organizations.timezone`. The submitted event timezone is
+    // display provenance only and must not shift the Sunday boundary.
+    assertWorkingDay({
+      startsAt: new Date(input.startsAt),
+      endsAt: new Date(input.endsAt),
+      timezone: await this.repository.getOrganizationTimezone(actor.organizationId),
+    });
     return this.present(
       actor,
       await this.repository.createManual(
@@ -130,12 +140,30 @@ export class CalendarService {
     // semantic, and preserveManualEventDuration below derives endsAt from
     // persisted state, which must never participate in the hash.
     const requestHash = manualEventPatchRequestHash(eventId, input);
+    const merged = preserveManualEventDuration(current, input);
+    // WORKING-DAY V1 (§22): validate the MERGED effective interval, so a
+    // startsAt-only move into Sunday, an endsAt-only extension into Sunday and a
+    // both-field move into Sunday are all rejected. Only a patch that actually
+    // carries a scheduling field can change the occupied interval; a title-,
+    // description-, assignee- or timezone-only patch therefore leaves the
+    // occupied interval untouched and never newly rejects a legacy Sunday record
+    // (§10/§11). The derived endsAt is used only for validation, never for the
+    // request hash.
+    const scheduleTouched = input.startsAt !== undefined || input.endsAt !== undefined;
+    const effectiveEndsAt = merged.endsAt ?? current.endsAt;
+    if (scheduleTouched && effectiveEndsAt !== null) {
+      assertWorkingDay({
+        startsAt: new Date(merged.startsAt ?? current.startsAt),
+        endsAt: new Date(effectiveEndsAt),
+        timezone: await this.repository.getOrganizationTimezone(actor.organizationId),
+      });
+    }
     return this.present(
       actor,
       await this.repository.patchManual(
         actor,
         eventId,
-        preserveManualEventDuration(current, input),
+        merged,
         this.now(),
         requestHash,
       ),
