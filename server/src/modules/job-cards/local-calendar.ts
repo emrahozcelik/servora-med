@@ -82,6 +82,24 @@ export function dateKeyToOrdinal(key: string): number {
   return Math.round(Date.UTC(year, month - 1, day) / DAY_MS);
 }
 
+/**
+ * Day of week for a 'YYYY-MM-DD' key: 0 = Sunday … 6 = Saturday.
+ *
+ * Derived arithmetically from the ordinal day number. The ordinal epoch
+ * 1970-01-01 is a **Thursday**, so `(ordinal + 4) % 7` maps it to 4 when
+ * Sunday is 0. Deliberately avoids `Intl` weekday formatting, host-local
+ * `Date#getDay()` and `getUTCDay()`: the business rule must depend only on the
+ * organization-local date key, never on the runtime or host timezone.
+ */
+export function weekdayOfDateKey(key: string): number {
+  return (dateKeyToOrdinal(key) + 4) % 7;
+}
+
+/** True when a 'YYYY-MM-DD' key is a Sunday (weekday 0). */
+export function isSundayDateKey(key: string): boolean {
+  return weekdayOfDateKey(key) === 0;
+}
+
 /** Offset in ms between the local wall clock and UTC for an instant (positive = ahead of UTC). */
 function timezoneOffsetMs(instant: Date, timezone: string): number {
   const parts = new Intl.DateTimeFormat('en-CA', {

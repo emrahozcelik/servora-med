@@ -10,6 +10,8 @@ import {
   dateKeyToOrdinal,
   localDateKey,
 } from './local-calendar.js';
+import { canonicalScheduledDurationMs } from './job-card-duration.js';
+import { occupiesNonWorkingDay } from './working-day-policy.js';
 import type { JobCardType } from './types.js';
 
 export { localDateKey } from './local-calendar.js';
@@ -242,13 +244,21 @@ export async function evaluateCustomerSchedule(
 
   let suggestedAlternativeAt: string | null = null;
   if (conflicts.length > 0) {
+    // The suggestion keeps the proposed wall clock and moves forward one
+    // organization-local calendar day at a time. WORKING-DAY V1: it must never
+    // land on a Sunday, nor on a Saturday whose canonical duration spills past
+    // local midnight into Sunday — so the shared occupied-interval predicate
+    // gates every candidate. Existing occupied-date and bounded-search
+    // semantics are unchanged.
+    const alternativeDurationMs = canonicalScheduledDurationMs(jobType) ?? 0;
     let candidate = proposedAt;
     for (let step = 0; step < FOLLOW_UP_SEARCH_HORIZON_DAYS; step += 1) {
       candidate = advanceByOneDay(candidate, timezone);
-      if (!occupiedDates.has(localDateKey(candidate, timezone))) {
-        suggestedAlternativeAt = candidate.toISOString();
-        break;
-      }
+      if (occupiedDates.has(localDateKey(candidate, timezone))) continue;
+      const candidateEnd = new Date(candidate.valueOf() + alternativeDurationMs);
+      if (occupiesNonWorkingDay({ startsAt: candidate, endsAt: candidateEnd, timezone })) continue;
+      suggestedAlternativeAt = candidate.toISOString();
+      break;
     }
   }
 

@@ -19,9 +19,11 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
 const CLOCK = new Date('2026-08-01T10:00:00.000Z');
-const PROPOSAL_AT = '2026-08-08T10:00:00.000Z';
-const EXPLICIT_AT = '2026-08-09T10:00:00.000Z';
-const STAFF_ADJUSTED_AT = '2026-08-10T10:00:00.000Z';
+const PROPOSAL_AT = '2026-08-08T10:00:00.000Z'; // Saturday (working day)
+// WORKING-DAY V1: the explicit Manager override must target a working day.
+// Tuesday 2026-08-11 replaces the previous Sunday 2026-08-09 fixture.
+const EXPLICIT_AT = '2026-08-11T10:00:00.000Z';
+const STAFF_ADJUSTED_AT = '2026-08-10T10:00:00.000Z'; // Monday
 
 type Fixture = {
   pool: Pool;
@@ -379,11 +381,32 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
       expect(child).toMatchObject({
         assignedTo: staffB.id,
         scheduledAt: EXPLICIT_AT,
-        scheduledEndsAt: '2026-08-09T11:00:00.000Z',
+        scheduledEndsAt: '2026-08-11T11:00:00.000Z',
         status: 'NEW',
       });
       expect(child.followUpContext).toMatchObject({
         followUpInstructions: 'Yönetici planı: net tarihte arayın.',
+      });
+    });
+  });
+
+  it('D1-6b: an explicit Manager Sunday override is rejected with NON_WORKING_DAY', async () => {
+    await withFixture(async ({ service, manager, staffB, submitSystemProposal }) => {
+      const submitted = await submitSystemProposal();
+      await expect(service.approve(manager, submitted.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          // 2026-08-09 is a Sunday.
+          scheduledAt: '2026-08-09T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: staffB.id,
+          followUpInstructions: 'Pazar planı denemesi.',
+        },
+      })).rejects.toMatchObject({
+        code: 'NON_WORKING_DAY',
+        statusCode: 400,
+        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
       });
     });
   });

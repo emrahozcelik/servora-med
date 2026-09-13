@@ -2,11 +2,13 @@ import type { AvailableSlotBlocker, AvailableSlotCandidate } from './available-s
 import {
   addCalendarDaysToDateKey,
   instantFromLocal,
+  isSundayDateKey,
   localClockParts,
   localDateKey,
 } from './local-calendar.js';
 import { canonicalScheduledDurationMs } from './job-card-duration.js';
 import { FOLLOW_UP_SEARCH_HORIZON_DAYS } from './follow-up-policy.js';
+import { occupiesNonWorkingDay } from './working-day-policy.js';
 import type { JobCardType } from './types.js';
 
 export const AUTO_SCHEDULER_GRID_MINUTES = 15;
@@ -72,6 +74,15 @@ export function resolveFollowUpSearchHorizonAt(anchorAt: Date, timezone: string)
  * {@link generateFollowUpSlotCandidates}: 15-minute organization-local grid,
  * starting at or after `earliestAllowedAt`, bounded by the floor-anchored
  * horizon (`startsAt < horizonAt`, end may extend beyond it).
+ *
+ * WORKING-DAY V1: never yields a candidate whose occupied interval touches the
+ * organization-local Sunday. A whole-Sunday date is skipped before its inner
+ * grid is even generated (cheap day-level skip); the canonical
+ * occupied-interval predicate then catches cross-midnight Saturday candidates
+ * (e.g. Sat 23:30 → Sun 00:30) that a date-level test alone would miss.
+ * Laziness, the 15-minute grid, DST handling, the floor-anchored horizon and
+ * the zero-query-per-candidate property are all preserved: the skip is pure
+ * arithmetic with no additional snapshot reads.
  */
 export function* iterateFollowUpSlotCandidates(
   input: Omit<FindEarliestFollowUpSlotInput, 'blockers'>,
@@ -89,6 +100,8 @@ export function* iterateFollowUpSlotCandidates(
 
   for (let day = 0; day <= FOLLOW_UP_SEARCH_HORIZON_DAYS; day += 1) {
     const dateKey = addCalendarDaysToDateKey(firstDateKey, day);
+    // A date that is entirely Sunday can never hold a valid candidate.
+    if (isSundayDateKey(dateKey)) continue;
     const startMinute = day === 0 ? firstGridMinute : 0;
     for (let minuteOfDay = startMinute; minuteOfDay < 24 * 60; minuteOfDay += AUTO_SCHEDULER_GRID_MINUTES) {
       const hour = Math.floor(minuteOfDay / 60);
@@ -98,10 +111,12 @@ export function* iterateFollowUpSlotCandidates(
       if (startsAt.valueOf() < input.earliestAllowedAt.valueOf()) continue;
       if (startsAt.valueOf() >= horizonAt.valueOf()) return;
 
-      yield {
-        startsAt,
-        endsAt: new Date(startsAt.valueOf() + durationMs),
-      };
+      const endsAt = new Date(startsAt.valueOf() + durationMs);
+      // The date itself is not Sunday, but a late Saturday start can still
+      // spill its canonical duration across local midnight into Sunday.
+      if (occupiesNonWorkingDay({ startsAt, endsAt, timezone: input.timezone })) continue;
+
+      yield { startsAt, endsAt };
     }
   }
 }

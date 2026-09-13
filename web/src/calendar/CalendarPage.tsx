@@ -242,7 +242,13 @@ export function EventForm({
       onSaved();
     } catch (caught) {
       const api = caught as ApiError;
-      if (api.code === 'CALENDAR_CONFLICT') {
+      if (api.code === 'NON_WORKING_DAY') {
+        // WORKING-DAY V1: organization-local Sunday is a non-working day. The
+        // server owns the decision (it alone knows the organization timezone),
+        // so the form surfaces its message verbatim and stays usable.
+        setError(api.message);
+        setConflicts([]);
+      } else if (api.code === 'CALENDAR_CONFLICT') {
         setError('Bu zaman aralığı başka bir planla çakışıyor. Taslağınız korundu.');
         const raw = api.details?.conflicts;
         setConflicts(Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);

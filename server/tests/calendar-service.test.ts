@@ -20,8 +20,8 @@ const staff: CalendarActor = {
 };
 const otherId = '22222222-2222-4222-8222-222222222222';
 const query: CalendarQuery = {
-  from: '2026-07-26T00:00:00.000Z',
-  to: '2026-07-27T00:00:00.000Z',
+  from: '2026-07-27T00:00:00.000Z',
+  to: '2026-07-28T00:00:00.000Z',
   assignedTo: null,
 };
 const manual: CalendarEvent = {
@@ -29,8 +29,8 @@ const manual: CalendarEvent = {
   source: 'MANUAL',
   title: 'Klinik hazırlığı',
   description: null,
-  startsAt: '2026-07-26T09:00:00.000Z',
-  endsAt: '2026-07-26T10:00:00.000Z',
+  startsAt: '2026-07-27T09:00:00.000Z',
+  endsAt: '2026-07-27T10:00:00.000Z',
   timezone: 'Europe/Istanbul',
   assignedUser: { id: staff.id, name: 'Sentetik Personel' },
   version: 1,
@@ -71,6 +71,7 @@ class MemoryCalendarRepository implements CalendarRepository {
     return this.users.find((user) => user.id === userId) ?? null;
   }
   async getManualEvent() { return manual; }
+  async getOrganizationTimezone() { return 'Europe/Istanbul'; }
   async createManual(_actor: CalendarActor, _input: ManualEventCreateInput) {
     return manual;
   }
@@ -118,8 +119,8 @@ describe('CalendarService', () => {
       assignedUserId: otherId,
       title: 'Yetkisiz plan',
       description: null,
-      startsAt: '2026-07-26T09:00:00.000Z',
-      endsAt: '2026-07-26T10:00:00.000Z',
+      startsAt: '2026-07-27T09:00:00.000Z',
+      endsAt: '2026-07-27T10:00:00.000Z',
       timezone: 'Europe/Istanbul',
     })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
   });
@@ -152,12 +153,12 @@ describe('CalendarService', () => {
     await new CalendarService(true, repository).patch(staff, manual.id, {
       clientActionId: 'duration-shift-1',
       expectedVersion: 1,
-      startsAt: '2026-07-26T12:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
     });
     // Persisted interval is 09:00 → 10:00 (60m); the moved start must keep it.
     expect(repository.lastPatchInput).toMatchObject({
-      startsAt: '2026-07-26T12:00:00.000Z',
-      endsAt: '2026-07-26T13:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
+      endsAt: '2026-07-27T13:00:00.000Z',
     });
   });
 
@@ -166,12 +167,12 @@ describe('CalendarService', () => {
     await new CalendarService(true, repository).patch(staff, manual.id, {
       clientActionId: 'explicit-end-1',
       expectedVersion: 1,
-      startsAt: '2026-07-26T12:00:00.000Z',
-      endsAt: '2026-07-26T15:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
+      endsAt: '2026-07-27T15:00:00.000Z',
     });
     expect(repository.lastPatchInput).toMatchObject({
-      startsAt: '2026-07-26T12:00:00.000Z',
-      endsAt: '2026-07-26T15:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
+      endsAt: '2026-07-27T15:00:00.000Z',
     });
   });
 
@@ -180,10 +181,10 @@ describe('CalendarService', () => {
     await new CalendarService(true, repository).patch(staff, manual.id, {
       clientActionId: 'end-only-1',
       expectedVersion: 1,
-      endsAt: '2026-07-26T11:00:00.000Z',
+      endsAt: '2026-07-27T11:00:00.000Z',
     });
     expect(repository.lastPatchInput).toMatchObject({
-      endsAt: '2026-07-26T11:00:00.000Z',
+      endsAt: '2026-07-27T11:00:00.000Z',
     });
     expect(repository.lastPatchInput).not.toHaveProperty('startsAt');
   });
@@ -204,20 +205,20 @@ describe('CalendarService', () => {
     const original = {
       clientActionId: 'identity-1',
       expectedVersion: 1,
-      startsAt: '2026-07-26T12:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
     } as const;
     await new CalendarService(true, repository).patch(staff, manual.id, { ...original });
     // Persisted interval is 09:00 → 10:00 (60m); the repository receives the
     // derived end, but the identity must describe only the caller's patch.
     expect(repository.lastPatchInput).toMatchObject({
-      startsAt: '2026-07-26T12:00:00.000Z',
-      endsAt: '2026-07-26T13:00:00.000Z',
+      startsAt: '2026-07-27T12:00:00.000Z',
+      endsAt: '2026-07-27T13:00:00.000Z',
     });
     expect(repository.lastPatchHash).toBe(manualEventPatchRequestHash(manual.id, { ...original }));
     expect(repository.lastPatchHash).not.toBe(
       manualEventPatchRequestHash(manual.id, {
         ...original,
-        endsAt: '2026-07-26T13:00:00.000Z',
+        endsAt: '2026-07-27T13:00:00.000Z',
       }),
     );
   });

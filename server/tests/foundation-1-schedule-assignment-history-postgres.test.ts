@@ -252,7 +252,9 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 create matrix + patch semantics on r
       clientActionId: randomUUID(), type: 'PRODUCT_DELIVERY',
       title: 'Delivery', description: null, customerId: o.customerId, contactId: null,
       assignedTo: o.staff.id, priority: 'normal', dueDate: null,
-      scheduledAt: '2026-09-13T13:00:00.000Z', scheduledEndsAt: '2026-09-13T13:30:00.000Z',
+      // WORKING-DAY V1: Monday 2026-09-14 replaces the previous Sunday
+      // 2026-09-13 fixture.
+      scheduledAt: '2026-09-14T13:00:00.000Z', scheduledEndsAt: '2026-09-14T13:30:00.000Z',
       overrideReason: null,
       deliveryPurpose: 'SALE', deliveryNote: null,
       items: [{ productId: o.productId, quantity: 1 }],
@@ -292,7 +294,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 create matrix + patch semantics on r
     expect(meetingRevs[0]!.scheduled_at).toEqual(new Date('2026-09-11T10:00:00.000Z'));
     expect(meetingRevs[0]!.scheduled_ends_at).toEqual(new Date('2026-09-11T11:00:00.000Z'));
     const deliveryRevs = await revisionRows(pool!, o.organizationId, delivery.jobCardId);
-    expect(deliveryRevs[0]!.scheduled_ends_at).toEqual(new Date('2026-09-13T13:30:00.000Z'));
+    expect(deliveryRevs[0]!.scheduled_ends_at).toEqual(new Date('2026-09-14T13:30:00.000Z'));
     const taskRevs = await revisionRows(pool!, o.organizationId, task.id);
     expect(taskRevs[0]!.due_date).toBe('2026-09-20');
     const unscheduledRevs = await revisionRows(pool!, o.organizationId, unscheduled.id);
@@ -346,12 +348,15 @@ it('creates follow-up child history with FOLLOW_UP_CREATE source', async () => {
 
     await svc.patch(o.manager, jobId, {
       expectedVersion: await jobCardVersion(pool!, jobId),
-      scheduledAt: '2026-09-13T09:00:00.000Z',
+      // WORKING-DAY V1: Tuesday 2026-09-15 replaces the previous Sunday
+      // 2026-09-13 fixture. It must stay distinct from the later combined
+      // patch's 2026-09-14 so that step still produces a schedule revision.
+      scheduledAt: '2026-09-15T09:00:00.000Z',
     });
     let revs = await revisionRows(pool!, o.organizationId, jobId);
     expect(revs).toHaveLength(2);
     expect(revs[1]!.source).toBe('RESCHEDULE');
-    expect(revs[1]!.scheduled_at).toEqual(new Date('2026-09-13T09:00:00.000Z'));
+    expect(revs[1]!.scheduled_at).toEqual(new Date('2026-09-15T09:00:00.000Z'));
     expect(revs[0]!.scheduled_at).toEqual(new Date('2026-09-12T09:00:00.000Z'));
     expect(await assignmentRows(pool!, o.organizationId, jobId)).toHaveLength(1);
 

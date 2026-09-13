@@ -597,6 +597,25 @@ describe('CalendarPage', () => {
         endsAt: longEnd.toISOString(),
       }));
     });
+
+    it('surfaces NON_WORKING_DAY verbatim and keeps the form usable (§26)', async () => {
+      // The organization timezone lives on the server, so the browser cannot
+      // predict the Sunday boundary. The frozen server message is surfaced
+      // as-is and the drawer stays mounted and editable for a corrected pick.
+      calendarApi.createManualEvent.mockRejectedValue({
+        code: 'NON_WORKING_DAY',
+        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
+      });
+      const { dialog } = await openManualDrawer();
+      await act(async () => {
+        dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      await act(async () => {});
+      expect(dialog.textContent)
+        .toContain('Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.');
+      expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeTruthy();
+      expect(dialog.querySelector('input[type="datetime-local"]')).toBeTruthy();
+    });
   });
 
   describe('cancellation with ReasonDialog', () => {

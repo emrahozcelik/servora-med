@@ -144,6 +144,7 @@ import {
   hasValidPlannedInterval,
   persistedScheduledDurationMs,
 } from './job-card-duration.js';
+import { assertWorkingDay } from './working-day-policy.js';
 import {
   mapJobCardActivityToRealtime,
 } from '../realtime/event-mapper.js';
@@ -760,6 +761,16 @@ export class JobCardService {
         const assignee = this.requiredLockedAssignee(lockedAssignees, input.assignedTo);
         assertCanCreateForAssignee(actor, assignee);
         await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
+        // WORKING-DAY V1 (§12): enforce the organization-local Sunday rule
+        // server-side on the canonical resolved schedule. GENERAL_TASK has no
+        // canonical end, so it is validated as a degenerate occupied point.
+        if (input.scheduledAt) {
+          assertWorkingDay({
+            startsAt: new Date(input.scheduledAt),
+            endsAt: canonicalEnd === null ? null : new Date(canonicalEnd),
+            timezone: await transaction.getOrganizationTimezone(actor.organizationId),
+          });
+        }
         const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
           customerId: input.customerId,
           proposedAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
@@ -896,6 +907,13 @@ export class JobCardService {
           const assignee = this.requiredLockedAssignee(lockedAssignees, input.assignedTo);
           assertCanCreateForAssignee(actor, assignee);
           await this.validateJobReferences(transaction, actor.organizationId, input.customerId, null);
+          // WORKING-DAY V1 (§12): organization-local Sunday enforcement on the
+          // canonical PRODUCT_DELIVERY interval.
+          assertWorkingDay({
+            startsAt: new Date(input.scheduledAt),
+            endsAt: new Date(canonicalEnd),
+            timezone: await transaction.getOrganizationTimezone(actor.organizationId),
+          });
           const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
             customerId: input.customerId,
             proposedAt: new Date(input.scheduledAt),
@@ -1189,6 +1207,18 @@ export class JobCardService {
         400,
         'Planlanan başlangıç zamanı bu iş türü için zorunludur.',
       );
+    }
+    // WORKING-DAY V1 (§14): both manual follow-up creation and the
+    // approved-proposal child creation flow through here, so a human-supplied
+    // organization-local Sunday schedule is rejected rather than silently
+    // moved. The automatic scheduler already yields only valid working slots,
+    // so an approved legacy SYSTEM proposal arrives here with a valid date.
+    if (input.scheduledAt !== null) {
+      assertWorkingDay({
+        startsAt: new Date(input.scheduledAt),
+        endsAt: scheduledEndsAt === null ? null : new Date(scheduledEndsAt),
+        timezone: await transaction.getOrganizationTimezone(actor.organizationId),
+      });
     }
     if (this.calendar.enabled && input.scheduledAt !== null && scheduledEndsAt !== null) {
       try {
@@ -1729,6 +1759,20 @@ export class JobCardService {
           400,
           'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.',
         );
+      }
+
+      // WORKING-DAY V1 (§13): validate the FINAL merged schedule — after
+      // partial-field merge, delta shift and canonical-end repair — and only
+      // when the effective persisted schedule actually changed. Unrelated edits
+      // on a legacy Sunday row (title/description/assignee-only) therefore stay
+      // allowed, while a startsAt-only, endsAt-only or canonical-end
+      // recomputation into/through Sunday is closed off.
+      if (scheduleChanged && nextScheduledAt !== null) {
+        assertWorkingDay({
+          startsAt: new Date(nextScheduledAt),
+          endsAt: nextScheduledEndsAt === null ? null : new Date(nextScheduledEndsAt),
+          timezone: await transaction.getOrganizationTimezone(actor.organizationId),
+        });
       }
 
       if ((scheduleChanged || assigneeChanged)
@@ -2600,6 +2644,19 @@ export class JobCardService {
       1,
       4_000,
     );
+    // WORKING-DAY V1 (§15): shared seam for Staff submission and Manager
+    // approval. A human-supplied organization-local Sunday is rejected. This
+    // deliberately also covers approving a persisted human-origin
+    // (STAFF_ADJUSTED) Sunday proposal, which must fail until a valid schedule
+    // is supplied rather than be silently moved.
+    assertWorkingDay({
+      startsAt: scheduledAt,
+      endsAt: (() => {
+        const durationMs = canonicalScheduledDurationMs(input.type);
+        return durationMs === null ? null : new Date(scheduledAt.valueOf() + durationMs);
+      })(),
+      timezone: await tx.getOrganizationTimezone(actor.organizationId),
+    });
     return {
       scheduledAt,
       type: input.type,
@@ -2904,6 +2961,7 @@ export class JobCardService {
         evaluatedAt: requestTime,
         sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
         timezone,
+        durationMs: canonicalScheduledDurationMs(type),
       });
     const effectiveTargetAt = desiredTargetAt.valueOf() > policyEarliestAt.valueOf()
       ? desiredTargetAt
@@ -3031,6 +3089,7 @@ export class JobCardService {
       evaluatedAt,
       sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
       timezone,
+      durationMs: canonicalScheduledDurationMs(defaultFollowUpType(job.type)),
     });
     const baseFields: FollowUpProposalFields = {
       scheduledAt: baseAt,
@@ -3134,6 +3193,7 @@ export class JobCardService {
         evaluatedAt: this.now(),
         sourceScheduledAt: detail.scheduledAt ? new Date(detail.scheduledAt) : null,
         timezone,
+        durationMs: canonicalScheduledDurationMs(defaultFollowUpType(detail.type)),
       }),
       type: defaultFollowUpType(detail.type),
       assignedTo: detail.assignedTo,

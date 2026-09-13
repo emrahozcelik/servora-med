@@ -10,6 +10,7 @@ import {
   localClockParts,
   localDateKey,
 } from './local-calendar.js';
+import { advanceToWorkingDay } from './working-day-policy.js';
 
 /**
  * V1 mandatory follow-up policy constants.
@@ -93,15 +94,27 @@ export function requiresMandatoryFollowUpProposal(input: {
 
 /**
  * Base candidate instant: the organization-local completion/evaluation date
- * + 7 calendar days, preserving the preferred local clock time (source
- * scheduledAt when available, otherwise the evaluation clock). No
- * business-day/weekend rules exist in Servora; this deliberately does not
- * introduce any.
+ * + 7 **calendar** days, preserving the preferred local clock time (source
+ * scheduledAt when available, otherwise the evaluation clock).
+ *
+ * WORKING-DAY V1 (§17): the +7 *calendar day* meaning is unchanged — this is
+ * still not "+7 working days". The only new behaviour is that when the
+ * resulting occupied interval is invalid because it touches the
+ * organization-local Sunday, it advances forward one local calendar day at a
+ * time to the first valid working date (an ordinary Sunday target becomes the
+ * Monday; a late Saturday start whose duration spills into Sunday also moves to
+ * Monday). The local wall clock and the interval duration are preserved, and
+ * the advance is DST-correct. Saturday remains a working day.
  */
 export function suggestedFollowUpInstant(input: {
   evaluatedAt: Date;
   sourceScheduledAt: Date | null;
   timezone: string;
+  /**
+   * Canonical duration of the resulting follow-up, used for the Sunday-spill
+   * check. Omit for a degenerate occupied point (GENERAL_TASK).
+   */
+  durationMs?: number | null;
 }): Date {
   const preferred = input.sourceScheduledAt ?? input.evaluatedAt;
   const clock = localClockParts(preferred, input.timezone);
@@ -109,7 +122,14 @@ export function suggestedFollowUpInstant(input: {
     localDateKey(input.evaluatedAt, input.timezone),
     FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
   );
-  return instantFromLocal(baseDate, clock.hour, clock.minute, input.timezone);
+  const base = instantFromLocal(baseDate, clock.hour, clock.minute, input.timezone);
+  const durationMs = input.durationMs ?? null;
+  const advanced = advanceToWorkingDay({
+    startsAt: base,
+    endsAt: durationMs === null ? null : new Date(base.valueOf() + durationMs),
+    timezone: input.timezone,
+  });
+  return advanced?.startsAt ?? base;
 }
 
 /** Advance a candidate by one organization-local calendar day, preserving the clock time. */

@@ -173,6 +173,13 @@ export interface CalendarRepository {
   listAssignableUsers(actor: CalendarActor): Promise<CalendarUser[]>;
   getAssignableUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
   getCalendarUser(actor: CalendarActor, userId: string): Promise<CalendarUser | null>;
+  /**
+   * WORKING-DAY V1 (§23): authoritative organization timezone for manual-event
+   * working-day enforcement. Deliberately a single bounded lookup rather than a
+   * join on the event query: the manual event's own `timezone` column is
+   * client-supplied display provenance and must never decide eligibility.
+   */
+  getOrganizationTimezone(organizationId: string): Promise<string>;
   getManualEvent(actor: CalendarActor, eventId: string): Promise<CalendarEvent | null>;
   createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
   patchManual(actor: CalendarActor, eventId: string, input: ManualEventPatchInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
@@ -193,6 +200,15 @@ export class PostgresCalendarRepository implements CalendarRepository {
       [actor.organizationId, assignedTo, query.from, query.to, actor.role, actor.id],
     );
     return result.rows.map((row) => event(row, actor));
+  }
+
+  /** Authoritative organization timezone (WORKING-DAY V1 §23). */
+  async getOrganizationTimezone(organizationId: string) {
+    const result = await this.pool.query<{ timezone: string }>(
+      `SELECT timezone FROM organizations WHERE id = $1`,
+      [organizationId],
+    );
+    return result.rows[0]?.timezone ?? 'Europe/Istanbul';
   }
 
   async listAssignableUsers(actor: CalendarActor) {
