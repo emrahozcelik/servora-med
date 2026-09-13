@@ -1,5 +1,4 @@
 import type { AvailableSlotBlocker, AvailableSlotCandidate } from './available-slots.js';
-import { filterAvailableSlotCandidates } from './available-slots.js';
 import {
   addCalendarDaysToDateKey,
   instantFromLocal,
@@ -42,8 +41,43 @@ function representsWallClock(
 export function generateFollowUpSlotCandidates(
   input: Omit<FindEarliestFollowUpSlotInput, 'blockers'>,
 ): AvailableSlotCandidate[] {
+  return Array.from(iterateFollowUpSlotCandidates(input));
+}
+
+/**
+ * Floor-anchored search horizon instant for follow-up scheduling.
+ *
+ * This is the exact bound used by candidate generation (`startsAt <
+ * horizonAt`), computed in constant time without enumerating candidates.
+ * Callers needing snapshot/query bounds must use this envelope instead of
+ * exhausting the candidate iterator to discover the last candidate.
+ */
+export function resolveFollowUpSearchHorizonAt(anchorAt: Date, timezone: string): Date {
+  const horizonAnchorDateKey = localDateKey(anchorAt, timezone);
+  const horizonAnchorClock = localClockParts(anchorAt, timezone);
+  const horizonDateKey = addCalendarDaysToDateKey(
+    horizonAnchorDateKey,
+    FOLLOW_UP_SEARCH_HORIZON_DAYS,
+  );
+  return instantFromLocal(
+    horizonDateKey,
+    horizonAnchorClock.hour,
+    horizonAnchorClock.minute,
+    timezone,
+  );
+}
+
+/**
+ * Lazily yield follow-up slot candidates with exactly the same semantics as
+ * {@link generateFollowUpSlotCandidates}: 15-minute organization-local grid,
+ * starting at or after `earliestAllowedAt`, bounded by the floor-anchored
+ * horizon (`startsAt < horizonAt`, end may extend beyond it).
+ */
+export function* iterateFollowUpSlotCandidates(
+  input: Omit<FindEarliestFollowUpSlotInput, 'blockers'>,
+): Generator<AvailableSlotCandidate, void, void> {
   const durationMs = canonicalScheduledDurationMs(input.type);
-  if (durationMs === null) return [];
+  if (durationMs === null) return;
 
   const firstDateKey = localDateKey(input.earliestAllowedAt, input.timezone);
   const firstClock = localClockParts(input.earliestAllowedAt, input.timezone);
@@ -51,19 +85,7 @@ export function generateFollowUpSlotCandidates(
   const firstGridMinute = Math.ceil(firstMinuteOfDay / AUTO_SCHEDULER_GRID_MINUTES)
     * AUTO_SCHEDULER_GRID_MINUTES;
   const horizonAnchorAt = input.horizonAnchorAt ?? input.earliestAllowedAt;
-  const horizonAnchorDateKey = localDateKey(horizonAnchorAt, input.timezone);
-  const horizonAnchorClock = localClockParts(horizonAnchorAt, input.timezone);
-  const horizonDateKey = addCalendarDaysToDateKey(
-    horizonAnchorDateKey,
-    FOLLOW_UP_SEARCH_HORIZON_DAYS,
-  );
-  const horizonAt = instantFromLocal(
-    horizonDateKey,
-    horizonAnchorClock.hour,
-    horizonAnchorClock.minute,
-    input.timezone,
-  );
-  const candidates: AvailableSlotCandidate[] = [];
+  const horizonAt = resolveFollowUpSearchHorizonAt(horizonAnchorAt, input.timezone);
 
   for (let day = 0; day <= FOLLOW_UP_SEARCH_HORIZON_DAYS; day += 1) {
     const dateKey = addCalendarDaysToDateKey(firstDateKey, day);
@@ -74,23 +96,35 @@ export function generateFollowUpSlotCandidates(
       const startsAt = instantFromLocal(dateKey, hour, minute, input.timezone);
       if (!representsWallClock(startsAt, dateKey, hour, minute, input.timezone)) continue;
       if (startsAt.valueOf() < input.earliestAllowedAt.valueOf()) continue;
-      if (startsAt.valueOf() >= horizonAt.valueOf()) return candidates;
+      if (startsAt.valueOf() >= horizonAt.valueOf()) return;
 
-      candidates.push({
+      yield {
         startsAt,
         endsAt: new Date(startsAt.valueOf() + durationMs),
-      });
+      };
     }
   }
+}
 
-  return candidates;
+/**
+ * Canonical half-open assignee overlap check shared by eager and lazy
+ * candidate selection: back-to-back intervals remain allowed.
+ */
+export function isFollowUpSlotBlocked(
+  candidate: AvailableSlotCandidate,
+  blockers: readonly AvailableSlotBlocker[],
+): boolean {
+  return blockers.some((blocker) => (
+    blocker.startsAt.valueOf() < candidate.endsAt.valueOf()
+    && candidate.startsAt.valueOf() < blocker.endsAt.valueOf()
+  ));
 }
 
 export function findEarliestFollowUpSlot(
   input: FindEarliestFollowUpSlotInput,
 ): AvailableSlotCandidate | null {
-  return filterAvailableSlotCandidates(
-    generateFollowUpSlotCandidates(input),
-    input.blockers,
-  )[0] ?? null;
+  for (const candidate of iterateFollowUpSlotCandidates(input)) {
+    if (!isFollowUpSlotBlocked(candidate, input.blockers)) return candidate;
+  }
+  return null;
 }
