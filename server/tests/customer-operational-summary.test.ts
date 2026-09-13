@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PostgresCrmRepository } from '../src/modules/crm/repository.js';
 import { CrmService } from '../src/modules/crm/service.js';
@@ -93,6 +93,25 @@ describe.skipIf(!databaseUrl)('D2 customer operational summary', () => {
   const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
   const jobs = pool ? new PostgresJobCardRepository(pool) : null;
   const crm = pool && jobs ? new CrmService(new PostgresCrmRepository(pool), jobs) : null;
+
+  // This suite owns every row it inserts (two disposable organizations and
+  // their users, customers, JobCards and meeting details). Teardown deletes
+  // only that owned graph in reverse-FK order so later suites that require an
+  // empty database (notably the auth bootstrap contract) keep passing
+  // regardless of file execution order.
+  afterAll(async () => {
+    if (pool) {
+      const owned = [organizationId, otherOrganizationId];
+      await pool.query('DELETE FROM job_card_meeting_details WHERE organization_id = ANY($1)', [owned]);
+      await pool.query(
+        'DELETE FROM job_cards WHERE organization_id = ANY($1) AND source_job_card_id IS NOT NULL', [owned]);
+      await pool.query('DELETE FROM job_cards WHERE organization_id = ANY($1)', [owned]);
+      await pool.query('DELETE FROM customers WHERE organization_id = ANY($1)', [owned]);
+      await pool.query('DELETE FROM users WHERE organization_id = ANY($1)', [owned]);
+      await pool.query('DELETE FROM organizations WHERE id = ANY($1)', [owned]);
+      await pool.end();
+    }
+  });
 
   beforeAll(async () => {
     await pool!.query(
