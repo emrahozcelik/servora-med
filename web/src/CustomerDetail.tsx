@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { addContact, ContactCreateForm, ContactListView } from './ContactManagement';
 import { jobCardStatusLabel, jobTypeLabels } from './jobs/job-labels';
+import type { MeetingOutcome } from './jobs/jobs-api';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   customerStatusLabels, customerTypeLabels,
-  deleteCustomer, getCustomer, listCustomerJobs, updateCustomer,
-  type Customer, type CustomerDetail, type JobHistoryItem, type CustomerType, type Paginated,
+  deleteCustomer, getCustomer, getCustomerOperationalSummary, listCustomerJobs, updateCustomer,
+  type Customer, type CustomerDetail, type CustomerOperationalSummary,
+  type JobHistoryItem, type CustomerType, type Paginated,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
@@ -99,6 +101,58 @@ function CustomerHistory({
   </section>;
 }
 
+const meetingOutcomeLabels: Record<MeetingOutcome, string> = {
+  POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
+  NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
+};
+
+const emptyOperationalSummary: CustomerOperationalSummary = {
+  latestInteraction: null, nextPlannedWork: null,
+  pendingReview: { waitingApprovalCount: 0, revisionRequestedCount: 0 },
+  latestMeetingOutcome: null, followUp: null,
+};
+
+function formatSummaryDate(value: string) {
+  return new Date(value).toLocaleDateString('tr-TR');
+}
+
+function OperationalSummarySection({ summary, loading, error }: {
+  summary: CustomerOperationalSummary | null; loading: boolean; error: string;
+}) {
+  const view = summary ?? emptyOperationalSummary;
+  const latest = view.latestInteraction;
+  const next = view.nextPlannedWork;
+  const meeting = view.latestMeetingOutcome;
+  const followUp = view.followUp;
+  return <section className="record-section operational-summary" aria-labelledby="operational-summary-title">
+    <div className="section-heading"><h2 id="operational-summary-title">Operasyonel özet</h2></div>
+    {loading && <p className="muted-copy" aria-busy="true">Operasyonel özet yükleniyor…</p>}
+    {!loading && error && <p className="form-error" role="alert">{error}</p>}
+    {!loading && !error && <dl className="record-facts">
+      <div><dt>Son etkileşim</dt><dd>{latest
+        ? <><Link to={paths.job(latest.jobCardId)}>{latest.title}</Link>
+          <p>{jobTypeLabels[latest.type]} · {latest.assignee.name} · {formatSummaryDate(latest.completedAt)}</p></>
+        : 'Tamamlanmış etkileşim yok'}</dd></div>
+      <div><dt>Sonraki planlı iş</dt><dd>{next
+        ? <><Link to={paths.job(next.jobCardId)}>{next.title}</Link>
+          <p>{jobTypeLabels[next.type]} · {jobCardStatusLabel(next.status)} · {formatSummaryDate(next.scheduledAt)}</p></>
+        : 'Planlı iş yok'}</dd></div>
+      <div><dt>Onay durumu</dt><dd>
+        {view.pendingReview.waitingApprovalCount > 0 ? `Onay bekleyen iş (${view.pendingReview.waitingApprovalCount})` : 'Onay bekleyen iş yok'}
+        {' · '}
+        {view.pendingReview.revisionRequestedCount > 0 ? `Revizyon bekleyen iş (${view.pendingReview.revisionRequestedCount})` : 'Revizyon bekleyen iş yok'}
+      </dd></div>
+      <div><dt>Son görüşme sonucu</dt><dd>{meeting
+        ? <><Link to={paths.job(meeting.jobCardId)}>{meetingOutcomeLabels[meeting.outcome]}</Link>
+          <p>{meeting.meetingAt ? formatSummaryDate(meeting.meetingAt) : 'Görüşme tarihi yok'}{meeting.meetingSummary ? ` · ${meeting.meetingSummary}` : ''}</p></>
+        : 'Tamamlanmış görüşme sonucu yok'}</dd></div>
+      <div><dt>Takip bağlantısı</dt><dd>{followUp
+        ? <Link to={paths.job(followUp.jobCardId)}>{followUp.kind === 'FOLLOW_UP_JOB' ? 'Takip işini aç' : 'Kaynak işi aç'}</Link>
+        : 'Aktif takip bağlantısı yok'}</dd></div>
+    </dl>}
+  </section>;
+}
+
 function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel }: { customer: CustomerDetail; staff: StaffProfile[]; pending: boolean; blocked: boolean; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
   return <form className="record-form" onSubmit={onSave}><label className="field-group" htmlFor="detail-customer-name">Müşteri adı<input id="detail-customer-name" name="name" defaultValue={customer.name} required disabled={pending} /></label>
     <label className="field-group" htmlFor="detail-customer-type">Müşteri türü<select id="detail-customer-type" name="customerType" defaultValue={customer.customerType} disabled={pending}>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -115,10 +169,11 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {} }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {} }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   historyStatus?: CustomerHistoryStatus; historyPage?: Paginated<JobHistoryItem> | null; historyLoading?: boolean; historyError?: string;
+  summary?: CustomerOperationalSummary | null; summaryLoading?: boolean; summaryError?: string;
   onHistoryStatusChange?: (status: CustomerHistoryStatus) => void; onHistoryPageChange?: (offset: number) => void;
   errorRef?: RefObject<HTMLDivElement | null>;
   createContactButtonRef?: RefObject<HTMLButtonElement | null>;
@@ -150,6 +205,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       <h2 id="customer-delete-blocked-title">Kalıcı silme</h2>
       <p>Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.</p>
     </section>}
+    <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
     <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
       onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
     <ConfirmationAction
@@ -175,7 +231,9 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false); const [deletePending, setDeletePending] = useState(false);
   const [historyStatus, setHistoryStatus] = useState<CustomerHistoryStatus>('all'); const [historyPage, setHistoryPage] = useState<Paginated<JobHistoryItem> | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true); const [historyError, setHistoryError] = useState('');
-  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const deleteTriggerRef = useRef<HTMLButtonElement>(null); const deleteInFlightRef = useRef(false); const requestGate = useRef(createRequestGate()); const historyGate = useRef(createRequestGate());
+  const [summary, setSummary] = useState<CustomerOperationalSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true); const [summaryError, setSummaryError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const deleteTriggerRef = useRef<HTMLButtonElement>(null); const deleteInFlightRef = useRef(false); const requestGate = useRef(createRequestGate()); const historyGate = useRef(createRequestGate()); const summaryGate = useRef(createRequestGate());
   async function load() {
     const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false);
     try {
@@ -200,9 +258,22 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (historyGate.current.isCurrent(generation)) setHistoryLoading(false);
     }
   }
+  async function loadSummary() {
+    const generation = summaryGate.current.next(); setSummaryLoading(true); setSummaryError('');
+    try {
+      const result = await getCustomerOperationalSummary(customerId);
+      if (!summaryGate.current.isCurrent(generation)) return;
+      setSummary(result);
+    } catch (caught) {
+      if (summaryGate.current.isCurrent(generation)) setSummaryError(caught instanceof Error ? caught.message : 'Operasyonel özet yüklenemedi.');
+    } finally {
+      if (summaryGate.current.isCurrent(generation)) setSummaryLoading(false);
+    }
+  }
   useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, user.role]);
   useEffect(() => { void loadHistory(historyStatus, 0); return () => { historyGate.current.next(); }; }, [customerId, historyStatus]);
-  useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(); void loadHistory(historyStatus, historyPage?.offset ?? 0); });
+  useEffect(() => { void loadSummary(); return () => { summaryGate.current.next(); }; }, [customerId]);
+  useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(); void loadHistory(historyStatus, historyPage?.offset ?? 0); void loadSummary(); });
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>Müşteri detayı yükleniyor</h1></main>;
   if (!customer) return <main className="customer-detail"><ResultState status="error" title="Müşteri yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
@@ -258,6 +329,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   }
   return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
+    summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}
     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
     errorRef={errorRef} createContactButtonRef={createContactButtonRef}
     onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}

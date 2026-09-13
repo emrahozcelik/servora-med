@@ -40,6 +40,8 @@ import type {
 } from '../realtime/types.js';
 import type {
   CustomerJobHistoryQuery,
+  CustomerOperationalSummary,
+  CustomerOperationalSummaryQuery,
   JobHistoryItem,
   JobHistoryReadPort,
   PaginatedJobHistory,
@@ -1192,6 +1194,72 @@ const HISTORY_JOINS = `
 const HISTORY_OPEN_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
 ] as const;
+
+const OPERATIONAL_SUMMARY_ACTIVE_STATUSES = [
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED',
+] as const satisfies readonly JobCardStatus[];
+
+type OperationalSummaryRow = {
+  latest_interaction: {
+    jobCardId: string; title: string; type: JobCardType; completedAt: string;
+    assigneeId: string; assigneeName: string;
+  } | null;
+  next_planned_work: {
+    jobCardId: string; title: string; type: JobCardType; status: JobCardStatus;
+    scheduledAt: string; assigneeId: string; assigneeName: string;
+  } | null;
+  waiting_approval_count: number;
+  revision_requested_count: number;
+  latest_meeting_outcome: {
+    jobCardId: string; meetingAt: string | null; outcome: MeetingOutcome;
+    unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
+    meetingSummary: string | null; nextFollowUpAt: string | null;
+  } | null;
+  follow_up_child: { jobCardId: string } | null;
+  source_follow_up: { jobCardId: string } | null;
+};
+
+function normalizeSummaryInstant(value: string | null): string | null {
+  if (value === null) return null;
+  return new Date(value).toISOString();
+}
+
+function mapOperationalSummary(row: OperationalSummaryRow | undefined): CustomerOperationalSummary {
+  const latest = row?.latest_interaction ?? null;
+  const next = row?.next_planned_work ?? null;
+  const meeting = row?.latest_meeting_outcome ?? null;
+  const child = row?.follow_up_child ?? null;
+  const source = row?.source_follow_up ?? null;
+  return {
+    latestInteraction: latest === null ? null : {
+      jobCardId: latest.jobCardId, title: latest.title, type: latest.type,
+      completedAt: new Date(latest.completedAt).toISOString(),
+      assignee: { id: latest.assigneeId, name: latest.assigneeName },
+    },
+    nextPlannedWork: next === null ? null : {
+      jobCardId: next.jobCardId, title: next.title, type: next.type, status: next.status,
+      scheduledAt: new Date(next.scheduledAt).toISOString(),
+      assignee: { id: next.assigneeId, name: next.assigneeName },
+    },
+    pendingReview: {
+      waitingApprovalCount: row?.waiting_approval_count ?? 0,
+      revisionRequestedCount: row?.revision_requested_count ?? 0,
+    },
+    latestMeetingOutcome: meeting === null ? null : {
+      jobCardId: meeting.jobCardId,
+      meetingAt: normalizeSummaryInstant(meeting.meetingAt),
+      outcome: meeting.outcome,
+      unsuccessfulReason: meeting.unsuccessfulReason,
+      meetingSummary: meeting.meetingSummary,
+      nextFollowUpAt: normalizeSummaryInstant(meeting.nextFollowUpAt),
+    },
+    followUp: child !== null
+      ? { jobCardId: child.jobCardId, kind: 'FOLLOW_UP_JOB' }
+      : source !== null
+        ? { jobCardId: source.jobCardId, kind: 'SOURCE_JOB' }
+        : null,
+  };
+}
 
 type HistoryQuery = CustomerJobHistoryQuery | StaffJobHistoryQuery;
 
@@ -2439,6 +2507,88 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
 
   async listStaffJobHistory(input: StaffJobHistoryQuery): Promise<PaginatedJobHistory> {
     return this.listJobHistory({ ...input, targetUserId: input.targetUserId });
+  }
+
+  async getCustomerOperationalSummary(
+    input: CustomerOperationalSummaryQuery,
+  ): Promise<CustomerOperationalSummary> {
+    const values: unknown[] = [input.actor.organizationId, input.customerId];
+    const scope = ['j.organization_id = $1', 'j.customer_id = $2'];
+    if (input.actor.role === 'STAFF') {
+      values.push(input.actor.id);
+      scope.push(`j.assigned_to = $${values.length}`);
+    }
+    values.push(input.now);
+    const nowPosition = values.length;
+    values.push([...OPERATIONAL_SUMMARY_ACTIVE_STATUSES]);
+    const activePosition = values.length;
+    // STAFF must never observe hidden follow-up children through the
+    // source fallback: child_count is already suppressed for STAFF in
+    // listJobHistory, and the summary follows the same rule here.
+    const sourceFallback = input.actor.role === 'STAFF'
+      ? 'NULL::json AS source_follow_up'
+      : `(SELECT row_to_json(source) FROM (
+            SELECT j2.id AS "jobCardId"
+            FROM job_cards j2
+            WHERE j2.organization_id = $1 AND j2.customer_id = $2
+              AND j2.status = 'COMPLETED'
+              AND EXISTS (
+                SELECT 1 FROM job_cards child
+                WHERE child.organization_id = j2.organization_id
+                  AND child.source_job_card_id = j2.id)
+            ORDER BY j2.manager_approved_at DESC NULLS LAST, j2.id DESC
+            LIMIT 1) source) AS source_follow_up`;
+    const result = await this.pool.query<OperationalSummaryRow>(
+      `WITH visible AS (
+         SELECT j.id, j.title, j.type, j.status,
+                j.scheduled_at, j.created_at, j.manager_approved_at, j.source_job_card_id,
+                j.assigned_to, u.name AS assignee_name,
+                md.meeting_at, md.outcome, md.unsuccessful_reason_code,
+                md.meeting_summary, md.next_follow_up_at
+         FROM job_cards j
+         JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+         LEFT JOIN job_card_meeting_details md
+           ON md.organization_id = j.organization_id AND md.job_card_id = j.id
+         WHERE ${scope.join(' AND ')}
+       )
+       SELECT
+         (SELECT row_to_json(latest) FROM (
+           SELECT id AS "jobCardId", title, type,
+                  manager_approved_at AS "completedAt",
+                  assigned_to AS "assigneeId", assignee_name AS "assigneeName"
+           FROM visible
+           WHERE status = 'COMPLETED' AND manager_approved_at IS NOT NULL
+           ORDER BY manager_approved_at DESC, id DESC
+           LIMIT 1) latest) AS latest_interaction,
+         (SELECT row_to_json(next) FROM (
+           SELECT id AS "jobCardId", title, type, status,
+                  scheduled_at AS "scheduledAt",
+                  assigned_to AS "assigneeId", assignee_name AS "assigneeName"
+           FROM visible
+           WHERE status = ANY($${activePosition}::varchar[])
+             AND scheduled_at IS NOT NULL AND scheduled_at >= $${nowPosition}
+           ORDER BY scheduled_at ASC, created_at ASC, id ASC
+           LIMIT 1) next) AS next_planned_work,
+         (SELECT COUNT(*)::int FROM visible WHERE status = 'WAITING_APPROVAL') AS waiting_approval_count,
+         (SELECT COUNT(*)::int FROM visible WHERE status = 'REVISION_REQUESTED') AS revision_requested_count,
+         (SELECT row_to_json(meeting) FROM (
+           SELECT id AS "jobCardId", meeting_at AS "meetingAt", outcome,
+                  unsuccessful_reason_code AS "unsuccessfulReason",
+                  meeting_summary AS "meetingSummary", next_follow_up_at AS "nextFollowUpAt"
+           FROM visible
+           WHERE type = 'SALES_MEETING' AND status = 'COMPLETED' AND outcome IS NOT NULL
+           ORDER BY meeting_at DESC NULLS LAST,
+                    manager_approved_at DESC NULLS LAST, id DESC
+           LIMIT 1) meeting) AS latest_meeting_outcome,
+         (SELECT row_to_json(child) FROM (
+           SELECT id AS "jobCardId" FROM visible
+           WHERE source_job_card_id IS NOT NULL
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1) child) AS follow_up_child,
+         ${sourceFallback}`,
+      values,
+    );
+    return mapOperationalSummary(result.rows[0]);
   }
 
   private async listJobHistory(

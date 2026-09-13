@@ -17,6 +17,7 @@ export const crmRoutes: FastifyPluginAsync<CrmRoutesOptions> = async (app, optio
 
   if (options.jobHistoryReadPort) {
     app.get('/customers/:customerId/jobs', auth, handlers.listCustomerJobHistory);
+    app.get('/customers/:customerId/operational-summary', auth, handlers.getCustomerOperationalSummary);
   }
   app.get('/customers', auth, handlers.listCustomers);
   app.post('/customers', auth, handlers.createCustomer);
