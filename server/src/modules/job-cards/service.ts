@@ -115,7 +115,12 @@ import {
   filterAvailableSlotCandidates,
   generateAvailableSlotCandidates,
 } from './available-slots.js';
-import { generateFollowUpSlotCandidates } from './follow-up-auto-scheduler.js';
+import type { AvailableSlotCandidate } from './available-slots.js';
+import {
+  isFollowUpSlotBlocked,
+  iterateFollowUpSlotCandidates,
+  resolveFollowUpSearchHorizonAt,
+} from './follow-up-auto-scheduler.js';
 import {
   createCustomerScheduleSnapshotReader,
   evaluateCustomerSchedule,
@@ -134,6 +139,7 @@ import {
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
 import {
+  canonicalScheduledDurationMs,
   canonicalScheduledEnd,
   hasValidPlannedInterval,
   persistedScheduledDurationMs,
@@ -2902,21 +2908,41 @@ export class JobCardService {
     const effectiveTargetAt = desiredTargetAt.valueOf() > policyEarliestAt.valueOf()
       ? desiredTargetAt
       : policyEarliestAt;
-    const candidates = generateFollowUpSlotCandidates({
-      earliestAllowedAt: effectiveTargetAt,
-      horizonAnchorAt: policyEarliestAt,
-      type,
-      timezone,
-    });
-    const firstCandidate = candidates[0];
-    const lastCandidate = candidates[candidates.length - 1];
-    if (!firstCandidate || !lastCandidate) {
+    // Lazy candidate selection: only the actually inspected prefix of the
+    // 30-day horizon is ever generated. Snapshot bounds come from a constant
+    // search envelope instead of the last materialized candidate, so the
+    // iterator is never exhausted merely to discover query bounds.
+    const durationMs = canonicalScheduledDurationMs(type);
+    if (durationMs === null) {
       throw new AppError(
         'FOLLOW_UP_PROPOSAL_INVALID',
         409,
         'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
       );
     }
+    const horizonAt = resolveFollowUpSearchHorizonAt(policyEarliestAt, timezone);
+    if (effectiveTargetAt.valueOf() >= horizonAt.valueOf()) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        409,
+        'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+      );
+    }
+    const slotCandidates = iterateFollowUpSlotCandidates({
+      earliestAllowedAt: effectiveTargetAt,
+      horizonAnchorAt: policyEarliestAt,
+      type,
+      timezone,
+    });
+    const firstSlot = slotCandidates.next();
+    if (firstSlot.done) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        409,
+        'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
+      );
+    }
+    const firstCandidate = firstSlot.value;
 
     const snapshotFrom = new Date(
       firstCandidate.startsAt.valueOf()
@@ -2924,7 +2950,8 @@ export class JobCardService {
         - MAX_TZ_OFFSET_MS,
     );
     const snapshotTo = new Date(
-      lastCandidate.endsAt.valueOf()
+      horizonAt.valueOf()
+        + durationMs
         + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
         + MAX_TZ_OFFSET_MS,
     );
@@ -2938,47 +2965,49 @@ export class JobCardService {
       actor.organizationId,
       assignedTo,
       firstCandidate.startsAt,
-      lastCandidate.endsAt,
+      new Date(horizonAt.valueOf() + durationMs),
       job.id,
     );
-    const assigneeClearCandidates = filterAvailableSlotCandidates(
-      candidates,
-      assigneeIntervals.map((interval) => ({
-        startsAt: new Date(interval.startsAt),
-        endsAt: new Date(interval.endsAt),
-      })),
-    );
+    const blockers = assigneeIntervals.map((interval) => ({
+      startsAt: new Date(interval.startsAt),
+      endsAt: new Date(interval.endsAt),
+    }));
     const customerReader = createCustomerScheduleSnapshotReader({
       timezone,
       activeJobs,
       recentVisits,
     });
-    for (const candidate of assigneeClearCandidates) {
-      const evaluation = await evaluateCustomerSchedule({
-        reader: customerReader,
-        organizationId: actor.organizationId,
-        customerId: job.customerId,
-        proposedAt: candidate.startsAt,
-        jobType: type,
-        excludeJobId: job.id,
-        now: requestTime,
-      });
-      if (evaluation.level === 'CLEAR' || evaluation.level === 'WARNING') {
-        return {
-          scheduledAt: candidate.startsAt,
-          type,
-          assignedTo,
-          followUpInstructions: input === undefined
-            ? defaultFollowUpInstructions(job.title)
-            : boundedTrimmedString(
-              input.followUpInstructions,
-              'followUpProposal.followUpInstructions',
-              1,
-              4_000,
-            ),
-          assignee,
-        };
+    let current: IteratorResult<AvailableSlotCandidate, void> = { done: false, value: firstCandidate };
+    while (!current.done) {
+      const candidate = current.value;
+      if (!isFollowUpSlotBlocked(candidate, blockers)) {
+        const evaluation = await evaluateCustomerSchedule({
+          reader: customerReader,
+          organizationId: actor.organizationId,
+          customerId: job.customerId,
+          proposedAt: candidate.startsAt,
+          jobType: type,
+          excludeJobId: job.id,
+          now: requestTime,
+        });
+        if (evaluation.level === 'CLEAR' || evaluation.level === 'WARNING') {
+          return {
+            scheduledAt: candidate.startsAt,
+            type,
+            assignedTo,
+            followUpInstructions: input === undefined
+              ? defaultFollowUpInstructions(job.title)
+              : boundedTrimmedString(
+                input.followUpInstructions,
+                'followUpProposal.followUpInstructions',
+                1,
+                4_000,
+              ),
+            assignee,
+          };
+        }
       }
+      current = slotCandidates.next();
     }
     throw new AppError(
       'FOLLOW_UP_PROPOSAL_INVALID',
