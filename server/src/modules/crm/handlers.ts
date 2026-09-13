@@ -144,6 +144,8 @@ export function createCrmHandlers(service: CrmService) {
       reply.code(201).send(await service.createCustomer(actor(request),
         customerInput(body(request, CUSTOMER_CREATE_FIELDS)))),
     getCustomer: (request: FastifyRequest) => service.getCustomer(actor(request), params(request).customerId),
+  getCustomerOperationalSummary: (request: FastifyRequest) =>
+    service.getCustomerOperationalSummary(actor(request), params(request).customerId),
     updateCustomer: (request: FastifyRequest) => {
       const value = body(request, CUSTOMER_PATCH_FIELDS);
       return service.updateCustomer(actor(request), params(request).customerId,

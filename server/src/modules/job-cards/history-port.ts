@@ -3,7 +3,9 @@ import type {
   JobCardPriority,
   JobCardStatus,
   JobCardType,
+  MeetingOutcome,
   RelatedIdentity,
+  UnsuccessfulVisitReasonCode,
 } from './types.js';
 
 export type JobHistoryStatus = 'open' | 'completed' | 'all';
@@ -57,4 +59,48 @@ export type StaffJobHistoryQuery = {
 export interface JobHistoryReadPort {
   listCustomerJobHistory(input: CustomerJobHistoryQuery): Promise<PaginatedJobHistory>;
   listStaffJobHistory(input: StaffJobHistoryQuery): Promise<PaginatedJobHistory>;
+  getCustomerOperationalSummary(input: CustomerOperationalSummaryQuery): Promise<CustomerOperationalSummary>;
 }
+
+export type OperationalSummaryFollowUpKind = 'FOLLOW_UP_JOB' | 'SOURCE_JOB';
+
+export type CustomerOperationalSummary = {
+  latestInteraction: {
+    jobCardId: string;
+    title: string;
+    type: JobCardType;
+    completedAt: string;
+    assignee: RelatedIdentity;
+  } | null;
+  nextPlannedWork: {
+    jobCardId: string;
+    title: string;
+    type: JobCardType;
+    status: JobCardStatus;
+    scheduledAt: string;
+    assignee: RelatedIdentity;
+  } | null;
+  pendingReview: {
+    waitingApprovalCount: number;
+    revisionRequestedCount: number;
+  };
+  latestMeetingOutcome: {
+    jobCardId: string;
+    meetingAt: string | null;
+    outcome: MeetingOutcome;
+    unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
+    meetingSummary: string | null;
+    nextFollowUpAt: string | null;
+  } | null;
+  followUp: {
+    jobCardId: string;
+    kind: OperationalSummaryFollowUpKind;
+  } | null;
+};
+
+export type CustomerOperationalSummaryQuery = {
+  organizationId: string;
+  customerId: string;
+  actor: JobCardActor;
+  now: Date;
+};

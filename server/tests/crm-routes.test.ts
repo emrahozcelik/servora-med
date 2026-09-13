@@ -21,6 +21,11 @@ function serviceDouble() {
     listCustomers: vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 25, offset: 5 }),
     getCustomer: vi.fn().mockResolvedValue(customer), createCustomer: vi.fn().mockResolvedValue(customer),
     listCustomerJobHistory: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
+    getCustomerOperationalSummary: vi.fn().mockResolvedValue({
+      latestInteraction: null, nextPlannedWork: null,
+      pendingReview: { waitingApprovalCount: 0, revisionRequestedCount: 0 },
+      latestMeetingOutcome: null, followUp: null,
+    }),
     updateCustomer: vi.fn().mockResolvedValue({ ...customer, version: 2 }),
     activateCustomer: vi.fn().mockResolvedValue({ ...customer, status: 'active', version: 2 }),
     deactivateCustomer: vi.fn().mockResolvedValue({ ...customer, status: 'inactive', version: 2 }),
@@ -64,6 +69,17 @@ describe('CRM HTTP routes', () => {
       '/api/customers/customer-1/jobs?offset=-1', '/api/customers/customer-1/jobs?type=UNKNOWN']) {
       expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(400);
     }
+  });
+
+  it('registers the customer operational summary route only with the read port', async () => {
+    const withoutPort = await createApp();
+    expect((await withoutPort.app.inject({ method: 'GET', url: '/api/customers/customer-1/operational-summary' })).statusCode).toBe(404);
+    const { app, service } = await createApp(manager, true);
+    const response = await app.inject({ method: 'GET', url: '/api/customers/customer-1/operational-summary' });
+    expect(response.statusCode).toBe(200);
+    expect(service.getCustomerOperationalSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'manager-1' }), 'customer-1',
+    );
   });
 
   it.each([

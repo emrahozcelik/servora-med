@@ -2,6 +2,7 @@ import { AppError } from '../../errors/index.js';
 import type { CrmRepository, CrmTransaction } from './repository.js';
 import type {
   CustomerJobHistoryQuery,
+  CustomerOperationalSummary,
   JobHistoryReadPort,
   PaginatedJobHistory,
 } from '../job-cards/history-port.js';
@@ -131,6 +132,24 @@ export class CrmService {
       customerId,
       actor,
       ...input,
+    });
+  }
+
+  async getCustomerOperationalSummary(
+    actor: CrmActor,
+    customerId: string,
+    now: Date = new Date(),
+  ): Promise<CustomerOperationalSummary> {
+    const readPort = this.jobHistoryReadPort;
+    if (!readPort?.getCustomerOperationalSummary) {
+      throw new AppError('HISTORY_UNAVAILABLE', 404, 'İş geçmişi kullanılamıyor.');
+    }
+    if (!await this.repository.getCustomerDetail(actor, customerId)) throw customerNotFound();
+    return readPort.getCustomerOperationalSummary({
+      organizationId: actor.organizationId,
+      customerId,
+      actor,
+      now,
     });
   }
 

@@ -2,6 +2,10 @@ import {
   ApiError, boolean, items, JOB_CARD_STATUSES, json, nullableString, number, object, request,
   string, type JobCardStatus,
 } from './api';
+import {
+  MEETING_OUTCOMES, UNSUCCESSFUL_VISIT_REASON_CODES,
+  type MeetingOutcome, type UnsuccessfulVisitReasonCode,
+} from '../jobs/jobs-api';
 
 export const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
 export type CustomerType = (typeof CUSTOMER_TYPES)[number];
@@ -149,10 +153,75 @@ export function parseJobHistoryItem(value: unknown): JobHistoryItem {
   };
 }
 
+export type CustomerOperationalSummary = {
+  latestInteraction: {
+    jobCardId: string; title: string; type: JobHistoryItem['type'];
+    completedAt: string; assignee: { id: string; name: string };
+  } | null;
+  nextPlannedWork: {
+    jobCardId: string; title: string; type: JobHistoryItem['type']; status: JobCardStatus;
+    scheduledAt: string; assignee: { id: string; name: string };
+  } | null;
+  pendingReview: { waitingApprovalCount: number; revisionRequestedCount: number };
+  latestMeetingOutcome: {
+    jobCardId: string; meetingAt: string | null; outcome: MeetingOutcome;
+    unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
+    meetingSummary: string | null; nextFollowUpAt: string | null;
+  } | null;
+  followUp: { jobCardId: string; kind: 'FOLLOW_UP_JOB' | 'SOURCE_JOB' } | null;
+};
+
 function parsePage<T>(value: unknown, parser: (entry: unknown) => T): Paginated<T> {
   const v = object(value);
   return { items: items(v).map(parser), total: number(v.total, 'total'),
     limit: number(v.limit, 'limit'), offset: number(v.offset, 'offset') };
+}
+
+function parseOperationalSummary(value: unknown): CustomerOperationalSummary {
+  const v = object(value);
+  const latest = v.latestInteraction === null ? null : object(v.latestInteraction);
+  const next = v.nextPlannedWork === null ? null : object(v.nextPlannedWork);
+  const pending = object(v.pendingReview);
+  const meeting = v.latestMeetingOutcome === null ? null : object(v.latestMeetingOutcome);
+  const followUp = v.followUp === null ? null : object(v.followUp);
+  const unsuccessful = meeting === null
+    ? null
+    : meeting.unsuccessfulReason === null
+      ? null
+      : oneOf(meeting.unsuccessfulReason, 'latestMeetingOutcome.unsuccessfulReason', UNSUCCESSFUL_VISIT_REASON_CODES);
+  return {
+    latestInteraction: latest === null ? null : {
+      jobCardId: string(latest.jobCardId, 'latestInteraction.jobCardId'),
+      title: string(latest.title, 'latestInteraction.title'),
+      type: oneOf(latest.type, 'latestInteraction.type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+      completedAt: string(latest.completedAt, 'latestInteraction.completedAt'),
+      assignee: parseIdentity(latest.assignee, 'latestInteraction.assignee'),
+    },
+    nextPlannedWork: next === null ? null : {
+      jobCardId: string(next.jobCardId, 'nextPlannedWork.jobCardId'),
+      title: string(next.title, 'nextPlannedWork.title'),
+      type: oneOf(next.type, 'nextPlannedWork.type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+      status: oneOf(next.status, 'nextPlannedWork.status', JOB_CARD_STATUSES),
+      scheduledAt: string(next.scheduledAt, 'nextPlannedWork.scheduledAt'),
+      assignee: parseIdentity(next.assignee, 'nextPlannedWork.assignee'),
+    },
+    pendingReview: {
+      waitingApprovalCount: number(pending.waitingApprovalCount, 'pendingReview.waitingApprovalCount'),
+      revisionRequestedCount: number(pending.revisionRequestedCount, 'pendingReview.revisionRequestedCount'),
+    },
+    latestMeetingOutcome: meeting === null ? null : {
+      jobCardId: string(meeting.jobCardId, 'latestMeetingOutcome.jobCardId'),
+      meetingAt: nullableString(meeting.meetingAt, 'latestMeetingOutcome.meetingAt'),
+      outcome: oneOf(meeting.outcome, 'latestMeetingOutcome.outcome', MEETING_OUTCOMES),
+      unsuccessfulReason: unsuccessful,
+      meetingSummary: nullableString(meeting.meetingSummary, 'latestMeetingOutcome.meetingSummary'),
+      nextFollowUpAt: nullableString(meeting.nextFollowUpAt, 'latestMeetingOutcome.nextFollowUpAt'),
+    },
+    followUp: followUp === null ? null : {
+      jobCardId: string(followUp.jobCardId, 'followUp.jobCardId'),
+      kind: oneOf(followUp.kind, 'followUp.kind', ['FOLLOW_UP_JOB', 'SOURCE_JOB']),
+    },
+  };
 }
 
 function query(filters: Record<string, string | number | boolean | undefined>) {
@@ -173,6 +242,8 @@ export const listCustomers = async (filters: CustomerFilters = {}) => parsePage(
   await request(`/api/customers${query(filters)}`), parseCustomerSummary,
 );
 export const getCustomer = async (id: string) => parseCustomerDetail(await request(customerPath(id)));
+export const getCustomerOperationalSummary = async (customerId: string) =>
+  parseOperationalSummary(await request(`${customerPath(customerId)}/operational-summary`));
 export const listCustomerJobs = async (customerId: string, filters: {
   status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number;
 } = {}) => parsePage(
