@@ -84,7 +84,8 @@ WHERE j.organization_id = $1
   AND ($5::text <> 'STAFF' OR j.assigned_to = $6)
   AND j.scheduled_at IS NOT NULL
   AND j.scheduled_at < $4
-  AND COALESCE(j.scheduled_ends_at, j.scheduled_at) >= $3
+  AND (j.scheduled_ends_at > $3
+    OR (j.scheduled_ends_at IS NULL AND j.scheduled_at >= $3))
   AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
 UNION ALL
 SELECT e.id, 'MANUAL'::text AS source, e.title, e.description,
