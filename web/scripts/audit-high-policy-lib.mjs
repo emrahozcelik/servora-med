@@ -1,81 +1,30 @@
 // @ts-check
 
-import fs from 'node:fs';
-import path from 'node:path';
-
 /**
- * @typedef {Object} ViaObject
- * @property {number} source
- * @property {string} name
- * @property {string} title
- * @property {string} url
- * @property {string} severity
- * @property {string[]} cwe
- * @property {{score: number, vectorString: string|null}} cvss
- * @property {string} range
+ * audit-high-policy-lib.mjs
+ *
+ * Generic npm audit high/critical gate. Fail-closed.
+ * There are no advisory allowlists and no exceptions: any HIGH or CRITICAL
+ * entry fails, and any malformed report fails.
  */
 
 /**
- * @typedef {Object} Vulnerability
- * @property {string} name
- * @property {'info'|'low'|'moderate'|'high'|'critical'} severity
- * @property {Array<ViaObject|string>} via
- * @property {string[]} effects
- * @property {string} range
+ * @typedef {Object} AuditResult
+ * @property {boolean} pass
+ * @property {number} exitCode
+ * @property {string} message
  */
 
-/**
- * @typedef {Object} AuditMetadataVulns
- * @property {number} info
- * @property {number} low
- * @property {number} moderate
- * @property {number} high
- * @property {number} critical
- * @property {number} total
- */
-
-/**
- * @typedef {Object} AuditMetadata
- * @property {AuditMetadataVulns} vulnerabilities
- */
-
-/**
- * @typedef {Object} AuditReport
- * @property {number} auditReportVersion
- * @property {Record<string, Vulnerability>} vulnerabilities
- * @property {AuditMetadata} metadata
- */
-
-/**
- * @typedef {Object} ScanResult
- * @property {string[]} violations
- * @property {string[]} scanErrors
- */
-
-const ALLOWED_GHSA = 'GHSA-qwww-vcr4-c8h2';
-const ALLOWED_GHSA_URL = `https://github.com/advisories/${ALLOWED_GHSA}`;
-const ALLOWED_PACKAGES = new Set(['react-router', 'react-router-dom']);
 const SUPPORTED_SEVERITIES = new Set(['info', 'low', 'moderate', 'high', 'critical']);
+const METADATA_COUNTER_KEYS = ['info', 'low', 'moderate', 'high', 'critical', 'total'];
 
 /**
- * RSC API identifiers that must not appear in production source.
- * If any are found, the audit waiver must be denied.
+ * @param {string} message
+ * @returns {AuditResult}
  */
-const RSC_IDENTIFIERS = [
-  'RSCHydratedRouter',
-  'RSCStaticRouter',
-  'createCallServer',
-  'getRSCStream',
-  'matchRSCServerRequest',
-  'routeRSCServerRequest',
-];
-
-/**
- * RSC conditions/import patterns that must not appear in production source.
- */
-const RSC_CONDITIONS = ['react-server'];
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+function fail(message) {
+  return { pass: false, exitCode: 1, message };
+}
 
 /**
  * Validate a vulnerability entry shape.
@@ -84,7 +33,7 @@ const RSC_CONDITIONS = ['react-server'];
  * @param {unknown} vuln
  * @returns {string|null}
  */
-export function validateVulnShape(vuln) {
+function validateVulnShape(vuln) {
   if (!vuln || typeof vuln !== 'object') return 'vuln not an object';
   const v = /** @type {Record<string, unknown>} */ (vuln);
   if (typeof v.name !== 'string' || !v.name) return 'name missing or not string';
@@ -98,598 +47,93 @@ export function validateVulnShape(vuln) {
 }
 
 /**
- * Check whether a single advisory object matches the allowed GHSA.
- * This is a narrow helper — only for advisory objects, not string references.
- *
- * @param {unknown} entry
- * @param {string} [expectedPackage] - The package name that owns this via entry.
- *   When provided, the advisory object's name must match exactly.
- * @returns {{ allowed: boolean, reason?: string }}
- */
-export function isAllowedAdvisoryObject(entry, expectedPackage) {
-  if (!entry || typeof entry !== 'object') {
-    return { allowed: false, reason: 'via entry not an object' };
-  }
-  const e = /** @type {Record<string, unknown>} */ (entry);
-
-  // URL must be the exact allowed GHSA URL
-  if (typeof e.url !== 'string') {
-    return { allowed: false, reason: 'via object missing url' };
-  }
-  if (e.url !== ALLOWED_GHSA_URL) {
-    return { allowed: false, reason: `unapproved advisory: ${typeof e.url === 'string' ? e.url : '(invalid)'}` };
-  }
-
-  // Package name must be in allowed set; if expectedPackage given, must match
-  if (typeof e.name !== 'string') {
-    return { allowed: false, reason: 'advisory object missing name' };
-  }
-  if (!ALLOWED_PACKAGES.has(e.name)) {
-    return { allowed: false, reason: `advisory package not allowed: ${e.name}` };
-  }
-  if (expectedPackage !== undefined && e.name !== expectedPackage) {
-    return { allowed: false, reason: `advisory package mismatch: expected ${expectedPackage}, got ${e.name}` };
-  }
-
-  // Severity must be "high" (critical is handled separately in chain resolver)
-  if (e.severity !== 'high') {
-    return { allowed: false, reason: `advisory severity not high: ${e.severity}` };
-  }
-
-  // Source must be a finite positive integer
-  if (typeof e.source !== 'number' || !Number.isFinite(e.source) || e.source <= 0 || !Number.isInteger(e.source)) {
-    return { allowed: false, reason: `advisory source invalid: ${e.source}` };
-  }
-
-  // Title must be a non-empty string
-  if (typeof e.title !== 'string' || !e.title) {
-    return { allowed: false, reason: 'advisory title missing or empty' };
-  }
-
-  // Range must be a non-empty string
-  if (typeof e.range !== 'string' || !e.range) {
-    return { allowed: false, reason: 'advisory range missing or empty' };
-  }
-
-  // CWE must be an array
-  if (!Array.isArray(e.cwe)) {
-    return { allowed: false, reason: 'advisory cwe not array' };
-  }
-
-  // CVSS must be an object
-  if (!e.cvss || typeof e.cvss !== 'object') {
-    return { allowed: false, reason: 'advisory cvss missing or not object' };
-  }
-
-  return { allowed: true };
-}
-
-// ─── Recursive chain resolver ──────────────────────────────────────────────
-
-/**
- * Recursively resolve a vulnerability chain through string via references.
- *
- * Every high vulnerability's via chain must terminate at the exact allowed GHSA.
- * - Advisory objects are checked directly against ALLOWED_GHSA_URL.
- * - String references are followed recursively through the vulnerabilities map.
- * - Cycles (self-reference and multi-node) are detected and fail.
- * - Missing referenced entries fail.
- * - Legacy GHSA-id strings fail.
- *
- * @param {object} params
- * @param {string} params.packageName - Current package to resolve
- * @param {Record<string, Vulnerability>} params.vulnerabilities - Full map
- * @param {Set<string>} params.visiting - Cycle detection set
- * @param {Map<string, {allowed: boolean, reason?: string}>} params.resolved - Memo
- * @returns {{ allowed: boolean, reason?: string }}
- */
-export function evaluateVulnerabilityChain({
-  packageName,
-  vulnerabilities,
-  visiting,
-  resolved,
-}) {
-  // Check memo
-  const memo = resolved.get(packageName);
-  if (memo) return memo;
-
-  // Cycle detection
-  if (visiting.has(packageName)) {
-    const result = { allowed: false, reason: `cycle detected: ${packageName}` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Look up vulnerability entry
-  const vuln = vulnerabilities[packageName];
-  if (!vuln) {
-    const result = { allowed: false, reason: `referenced vulnerability missing: ${packageName}` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Vulnerability map key must equal vulnerability name
-  if (vuln.name !== packageName) {
-    const result = {
-      allowed: false,
-      reason: `vulnerability key/name mismatch: key=${packageName}, name=${vuln.name}`,
-    };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Validate shape
-  const shapeErr = validateVulnShape(vuln);
-  if (shapeErr) {
-    const result = { allowed: false, reason: `${packageName}: ${shapeErr}` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Non-high/critical severities don't need waiver
-  if (vuln.severity !== 'high' && vuln.severity !== 'critical') {
-    const result = { allowed: true };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Critical severity is never allowed
-  if (vuln.severity === 'critical') {
-    const result = { allowed: false, reason: `${packageName}: critical severity not allowed` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // High severity — must have via entries
-  if (!Array.isArray(vuln.via) || vuln.via.length === 0) {
-    const result = { allowed: false, reason: `${packageName}: via empty or missing` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // Mark visiting
-  visiting.add(packageName);
-
-  let foundTerminal = false;
-
-  for (const viaEntry of vuln.via) {
-    // Advisory object — check directly
-    if (typeof viaEntry === 'object' && viaEntry !== null) {
-      const advResult = isAllowedAdvisoryObject(viaEntry, vuln.name);
-      if (!advResult.allowed) {
-        visiting.delete(packageName);
-        const result = { allowed: false, reason: `${packageName}: ${advResult.reason}` };
-        resolved.set(packageName, result);
-        return result;
-      }
-      // Found terminal advisory
-      foundTerminal = true;
-      continue;
-    }
-
-    // String reference
-    if (typeof viaEntry === 'string') {
-      // Legacy GHSA-id string — not allowed
-      if (viaEntry.startsWith('GHSA-')) {
-        visiting.delete(packageName);
-        const result = { allowed: false, reason: `${packageName}: legacy GHSA string via: ${viaEntry}` };
-        resolved.set(packageName, result);
-        return result;
-      }
-
-      // Recursively resolve the referenced package
-      const chainResult = evaluateVulnerabilityChain({
-        packageName: viaEntry,
-        vulnerabilities,
-        visiting,
-        resolved,
-      });
-
-      if (!chainResult.allowed) {
-        visiting.delete(packageName);
-        return chainResult;
-      }
-
-      // Track terminal advisory discovery through string references
-      if (chainResult.terminalGhsa) {
-        foundTerminal = true;
-      }
-      continue;
-    }
-
-    // Unknown via entry type
-    visiting.delete(packageName);
-    const result = { allowed: false, reason: `${packageName}: invalid via entry type` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  visiting.delete(packageName);
-
-  // High-severity package must have found a terminal advisory
-  if (vuln.severity === 'high' && !foundTerminal) {
-    const result = { allowed: false, reason: `${packageName}: no terminal advisory found` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
-  // All via entries resolved successfully
-  const terminalPart = foundTerminal ? { terminalGhsa: ALLOWED_GHSA } : {};
-  const result = { allowed: true, ...terminalPart };
-  resolved.set(packageName, result);
-  return result;
-}
-
-// ─── Metadata consistency ──────────────────────────────────────────────────
-
-/**
- * Check metadata counts against actual vulnerability entries.
- *
- * @param {AuditReport} report
- * @returns {string|null} Error message or null if consistent
- */
-export function checkMetadataConsistency(report) {
-  if (!report.metadata || typeof report.metadata !== 'object') {
-    return 'metadata missing';
-  }
-  const mv = report.metadata.vulnerabilities;
-  if (!mv || typeof mv !== 'object') {
-    return 'metadata.vulnerabilities missing';
-  }
-
-  // Validate metadata values are finite non-negative integers
-  for (const key of ['info', 'low', 'moderate', 'high', 'critical', 'total']) {
-    const val = /** @type {Record<string, unknown>} */ (mv)[key];
-    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
-      return `metadata.${key} invalid: ${val}`;
-    }
-  }
-
-  // Count actual entries by severity
-  const actualCounts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
-  if (report.vulnerabilities && typeof report.vulnerabilities === 'object') {
-    for (const vuln of Object.values(report.vulnerabilities)) {
-      const v = /** @type {Vulnerability} */ (vuln);
-      if (v && typeof v.severity === 'string' && SUPPORTED_SEVERITIES.has(v.severity)) {
-        actualCounts[v.severity]++;
-      }
-    }
-  }
-
-  // Exact equality: metadata high/critical must match actual entries
-  if (mv.high !== actualCounts.high) {
-    return `metadata high=${mv.high} but actual high=${actualCounts.high}`;
-  }
-  if (mv.critical !== actualCounts.critical) {
-    return `metadata critical=${mv.critical} but actual critical=${actualCounts.critical}`;
-  }
-
-  // metadata.total: npm audit v2 total is the sum of all severities (info +
-  // low + moderate + high + critical). Validate finite/non-negative but do not
-  // require exact match because some npm versions may include additional
-  // severity categories not tracked in actualCounts.
-
-  return null;
-}
-
-// ─── RSC static guard ──────────────────────────────────────────────────────
-
-/**
- * Scan src directory for RSC identifiers and conditions.
- *
- * Returns structured result with violations and scan errors.
- * If scanErrors.length > 0, the waiver must not be applied.
- *
- * @param {string} srcRoot
- * @param {typeof import('node:fs')} fsModule
- * @param {typeof import('node:path')} pathModule
- * @returns {ScanResult}
- */
-export function runRSCStaticGuard(srcRoot, fsModule, pathModule) {
-  /** @type {string[]} */
-  const violations = [];
-  /** @type {string[]} */
-  const scanErrors = [];
-
-  // src root must exist
-  let rootStat;
-  try {
-    rootStat = fsModule.statSync(srcRoot);
-  } catch (e) {
-    scanErrors.push(`src root not accessible: ${srcRoot} — ${/** @type {Error} */ (e).message}`);
-    return { violations, scanErrors };
-  }
-
-  if (!rootStat.isDirectory()) {
-    scanErrors.push(`src root not a directory: ${srcRoot}`);
-    return { violations, scanErrors };
-  }
-
-  /** @type {Array<{dir: string, relPath: string}>} */
-  const dirStack = [{ dir: srcRoot, relPath: '' }];
-
-  while (dirStack.length > 0) {
-    const { dir, relPath } = dirStack.pop();
-    let entries;
-    try {
-      entries = fsModule.readdirSync(dir, { withFileTypes: true });
-    } catch (e) {
-      scanErrors.push(`cannot read directory: ${dir} — ${/** @type {Error} */ (e).message}`);
-      continue;
-    }
-
-    for (const entry of entries) {
-      const fullPath = pathModule.join(dir, entry.name);
-      const entryRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
-
-      // Symlinks are not allowed — fail closed
-      if (entry.isSymbolicLink()) {
-        scanErrors.push(`symbolic link not allowed: ${fullPath}`);
-        continue;
-      }
-
-      if (entry.isDirectory()) {
-        // Skip node_modules only; hidden directories (.) are scanned
-        if (entry.name === 'node_modules') continue;
-        dirStack.push({ dir: fullPath, relPath: entryRelPath });
-      } else if (entry.isFile() && /\.(ts|tsx|js|jsx|mjs)$/.test(entry.name)) {
-        let content;
-        try {
-          content = fsModule.readFileSync(fullPath, 'utf-8');
-        } catch (e) {
-          scanErrors.push(`cannot read file: ${fullPath} — ${/** @type {Error} */ (e).message}`);
-          continue;
-        }
-
-        // Check for RSC identifiers
-        for (const id of RSC_IDENTIFIERS) {
-          const idx = content.indexOf(id);
-          if (idx !== -1) {
-            const line = content.substring(0, idx).split('\n').length;
-            violations.push(`${fullPath}:${line}: ${id}`);
-          }
-        }
-
-        // Check for RSC conditions/import patterns
-        for (const cond of RSC_CONDITIONS) {
-          // Match exact condition usage: import "...react-server", "react-server" condition
-          const regex = new RegExp(`['"\`]${cond}['"\`]`);
-          const match = regex.exec(content);
-          if (match) {
-            const idx = match.index;
-            const line = content.substring(0, idx).split('\n').length;
-            violations.push(`${fullPath}:${line}: condition "${cond}"`);
-          }
-        }
-      }
-    }
-  }
-
-  return { violations, scanErrors };
-}
-
-// ─── evaluateAudit ─────────────────────────────────────────────────────────
-
-/**
  * Parse npm audit JSON output and determine the result.
  *
+ * Order (fail-closed, no early clean PASS):
+ * parse JSON → envelope → version → vulnerabilities map → metadata
+ * structure/counters → EVERY entry shape → key/name identity →
+ * metadata high/critical consistency → high/critical decision.
+ *
  * @param {string} auditJson - Raw JSON from `npm audit --json`
- * @param {{ srcRoot?: string }} [options]
- * @returns {{ pass: boolean, exitCode: number, message: string, waiverApplied: boolean }}
+ * @returns {AuditResult}
  */
-export function evaluateAudit(auditJson, options = {}) {
-  /** @type {AuditReport} */
+export function evaluateAudit(auditJson) {
+  /** @type {any} */
   let report;
   try {
     report = JSON.parse(auditJson);
   } catch {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: 'FAIL: audit JSON parse hatasi — fail-closed',
-      waiverApplied: false,
-    };
+    return fail('FAIL: audit JSON parse hatasi — fail-closed');
   }
 
-  // Validate report structure
   if (!report || typeof report !== 'object') {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: 'FAIL: audit raporu gecersiz yapi — fail-closed',
-      waiverApplied: false,
-    };
+    return fail('FAIL: audit raporu gecersiz yapi — fail-closed');
   }
 
-  // auditReportVersion must be integer 2
   if (
     typeof report.auditReportVersion !== 'number' ||
     !Number.isInteger(report.auditReportVersion) ||
     report.auditReportVersion !== 2
   ) {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: `FAIL: unsupported auditReportVersion: ${report.auditReportVersion}`,
-      waiverApplied: false,
-    };
+    return fail(`FAIL: unsupported auditReportVersion: ${report.auditReportVersion}`);
   }
 
-  // vulnerabilities must exist and be a plain object
   if (!report.vulnerabilities || typeof report.vulnerabilities !== 'object' || Array.isArray(report.vulnerabilities)) {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: 'FAIL: vulnerabilities missing or not plain object — fail-closed',
-      waiverApplied: false,
-    };
+    return fail('FAIL: vulnerabilities missing or not plain object — fail-closed');
   }
 
-  // metadata is mandatory
   if (!report.metadata || typeof report.metadata !== 'object') {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: 'FAIL: metadata missing — fail-closed',
-      waiverApplied: false,
-    };
+    return fail('FAIL: metadata missing — fail-closed');
   }
 
-  const metaErr = checkMetadataConsistency(report);
-  if (metaErr) {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: `FAIL: metadata tutarsizligi — ${metaErr}`,
-      waiverApplied: false,
-    };
+  const counters = report.metadata.vulnerabilities;
+  if (!counters || typeof counters !== 'object') {
+    return fail('FAIL: metadata.vulnerabilities missing — fail-closed');
   }
 
-  // metadata.vulnerabilities must exist for reliable counting
-  if (!report.metadata.vulnerabilities || typeof report.metadata.vulnerabilities !== 'object') {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: 'FAIL: metadata.vulnerabilities missing — fail-closed',
-      waiverApplied: false,
-    };
-  }
-
-  const { high, critical } = report.metadata.vulnerabilities;
-
-  // Collect all high/critical entries
-  const highEntries = [];
-  const criticalEntries = [];
-
-  for (const [name, vuln] of Object.entries(report.vulnerabilities)) {
-    const v = /** @type {Vulnerability} */ (vuln);
-    if (v.severity === 'high') highEntries.push([name, v]);
-    else if (v.severity === 'critical') criticalEntries.push([name, v]);
-  }
-
-  // Early clean pass: only when metadata AND entries agree on zero
-  if (highEntries.length === 0 && criticalEntries.length === 0 && high === 0 && critical === 0) {
-    return {
-      pass: true,
-      exitCode: 0,
-      message: 'PASS: high/critical vulnerability yok',
-      waiverApplied: false,
-    };
-  }
-
-  // Decision based on actual entries, not metadata alone
-  // Evaluate each high entry through the recursive chain resolver
-  const vulnerabilities = report.vulnerabilities;
-  const resolvedGlobal = new Map();
-  const visitingGlobal = new Set();
-
-  for (const [name, vuln] of highEntries) {
-    // Map key must equal vulnerability name
-    if (vuln.name !== name) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: vulnerability key/name mismatch: key=${name}, name=${vuln.name}`,
-        waiverApplied: false,
-      };
+  for (const key of METADATA_COUNTER_KEYS) {
+    const val = counters[key];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
+      return fail(`FAIL: metadata.${key} invalid: ${val} — fail-closed`);
     }
+  }
 
-    // First check shape
+  // Validate EVERY entry before any clean PASS is possible.
+  let highCount = 0;
+  let criticalCount = 0;
+  const highNames = [];
+  const criticalNames = [];
+
+  for (const [key, vuln] of Object.entries(report.vulnerabilities)) {
     const shapeErr = validateVulnShape(vuln);
     if (shapeErr) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: ${name}: ${shapeErr}`,
-        waiverApplied: false,
-      };
+      return fail(`FAIL: ${key}: ${shapeErr}`);
     }
-
-    // Then resolve via chain
-    const chainResult = evaluateVulnerabilityChain({
-      packageName: name,
-      vulnerabilities,
-      visiting: visitingGlobal,
-      resolved: resolvedGlobal,
-    });
-
-    if (!chainResult.allowed) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: ${chainResult.reason}`,
-        waiverApplied: false,
-      };
+    if (vuln.name !== key) {
+      return fail(`FAIL: vulnerability key/name mismatch: key=${key}, name=${vuln.name}`);
     }
-
-    // Package must be in allowed set
-    if (!ALLOWED_PACKAGES.has(vuln.name)) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: ${vuln.name}: package not in allowed set`,
-        waiverApplied: false,
-      };
-    }
-
-    // All effects must be in allowed set
-    for (const effectPkg of vuln.effects) {
-      if (!ALLOWED_PACKAGES.has(effectPkg)) {
-        return {
-          pass: false,
-          exitCode: 1,
-          message: `FAIL: ${vuln.name}: effect not in allowed set: ${effectPkg}`,
-          waiverApplied: false,
-        };
-      }
+    if (vuln.severity === 'high') {
+      highCount++;
+      highNames.push(key);
+    } else if (vuln.severity === 'critical') {
+      criticalCount++;
+      criticalNames.push(key);
     }
   }
 
-  // Any critical entry → FAIL
-  for (const [name] of criticalEntries) {
-    return {
-      pass: false,
-      exitCode: 1,
-      message: `FAIL: critical advisory not allowed — ${name}`,
-      waiverApplied: false,
-    };
+  if (counters.high !== highCount) {
+    return fail(`FAIL: metadata high=${counters.high} but actual high=${highCount}`);
+  }
+  if (counters.critical !== criticalCount) {
+    return fail(`FAIL: metadata critical=${counters.critical} but actual critical=${criticalCount}`);
   }
 
-  // All high entries resolved successfully — now run RSC guard
-  if (options.srcRoot) {
-    const scanResult = runRSCStaticGuard(options.srcRoot, fs, path);
-    if (scanResult.scanErrors.length > 0) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: RSC tarama hatasi — waiver uygulanamaz:\n${scanResult.scanErrors.join('\n')}`,
-        waiverApplied: false,
-      };
-    }
-    if (scanResult.violations.length > 0) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: RSC API kullanimi tespit edildi — waiver uygulanamaz:\n${scanResult.violations.join('\n')}`,
-        waiverApplied: false,
-      };
-    }
+  if (highCount > 0) {
+    return fail(`FAIL: high severity advisory bulundu: ${highNames.join(', ')}`);
+  }
+  if (criticalCount > 0) {
+    return fail(`FAIL: critical severity advisory bulundu: ${criticalNames.join(', ')}`);
   }
 
-  // All checks passed — waiver or pass
-  if (highEntries.length === 0 && criticalEntries.length === 0) {
-    return {
-      pass: true,
-      exitCode: 0,
-      message: 'PASS: high/critical vulnerability yok',
-      waiverApplied: false,
-    };
-  }
-
-  return {
-    pass: true,
-    exitCode: 0,
-    message: `PASS_WITH_WAIVER: yalniz ${ALLOWED_GHSA} (RSC-only) izin verildi`,
-    waiverApplied: true,
-  };
+  return { pass: true, exitCode: 0, message: 'PASS: high/critical vulnerability yok' };
 }
