@@ -243,3 +243,107 @@ describe('MeetingDetailsSection', () => {
     expect(container.querySelector('[data-original-retry]')).toBeNull();
   });
 });
+
+describe('MeetingDetailsSection post-retry canonical reconciliation', () => {
+  let root: Root; let container: HTMLDivElement;
+  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `recon-${++uuidSeq}`) }); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); });
+  function summaryValue() {
+    return (container.querySelector('#meeting-summary') as HTMLTextAreaElement).value;
+  }
+  async function renderSection(onSave: (input: never) => Promise<MeetingDetails>, jobVersion: number, canonical: MeetingDetails) {
+    await act(async () => root.render(<MeetingDetailsSection job={{ ...job, version: jobVersion }}
+      details={canonical} user={user} mutationPending={false} onSave={onSave as never} />));
+  }
+  async function submitDraft(summary: string) {
+    change(container.querySelector('#meeting-summary')!, summary);
+    await act(async () => { (container.querySelector('form') as HTMLFormElement).requestSubmit(); await Promise.resolve(); });
+    await settle();
+  }
+  async function clickOriginalRetry() {
+    await act(async () => { (container.querySelector('[data-original-retry]') as HTMLButtonElement).click(); });
+    await settle();
+  }
+
+  it('RECON-A: ambiguous -> B -> exact retry success -> B reconciled, then C wins', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true))
+      .mockResolvedValueOnce({ ...details, meetingSummary: 'Özgün özet', jobCardVersion: 4 });
+    await renderSection(onSave, 3, details);
+    await submitDraft('Özgün özet');
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+
+    // Canonical B arrives while the attempt is unresolved (e.g. realtime refresh).
+    await renderSection(onSave, 4, { ...details, meetingSummary: 'Eşzamanlı özet', jobCardVersion: 4 });
+    expect(summaryValue()).toBe('Özgün özet');
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', true);
+    expect(container.querySelector('[data-original-retry]')).toBeTruthy();
+
+    await clickOriginalRetry();
+    expect(onSave).toHaveBeenCalledTimes(2);
+    // Exact original retry: same reference, same id, same version, same payload.
+    expect(onSave.mock.calls[1]![0]).toBe(onSave.mock.calls[0]![0]);
+    expect(onSave.mock.calls[1]![0]).toMatchObject({
+      clientActionId: 'recon-1', expectedVersion: 3, meetingSummary: 'Özgün özet',
+    });
+    // Deferred canonical B becomes visible after resolution.
+    expect(summaryValue()).toBe('Eşzamanlı özet');
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+
+    // A newer canonical C (parent refreshTruth after onSave) must win; no snapback to B.
+    await renderSection(onSave, 5, { ...details, meetingSummary: 'Taze özet', jobCardVersion: 5 });
+    expect(summaryValue()).toBe('Taze özet');
+  });
+
+  it('RECON-B: ambiguous -> B -> definitive rejection -> B reconciled and editing restored', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true))
+      .mockRejectedValueOnce(new ApiError(400, 'VALIDATION_ERROR', 'Görüşme özeti geçersiz.', false));
+    await renderSection(onSave, 3, details);
+    await submitDraft('Özgün özet');
+    await renderSection(onSave, 4, { ...details, meetingSummary: 'Eşzamanlı özet', jobCardVersion: 4 });
+    expect(summaryValue()).toBe('Özgün özet');
+
+    await clickOriginalRetry();
+    expect(onSave).toHaveBeenCalledTimes(2);
+    // Frozen attempt resolved: retry affordance gone, editing available, B applied.
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', false);
+    expect(summaryValue()).toBe('Eşzamanlı özet');
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Görüşme özeti geçersiz.');
+  });
+
+  it('RECON-C: definitive rejection without deferred canonical preserves the user draft', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', 'Görüşme özeti geçersiz.', false));
+    await renderSection(onSave, 3, details);
+    await submitDraft('Kullanıcı taslağı');
+
+    // No canonical update arrived while the attempt existed: X must survive.
+    expect(container.querySelector('[data-original-retry]')).toBeNull();
+    expect(container.querySelector('form fieldset')).toHaveProperty('disabled', false);
+    expect(summaryValue()).toBe('Kullanıcı taslağı');
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Görüşme özeti geçersiz.');
+  });
+
+  it('RECON-D: latest deferred canonical wins (B then C while ambiguous)', async () => {
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true))
+      .mockResolvedValueOnce({ ...details, meetingSummary: 'Özgün özet', jobCardVersion: 4 });
+    await renderSection(onSave, 3, details);
+    await submitDraft('Özgün özet');
+    await renderSection(onSave, 4, { ...details, meetingSummary: 'B özeti', jobCardVersion: 4 });
+    await renderSection(onSave, 5, { ...details, meetingSummary: 'C özeti', jobCardVersion: 5 });
+
+    await clickOriginalRetry();
+    expect(summaryValue()).toBe('C özeti');
+  });
+
+  it('RECON-E: ordinary canonical update without an attempt still syncs immediately', async () => {
+    const onSave = vi.fn();
+    await renderSection(onSave, 3, details);
+    await renderSection(onSave, 4, { ...details, meetingSummary: 'Doğrudan özet', jobCardVersion: 4 });
+    expect(summaryValue()).toBe('Doğrudan özet');
+  });
+});
