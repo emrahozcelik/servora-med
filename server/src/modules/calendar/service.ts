@@ -140,6 +140,17 @@ export class CalendarService {
     // semantic, and preserveManualEventDuration below derives endsAt from
     // persisted state, which must never participate in the hash.
     const requestHash = manualEventPatchRequestHash(eventId, input);
+    // CAL-REPLAY-BEFORE-STATE-VALIDATION: a completed exact replay is not a
+    // new mutation. Resolve it here, after existence/authorization but before
+    // any mutable business validation, so a later state change (for example a
+    // stretched duration) cannot wrongly reject the historical request.
+    // Authentication, organization isolation, actor access and event
+    // identity/scope above are never bypassed, and the transactional writer
+    // below re-resolves identity inside its claim for concurrent requests.
+    const replay = await this.repository.resolveCompletedAction(
+      actor, input.clientActionId, 'UPDATED', requestHash,
+    );
+    if (replay) return this.present(actor, replay);
     const merged = preserveManualEventDuration(current, input);
     // WORKING-DAY V1 (§22): validate the MERGED effective interval, so a
     // startsAt-only move into Sunday, an endsAt-only extension into Sunday and a
