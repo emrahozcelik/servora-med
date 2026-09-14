@@ -237,7 +237,7 @@ function DeliveryItemActualTimeForm({
   onSave: (itemId: string, deliveredAt: string) => Promise<void>;
 }) {
   const [localValue, setLocalValue] = useState(() => (
-    item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : defaultDeliveredAtLocalValue()
+    item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : ''
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -247,10 +247,17 @@ function DeliveryItemActualTimeForm({
   useEffect(() => {
     if (lastKey.current === canonicalKey) return;
     lastKey.current = canonicalKey;
-    setLocalValue(item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : defaultDeliveredAtLocalValue());
+    setLocalValue(item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : '');
     setFieldError('');
     setSubmitError('');
   }, [canonicalKey, item.deliveredAt]);
+
+  function fillNow() {
+    if (pending) return;
+    setLocalValue(defaultDeliveredAtLocalValue());
+    setFieldError('');
+    setSubmitError('');
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -273,6 +280,11 @@ function DeliveryItemActualTimeForm({
   const fieldId = `delivery-actual-at-${item.id}`;
   return (
     <form className="delivery-actual-time-form" onSubmit={submit} noValidate>
+      <p className="field-hint">
+        {item.deliveredAt
+          ? `Kaydedildi: ${formatDeliveredAt(item.deliveredAt)}`
+          : 'Teslim zamanı kaydedilmedi'}
+      </p>
       <div className="field-group">
         <label htmlFor={fieldId}>Gerçekleşen teslim zamanı</label>
         <input
@@ -294,6 +306,9 @@ function DeliveryItemActualTimeForm({
       </div>
       {submitError && <p className="field-error" role="alert">{submitError}</p>}
       <div className="review-buttons inline-form-actions">
+        <button className="secondary-button" type="button" disabled={pending} onClick={fillNow}>
+          Şimdi
+        </button>
         <button className="secondary-button" type="submit" disabled={pending}>
           {pending ? 'Kaydediliyor…' : 'Gerçekleşen teslim zamanını kaydet'}
         </button>
