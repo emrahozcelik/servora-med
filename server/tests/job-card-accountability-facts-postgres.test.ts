@@ -709,6 +709,8 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
     });
   });
 
+  // Fresh-database restore path (CREATE DATABASE + full migrate + DROP DATABASE)
+  // is fsync-sensitive on shared CI runners; explicit budget (5s default flaked once).
   it('restore validation accepts a 044 database with consistent facts', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const database = `f2restore_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
@@ -742,7 +744,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await adminPool.query(`DROP DATABASE IF EXISTS ${database}`);
       await adminPool.end();
     }
-  });
+  }, 15_000);
 
   it('restore validation fails closed when the fact table is absent', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
