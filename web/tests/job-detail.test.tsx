@@ -2873,47 +2873,148 @@ describe('Staff JobCard detail', () => {
     expect(html).not.toContain('Henüz kaydedilmedi');
   });
 
-  it('prefills a null deliveredAt with the current local value without changing existing values', () => {
-    vi.useFakeTimers();
-    const now = new Date('2026-08-17T15:06:30.000Z');
-    vi.setSystemTime(now);
-    try {
-      const inProgress: JobCard = {
-        ...job,
-        status: 'IN_PROGRESS',
-        version: 3,
-        workflowContext: staffContext('IN_PROGRESS', {
-          startedAt: '2026-08-17T14:00:00.000Z',
-        }, {
-          allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
-          submissionReadiness: null,
-        }),
-      };
-      const plannedItem = { ...item, deliveredAt: null };
-      const existingItem = { ...item, deliveredAt: '2026-08-17T11:04:00.000Z' };
-      const localParts = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
-        + `T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
-      const expectedNow = localParts(now);
-      const expectedExisting = localParts(new Date(existingItem.deliveredAt));
-      const html = renderToStaticMarkup(<JobDetailPanel
-        job={inProgress}
-        items={[plannedItem, existingItem]}
-        user={staffUser}
-        pending={false}
-        message=""
-        onBack={() => {}}
-        onCommand={() => {}}
-        onSaveDeliveredAt={async () => {}}
-      />);
+  it('renders a null deliveredAt as empty and explicitly unsaved, never as a saved value', () => {
+    const inProgress: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-08-17T14:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    const plannedItem = { ...item, id: 'i1', deliveredAt: null };
+    const existingItem = { ...item, id: 'i2', deliveredAt: '2026-08-17T11:04:00.000Z' };
+    const localParts = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+      + `T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+    const expectedExisting = localParts(new Date(existingItem.deliveredAt));
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={inProgress}
+      items={[plannedItem, existingItem]}
+      user={staffUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveDeliveredAt={async () => {}}
+    />);
 
-      expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
-      expect(html).toContain(`value="${expectedNow}"`);
-      expect(html).toContain(`id="delivery-actual-at-${existingItem.id}"`);
-      expect(html).toContain(`value="${expectedExisting}"`);
-      expect(html).not.toContain('value=""');
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
+    expect(html).toContain(`id="delivery-actual-at-${existingItem.id}"`);
+    // Persisted NULL starts empty: no synthesized current-time value.
+    expect(html).toMatch(new RegExp(`id="delivery-actual-at-${plannedItem.id}"[^>]*value=""`));
+    expect(html).toContain('Teslim zamanı kaydedilmedi');
+    // Persisted timestamps still render and are marked saved.
+    expect(html).toContain(`value="${expectedExisting}"`);
+    expect(html).toContain('Kaydedildi');
+    // Regression guard: the unsaved row must not look equivalent to the saved row.
+    expect(html).not.toMatch(new RegExp(`id="delivery-actual-at-${plannedItem.id}"[^>]*value="${expectedExisting}"`));
+  });
+
+  it('keeps an unsaved deliveredAt draft local until explicit save, then shows the persisted value', async () => {
+    const plannedItem = { ...item, deliveredAt: null };
+    const savedItem = { ...item, deliveredAt: '2026-08-17T12:06:00.000Z' };
+    const initialCard: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-08-17T14:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    let currentItems = [plannedItem];
+    const patchBodies: unknown[] = [];
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const change = (element: HTMLInputElement, value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        currentItems = [savedItem];
+        return Response.json({ item: savedItem, jobCardVersion: 4 });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        return Response.json(patchBodies.length > 0
+          ? { ...initialCard, version: 4 }
+          : initialCard);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={initialCard.id}
+        user={staffUser}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    const actualInput = host.querySelector(`#delivery-actual-at-${plannedItem.id}`) as HTMLInputElement;
+    expect(actualInput).not.toBeNull();
+    expect(actualInput.value).toBe('');
+    expect(host.textContent).toContain('Teslim zamanı kaydedilmedi');
+
+    // Submitting an empty draft validates locally without any network call.
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanını seçin.');
+    expect(patchBodies).toHaveLength(0);
+
+    // Draft-only edit: no network call without submit.
+    await act(async () => {
+      change(actualInput, '2026-08-17T18:00');
+    });
+    expect(patchBodies).toHaveLength(0);
+
+    // Explicit "now" helper fills the draft but still does not persist.
+    await act(async () => {
+      buttonByName(host, 'Şimdi')?.click();
+      await Promise.resolve();
+    });
+    expect(actualInput.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(patchBodies).toHaveLength(0);
+
+    // Explicit submit persists through patchDeliveryItem with the job version.
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await flush();
+      await flush();
+    });
+    expect(patchBodies).toHaveLength(1);
+    expect(patchBodies[0]).toMatchObject({
+      expectedVersion: 3,
+      deliveredAt: expect.stringMatching(/Z$|[+-]\d{2}:\d{2}$/),
+    });
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+
+    // Canonical refresh shows the persisted timestamp as saved.
+    const localParts = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+      + `T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+    await act(async () => {
+      await flush();
+    });
+    expect(actualInput.value).toBe(localParts(new Date(savedItem.deliveredAt!)));
+    expect(host.textContent).toContain('Kaydedildi');
   });
 
   it('hides actual delivery editor without EDIT_DELIVERY_ACTUAL_TIME even with EDIT_JOB_FIELDS', () => {
