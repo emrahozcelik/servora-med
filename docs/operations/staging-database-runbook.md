@@ -88,7 +88,7 @@ Canonical order:
 2. Confirm staging DB is absent or explicitly owned
 3. Create the named staging database
 4. Apply canonical migrations explicitly
-5. Verify migration set = 41/41
+5. Verify migration set = catalog head (no pending migrations)
 6. Apply the selected fixture profile (MINIMAL ADMIN or ACCEPTANCE FIXTURE)
 7. Optionally import the approved synthetic pilot product catalog
 8. Verify health schema exact match
@@ -126,8 +126,21 @@ A builder checkout may use `npm run migrate` (`tsx`); a builder checkout is
 
 ### 5. Verify migration set
 
-Read-only check that `schema_migrations` contains exactly the 41 canonical
-migrations (`001_auth_foundation` .. `041_user_lifecycle_reconciliation`).
+Read-only check that `schema_migrations` matches the canonical catalog exactly:
+the applied head must equal the repository migration head and there must be no
+pending, missing, or unexpected versions.
+
+Do not hardcode a count or head here. Derive both from the deployed release:
+
+```bash
+cd "$RELEASE_DIR/server"
+node dist/db/schema-check.js   # fail-closed on BEHIND / EMPTY / AHEAD / DIVERGED
+ls dist/db/migrations          # the catalog shipped in this release
+```
+
+The same contract is enforced for local server tests by the fail-closed
+preflight in `npm test`; see
+[local-test-environment.md](./local-test-environment.md).
 
 ### 6a. MINIMAL ADMIN PROFILE — bootstrap-admin
 
@@ -197,11 +210,16 @@ existing_users:
 0
 
 migration_count:
-41
+<catalog head count of the exact deployed commit>
 
 latest_migration:
-041_user_lifecycle_reconciliation
+<catalog head version of the exact deployed commit>
 ```
+
+`migration_count` and `latest_migration` are **not** hardcoded: both must equal
+the head of `server/src/db/migrations` at the deployed commit (the same head the
+release ships under `server/dist/db/migrations`). A stale DB — one whose applied
+head is behind the catalog — must fail here rather than reach F4.
 
 If any value differs:
 
@@ -305,11 +323,10 @@ node dist/db/import-pilot-products.js \
 
 ### 8. Health schema exact match
 
-The staging environment `HEALTH_SCHEMA_VERSION` must equal the exact latest
-migration in the release (currently `041_user_lifecycle_reconciliation`); verify
-against `server/dist/db/migrations` (see
-[staging-contract.md](./staging-contract.md)); `GET /api/health` must return
-`200 {"status":"ok"}`.
+The staging environment `HEALTH_SCHEMA_VERSION` must equal the migration head of
+the release. Derive it from `server/dist/db/migrations` rather than copying a
+literal (see [staging-contract.md](./staging-contract.md)); `GET /api/health`
+must return `200 {"status":"ok"}`.
 
 ### 9. Authenticated smoke acceptance
 

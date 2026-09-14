@@ -382,6 +382,26 @@ cd server && npm test -- --run
 cd web && npm run build
 ```
 
+Local server test environment contract (fail-closed):
+
+* `npm test` requires an explicit `TEST_DATABASE_URL`. There is no `DATABASE_URL`
+  fallback and no silent database-name rewrite, so two worktrees cannot silently
+  share one persistent database.
+* The URL must be password-bearing and loopback. Local runs must use an
+  explicitly isolated database name such as `servora_med_test_<suffix>`; the
+  shared `servora_med_test` is reserved for CI's ephemeral service container.
+* PostgreSQL 17 is required for both the server and the
+  `psql`/`pg_dump`/`pg_restore` client tools. A PostgreSQL 16 host is refused
+  before Vitest starts.
+* The database schema must be at the exact repository migration head. The
+  preflight is read-only and never migrates.
+* Build before test: `npm run build` produces `dist/db/migrate.js`,
+  `dist/db/schema-check.js` and `dist/db/migrations`, which the suite executes.
+* An environment-dependent test that cannot execute must report SKIPPED, never
+  PASSED.
+
+See [docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
+
 Use additional commands when relevant:
 
 ```bash

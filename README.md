@@ -123,7 +123,8 @@ Historical MVP implementation record (application through Slice 11; pilot docs S
 ## Prerequisites
 
 - Node.js 22.12 or newer
-- PostgreSQL 16 or newer
+- PostgreSQL 16 or newer for the development server
+- PostgreSQL 17 (server **and** `psql`/`pg_dump`/`pg_restore` client tools) for the canonical full server test run; CI pins `postgres:17-alpine`
 - npm
 
 ## Five-minute development start
@@ -136,6 +137,11 @@ cp .env.example .env
 npm run migrate
 npm run dev
 ```
+
+This `npm run migrate` migrates the **development** database named by
+`DATABASE_URL`. It does not provision the test database: `npm test` requires its
+own explicit, isolated `TEST_DATABASE_URL` — see
+[docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
 
 In another terminal:
 
@@ -173,12 +179,12 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–041 files (latest: `041_user_lifecycle_reconciliation`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, and User/Staff lifecycle reconciliation.
+The migration runner applies the immutable canonical migration files (current head: `045_calendar_request_hash`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, User/Staff lifecycle reconciliation, and the JobCard schedule/assignment history and calendar request-hash migrations.
 
 The `MigrationCatalog` is the authoritative expected migration history for a release. `HEALTH_SCHEMA_VERSION` is a production configuration assertion against that catalog head; it is not an independent migration authority.
 
 Current schema posture: canonical source `main` and the protected local
-`servora_med` database are at schema 41 / `041_user_lifecycle_reconciliation`.
+`servora_med` database are at schema head `045_calendar_request_hash`.
 Production schema remains **UNKNOWN** until a separately authorized,
 read-only production readiness discovery; this README does not imply that
 production migrations have run.
@@ -487,6 +493,13 @@ cd web && npm run build
 cd web && npm audit --omit=dev
 ```
 
+`cd server && npm test` is fail-closed: it requires an explicit `TEST_DATABASE_URL`
+and runs a preflight that validates database identity, credential shape, loopback
+host, PostgreSQL 17 server and client tools, exact migration head and build
+freshness **before** Vitest starts. There is no `DATABASE_URL` fallback and no
+silent database-name rewrite. See
+[docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
+
 ## Environment
 
 | Variable | Required | Purpose |
@@ -495,10 +508,11 @@ cd web && npm audit --omit=dev
 | `HOST` | no | listen address; defaults to `127.0.0.1`; production must be loopback only |
 | `PORT` | no | listen port; defaults to `3000` |
 | `DATABASE_URL` | yes | PostgreSQL `postgresql://` or `postgres://` URL |
+| `TEST_DATABASE_URL` | for `npm test` | explicit, password-bearing, loopback test database. Required by `npm test` (no `DATABASE_URL` fallback); local runs must use an isolated name such as `servora_med_test_<suffix>` |
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `041_user_lifecycle_reconciliation`; must equal the latest canonical migration in the deployed release); optional in development/test |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `045_calendar_request_hash`; must equal the latest canonical migration in the deployed release); optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |

@@ -443,13 +443,14 @@ exit 0
     }
   });
 
-  it('restores real disposable DB via pg_dump/pg_restore when tools available', async () => {
-    // Full integration with real postgres — skipped if pg_dump not available or no CREATEDB privilege
+  it('restores real disposable DB via pg_dump/pg_restore when tools available', async (ctx) => {
+    // Full integration with real postgres. Missing tooling or missing CREATEDB
+    // privilege is an UNEXECUTED acceptance test: it must be reported as
+    // SKIPPED, never as PASSED. A genuine recovery defect still fails.
     const hasPgDump = spawnSync('which', ['pg_dump'], { encoding: 'utf8' }).status === 0;
     const hasPgRestore = spawnSync('which', ['pg_restore'], { encoding: 'utf8' }).status === 0;
     if (!hasPgDump || !hasPgRestore) {
-      console.warn('Skipping real DB restore: pg_dump/pg_restore not available');
-      return;
+      ctx.skip('pg_dump/pg_restore not available');
     }
     assertNotProtected(databaseUrl);
     const admin = new Pool({ connectionString: databaseUrl });
@@ -559,11 +560,11 @@ exit 0
       const targetHeadAfter = await targetPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1');
       expect(targetHeadAfter.rows[0]?.version).toBe(OLD_VERSION);
     } catch (e) {
-      // If we lack CREATEDB privilege, skip gracefully
+      // Missing CREATEDB privilege is an UNEXECUTED acceptance test: report it
+      // as SKIPPED. A genuine recovery defect falls through to `throw e`.
       const msg = String((e as Error).message);
       if (msg.includes('permission denied') || msg.includes('must be superuser') || msg.includes('CREATE DATABASE')) {
-        console.warn('Skipping real DB test due to lack of privilege:', msg);
-        return;
+        ctx.skip(`lacking CREATEDB privilege: ${msg}`);
       }
       throw e;
     } finally {
