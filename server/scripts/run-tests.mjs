@@ -1,37 +1,47 @@
+/**
+ * Canonical server-test entrypoint.
+ *
+ * Contract:
+ *   1. `TEST_DATABASE_URL` is required. There is no `DATABASE_URL` fallback and
+ *      no silent database-name manufacture: the canonical test database must be
+ *      chosen explicitly so two worktrees cannot silently share one database.
+ *   2. A fail-closed preflight (`./test-env-preflight.ts`) validates database
+ *      identity, credential shape, loopback host, PostgreSQL 17 server and
+ *      client tools, exact migration head and build freshness BEFORE Vitest
+ *      starts.
+ *   3. The spawned environment forces `NODE_ENV=test` and cannot inherit a
+ *      developer's fail-closed capability gates.
+ *
+ * If the environment is wrong this script exits non-zero and Vitest never runs.
+ * CI already supplies a conforming environment, so no workflow change is needed.
+ *
+ * There is deliberately no "am I the entrypoint?" guard: this file always runs,
+ * so a path-resolution mistake cannot silently skip the preflight.
+ */
+
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-function resolveTestDatabaseUrl() {
-  const configuredTestUrl = process.env.TEST_DATABASE_URL?.trim();
-  if (configuredTestUrl) return configuredTestUrl;
+import { buildCanonicalTestEnv } from './test-env-runtime-env.mjs';
 
-  // CI must execute the real PostgreSQL acceptance suite. The Vitest files
-  // retain a local convenience skip when no database is configured, but the
-  // npm test entrypoint is fail-closed in CI rather than silently skipping it.
-  if (process.env.CI === 'true') {
-    throw new Error('CI requires TEST_DATABASE_URL; refusing to skip PostgreSQL acceptance tests.');
-  }
+const tsxCli = fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url));
+const preflightScript = fileURLToPath(new URL('./test-env-preflight.ts', import.meta.url));
+const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
 
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    throw new Error('TEST_DATABASE_URL or DATABASE_URL is required to run server tests.');
-  }
-  const testUrl = new URL(databaseUrl);
-  testUrl.pathname = '/servora_med_test';
-  return testUrl.toString();
+const canonicalEnv = buildCanonicalTestEnv(process.env);
+
+const preflight = spawnSync(process.execPath, [tsxCli, preflightScript], {
+  stdio: 'inherit',
+  env: canonicalEnv,
+});
+if (preflight.error) throw preflight.error;
+if ((preflight.status ?? 1) !== 0) {
+  process.exit(preflight.status ?? 1);
 }
 
-const vitest = fileURLToPath(
-  new URL('../node_modules/vitest/vitest.mjs', import.meta.url),
-);
-const result = spawnSync(
-  process.execPath,
-  [vitest, ...process.argv.slice(2)],
-  {
-    stdio: 'inherit',
-    env: { ...process.env, TEST_DATABASE_URL: resolveTestDatabaseUrl() },
-  },
-);
-
+const result = spawnSync(process.execPath, [vitest, ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  env: canonicalEnv,
+});
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);
