@@ -10,7 +10,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -533,48 +533,81 @@ describe('TEST-ENV contract — entrypoint and scope invariants', () => {
 
   it('marks a missing-tooling recovery acceptance test as SKIPPED rather than PASSED', async () => {
     const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
-    const reportPath = path.join(await mkdtemp(path.join(tmpdir(), 'testenv-report-')), 'report.json');
-    // The nested run needs a non-empty TEST_DATABASE_URL so that
-    // `describe.skipIf(!process.env.TEST_DATABASE_URL)` is active; otherwise the
-    // whole block is skipped and this proof would be vacuous. A contract-shaped
-    // placeholder is sufficient because the restricted PATH makes the target test
-    // skip before it ever connects. This test must not depend on the developer's
-    // real .env, so the placeholder is the fallback.
+    const reportDirectory = await mkdtemp(path.join(tmpdir(), 'testenv-report-'));
+    const reportPath = path.join(reportDirectory, 'report.json');
+
+    // Tool availability must be DEFINED here, never assumed. An earlier version of
+    // this test used `PATH=/usr/bin:/bin` and relied on `pg_dump` not living
+    // there — which is false on the Ubuntu runner, where `/usr/bin/pg_dump`
+    // exists. The proof therefore depended on the host's `/usr/bin` contents.
+    //
+    // Instead, build a fully controlled PATH holding exactly one executable: a
+    // `which` shim that always fails. Tool discovery is then deterministically
+    // unavailable on every host, and the proof tests behaviour rather than
+    // machine configuration.
+    const controlledBinDirectory = await mkdtemp(path.join(tmpdir(), 'testenv-nopath-'));
+    const whichShim = path.join(controlledBinDirectory, 'which');
+    await writeFile(whichShim, '#!/bin/sh\nexit 1\n', 'utf8');
+    await chmod(whichShim, 0o755);
+
+    // A non-empty TEST_DATABASE_URL keeps
+    // `describe.skipIf(!process.env.TEST_DATABASE_URL)` active, so the block is
+    // not skipped for the wrong reason. It never has to be reachable: the
+    // controlled PATH makes the target test skip before it ever connects.
     const testDatabaseUrl =
       process.env.TEST_DATABASE_URL ??
       'postgresql://test-user:test-password@127.0.0.1:5432/servora_med_test_nested';
-    expect(testDatabaseUrl, 'the recovery describe block must be active').toBeTruthy();
 
-    // Restrict PATH so `which pg_dump` / `which pg_restore` fail. The test must
-    // then be reported as skipped; a bare `return` would report it as passed.
-    const result = spawnSync(
-      process.execPath,
-      [
-        vitest,
-        'run',
-        'tests/production-recovery.test.ts',
-        '-t',
-        'restores real disposable DB',
-        '--reporter=json',
-        `--outputFile=${reportPath}`,
-      ],
-      {
-        cwd: fileURLToPath(new URL('..', import.meta.url)),
-        env: { ...process.env, PATH: '/usr/bin:/bin', TEST_DATABASE_URL: testDatabaseUrl },
-        encoding: 'utf8',
-      },
-    );
-    expect(result.error).toBeUndefined();
-
-    const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
-      testResults: { assertionResults: { fullName: string; status: string }[] }[];
+    const nestedEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: controlledBinDirectory,
+      TEST_DATABASE_URL: testDatabaseUrl,
     };
-    const target = report.testResults
-      .flatMap((suite) => suite.assertionResults)
-      .find((assertion) => assertion.fullName.includes('restores real disposable DB'));
-    expect(target, 'the recovery acceptance test must be present in the report').toBeTruthy();
-    expect(target?.status).toBe('skipped');
-    await rm(path.dirname(reportPath), { recursive: true, force: true });
+    // An explicit binary override would also defeat "tooling absent".
+    for (const key of ['PSQL_BIN', 'PG_DUMP_BIN', 'PG_RESTORE_BIN']) delete nestedEnv[key];
+
+    try {
+      // Node and Vitest are launched through absolute paths, so the nested runner
+      // itself never depends on PATH.
+      const result = spawnSync(
+        process.execPath,
+        [
+          vitest,
+          'run',
+          'tests/production-recovery.test.ts',
+          '-t',
+          'restores real disposable DB',
+          '--reporter=json',
+          `--outputFile=${reportPath}`,
+        ],
+        {
+          cwd: fileURLToPath(new URL('..', import.meta.url)),
+          env: nestedEnv,
+          encoding: 'utf8',
+        },
+      );
+      expect(result.error).toBeUndefined();
+
+      const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
+        testResults: { assertionResults: { fullName: string; status: string }[] }[];
+      };
+      const matches = report.testResults
+        .flatMap((suite) => suite.assertionResults)
+        .filter((assertion) => assertion.fullName.includes('restores real disposable DB'));
+
+      // The acceptance test must be present exactly once and reported as
+      // SKIPPED. The old silent-skip bug (`console.warn(...); return;`) reported
+      // it as PASSED, which is the regression this asserts against.
+      expect(matches, 'the recovery acceptance test must be present in the report').toHaveLength(1);
+      expect(matches[0]?.status).toBe('skipped');
+      expect(
+        matches.filter((assertion) => assertion.status === 'passed'),
+        'an unexecuted acceptance test must never be reported as passed',
+      ).toHaveLength(0);
+    } finally {
+      await rm(controlledBinDirectory, { recursive: true, force: true });
+      await rm(reportDirectory, { recursive: true, force: true });
+    }
   }, 120_000);
 });
 
