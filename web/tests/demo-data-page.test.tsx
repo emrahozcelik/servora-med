@@ -225,6 +225,32 @@ describe('DemoDataPage disposable lifecycle', () => {
     expect(host.textContent).not.toContain('Geçmiş');
   });
 
+  it('keeps the frozen purge attempt retryable when a non-ApiError rejects the request', async () => {
+    const clientActionId = '77777777-7777-4777-8777-777777777777';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
+    demoDataApi.purgeDemoDataset
+      .mockRejectedValueOnce(new Error('unexpected failure'))
+      .mockResolvedValueOnce(purgeReceipt());
+    demoDataApi.listDemoDatasets.mockResolvedValueOnce([activeDataset]).mockResolvedValueOnce([]);
+
+    await renderPage();
+    await confirmPurge();
+    await settle();
+
+    expect(demoDataApi.purgeDemoDataset).toHaveBeenCalledTimes(2);
+    const firstRequest = demoDataApi.purgeDemoDataset.mock.calls[0];
+    const retryRequest = demoDataApi.purgeDemoDataset.mock.calls[1];
+    expect(retryRequest[0]).toBe(firstRequest[0]);
+    expect(retryRequest[1].clientActionId).toBe(firstRequest[1].clientActionId);
+    expect(retryRequest[1].clientActionId).toBe(clientActionId);
+    expect(retryRequest[1].planHash).toBe(firstRequest[1].planHash);
+    expect(retryRequest[2]).toEqual(firstRequest[2]);
+    expect(host.textContent).not.toContain(
+      'Sunucu durumu doğrulanmadan yeni bir silme işlemi başlatılamaz.',
+    );
+    expect(host.textContent).toContain('Demo verileri silindi.');
+  });
+
   it('requires a recheck when the same request remains in progress, then completes with that request id', async () => {
     const clientActionId = '66666666-6666-4666-8666-666666666666';
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
@@ -360,6 +386,20 @@ describe('DemoDataPage creation boundaries', () => {
     await settle();
   }
 
+  async function submitCreateAttempt() {
+    const trigger = Array.from(host.querySelectorAll<HTMLButtonElement>('button'))
+      .find((item) => item.textContent === 'Demo verisi oluştur');
+    expect(trigger).toBeDefined();
+    await act(async () => { trigger!.click(); });
+    const dialog = host.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const confirm = Array.from(dialog!.querySelectorAll<HTMLButtonElement>('button'))
+      .find((item) => item.textContent === 'Oluştur');
+    expect(confirm).toBeDefined();
+    await act(async () => { confirm!.click(); });
+    await settle();
+  }
+
   it('shows creation only for an Admin with the capability and no active dataset', async () => {
     await renderCreation(adminUser);
     expect(host.textContent).toContain('Demo verisi oluştur');
@@ -403,5 +443,46 @@ describe('DemoDataPage creation boundaries', () => {
     await act(async () => { trigger!.click(); });
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Demo verisi oluşturulsun mu?');
     expect(demoDataApi.createDemoDataset).not.toHaveBeenCalled();
+  });
+
+  it('treats a non-ApiError creation failure as ambiguous and reuses the same idempotency key', async () => {
+    const clientActionId = '12121212-1212-4212-8212-121212121212';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(clientActionId);
+    demoDataApi.createDemoDataset.mockRejectedValue(new Error('unexpected failure'));
+
+    await renderCreation(adminUser);
+    await submitCreateAttempt();
+
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('İşlemin sonucu doğrulanamadı');
+
+    await submitCreateAttempt();
+
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(2);
+    expect(demoDataApi.createDemoDataset.mock.calls[0][0]).toEqual({ clientActionId });
+    expect(demoDataApi.createDemoDataset.mock.calls[1][0]).toEqual({ clientActionId });
+  });
+
+  it('releases the idempotency key after a definitive creation rejection', async () => {
+    const firstId = '13131313-1313-4313-8313-131313131313';
+    const secondId = '14141414-1414-4414-8414-141414141414';
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce(firstId)
+      .mockReturnValueOnce(secondId);
+    demoDataApi.createDemoDataset.mockRejectedValue(
+      new ApiError(422, 'DEMO_DATASET_VALIDATION_FAILED', 'validation'),
+    );
+
+    await renderCreation(adminUser);
+    await submitCreateAttempt();
+
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(1);
+    expect(demoDataApi.createDemoDataset.mock.calls[0][0]).toEqual({ clientActionId: firstId });
+
+    await submitCreateAttempt();
+
+    expect(demoDataApi.createDemoDataset).toHaveBeenCalledTimes(2);
+    expect(demoDataApi.createDemoDataset.mock.calls[1][0]).toEqual({ clientActionId: secondId });
+    expect(secondId).not.toBe(firstId);
   });
 });
