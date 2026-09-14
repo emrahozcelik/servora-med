@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { patchJobCard } from '../jobs/jobs-api';
 import type { AvailableSlot } from '../jobs/jobs-api';
 import { AvailableSlotsNotice } from '../jobs/AvailableSlotsNotice';
+import { isDefinitiveMutationError } from '../jobs/mutation-attempt-error';
 import { shiftInterval } from '../jobs/scheduling';
 import { useAvailableSlotSearch } from '../jobs/useAvailableSlotSearch';
 import { useReassignmentConversationSync } from '../jobs/useReassignmentConversationSync';
@@ -21,6 +22,8 @@ import {
   patchManualEvent,
   type CalendarAssignee,
   type CalendarEvent,
+  type ManualEventInput,
+  type ManualEventPatch,
 } from '../services/calendar-api';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
@@ -96,6 +99,61 @@ function drawerTitle(event: CalendarEvent | null): string {
   return 'Planı düzenle';
 }
 
+/**
+ * One logical manual mutation owns one id AND its exact request payload.
+ * The frozen input is the only request an attempt may ever send; later draft
+ * edits cannot leak into a retry of the same attempt.
+ */
+type ManualMutationAttempt =
+  | { kind: 'create'; input: ManualEventInput }
+  | { kind: 'patch'; eventId: string; input: ManualEventPatch };
+
+/** Authoritative rejection presentation for manual mutations (definitive path). */
+function describeManualMutationError(caught: unknown): {
+  message: string;
+  conflicts: Array<Record<string, unknown>>;
+} {
+  const api = caught as ApiError;
+  if (api.code === 'NON_WORKING_DAY') {
+    // WORKING-DAY V1: organization-local Sunday is a non-working day. The
+    // server owns the decision (it alone knows the organization timezone),
+    // so the form surfaces its message verbatim and stays usable.
+    return { message: api.message, conflicts: [] };
+  }
+  if (api.code === 'CALENDAR_CONFLICT') {
+    const raw = api.details?.conflicts;
+    return {
+      message: 'Bu zaman aralığı başka bir planla çakışıyor. Taslağınız korundu.',
+      conflicts: Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [],
+    };
+  }
+  if (api.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+    return {
+      message: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin; taslağınız korundu.',
+      conflicts: [],
+    };
+  }
+  if (api.code === 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED') {
+    return {
+      message: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
+      conflicts: [],
+    };
+  }
+  if (api.code === 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED') {
+    return {
+      message: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. İş detayından planlama nedenini belirterek kaydedebilirsiniz.',
+      conflicts: [],
+    };
+  }
+  if (api.code === 'VERSION_CONFLICT') {
+    return {
+      message: 'Bu kayıt başka bir kullanıcı tarafından değiştirildi. Taslağınız korundu; güncel değerleri yükleyin.',
+      conflicts: [],
+    };
+  }
+  return { message: caught instanceof Error ? caught.message : 'Plan kaydedilemedi.', conflicts: [] };
+}
+
 export function EventForm({
   user,
   assignees,
@@ -140,14 +198,14 @@ export function EventForm({
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
   const [pending, setPending] = useState(false);
   /**
-   * One logical mutation owns one stable action id. The drawer unmounts this
-   * form on close/success, so mount lifetime is exactly one create/edit
-   * operation: every re-submit of the same draft (including retries after an
-   * ambiguous transport outcome) reuses this id and the backend replays the
-   * original result instead of creating a duplicate. A fresh open mounts a
-   * new form and therefore a new id — ids never leak across operations.
+   * Frozen logical attempt (MeetingDetails convention): while an attempt is
+   * ambiguous the outcome is unknown, so the exact original request is the
+   * only thing that may be retried. The drawer unmounts this form on
+   * close/success, so mount lifetime bounds one operation; a fresh open
+   * mounts a new form and therefore a new attempt.
    */
-  const [actionIdentity] = useState(() => crypto.randomUUID());
+  const attemptRef = useRef<ManualMutationAttempt | null>(null);
+  const [ambiguous, setAmbiguous] = useState(false);
   const availableSlotSearch = useAvailableSlotSearch({
     type: intervalJobType ?? 'SALES_MEETING',
     customerId: event?.source === 'JOB' ? event.customer?.id ?? null : null,
@@ -187,8 +245,57 @@ export function EventForm({
     });
   }
 
+  /**
+   * Sends exactly the frozen attempt input. Returns true when the mutation
+   * was saved. A definitive rejection resolves the attempt (the next submit
+   * is a new logical operation); an ambiguous outcome keeps the attempt
+   * frozen so only the exact original request may be retried.
+   */
+  async function sendAttempt(attempt: ManualMutationAttempt): Promise<boolean> {
+    setPending(true);
+    setError(null);
+    setConflicts([]);
+    try {
+      if (attempt.kind === 'create') {
+        await createManualEvent(attempt.input);
+      } else {
+        await patchManualEvent(attempt.eventId, attempt.input);
+      }
+      attemptRef.current = null;
+      setAmbiguous(false);
+      return true;
+    } catch (caught) {
+      // Fail-safe: only an authoritative non-retryable server response proves
+      // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
+      // unknown errors are ambiguous — see isAmbiguousMutationError).
+      if (isDefinitiveMutationError(caught)) {
+        attemptRef.current = null;
+        setAmbiguous(false);
+        const failure = describeManualMutationError(caught);
+        setError(failure.message);
+        setConflicts(failure.conflicts);
+      } else {
+        setAmbiguous(true);
+        setError('Sonuç belirsiz: plan sunucuya kaydedilmiş olabilir. Lütfen özgün isteği tekrar deneyin; form, sonuç netleşene kadar kilitli.');
+        setConflicts([]);
+      }
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function retryAttempt() {
+    const attempt = attemptRef.current;
+    if (!attempt || pending) return;
+    if (await sendAttempt(attempt)) {
+      onSaved();
+    }
+  }
+
   const submit = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
+    if (pending || ambiguous) return;
     setPending(true);
     setError(null);
     setConflicts([]);
@@ -200,28 +307,38 @@ export function EventForm({
           setError('Bitiş zamanı başlangıç zamanından sonra olmalıdır.');
           return;
         }
-      }
-      if (!event) {
-        await createManualEvent({
-          clientActionId: actionIdentity,
-          assignedUserId: draft.assignedUserId,
-          title: draft.title,
-          description: draft.description.trim() || null,
-          startsAt: instant(draft.startsAt),
-          endsAt: instant(draft.endsAt),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-      } else if (event.source === 'MANUAL') {
-        await patchManualEvent(event.id, {
-          clientActionId: actionIdentity,
-          expectedVersion: event.version,
-          assignedUserId: draft.assignedUserId,
-          title: draft.title,
-          description: draft.description.trim() || null,
-          startsAt: instant(draft.startsAt),
-          endsAt: instant(draft.endsAt),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const attempt: ManualMutationAttempt = !event
+          ? {
+            kind: 'create',
+            input: {
+              clientActionId: crypto.randomUUID(),
+              assignedUserId: draft.assignedUserId,
+              title: draft.title,
+              description: draft.description.trim() || null,
+              startsAt: instant(draft.startsAt),
+              endsAt: instant(draft.endsAt),
+              timezone,
+            },
+          }
+          : {
+            kind: 'patch',
+            eventId: event.id,
+            input: {
+              clientActionId: crypto.randomUUID(),
+              expectedVersion: event.version,
+              assignedUserId: draft.assignedUserId,
+              title: draft.title,
+              description: draft.description.trim() || null,
+              startsAt: instant(draft.startsAt),
+              endsAt: instant(draft.endsAt),
+              timezone,
+            },
+          };
+        attemptRef.current = attempt;
+        if (await sendAttempt(attempt)) {
+          onSaved();
+        }
       } else {
         const patched = await patchJobCard(event.jobCardId, {
           expectedVersion: event.version,
@@ -238,31 +355,14 @@ export function EventForm({
             newAssignee: { id: draft.assignedUserId, name: patched.assignee.name },
           });
         }
+        onSaved();
       }
-      onSaved();
     } catch (caught) {
-      const api = caught as ApiError;
-      if (api.code === 'NON_WORKING_DAY') {
-        // WORKING-DAY V1: organization-local Sunday is a non-working day. The
-        // server owns the decision (it alone knows the organization timezone),
-        // so the form surfaces its message verbatim and stays usable.
-        setError(api.message);
-        setConflicts([]);
-      } else if (api.code === 'CALENDAR_CONFLICT') {
-        setError('Bu zaman aralığı başka bir planla çakışıyor. Taslağınız korundu.');
-        const raw = api.details?.conflicts;
-        setConflicts(Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
-      } else if (api.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
-        setError('Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin; taslağınız korundu.');
-      } else if (api.code === 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED') {
-        setError('Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.');
-      } else if (api.code === 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED') {
-        setError('Bu müşteri için ziyaret sıklığı sınırı aşılıyor. İş detayından planlama nedenini belirterek kaydedebilirsiniz.');
-      } else if (api.code === 'VERSION_CONFLICT') {
-        setError('Bu kayıt başka bir kullanıcı tarafından değiştirildi. Taslağınız korundu; güncel değerleri yükleyin.');
-      } else {
-        setError(caught instanceof Error ? caught.message : 'Plan kaydedilemedi.');
-      }
+      // Only the JOB path (which owns no frozen attempt) reaches this catch;
+      // manual attempts map their errors inside sendAttempt.
+      const failure = describeManualMutationError(caught);
+      setError(failure.message);
+      setConflicts(failure.conflicts);
     } finally {
       setPending(false);
     }
@@ -270,6 +370,7 @@ export function EventForm({
 
   return (
     <form className="calendar-form" onSubmit={submit}>
+      <fieldset disabled={pending || ambiguous}>
       {user.role !== 'STAFF' && (
         <label className="field-group"><span className="field-label">Personel</span>
           <select value={draft.assignedUserId} onChange={(e) => setDraft({ ...draft, assignedUserId: e.target.value })}>
@@ -305,6 +406,7 @@ export function EventForm({
         {...availableSlotSearch}
         onSelect={useAvailableSlot}
       />
+      </fieldset>
       {error && <div className="form-error" role="alert"><p>{error}</p>
         {conflicts.map((c) => (
           <p key={String(c.id)}>
@@ -314,7 +416,13 @@ export function EventForm({
       </div>}
       <div className="form-actions">
         <button type="button" className="secondary-button" onClick={onClose}>Vazgeç</button>
-        <button type="submit" className="primary-button" disabled={pending}>
+        {ambiguous && (
+          <button data-original-retry className="secondary-button" type="button" disabled={pending}
+            onClick={() => { void retryAttempt(); }}>
+            Özgün isteği tekrar dene
+          </button>
+        )}
+        <button type="submit" className="primary-button" disabled={pending || ambiguous}>
           {pending ? 'Kaydediliyor…' : 'Kaydet'}
         </button>
       </div>
@@ -341,33 +449,66 @@ export function EventItem({
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelPending, setCancelPending] = useState(false);
   /**
-   * Cancel identity is scoped to this agenda item (keyed by source:id by the
-   * parent), so re-confirming after an ambiguous failure replays the same
-   * logical cancellation instead of recording a second one. A different
-   * event mounts a different item and therefore a different id.
+   * Frozen cancel attempt (MeetingDetails convention): the first confirm
+   * captures eventId, clientActionId, expectedVersion and cancelReason as one
+   * immutable unit. While the outcome is ambiguous no new normal CANCEL may
+   * start; only the exact original body may be retried. Success or a
+   * definitive rejection resolves the attempt.
    */
-  const [cancelActionIdentity] = useState(() => crypto.randomUUID());
+  const cancelAttemptRef = useRef<{
+    eventId: string;
+    input: { clientActionId: string; expectedVersion: number; cancelReason: string };
+  } | null>(null);
+  const [cancelAmbiguous, setCancelAmbiguous] = useState(false);
   const localCancelRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = cancelTriggerRef ?? localCancelRef;
 
-  const handleCancelConfirm = async (reason: string) => {
+  async function runCancelAttempt(attempt: {
+    eventId: string;
+    input: { clientActionId: string; expectedVersion: number; cancelReason: string };
+  }) {
     setCancelPending(true);
     setError(null);
     try {
-      await cancelManualEvent(event.id, {
-        clientActionId: cancelActionIdentity,
-        expectedVersion: event.version,
-        cancelReason: reason,
-      });
+      await cancelManualEvent(attempt.eventId, attempt.input);
+      cancelAttemptRef.current = null;
+      setCancelAmbiguous(false);
       setCancelOpen(false);
       onCancelled();
     } catch (caught) {
       setCancelOpen(false);
-      setError(caught instanceof Error ? caught.message : 'Plan iptal edilemedi.');
+      if (isDefinitiveMutationError(caught)) {
+        cancelAttemptRef.current = null;
+        setCancelAmbiguous(false);
+        setError(caught instanceof Error ? caught.message : 'Plan iptal edilemedi.');
+      } else {
+        setCancelAmbiguous(true);
+        setError('İptal sonucu belirsiz: plan sunucuda iptal edilmiş olabilir. Lütfen özgün isteği tekrar deneyin.');
+      }
     } finally {
       setCancelPending(false);
     }
+  }
+
+  const handleCancelConfirm = async (reason: string) => {
+    if (cancelPending || cancelAmbiguous) return;
+    const attempt = {
+      eventId: event.id,
+      input: {
+        clientActionId: crypto.randomUUID(),
+        expectedVersion: event.version,
+        cancelReason: reason,
+      },
+    };
+    cancelAttemptRef.current = attempt;
+    await runCancelAttempt(attempt);
   };
+
+  async function retryCancel() {
+    const attempt = cancelAttemptRef.current;
+    if (!attempt || cancelPending) return;
+    await runCancelAttempt(attempt);
+  }
 
   const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN';
   const followUpContext = event.source === 'JOB' ? event.followUpContext : null;
@@ -386,9 +527,21 @@ export function EventItem({
           ref={cancelBtnRef}
           type="button"
           className="destructive-button"
+          disabled={cancelAmbiguous}
           onClick={() => setCancelOpen(true)}
         >
           İptal et
+        </button>
+      )}
+      {cancelAmbiguous && (
+        <button
+          data-original-retry
+          type="button"
+          className="secondary-button"
+          disabled={cancelPending}
+          onClick={() => { void retryCancel(); }}
+        >
+          Özgün isteği tekrar dene
         </button>
       )}
     </div>

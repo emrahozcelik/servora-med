@@ -51,6 +51,11 @@ type CalendarRow = {
   source_completed_at: Date | null;
 };
 
+type ActionIdentityRow = {
+  calendar_event_id: string;
+  request_hash: string | null;
+};
+
 const CALENDAR_LIST_SQL = `
 SELECT j.id, 'JOB'::text AS source, j.title, NULL::text AS description,
   j.scheduled_at AS starts_at,
@@ -181,6 +186,21 @@ export interface CalendarRepository {
    */
   getOrganizationTimezone(organizationId: string): Promise<string>;
   getManualEvent(actor: CalendarActor, eventId: string): Promise<CalendarEvent | null>;
+  /**
+   * CAL-REPLAY-BEFORE-STATE-VALIDATION: read-only early routing for an
+   * already-completed idempotent action. Returns the current persisted event
+   * for an exact completed match, throws CLIENT_ACTION_REUSED when the same
+   * key carries a different semantic request, and returns null when no action
+   * exists. Never mutates. Callers use this BEFORE new-mutation business
+   * validation; the transactional writers below still re-resolve identity
+   * inside their claim, so concurrent requests keep the second defense.
+   */
+  resolveCompletedAction(
+    actor: CalendarActor,
+    clientActionId: string,
+    action: 'CREATED' | 'UPDATED' | 'CANCELLED',
+    requestHash: string,
+  ): Promise<CalendarEvent | null>;
   createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
   patchManual(actor: CalendarActor, eventId: string, input: ManualEventPatchInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
   cancelManual(actor: CalendarActor, eventId: string, input: ManualEventCancelInput, now: Date, requestHash?: string): Promise<CalendarEvent>;
@@ -526,6 +546,50 @@ export class PostgresCalendarRepository implements CalendarRepository {
     }
   }
 
+  private async findActionRow(
+    run: (text: string, values: string[]) => Promise<{ rows: ActionIdentityRow[] }>,
+    actor: CalendarActor,
+    clientActionId: string,
+    action: string,
+  ) {
+    const result = await run(
+      `SELECT calendar_event_id, request_hash FROM calendar_event_activity_logs
+       WHERE organization_id = $1 AND actor_user_id = $2
+         AND client_action_id = $3 AND action = $4`,
+      [actor.organizationId, actor.id, clientActionId, action],
+    );
+    return result.rows[0];
+  }
+
+  /**
+   * Shared identity comparison for both the early read-only routing and the
+   * transactional claim below. A legacy row (request_hash NULL) or any
+   * differing semantic request fails closed; the original caller intent may
+   * not be reconstructable.
+   */
+  private resolveActionRow(row: ActionIdentityRow | undefined, requestHash: string) {
+    if (!row) return null;
+    assertCalendarRequestHash(requestHash, row.request_hash);
+    return row;
+  }
+
+  async resolveCompletedAction(
+    actor: CalendarActor,
+    clientActionId: string,
+    action: 'CREATED' | 'UPDATED' | 'CANCELLED',
+    requestHash: string,
+  ) {
+    const row = this.resolveActionRow(
+      await this.findActionRow(
+        (text, values) => this.pool.query(text, values),
+        actor, clientActionId, action,
+      ),
+      requestHash,
+    );
+    if (!row) return null;
+    return this.getManualEvent(actor, row.calendar_event_id);
+  }
+
   private async findReplay(
     client: PoolClient,
     actor: CalendarActor,
@@ -533,21 +597,19 @@ export class PostgresCalendarRepository implements CalendarRepository {
     action: string,
     requestHash: string,
   ) {
-    const result = await client.query<{ calendar_event_id: string; request_hash: string | null }>(
-      `SELECT calendar_event_id, request_hash FROM calendar_event_activity_logs
-       WHERE organization_id = $1 AND actor_user_id = $2
-         AND client_action_id = $3 AND action = $4`,
-      [actor.organizationId, actor.id, clientActionId, action],
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    // Identity comparison happens BEFORE returning an old success. A legacy
-    // row (request_hash NULL) or any differing semantic request fails closed;
-    // the original caller intent may not be reconstructable.
+    // In-transaction second defense: the service may already have routed an
+    // exact replay above, but concurrent requests must still dedup here.
     // Note: replay returns the CURRENT persisted event, not a frozen original
     // response. For an exact retry with no intervening change that is the
     // original result; after an intervening change it reflects current state.
-    assertCalendarRequestHash(requestHash, row.request_hash);
+    const row = this.resolveActionRow(
+      await this.findActionRow(
+        (text, values) => client.query(text, values),
+        actor, clientActionId, action,
+      ),
+      requestHash,
+    );
+    if (!row) return null;
     return this.getManualWithClient(client, actor, row.calendar_event_id);
   }
 

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CalendarPage } from '../src/calendar/CalendarPage';
 import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
+import { ApiError } from '../src/services/api';
 
 const calendarApi = vi.hoisted(() => ({
   listCalendar: vi.fn(),
@@ -602,10 +603,15 @@ describe('CalendarPage', () => {
       // The organization timezone lives on the server, so the browser cannot
       // predict the Sunday boundary. The frozen server message is surfaced
       // as-is and the drawer stays mounted and editable for a corrected pick.
-      calendarApi.createManualEvent.mockRejectedValue({
-        code: 'NON_WORKING_DAY',
-        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
-      });
+      // The transport layer always raises ApiError for HTTP responses, so the
+      // authoritative 400 rejection is definitive (a non-ApiError shape would
+      // fail-safe to ambiguous instead).
+      calendarApi.createManualEvent.mockRejectedValue(new ApiError(
+        400,
+        'NON_WORKING_DAY',
+        'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
+        false,
+      ));
       const { dialog } = await openManualDrawer();
       await act(async () => {
         dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -669,7 +675,12 @@ describe('CalendarPage', () => {
   });
 
   it('on cancel failure, dialog closes and error appears in card', async () => {
-    calendarApi.cancelManualEvent.mockRejectedValue(new Error('İptal başarısız'));
+    // Authoritative HTTP rejections arrive as ApiError and are definitive;
+    // unknown shapes fail-safe to the ambiguous retry path (covered in
+    // calendar-client-retry.test.tsx).
+    calendarApi.cancelManualEvent.mockRejectedValue(
+      new ApiError(409, 'VERSION_CONFLICT', 'İptal başarısız', false),
+    );
     await render();
     const cancelBtns = Array.from(container.querySelectorAll('button'))
       .filter((b) => b.textContent?.includes('İptal et'));

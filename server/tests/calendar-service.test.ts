@@ -45,6 +45,10 @@ class MemoryCalendarRepository implements CalendarRepository {
   lastQuery: CalendarQuery | null = null;
   lastPatchInput: ManualEventPatchInput | null = null;
   lastPatchHash: string | null = null;
+  patchCalls = 0;
+  completedReplay: CalendarEvent | null = null;
+  completedError: unknown = null;
+  currentEvent: CalendarEvent = manual;
   users: CalendarUser[] = [{
     id: staff.id,
     organizationId: staff.organizationId,
@@ -70,8 +74,12 @@ class MemoryCalendarRepository implements CalendarRepository {
   async getCalendarUser(_actor: CalendarActor, userId: string) {
     return this.users.find((user) => user.id === userId) ?? null;
   }
-  async getManualEvent() { return manual; }
+  async getManualEvent() { return this.currentEvent; }
   async getOrganizationTimezone() { return 'Europe/Istanbul'; }
+  async resolveCompletedAction() {
+    if (this.completedError) throw this.completedError;
+    return this.completedReplay;
+  }
   async createManual(_actor: CalendarActor, _input: ManualEventCreateInput) {
     return manual;
   }
@@ -82,6 +90,7 @@ class MemoryCalendarRepository implements CalendarRepository {
     _now?: Date,
     _requestHash?: string,
   ) {
+    this.patchCalls += 1;
     this.lastPatchInput = _input;
     this.lastPatchHash = _requestHash ?? null;
     return { ...manual, version: 2 };
@@ -221,5 +230,38 @@ describe('CalendarService', () => {
         endsAt: '2026-07-27T13:00:00.000Z',
       }),
     );
+  });
+
+  it('resolves an exact completed PATCH before mutable Working-Day validation', async () => {
+    const repository = new MemoryCalendarRepository();
+    // Current persisted state touches Sunday, so a startsAt-only move derived
+    // from it would fail validation if the replay were not resolved first.
+    const sundayTouching = {
+      ...manual,
+      startsAt: '2026-07-26T20:30:00.000Z',
+      endsAt: '2026-07-26T22:30:00.000Z',
+    };
+    repository.currentEvent = sundayTouching;
+    const stored = { ...sundayTouching, version: 7 };
+    repository.completedReplay = stored;
+    const result = await new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'replay-before-validation-1',
+      expectedVersion: 1,
+      startsAt: '2026-07-26T20:00:00.000Z',
+    });
+    expect(result).toEqual({ ...stored, canEdit: true, canCancel: true });
+    expect(repository.patchCalls).toBe(0);
+    expect(repository.lastPatchInput).toBeNull();
+  });
+
+  it('propagates a reused-key rejection before reaching the mutation writer', async () => {
+    const repository = new MemoryCalendarRepository();
+    repository.completedError = { code: 'CLIENT_ACTION_REUSED', statusCode: 409 };
+    await expect(new CalendarService(true, repository).patch(staff, manual.id, {
+      clientActionId: 'reused-before-validation-1',
+      expectedVersion: 1,
+      title: 'Farklı içerik',
+    })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });
+    expect(repository.patchCalls).toBe(0);
   });
 });

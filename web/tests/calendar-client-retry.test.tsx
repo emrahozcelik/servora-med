@@ -113,6 +113,22 @@ function confirmCancelDialog(reason: string) {
   });
 }
 
+function clickOriginalRetry() {
+  const retry = container!.querySelector('[data-original-retry]') as HTMLButtonElement;
+  return act(async () => {
+    retry.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+}
+
+function submitButton() {
+  return container!.querySelector('.calendar-form button[type="submit"]') as HTMLButtonElement;
+}
+
+function titleInput() {
+  const form = container!.querySelector('.calendar-form') as HTMLFormElement;
+  return form.querySelector('input[maxlength]') as HTMLInputElement;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   uuidSeq = 0;
@@ -139,8 +155,13 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     calendarApi.createManualEvent.mockRejectedValueOnce(ambiguousFailure());
     await fillTitleAndSubmit();
     await settle();
+
+    // Ambiguous freeze: normal submit is locked and the exact retry is offered.
+    expect(container!.querySelector('[data-original-retry]')).not.toBeNull();
+    expect(submitButton().disabled).toBe(true);
+
     calendarApi.createManualEvent.mockResolvedValueOnce(manualEvent());
-    await fillTitleAndSubmit();
+    await clickOriginalRetry();
     await settle();
 
     expect(calendarApi.createManualEvent).toHaveBeenCalledTimes(2);
@@ -156,8 +177,17 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     calendarApi.createManualEvent.mockRejectedValueOnce(ambiguousFailure());
     await fillTitleAndSubmit();
     await settle();
+
+    // Edits are locked while the attempt is ambiguous: the draft cannot
+    // diverge from the frozen request through the visible UI. (jsdom does not
+    // propagate fieldset-disabled to control .disabled, so assert the lock
+    // mechanism itself; browsers disable the descendants.)
+    expect(
+      container!.querySelector('.calendar-form fieldset[disabled]'),
+    ).not.toBeNull();
+
     calendarApi.createManualEvent.mockResolvedValueOnce(manualEvent());
-    await fillTitleAndSubmit();
+    await clickOriginalRetry();
     await settle();
 
     const [first, second] = calendarApi.createManualEvent.mock.calls
@@ -166,6 +196,20 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     const { clientActionId: _secondId, ...secondPayload } = second!;
     expect(secondPayload).toEqual(firstPayload);
     expect(second!.clientActionId).toBe(first!.clientActionId);
+  });
+
+  it('CAL-RETRY-7: normal submit during the ambiguous freeze sends nothing', async () => {
+    await renderCreateForm();
+    await settle();
+    calendarApi.createManualEvent.mockRejectedValueOnce(ambiguousFailure());
+    await fillTitleAndSubmit();
+    await settle();
+
+    expect(container!.querySelector('[data-original-retry]')).not.toBeNull();
+    await fillTitleAndSubmit();
+    await settle();
+
+    expect(calendarApi.createManualEvent).toHaveBeenCalledTimes(1);
   });
 
   it('CAL-RETRY-4: a new operation after success receives a fresh id', async () => {
@@ -267,7 +311,7 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     await fillTitleAndSubmit();
     await settle();
     calendarApi.patchManualEvent.mockResolvedValueOnce(target);
-    await fillTitleAndSubmit();
+    await clickOriginalRetry();
     await settle();
 
     expect(calendarApi.patchManualEvent).toHaveBeenCalledTimes(2);
@@ -275,6 +319,79 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     const patchSecond = calendarApi.patchManualEvent.mock.calls[1]![1] as { clientActionId: string };
     expect(patchFirst.clientActionId).not.toBe(createId);
     expect(patchSecond.clientActionId).toBe(patchFirst.clientActionId);
+  });
+
+  it('CAL-RETRY-8: patch retry keeps the original version and fields after a canonical parent update', async () => {
+    const target = manualEvent({ id: 'event-p' });
+    await mount(
+      <EventForm
+        user={staff}
+        assignees={[assignee]}
+        event={target}
+        defaultAssigneeId={assignee.id}
+        onSaved={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await settle();
+    calendarApi.patchManualEvent.mockRejectedValueOnce(ambiguousFailure());
+    await fillTitleAndSubmit();
+    await settle();
+
+    // A canonical update arrives while the attempt is unresolved: the parent
+    // now shows version 4. The frozen retry must still carry version 3.
+    const updated = manualEvent({ id: 'event-p', version: 4, title: 'Güncel başlık' });
+    await act(async () => {
+      root!.render(
+        <EventForm
+          user={staff}
+          assignees={[assignee]}
+          event={updated}
+          defaultAssigneeId={assignee.id}
+          onSaved={() => {}}
+          onClose={() => {}}
+        />,
+      );
+    });
+    await settle();
+    calendarApi.patchManualEvent.mockResolvedValueOnce(updated);
+    await clickOriginalRetry();
+    await settle();
+
+    expect(calendarApi.patchManualEvent).toHaveBeenCalledTimes(2);
+    const [first, second] = calendarApi.patchManualEvent.mock.calls
+      .map((call) => call[1] as Record<string, unknown>);
+    expect(second).toEqual(first);
+    expect(second!['expectedVersion']).toBe(3);
+    expect(second!['clientActionId']).toBe(first!['clientActionId']);
+  });
+
+  it('CAL-RETRY-10: definitive rejection resolves the attempt and the next submit is a fresh operation', async () => {
+    await renderCreateForm();
+    await settle();
+    calendarApi.createManualEvent.mockRejectedValueOnce(
+      new ApiError(400, 'VALIDATION_ERROR', 'Hatalı istek.', false),
+    );
+    await fillTitleAndSubmit();
+    await settle();
+
+    // Definitive: no retry affordance, the form stays usable.
+    expect(container!.querySelector('[data-original-retry]')).toBeNull();
+    expect(submitButton().disabled).toBe(false);
+
+    const form = container!.querySelector('.calendar-form') as HTMLFormElement;
+    change(titleInput(), 'Düzeltilmiş başlık');
+    calendarApi.createManualEvent.mockResolvedValueOnce(manualEvent());
+    await act(async () => {
+      form.requestSubmit();
+    });
+    await settle();
+
+    expect(calendarApi.createManualEvent).toHaveBeenCalledTimes(2);
+    const [first, second] = calendarApi.createManualEvent.mock.calls
+      .map((call) => call[0] as Record<string, unknown>);
+    expect(second!['clientActionId']).not.toBe(first!['clientActionId']);
+    expect(second!['title']).toBe('Düzeltilmiş başlık');
   });
 
   it('CAL-RETRY-2/6: cancel retry reuses its id and stays scoped to its event', async () => {
@@ -293,10 +410,11 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     calendarApi.cancelManualEvent.mockRejectedValueOnce(ambiguousFailure());
     await confirmCancelDialog('Hasta gelmedi');
     await settle();
-    await openCancelDialog();
-    await settle();
+
+    // Frozen cancel: the standard trigger is locked and the exact retry is offered.
+    expect(container!.querySelector('[data-original-retry]')).not.toBeNull();
     calendarApi.cancelManualEvent.mockResolvedValueOnce(first);
-    await confirmCancelDialog('Hasta gelmedi');
+    await clickOriginalRetry();
     await settle();
 
     // Both confirms above targeted the first card's dialog.
@@ -305,5 +423,46 @@ describe('CAL-CLIENT-RETRY calendar action identity', () => {
     const cancelSecond = calendarApi.cancelManualEvent.mock.calls[1]![1] as { clientActionId: string };
     expect(cancelFirst.clientActionId).toBe('action-1');
     expect(cancelSecond.clientActionId).toBe('action-1');
+  });
+
+  it('CAL-RETRY-9: cancel retry keeps the original version and reason after a canonical update', async () => {
+    const original = manualEvent({ id: 'event-z', version: 3 });
+    await mount(
+      <MemoryRouter>
+        <EventItem event={original} onEdit={() => {}} onCancelled={() => {}} selected={false} />
+      </MemoryRouter>,
+    );
+    await settle();
+
+    await openCancelDialog();
+    await settle();
+    calendarApi.cancelManualEvent.mockRejectedValueOnce(ambiguousFailure());
+    await confirmCancelDialog('R1');
+    await settle();
+
+    // Canonical update arrives while unresolved; a different reason can no
+    // longer be entered through the locked standard flow.
+    const refreshed = manualEvent({ id: 'event-z', version: 4 });
+    await act(async () => {
+      root!.render(
+        <MemoryRouter>
+          <EventItem event={refreshed} onEdit={() => {}} onCancelled={() => {}} selected={false} />
+        </MemoryRouter>,
+      );
+    });
+    await settle();
+    calendarApi.cancelManualEvent.mockResolvedValueOnce(refreshed);
+    await clickOriginalRetry();
+    await settle();
+
+    expect(calendarApi.cancelManualEvent).toHaveBeenCalledTimes(2);
+    const [firstBody, secondBody] = calendarApi.cancelManualEvent.mock.calls
+      .map((call) => call[1] as Record<string, unknown>);
+    expect(secondBody).toEqual(firstBody);
+    expect(secondBody).toMatchObject({
+      clientActionId: 'action-1',
+      expectedVersion: 3,
+      cancelReason: 'R1',
+    });
   });
 });
