@@ -21,6 +21,20 @@ const unsuccessfulReasonLabels: Record<UnsuccessfulVisitReasonCode, string> = {
 };
 type MeetingFieldErrors = Partial<Record<MeetingDetailField, string>>;
 type MeetingAttempt = { input: PatchMeetingDetailsInput };
+/**
+ * Latest canonical field values seen while a frozen attempt was unresolved.
+ * The retry request body/ID/version is never derived from this; it is only a
+ * deferred reconciliation candidate applied to the visible fields when the
+ * attempt resolves. Carries its own jobCardId so a deferred snapshot can
+ * never be applied to another job's form.
+ */
+type DeferredCanonical = {
+  jobCardId: string;
+  meetingAt: string | null;
+  outcome: MeetingOutcome | null;
+  unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
+  meetingSummary: string | null;
+};
 const meetingFields: MeetingDetailField[] = [
   'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ];
@@ -69,14 +83,31 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   const feedbackRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<MeetingAttempt | null>(null); const [ambiguous, setAmbiguous] = useState(false);
   const canonicalRef = useRef({ jobCardId: details.jobCardId, version: details.jobCardVersion });
+  const deferredCanonicalRef = useRef<DeferredCanonical | null>(null);
+  function applyCanonicalFields(snapshot: DeferredCanonical) {
+    setMeetingAt(meetingLocalValue(snapshot.meetingAt)); setOutcome(snapshot.outcome ?? '');
+    setUnsuccessfulReason(snapshot.unsuccessfulReason ?? '');
+    setSummary(snapshot.meetingSummary ?? '');
+  }
   useEffect(() => {
     if (canonicalRef.current.jobCardId === details.jobCardId
       && canonicalRef.current.version === details.jobCardVersion) return;
     canonicalRef.current = { jobCardId: details.jobCardId, version: details.jobCardVersion };
-    if (attemptRef.current) return;
-    setMeetingAt(meetingLocalValue(details.meetingAt)); setOutcome(details.outcome ?? '');
-    setUnsuccessfulReason(details.unsuccessfulReason ?? '');
-    setSummary(details.meetingSummary ?? '');
+    // While a frozen attempt is unresolved the visible draft must stay frozen,
+    // so the latest canonical state is only remembered for deferred
+    // reconciliation when the attempt resolves. Each arrival overwrites the
+    // previous one: only the latest authoritative snapshot is ever applied.
+    if (attemptRef.current) {
+      deferredCanonicalRef.current = {
+        jobCardId: details.jobCardId, meetingAt: details.meetingAt, outcome: details.outcome,
+        unsuccessfulReason: details.unsuccessfulReason, meetingSummary: details.meetingSummary,
+      };
+      return;
+    }
+    applyCanonicalFields({
+      jobCardId: details.jobCardId, meetingAt: details.meetingAt, outcome: details.outcome,
+      unsuccessfulReason: details.unsuccessfulReason, meetingSummary: details.meetingSummary,
+    });
   }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
   useEffect(() => { if (feedback || error) feedbackRef.current?.focus(); }, [feedback, error]);
@@ -88,7 +119,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   async function sendAttempt(input: PatchMeetingDetailsInput) {
     try {
       await onSave(input);
-      attemptRef.current = null; setAmbiguous(false);
+      resolveAttempt();
       // A successful attempt resolves the previous failure state: without
       // this, an error set by an earlier failed attempt (e.g. an ambiguous
       // attempt retried via the original-retry button, which bypasses the
@@ -99,11 +130,25 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       // the attempt resolved (status-0, retryable, ACTION_IN_PROGRESS and
       // unknown errors are ambiguous — see isAmbiguousMutationError).
       const definitive = isDefinitiveMutationError(caught);
-      if (definitive) { attemptRef.current = null; setAmbiguous(false); }
+      if (definitive) resolveAttempt();
       else setAmbiguous(true);
       setFieldErrors(serverFieldErrors(caught));
       setError(caught instanceof Error ? caught.message : 'Görüşme sonucu kaydedilemedi.');
     }
+  }
+
+  /**
+   * Resolves the frozen attempt and, only when canonical state was deferred
+   * while the attempt was unresolved, flushes the latest deferred snapshot to
+   * the visible fields. With no deferred snapshot the current draft is left
+   * untouched, so an ordinary definitive rejection never erases valid user
+   * edits. The jobCardId guard keeps a deferred snapshot job-scoped.
+   */
+  function resolveAttempt() {
+    attemptRef.current = null; setAmbiguous(false);
+    const deferred = deferredCanonicalRef.current;
+    deferredCanonicalRef.current = null;
+    if (deferred && deferred.jobCardId === details.jobCardId) applyCanonicalFields(deferred);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
