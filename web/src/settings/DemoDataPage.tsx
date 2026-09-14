@@ -12,6 +12,7 @@ import {
   type DemoDatasetPreview,
   type DemoDatasetPurgeResponse,
 } from '../services/demo-data-api';
+import { isDefinitiveMutationError } from '../jobs/mutation-attempt-error';
 import { paths } from '../paths';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
@@ -183,11 +184,6 @@ function blockerCodesFromError(error: ApiError) {
   return Array.isArray(blockerCodes)
     ? blockerCodes.filter((code): code is string => typeof code === 'string')
     : [];
-}
-
-function isAmbiguousMutationError(error: unknown) {
-  return error instanceof ApiError
-    && (error.code === 'NETWORK_ERROR' || error.code === 'INVALID_RESPONSE' || error.status >= 500);
 }
 
 function operationDatasetId(operation: PurgeOperationState) {
@@ -473,7 +469,10 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
     } catch (caught) {
       setConfirmation(null);
       setPreviewError('');
-      if (isAmbiguousMutationError(caught)) {
+      // Fail-safe: only an authoritative non-retryable server response proves the attempt
+      // resolved; anything else keeps the frozen attempt so the exact retry replays the
+      // original request (see isDefinitiveMutationError).
+      if (!isDefinitiveMutationError(caught)) {
         setOperation({ kind: 'reconciling', attempt, reason: 'AMBIGUOUS' });
         void reconcilePurgeAttempt(attempt, 'AMBIGUOUS');
       } else if (caught instanceof ApiError && caught.code === 'DEMO_DATASET_PURGE_IN_PROGRESS') {
@@ -556,7 +555,9 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
       setDatasets(refreshed);
       setSelectedId(response.dataset.id);
     } catch (caught) {
-      if (isAmbiguousMutationError(caught)) {
+      // Fail-safe: an ambiguous failure keeps the frozen idempotency key so the retry
+      // replays the original request (see isDefinitiveMutationError).
+      if (!isDefinitiveMutationError(caught)) {
         // keep same clientActionId for retry
         setCreateOperation({
           kind: 'error',
