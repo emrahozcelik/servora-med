@@ -47,6 +47,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const unreadRequest = useRef(0);
   const listRequest = useRef(0);
   const openRef = useRef(false);
+  const activationRef = useRef(0);
   const pendingIdRef = useRef<string | null>(null);
   const dismissPendingIdRef = useRef<string | null>(null);
   const clearReadPendingRef = useRef(false);
@@ -98,6 +99,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   useEffect(() => {
     unreadRequest.current += 1;
     listRequest.current += 1;
+    activationRef.current += 1;
     setOpen(false);
     setUnreadCount(null);
     setItems([]);
@@ -174,6 +176,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }, [items, dismissPendingId, clearReadPending]);
 
   function close() {
+    activationRef.current += 1;
     setView('notifications');
     setOpen(false);
   }
@@ -202,12 +205,14 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
 
   async function activate(notification: InAppNotification) {
     if (pendingIdRef.current || dismissPendingIdRef.current || clearReadPendingRef.current) return;
+    const activation = activationRef.current;
     pendingIdRef.current = notification.id;
     setPendingId(notification.id);
     setActionError('');
     try {
       await markNotificationRead(notification.id);
       await Promise.all([loadUnread(), loadPage(null, false)]);
+      if (activation !== activationRef.current) return;
       close();
       navigate(notification.entity.type === 'job-card'
         ? `/jobs/${notification.entity.id}`
