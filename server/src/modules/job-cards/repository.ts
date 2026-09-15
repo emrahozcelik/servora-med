@@ -30,6 +30,11 @@ import {
   type ReferenceCustomer,
   type RelatedIdentity,
 } from './types.js';
+import {
+  currentOverduePredicateSql,
+  latenessSecondsSql,
+  overdueSinceSql,
+} from './overdue-contract.js';
 import type { Pool, PoolClient } from 'pg';
 import type { SqlExecutor } from '../../db/executor.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -628,6 +633,9 @@ type JobCardListRow = {
   assignee_name: string;
   delivery_item_count: number;
   source_job_card_id: string | null;
+  /** Selected only by the overdue list projection (see `listJobCards`). */
+  overdue_since?: Date | null;
+  lateness_seconds?: number | null;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -1088,6 +1096,21 @@ function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
       : { id: row.contact_id, name: row.contact_name! },
     assignee: { id: row.assignee_id, name: row.assignee_name },
     deliveryItemCount: Number(row.delivery_item_count),
+  };
+}
+
+/**
+ * The overdue list projection is the only surface that evaluates current
+ * lateness, so the derived snapshot is attached here and nowhere else. Both
+ * fields are absent (not null) on every other list surface.
+ */
+function mapOverdueJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
+  return {
+    ...mapJobCardListItem(row),
+    overdueSince: row.overdue_since ? row.overdue_since.toISOString() : null,
+    latenessSeconds: row.lateness_seconds === null || row.lateness_seconds === undefined
+      ? null
+      : Number(row.lateness_seconds),
   };
 }
 
@@ -2235,6 +2258,10 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
     let itemJoins = WORKSPACE_ITEM_JOINS;
     let clause = filter.clause;
     let values = filter.values;
+    let itemColumns = JOB_CARD_LIST_COLUMNS;
+    let order = query.status === 'WAITING_APPROVAL'
+      ? 'j.staff_completed_at ASC, j.id ASC'
+      : 'j.updated_at DESC, j.id DESC';
     if (query.overdue) {
       countJoins = `${WORKSPACE_JOINS}
   JOIN organizations o ON o.id = j.organization_id`;
@@ -2242,11 +2269,23 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
   JOIN organizations o ON o.id = j.organization_id`;
       const datePosition = values.length + 1;
       values = [...values, requestTime];
+      const refs = {
+        dueDate: 'j.due_date',
+        timezone: 'o.timezone',
+        requestTime: `$${datePosition}::timestamptz`,
+      };
       // Parse guarantees status is omitted or 'active'; workspaceWhere already
       // restricts to the five actionable statuses in that case.
       clause = `${filter.clause}
-    AND j.due_date IS NOT NULL
-    AND j.due_date < ($${datePosition}::timestamptz AT TIME ZONE o.timezone)::date`;
+    AND ${currentOverduePredicateSql(refs)}`;
+      // The overdue view is the only list surface that evaluates current
+      // lateness, so the derived columns are selected here and nowhere else.
+      itemColumns = `${JOB_CARD_LIST_COLUMNS},
+  ${overdueSinceSql(refs)} AS overdue_since,
+  ${latenessSecondsSql(refs)} AS lateness_seconds`;
+      // Every row in the view is late and shares one request instant, so the
+      // earliest `overdue_since` is also the largest lateness.
+      order = 'overdue_since ASC, j.id ASC';
     }
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
@@ -2256,11 +2295,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
     );
     const limitPosition = values.length + 1;
     const offsetPosition = values.length + 2;
-    const order = query.status === 'WAITING_APPROVAL'
-      ? 'j.staff_completed_at ASC, j.id ASC'
-      : 'j.updated_at DESC, j.id DESC';
     const items = await this.pool.query<JobCardListRow>(
-      `SELECT ${JOB_CARD_LIST_COLUMNS}
+      `SELECT ${itemColumns}
        ${itemJoins}
        WHERE ${clause}
        ORDER BY ${order}
@@ -2268,7 +2304,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       [...values, query.limit, query.offset],
     );
     return {
-      items: items.rows.map(mapJobCardListItem),
+      items: query.overdue
+        ? items.rows.map(mapOverdueJobCardListItem)
+        : items.rows.map(mapJobCardListItem),
       total: Number(count.rows[0]?.total ?? 0),
       limit: query.limit,
       offset: query.offset,

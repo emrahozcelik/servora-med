@@ -1,3 +1,5 @@
+import { formatWaitingMinutes } from '../ui/duration';
+
 /** Calendar helpers for report presets in a resolved organization timezone. */
 
 export type CalendarDay = { year: number; month: number; day: number };
@@ -79,10 +81,11 @@ export function formatRefreshTime(instant: Date, timeZone?: string | null) {
   }).format(instant);
 }
 
+/**
+ * Approval-queue waiting duration. Delegates to the shared duration authority
+ * so the arithmetic lives in exactly one place; the wording is unchanged
+ * ("25 saat" for 1500 minutes, with no day tier).
+ */
 export function formatWaitingDuration(minutes: number) {
-  if (minutes < 60) return `${minutes} dakika`;
-  const hours = Math.floor(minutes / 60);
-  const rem = minutes % 60;
-  if (rem === 0) return `${hours} saat`;
-  return `${hours} saat ${rem} dakika`;
+  return formatWaitingMinutes(minutes);
 }

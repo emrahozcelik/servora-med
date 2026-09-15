@@ -418,6 +418,18 @@ export type PersistedJobCardListItem = {
   contact: RelatedIdentity | null;
   assignee: RelatedIdentity;
   deliveryItemCount: number;
+  /**
+   * Derived current-overdue snapshot. Both fields are present ONLY on the
+   * server-owned overdue list view (`overdue=true`), which is the single
+   * surface that evaluates lateness; they are absent everywhere else.
+   *
+   * `overdueSince` is the first instant of lateness — the organization-local
+   * midnight immediately after `due_date` — and `latenessSeconds` is the whole
+   * number of seconds elapsed since then, measured from the request clock.
+   * Neither is stored: overdue stays a derived condition, never a status.
+   */
+  overdueSince?: string | null;
+  latenessSeconds?: number | null;
 };
 
 export type JobCardListItem = PersistedJobCardListItem & {
