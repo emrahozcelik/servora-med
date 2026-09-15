@@ -1207,50 +1207,57 @@ button:disabled { cursor: wait; opacity: 0.65; }
   gap: 0.75rem;
   min-width: 0;
 }
+.notification-center-heading-main--notifications {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
 /* Short, fixed label: it must never be hyphenated or split inside a word. */
 .notification-center-heading-main > h2 {
   min-width: 0;
   flex: 1 1 auto;
   overflow-wrap: normal;
 }
+.notification-center-heading-main--notifications > h2 {
+  grid-column: 2;
+  justify-self: center;
+  text-align: center;
+}
 .notification-center-heading-main .drawer-close {
   flex: 0 0 auto;
+}
+.notification-center-heading-main--notifications .drawer-close {
+  grid-column: 3;
+  justify-self: end;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 0;
+}
+.notification-center-heading-main--notifications .drawer-close svg {
+  max-width: 100%;
 }
 .notification-center-heading-main .drawer-close svg {
   width: 1rem;
   height: 1rem;
 }
 .notification-center-bulk-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  justify-content: flex-end;
   gap: 0.35rem;
   min-width: 0;
 }
+.notification-center-bulk-actions button {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
 .notification-center-clear-read {
+  width: 100%;
   min-width: 0;
   min-height: var(--control-height);
-  padding: 0.45rem 0.55rem;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  color: var(--accent-hover);
-  background: transparent;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-.notification-center-clear-read:hover:not(:disabled),
-.notification-center-clear-read:focus-visible {
-  border-color: var(--rule);
-  background: var(--canvas);
-}
-.notification-center-clear-read:disabled {
-  color: var(--muted);
-  cursor: not-allowed;
 }
 /* Very narrow panels: stack the bulk actions so both controls stay comfortably tappable. */
 @media (max-width: 22rem) {
@@ -1258,7 +1265,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
-  .notification-center-clear-read { text-align: center; }
 }
 .notification-center-body {
   display: grid;
