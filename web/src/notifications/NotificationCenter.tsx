@@ -323,7 +323,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
         onKeyDown={handleKeyDown}
       >
         <div className="notification-center-heading">
-          <div className="notification-center-heading-main">
+          <div className={`notification-center-heading-main${view === 'notifications' ? ' notification-center-heading-main--notifications' : ''}`}>
             <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
             <button ref={closeRef} type="button" className="drawer-close" aria-label="Bildirimleri kapat" onClick={close}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -336,7 +336,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
               <button
                 type="button"
                 data-clear-read
-                className="notification-center-clear-read"
+                className="secondary-button notification-center-clear-read"
                 disabled={
                   clearReadPending
                   || clearAllPending

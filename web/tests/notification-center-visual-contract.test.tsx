@@ -175,6 +175,7 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     expect(dismiss).toMatch(/min-height:\s*var\(--control-height\)/);
     const clearRead = exactRuleBody(stylesCss, '.notification-center-clear-read');
     expect(clearRead).toMatch(/min-height:\s*var\(--control-height\)/);
+    expect(clearRead).not.toMatch(/border:\s*1px solid transparent/);
 
     expect(stylesCss).not.toMatch(/0 1rem 2\.5rem oklch\(26% 0\.016 246deg \/ 22%\)/);
   });
@@ -189,11 +190,13 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     const bulk = heading.querySelector<HTMLElement>('.notification-center-bulk-actions')!;
 
     expect(main.querySelector('h2')?.textContent).toBe('Bildirimler');
+    expect(main.className).toContain('notification-center-heading-main--notifications');
     const close = main.querySelector<HTMLButtonElement>('.drawer-close')!;
     expect(close.getAttribute('aria-label')).toBe('Bildirimleri kapat');
     expect(close.querySelector('svg')).not.toBeNull();
 
     expect(bulk.querySelector('[data-clear-read]')?.textContent).toBe('Okunanları temizle');
+    expect(bulk.querySelector('[data-clear-read]')?.className).toContain('secondary-button');
     expect(Array.from(bulk.querySelectorAll('button')).map((button) => button.textContent))
       .toContain('Tümünü temizle');
 
@@ -214,6 +217,7 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     const bulk = panel.querySelector<HTMLElement>('.notification-center-bulk-actions')!;
 
     expect(main.querySelector('h2')?.textContent).toBe('Bildirimler');
+    expect(main.className).toContain('notification-center-heading-main--notifications');
     expect(main.querySelector('.drawer-close')).not.toBeNull();
     expect(bulk.querySelector('[data-clear-read]')).not.toBeNull();
     expect(Array.from(bulk.querySelectorAll('button')).map((button) => button.textContent))
@@ -227,15 +231,36 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     expect(heading).not.toMatch(/display:\s*flex/);
     expect(heading).toMatch(/border-bottom:\s*1px solid var\(--rule\)/);
 
-    expect(exactRuleBody(stylesCss, '.notification-center-heading-main'))
-      .toMatch(/justify-content:\s*space-between/);
+    const notificationsMain = exactRuleBody(stylesCss, '.notification-center-heading-main--notifications');
+    expect(notificationsMain).toMatch(/display:\s*grid/);
+    expect(notificationsMain).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+minmax\(0,\s*1fr\)/);
+
+    const centeredTitle = exactRuleBody(stylesCss, '.notification-center-heading-main--notifications > h2');
+    expect(centeredTitle).toMatch(/grid-column:\s*2/);
+    expect(centeredTitle).toMatch(/justify-self:\s*center/);
+    expect(centeredTitle).toMatch(/text-align:\s*center/);
+
+    const notificationsClose = exactRuleBody(stylesCss, '.notification-center-heading-main--notifications .drawer-close');
+    expect(notificationsClose).toMatch(/grid-column:\s*3/);
+    expect(notificationsClose).toMatch(/justify-self:\s*end/);
+    expect(notificationsClose).toMatch(/width:\s*100%/);
+    expect(notificationsClose).toMatch(/min-width:\s*0/);
 
     const title = exactRuleBody(stylesCss, '.notification-center-heading-main > h2');
     expect(title).toMatch(/overflow-wrap:\s*normal/);
     expect(title).not.toMatch(/anywhere/);
 
-    expect(exactRuleBody(stylesCss, '.notification-center-bulk-actions'))
-      .toMatch(/justify-content:\s*flex-end/);
+    const bulk = exactRuleBody(stylesCss, '.notification-center-bulk-actions');
+    expect(bulk).toMatch(/display:\s*grid/);
+    expect(bulk).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    expect(bulk).toMatch(/gap:\s*0\.35rem/);
+    expect(exactRuleBody(stylesCss, '.notification-center-bulk-actions button'))
+      .toMatch(/white-space:\s*nowrap/);
+
+    const clearRead = exactRuleBody(stylesCss, '.notification-center-clear-read');
+    expect(clearRead).toMatch(/width:\s*100%/);
+    expect(clearRead).toMatch(/min-width:\s*0/);
+    expect(clearRead).not.toMatch(/border:\s*1px solid transparent/);
 
     // The old single shared row is gone: close and bulk actions no longer share a container.
     expect(stylesCss).not.toMatch(/\.notification-center-heading-actions/);

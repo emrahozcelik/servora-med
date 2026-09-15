@@ -309,8 +309,32 @@ async function measure(page) {
     ));
     const notificationHeading = notificationPanel?.querySelector('.notification-center-heading h2');
     const notificationClose = notificationPanel?.querySelector('.notification-center-heading .drawer-close');
+    const notificationHeadingMain = notificationPanel?.querySelector('.notification-center-heading-main');
+    const notificationBulkActions = notificationPanel?.querySelector('.notification-center-bulk-actions');
+    const notificationClearRead = notificationPanel?.querySelector('[data-clear-read]');
+    const notificationClearAll = [...(notificationBulkActions?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent?.includes('Tümünü temizle'));
     const notificationHeadingRect = notificationHeading?.getBoundingClientRect();
     const notificationCloseRect = notificationClose?.getBoundingClientRect();
+    const notificationHeadingMainRect = notificationHeadingMain?.getBoundingClientRect();
+    const notificationBulkRect = notificationBulkActions?.getBoundingClientRect();
+    const notificationClearReadRect = notificationClearRead?.getBoundingClientRect();
+    const notificationClearAllRect = notificationClearAll?.getBoundingClientRect();
+    const notificationHeadingCenterDelta = notificationPanelRect && notificationHeadingRect
+      ? Math.abs(
+        (notificationHeadingRect.left + notificationHeadingRect.width / 2)
+        - (notificationPanelRect.left + notificationPanelRect.width / 2),
+      )
+      : Number.POSITIVE_INFINITY;
+    const notificationBulkButtonWidthDelta = notificationClearReadRect && notificationClearAllRect
+      ? Math.abs(notificationClearReadRect.width - notificationClearAllRect.width)
+      : Number.POSITIVE_INFINITY;
+    const notificationBulkButtonHeightDelta = notificationClearReadRect && notificationClearAllRect
+      ? Math.abs(notificationClearReadRect.height - notificationClearAllRect.height)
+      : Number.POSITIVE_INFINITY;
+    const notificationBulkButtonsStacked = notificationClearReadRect && notificationClearAllRect
+      ? notificationClearAllRect.top > notificationClearReadRect.bottom - 1
+      : false;
     const notificationItem = notificationPanel?.querySelector('.notification-center-item');
     const notificationItemRect = notificationItem?.getBoundingClientRect();
     const notificationRowOverflow = Boolean(notificationItem && (
@@ -899,6 +923,16 @@ async function measure(page) {
       notificationOverflow,
       notificationPanelContract,
       notificationHeadingWidth: notificationHeadingRect?.width ?? 0,
+      notificationHeadingCenterDelta,
+      notificationBulkButtonWidthDelta,
+      notificationBulkButtonHeightDelta,
+      notificationBulkButtonsStacked,
+      notificationClearReadBorder: notificationClearRead
+        ? getComputedStyle(notificationClearRead).borderTopStyle !== 'none'
+          && getComputedStyle(notificationClearRead).borderTopWidth !== '0px'
+        : false,
+      notificationBulkTop: notificationBulkRect?.top ?? 0,
+      notificationHeadingMainBottom: notificationHeadingMainRect?.bottom ?? 0,
       notificationHeadingCloseClear,
       notificationRowOverflow,
       notificationPanelHOverflow,
@@ -1341,6 +1375,27 @@ try {
         + ` rowOvf=${m.notificationRowOverflow}`
         + ` panelHOvf=${m.notificationPanelHOverflow}`,
       );
+    }
+    if ([390, 1024, 1440].includes(vp.width)) {
+      if (m.notificationHeadingCenterDelta > 2) {
+        failures.push(`${vp.name}: notification title is not panel-centered (delta=${m.notificationHeadingCenterDelta})`);
+      }
+      if (m.notificationBulkButtonWidthDelta > 1 || m.notificationBulkButtonHeightDelta > 1) {
+        failures.push(
+          `${vp.name}: notification bulk buttons are not equal`
+          + ` widthDelta=${m.notificationBulkButtonWidthDelta}`
+          + ` heightDelta=${m.notificationBulkButtonHeightDelta}`,
+        );
+      }
+      if (!m.notificationClearReadBorder) {
+        failures.push(`${vp.name}: clear-read button has no visible border`);
+      }
+      if (!(m.notificationHeadingMainBottom < m.notificationBulkTop)) {
+        failures.push(`${vp.name}: notification bulk actions overlap title row`);
+      }
+    }
+    if (vp.width <= 320 && !m.notificationBulkButtonsStacked) {
+      failures.push(`${vp.name}: notification bulk buttons must stack at narrow width`);
     }
     if (!m.topbarContract) failures.push(`${vp.name}: branding topbar contract failure`);
     if (vp.width < 1024 && !m.mobileChromeContract) {
