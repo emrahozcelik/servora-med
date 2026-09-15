@@ -4,6 +4,7 @@ import {
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
+import { markNotificationsReadByEntity } from './services/notifications-api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, getFollowUpSuggestion, getJobCard,
   getMeetingDetails, listDeliveryItems,
@@ -1090,7 +1091,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
     loadJobDetail(jobId)
-      .then((detail) => { if (active) setState({ kind: 'ready', detail }); })
+      .then((detail) => {
+        if (!active) return;
+        setState({ kind: 'ready', detail });
+        // Entity-view notification reconciliation is a secondary consistency
+        // side effect: it must never fail the successfully loaded job view.
+        markNotificationsReadByEntity('job-card', jobId).catch(() => {});
+      })
       .catch((error) => {
         if (active) {
           setState({

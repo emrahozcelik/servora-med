@@ -1,7 +1,7 @@
 import { AppError } from '../../errors/index.js';
 import type { NotificationListQuery, NotificationRepository } from './repository.js';
 import { presentNotification } from './presenter.js';
-import type { NotificationViewer } from './types.js';
+import type { NotificationEntityType, NotificationViewer } from './types.js';
 
 export class NotificationService {
   constructor(private readonly repository: NotificationRepository) {}
@@ -24,6 +24,15 @@ export class NotificationService {
       throw new AppError('NOTIFICATION_NOT_FOUND', 404, 'Bildirim bulunamadı.');
     }
     return presentNotification(notification);
+  }
+
+  async markReadByEntity(
+    viewer: NotificationViewer,
+    entityType: NotificationEntityType,
+    entityId: string,
+  ) {
+    const markedCount = await this.repository.markReadByEntity(viewer, entityType, entityId);
+    return { markedCount };
   }
 
   async dismiss(viewer: NotificationViewer, notificationId: string) {

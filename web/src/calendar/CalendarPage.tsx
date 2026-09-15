@@ -12,6 +12,7 @@ import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { ApiError, CurrentUser } from '../services/api';
+import { markNotificationsReadByEntity } from '../services/notifications-api';
 import { intervalIntersectsLocalDay } from './calendar-date';
 import {
   cancelManualEvent,
@@ -657,11 +658,16 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   useEffect(() => {
     if (!selectedEventId) return;
     let active = true;
-    void getCalendarEvent(selectedEventId).then((selected) => {
+    const eventId = selectedEventId;
+    void getCalendarEvent(eventId).then((selected) => {
       if (!active) return;
       const d = new Date(selected.startsAt);
       setMonth(new Date(d.getFullYear(), d.getMonth(), 1));
       setSelectedDate(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+      // Entity-view notification reconciliation: the event resolved for the viewer
+      // and owns the selection. Never fails the calendar; never fires for failed
+      // or superseded resolutions.
+      markNotificationsReadByEntity('calendar-event', eventId).catch(() => {});
     }).catch(() => {
       // Event unavailable — calendar remains usable.
     });

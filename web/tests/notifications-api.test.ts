@@ -6,6 +6,7 @@ import {
   getUnreadNotificationCount,
   listNotifications,
   markNotificationRead,
+  markNotificationsReadByEntity,
   parseNotificationPage,
 } from '../src/services/notifications-api';
 
@@ -82,6 +83,28 @@ describe('Notification API transport', () => {
       '/api/notifications/clear-read',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
+  });
+
+  it('marks viewer-entity notifications read through the bulk endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(markNotificationsReadByEntity(
+      'conversation', '22222222-2222-4222-8222-222222222222',
+    )).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/notifications/read-by-entity',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({
+          entityType: 'conversation',
+          entityId: '22222222-2222-4222-8222-222222222222',
+        }),
+      }),
+    );
+    const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+    expect(headers['content-type']).toBe('application/json');
   });
 
   it.each([

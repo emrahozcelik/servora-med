@@ -21,13 +21,21 @@ export const NOTIFICATION_KINDS = [
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
+export const NOTIFICATION_ENTITY_TYPES = [
+  'job-card',
+  'calendar-event',
+  'conversation',
+] as const;
+
+export type NotificationEntityType = (typeof NOTIFICATION_ENTITY_TYPES)[number];
+
 export type NotificationRecord = Readonly<{
   id: string;
   organizationId: string;
   recipientUserId: string;
   sourceRealtimeEventId: bigint;
   kind: NotificationKind;
-  entityType: 'job-card' | 'calendar-event' | 'conversation';
+  entityType: NotificationEntityType;
   entityId: string;
   createdAt: Date;
   readAt: Date | null;
@@ -46,7 +54,7 @@ export type NotificationPage = Readonly<{
 export type NotificationDraft = Readonly<{
   recipientUserId: string;
   kind: NotificationKind;
-  entityType: 'job-card' | 'calendar-event' | 'conversation';
+  entityType: NotificationEntityType;
   entityId: string;
 }>;
 

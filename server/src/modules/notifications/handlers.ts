@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import type { NotificationService } from './service.js';
-import type { NotificationCursor } from './types.js';
+import { NOTIFICATION_ENTITY_TYPES, type NotificationCursor, type NotificationEntityType } from './types.js';
 
 const LIST_FIELDS = ['limit', 'cursor'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -72,6 +72,27 @@ function notificationId(request: FastifyRequest) {
   return value;
 }
 
+function readByEntityInput(request: FastifyRequest): {
+  entityType: NotificationEntityType; entityId: string;
+} {
+  const value = request.body;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Geçerli bir istek gövdesi gönderin.');
+  }
+  const body = value as Record<string, unknown>;
+  const unknown = Object.keys(body).find((key) => key !== 'entityType' && key !== 'entityId');
+  if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
+  const { entityType, entityId } = body;
+  if (typeof entityType !== 'string'
+    || !(NOTIFICATION_ENTITY_TYPES as readonly string[]).includes(entityType)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Bildirim varlık türü geçersizdir.');
+  }
+  if (typeof entityId !== 'string' || !UUID.test(entityId)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Bildirim varlık kimliği geçersizdir.');
+  }
+  return { entityType: entityType as NotificationEntityType, entityId };
+}
+
 function viewer(request: FastifyRequest) {
   const user = request.currentUser!;
   return { organizationId: user.organizationId, userId: user.id };
@@ -85,6 +106,11 @@ export function createNotificationHandlers(service: NotificationService) {
       return { ...response, nextCursor: encodeCursor(response.nextCursor) };
     },
     markRead: (request: FastifyRequest) => service.markRead(viewer(request), notificationId(request)),
+    markReadByEntity: async (request: FastifyRequest, reply: FastifyReply) => {
+      const input = readByEntityInput(request);
+      await service.markReadByEntity(viewer(request), input.entityType, input.entityId);
+      return reply.code(204).send();
+    },
     dismiss: async (request: FastifyRequest, reply: FastifyReply) => {
       await service.dismiss(viewer(request), notificationId(request));
       return reply.code(204).send();
