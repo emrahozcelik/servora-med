@@ -186,11 +186,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store: new PostgresMigrationStore(pool),
       });
-      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash']);
+      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(45);
-      expect(catalog.head?.version).toBe('045_calendar_request_hash');
+      expect(catalog.count).toBe(46);
+      expect(catalog.head?.version).toBe('046_notification_state_realtime');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');
       expect(after.rows[0]!.count).toBe('1');
@@ -711,7 +711,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
 
   // Fresh-database restore path (CREATE DATABASE + full migrate + DROP DATABASE)
   // is fsync-sensitive on shared CI runners; explicit budget (5s default flaked once).
-  it('restore validation accepts a 044 database with consistent facts', async () => {
+  it('restore validation accepts a 046 database with consistent facts', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const database = `f2restore_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     let pool: Pool | null = null;
@@ -733,10 +733,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await service.start(staffA, job.id, { clientActionId: randomUUID(), expectedVersion: job.version });
 
       const manifest = {
-        database: { schemaVersion: '045_calendar_request_hash' },
+        database: { schemaVersion: '046_notification_state_realtime' },
       } as unknown as RestoreManifestV1;
       const evidence = await validateRestoredDatabase(url.toString(), manifest);
-      expect(evidence.schemaVersion).toBe('045_calendar_request_hash');
+      expect(evidence.schemaVersion).toBe('046_notification_state_realtime');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
     } finally {

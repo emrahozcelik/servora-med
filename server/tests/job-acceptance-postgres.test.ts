@@ -189,6 +189,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '043_job_card_schedule_and_assignment_history',
           '044_job_card_accountability_facts',
           '045_calendar_request_hash',
+          '046_notification_state_realtime',
         ],
       });
 

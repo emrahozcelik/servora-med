@@ -74,10 +74,10 @@ function createMockLogger() {
 }
 
 describe('SD2 catalog source', () => {
-  it('derives expected head from catalog as 045', async () => {
+  it('derives expected head from catalog as 046', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.head?.version).toBe('045_calendar_request_hash');
-    expect(catalog.count).toBe(45);
+    expect(catalog.head?.version).toBe('046_notification_state_realtime');
+    expect(catalog.count).toBe(46);
     expect(catalog.entries[0]?.version).toBe('001_auth_foundation');
   });
 
@@ -86,7 +86,7 @@ describe('SD2 catalog source', () => {
     // In worktree src context, it should be src/db/migrations
     expect(dir).toMatch(/\/db\/migrations$/);
     const catalog = await loadMigrationCatalog(dir);
-    expect(catalog.count).toBe(45);
+    expect(catalog.count).toBe(46);
   });
 
   it('dist migrations are copied and resolvable', async () => {
@@ -94,8 +94,8 @@ describe('SD2 catalog source', () => {
     const { existsSync } = await import('node:fs');
     if (!existsSync(distMigrationsDirectory)) return;
     const catalog = await loadMigrationCatalog(distMigrationsDirectory);
-    expect(catalog.head?.version).toBe('045_calendar_request_hash');
-    expect(catalog.count).toBe(45);
+    expect(catalog.head?.version).toBe('046_notification_state_realtime');
+    expect(catalog.count).toBe(46);
   });
 });
 
@@ -104,11 +104,11 @@ describe('SD2 HEALTH_SCHEMA_VERSION assertion', () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(getHealthSchemaVersionMismatchError(catalog, null)).toBeNull();
   });
-  it('045 matches head', async () => {
+  it('046 matches head', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(getHealthSchemaVersionMismatchError(
       catalog,
-      '045_calendar_request_hash',
+      '046_notification_state_realtime',
     )).toBeNull();
   });
   it('036 mismatches', async () => {
@@ -133,9 +133,9 @@ describe('SD2 startup fail-fast', () => {
     const { logger, logs } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/incompatibility: BEHIND/);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
-      expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash']);
+      expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime']);
   });
-  it('BEHIND many (029 incident) refused with 9 pending', async () => {
+  it('BEHIND many (029 incident) refused with 10 pending', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     const applied = catalog.entries.filter((e) => e.number <= 29).map((e) => e.version);
     const pool = mockPool(applied);
@@ -159,6 +159,7 @@ describe('SD2 startup fail-fast', () => {
       '043_job_card_schedule_and_assignment_history',
       '044_job_card_accountability_facts',
       '045_calendar_request_hash',
+      '046_notification_state_realtime',
     ]);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
     expect(JSON.stringify(logs)).not.toMatch(/postgres/i);
@@ -169,9 +170,9 @@ describe('SD2 startup fail-fast', () => {
     const { logger } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/EMPTY/);
   });
-  it('AHEAD with 046_future refused', async () => {
+  it('AHEAD with 047_future refused', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const pool = mockPool([...catalog.entries.map((e) => e.version), '046_future']);
+    const pool = mockPool([...catalog.entries.map((e) => e.version), '047_future']);
     const { logger, logs } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/AHEAD/);
     expect(logs[0]?.msg).toMatch(/newer than this application release/);
@@ -277,7 +278,7 @@ describe('SD2 readiness matrix', () => {
   });
   it('AHEAD → 503', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const r = await healthStatusFor([...catalog.entries.map((e) => e.version), '046_future']);
+    const r = await healthStatusFor([...catalog.entries.map((e) => e.version), '047_future']);
     expect(r.statusCode).toBe(503);
   });
   it('DIVERGED → 503', async () => {
@@ -385,12 +386,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SD2 disposable postgres accepta
     });
   });
 
-  it('E: AHEAD synthetic 046_future refused', async () => {
+  it('E: AHEAD synthetic 047_future refused', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(migrationsDirectory);
       const store = new PostgresMigrationStore(pool);
       await runMigrations({ migrationsDirectory, store });
-      await pool.query("INSERT INTO schema_migrations (version) VALUES ('046_future')");
+      await pool.query("INSERT INTO schema_migrations (version) VALUES ('047_future')");
       await expect(assertStartupSchemaCompatible({ pool, catalog })).rejects.toThrow(/AHEAD/);
       const readiness = createPostgresReadiness(pool as never, catalog as never);
       await expect(readiness.check()).resolves.toBe('unavailable');
