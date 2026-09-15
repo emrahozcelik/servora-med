@@ -38,6 +38,7 @@ export interface NotificationRepository {
   ): Promise<number>;
   dismiss(viewer: NotificationViewer, notificationId: string): Promise<boolean>;
   clearRead(viewer: NotificationViewer): Promise<number>;
+  clearAll(viewer: NotificationViewer): Promise<number>;
 }
 
 function mapNotification(row: NotificationRow): NotificationRecord {
@@ -102,7 +103,8 @@ export class PostgresNotificationRepository implements NotificationRepository {
          FROM in_app_notifications
         WHERE organization_id = $1
           AND recipient_user_id = $2
-          AND read_at IS NULL`,
+          AND read_at IS NULL
+          AND dismissed_at IS NULL`,
       [viewer.organizationId, viewer.userId],
     );
     return result.rows[0]?.unread_count ?? 0;
@@ -220,18 +222,39 @@ export class PostgresNotificationRepository implements NotificationRepository {
     return Number(result.rows[0]?.marked_count ?? '0');
   }
 
+  /**
+   * Dismiss covers read and unread notifications alike: read_at is never
+   * touched, so an unread dismissal stays historically unread. Newly dismissed
+   * rows abandon their PENDING push deliveries with a DISMISSED reason inside
+   * the same statement (READ would lie while read_at remains NULL).
+   */
   async dismiss(
     viewer: NotificationViewer,
     notificationId: string,
   ): Promise<boolean> {
     const result = await this.pool.query<{ id: string }>(
-      `UPDATE in_app_notifications
-          SET dismissed_at = COALESCE(dismissed_at, NOW())
-        WHERE organization_id = $1
-          AND recipient_user_id = $2
-          AND id = $3
-          AND read_at IS NOT NULL
-       RETURNING id`,
+      `WITH updated AS (
+         UPDATE in_app_notifications
+            SET dismissed_at = COALESCE(dismissed_at, NOW())
+          WHERE organization_id = $1
+            AND recipient_user_id = $2
+            AND id = $3
+         RETURNING id, organization_id
+       ),
+       abandoned AS (
+         UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                last_error_code = 'DISMISSED',
+                abandoned_at = NOW(),
+                updated_at = NOW()
+           FROM updated
+          WHERE web_push_deliveries.organization_id = updated.organization_id
+            AND web_push_deliveries.notification_id = updated.id
+            AND web_push_deliveries.state = 'PENDING'
+       )
+       SELECT id FROM updated`,
       [viewer.organizationId, viewer.userId, notificationId],
     );
     return result.rows.length > 0;
@@ -249,5 +272,40 @@ export class PostgresNotificationRepository implements NotificationRepository {
       [viewer.organizationId, viewer.userId],
     );
     return result.rows.length;
+  }
+
+  /**
+   * Global viewer clear: soft-dismisses every non-dismissed notification,
+   * read or unread. read_at is preserved, so unread rows stay historically
+   * unread. PENDING pushes of newly dismissed rows are abandoned atomically.
+   */
+  async clearAll(viewer: NotificationViewer): Promise<number> {
+    const result = await this.pool.query<{ cleared_count: string }>(
+      `WITH updated AS (
+         UPDATE in_app_notifications
+            SET dismissed_at = COALESCE(dismissed_at, NOW())
+          WHERE organization_id = $1
+            AND recipient_user_id = $2
+            AND dismissed_at IS NULL
+         RETURNING id, organization_id
+       ),
+       abandoned AS (
+         UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                last_error_code = 'DISMISSED',
+                abandoned_at = NOW(),
+                updated_at = NOW()
+           FROM updated
+          WHERE web_push_deliveries.organization_id = updated.organization_id
+            AND web_push_deliveries.notification_id = updated.id
+            AND web_push_deliveries.state = 'PENDING'
+       )
+       SELECT COUNT(*)::text AS cleared_count
+         FROM updated`,
+      [viewer.organizationId, viewer.userId],
+    );
+    return Number(result.rows[0]?.cleared_count ?? '0');
   }
 }

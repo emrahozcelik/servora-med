@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useInstallOpportunity } from '../install/InstallOpportunity';
 import {
+  clearAllNotifications,
   clearReadNotifications,
   dismissNotification,
   getUnreadNotificationCount,
@@ -17,6 +18,7 @@ import {
   type InAppNotification,
 } from '../services/notifications-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import { CompactConfirmationAction } from '../ui/antd';
 import { restoreFocus, trapTabKey } from '../ui/antd/overlay-focus';
 import { useWebPush } from '../web-push/WebPushProvider';
 
@@ -51,6 +53,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const pendingIdRef = useRef<string | null>(null);
   const dismissPendingIdRef = useRef<string | null>(null);
   const clearReadPendingRef = useRef(false);
+  const clearAllPendingRef = useRef(false);
   const focusNotificationIdRef = useRef<string | null>(null);
   const restoreNotificationFocusRef = useRef(false);
   const [open, setOpen] = useState(false);
@@ -62,6 +65,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [dismissPendingId, setDismissPendingId] = useState<string | null>(null);
   const [clearReadPending, setClearReadPending] = useState(false);
+  const [clearAllPending, setClearAllPending] = useState(false);
   const [actionError, setActionError] = useState('');
   const [view, setView] = useState<'notifications' | 'settings'>('notifications');
   const [installPending, setInstallPending] = useState(false);
@@ -69,6 +73,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const install = useInstallOpportunity();
   const webPush = useWebPush();
   const canClearRead = items.some((notification) => notification.readAt !== null) || nextCursor !== null;
+  const canClearAll = items.length > 0 || nextCursor !== null;
 
   async function loadUnread() {
     const request = ++unreadRequest.current;
@@ -112,6 +117,8 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     dismissPendingIdRef.current = null;
     setClearReadPending(false);
     clearReadPendingRef.current = false;
+    setClearAllPending(false);
+    clearAllPendingRef.current = false;
     focusNotificationIdRef.current = null;
     restoreNotificationFocusRef.current = false;
     setActionError('');
@@ -164,7 +171,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }, [open]);
 
   useEffect(() => {
-    if (!restoreNotificationFocusRef.current || dismissPendingId !== null || clearReadPending) return;
+    if (!restoreNotificationFocusRef.current || dismissPendingId !== null || clearReadPending || clearAllPending) return;
     const targetId = focusNotificationIdRef.current;
     const target = Array.from(
       panelRef.current?.querySelectorAll<HTMLButtonElement>('[data-notification-id]') ?? [],
@@ -173,7 +180,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     focusNotificationIdRef.current = null;
     restoreNotificationFocusRef.current = false;
     (target ?? closeRef.current)?.focus();
-  }, [items, dismissPendingId, clearReadPending]);
+  }, [items, dismissPendingId, clearReadPending, clearAllPending]);
 
   function close() {
     activationRef.current += 1;
@@ -204,7 +211,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }
 
   async function activate(notification: InAppNotification) {
-    if (pendingIdRef.current || dismissPendingIdRef.current || clearReadPendingRef.current) return;
+    if (pendingIdRef.current || dismissPendingIdRef.current || clearReadPendingRef.current || clearAllPendingRef.current) return;
     const activation = activationRef.current;
     pendingIdRef.current = notification.id;
     setPendingId(notification.id);
@@ -229,10 +236,10 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
 
   async function dismiss(notification: InAppNotification) {
     if (
-      !notification.readAt
-      || pendingIdRef.current
+      pendingIdRef.current
       || dismissPendingIdRef.current
       || clearReadPendingRef.current
+      || clearAllPendingRef.current
     ) return;
     const index = items.findIndex((item) => item.id === notification.id);
     focusNotificationIdRef.current = items[index + 1]?.id ?? items[index - 1]?.id ?? null;
@@ -256,6 +263,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   async function clearRead() {
     if (
       clearReadPendingRef.current
+      || clearAllPendingRef.current
       || pendingIdRef.current
       || dismissPendingIdRef.current
       || !canClearRead
@@ -271,6 +279,29 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     } finally {
       clearReadPendingRef.current = false;
       setClearReadPending(false);
+    }
+  }
+
+  async function clearAll() {
+    if (
+      clearAllPendingRef.current
+      || clearReadPendingRef.current
+      || pendingIdRef.current
+      || dismissPendingIdRef.current
+      || !canClearAll
+    ) return;
+    clearAllPendingRef.current = true;
+    setClearAllPending(true);
+    setActionError('');
+    try {
+      await clearAllNotifications();
+      await Promise.all([loadUnread(), loadPage(null, false)]);
+      if (openRef.current) closeRef.current?.focus();
+    } catch (caught) {
+      setActionError(message(caught, 'Bildirimler temizlenemedi. Lütfen tekrar deneyin.'));
+    } finally {
+      clearAllPendingRef.current = false;
+      setClearAllPending(false);
     }
   }
 
@@ -294,7 +325,11 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
         <div className="notification-center-heading">
           <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
           <div className="notification-center-heading-actions">
-            <button ref={closeRef} type="button" className="drawer-close" onClick={close}>Kapat</button>
+            <button ref={closeRef} type="button" className="drawer-close" aria-label="Bildirimleri kapat" onClick={close}>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
             {view === 'notifications' && (
               <button
                 type="button"
@@ -302,6 +337,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                 className="notification-center-clear-read"
                 disabled={
                   clearReadPending
+                  || clearAllPending
                   || pendingId !== null
                   || dismissPendingId !== null
                   || !canClearRead
@@ -311,6 +347,22 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
               >
                 {clearReadPending ? 'Temizleniyor…' : 'Okunanları temizle'}
               </button>
+            )}
+            {view === 'notifications' && (
+              <CompactConfirmationAction
+                title="Tüm bildirimler temizlensin mi?"
+                description="Okunmamış bildirimler de Bildirim Merkezi'nden kaldırılır."
+                triggerLabel="Tümünü temizle"
+                confirmLabel="Temizle"
+                pending={clearAllPending}
+                disabled={
+                  pendingId !== null
+                  || dismissPendingId !== null
+                  || clearReadPending
+                  || !canClearAll
+                }
+                onConfirm={() => void clearAll()}
+              />
             )}
           </div>
         </div>
@@ -458,7 +510,8 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                 {items.map((notification) => {
                   const pending = pendingId === notification.id
                     || dismissPendingId !== null
-                    || clearReadPending;
+                    || clearReadPending
+                    || clearAllPending;
                   const readState = notification.readAt
                     ? 'notification-center-item--read'
                     : 'notification-center-item--unread';
@@ -480,28 +533,27 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                           <span>{notification.readAt ? 'Okundu' : 'Okunmadı'}</span>
                         </span>
                       </button>
-                      {notification.readAt && (
-                        <button
-                          type="button"
-                          data-dismiss-notification-id={notification.id}
-                          className="notification-center-dismiss"
-                          aria-label="Bildirimi temizle"
-                          aria-busy={dismissPendingId === notification.id}
-                          disabled={
-                            dismissPendingId !== null
-                            || pendingId !== null
-                            || clearReadPending
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void dismiss(notification);
-                          }}
-                        >
-                          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                            <path d="M6 6l12 12M18 6L6 18" />
-                          </svg>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        data-dismiss-notification-id={notification.id}
+                        className="notification-center-dismiss"
+                        aria-label="Bildirimi temizle"
+                        aria-busy={dismissPendingId === notification.id}
+                        disabled={
+                          dismissPendingId !== null
+                          || pendingId !== null
+                          || clearReadPending
+                          || clearAllPending
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void dismiss(notification);
+                        }}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
                     </li>
                   );
                 })}

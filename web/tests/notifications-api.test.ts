@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  clearAllNotifications,
   clearReadNotifications,
   dismissNotification,
   getUnreadNotificationCount,
@@ -73,6 +74,7 @@ describe('Notification API transport', () => {
 
     await expect(dismissNotification('notification-1')).resolves.toBeUndefined();
     await expect(clearReadNotifications()).resolves.toBeUndefined();
+    await expect(clearAllNotifications()).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       '/api/notifications/notification-1/dismiss',
@@ -81,6 +83,11 @@ describe('Notification API transport', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       '/api/notifications/clear-read',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/notifications/clear-all',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
   });

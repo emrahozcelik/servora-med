@@ -95,7 +95,7 @@ class MemoryNotificationRepository implements NotificationRepository {
   async dismiss(viewer: { organizationId: string; userId: string }, notificationId: string) {
     const record = this.records.find((item) => item.id === notificationId);
     if (!record || record.organizationId !== viewer.organizationId
-      || record.recipientUserId !== viewer.userId || !record.readAt) return false;
+      || record.recipientUserId !== viewer.userId) return false;
     if (!this.dismissed.includes(notificationId)) this.dismissed.push(notificationId);
     return true;
   }
@@ -106,6 +106,19 @@ class MemoryNotificationRepository implements NotificationRepository {
         && item.recipientUserId === viewer.userId && item.readAt)
       .map((item) => item.id);
     for (const id of ids) if (!this.dismissed.includes(id)) this.dismissed.push(id);
+    return ids.length;
+  }
+
+  clearedAll: Array<{ organizationId: string; userId: string }> = [];
+
+  async clearAll(viewer: { organizationId: string; userId: string }) {
+    this.clearedAll.push({ organizationId: viewer.organizationId, userId: viewer.userId });
+    const ids = this.records
+      .filter((item) => item.organizationId === viewer.organizationId
+        && item.recipientUserId === viewer.userId
+        && !this.dismissed.includes(item.id))
+      .map((item) => item.id);
+    for (const id of ids) this.dismissed.push(id);
     return ids.length;
   }
 
@@ -298,7 +311,7 @@ describe('Notification HTTP routes', () => {
     expect(organizationDenied.statusCode).toBe(404);
   });
 
-  it('dismisses only an owned read notification and rejects unread or out-of-scope records', async () => {
+  it('dismisses owned read or unread notifications and rejects out-of-scope records', async () => {
     const { app, cookie } = await createApp();
     const readId = '22222222-2222-4222-8222-222222222222';
     const unreadId = '11111111-1111-4111-8111-111111111111';
@@ -315,8 +328,7 @@ describe('Notification HTTP routes', () => {
     });
 
     expect(dismissed.statusCode).toBe(204);
-    expect(unread.statusCode).toBe(404);
-    expect(unread.json()).toMatchObject({ code: 'NOTIFICATION_NOT_FOUND' });
+    expect(unread.statusCode).toBe(204);
     expect(denied.statusCode).toBe(404);
   });
 
@@ -434,5 +446,42 @@ describe('POST /api/notifications/read-by-entity', () => {
       payload: { entityType: 'job-card', entityId: 'not-a-uuid' },
     });
     expect(badId.statusCode).toBe(400);
+  });
+});
+
+describe('POST /api/notifications/clear-all', () => {
+  it('dismisses every viewer notification without a client id list', async () => {
+    const { app, cookie, notificationRepository } = await createApp();
+
+    const response = await app.inject({
+      method: 'POST', url: '/api/notifications/clear-all', headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(notificationRepository.clearedAll).toEqual([{ organizationId: 'org-1', userId: 'staff-1' }]);
+    const visible = await app.inject({
+      method: 'GET', url: '/api/notifications', headers: { cookie },
+    });
+    expect(visible.statusCode).toBe(200);
+    expect(visible.json().items).toEqual([]);
+  });
+
+  it('scopes clear-all to the viewer organization and returns 204 when nothing matches', async () => {
+    const { app, cookie } = await createApp({ userId: 'manager-1' });
+    const otherOrganization = await createApp({ userId: 'staff-2', organizationId: 'org-2' });
+
+    const response = await app.inject({
+      method: 'POST', url: '/api/notifications/clear-all', headers: { cookie },
+    });
+    const empty = await otherOrganization.app.inject({
+      method: 'POST', url: '/api/notifications/clear-all', headers: { cookie: otherOrganization.cookie },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(empty.statusCode).toBe(204);
+    const visible = await app.inject({
+      method: 'GET', url: '/api/notifications', headers: { cookie },
+    });
+    expect(visible.json().items).toEqual([]);
   });
 });

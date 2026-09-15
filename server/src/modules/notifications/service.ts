@@ -139,4 +139,11 @@ export class NotificationService {
       return { result: undefined, changed: clearedCount > 0 };
     });
   }
+
+  async clearAll(viewer: NotificationViewer) {
+    await this.mutateWithInvalidation(viewer, async (repository) => {
+      const clearedCount = await repository.clearAll(viewer);
+      return { result: undefined, changed: clearedCount > 0 };
+    });
+  }
 }

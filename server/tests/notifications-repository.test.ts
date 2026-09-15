@@ -19,6 +19,7 @@ describe('Postgres notification repository', () => {
     expect(sql).toContain('organization_id = $1');
     expect(sql).toContain('recipient_user_id = $2');
     expect(sql).toContain('read_at IS NULL');
+    expect(sql).toContain('dismissed_at IS NULL');
     expect(values).toEqual(['organization-1', 'recipient-1']);
   });
 
@@ -107,7 +108,7 @@ describe('Postgres notification repository', () => {
     expect(values).toEqual(['organization-1', 'recipient-1', 'notification-1']);
   });
 
-  it('dismisses only a read notification in the authenticated recipient scope', async () => {
+  it('dismisses a read or unread notification in the authenticated recipient scope', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ id: 'notification-1' }] });
     const repository = new PostgresNotificationRepository({ query } as never);
 
@@ -119,7 +120,7 @@ describe('Postgres notification repository', () => {
     const [sql, values] = query.mock.calls[0]!;
     expect(sql).toContain('UPDATE in_app_notifications');
     expect(sql).toContain('dismissed_at = COALESCE(dismissed_at, NOW())');
-    expect(sql).toContain('read_at IS NOT NULL');
+    expect(sql).not.toContain('read_at IS NOT NULL');
     expect(sql).toContain('organization_id = $1');
     expect(sql).toContain('recipient_user_id = $2');
     expect(sql).toContain('id = $3');

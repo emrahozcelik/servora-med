@@ -13,6 +13,7 @@ function stubRepository() {
     markReadByEntity: vi.fn(),
     dismiss: vi.fn(),
     clearRead: vi.fn(),
+    clearAll: vi.fn(),
   };
 }
 
@@ -163,8 +164,7 @@ describe('notification state invalidation', () => {
     expect(publisher.publish).toHaveBeenCalledTimes(2);
   });
 
-  it('rolls back the state mutation when realtime append fails and publishes nothing', async () => {
-    const publisher = { publish: vi.fn() };
+  it('rolls back the state mutation when realtime append fails and publishes nothing', async () => {    const publisher = { publish: vi.fn() };
     const { pool, client, queries } = fakePool((sql) => {
       if (sql.includes('UPDATE in_app_notifications')) return { rows: [{ marked_count: '1' }] };
       if (sql.includes('INSERT INTO realtime_events')) throw new Error('append failed');
@@ -179,5 +179,42 @@ describe('notification state invalidation', () => {
     expect(queries.map((query) => query.sql)).not.toContain('COMMIT');
     expect(publisher.publish).not.toHaveBeenCalled();
     expect(client.release).toHaveBeenCalled();
+  });
+
+  it('clearAll with affected rows emits one viewer-scoped invalidation', async () => {
+    const publisher = { publish: vi.fn() };
+    const { pool, queries } = fakePool((sql) => {
+      if (sql.includes('UPDATE in_app_notifications')) return { rows: [{ cleared_count: '2' }] };
+      if (sql.includes('INSERT INTO realtime_events')) return { rows: [eventRow()] };
+      throw new Error(`unexpected query: ${sql}`);
+    });
+
+    await serviceWith(publisher, pool).clearAll(VIEWER);
+
+    const appends = queries.filter((query) => query.sql.includes('INSERT INTO realtime_events'));
+    expect(appends).toHaveLength(1);
+    expect(appends[0]!.values).toContain('notification.state_changed');
+    expect(appends[0]!.values).toContain('notification-center');
+    expect(appends[0]!.values).toContain('viewer-1');
+    expect(publisher.publish).toHaveBeenCalledTimes(1);
+    expect(publisher.publish).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'notification.state_changed',
+      resourceKeys: ['notifications'],
+      audience: { roles: [], userIds: ['viewer-1'] },
+    }));
+  });
+
+  it('clearAll with zero matches emits no event', async () => {
+    const publisher = { publish: vi.fn() };
+    const { pool, queries } = fakePool((sql) => {
+      if (sql.includes('UPDATE in_app_notifications')) return { rows: [{ cleared_count: '0' }] };
+      throw new Error(`unexpected query: ${sql}`);
+    });
+
+    await serviceWith(publisher, pool).clearAll(VIEWER);
+
+    expect(queries.some((query) => query.sql.includes('INSERT INTO realtime_events'))).toBe(false);
+    expect(publisher.publish).not.toHaveBeenCalled();
+    expect(queries.map((query) => query.sql)).toContain('COMMIT');
   });
 });
