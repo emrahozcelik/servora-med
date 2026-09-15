@@ -242,6 +242,14 @@ export type PersistedJobCardListItem = {
   createdAt: string; updatedAt: string; staffCompletedAt: string | null;
   customer: RelatedName | null; contact: RelatedName | null; assignee: RelatedName;
   deliveryItemCount: number;
+  /**
+   * Derived current-overdue snapshot. The server sends these ONLY on the
+   * server-owned overdue view (`overdue=true`); they are absent on every other
+   * list surface, so a missing value means "this view does not evaluate
+   * lateness", never "not late".
+   */
+  overdueSince?: string | null;
+  latenessSeconds?: number | null;
 };
 export type JobCardListItem = PersistedJobCardListItem & {
   allowedCommands: LifecycleCommand[];
@@ -452,6 +460,9 @@ function canonicalInstant(value: unknown, field: string) {
 }
 function nullableCanonicalInstant(value: unknown, field: string) {
   return value === null ? null : canonicalInstant(value, field);
+}
+function nullableCount(value: unknown, field: string) {
+  return value === null ? null : count(value, field);
 }
 function uniqueValues<T extends string>(values: T[], field: string) {
   if (new Set(values).size !== values.length) invalid(field);
@@ -722,6 +733,12 @@ export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardL
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),
     customer: nullableRelated(v.customer, 'customer'), contact: nullableRelated(v.contact, 'contact'),
     assignee: related(v.assignee, 'assignee'), deliveryItemCount: count(v.deliveryItemCount, 'deliveryItemCount'),
+    ...(v.overdueSince === undefined ? {} : {
+      overdueSince: nullableCanonicalInstant(v.overdueSince, 'overdueSince'),
+    }),
+    ...(v.latenessSeconds === undefined ? {} : {
+      latenessSeconds: nullableCount(v.latenessSeconds, 'latenessSeconds'),
+    }),
   };
 }
 export function parseJobCardListItem(value: unknown): JobCardListItem {

@@ -94,6 +94,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Bildirim merkezi responsive fixture" data-smoke-notification>
         <div id="responsive-notification-center-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Geciken iş satırı responsive fixture" data-smoke-job-row>
+        <div id="responsive-job-row-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -181,6 +184,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-state-adapters-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-chart-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-notification-center-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-job-row-fixture.tsx"></script>
 </body></html>`;
 
 const overviewCardsFixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}</style></head>
@@ -258,6 +262,31 @@ async function measureOverviewCards(page) {
       titleContained,
       titleCount: titles.length,
       headCount: heads.length,
+    };
+  });
+}
+
+async function measureJobRow(page) {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const row = document.querySelector('[data-smoke-job-row] .structured-job-row');
+    const signal = row?.querySelector('[data-job-overdue-signal]');
+    const signalGroup = row?.querySelector('[data-job-row-signals]');
+    const rowRect = row?.getBoundingClientRect();
+    const signalRect = signal?.getBoundingClientRect();
+    const groupRect = signalGroup?.getBoundingClientRect();
+    return {
+      overflowX: root.scrollWidth > root.clientWidth + 1,
+      signalPresent: Boolean(signal),
+      signalVisible: Boolean(signalRect && signalRect.width > 0 && signalRect.height > 0),
+      signalText: signal?.textContent?.trim() ?? '',
+      rowOverflow: Boolean(row && row.scrollWidth > row.clientWidth + 1),
+      signalInsideRow: Boolean(signalRect && rowRect
+        && signalRect.left >= rowRect.left - 2 && signalRect.right <= rowRect.right + 2),
+      signalInsideGroup: Boolean(signalRect && groupRect
+        && signalRect.left >= groupRect.left - 2 && signalRect.right <= groupRect.right + 2),
+      rowWidth: Math.round(rowRect?.width ?? 0),
+      signalWidth: Math.round(signalRect?.width ?? 0),
     };
   });
 }
@@ -1479,6 +1508,41 @@ try {
     if (m.overflowX) failures.push(`${vp.name} overview cards: document horizontal overflow`);
     if (!m.stackFitsSection) failures.push(`${vp.name} overview cards: card stack exceeds section width`);
     if (!m.titleContained) failures.push(`${vp.name} overview cards: card title expands card width`);
+    await page.close();
+  }
+
+  // OVR-1 overdue row signal: the lateness magnitude must stay legible and
+  // contained at every supported width, including the longest representable
+  // value ("12 gün 23 saat gecikti").
+  for (const vp of [
+    { name: '1440x900', width: 1440, height: 900 },
+    { name: '1024x768', width: 1024, height: 768 },
+    { name: '768x1024', width: 768, height: 1024 },
+    { name: '390x844', width: 390, height: 844 },
+    { name: '320x700', width: 320, height: 700 },
+  ]) {
+    const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+    const diag = createDiagnostics();
+    attachDiagnostics(page, diag);
+    await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('[data-smoke-job-row] [data-job-overdue-signal]');
+    const m = await measureJobRow(page);
+    console.log(JSON.stringify({ viewport: `${vp.name}-job-row`, ...m }));
+    if (!m.signalPresent || !m.signalVisible) {
+      failures.push(`${vp.name} job row: overdue lateness signal is not visible`);
+    }
+    if (m.signalText !== '12 gün 23 saat gecikti') {
+      failures.push(`${vp.name} job row: unexpected lateness copy "${m.signalText}"`);
+    }
+    if (m.overflowX) failures.push(`${vp.name} job row: document horizontal overflow`);
+    if (m.rowOverflow) failures.push(`${vp.name} job row: row horizontal overflow`);
+    if (!m.signalInsideRow || !m.signalInsideGroup) {
+      failures.push(
+        `${vp.name} job row: overdue signal escapes its container`
+        + ` row=${m.rowWidth} signal=${m.signalWidth}`
+        + ` inRow=${m.signalInsideRow} inGroup=${m.signalInsideGroup}`,
+      );
+    }
     await page.close();
   }
 

@@ -4,6 +4,7 @@ import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { StatusChip } from '../ui/StatusChip';
+import { formatOverdueLateness } from '../ui/duration';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
@@ -97,6 +98,12 @@ export function JobRow({ job, user, onCommand }: {
   const primaryCommand = listPrimaryOpenCommand(user, job);
   const openCommands = listOpenCommands(user, job);
   const schedule = cardScheduleFact(job);
+  // The server populates lateness only on the overdue view; a missing value
+  // means the surface does not evaluate lateness, never "on time".
+  const latenessSeconds = job.latenessSeconds ?? null;
+  const overdueSignal = latenessSeconds !== null && latenessSeconds > 0
+    ? formatOverdueLateness(latenessSeconds)
+    : null;
 
   return (
     <article
@@ -125,6 +132,11 @@ export function JobRow({ job, user, onCommand }: {
         <div className="job-row-signals" data-job-row-signals="true">
           <StatusChip status={job.status} />
           <PriorityChip priority={job.priority} longLabel />
+          {overdueSignal && (
+            <span className="job-overdue-signal" data-job-overdue-signal="true">
+              {overdueSignal}
+            </span>
+          )}
         </div>
       </div>
       <dl className="job-row-facts">
