@@ -450,6 +450,29 @@ describe('NotificationCenter', () => {
     expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
   });
 
+  it('does not navigate a stale activation closed mid-flight', async () => {
+    let resolveMark: ((value: typeof notification & { readAt: string }) => void) | undefined;
+    api.markNotificationRead.mockImplementationOnce(() => new Promise((resolve) => { resolveMark = resolve; }));
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        <LocationProbe />
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const action = container.querySelector<HTMLButtonElement>('[data-notification-id]')!;
+    await act(async () => action.click());
+    expect(api.markNotificationRead).toHaveBeenCalledWith(notification.id);
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => resolveMark!({ ...notification, readAt: '2026-07-21T11:00:00.000Z' }));
+    await act(async () => {});
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/jobs');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('offers dismissal only for read notifications and refreshes after a successful dismiss', async () => {
     const readNotification = {
       ...notification,
