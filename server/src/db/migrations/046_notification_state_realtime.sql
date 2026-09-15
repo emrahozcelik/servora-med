@@ -51,11 +51,14 @@ ALTER TABLE realtime_events
   DROP CONSTRAINT realtime_events_activity_source_check,
   ADD CONSTRAINT realtime_events_activity_source_check CHECK (
     (
-      (source_activity_id IS NOT NULL)::INTEGER
-      + (calendar_activity_id IS NOT NULL)::INTEGER
-      + (calendar_reminder_id IS NOT NULL)::INTEGER
-      + (messaging_activity_id IS NOT NULL)::INTEGER
-      + (staff_note_id IS NOT NULL)::INTEGER = 1
+      event_type <> 'notification.state_changed'
+      AND (
+        (source_activity_id IS NOT NULL)::INTEGER
+        + (calendar_activity_id IS NOT NULL)::INTEGER
+        + (calendar_reminder_id IS NOT NULL)::INTEGER
+        + (messaging_activity_id IS NOT NULL)::INTEGER
+        + (staff_note_id IS NOT NULL)::INTEGER = 1
+      )
     )
     OR (
       event_type = 'notification.state_changed'

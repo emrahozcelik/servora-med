@@ -102,4 +102,13 @@ describe('046 notification state realtime migration', () => {
     expect(sql).not.toMatch(/DROP CONSTRAINT realtime_events_\w+_(fk|unique)/i);
     expect(sql).not.toContain('ADD COLUMN');
   });
+
+  it('excludes notification.state_changed from the exact-one-source branch', async () => {
+    const sql = await readFile(fileURLToPath(migrationUrl), 'utf8');
+
+    // Without this exclusion a notification event carrying exactly one source
+    // would satisfy the exact-one branch and bypass the source-less contract.
+    const sourceCheck = sql.slice(sql.indexOf('realtime_events_activity_source_check'));
+    expect(sourceCheck).toContain("event_type <> 'notification.state_changed'");
+  });
 });
