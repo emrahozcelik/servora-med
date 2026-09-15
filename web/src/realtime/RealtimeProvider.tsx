@@ -19,9 +19,10 @@ const REALTIME_ENTITY_TYPES = new Set([
   'calendar-event',
   'conversation',
   'confidential-note',
+  'notification-center',
 ]);
 
-type RealtimeEntityType = 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note';
+type RealtimeEntityType = 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note' | 'notification-center';
 
 function isRealtimeEntityType(value: unknown): value is RealtimeEntityType {
   return typeof value === 'string' && REALTIME_ENTITY_TYPES.has(value as RealtimeEntityType);
@@ -44,12 +45,13 @@ const CHANGE_TYPES = new Set([
   'conversation.created',
   'message.sent',
   'confidential-note.created',
+  'notification.state_changed',
 ]);
 
 type RealtimeChangeEnvelope = Readonly<{
   id: string;
   type: string;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note'; id: string }>;
+  entity: Readonly<{ type: RealtimeEntityType; id: string }>;
   resourceKeys: readonly string[];
   occurredAt: string;
 }>;

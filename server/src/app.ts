@@ -337,7 +337,12 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     if (dependencies.notificationRepository) {
       await app.register(notificationRoutes, {
         prefix: '/api/notifications',
-        service: new NotificationService(dependencies.notificationRepository),
+        service: new NotificationService(
+          dependencies.notificationRepository,
+          dependencies.realtimePublisher,
+          undefined,
+          dependencies.pool,
+        ),
         authenticate: authenticateDomain,
       });
     }

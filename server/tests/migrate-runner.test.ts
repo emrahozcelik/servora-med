@@ -105,9 +105,10 @@ describe('runMigrations', () => {
       '043_job_card_schedule_and_assignment_history.sql',
       '044_job_card_accountability_facts.sql',
       '045_calendar_request_hash.sql',
+      '046_notification_state_realtime.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('045_calendar_request_hash.sql');
-    expect(expectedSchemaVersion).toBe(45);
+    expect(migrations.at(-1)?.name).toBe('046_notification_state_realtime.sql');
+    expect(expectedSchemaVersion).toBe(46);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {
