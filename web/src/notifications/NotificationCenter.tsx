@@ -323,14 +323,16 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
         onKeyDown={handleKeyDown}
       >
         <div className="notification-center-heading">
-          <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
-          <div className="notification-center-heading-actions">
+          <div className="notification-center-heading-main">
+            <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
             <button ref={closeRef} type="button" className="drawer-close" aria-label="Bildirimleri kapat" onClick={close}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
-            {view === 'notifications' && (
+          </div>
+          {view === 'notifications' && (
+            <div className="notification-center-bulk-actions">
               <button
                 type="button"
                 data-clear-read
@@ -347,8 +349,6 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
               >
                 {clearReadPending ? 'Temizleniyor…' : 'Okunanları temizle'}
               </button>
-            )}
-            {view === 'notifications' && (
               <CompactConfirmationAction
                 title="Tüm bildirimler temizlensin mi?"
                 description="Okunmamış bildirimler de Bildirim Merkezi'nden kaldırılır."
@@ -363,8 +363,8 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                 }
                 onConfirm={() => void clearAll()}
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
         {view === 'settings' ? (
           <div className="notification-settings notification-center-body">
