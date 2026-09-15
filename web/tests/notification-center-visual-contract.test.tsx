@@ -178,4 +178,73 @@ describe('NotificationCenter visual contracts (T2C)', () => {
 
     expect(stylesCss).not.toMatch(/0 1rem 2\.5rem oklch\(26% 0\.016 246deg \/ 22%\)/);
   });
+
+  it('groups the header as a title/close row plus a separate bulk-action row', async () => {
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+
+    const heading = container.querySelector<HTMLElement>('.notification-center-heading')!;
+    const main = heading.querySelector<HTMLElement>('.notification-center-heading-main')!;
+    const bulk = heading.querySelector<HTMLElement>('.notification-center-bulk-actions')!;
+
+    expect(main.querySelector('h2')?.textContent).toBe('Bildirimler');
+    const close = main.querySelector<HTMLButtonElement>('.drawer-close')!;
+    expect(close.getAttribute('aria-label')).toBe('Bildirimleri kapat');
+    expect(close.querySelector('svg')).not.toBeNull();
+
+    expect(bulk.querySelector('[data-clear-read]')?.textContent).toBe('Okunanları temizle');
+    expect(Array.from(bulk.querySelectorAll('button')).map((button) => button.textContent))
+      .toContain('Tümünü temizle');
+
+    // Close is no longer grouped with the bulk actions, and the title row carries no bulk control.
+    expect(bulk.querySelector('.drawer-close')).toBeNull();
+    expect(main.querySelector('[data-clear-read]')).toBeNull();
+    expect(main.textContent).not.toContain('Tümünü temizle');
+    expect(main.textContent).not.toContain('Kapat');
+  });
+
+  it('keeps the same header grouping in the mobile panel', async () => {
+    await render(true);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+
+    const panel = container.querySelector<HTMLElement>('.notification-center-panel--mobile')!;
+    const main = panel.querySelector<HTMLElement>('.notification-center-heading-main')!;
+    const bulk = panel.querySelector<HTMLElement>('.notification-center-bulk-actions')!;
+
+    expect(main.querySelector('h2')?.textContent).toBe('Bildirimler');
+    expect(main.querySelector('.drawer-close')).not.toBeNull();
+    expect(bulk.querySelector('[data-clear-read]')).not.toBeNull();
+    expect(Array.from(bulk.querySelectorAll('button')).map((button) => button.textContent))
+      .toContain('Tümünü temizle');
+    expect(bulk.querySelector('.drawer-close')).toBeNull();
+  });
+
+  it('pins the two-level header geometry and forbids splitting the title', () => {
+    const heading = exactRuleBody(stylesCss, '.notification-center-heading');
+    expect(heading).toMatch(/display:\s*grid/);
+    expect(heading).not.toMatch(/display:\s*flex/);
+    expect(heading).toMatch(/border-bottom:\s*1px solid var\(--rule\)/);
+
+    expect(exactRuleBody(stylesCss, '.notification-center-heading-main'))
+      .toMatch(/justify-content:\s*space-between/);
+
+    const title = exactRuleBody(stylesCss, '.notification-center-heading-main > h2');
+    expect(title).toMatch(/overflow-wrap:\s*normal/);
+    expect(title).not.toMatch(/anywhere/);
+
+    expect(exactRuleBody(stylesCss, '.notification-center-bulk-actions'))
+      .toMatch(/justify-content:\s*flex-end/);
+
+    // The old single shared row is gone: close and bulk actions no longer share a container.
+    expect(stylesCss).not.toMatch(/\.notification-center-heading-actions/);
+    // The shared drawer/notification heading group stays the single source of heading type scale.
+    expect((stylesCss.match(/\.notification-center-heading h2/g) ?? []).length).toBe(1);
+
+    // Very narrow panels stack the bulk actions instead of wrapping arbitrarily.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 22rem\) \{\s*\.notification-center-bulk-actions \{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+  });
 });
