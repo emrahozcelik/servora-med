@@ -16,5 +16,6 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRoutesOptions> =
   app.patch('/:notificationId/read', { preHandler: options.authenticate }, handlers.markRead);
   app.post('/read-by-entity', { preHandler: options.authenticate }, handlers.markReadByEntity);
   app.post('/clear-read', { preHandler: options.authenticate }, handlers.clearRead);
+  app.post('/clear-all', { preHandler: options.authenticate }, handlers.clearAll);
   app.post('/:notificationId/dismiss', { preHandler: options.authenticate }, handlers.dismiss);
 };

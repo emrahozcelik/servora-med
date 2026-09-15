@@ -125,3 +125,9 @@ export async function clearReadNotifications() {
     method: 'POST',
   });
 }
+
+export async function clearAllNotifications() {
+  await request('/api/notifications/clear-all', {
+    method: 'POST',
+  });
+}

@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   markNotificationRead: vi.fn(),
   dismissNotification: vi.fn(),
   clearReadNotifications: vi.fn(),
+  clearAllNotifications: vi.fn(),
 }));
 vi.mock('../src/services/notifications-api', () => api);
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -473,7 +474,7 @@ describe('NotificationCenter', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('offers dismissal only for read notifications and refreshes after a successful dismiss', async () => {
+  it('offers dismissal for read and unread notifications and refreshes after dismiss', async () => {
     const readNotification = {
       ...notification,
       id: '33333333-3333-4333-8333-333333333333',
@@ -497,7 +498,7 @@ describe('NotificationCenter', () => {
     )!;
 
     expect(dismiss).not.toBeNull();
-    expect(container.querySelector(`[data-dismiss-notification-id="${notification.id}"]`)).toBeNull();
+    expect(container.querySelector(`[data-dismiss-notification-id="${notification.id}"]`)).not.toBeNull();
     await act(async () => dismiss.click());
 
     expect(api.dismissNotification).toHaveBeenCalledTimes(1);
@@ -892,5 +893,143 @@ describe('NotificationCenter', () => {
     await act(async () => resolveFirst!({ items: [notification], nextCursor: null }));
     expect(container.textContent).toContain('Yeni canonical kayıt');
     expect(container.textContent).not.toContain('Yeni iş atandı');
+  });
+});
+
+describe('NotificationCenter N2 dismiss / clear', () => {
+  let container: HTMLDivElement; let root: Root;
+  beforeEach(() => {
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    api.getUnreadNotificationCount.mockResolvedValue(1);
+    api.listNotifications.mockResolvedValue({ items: [notification], nextCursor: null });
+    api.dismissNotification.mockResolvedValue(undefined);
+    api.clearAllNotifications.mockResolvedValue(undefined);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  async function open() {
+    await act(async () => root.render(
+      <MemoryRouter><NotificationCenter identityKey="org-1:staff-1" mobile={false} /></MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+  }
+
+  it('unread rows expose dismiss without marking read', async () => {
+    await open();
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${notification.id}"]`,
+    );
+    expect(dismiss).not.toBeNull();
+    await act(async () => dismiss!.click());
+    expect(api.dismissNotification).toHaveBeenCalledTimes(1);
+    expect(api.dismissNotification).toHaveBeenCalledWith(notification.id);
+    expect(api.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it('clear-all requires confirmation and cancel issues no request', async () => {
+    await open();
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Tümünü temizle');
+    expect(trigger).not.toBeUndefined();
+    await act(async () => trigger!.click());
+    const cancel = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Vazgeç');
+    expect(cancel).not.toBeUndefined();
+    await act(async () => cancel!.click());
+    expect(api.clearAllNotifications).not.toHaveBeenCalled();
+  });
+
+  it('confirmed clear-all calls the API and refreshes canonical state', async () => {
+    api.listNotifications
+      .mockResolvedValueOnce({ items: [notification], nextCursor: null })
+      .mockResolvedValue({ items: [], nextCursor: null });
+    await open();
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Tümünü temizle');
+    await act(async () => trigger!.click());
+    const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Temizle');
+    expect(confirm).not.toBeUndefined();
+    await act(async () => confirm!.click());
+    expect(api.clearAllNotifications).toHaveBeenCalledTimes(1);
+    await act(async () => {});
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Henüz bildiriminiz yok.');
+  });
+
+  it('header close is an X control without visible Kapat text', async () => {
+    await open();
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).not.toContain('Kapat');
+    const close = dialog.querySelector<HTMLButtonElement>('[aria-label="Bildirimleri kapat"].drawer-close');
+    expect(close).not.toBeNull();
+    expect(close!.getAttribute('type')).toBe('button');
+    expect(close!.querySelector('svg')).not.toBeNull();
+  });
+
+  it('keeps an unread row usable and surfaces the error when dismissal fails', async () => {
+    api.dismissNotification.mockRejectedValueOnce(new Error('Ağ hatası'));
+    await open();
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${notification.id}"]`,
+    )!;
+    await act(async () => dismiss.click());
+    expect(api.dismissNotification).toHaveBeenCalledTimes(1);
+    expect(api.markNotificationRead).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector(`[data-notification-id="${notification.id}"]`)).not.toBeNull();
+    expect(container.textContent).toContain('Ağ hatası');
+  });
+
+  it('keeps rows usable and surfaces the error when clear-all fails', async () => {
+    api.clearAllNotifications.mockRejectedValueOnce(new Error('Sunucu hatası'));
+    await open();
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Tümünü temizle')!;
+    await act(async () => trigger.click());
+    const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Temizle')!;
+    await act(async () => confirm.click());
+    expect(api.clearAllNotifications).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector(`[data-notification-id="${notification.id}"]`)).not.toBeNull();
+    expect(container.textContent).toContain('Sunucu hatası');
+  });
+
+  it('keeps clear-read working independently alongside clear-all', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'İş tamamlandı',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    api.listNotifications.mockResolvedValue({ items: [notification, readNotification], nextCursor: null });
+    api.clearReadNotifications.mockResolvedValue(undefined);
+    await open();
+    const clear = container.querySelector<HTMLButtonElement>('[data-clear-read]')!;
+    expect(clear.textContent).toBe('Okunanları temizle');
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Tümünü temizle');
+    expect(trigger).not.toBeUndefined();
+    await act(async () => clear.click());
+    expect(api.clearReadNotifications).toHaveBeenCalledTimes(1);
+    expect(api.clearAllNotifications).not.toHaveBeenCalled();
+  });
+
+  it('closes with Escape and restores trigger focus after the X control change', async () => {
+    await open();
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    trigger.focus();
+    await act(async () => trigger.click());
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Bildirimleri kapat');
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 });

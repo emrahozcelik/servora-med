@@ -119,5 +119,9 @@ export function createNotificationHandlers(service: NotificationService) {
       await service.clearRead(viewer(request));
       return reply.code(204).send();
     },
+    clearAll: async (request: FastifyRequest, reply: FastifyReply) => {
+      await service.clearAll(viewer(request));
+      return reply.code(204).send();
+    },
   };
 }
