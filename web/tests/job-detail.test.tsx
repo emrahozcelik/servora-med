@@ -346,6 +346,88 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
   });
 
+  it('marks entity notifications read after successful job detail resolution', async () => {
+    const base = mockDetailFetch(job);
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/notifications/read-by-entity')) {
+        expect(String(init?.method ?? 'GET').toUpperCase()).toBe('POST');
+        return new Response(null, { status: 204 });
+      }
+      return base(input);
+    });
+    await renderScreen(job, staffUser, fetch);
+    expect(host.textContent).toContain(job.title);
+    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/api/notifications/read-by-entity'))).toBe(true);
+  });
+
+  it('does not reconcile when job detail resolution fails', async () => {
+    const base = mockDetailFetch(job);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
+      if (url.endsWith(`/api/job-cards/${job.id}`)) {
+        return new Response(JSON.stringify({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }), {
+          status: 404, headers: { 'content-type': 'application/json' },
+        });
+      }
+      return base(input);
+    });
+    await renderScreen(job, staffUser, fetch);
+    expect(host.textContent).not.toContain(job.title);
+    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/api/notifications/read-by-entity'))).toBe(false);
+  });
+
+  it('keeps the job usable when reconciliation fails', async () => {
+    const base = mockDetailFetch(job);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/notifications/read-by-entity')) {
+        return new Response(JSON.stringify({ error: 'Hata.', code: 'REQUEST_FAILED' }), {
+          status: 500, headers: { 'content-type': 'application/json' },
+        });
+      }
+      return base(input);
+    });
+    await renderScreen(job, staffUser, fetch);
+    expect(host.textContent).toContain(job.title);
+    expect(host.textContent).not.toContain('Hata.');
+  });
+
+  it('stale previous job resolution cannot reconcile', async () => {
+    const card2 = { ...job, id: 'job-2', title: 'İkinci iş' };
+    const base2 = mockDetailFetch(card2);
+    let resolveFirst!: (value: Response) => void;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        return new Promise<Response>((resolve) => { resolveFirst = resolve; });
+      }
+      return base2(input);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const screenProps = { user: staffUser, onBack: () => {}, onChanged: () => {} };
+    await act(async () => {
+      root.render(<JobDetailScreen jobId="job-1" {...screenProps} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<JobDetailScreen jobId="job-2" {...screenProps} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('İkinci iş');
+    await act(async () => { resolveFirst(Response.json(job)); });
+    await act(async () => {});
+    const reconciliations = fetch.mock.calls.filter(([input]) =>
+      String(input).endsWith('/api/notifications/read-by-entity'));
+    expect(reconciliations).toHaveLength(1);
+    expect(JSON.parse(String(reconciliations[0]![1]?.body))).toEqual({
+      entityType: 'job-card', entityId: 'job-2',
+    });
+  });
+
   it('shows the invalidation action only to Admin on an operational JobCard', async () => {
     const baseFetch = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL) => {

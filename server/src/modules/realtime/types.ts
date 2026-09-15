@@ -19,10 +19,21 @@ export const REALTIME_EVENT_TYPES = [
   'message.sent',
   'conversation.participants_changed',
   'confidential-note.created',
+  'notification.state_changed',
 ] as const;
 
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number];
 export type RealtimeAudienceRole = Extract<UserRole, 'ADMIN' | 'MANAGER'>;
+
+export const REALTIME_ENTITY_TYPES = [
+  'job-card',
+  'calendar-event',
+  'conversation',
+  'confidential-note',
+  'notification-center',
+] as const;
+
+export type RealtimeEntityType = (typeof REALTIME_ENTITY_TYPES)[number];
 
 export type RealtimeAudience = Readonly<{
   roles: readonly RealtimeAudienceRole[];
@@ -34,7 +45,7 @@ export type RealtimeEventInput = Readonly<{
   sourceActivityId?: string;
   messagingActivityId?: string;
   type: RealtimeEventType;
-  entityType: 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note';
+  entityType: RealtimeEntityType;
   entityId: string;
   actorUserId: string | null;
   audience: RealtimeAudience;
@@ -57,7 +68,7 @@ export type RealtimeViewer = Readonly<{
 export type RealtimeChangeEnvelope = Readonly<{
   id: string;
   type: RealtimeEventType;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note'; id: string }>;
+  entity: Readonly<{ type: RealtimeEntityType; id: string }>;
   resourceKeys: readonly string[];
   occurredAt: string;
 }>;

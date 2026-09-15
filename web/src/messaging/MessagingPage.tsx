@@ -18,6 +18,7 @@ import {
 } from '../services/messaging-api';
 import { listJobCards } from '../jobs/jobs-api';
 import { listCustomers } from '../services/crm-api';
+import { markNotificationsReadByEntity } from '../services/notifications-api';
 import { jobCardStatusLabel } from '../jobs/job-labels';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { LoadConversations, LoadMessages, LoadRecipients } from './MessagingSkeleton';
@@ -448,6 +449,13 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         }
         loadConversations();
         loadUnreadCount();
+      }
+      // Entity-view notification reconciliation: the selected conversation resolved
+      // into the displayed thread (loadMessages succeeds with content only for the
+      // current selection). Separate from the message cursor above; never fails
+      // selection and never fires for failed or superseded loads.
+      if (pendingMarkReadRef.current?.gen === gen && loadedMessages.length > 0) {
+        markNotificationsReadByEntity('conversation', conversation.id).catch(() => {});
       }
       if (pendingMarkReadRef.current?.gen === gen) {
         pendingMarkReadRef.current = null;

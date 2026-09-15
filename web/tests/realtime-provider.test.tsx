@@ -257,4 +257,31 @@ describe('RealtimeProvider', () => {
 
     expect(view.querySelector('[data-resource="job-list"]')?.textContent).toBe('0');
   });
+
+  it('routes notification.state_changed to notifications subscribers and stays fail-closed', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="notifications" />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope(
+        '40', 'notification.state_changed',
+        { type: 'notification-center', id: 'viewer-1' }, ['notifications'],
+      ));
+      await Promise.resolve();
+    });
+    expect(view.querySelector('[data-resource="notifications"]')?.textContent).toBe('1');
+
+    await act(async () => {
+      source.emit('servora.change', envelope(
+        '41', 'notification.deleted',
+        { type: 'notification-center', id: 'viewer-1' }, ['notifications'],
+      ));
+      source.emit('servora.change', envelope(
+        '42', 'notification.state_changed',
+        { type: 'notification', id: 'viewer-1' }, ['notifications'],
+      ));
+      await Promise.resolve();
+    });
+    expect(view.querySelector('[data-resource="notifications"]')?.textContent).toBe('1');
+  });
 });

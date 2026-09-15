@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import type {
   NotificationCursor,
   NotificationAppendInput,
+  NotificationEntityType,
   NotificationKind,
   NotificationPage,
   NotificationRecord,
@@ -15,7 +16,7 @@ type NotificationRow = {
   recipient_user_id: string;
   source_realtime_event_id: string;
   kind: NotificationKind;
-  entity_type: 'job-card' | 'calendar-event' | 'conversation';
+  entity_type: NotificationEntityType;
   entity_id: string;
   created_at: Date;
   read_at: Date | null;
@@ -30,6 +31,11 @@ export interface NotificationRepository {
   unreadCount(viewer: NotificationViewer): Promise<number>;
   list(viewer: NotificationViewer, query: NotificationListQuery): Promise<NotificationPage>;
   markRead(viewer: NotificationViewer, notificationId: string): Promise<NotificationRecord | null>;
+  markReadByEntity(
+    viewer: NotificationViewer,
+    entityType: NotificationEntityType,
+    entityId: string,
+  ): Promise<number>;
   dismiss(viewer: NotificationViewer, notificationId: string): Promise<boolean>;
   clearRead(viewer: NotificationViewer): Promise<number>;
 }
@@ -175,6 +181,43 @@ export class PostgresNotificationRepository implements NotificationRepository {
     );
     const row = result.rows[0];
     return row ? mapNotification(row) : null;
+  }
+
+  async markReadByEntity(
+    viewer: NotificationViewer,
+    entityType: NotificationEntityType,
+    entityId: string,
+  ): Promise<number> {
+    const result = await this.pool.query<{ marked_count: string }>(
+      `WITH updated AS (
+         UPDATE in_app_notifications
+            SET read_at = NOW()
+          WHERE organization_id = $1
+            AND recipient_user_id = $2
+            AND entity_type = $3
+            AND entity_id = $4
+            AND dismissed_at IS NULL
+            AND read_at IS NULL
+         RETURNING id, organization_id
+       ),
+       abandoned AS (
+         UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                last_error_code = 'READ',
+                abandoned_at = NOW(),
+                updated_at = NOW()
+           FROM updated
+          WHERE web_push_deliveries.organization_id = updated.organization_id
+            AND web_push_deliveries.notification_id = updated.id
+            AND web_push_deliveries.state = 'PENDING'
+       )
+       SELECT COUNT(*)::text AS marked_count
+         FROM updated`,
+      [viewer.organizationId, viewer.userId, entityType, entityId],
+    );
+    return Number(result.rows[0]?.marked_count ?? '0');
   }
 
   async dismiss(

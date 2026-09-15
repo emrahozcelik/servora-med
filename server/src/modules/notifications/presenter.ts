@@ -1,11 +1,11 @@
-import type { NotificationKind, NotificationRecord } from './types.js';
+import type { NotificationEntityType, NotificationKind, NotificationRecord } from './types.js';
 
 export type PublicNotification = Readonly<{
   id: string;
   kind: NotificationKind;
   title: string;
   body: string;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation'; id: string }>;
+  entity: Readonly<{ type: NotificationEntityType; id: string }>;
   createdAt: string;
   readAt: string | null;
 }>;

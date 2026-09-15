@@ -147,6 +147,71 @@ describe('Postgres notification repository', () => {
     expect(sql).not.toContain('id = $3');
     expect(values).toEqual(['organization-1', 'recipient-1']);
   });
+
+  it('marks every visible unread notification for the viewer entity read', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ marked_count: '2' }] });
+    const repository = new PostgresNotificationRepository({ query } as never);
+
+    await expect(repository.markReadByEntity({
+      organizationId: 'organization-1',
+      userId: 'recipient-1',
+    }, 'job-card', 'job-1')).resolves.toBe(2);
+
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toContain('UPDATE in_app_notifications');
+    expect(sql).toContain('organization_id = $1');
+    expect(sql).toContain('recipient_user_id = $2');
+    expect(sql).toContain('entity_type = $3');
+    expect(sql).toContain('entity_id = $4');
+    expect(sql).toContain('dismissed_at IS NULL');
+    expect(sql).toContain('read_at IS NULL');
+    expect(sql).toContain("state = 'ABANDONED'");
+    expect(sql).toContain("last_error_code = 'READ'");
+    expect(values).toEqual(['organization-1', 'recipient-1', 'job-card', 'job-1']);
+  });
+
+  it('marks by entity independent of kind and only abandons newly-read deliveries', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ marked_count: '3' }] });
+    const repository = new PostgresNotificationRepository({ query } as never);
+
+    await expect(repository.markReadByEntity({
+      organizationId: 'organization-1',
+      userId: 'recipient-1',
+    }, 'job-card', 'job-1')).resolves.toBe(3);
+
+    const [sql] = query.mock.calls[0]!;
+    expect(sql).not.toContain('kind =');
+    expect(sql).toContain('SET read_at = NOW()');
+    expect(sql).toContain('FROM updated');
+    expect(sql).toContain("AND web_push_deliveries.state = 'PENDING'");
+  });
+
+  it('repeats entity reads idempotently with the same scope', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ marked_count: '1' }] });
+    const repository = new PostgresNotificationRepository({ query } as never);
+    const viewer = { organizationId: 'organization-1', userId: 'recipient-1' };
+
+    await expect(repository.markReadByEntity(viewer, 'calendar-event', 'event-1')).resolves.toBe(1);
+    await expect(repository.markReadByEntity(viewer, 'calendar-event', 'event-1')).resolves.toBe(1);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[0]![1]).toEqual(['organization-1', 'recipient-1', 'calendar-event', 'event-1']);
+    expect(query.mock.calls[1]![1]).toEqual(['organization-1', 'recipient-1', 'calendar-event', 'event-1']);
+  });
+
+  it('reports zero entity matches as success', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ marked_count: '0' }] });
+    const repository = new PostgresNotificationRepository({ query } as never);
+
+    await expect(repository.markReadByEntity({
+      organizationId: 'organization-1',
+      userId: 'recipient-1',
+    }, 'conversation', 'conversation-9')).resolves.toBe(0);
+
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toContain('entity_type = $3');
+    expect(values).toEqual(['organization-1', 'recipient-1', 'conversation', 'conversation-9']);
+  });
 });
 
 describe('Postgres notification transaction', () => {

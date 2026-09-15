@@ -179,12 +179,12 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable canonical migration files (current head: `045_calendar_request_hash`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, User/Staff lifecycle reconciliation, and the JobCard schedule/assignment history and calendar request-hash migrations.
+The migration runner applies the immutable canonical migration files (current head: `046_notification_state_realtime`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, User/Staff lifecycle reconciliation, the JobCard schedule/assignment history and calendar request-hash migrations, and the notification state realtime invalidation.
 
 The `MigrationCatalog` is the authoritative expected migration history for a release. `HEALTH_SCHEMA_VERSION` is a production configuration assertion against that catalog head; it is not an independent migration authority.
 
 Current schema posture: canonical source `main` and the protected local
-`servora_med` database are at schema head `045_calendar_request_hash`.
+`servora_med` database are at schema head `046_notification_state_realtime`.
 Production schema remains **UNKNOWN** until a separately authorized,
 read-only production readiness discovery; this README does not imply that
 production migrations have run.

@@ -1,5 +1,6 @@
 import {
   ApiError,
+  json,
   nullableString,
   number,
   object,
@@ -24,6 +25,7 @@ export const NOTIFICATION_KINDS = [
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+export type NotificationEntityType = 'job-card' | 'calendar-event' | 'conversation';
 export type InAppNotification = Readonly<{
   id: string;
   kind: NotificationKind;
@@ -103,6 +105,13 @@ export async function markNotificationRead(notificationId: string) {
   return parseNotification(await request(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
     method: 'PATCH',
   }));
+}
+
+export async function markNotificationsReadByEntity(
+  entityType: NotificationEntityType,
+  entityId: string,
+): Promise<void> {
+  await request('/api/notifications/read-by-entity', json('POST', { entityType, entityId }));
 }
 
 export async function dismissNotification(notificationId: string) {

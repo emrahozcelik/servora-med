@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarPage } from '../src/calendar/CalendarPage';
@@ -20,6 +20,8 @@ const calendarApi = vi.hoisted(() => ({
 const jobsApi = vi.hoisted(() => ({ patchJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
 vi.mock('../src/services/calendar-api', () => calendarApi);
 vi.mock('../src/jobs/jobs-api', () => jobsApi);
+const notificationsApi = vi.hoisted(() => ({ markNotificationsReadByEntity: vi.fn() }));
+vi.mock('../src/services/notifications-api', () => notificationsApi);
 vi.mock('../src/realtime/RealtimeProvider', () => ({
   useRealtimeInvalidation: vi.fn(),
 }));
@@ -770,5 +772,84 @@ describe('CalendarPage', () => {
       expect(container.querySelector('.ant-picker-cell-selected')).toBeTruthy();
       expect(container.querySelector('.servora-calendar-count')).toBeTruthy();
     });
+  });
+});
+
+describe('CalendarPage notification reconciliation', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    calendarApi.listCalendar.mockResolvedValue([manualEvent, jobEvent]);
+    calendarApi.listCalendarAssignees.mockResolvedValue([
+      { id: 'staff-1', name: 'Ayşe Personel' },
+    ]);
+    calendarApi.getCalendarEvent.mockImplementation(async (id: string) =>
+      id === 'job-event-1' ? jobEvent : manualEvent);
+    notificationsApi.markNotificationsReadByEntity.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  function Harness() {
+    const navigate = useNavigate();
+    return (
+      <>
+        <button data-testid="go-event-2" onClick={() => navigate('/calendar?event=job-event-1')} />
+        <CalendarPage user={manager} />
+      </>
+    );
+  }
+
+  async function renderPath(path: string) {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={[path]}>
+          <Harness />
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {});
+  }
+
+  it('reconciles notifications after the deep-linked event resolves', async () => {
+    await renderPath('/calendar?event=event-1');
+    expect(notificationsApi.markNotificationsReadByEntity).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.markNotificationsReadByEntity).toHaveBeenCalledWith(
+      'calendar-event', 'event-1',
+    );
+  });
+
+  it('does not reconcile when event resolution fails', async () => {
+    calendarApi.getCalendarEvent.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'Bulunamadı.', false));
+    await renderPath('/calendar?event=missing-event');
+    expect(notificationsApi.markNotificationsReadByEntity).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Takvim');
+  });
+
+  it('stale event resolution cannot reconcile after a rapid switch', async () => {
+    let resolveFirst!: (value: typeof manualEvent) => void;
+    let resolveSecond!: (value: typeof jobEvent) => void;
+    calendarApi.getCalendarEvent.mockImplementation((id: string) => id === 'event-1'
+      ? new Promise((resolve) => { resolveFirst = resolve; })
+      : new Promise((resolve) => { resolveSecond = resolve; }));
+    await renderPath('/calendar?event=event-1');
+    const go = container.querySelector<HTMLButtonElement>('[data-testid="go-event-2"]')!;
+    await act(async () => { go.click(); });
+    await act(async () => { resolveSecond(jobEvent); });
+    await act(async () => {});
+    await act(async () => { resolveFirst(manualEvent); });
+    await act(async () => {});
+    expect(notificationsApi.markNotificationsReadByEntity).toHaveBeenCalledTimes(1);
+    expect(notificationsApi.markNotificationsReadByEntity).toHaveBeenCalledWith(
+      'calendar-event', 'job-event-1',
+    );
   });
 });

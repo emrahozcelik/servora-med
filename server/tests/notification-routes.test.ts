@@ -108,6 +108,34 @@ class MemoryNotificationRepository implements NotificationRepository {
     for (const id of ids) if (!this.dismissed.includes(id)) this.dismissed.push(id);
     return ids.length;
   }
+
+  entityReads: Array<{
+    organizationId: string; userId: string; entityType: string; entityId: string;
+  }> = [];
+
+  async markReadByEntity(
+    viewer: { organizationId: string; userId: string },
+    entityType: string,
+    entityId: string,
+  ) {
+    this.entityReads.push({
+      organizationId: viewer.organizationId,
+      userId: viewer.userId,
+      entityType,
+      entityId,
+    });
+    let marked = 0;
+    this.records = this.records.map((item) => {
+      if (item.organizationId !== viewer.organizationId
+        || item.recipientUserId !== viewer.userId
+        || item.entityType !== entityType
+        || item.entityId !== entityId
+        || item.readAt) return item;
+      marked += 1;
+      return { ...item, readAt: new Date('2026-07-21T11:00:00.000Z') };
+    });
+    return marked;
+  }
 }
 
 function notification(overrides: Partial<NotificationRecord> = {}): NotificationRecord {
@@ -326,5 +354,85 @@ describe('Notification HTTP routes', () => {
     expect(visible.json().items.map((item: { id: string }) => item.id)).toEqual([
       '11111111-1111-4111-8111-111111111111',
     ]);
+  });
+});
+
+describe('POST /api/notifications/read-by-entity', () => {
+  it('marks viewer-entity notifications read and returns 204', async () => {
+    const { app, cookie, notificationRepository } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: {
+        entityType: 'job-card',
+        entityId: '33333333-3333-4333-8333-333333333333',
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(notificationRepository.entityReads).toEqual([{
+      organizationId: 'org-1',
+      userId: 'staff-1',
+      entityType: 'job-card',
+      entityId: '33333333-3333-4333-8333-333333333333',
+    }]);
+  });
+
+  it('returns 204 when nothing matches without accepting viewer identity', async () => {
+    const { app, cookie } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: {
+        entityType: 'conversation',
+        entityId: '99999999-9999-4999-8999-999999999999',
+        organizationId: 'org-2',
+        userId: 'staff-2',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('returns 204 for a valid entity with zero matching notifications', async () => {
+    const { app, cookie, notificationRepository } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: {
+        entityType: 'conversation',
+        entityId: '99999999-9999-4999-8999-999999999999',
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(notificationRepository.entityReads).toEqual([{
+      organizationId: 'org-1',
+      userId: 'staff-1',
+      entityType: 'conversation',
+      entityId: '99999999-9999-4999-8999-999999999999',
+    }]);
+  });
+
+  it('rejects invalid entity type and entity id', async () => {
+    const { app, cookie } = await createApp();
+    const badType = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: { entityType: 'job', entityId: '33333333-3333-4333-8333-333333333333' },
+    });
+    expect(badType.statusCode).toBe(400);
+
+    const badId = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/read-by-entity',
+      headers: { cookie },
+      payload: { entityType: 'job-card', entityId: 'not-a-uuid' },
+    });
+    expect(badId.statusCode).toBe(400);
   });
 });
