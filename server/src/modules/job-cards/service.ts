@@ -247,6 +247,11 @@ type LifecycleDefinition = {
   approveFollowUp?: ApproveFollowUpInput;
 };
 
+type OverdueRecoveryTarget = Pick<
+  OverdueIncidentIdentity,
+  'organizationId' | 'jobCardId' | 'delayType' | 'episodeNo'
+>;
+
 type ValidatedFollowUpProposal = FollowUpProposalFields & {
   assignee: JobCardAssignee;
 };
@@ -1828,6 +1833,29 @@ export class JobCardService {
         (assigneeChanged || scheduleRevisionChanged) && job.status === 'ACCEPTED'
           ? await transaction.getJobLifecycleInstants(actor.organizationId, jobCardId)
           : null;
+      // A dueDate-only revision is legal in IN_PROGRESS and
+      // REVISION_REQUESTED. Resolve that pending submission episode before
+      // the row/revision mutation so a breach of the old deadline is
+      // preserved under the old governing revision.
+      const pendingSubmissionEpisodeNo: number | null = dueDateChanged
+        && (job.status === 'IN_PROGRESS' || job.status === 'REVISION_REQUESTED')
+        ? await transaction.getNextSubmittedSeqNo(actor.organizationId, jobCardId)
+        : null;
+      if (pendingSubmissionEpisodeNo !== null) {
+        await this.materializeLateSubmissionIfBreached(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          scheduledEndsAt: job.scheduledEndsAt,
+          scheduledAt: job.scheduledAt,
+          type: job.type,
+          dueDate: job.dueDate,
+          episodeNo: pendingSubmissionEpisodeNo,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          source: 'MUTATION',
+          requestTime,
+        });
+      }
       const updated = await transaction.updateFieldsWithVersion({
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
@@ -1839,13 +1867,10 @@ export class JobCardService {
       // revision resolve exactly as before the mutation. Eligibility
       // (preMutationInstants, read before the update) belongs to the
       // pre-image commitment: the update itself may void the acceptance.
-      // Never recovered
-      // here: changing who owns the job or where its deadline sits does not
-      // resolve the breach. NEW jobs carry no accepted commitment, so only
-      // ACCEPTED jobs are eligible; patch is only possible in NEW/ACCEPTED
-      // and no submission episode can be pending here. Post-revision
-      // evaluation below handles a breach the new schedule itself
-      // introduces.
+      // Never recovered here: changing who owns the job or where its
+      // deadline sits does not resolve the breach. The accepted-job path
+      // below preserves LATE_START; the active-submission dueDate path above
+      // preserves LATE_SUBMISSION before the mutation.
       if ((assigneeChanged || scheduleRevisionChanged) && job.status === 'ACCEPTED') {
         // Revision/history resolution stays inside the materializer, AFTER
         // its deadline and eligibility early-returns: jobs without a
@@ -1937,8 +1962,8 @@ export class JobCardService {
         });
         appendedScheduleRevisionNo = appended.revisionNo;
       }
-      // OVR-2: a revision that moves the deadline into the past breaches
-      // under the NEW governing revision, but never before the revision
+      // OVR-2: a revision that moves the first-late boundary into the past
+      // breaches under the NEW governing revision, but never before the revision
       // itself took effect: breached_at = max(new deadline, acceptance,
       // this requestTime). The pre-write materialization above already
       // preserved any breach of the OLD deadline; this binds the newly
@@ -1954,6 +1979,27 @@ export class JobCardService {
           scheduleRevisionNo: appendedScheduleRevisionNo,
           revisionEffectiveAt: requestTime,
           instants: preMutationInstants ?? undefined,
+          source: 'MUTATION',
+          requestTime,
+        });
+      }
+      // A dueDate revision in an active submission state is evaluated under
+      // the NEW governing revision after the revision row exists. This can
+      // introduce a new already-breached incident, but it can never rewrite
+      // or recover the old revision-bound row materialized above.
+      if (dueDateChanged
+        && pendingSubmissionEpisodeNo !== null
+        && appendedScheduleRevisionNo !== null) {
+        await this.materializeLateSubmissionIfBreached(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          scheduledEndsAt: updated.scheduledEndsAt,
+          scheduledAt: updated.scheduledAt,
+          type: updated.type,
+          dueDate: updated.dueDate,
+          episodeNo: pendingSubmissionEpisodeNo,
+          scheduleRevisionNo: appendedScheduleRevisionNo,
+          revisionEffectiveAt: requestTime,
           source: 'MUTATION',
           requestTime,
         });
@@ -2369,11 +2415,17 @@ export class JobCardService {
         if (definition.command === 'START') {
           assertPlannedIntervalForStart(job);
         }
-        // OVR-2: lock a deterministically provable breach BEFORE the
-        // transition runs. The same transaction later recovers it, so a
-        // late START/SUBMIT (or an approval/cancel past its threshold) can
-        // never slip through without immutable history.
-        const overdueBreach = await this.materializeOverdueBreachForCommand(
+        // OVR-2: derive the semantic obligation resolved by this command
+        // independently from breach discovery. A current revision may be on
+        // time while an older revision-bound incident is still open.
+        const overdueRecoveryTarget = await this.resolveOverdueRecoveryTarget(
+          tx, actor, jobCardId, job, definition.command,
+        );
+        // Materialize a breach BEFORE the transition runs. The same
+        // transaction later recovers the semantic target, so late
+        // START/SUBMIT (or an approval/cancel past its threshold) can never
+        // slip through without immutable history.
+        await this.materializeOverdueBreachForCommand(
           tx, actor, jobCardId, job, definition.command, requestTime,
         );
         let persistedProposal: {
@@ -2569,7 +2621,7 @@ export class JobCardService {
           // WITHDRAW creates the staff obligation; it does not satisfy it.
           // When the newly activated episode is already late, lock it OPEN
           // immediately (breached_at = activation when activation is later
-          // than the nominal deadline). Deliberately not recovered here.
+          // than the first-late boundary). Deliberately not recovered here.
           if (definition.command === 'WITHDRAW_FROM_APPROVAL') {
             await this.materializeLateSubmissionIfBreached(tx, {
               organizationId: actor.organizationId,
@@ -2586,11 +2638,10 @@ export class JobCardService {
             });
           }
         }
-        // OVR-2: the locked breach is recovered by the transition that
-        // resolved it — except ACCEPT_ASSIGNMENT, which OPENS the late-start
-        // incident (acceptance starts the commitment; nothing resolved it).
-        if (overdueBreach && definition.command !== 'ACCEPT_ASSIGNMENT') {
-          await this.recoverOverdueIncident(tx, overdueBreach, actor, requestTime);
+        // OVR-2: recovery is driven by the command's resolved obligation, not
+        // by whether this request happened to materialize a NEW incident.
+        if (overdueRecoveryTarget) {
+          await this.recoverOverdueIncident(tx, overdueRecoveryTarget, actor, requestTime);
         }
         let childRealtimeEvents: RealtimeEventRecord[] = [];
         let followUpJobCardId: string | null = null;
@@ -2805,6 +2856,7 @@ export class JobCardService {
       acceptedAt,
       revisionEffectiveAt,
     });
+    if (!isInstantBreached(breachedAt, input.requestTime)) return null;
     const assigneeAtBreach = await tx.getAssigneeAtInstant(
       input.organizationId, input.jobCardId, breachedAt,
     );
@@ -2834,15 +2886,17 @@ export class JobCardService {
    * Provable activation of a pending LATE_SUBMISSION episode, or null when
    * it cannot be proven (then no incident is materialized — never a guess).
    *
-   * Episode 1 starts at START (`started_at`, first-wins, requestTime).
+   * A modern episode 1 starts at START (`started_at`, first-wins,
+   * requestTime). A legacy factless WAITING_APPROVAL row may re-arm tracked
+   * episode 1 at an exact REQUEST_REVISION or WITHDRAW_FROM_APPROVAL time.
    * A later episode starts exactly at the REQUEST_REVISION or
    * WITHDRAW_FROM_APPROVAL that re-armed it, persisted as a durable
    * activation row in the same critical transaction. Deliberately NOT
    * derived from the previous SUBMITTED fact (that lower bound backdates
    * breaches before the new obligation existed), mutable updated_at
    * (polluted by delivery edits), or DB-clock activity logs.
-   * Legacy episodes armed before the activation mechanism exist have no
-   * row and stay unattributable until sufficient evidence exists.
+   * When an activation row is absent, only ordinary episode 1 may fall back
+   * to `started_at`; higher episodes stay unattributable.
    */
   private async resolveSubmissionEpisodeActivation(
     tx: JobCardTransaction,
@@ -2850,13 +2904,14 @@ export class JobCardService {
     jobCardId: string,
     episodeNo: number,
   ): Promise<Date | null> {
-    if (episodeNo <= 1) {
-      return (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
-    }
     const activation = await tx.getSubmissionEpisodeActivation(
       organizationId, jobCardId, episodeNo,
     );
-    return activation?.activatedAt ?? null;
+    if (activation) return activation.activatedAt;
+    if (episodeNo === 1) {
+      return (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
+    }
+    return null;
   }
 
   private async materializeLateSubmissionIfBreached(
@@ -2912,6 +2967,7 @@ export class JobCardService {
       episodeActivationAt,
       revisionEffectiveAt,
     });
+    if (!isInstantBreached(breachedAt, input.requestTime)) return null;
     const assigneeAtBreach = await tx.getAssigneeAtInstant(
       input.organizationId, input.jobCardId, breachedAt,
     );
@@ -2966,6 +3022,7 @@ export class JobCardService {
       submittedAt: fact.occurredAt,
       revisionEffectiveAt: revision.createdAt,
     });
+    if (!isInstantBreached(breachedAt, input.requestTime)) return null;
     await tx.insertOverdueIncident({
       organizationId: input.organizationId,
       jobCardId: input.jobCardId,
@@ -3028,9 +3085,8 @@ export class JobCardService {
    * number is the next SUBMITTED sequence (no new fact exists yet in this
    * transaction), so the row deterministically aligns with the next
    * SUBMITTED fact and its incident. Replays converge via UNIQUE.
-   * Legacy WAITING without any SUBMITTED fact has no episode to arm
-   * (episode 1 is proven by started_at); arming starts at episode 2,
-   * matching the table CHECK.
+   * Legacy WAITING without any SUBMITTED fact arms tracked episode 1 here;
+   * this is not a claim about an historical submission count.
    */
   private async activateNextSubmissionEpisode(
     tx: JobCardTransaction,
@@ -3040,21 +3096,74 @@ export class JobCardService {
     requestTime: Date,
   ): Promise<number> {
     const episodeNo = await tx.getNextSubmittedSeqNo(organizationId, jobCardId);
-    if (episodeNo >= 2) {
-      await tx.insertSubmissionEpisodeActivation({
-        organizationId,
-        jobCardId,
-        episodeNo,
-        activatedAt: requestTime,
-        activatedByCommand: command,
-      });
-    }
+    await tx.insertSubmissionEpisodeActivation({
+      organizationId,
+      jobCardId,
+      episodeNo,
+      activatedAt: requestTime,
+      activatedByCommand: command,
+    });
     return episodeNo;
+  }
+
+  /**
+   * Resolve the semantic delay episode closed by a lifecycle command.
+   * Materialization is intentionally separate: an on-time current revision
+   * must not prevent recovery of an older open revision-bound incident.
+   */
+  private async resolveOverdueRecoveryTarget(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    jobCardId: string,
+    job: JobCard,
+    command: LifecycleCommand,
+  ): Promise<OverdueRecoveryTarget | null> {
+    const scope = { organizationId: actor.organizationId, jobCardId };
+    const pendingSubmissionTarget = async (): Promise<OverdueRecoveryTarget> => ({
+      ...scope,
+      delayType: 'LATE_SUBMISSION',
+      episodeNo: await tx.getNextSubmittedSeqNo(actor.organizationId, jobCardId),
+    });
+    const approvalWaitTarget = async (): Promise<OverdueRecoveryTarget | null> => {
+      const fact = await tx.getLatestSubmittedFact(actor.organizationId, jobCardId);
+      if (fact === null) return null;
+      return {
+        ...scope,
+        delayType: 'APPROVAL_WAIT',
+        episodeNo: fact.seqNo,
+      };
+    };
+
+    switch (command) {
+      case 'START':
+        return job.status === 'ACCEPTED'
+          ? { ...scope, delayType: 'LATE_START', episodeNo: 1 }
+          : null;
+      case 'SUBMIT_FOR_APPROVAL':
+        return job.status === 'IN_PROGRESS' ? pendingSubmissionTarget() : null;
+      case 'APPROVE':
+      case 'REQUEST_REVISION':
+      case 'WITHDRAW_FROM_APPROVAL':
+        return job.status === 'WAITING_APPROVAL' ? approvalWaitTarget() : null;
+      case 'CANCEL':
+        if (job.status === 'NEW' || job.status === 'ACCEPTED') {
+          // A management schedule edit can return an accepted job to NEW
+          // while leaving its already-open LATE_START history unresolved.
+          return { ...scope, delayType: 'LATE_START', episodeNo: 1 };
+        }
+        if (job.status === 'IN_PROGRESS' || job.status === 'REVISION_REQUESTED') {
+          return pendingSubmissionTarget();
+        }
+        if (job.status === 'WAITING_APPROVAL') return approvalWaitTarget();
+        return null;
+      default:
+        return null;
+    }
   }
 
   private async recoverOverdueIncident(
     tx: JobCardTransaction,
-    identity: OverdueIncidentIdentity,
+    identity: OverdueRecoveryTarget,
     actor: JobCardActor,
     requestTime: Date,
   ): Promise<void> {

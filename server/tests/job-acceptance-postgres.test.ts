@@ -191,6 +191,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '045_calendar_request_hash',
           '046_notification_state_realtime',
           '047_job_card_overdue_incidents',
+          '048_overdue_episode_activation_legacy_first',
         ],
       });
 

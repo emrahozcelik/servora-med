@@ -19,14 +19,18 @@
  * `NOW()` for breach or recovery decisions (`recorded_at` keeps its DB
  * default as non-domain persistence metadata).
  *
- * Nominal deadline vs actual breach time: `deadline_at` is the nominal
- * business deadline; `breached_at` is the first instant the specific delay
- * episode is BOTH eligible under lifecycle/revision state AND late under its
- * boundary rule. Normal cases collapse to equality, but an episode activated
- * after its nominal deadline (late acceptance, retroactive schedule
- * revision, re-armed submission episode) must never backdate before it
- * existed: breached_at = max(nominal first-late, eligible_from_at,
- * revision_effective_at), and the DB enforces breached_at >= deadline_at.
+ * First-late boundary vs actual breach time: `deadline_at` is the first
+ * representable instant at which the delay type is late:
+ * - LATE_START: scheduled_ends_at, because equality is late;
+ * - LATE_SUBMISSION: effective submission deadline + 1ms, because equality
+ *   at the effective deadline is on time;
+ * - APPROVAL_WAIT: submitted_at + 24h, because equality is late.
+ * `breached_at` is the first instant the specific delay episode is BOTH
+ * eligible under lifecycle/revision state AND late under that boundary rule.
+ * An episode activated after its first-late boundary must never backdate
+ * before it existed: breached_at = max(first-late boundary, eligible_from_at,
+ * revision_effective_at). Producers also require breached_at <= requestTime,
+ * and the DB enforces breached_at >= deadline_at.
  */
 
 import { overdueSinceFor } from './overdue-contract.js';
@@ -131,7 +135,7 @@ export function maxInstant(...instants: Date[]): Date {
 }
 
 /**
- * LATE_START actual breach time. The nominal deadline is `scheduled_ends_at`
+ * LATE_START actual breach time. The first-late boundary is `scheduled_ends_at`
  * itself (starting exactly at the end is late), but the episode is eligible
  * no earlier than acceptance, nor before its governing revision took effect.
  */
@@ -144,7 +148,7 @@ export function lateStartBreachAt(input: {
 }
 
 /**
- * LATE_SUBMISSION actual breach time. Nominal first-late is the effective
+ * LATE_SUBMISSION actual breach time. First-late is the effective
  * deadline + 1ms; the episode must additionally have started (START for the
  * first episode, otherwise a provable lower bound of the re-arming resume /
  * withdraw instant) under an effective revision.
@@ -162,7 +166,7 @@ export function submissionBreachAt(input: {
 /**
  * APPROVAL_WAIT actual breach time. Eligibility starts at the SUBMITTED fact
  * itself and the governing revision predates it, so the maximum collapses
- * to the nominal deadline; computed uniformly so the invariant holds even if
+ * to the first-late boundary; computed uniformly so the invariant holds even if
  * a future caller passes a later eligibility bound.
  */
 export function approvalWaitBreachAt(input: {

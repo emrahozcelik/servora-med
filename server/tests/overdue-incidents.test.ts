@@ -66,9 +66,12 @@ describe('OVR-2 incident deadline policy (unit)', () => {
     })).toBeNull();
   });
 
-  it('keeps exactly-at-effective submissions on time', () => {
+  it('defines deadline_at as the first-late boundary for each delay type', () => {
     const effective = new Date('2026-08-03T07:30:00.000Z');
     const breach = submissionBreachInstant(effective);
+    expect(lateStartDeadlineAt(effective.toISOString())).toEqual(effective);
+    expect(approvalWaitDeadlineAt(new Date('2026-08-04T09:00:00.000Z')))
+      .toEqual(new Date('2026-08-05T09:00:00.000Z'));
     expect(breach.getTime()).toBeGreaterThan(effective.getTime());
     expect(isInstantBreached(breach, effective)).toBe(false);
     expect(isInstantBreached(breach, breach)).toBe(true);
@@ -98,7 +101,7 @@ describe('OVR-2 incident deadline policy (unit)', () => {
   it('computes breached_at as max(nominal, eligibility, revision activation)', () => {
     const nominal = new Date('2026-08-03T07:30:00.000Z');
     const past = new Date('2026-08-03T06:00:00.000Z');
-    // Normal case collapses to the nominal deadline.
+    // Normal case collapses to the first-late boundary.
     expect(lateStartBreachAt({
       deadlineAt: nominal, acceptedAt: past, revisionEffectiveAt: past,
     })).toEqual(nominal);
@@ -114,7 +117,7 @@ describe('OVR-2 incident deadline policy (unit)', () => {
     })).toEqual(activated);
     expect(maxInstant(nominal, past, activated)).toEqual(activated);
     expect(maxInstant(nominal)).toEqual(nominal);
-    // Submission episodes use the nominal +1ms first-late instant.
+    // Submission episodes use the effective deadline +1ms first-late instant.
     expect(submissionBreachAt({
       nominalFirstLateAt: new Date('2026-08-03T07:30:00.001Z'),
       episodeActivationAt: past,
