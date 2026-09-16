@@ -145,6 +145,15 @@ export function assertCanListFollowUps(actor: JobCardActor) {
   if (actor.role === 'STAFF') forbidden();
 }
 
+/**
+ * OVR-2: breach/accountability history is management-only. STAFF keeps its
+ * existing self-scoped job reads; this guard only closes the new history
+ * surface. Cross-org reads stay concealed as 404 by the service lookup.
+ */
+export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
 export function assertFollowUpSourceEligible(job: Pick<JobCard, 'status'>) {
   if (job.status !== 'COMPLETED') {
     throw new AppError(

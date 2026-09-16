@@ -72,6 +72,13 @@ import type {
   LocationGeocodingStatus,
 } from './location-types.js';
 import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
+import type {
+  OverdueAccountableRole,
+  OverdueAccountableSource,
+  OverdueIncidentDelayType,
+  OverdueIncidentIdentity,
+  OverdueIncidentSource,
+} from './overdue-incidents.js';
 import { AppError } from '../../errors/index.js';
 import type {
   ActiveOnSiteJobRecord,
@@ -221,6 +228,20 @@ export type AppendScheduleRevisionInput = {
   dueDate: string | null;
   source: JobCardScheduleRevisionSource;
   createdBy: string | null;
+  /**
+   * Domain-effective instant of the revision (the appending request's
+   * requestTime). OVR-2 breach derivation uses this as the revision's
+   * activation lower bound, so history stays on the injected request clock
+   * instead of the DB statement clock.
+   */
+  createdAt: Date;
+};
+
+/** OVR-2: requestTime-stamped lifecycle instants read from the locked job row. */
+export type JobLifecycleInstants = {
+  acceptedAt: Date | null;
+  startedAt: Date | null;
+  revisionRequestedAt: Date | null;
 };
 export type AppendAssignmentHistoryInput = {
   organizationId: string;
@@ -244,6 +265,44 @@ export type AppendAccountabilityFactInput = {
   responsibleUserId: string;
   actorUserId: string;
   sourceActivityId: string;
+};
+/** OVR-2 immutable overdue incident write model. No generic update path. */
+export type InsertOverdueIncidentInput = {
+  organizationId: string;
+  jobCardId: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: Date;
+  breachedAt: Date;
+  accountableUserId: string | null;
+  accountableRole: OverdueAccountableRole;
+  accountableSource: OverdueAccountableSource;
+  source: OverdueIncidentSource;
+};
+export type LatestSubmittedFact = {
+  seqNo: number;
+  occurredAt: Date;
+  scheduleRevisionNo: number;
+};
+export type PersistedOverdueIncident = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: Date;
+  breachedAt: Date;
+  accountableUserId: string | null;
+  accountableUserName: string | null;
+  accountableRole: OverdueAccountableRole;
+  accountableSource: OverdueAccountableSource;
+  source: OverdueIncidentSource;
+  recordedAt: Date;
+  recoveredAt: Date | null;
+  recoveryActorUserId: string | null;
+  recoveryActorUserName: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -428,9 +487,75 @@ export interface JobCardTransaction extends SubmissionReader {
   appendAssignmentHistory(input: AppendAssignmentHistoryInput): Promise<void>;
   /** Current governing schedule revision number, or null when none exists. */
   getCurrentScheduleRevisionNo(organizationId: string, jobCardId: string): Promise<number | null>;
+  /** OVR-2: a governing schedule revision row, or null when it does not exist. */
+  getScheduleRevision(
+    organizationId: string,
+    jobCardId: string,
+    revisionNo: number,
+  ): Promise<ScheduleRevisionRecord | null>;
+  /**
+   * OVR-2: requestTime-stamped lifecycle instants (accepted/started/
+   * revision-requested) from the locked job row. Null fields mean the
+   * transition never happened — never fall back to another clock.
+   */
+  getJobLifecycleInstants(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<JobLifecycleInstants>;
   /** Next SUBMITTED seq_no for the JobCard, serialized under the caller's job lock. */
   getNextSubmittedSeqNo(organizationId: string, jobCardId: string): Promise<number>;
   appendAccountabilityFact(input: AppendAccountabilityFactInput): Promise<{ id: string }>;
+  /**
+   * OVR-2: idempotent breach materialization. The UNIQUE incident identity
+   * absorbs replays and competing request paths; no generic update path.
+   */
+  insertOverdueIncident(input: InsertOverdueIncidentInput): Promise<{ id: string; created: boolean }>;
+  /**
+   * OVR-2: recover every open revision-bound incident for one real delay
+   * episode. A schedule revision may have created more than one immutable
+   * LATE_START/LATE_SUBMISSION row; the lifecycle recovery closes the
+   * episode, not just whichever revision is current.
+   */
+  recoverOverdueIncidentEpisode(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    recoveredAt: Date;
+    recoveryActorUserId: string;
+  }): Promise<void>;
+  /** OVR-2: latest immutable SUBMITTED fact, or null for legacy uncertainty. */
+  getLatestSubmittedFact(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<LatestSubmittedFact | null>;
+  /**
+   * OVR-2: durable submission-episode activation. Idempotent: replays and
+   * competing paths converge on the UNIQUE (job, episode) identity and
+   * report created=false instead of duplicating history.
+   */
+  insertSubmissionEpisodeActivation(input: {
+    organizationId: string;
+    jobCardId: string;
+    episodeNo: number;
+    activatedAt: Date;
+    activatedByCommand: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL';
+  }): Promise<{ id: string; created: boolean }>;
+  /** OVR-2: activation row for a submission episode, or null when never armed. */
+  getSubmissionEpisodeActivation(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<{ episodeNo: number; activatedAt: Date; activatedByCommand: string } | null>;
+  /**
+   * OVR-2: staff assignee exactly at an instant from immutable assignment
+   * history. Null when unprovable — never the current assignee.
+   */
+  getAssigneeAtInstant(
+    organizationId: string,
+    jobCardId: string,
+    instant: Date,
+  ): Promise<string | null>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -550,6 +675,12 @@ export interface JobCardRepository extends SubmissionReader {
     jobCardId: string,
     page: PageQuery,
   ): Promise<Paginated<ActivityRecord>>;
+  /** OVR-2 management history read: deterministic breached_at DESC, id DESC. */
+  listOverdueIncidents(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<PersistedOverdueIncident>>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -1012,6 +1143,17 @@ WHERE j.organization_id = $1 AND j.id = $2`;
 
 function mapInstant(value: Date | null): string | null {
   return value?.toISOString() ?? null;
+}
+
+function mapSubmittedFact(
+  row: { seq_no: number; occurred_at: Date; schedule_revision_no: number } | null | undefined,
+): LatestSubmittedFact | null {
+  if (!row) return null;
+  return {
+    seqNo: Number(row.seq_no),
+    occurredAt: row.occurred_at,
+    scheduleRevisionNo: Number(row.schedule_revision_no),
+  };
 }
 
 function mapRelatedIdentity(id: string | null | undefined, name: string | null | undefined): RelatedIdentity | null {
@@ -1871,16 +2013,44 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<{ id: string; revision_no: number }>(
       `INSERT INTO job_card_schedule_revisions
          (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
-          due_date, organization_timezone, source, created_by)
-       SELECT $1, $2, COALESCE(MAX(revision_no), 0) + 1, $3, $4, $5, $6, $7, $8
+          due_date, organization_timezone, source, created_by, created_at)
+       SELECT $1, $2, COALESCE(MAX(revision_no), 0) + 1, $3, $4, $5, $6, $7, $8, $9
        FROM job_card_schedule_revisions
        WHERE organization_id = $1 AND job_card_id = $2
        RETURNING id, revision_no`,
       [input.organizationId, input.jobCardId, input.scheduledAt, input.scheduledEndsAt,
-        input.dueDate, timezone, input.source, input.createdBy],
+        input.dueDate, timezone, input.source, input.createdBy, input.createdAt],
     );
     const row = result.rows[0]!;
     return { id: row.id, revisionNo: Number(row.revision_no) };
+  }
+
+  async getScheduleRevision(organizationId: string, jobCardId: string, revisionNo: number) {
+    const result = await this.client.query<ScheduleRevisionRow>(
+      `SELECT ${SCHEDULE_REVISION_COLUMNS}
+         FROM job_card_schedule_revisions
+        WHERE organization_id = $1 AND job_card_id = $2 AND revision_no = $3`,
+      [organizationId, jobCardId, revisionNo],
+    );
+    const row = result.rows[0];
+    return row ? mapScheduleRevision(row) : null;
+  }
+
+  async getJobLifecycleInstants(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<{
+      accepted_at: Date | null; started_at: Date | null; revision_requested_at: Date | null;
+    }>(
+      `SELECT accepted_at, started_at, revision_requested_at
+         FROM job_cards
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    return {
+      acceptedAt: row?.accepted_at ?? null,
+      startedAt: row?.started_at ?? null,
+      revisionRequestedAt: row?.revision_requested_at ?? null,
+    };
   }
 
   async appendAssignmentHistory(input: AppendAssignmentHistoryInput) {
@@ -1927,6 +2097,131 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.actorUserId, input.sourceActivityId],
     );
     return { id: result.rows[0]!.id };
+  }
+
+  async insertOverdueIncident(input: InsertOverdueIncidentInput) {
+    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE incident
+    // identity additionally absorbs replays and competing request paths, so
+    // the same semantic breach can never produce duplicate history.
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_overdue_incidents
+         (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+          deadline_at, breached_at, accountable_user_id, accountable_role,
+          accountable_source, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (organization_id, job_card_id, delay_type, schedule_revision_no, episode_no)
+       DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
+        input.scheduleRevisionNo, input.deadlineAt, input.breachedAt,
+        input.accountableUserId, input.accountableRole, input.accountableSource,
+        input.source],
+    );
+    if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+    const existing = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_card_overdue_incidents
+        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
+          AND schedule_revision_no = $4 AND episode_no = $5`,
+      [input.organizationId, input.jobCardId, input.delayType,
+        input.scheduleRevisionNo, input.episodeNo],
+    );
+    return { id: existing.rows[0]!.id, created: false };
+  }
+
+  async recoverOverdueIncidentEpisode(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    recoveredAt: Date;
+    recoveryActorUserId: string;
+  }) {
+    await this.client.query(
+      `UPDATE job_card_overdue_incidents
+          SET recovered_at = $5, recovery_actor_user_id = $6
+        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
+          AND episode_no = $4 AND recovered_at IS NULL`,
+      [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
+        input.recoveredAt, input.recoveryActorUserId],
+    );
+  }
+
+  async getLatestSubmittedFact(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<{
+      seq_no: number; occurred_at: Date; schedule_revision_no: number;
+    }>(
+      `SELECT seq_no, occurred_at, schedule_revision_no
+         FROM job_card_accountability_facts
+        WHERE organization_id = $1 AND job_card_id = $2 AND fact_type = 'SUBMITTED'
+        ORDER BY seq_no DESC
+        LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    return mapSubmittedFact(result.rows[0] ?? null);
+  }
+
+  async insertSubmissionEpisodeActivation(input: {
+    organizationId: string;
+    jobCardId: string;
+    episodeNo: number;
+    activatedAt: Date;
+    activatedByCommand: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL';
+  }) {
+    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE identity
+    // additionally absorbs replays, so the same arming can never duplicate.
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_submission_episode_activations
+         (organization_id, job_card_id, episode_no, activated_at, activated_by_command)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (organization_id, job_card_id, episode_no) DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.episodeNo,
+        input.activatedAt, input.activatedByCommand],
+    );
+    if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+    const existing = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_card_submission_episode_activations
+        WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = $3`,
+      [input.organizationId, input.jobCardId, input.episodeNo],
+    );
+    return { id: existing.rows[0]!.id, created: false };
+  }
+
+  async getSubmissionEpisodeActivation(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ) {
+    const result = await this.client.query<{
+      episode_no: number; activated_at: Date; activated_by_command: string;
+    }>(
+      `SELECT episode_no, activated_at, activated_by_command
+         FROM job_card_submission_episode_activations
+        WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = $3`,
+      [organizationId, jobCardId, episodeNo],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      episodeNo: Number(row.episode_no),
+      activatedAt: row.activated_at,
+      activatedByCommand: row.activated_by_command,
+    };
+  }
+
+  async getAssigneeAtInstant(organizationId: string, jobCardId: string, instant: Date) {
+    // Immutable assignment history is the only source of historical
+    // accountability. The current assignee is never consulted: whoever owns
+    // the job when the incident is read (or recovered) must not leak into
+    // who was accountable at the breach instant.
+    const result = await this.client.query<{ to_user_id: string }>(
+      `SELECT to_user_id FROM job_card_assignment_history
+        WHERE organization_id = $1 AND job_card_id = $2 AND changed_at <= $3
+        ORDER BY changed_at DESC, id DESC
+        LIMIT 1`,
+      [organizationId, jobCardId, instant],
+    );
+    return result.rows[0]?.to_user_id ?? null;
   }
 
   async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
@@ -2791,6 +3086,64 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
           : row.location_outcome === 'UNAVAILABLE' && row.location_failure_reason !== null
             ? { outcome: 'UNAVAILABLE' as const, reason: row.location_failure_reason }
             : null,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
+  async listOverdueIncidents(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<PersistedOverdueIncident>> {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM job_card_overdue_incidents
+       WHERE organization_id=$1 AND job_card_id=$2`,
+      [organizationId, jobCardId],
+    );
+    const result = await this.pool.query<{
+      id: string; organization_id: string; job_card_id: string;
+      delay_type: OverdueIncidentDelayType; episode_no: number; schedule_revision_no: number;
+      deadline_at: Date; breached_at: Date;
+      accountable_user_id: string | null; accountable_user_name: string | null;
+      accountable_role: OverdueAccountableRole; accountable_source: OverdueAccountableSource;
+      source: OverdueIncidentSource; recorded_at: Date;
+      recovered_at: Date | null; recovery_actor_user_id: string | null;
+      recovery_actor_user_name: string | null;
+    }>(`SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
+              i.schedule_revision_no, i.deadline_at, i.breached_at,
+              i.accountable_user_id, au.name AS accountable_user_name,
+              i.accountable_role, i.accountable_source, i.source, i.recorded_at,
+              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name
+         FROM job_card_overdue_incidents i
+         LEFT JOIN users au
+           ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
+         LEFT JOIN users ru
+           ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+        WHERE i.organization_id=$1 AND i.job_card_id=$2
+        ORDER BY i.breached_at DESC, i.id DESC
+        LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
+    return {
+      items: result.rows.map((row) => ({
+        id: row.id,
+        organizationId: row.organization_id,
+        jobCardId: row.job_card_id,
+        delayType: row.delay_type,
+        episodeNo: Number(row.episode_no),
+        scheduleRevisionNo: Number(row.schedule_revision_no),
+        deadlineAt: row.deadline_at,
+        breachedAt: row.breached_at,
+        accountableUserId: row.accountable_user_id,
+        accountableUserName: row.accountable_user_name,
+        accountableRole: row.accountable_role,
+        accountableSource: row.accountable_source,
+        source: row.source,
+        recordedAt: row.recorded_at,
+        recoveredAt: row.recovered_at,
+        recoveryActorUserId: row.recovery_actor_user_id,
+        recoveryActorUserName: row.recovery_actor_user_name,
       })),
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,

@@ -151,8 +151,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(46);
-      expect(firstRun.appliedVersions.at(-1)).toBe('046_notification_state_realtime');
+      expect(firstRun.appliedVersions).toHaveLength(47);
+      expect(firstRun.appliedVersions.at(-1)).toBe('047_job_card_overdue_incidents');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -237,6 +237,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '044_job_card_accountability_facts',
           '045_calendar_request_hash',
           '046_notification_state_realtime',
+          '047_job_card_overdue_incidents',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -251,7 +252,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '043_job_card_schedule_and_assignment_history.sql'
           && file !== '044_job_card_accountability_facts.sql'
           && file !== '045_calendar_request_hash.sql'
-          && file !== '046_notification_state_realtime.sql')
+          && file !== '046_notification_state_realtime.sql'
+          && file !== '047_job_card_overdue_incidents.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -281,6 +283,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '044_job_card_accountability_facts',
           '045_calendar_request_hash',
           '046_notification_state_realtime',
+          '047_job_card_overdue_incidents',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

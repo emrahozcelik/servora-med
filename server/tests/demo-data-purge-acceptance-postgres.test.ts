@@ -101,6 +101,9 @@ async function cleanupOrganization(organizationId: string) {
   await pool.query('DELETE FROM job_card_delivery_items WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_meeting_details WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM staff_confidential_notes WHERE organization_id = $1', [organizationId]);
+  await pool.query('DELETE FROM job_card_overdue_incidents WHERE organization_id = $1', [organizationId]);
+  await pool.query('DELETE FROM job_card_submission_episode_activations WHERE organization_id = $1', [organizationId]);
+  await pool.query('DELETE FROM job_card_accountability_facts WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_schedule_revisions WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_assignment_history WHERE organization_id = $1', [organizationId]);
   await pool.query('DELETE FROM job_card_activity_logs WHERE organization_id = $1', [organizationId]);
@@ -315,6 +318,29 @@ async function createFullGraph(fixture: Fixture): Promise<Graph> {
   );
   const parentActivityId = await insertJobActivity(fixture, parentJobId, fixture.demoManagerId, 'JOB_CREATED');
   const childActivityId = await insertJobActivity(fixture, childJobId, fixture.staffId, 'JOB_STARTED');
+  await pool!.query(
+    `INSERT INTO job_card_schedule_revisions
+       (organization_id, job_card_id, revision_no, scheduled_at, scheduled_ends_at,
+        organization_timezone, source, created_by)
+     VALUES ($1, $2, 1, NOW(), NOW() + INTERVAL '1 hour', 'Europe/Istanbul', 'CREATE', $3)`,
+    [fixture.organizationId, childJobId, fixture.demoManagerId],
+  );
+  await pool!.query(
+    `INSERT INTO job_card_submission_episode_activations
+       (organization_id, job_card_id, episode_no, activated_at, activated_by_command)
+     VALUES ($1, $2, 2, NOW(), 'WITHDRAW_FROM_APPROVAL')`,
+    [fixture.organizationId, childJobId],
+  );
+  await pool!.query(
+    `INSERT INTO job_card_overdue_incidents
+       (organization_id, job_card_id, delay_type, episode_no, schedule_revision_no,
+        deadline_at, breached_at, accountable_user_id, accountable_role,
+        accountable_source, source)
+     VALUES ($1, $2, 'LATE_SUBMISSION', 2, 1,
+        NOW() - INTERVAL '2 hours', NOW() - INTERVAL '1 hour', $3,
+        'STAFF', 'ASSIGNMENT_AT_BREACH', 'TRANSITION')`,
+    [fixture.organizationId, childJobId, fixture.staffId],
+  );
   const locationId = (await first<{ id: string }>(
     `INSERT INTO job_action_locations
        (organization_id, job_card_id, activity_id, actor_user_id, action,
@@ -637,6 +663,13 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
         graph.notificationIds, graph.subscriptionId, graph.deliveryId, graph.sessionId, graph.processedActionId],
     );
     expect(remaining.rows.every((row) => row.count === '0')).toBe(true);
+    const overdueRows = await pool!.query<{ incidents: string; activations: string }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM job_card_overdue_incidents WHERE job_card_id = ANY($1::uuid[])) AS incidents,
+         (SELECT COUNT(*)::text FROM job_card_submission_episode_activations WHERE job_card_id = ANY($1::uuid[])) AS activations`,
+      [[graph.parentJobId, graph.childJobId]],
+    );
+    expect(overdueRows.rows[0]).toEqual({ incidents: '0', activations: '0' });
 
     const persisted = await pool!.query(
       `SELECT
@@ -682,7 +715,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     const migration = await pool!.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    expect(migration.rows[0]?.version).toBe('046_notification_state_realtime');
+    expect(migration.rows[0]?.version).toBe('047_job_card_overdue_incidents');
     const constraints = await pool!.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
        WHERE conname = ANY($1::text[])

@@ -67,6 +67,8 @@ class LifecycleRepository implements JobCardRepository {
   }];
   events: ActivityInput[] = [];
   transitions: TransitionInput[] = [];
+  incidents: unknown[] = [];
+  recoveries: unknown[] = [];
   completed = new Map<string, unknown>();
   processing = new Set<string>();
   claims: CriticalActionClaim[] = [];
@@ -147,8 +149,33 @@ class LifecycleRepository implements JobCardRepository {
         return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       getCurrentScheduleRevisionNo: async () => 1,
+      getScheduleRevision: async () => ({
+        revisionNo: 1, scheduledAt: null, scheduledEndsAt: null,
+        dueDate: null, createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+      insertSubmissionEpisodeActivation: async () => ({ id: 'activation-1', created: true }),
+      getSubmissionEpisodeActivation: async () => null,
       getNextSubmittedSeqNo: async () => 1,
       appendAccountabilityFact: async () => ({ id: 'fact-1' }),
+      getLatestSubmittedFact: async () => null,
+      insertSubmissionEpisodeActivation: async () => ({ id: 'activation-1', created: true }),
+      getSubmissionEpisodeActivation: async () => null,
+      getAssigneeAtInstant: async () => null,
+      getJobLifecycleInstants: async () => ({
+        acceptedAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: new Date('2026-01-01T00:00:00.000Z'),
+        revisionRequestedAt: null,
+      }),
+      insertOverdueIncident: async (input: unknown) => {
+        this.incidents.push(input);
+        return { id: `incident-${this.incidents.length}`, created: true };
+      },
+      recoverOverdueIncident: async (input: unknown) => {
+        this.recoveries.push(input);
+      },
+      recoverOverdueIncidentEpisode: async (input: unknown) => {
+        this.recoveries.push(input);
+      },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
@@ -335,6 +362,12 @@ function twoJobRepository() {
           return { id: `activity-${events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
         },
         getCurrentScheduleRevisionNo: async () => 1,
+      getScheduleRevision: async () => ({
+        revisionNo: 1, scheduledAt: null, scheduledEndsAt: null,
+        dueDate: null, createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+      insertSubmissionEpisodeActivation: async () => ({ id: 'activation-1', created: true }),
+      getSubmissionEpisodeActivation: async () => null,
         getNextSubmittedSeqNo: async () => 1,
         appendAccountabilityFact: async () => ({ id: 'fact-1' }),
         appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
