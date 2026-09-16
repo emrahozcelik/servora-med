@@ -114,14 +114,14 @@ function nullSources() {
 }
 
 describe.skipIf(!databaseUrl)('046 notification state CHECK matrix (live PostgreSQL)', () => {
-  it('migrates through 047_job_card_overdue_incidents', async () => {
+  it('migrates through 048_overdue_episode_activation_legacy_first', async () => {
     await withMigratedDatabase(async ({ pool }) => {
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(applied.rows[0]!.version).toBe('047_job_card_overdue_incidents');
+      expect(applied.rows[0]!.version).toBe('048_overdue_episode_activation_legacy_first');
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('047_job_card_overdue_incidents');
+      expect(catalog.head?.version).toBe('048_overdue_episode_activation_legacy_first');
     });
   });
 

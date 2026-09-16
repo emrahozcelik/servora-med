@@ -186,11 +186,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store: new PostgresMigrationStore(pool),
       });
-      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents']);
+      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(47);
-      expect(catalog.head?.version).toBe('047_job_card_overdue_incidents');
+      expect(catalog.count).toBe(48);
+      expect(catalog.head?.version).toBe('048_overdue_episode_activation_legacy_first');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');
       expect(after.rows[0]!.count).toBe('1');
@@ -733,10 +733,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await service.start(staffA, job.id, { clientActionId: randomUUID(), expectedVersion: job.version });
 
       const manifest = {
-        database: { schemaVersion: '047_job_card_overdue_incidents' },
+        database: { schemaVersion: '048_overdue_episode_activation_legacy_first' },
       } as unknown as RestoreManifestV1;
       const evidence = await validateRestoredDatabase(url.toString(), manifest);
-      expect(evidence.schemaVersion).toBe('047_job_card_overdue_incidents');
+      expect(evidence.schemaVersion).toBe('048_overdue_episode_activation_legacy_first');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
     } finally {
