@@ -1,4 +1,10 @@
 import type { UserRole } from '../auth/types.js';
+import type {
+  OverdueAccountableRole,
+  OverdueAccountableSource,
+  OverdueIncidentDelayType,
+  OverdueIncidentSource,
+} from './overdue-incidents.js';
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
@@ -450,6 +456,28 @@ export type FollowUpListItem = JobCardListItem & {
 };
 
 export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
+
+/**
+ * OVR-2 management history item: immutable breach/accountability facts plus
+ * the one-way recovery pair. Identity fields never change after creation.
+ */
+export type OverdueIncidentHistoryItem = {
+  id: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  accountableRole: OverdueAccountableRole;
+  accountableSource: OverdueAccountableSource;
+  accountableUser: { id: string; name: string | null } | null;
+  source: OverdueIncidentSource;
+  recordedAt: string;
+  recoveredAt: string | null;
+  recoveryActor: { id: string; name: string | null } | null;
+};
+
+export type PaginatedOverdueIncidentHistory = Paginated<OverdueIncidentHistoryItem>;
 
 export type JobCardMutationReceipt = {
   jobCardId: string;

@@ -155,8 +155,24 @@ class MemoryJobCardRepository implements JobCardRepository {
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       getCurrentScheduleRevisionNo: async () => 1,
+      getScheduleRevision: async () => ({
+        revisionNo: 1, scheduledAt: null, scheduledEndsAt: null,
+        dueDate: null, createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
       getNextSubmittedSeqNo: async () => 1,
       appendAccountabilityFact: async () => ({ id: 'fact-1' }),
+      getLatestSubmittedFact: async () => null,
+      insertSubmissionEpisodeActivation: async () => ({ id: 'activation-1', created: true }),
+      getSubmissionEpisodeActivation: async () => null,
+      getAssigneeAtInstant: async () => null,
+      getJobLifecycleInstants: async () => ({
+        acceptedAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: new Date('2026-01-01T00:00:00.000Z'),
+        revisionRequestedAt: null,
+      }),
+      insertOverdueIncident: async () => ({ id: 'incident-1', created: true }),
+      recoverOverdueIncident: async () => undefined,
+      recoverOverdueIncidentEpisode: async () => undefined,
       appendJobActionLocation: async (location) => {
         if (this.failLocation) throw new Error('location failed');
         this.locationAppends.push(location);

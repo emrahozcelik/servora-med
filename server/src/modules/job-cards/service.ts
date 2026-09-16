@@ -6,6 +6,7 @@ import {
   assertCanCreateFollowUp,
   assertCanListFollowUps,
   assertCanInvalidate,
+  assertCanReadOverdueIncidentHistory,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -25,6 +26,7 @@ import type {
   FollowUpSourceReference,
   JobCardRepository,
   JobCardTransaction,
+  JobLifecycleInstants,
   NotePageQuery,
   PageQuery,
   ProductReference,
@@ -72,6 +74,7 @@ import {
   type JobCardPriority,
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
+  type PaginatedOverdueIncidentHistory,
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
   type MeetingDetailsCandidate,
@@ -169,6 +172,18 @@ import type { JobActionLocationCapture } from './location-types.js';
 import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
 import type { NotificationDraft } from '../notifications/types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
+import {
+  approvalWaitBreachAt,
+  approvalWaitDeadlineAt,
+  effectiveSubmissionDeadlineAt,
+  isInstantBreached,
+  lateStartBreachAt,
+  lateStartDeadlineAt,
+  submissionBreachAt,
+  submissionBreachInstant,
+  type OverdueIncidentIdentity,
+  type OverdueIncidentSource,
+} from './overdue-incidents.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -1805,10 +1820,48 @@ export class JobCardService {
         });
       }
 
+      // OVR-2: read eligibility BEFORE the row update below: the update
+      // itself may void the acceptance (management edit returns NEW), while
+      // assignment history and schedule revisions still resolve pre-move
+      // afterwards. The pre-image commitment belongs to the breach.
+      const preMutationInstants: JobLifecycleInstants | null =
+        (assigneeChanged || scheduleRevisionChanged) && job.status === 'ACCEPTED'
+          ? await transaction.getJobLifecycleInstants(actor.organizationId, jobCardId)
+          : null;
       const updated = await transaction.updateFieldsWithVersion({
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      // OVR-2: a reassignment or deadline revision after a breach must not
+      // erase it. Materialize against PRE-mutation history: the row above is
+      // already updated, but assignment history and schedule revisions are
+      // still untouched at this point, so attribution and the governing
+      // revision resolve exactly as before the mutation. Eligibility
+      // (preMutationInstants, read before the update) belongs to the
+      // pre-image commitment: the update itself may void the acceptance.
+      // Never recovered
+      // here: changing who owns the job or where its deadline sits does not
+      // resolve the breach. NEW jobs carry no accepted commitment, so only
+      // ACCEPTED jobs are eligible; patch is only possible in NEW/ACCEPTED
+      // and no submission episode can be pending here. Post-revision
+      // evaluation below handles a breach the new schedule itself
+      // introduces.
+      if ((assigneeChanged || scheduleRevisionChanged) && job.status === 'ACCEPTED') {
+        // Revision/history resolution stays inside the materializer, AFTER
+        // its deadline and eligibility early-returns: jobs without a
+        // breachable deadline must never fail here (e.g. fixtures without
+        // schedule history rows).
+        await this.materializeLateStartIfBreached(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          scheduledEndsAt: job.scheduledEndsAt,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          instants: preMutationInstants ?? undefined,
+          source: 'MUTATION',
+          requestTime,
+        });
+      }
       if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
         await transaction.synchronizeCalendarReminder({
           organizationId: actor.organizationId,
@@ -1872,11 +1925,37 @@ export class JobCardService {
       // FOUNDATION-1: authoritative history rides the same critical-action
       // transaction. Schedule revision uses the locked pre-state numbering
       // (MAX+1 under the job row lock) and snapshots the final schedule.
+      let appendedScheduleRevisionNo: number | null = null;
       if (scheduleRevisionChanged) {
-        await transaction.appendScheduleRevision({
+        const appended = await transaction.appendScheduleRevision({
           organizationId: actor.organizationId, jobCardId,
           scheduledAt: updated.scheduledAt, scheduledEndsAt: updated.scheduledEndsAt,
           dueDate: updated.dueDate, source: 'RESCHEDULE', createdBy: actor.id,
+          // Domain-effective instant: OVR-2 derives revision activation
+          // from the request clock, not the DB statement clock.
+          createdAt: requestTime,
+        });
+        appendedScheduleRevisionNo = appended.revisionNo;
+      }
+      // OVR-2: a revision that moves the deadline into the past breaches
+      // under the NEW governing revision, but never before the revision
+      // itself took effect: breached_at = max(new deadline, acceptance,
+      // this requestTime). The pre-write materialization above already
+      // preserved any breach of the OLD deadline; this binds the newly
+      // introduced breach to the new revision. Only ACCEPTED jobs are
+      // eligible (a management edit voids acceptance and returns NEW).
+      if (scheduleChanged
+        && appendedScheduleRevisionNo !== null
+        && updated.status === 'ACCEPTED') {
+        await this.materializeLateStartIfBreached(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          scheduledEndsAt: updated.scheduledEndsAt,
+          scheduleRevisionNo: appendedScheduleRevisionNo,
+          revisionEffectiveAt: requestTime,
+          instants: preMutationInstants ?? undefined,
+          source: 'MUTATION',
+          requestTime,
         });
       }
       if (assignmentTransitionId !== null) {
@@ -2075,6 +2154,47 @@ export class JobCardService {
     };
   }
 
+  /**
+   * OVR-2 management-only breach history. STAFF is rejected before any
+   * lookup; the detail read below keeps the existing 404 concealment for
+   * missing/cross-org jobs without widening STAFF visibility anywhere.
+   */
+  async listOverdueIncidents(
+    actor: JobCardActor,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<PaginatedOverdueIncidentHistory> {
+    assertCanReadOverdueIncidentHistory(actor);
+    await this.detail(actor, jobCardId);
+    const result = await this.repository.listOverdueIncidents(
+      actor.organizationId, jobCardId, page,
+    );
+    return {
+      items: result.items.map((item) => ({
+        id: item.id,
+        delayType: item.delayType,
+        episodeNo: item.episodeNo,
+        scheduleRevisionNo: item.scheduleRevisionNo,
+        deadlineAt: item.deadlineAt.toISOString(),
+        breachedAt: item.breachedAt.toISOString(),
+        accountableRole: item.accountableRole,
+        accountableSource: item.accountableSource,
+        accountableUser: item.accountableUserId === null
+          ? null
+          : { id: item.accountableUserId, name: item.accountableUserName },
+        source: item.source,
+        recordedAt: item.recordedAt.toISOString(),
+        recoveredAt: item.recoveredAt === null ? null : item.recoveredAt.toISOString(),
+        recoveryActor: item.recoveryActorUserId === null
+          ? null
+          : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
+      })),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
+  }
+
   async listReferenceCustomers(actor: JobCardActor) {
     const customers = await this.repository.listReferenceCustomers(actor.organizationId);
     if (actor.role !== 'STAFF') return customers;
@@ -2249,6 +2369,13 @@ export class JobCardService {
         if (definition.command === 'START') {
           assertPlannedIntervalForStart(job);
         }
+        // OVR-2: lock a deterministically provable breach BEFORE the
+        // transition runs. The same transaction later recovers it, so a
+        // late START/SUBMIT (or an approval/cancel past its threshold) can
+        // never slip through without immutable history.
+        const overdueBreach = await this.materializeOverdueBreachForCommand(
+          tx, actor, jobCardId, job, definition.command, requestTime,
+        );
         let persistedProposal: {
           scheduledAt: Date;
           type: JobCardType;
@@ -2429,6 +2556,42 @@ export class JobCardService {
             command: definition.command,
           });
         }
+        // OVR-2: REQUEST_REVISION and WITHDRAW_FROM_APPROVAL re-open the
+        // submission obligation. Arm the next episode at exact requestTime
+        // in this same transaction (durable activation row); a later SUBMIT
+        // or CANCEL proves the episode from that row, never from the
+        // previous SUBMITTED fact.
+        if (definition.command === 'REQUEST_REVISION'
+          || definition.command === 'WITHDRAW_FROM_APPROVAL') {
+          const armedEpisodeNo = await this.activateNextSubmissionEpisode(
+            tx, actor.organizationId, jobCardId, definition.command, requestTime,
+          );
+          // WITHDRAW creates the staff obligation; it does not satisfy it.
+          // When the newly activated episode is already late, lock it OPEN
+          // immediately (breached_at = activation when activation is later
+          // than the nominal deadline). Deliberately not recovered here.
+          if (definition.command === 'WITHDRAW_FROM_APPROVAL') {
+            await this.materializeLateSubmissionIfBreached(tx, {
+              organizationId: actor.organizationId,
+              jobCardId,
+              scheduledEndsAt: job.scheduledEndsAt,
+              scheduledAt: job.scheduledAt,
+              type: job.type,
+              dueDate: job.dueDate,
+              episodeNo: armedEpisodeNo,
+              scheduleRevisionNo: null,
+              revisionEffectiveAt: null,
+              source: 'TRANSITION',
+              requestTime,
+            });
+          }
+        }
+        // OVR-2: the locked breach is recovered by the transition that
+        // resolved it — except ACCEPT_ASSIGNMENT, which OPENS the late-start
+        // incident (acceptance starts the commitment; nothing resolved it).
+        if (overdueBreach && definition.command !== 'ACCEPT_ASSIGNMENT') {
+          await this.recoverOverdueIncident(tx, overdueBreach, actor, requestTime);
+        }
         let childRealtimeEvents: RealtimeEventRecord[] = [];
         let followUpJobCardId: string | null = null;
         if (approval) {
@@ -2544,6 +2707,480 @@ export class JobCardService {
       actorUserId: input.actor.id,
       sourceActivityId: input.activityId,
     });
+  }
+
+  /**
+   * OVR-2: request-driven breach materialization.
+   *
+   * A mutation that is about to move (or has just observed) the historical
+   * inputs of a deterministically provable breach must lock that breach as
+   * an immutable incident in the SAME transaction first. Later
+   * reassignment, deadline revision, recovery, completion or cancellation
+   * can then no longer erase it. Returns the incident identity when a
+   * breach was locked (or already existed), null when nothing is provable.
+   *
+   * Eligibility (no backdating before the commitment existed):
+   * - LATE_START needs an ACCEPTED commitment: accepted_at must be present.
+   *   NEW jobs never produce LATE_START on any path.
+   * - LATE_SUBMISSION needs a provable episode activation: started_at for
+   *   the first episode, otherwise the durable activation row written by
+   *   the REQUEST_REVISION / WITHDRAW_FROM_APPROVAL that re-armed it
+   *   (exact requestTime, same-transaction, UNIQUE per episode). Without
+   *   that row the episode is unattributable — never reconstructed from
+   *   the previous SUBMITTED fact, mutable updated_at, or DB-clock
+   *   activity logs.
+   * - APPROVAL_WAIT needs its SUBMITTED fact; eligibility starts at the
+   *   fact itself so the breach is always the nominal +24h deadline.
+   * Attribution resolves the assignee AT breached_at (not at the nominal
+   * deadline) from immutable assignment history; unprovable history yields
+   * NULL/UNKNOWN, never the current assignee.
+   *
+   * Deliberately untouched: RESUME starts no episode and recovers nothing
+   * by itself; INVALIDATE must never create one (§17) and is handled on
+   * its own path without incident calls.
+   */
+  private async currentRevisionRow(
+    tx: JobCardTransaction,
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<{ revisionNo: number; createdAt: Date }> {
+    const revisionNo = await tx.getCurrentScheduleRevisionNo(organizationId, jobCardId);
+    if (revisionNo === null) {
+      throw new AppError(
+        'OVERDUE_INCIDENT_REVISION_MISSING', 500, 'İş zaman planı kaydı bulunamadı.');
+    }
+    const revision = await tx.getScheduleRevision(organizationId, jobCardId, revisionNo);
+    if (revision === null) {
+      throw new AppError(
+        'OVERDUE_INCIDENT_REVISION_MISSING', 500, 'İş zaman planı kaydı bulunamadı.');
+    }
+    return { revisionNo: revision.revisionNo, createdAt: revision.createdAt };
+  }
+
+  private async materializeLateStartIfBreached(
+    tx: JobCardTransaction,
+    input: {
+      organizationId: string;
+      jobCardId: string;
+      scheduledEndsAt: string | null;
+      /**
+       * The acceptance about to be written by the enclosing ACCEPT_ASSIGNMENT
+       * (not yet persisted, so it cannot be read back). Omitted everywhere
+       * else: eligibility is read from the locked job row.
+       */
+      acceptedAtOverride?: Date;
+      scheduleRevisionNo: number | null;
+      revisionEffectiveAt: Date | null;
+      /**
+       * Pre-mutation lifecycle instants. The patch path updates the job row
+       * BEFORE materializing (so assignment/schedule history still resolves
+       * pre-move), which would void a management-cleared acceptance before
+       * it is read — pass the pre-write read there. Lifecycle paths omit
+       * this: they materialize before their transition runs.
+       */
+      instants?: JobLifecycleInstants;
+      source: OverdueIncidentSource;
+      requestTime: Date;
+    },
+  ): Promise<OverdueIncidentIdentity | null> {
+    const deadlineAt = lateStartDeadlineAt(input.scheduledEndsAt);
+    if (deadlineAt === null || !isInstantBreached(deadlineAt, input.requestTime)) return null;
+    // No accepted commitment (NEW, or acceptance voided) => no LATE_START
+    // on any path. A missing end is likewise unattributable (Decision 2).
+    const acceptedAt = input.acceptedAtOverride
+      ?? (input.instants ?? await tx.getJobLifecycleInstants(input.organizationId, input.jobCardId))
+        .acceptedAt;
+    if (acceptedAt === null) return null;
+    let revisionNo = input.scheduleRevisionNo;
+    let revisionEffectiveAt = input.revisionEffectiveAt;
+    if (revisionNo === null || revisionEffectiveAt === null) {
+      const current = await this.currentRevisionRow(
+        tx, input.organizationId, input.jobCardId,
+      );
+      revisionNo = current.revisionNo;
+      revisionEffectiveAt = current.createdAt;
+    }
+    const breachedAt = lateStartBreachAt({
+      deadlineAt,
+      acceptedAt,
+      revisionEffectiveAt,
+    });
+    const assigneeAtBreach = await tx.getAssigneeAtInstant(
+      input.organizationId, input.jobCardId, breachedAt,
+    );
+    await tx.insertOverdueIncident({
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'LATE_START',
+      episodeNo: 1,
+      scheduleRevisionNo: revisionNo,
+      deadlineAt,
+      breachedAt,
+      accountableUserId: assigneeAtBreach,
+      accountableRole: 'STAFF',
+      accountableSource: assigneeAtBreach === null ? 'UNKNOWN' : 'ASSIGNMENT_AT_BREACH',
+      source: input.source,
+    });
+    return {
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'LATE_START',
+      scheduleRevisionNo: revisionNo,
+      episodeNo: 1,
+    };
+  }
+
+  /**
+   * Provable activation of a pending LATE_SUBMISSION episode, or null when
+   * it cannot be proven (then no incident is materialized — never a guess).
+   *
+   * Episode 1 starts at START (`started_at`, first-wins, requestTime).
+   * A later episode starts exactly at the REQUEST_REVISION or
+   * WITHDRAW_FROM_APPROVAL that re-armed it, persisted as a durable
+   * activation row in the same critical transaction. Deliberately NOT
+   * derived from the previous SUBMITTED fact (that lower bound backdates
+   * breaches before the new obligation existed), mutable updated_at
+   * (polluted by delivery edits), or DB-clock activity logs.
+   * Legacy episodes armed before the activation mechanism exist have no
+   * row and stay unattributable until sufficient evidence exists.
+   */
+  private async resolveSubmissionEpisodeActivation(
+    tx: JobCardTransaction,
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<Date | null> {
+    if (episodeNo <= 1) {
+      return (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
+    }
+    const activation = await tx.getSubmissionEpisodeActivation(
+      organizationId, jobCardId, episodeNo,
+    );
+    return activation?.activatedAt ?? null;
+  }
+
+  private async materializeLateSubmissionIfBreached(
+    tx: JobCardTransaction,
+    input: {
+      organizationId: string;
+      jobCardId: string;
+      scheduledEndsAt: string | null;
+      scheduledAt: string | null;
+      type: JobCard['type'];
+      dueDate: string | null;
+      episodeNo: number;
+      scheduleRevisionNo: number | null;
+      revisionEffectiveAt: Date | null;
+      source: OverdueIncidentSource;
+      requestTime: Date;
+    },
+  ): Promise<OverdueIncidentIdentity | null> {
+    const episodeActivationAt = await this.resolveSubmissionEpisodeActivation(
+      tx, input.organizationId, input.jobCardId, input.episodeNo,
+    );
+    if (episodeActivationAt === null) return null;
+    // The phase deadline needs the org timezone only for the due_date
+    // fallback; resolve it lazily so phase-deadline jobs never pay for it.
+    const phaseDeadline = input.scheduledEndsAt
+      ?? (input.type === 'SALES_MEETING' ? null : input.scheduledAt);
+    let effective: Date | null = phaseDeadline === null ? null : new Date(phaseDeadline);
+    if (effective === null) {
+      if (input.dueDate === null) return null;
+      const timezone = await tx.getOrganizationTimezone(input.organizationId);
+      effective = effectiveSubmissionDeadlineAt({
+        scheduledEndsAt: input.scheduledEndsAt,
+        scheduledAt: input.scheduledAt,
+        type: input.type,
+        dueDate: input.dueDate,
+        timezone,
+      });
+      if (effective === null) return null;
+    }
+    const deadlineAt = submissionBreachInstant(effective);
+    if (!isInstantBreached(deadlineAt, input.requestTime)) return null;
+    let revisionNo = input.scheduleRevisionNo;
+    let revisionEffectiveAt = input.revisionEffectiveAt;
+    if (revisionNo === null || revisionEffectiveAt === null) {
+      const current = await this.currentRevisionRow(
+        tx, input.organizationId, input.jobCardId,
+      );
+      revisionNo = current.revisionNo;
+      revisionEffectiveAt = current.createdAt;
+    }
+    const breachedAt = submissionBreachAt({
+      nominalFirstLateAt: deadlineAt,
+      episodeActivationAt,
+      revisionEffectiveAt,
+    });
+    const assigneeAtBreach = await tx.getAssigneeAtInstant(
+      input.organizationId, input.jobCardId, breachedAt,
+    );
+    await tx.insertOverdueIncident({
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'LATE_SUBMISSION',
+      episodeNo: input.episodeNo,
+      scheduleRevisionNo: revisionNo,
+      deadlineAt,
+      breachedAt,
+      accountableUserId: assigneeAtBreach,
+      accountableRole: 'STAFF',
+      accountableSource: assigneeAtBreach === null ? 'UNKNOWN' : 'ASSIGNMENT_AT_BREACH',
+      source: input.source,
+    });
+    return {
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'LATE_SUBMISSION',
+      scheduleRevisionNo: revisionNo,
+      episodeNo: input.episodeNo,
+    };
+  }
+
+  private async materializeApprovalWaitIfBreached(
+    tx: JobCardTransaction,
+    input: {
+      organizationId: string;
+      jobCardId: string;
+      source: OverdueIncidentSource;
+      requestTime: Date;
+    },
+  ): Promise<OverdueIncidentIdentity | null> {
+    // Latest reliable submission fact. When no fact exists (legacy
+    // pre-fact WAITING_APPROVAL) the episode cannot be proven, so nothing
+    // is materialized: uncertainty stays uncertainty, never fabricated.
+    // Mutable staff_completed_at is never used when a fact exists.
+    const fact = await tx.getLatestSubmittedFact(input.organizationId, input.jobCardId);
+    if (fact === null) return null;
+    const deadlineAt = approvalWaitDeadlineAt(fact.occurredAt);
+    if (!isInstantBreached(deadlineAt, input.requestTime)) return null;
+    const revision = await tx.getScheduleRevision(
+      input.organizationId, input.jobCardId, fact.scheduleRevisionNo,
+    );
+    if (revision === null) {
+      throw new AppError(
+        'OVERDUE_INCIDENT_REVISION_MISSING', 500, 'İş zaman planı kaydı bulunamadı.');
+    }
+    const breachedAt = approvalWaitBreachAt({
+      deadlineAt,
+      submittedAt: fact.occurredAt,
+      revisionEffectiveAt: revision.createdAt,
+    });
+    await tx.insertOverdueIncident({
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'APPROVAL_WAIT',
+      episodeNo: fact.seqNo,
+      scheduleRevisionNo: fact.scheduleRevisionNo,
+      deadlineAt,
+      breachedAt,
+      accountableUserId: null,
+      accountableRole: 'MANAGEMENT',
+      accountableSource: 'ROLE_POLICY',
+      source: input.source,
+    });
+    return {
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      delayType: 'APPROVAL_WAIT',
+      scheduleRevisionNo: fact.scheduleRevisionNo,
+      episodeNo: fact.seqNo,
+    };
+  }
+
+  /**
+   * CANCEL backstop for REVISION_REQUESTED: REQUEST_REVISION has already
+   * armed the current pending episode in the same critical transaction, so
+   * CANCEL evaluates that next SUBMITTED sequence, not the previous fact.
+   * A missing activation row means a legacy episode whose exact start is
+   * not provable; it remains unattributable rather than being backdated.
+   */
+  private async materializeCurrentSubmissionIfBreached(
+    tx: JobCardTransaction,
+    input: {
+      organizationId: string;
+      jobCardId: string;
+      job: JobCard;
+      source: OverdueIncidentSource;
+      requestTime: Date;
+    },
+  ): Promise<OverdueIncidentIdentity | null> {
+    const episodeNo = await tx.getNextSubmittedSeqNo(
+      input.organizationId, input.jobCardId,
+    );
+    return this.materializeLateSubmissionIfBreached(tx, {
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      scheduledEndsAt: input.job.scheduledEndsAt,
+      scheduledAt: input.job.scheduledAt,
+      type: input.job.type,
+      dueDate: input.job.dueDate,
+      episodeNo,
+      scheduleRevisionNo: null,
+      revisionEffectiveAt: null,
+      source: input.source,
+      requestTime: input.requestTime,
+    });
+  }
+
+  /**
+   * Arm the next submission episode at exact requestTime. The episode
+   * number is the next SUBMITTED sequence (no new fact exists yet in this
+   * transaction), so the row deterministically aligns with the next
+   * SUBMITTED fact and its incident. Replays converge via UNIQUE.
+   * Legacy WAITING without any SUBMITTED fact has no episode to arm
+   * (episode 1 is proven by started_at); arming starts at episode 2,
+   * matching the table CHECK.
+   */
+  private async activateNextSubmissionEpisode(
+    tx: JobCardTransaction,
+    organizationId: string,
+    jobCardId: string,
+    command: 'REQUEST_REVISION' | 'WITHDRAW_FROM_APPROVAL',
+    requestTime: Date,
+  ): Promise<number> {
+    const episodeNo = await tx.getNextSubmittedSeqNo(organizationId, jobCardId);
+    if (episodeNo >= 2) {
+      await tx.insertSubmissionEpisodeActivation({
+        organizationId,
+        jobCardId,
+        episodeNo,
+        activatedAt: requestTime,
+        activatedByCommand: command,
+      });
+    }
+    return episodeNo;
+  }
+
+  private async recoverOverdueIncident(
+    tx: JobCardTransaction,
+    identity: OverdueIncidentIdentity,
+    actor: JobCardActor,
+    requestTime: Date,
+  ): Promise<void> {
+    await tx.recoverOverdueIncidentEpisode({
+      organizationId: identity.organizationId,
+      jobCardId: identity.jobCardId,
+      delayType: identity.delayType,
+      episodeNo: identity.episodeNo,
+      recoveredAt: requestTime,
+      recoveryActorUserId: actor.id,
+    });
+  }
+
+  private async materializeOverdueBreachForCommand(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    jobCardId: string,
+    job: JobCard,
+    command: LifecycleCommand,
+    requestTime: Date,
+  ): Promise<OverdueIncidentIdentity | null> {
+    const scope = { organizationId: actor.organizationId, jobCardId };
+    switch (command) {
+      case 'ACCEPT_ASSIGNMENT': {
+        // The commitment starts here: accepting an already-past end opens
+        // a LATE_START incident at acceptance (never backdated before it).
+        // runLifecycle deliberately does NOT recover it (see below).
+        if (job.status !== 'NEW') return null;
+        return this.materializeLateStartIfBreached(tx, {
+          ...scope,
+          scheduledEndsAt: job.scheduledEndsAt,
+          acceptedAtOverride: requestTime,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          source: 'TRANSITION',
+          requestTime,
+        });
+      }
+      case 'START': {
+        if (job.status !== 'ACCEPTED') return null;
+        return this.materializeLateStartIfBreached(tx, {
+          ...scope,
+          scheduledEndsAt: job.scheduledEndsAt,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          source: 'TRANSITION',
+          requestTime,
+        });
+      }
+      case 'SUBMIT_FOR_APPROVAL': {
+        if (job.status !== 'IN_PROGRESS') return null;
+        // Same job-lock discipline as the accountability fact below: the
+        // sequence read here and the fact insert later in this transaction
+        // observe the same MAX, so incident and fact share the episode.
+        const episodeNo = await tx.getNextSubmittedSeqNo(
+          actor.organizationId, jobCardId,
+        );
+        return this.materializeLateSubmissionIfBreached(tx, {
+          ...scope,
+          scheduledEndsAt: job.scheduledEndsAt,
+          scheduledAt: job.scheduledAt,
+          type: job.type,
+          dueDate: job.dueDate,
+          episodeNo,
+          scheduleRevisionNo: null,
+          revisionEffectiveAt: null,
+          source: 'TRANSITION',
+          requestTime,
+        });
+      }
+      case 'APPROVE':
+      case 'REQUEST_REVISION':
+      case 'WITHDRAW_FROM_APPROVAL': {
+        if (job.status !== 'WAITING_APPROVAL') return null;
+        return this.materializeApprovalWaitIfBreached(tx, {
+          ...scope, source: 'TRANSITION', requestTime,
+        });
+      }
+      case 'CANCEL': {
+        // Cancel exits exactly the delay its current state represents; no
+        // unbounded sweep. NEW has no commitment and proves no breach.
+        if (job.status === 'WAITING_APPROVAL') {
+          return this.materializeApprovalWaitIfBreached(tx, {
+            ...scope, source: 'TRANSITION', requestTime,
+          });
+        }
+        if (job.status === 'ACCEPTED') {
+          return this.materializeLateStartIfBreached(tx, {
+            ...scope,
+            scheduledEndsAt: job.scheduledEndsAt,
+            scheduleRevisionNo: null,
+            revisionEffectiveAt: null,
+            source: 'TRANSITION',
+            requestTime,
+          });
+        }
+        if (job.status === 'IN_PROGRESS') {
+          const episodeNo = await tx.getNextSubmittedSeqNo(
+            actor.organizationId, jobCardId,
+          );
+          return this.materializeLateSubmissionIfBreached(tx, {
+            ...scope,
+            scheduledEndsAt: job.scheduledEndsAt,
+            scheduledAt: job.scheduledAt,
+            type: job.type,
+            dueDate: job.dueDate,
+            episodeNo,
+            scheduleRevisionNo: null,
+            revisionEffectiveAt: null,
+            source: 'TRANSITION',
+            requestTime,
+          });
+        }
+        if (job.status === 'REVISION_REQUESTED') {
+          return this.materializeCurrentSubmissionIfBreached(tx, {
+            ...scope,
+            job,
+            source: 'TRANSITION',
+            requestTime,
+          });
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
   }
 
   private lifecycleClaim(

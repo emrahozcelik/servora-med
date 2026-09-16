@@ -186,6 +186,12 @@ export function createJobCardHandlers(service: JobCardService) {
       ),
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listActivity(actor(request), request.params.id, page(request.query, 50)),
+    listOverdueIncidents: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.listOverdueIncidents(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        page(request.query, 25),
+      ),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),
     addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>

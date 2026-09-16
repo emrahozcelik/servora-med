@@ -35,6 +35,7 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post<{ Params: { id: string } }>('/:id/cancel', secured, h.cancel);
   app.post<{ Params: { id: string } }>('/:id/invalidate', secured, h.invalidate);
   app.get<{ Params: { id: string } }>('/:id/activity', secured, h.activity);
+  app.get<{ Params: { id: string } }>('/:id/overdue-incidents', secured, h.listOverdueIncidents);
   app.get<{ Params: { id: string } }>('/:id/notes', secured, h.listNotes);
   app.post<{ Params: { id: string } }>('/:id/notes', secured, h.addNote);
 };
