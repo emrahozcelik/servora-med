@@ -8,6 +8,7 @@ import {
   type JobCardStatus,
   type JobCardType,
 } from '../job-cards/types.js';
+import { currentOverduePredicateSql } from '../job-cards/overdue-contract.js';
 import type { ReportsReadModel } from './ports.js';
 import type {
   ApprovalSummary,
@@ -255,11 +256,16 @@ const ORGANIZATION_RANGE_CTE = `organization_range AS (
 )`;
 
 /**
- * Canonical overdue predicate: due_date strictly before the organization-local
- * current date, independent of scheduled_at. `$4` is the requestTime instant.
+ * Canonical overdue predicate, rendered from the single shared contract in
+ * `job-cards/overdue-contract.ts`: due_date strictly before the
+ * organization-local current date, independent of scheduled_at. `$4` is the
+ * requestTime instant.
  */
-const OVERDUE_JOB_CARD_CLAUSE = `jc.due_date IS NOT NULL
-  AND jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date`;
+const OVERDUE_JOB_CARD_CLAUSE = currentOverduePredicateSql({
+  dueDate: 'jc.due_date',
+  timezone: 'organization_range.timezone',
+  requestTime: '$4::timestamptz',
+});
 
 const ACTIVE_STATUS_LIST_SQL = ACTIVE_JOB_CARD_STATUSES.map((status) => `'${status}'`).join(', ');
 const ACTIVE_STATUS_BUCKETS_SQL = ACTIVE_JOB_CARD_STATUSES
@@ -905,8 +911,7 @@ const CUSTOMER_REPORT_ACTIVITY_COLUMNS = `
     )::int AS revision_requested,
     COUNT(jc.id) FILTER (
       WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
-        AND jc.due_date IS NOT NULL
-        AND jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+        AND ${OVERDUE_JOB_CARD_CLAUSE}
     )::int AS overdue,
     COUNT(jc.id) FILTER (
       WHERE jc.created_at >=
@@ -1133,9 +1138,11 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
   SELECT COUNT(children.id)::int AS count
   FROM active_children children
   CROSS JOIN organization_range
-  WHERE children.due_date IS NOT NULL
-    AND children.due_date <
-      ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+  WHERE ${currentOverduePredicateSql({
+    dueDate: 'children.due_date',
+    timezone: 'organization_range.timezone',
+    requestTime: '$4::timestamptz',
+  })}
 ), divergence AS (
   SELECT COUNT(children.id)::int AS count
   FROM follow_up_children children

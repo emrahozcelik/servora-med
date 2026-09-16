@@ -875,3 +875,48 @@ describe('Linked follow-up transport', () => {
     });
   });
 });
+
+describe('OVR-1 overdue snapshot transport', () => {
+  it('parses the derived overdue snapshot when the server sends it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, overdueSince: '2026-07-13T21:00:00.000Z', latenessSeconds: 54_000 }],
+      total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards({ overdue: true })).resolves.toMatchObject({
+      items: [{ overdueSince: '2026-07-13T21:00:00.000Z', latenessSeconds: 54_000 }],
+    });
+  });
+
+  it('accepts a null snapshot without inventing a lateness value', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, overdueSince: null, latenessSeconds: null }],
+      total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards({ overdue: true })).resolves.toMatchObject({
+      items: [{ overdueSince: null, latenessSeconds: null }],
+    });
+  });
+
+  it('leaves the snapshot absent on a surface that does not evaluate lateness', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [listItem], total: 1, limit: 25, offset: 0,
+    })));
+    const page = await listJobCards({});
+    expect(page.items[0]).not.toHaveProperty('overdueSince');
+    expect(page.items[0]).not.toHaveProperty('latenessSeconds');
+  });
+
+  it('rejects a fractional lateness instead of silently rounding it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, latenessSeconds: 1.5 }], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards({})).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('rejects a non-canonical overdue instant', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, overdueSince: '2026-07-13T21:00:00Z' }], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards({})).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+});
