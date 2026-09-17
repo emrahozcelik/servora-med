@@ -19,6 +19,7 @@ import {
   PostgresJobCardRepository,
 } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { readDbBaseline, readReservedAt, DAY_MS } from './support/db-clock-baseline.js';
 import type {
   JobCard,
   JobCardActor,
@@ -186,11 +187,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store: new PostgresMigrationStore(pool),
       });
-      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first']);
+      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(48);
-      expect(catalog.head?.version).toBe('048_overdue_episode_activation_legacy_first');
+      expect(catalog.count).toBe(49);
+      expect(catalog.head?.version).toBe('049_job_card_lifecycle_intents');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');
       expect(after.rows[0]!.count).toBe('1');
@@ -239,7 +240,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       expect(fact.responsible_user_id).toBe(staffAId);
       expect(fact.actor_user_id).toBe(staffAId);
       expect(fact.schedule_revision_no).toBe(1);
-      expect(new Date(fact.occurred_at).toISOString()).toBe(CLOCK.toISOString());
+      expect(fact.occurred_at).toEqual(await readReservedAt(pool, job.id, 'START'));
       expect(await activityEventForFact(pool, fact)).toBe('JOB_STARTED');
       const activityOrg = await pool.query<{ organization_id: string; job_card_id: string }>(
         `SELECT organization_id, job_card_id FROM job_card_activity_logs WHERE id = $1`,
@@ -392,8 +393,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         unsuccessfulReason: 'REQUESTED_LATER',
         meetingSummary: 'Karar sonraki hafta teyit edilecek.',
       });
+      const future = new Date((await readDbBaseline(pool)).valueOf() + 7 * DAY_MS);
+      future.setUTCHours(10, 0, 0, 0);
+      if (future.getUTCDay() === 0) future.setUTCDate(future.getUTCDate() + 1);
       const proposal = {
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: future.toISOString(),
         type: 'SALES_MEETING',
         assignedTo: staffAId,
         followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
@@ -430,7 +434,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         expect(fact.responsible_user_id).toBe(staffAId);
         expect(fact.actor_user_id).toBe(staffAId);
         expect(fact.schedule_revision_no).toBe(1);
-        expect(new Date(fact.occurred_at).toISOString()).toBe(CLOCK.toISOString());
+        const action = (await pool.query<{ client_action_id: string }>(
+          'SELECT client_action_id FROM job_card_activity_logs WHERE id=$1', [fact.source_activity_id],
+        )).rows[0]!;
+        expect(fact.occurred_at).toEqual(await readReservedAt(pool, created.id, 'SUBMIT_FOR_APPROVAL', action.client_action_id));
         expect(await activityEventForFact(pool, fact)).toBe('JOB_SUBMITTED_FOR_APPROVAL');
       }
       const startedFacts = facts.filter((fact) => fact.fact_type === 'STARTED');
@@ -733,10 +740,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await service.start(staffA, job.id, { clientActionId: randomUUID(), expectedVersion: job.version });
 
       const manifest = {
-        database: { schemaVersion: '048_overdue_episode_activation_legacy_first' },
+        database: { schemaVersion: '049_job_card_lifecycle_intents' },
       } as unknown as RestoreManifestV1;
       const evidence = await validateRestoredDatabase(url.toString(), manifest);
-      expect(evidence.schemaVersion).toBe('048_overdue_episode_activation_legacy_first');
+      expect(evidence.schemaVersion).toBe('049_job_card_lifecycle_intents');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
     } finally {

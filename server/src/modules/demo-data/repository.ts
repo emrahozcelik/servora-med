@@ -157,6 +157,7 @@ async function deleteJobHistoryRows(
   table:
     | 'job_card_overdue_incidents'
     | 'job_card_submission_episode_activations'
+    | 'job_card_lifecycle_intents'
     | 'job_card_schedule_revisions'
     | 'job_card_assignment_history'
     | 'job_card_accountability_facts',
@@ -377,6 +378,7 @@ async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDa
   await lockUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
   await lockUuidRows(client, 'job_card_overdue_incidents', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_submission_episode_activations', organizationId, plan.jobCards, 'job_card_id');
+  await lockUuidRows(client, 'job_card_lifecycle_intents', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards, 'job_card_id');
   await lockUuidRows(client, 'job_card_assignment_history', organizationId, plan.jobCards, 'job_card_id');
@@ -422,6 +424,7 @@ async function executePlan(client: PoolClient, organizationId: string, plan: Dem
   // their JobCard rows for the same reason.
   await deleteJobHistoryRows(client, 'job_card_overdue_incidents', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_submission_episode_activations', organizationId, plan.jobCards);
+  await deleteJobHistoryRows(client, 'job_card_lifecycle_intents', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_accountability_facts', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_schedule_revisions', organizationId, plan.jobCards);
   await deleteJobHistoryRows(client, 'job_card_assignment_history', organizationId, plan.jobCards);

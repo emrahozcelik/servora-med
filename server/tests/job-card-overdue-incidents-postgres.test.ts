@@ -119,16 +119,87 @@ async function selectIncidents(pool: Pool, organizationId: string, jobId: string
   )).rows as Record<string, unknown>[];
 }
 
+// 049: lifecycle business time is the DB-sampled reservation instant, so
+// fixtures derive from the millisecond-normalized DB arbitration clock and
+// exact lifecycle instants are read back from the intent row (never from
+// the injected service clock, which only drives create/patch paths).
+async function dbBaseline(pool: Pool): Promise<Date> {
+  return (await pool.query<{ now: Date }>(
+    "SELECT date_trunc('milliseconds', clock_timestamp()) AS now",
+  )).rows[0]!.now;
+}
+
+function shiftMs(base: Date, ms: number): Date {
+  return new Date(base.getTime() + ms);
+}
+
+// Mixed lifecycle/patch flows: patch/create paths run on the injected
+// clock while lifecycle paths run on the DB reservation clock. Refresh the
+// injected clock after lifecycle commands so a patch requestTime never
+// predates lifecycle-produced instants (which would push derived breach
+// instants past requestTime and correctly suppress materialization).
+async function syncClock(pool: Pool, clock: { now: Date }): Promise<Date> {
+  clock.now = await dbBaseline(pool);
+  return clock.now;
+}
+
+async function reservedAtFor(
+  pool: Pool,
+  organizationId: string,
+  jobCardId: string,
+  operationKey: string,
+  clientActionId?: string,
+): Promise<Date> {
+  const row = (await pool.query<{ reserved_at: Date }>(
+    `SELECT reserved_at FROM job_card_lifecycle_intents
+      WHERE organization_id = $1 AND job_card_id = $2 AND operation_key = $3
+        AND ($4::text IS NULL OR client_action_id = $4)
+      ORDER BY reserved_at DESC, id DESC
+      LIMIT 1`,
+    [organizationId, jobCardId, operationKey, clientActionId ?? null],
+  )).rows[0];
+  if (!row) throw new Error(`missing lifecycle intent for ${operationKey}`);
+  return row.reserved_at;
+}
+
+// 24h-breach fixtures: 049 cannot time-travel the DB reservation clock, so
+// a day-old waiting approval is modeled by rewinding the SUBMITTED fact, the
+// mutable staff-completed stamp, and the governing revision activation
+// together (test-local past, coherent: revision <= submission < deadline).
+async function rewindSubmissionTo(
+  pool: Pool,
+  organizationId: string,
+  jobCardId: string,
+  occurredAt: Date,
+): Promise<void> {
+  await pool.query(
+    `UPDATE job_card_accountability_facts
+        SET occurred_at = $3
+      WHERE organization_id = $1 AND job_card_id = $2 AND fact_type = 'SUBMITTED'`,
+    [organizationId, jobCardId, occurredAt],
+  );
+  await pool.query(
+    `UPDATE job_cards SET staff_completed_at = $3
+      WHERE organization_id = $1 AND id = $2`,
+    [organizationId, jobCardId, occurredAt],
+  );
+  await pool.query(
+    `UPDATE job_card_schedule_revisions SET created_at = $3
+      WHERE organization_id = $1 AND job_card_id = $2 AND revision_no = 1`,
+    [organizationId, jobCardId, occurredAt],
+  );
+}
+
 describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
-  it('migration 048 exists and becomes the schema head', async () => {
+  it('migration 049 exists and becomes the schema head', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('048_overdue_episode_activation_legacy_first');
+      expect(catalog.head?.version).toBe('049_job_card_lifecycle_intents');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('048_overdue_episode_activation_legacy_first');
+        .toBe('049_job_card_lifecycle_intents');
     });
   });
 
@@ -143,13 +214,31 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const customerId = await insertCustomer(pool, organizationId);
       const { manager, staffA } = actors(organizationId, managerId, staffAId, staffAId);
       void manager;
-      const clock = { now: CREATE_AT };
+      // 049: business time is the DB reservation instant. The delivery
+      // window sits fully in the past so the START reservation lands late;
+      // create-time instants stay on the injected baseline.
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
+      const scheduledAt = shiftMs(baseline, -60 * 60_000);
 
-      let job = await createLateDelivery(service, staffA, customerId);
-      clock.now = LATE_AT;
+      let job = (await service.create(staffA, {
+        clientActionId: randomUUID(),
+        type: 'PRODUCT_DELIVERY',
+        title: 'Geç başlanan teslim',
+        description: null,
+        customerId,
+        contactId: null,
+        assignedTo: staffA.id,
+        priority: 'normal',
+        dueDate: null,
+        scheduledAt: scheduledAt.toISOString(),
+        scheduledEndsAt: undefined,
+        engagementKind: undefined,
+      } as never)) as JobCard;
+      const startActionId = randomUUID();
       job = await service.start(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
       expect(job.status).toBe('IN_PROGRESS');
 
@@ -163,9 +252,13 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountable_role: 'STAFF',
         accountable_source: 'ASSIGNMENT_AT_BREACH',
       });
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      expect(incidents[0]!.breached_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      expect(incidents[0]!.recovered_at).toEqual(LATE_AT);
+      // PD canonical end is +30m; breach = max(deadline, acceptance,
+      // revision activation) = the create-time baseline (all in the past).
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(scheduledAt, 30 * 60_000));
+      expect(incidents[0]!.breached_at).toEqual(baseline);
+      // Recovery runs in the START transaction at its reservation instant.
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
+      expect(incidents[0]!.recovered_at).toEqual(reservedStart);
       expect(incidents[0]!.recovery_actor_user_id).toBe(staffAId);
     });
   });
@@ -178,10 +271,13 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      // Created before the due date so assignment history proves the
-      // assignee at the breach instant; submitted after it.
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      // Created days ago so assignment history proves the assignee at the
+      // breach instant; the due date (Istanbul local end) is long past, so
+      // the SUBMIT reservation lands late.
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
+      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -192,17 +288,18 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: '2026-08-01',
+        dueDate,
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
       } as never)) as JobCard;
+      const startActionId = randomUUID();
       job = await service.start(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      const submitActionId = randomUUID();
       job = await service.submitForApproval(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: submitActionId, expectedVersion: job.version,
         note: 'Geç de olsa tamamlandı.',
       });
       expect(job.status).toBe('WAITING_APPROVAL');
@@ -215,12 +312,19 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountable_user_id: staffAId,
         accountable_role: 'STAFF',
       });
-      // due_date 2026-08-01 Europe/Istanbul local end = 2026-08-01T21:00Z;
-      // first late instant is one millisecond later (domain clock is
-      // millisecond-quantized end-to-end; see overdue-incidents.ts).
+      // Istanbul local end of the due date is 21:00Z; the effective deadline
+      // is that instant and the first late instant is one millisecond later
+      // (domain clock is millisecond-quantized end-to-end).
+      const dueEnd = new Date(`${dueDate}T21:00:00.000Z`);
       expect((incidents[0]!.deadline_at as Date).getTime())
-        .toBeGreaterThan(new Date('2026-08-01T21:00:00.000Z').getTime());
-      expect(incidents[0]!.recovered_at).toEqual(clock.now);
+        .toBeGreaterThan(dueEnd.getTime());
+      // Breach = max(first late, episode start = START reservation).
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
+      expect(incidents[0]!.breached_at).toEqual(reservedStart);
+      const reservedSubmit = await reservedAtFor(
+        pool, organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`,
+      );
+      expect(incidents[0]!.recovered_at).toEqual(reservedSubmit);
     });
   });
 
@@ -232,7 +336,8 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { manager, staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: new Date('2026-08-04T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
       let job = (await service.create(staffA, {
@@ -256,9 +361,12 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Onaya gönderildi.',
       });
-      clock.now = new Date('2026-08-05T10:00:00.000Z'); // 25h later.
+      // Model a day-old waiting approval: the submission happened 25h ago.
+      const submittedAt = shiftMs(baseline, -25 * 60 * 60_000);
+      await rewindSubmissionTo(pool, organizationId, job.id, submittedAt);
+      const approveActionId = randomUUID();
       job = await service.approve(manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: approveActionId, expectedVersion: job.version,
       });
       expect(job.status).toBe('COMPLETED');
 
@@ -270,7 +378,11 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountable_user_id: null,
         accountable_role: 'MANAGEMENT',
       });
-      expect(waits[0]!.recovered_at).toEqual(clock.now);
+      // Deadline = submission + 24h; breach collapses to it here.
+      expect(waits[0]!.deadline_at).toEqual(shiftMs(submittedAt, 24 * 60 * 60_000));
+      expect(waits[0]!.breached_at).toEqual(shiftMs(submittedAt, 24 * 60 * 60_000));
+      const reservedApprove = await reservedAtFor(pool, organizationId, job.id, `JOB_APPROVE:${job.id}`);
+      expect(waits[0]!.recovered_at).toEqual(reservedApprove);
       expect(waits[0]!.recovery_actor_user_id).toBe(managerId);
     });
   });
@@ -336,13 +448,16 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       expect(open.every((row) => row.recovered_at === null)).toBe(true);
 
       clock.now = new Date('2026-08-03T11:00:00.000Z');
+      const startActionId = randomUUID();
       job = await service.start(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
       expect(job.status).toBe('IN_PROGRESS');
       const recovered = await selectIncidents(pool, organizationId, job.id);
       expect(recovered).toHaveLength(3);
-      expect(recovered.every((row) => row.recovered_at?.getTime() === clock.now.getTime())).toBe(true);
+      // Recovery runs in the START transaction at its reservation instant.
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
+      expect(recovered.every((row) => (row.recovered_at as Date)?.getTime() === reservedStart.getTime())).toBe(true);
       expect(recovered.every((row) => row.recovery_actor_user_id === staffAId)).toBe(true);
       void manager;
     });
@@ -382,15 +497,17 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const accepted = await service.acceptAssignment(staffB, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
+      const startActionId = randomUUID();
       const started = await service.start(staffB, job.id, {
-        clientActionId: randomUUID(), expectedVersion: accepted.version,
+        clientActionId: startActionId, expectedVersion: accepted.version,
       });
       expect(started.status).toBe('IN_PROGRESS');
       const after = await selectIncidents(pool, organizationId, job.id);
       expect(after).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
       expect(after[0]).toMatchObject({
         accountable_user_id: staffAId,
-        recovered_at: clock.now,
+        recovered_at: reservedStart,
         recovery_actor_user_id: staffBId,
       });
     });
@@ -442,15 +559,16 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
 
       let job = await createLateDelivery(service, staffA, customerId);
       clock.now = LATE_AT;
+      const startActionId = randomUUID();
       job = await service.start(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
 
       const page = await service.listOverdueIncidents(manager, job.id, { limit: 1, offset: 0 });
       expect(page.total).toBe(1);
       expect(page.limit).toBe(1);
       expect(page.offset).toBe(0);
-      expect(page.items).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
       expect(page.items[0]).toEqual({
         id: expect.any(String),
         delayType: 'LATE_START',
@@ -463,7 +581,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountableUser: { id: staffAId, name: 'Ayşe Personel' },
         source: 'TRANSITION',
         recordedAt: expect.any(String),
-        recoveredAt: '2026-08-03T08:00:00.000Z',
+        recoveredAt: reservedStart.toISOString(),
         recoveryActor: { id: staffAId, name: 'Ayşe Personel' },
       });
       const empty = await service.listOverdueIncidents(manager, job.id, { limit: 1, offset: 1 });
@@ -531,12 +649,28 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const customerId = await insertCustomer(pool, organizationId);
       const { staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: CREATE_AT };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
-      // Before the end: on time, no incident.
-      let job = await createLateDelivery(service, staffA, customerId);
-      clock.now = new Date('2026-08-03T07:15:00.000Z');
+      // Started after the planned start but before the end: on time, no incident.
+      // (START requires scheduledAt <= reservation, so the window straddles now
+      // with a generous margin: PD canonical end is start + 30m.)
+      const scheduledAt = shiftMs(baseline, -10 * 60_000);
+      let job = (await service.create(staffA, {
+        clientActionId: randomUUID(),
+        type: 'PRODUCT_DELIVERY',
+        title: 'Zamanında başlanan teslim',
+        description: null,
+        customerId,
+        contactId: null,
+        assignedTo: staffA.id,
+        priority: 'normal',
+        dueDate: null,
+        scheduledAt: scheduledAt.toISOString(),
+        scheduledEndsAt: undefined,
+        engagementKind: undefined,
+      } as never)) as JobCard;
       job = await service.start(staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
@@ -565,7 +699,10 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('SUBMIT exactly at the effective deadline stays on time', async () => {
+  // Exact deadline equality is proven by the pure boundary tests
+  // (overdue-incidents.test.ts §21): the service reservation clock cannot
+  // land exactly on a deadline, so the PG path uses a clear margin.
+  it('SUBMIT before the effective deadline stays on time', async () => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -573,19 +710,20 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
-        title: 'Tam sinirda teslim',
+        title: 'Erken teslim',
         description: null,
         customerId: null,
         contactId: null,
         assignedTo: staffA.id,
         priority: 'normal',
-        dueDate: '2026-08-01',
+        dueDate: shiftMs(baseline, 3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
         scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
@@ -593,8 +731,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       job = await service.start(staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      // due 2026-08-01 Europe/Istanbul local end = 2026-08-01T21:00Z.
-      clock.now = new Date('2026-08-01T21:00:00.000Z');
+      // Days before the Istanbul local end of the due date.
       job = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Tam zamanında.',
@@ -673,7 +810,9 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('approval under 24h stays clean; exactly 24h breaches', async () => {
+  // The exact 24h equality is proven by the pure boundary tests
+  // (overdue-incidents.test.ts §21); the PG path uses margins around it.
+  it('approval under 24h stays clean; past 24h breaches', async () => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -681,9 +820,10 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { manager, staffA } = actors(organizationId, managerId, staffAId, staffAId);
+      const baseline = await dbBaseline(pool);
 
       async function submittedJob(title: string) {
-        const clock = { now: new Date('2026-08-04T09:00:00.000Z') };
+        const clock = { now: baseline };
         const service = buildService(pool, clock);
         let job = (await service.create(staffA, {
           clientActionId: randomUUID(),
@@ -710,19 +850,20 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       }
 
       const early = await submittedJob('Hizli onay');
-      early.clock.now = new Date('2026-08-05T08:59:59.000Z');
       const completed = await early.service.approve(manager, early.job.id, {
         clientActionId: randomUUID(), expectedVersion: early.job.version,
       });
       expect(completed.status).toBe('COMPLETED');
       expect(await selectIncidents(pool, organizationId, early.job.id)).toHaveLength(0);
 
-      const exact = await submittedJob('Sinirda onay');
-      exact.clock.now = new Date('2026-08-05T09:00:00.000Z');
-      await exact.service.approve(manager, exact.job.id, {
-        clientActionId: randomUUID(), expectedVersion: exact.job.version,
+      const late = await submittedJob('Gecen onay');
+      const submittedAt = shiftMs(baseline, -25 * 60 * 60_000);
+      await rewindSubmissionTo(pool, organizationId, late.job.id, submittedAt);
+      const approveActionId = randomUUID();
+      await late.service.approve(manager, late.job.id, {
+        clientActionId: approveActionId, expectedVersion: late.job.version,
       });
-      const incidents = await selectIncidents(pool, organizationId, exact.job.id);
+      const incidents = await selectIncidents(pool, organizationId, late.job.id);
       expect(incidents).toHaveLength(1);
       expect(incidents[0]).toMatchObject({
         delay_type: 'APPROVAL_WAIT',
@@ -730,8 +871,9 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         accountable_user_id: null,
         accountable_role: 'MANAGEMENT',
       });
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-05T09:00:00.000Z'));
-      expect(incidents[0]!.recovered_at).toEqual(exact.clock.now);
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(submittedAt, 24 * 60 * 60_000));
+      const reservedApprove = await reservedAtFor(pool, organizationId, late.job.id, `JOB_APPROVE:${late.job.id}`);
+      expect(incidents[0]!.recovered_at).toEqual(reservedApprove);
     });
   });
 
@@ -743,7 +885,8 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { manager, staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: new Date('2026-08-04T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
       let job = (await service.create(staffA, {
@@ -767,17 +910,22 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Onaya gönderildi.',
       });
-      clock.now = new Date('2026-08-05T10:00:00.000Z');
+      // The submission waited 25h before the revision request arrived.
+      await rewindSubmissionTo(pool, organizationId, job.id, shiftMs(baseline, -25 * 60 * 60_000));
+      const revisionActionId = randomUUID();
       job = await service.requestRevision(manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: revisionActionId, expectedVersion: job.version,
         revisionReason: 'Eksik bilgi var.',
       });
       expect(job.status).toBe('REVISION_REQUESTED');
       const incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedRevision = await reservedAtFor(
+        pool, organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`,
+      );
       expect(incidents[0]).toMatchObject({
         delay_type: 'APPROVAL_WAIT',
-        recovered_at: clock.now,
+        recovered_at: reservedRevision,
         recovery_actor_user_id: managerId,
       });
     });
@@ -848,7 +996,8 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const managerId = await insertUser(pool, organizationId, 'MANAGER', 'OVR2 Manager');
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe Personel');
       const { manager, staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: new Date('2026-08-04T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
       let job = (await service.create(staffA, {
@@ -872,7 +1021,8 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Onaya gönderildi.',
       });
-      clock.now = new Date('2026-08-05T10:00:00.000Z');
+      // The submission waited 25h before the cancellation arrived.
+      await rewindSubmissionTo(pool, organizationId, job.id, shiftMs(baseline, -25 * 60 * 60_000));
       job = await service.cancel(manager, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         cancelReason: 'Müşteri vazgeçti.',
@@ -880,9 +1030,10 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       expect(job.status).toBe('CANCELLED');
       const incidents = await selectIncidents(pool, organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedCancel = await reservedAtFor(pool, organizationId, job.id, `JOB_CANCEL:${job.id}`);
       expect(incidents[0]).toMatchObject({
         delay_type: 'APPROVAL_WAIT',
-        recovered_at: clock.now,
+        recovered_at: reservedCancel,
         recovery_actor_user_id: managerId,
       });
     });
@@ -903,8 +1054,9 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
 
       let job = await createLateDelivery(service, staffA, customerId);
       clock.now = LATE_AT;
+      const startActionId = randomUUID();
       job = await service.start(staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
       const before = await selectIncidents(pool, organizationId, job.id);
       expect(before).toHaveLength(1);
@@ -918,10 +1070,11 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       expect(job.status).toBe('INVALIDATED');
       const after = await selectIncidents(pool, organizationId, job.id);
       expect(after).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, organizationId, job.id, `JOB_START:${job.id}`);
       expect(after[0]).toMatchObject({
         delay_type: 'LATE_START',
         accountable_user_id: staffAId,
-        recovered_at: LATE_AT,
+        recovered_at: reservedStart,
         recovery_actor_user_id: staffAId,
       });
     });
@@ -1099,25 +1252,48 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Rollback Ayşe');
       const customerId = await insertCustomer(pool, organizationId);
       const { staffA } = actors(organizationId, managerId, staffAId, staffAId);
-      const clock = { now: CREATE_AT };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
 
-      let job = await createLateDelivery(service, staffA, customerId);
-      clock.now = new Date('2026-08-03T07:00:00.000Z');
+      // On-time START (GENERAL_TASK has no interval end: never attributable
+      // as LATE_START). The past due date makes the SUBMIT late.
+      let job = (await service.create(staffA, {
+        clientActionId: randomUUID(),
+        type: 'GENERAL_TASK',
+        title: 'Geri alinan gorev',
+        description: null,
+        customerId: null,
+        contactId: null,
+        assignedTo: staffA.id,
+        priority: 'normal',
+        dueDate: shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10),
+        scheduledAt: null,
+        scheduledEndsAt: undefined,
+        engagementKind: undefined,
+      } as never)) as JobCard;
       job = await service.start(staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
+      expect(await selectIncidents(pool, organizationId, job.id)).toHaveLength(0);
       const versionBeforeFailedSubmit = job.version;
 
-      // SUBMIT materializes LATE_SUBMISSION before validateSubmission runs.
-      // PRODUCT_DELIVERY has no delivery item here, so validation fails after
-      // the insert and the critical transaction must roll everything back.
-      clock.now = new Date('2026-08-03T08:00:00.000Z');
+      // SUBMIT materializes LATE_SUBMISSION before submission validation
+      // runs. This job type rejects follow-up proposals, so validation fails
+      // after the insert and the critical transaction must roll everything
+      // back while the intent records the definitive failure.
+      const submitActionId = randomUUID();
       await expect(service.submitForApproval(staffA, job.id, {
-        clientActionId: randomUUID(),
+        clientActionId: submitActionId,
         expectedVersion: versionBeforeFailedSubmit,
         note: 'Eksik teslim bilgisiyle deneme.',
-      })).rejects.toMatchObject({ code: 'DELIVERY_NOT_READY', statusCode: 400 });
+        followUpProposal: {
+          scheduledAt: shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString(),
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Tekrar arayın',
+        },
+      })).rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_INVALID', statusCode: 400 });
 
       const persistedJob = await pool.query<{ status: string; version: number }>(
         `SELECT status, version FROM job_cards WHERE organization_id = $1 AND id = $2`,
@@ -1138,10 +1314,20 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const activations = await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
            FROM job_card_submission_episode_activations
-          WHERE organization_id = $1 AND job_card_id = $2`,
+         WHERE organization_id = $1 AND job_card_id = $2`,
         [organizationId, job.id],
       );
       expect(activations.rows[0]!.count).toBe('0');
+      // The definitive failure is recorded on the intent; the original
+      // domain error (not a bookkeeping error) surfaced above.
+      const intent = (await pool.query(
+        `SELECT state, failed_at FROM job_card_lifecycle_intents
+          WHERE organization_id = $1 AND job_card_id = $2
+            AND operation_key = $3`,
+        [organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`],
+      )).rows[0] as Record<string, unknown>;
+      expect(intent.state).toBe('FAILED');
+      expect(intent.failed_at).not.toBeNull();
     });
   });
 
@@ -1383,10 +1569,9 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       const clock = { now: CREATE_AT };
       const service = buildService(pool, clock);
       const job = await createNewLateDelivery(service, ctx.manager, ctx.staffAId, ctx.customerId);
-      const acceptedAt = new Date('2026-08-03T08:00:00.000Z');
-      clock.now = acceptedAt;
+      const acceptActionId = randomUUID();
       const accepted = await service.acceptAssignment(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: acceptActionId, expectedVersion: job.version,
       });
       expect(accepted.status).toBe('ACCEPTED');
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1399,8 +1584,12 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         accountable_role: 'STAFF',
       });
       expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.000Z'));
-      // No backdating before the commitment existed: breach starts at acceptance.
-      expect(incidents[0]!.breached_at).toEqual(acceptedAt);
+      // No backdating before the commitment existed: breach starts at the
+      // acceptance reservation.
+      const reservedAccept = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_ACCEPT_ASSIGNMENT:${job.id}`,
+      );
+      expect(incidents[0]!.breached_at).toEqual(reservedAccept);
       expect(incidents[0]!.recovered_at).toBeNull();
     });
   });
@@ -1416,9 +1605,14 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // the job back to NEW under revision 2.
       let job = await createLateDelivery(service, ctx.staffA, ctx.customerId);
       clock.now = LATE_AT;
+      // Revision 2 straddles the reservation (PD canonical end is start +
+      // 30m): START lands on time for the current revision while resolving
+      // the older open LATE_START episode.
+      const baseline = await dbBaseline(pool);
+      const rev2Start = shiftMs(baseline, -10 * 60_000);
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,
-        scheduledAt: '2026-08-03T09:00:00.000Z',
+        scheduledAt: rev2Start.toISOString(),
       } as never);
       expect(job.status).toBe('NEW');
       const beforeStart = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1429,25 +1623,26 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         recovered_at: null,
       });
 
-      // Revision 2 ends at 09:30Z. START at 09:15Z is on time for the
-      // current revision, but resolves the older open LATE_START episode.
+      // START is on time for the current revision, but resolves the older
+      // open LATE_START episode.
       clock.now = new Date('2026-08-03T09:00:00.000Z');
       job = await service.acceptAssignment(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-03T09:15:00.000Z');
+      const startActionId = randomUUID();
       job = await service.start(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
 
       expect(job.status).toBe('IN_PROGRESS');
       const afterStart = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(afterStart).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
       expect(afterStart[0]).toMatchObject({
         delay_type: 'LATE_START',
         episode_no: 1,
         schedule_revision_no: 1,
-        recovered_at: clock.now,
+        recovered_at: reservedStart,
         recovery_actor_user_id: ctx.staffAId,
       });
     });
@@ -1463,10 +1658,15 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
 
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // A single dueDate move: the elapsed old deadline binds revision 1
+      // while the future new deadline keeps the submit on time. The patch
+      // requestTime must postdate the START reservation (see syncClock).
+      const baseline = await dbBaseline(pool);
+      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      await syncClock(pool, clock);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
-        dueDate: '2026-08-10',
+        dueDate: futureDue,
       } as never);
       const beforeSubmit = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(beforeSubmit).toHaveLength(1);
@@ -1476,20 +1676,24 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         recovered_at: null,
       });
 
-      // The new deadline is still in the future, so discovery returns null;
-      // semantic recovery must nevertheless close the old revision row.
-      clock.now = new Date('2026-08-05T09:00:00.000Z');
+      // The new deadline is still in the future at the DB reservation
+      // instant, so discovery returns null; semantic recovery must
+      // nevertheless close the old revision row.
+      const submitActionId = randomUUID();
       job = await service.submitForApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
-        note: 'Yeni deadline öncesi teslim.',
+        clientActionId: submitActionId, expectedVersion: job.version,
+        note: 'Ikinci gonderim.',
       });
       expect(job.status).toBe('WAITING_APPROVAL');
       const afterSubmit = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(afterSubmit).toHaveLength(1);
+      const reservedSubmit = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`, submitActionId,
+      );
       expect(afterSubmit[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         schedule_revision_no: 1,
-        recovered_at: clock.now,
+        recovered_at: reservedSubmit,
         recovery_actor_user_id: ctx.staffAId,
       });
     });
@@ -1513,14 +1717,16 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
 
       clock.now = new Date('2026-08-03T08:05:00.000Z');
+      const cancelActionId = randomUUID();
       job = await service.cancel(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: cancelActionId, expectedVersion: job.version,
         cancelReason: 'Müşteri vazgeçti.',
       });
       expect(job.status).toBe('CANCELLED');
+      const reservedCancel = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`);
       expect((await selectIncidents(pool, ctx.organizationId, job.id))[0]).toMatchObject({
         delay_type: 'LATE_START',
-        recovered_at: clock.now,
+        recovered_at: reservedCancel,
         recovery_actor_user_id: ctx.managerId,
       });
     });
@@ -1552,35 +1758,44 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
 
       // The old dueDate is already late. A staff-authorized dueDate-only edit
       // must preserve the old revision-bound incident before appending rev 2.
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // Sync the patch clock past the START reservation first (see syncClock).
+      await syncClock(pool, clock);
+      const futureDue = shiftMs(clock.now, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
-        dueDate: '2026-08-10',
+        dueDate: futureDue,
       } as never);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 1,
         schedule_revision_no: 1,
-        deadline_at: new Date('2026-08-01T21:00:00.001Z'),
-        breached_at: new Date('2026-08-01T21:00:00.001Z'),
         recovered_at: null,
       });
+      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
+      // Breach = max(first late, episode start = START reservation).
+      expect(incidents[0]!.breached_at).toEqual(reservedStart);
     });
   });
 
   it('B2 regression: IN_PROGRESS dueDate move into the past creates only a new revision incident', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
-      let job = await createDueTask(service, ctx.staffA, '2026-08-10');
+      // Old deadline in the future (no rev1 incident), new deadline elapsed.
+      const futureDue = shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // The patch requestTime must postdate the START reservation (syncClock),
+      // mirroring the old fixed 08-04 clock which postdated its requestTime.
+      await syncClock(pool, clock);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
         dueDate: '2026-08-01',
@@ -1608,7 +1823,8 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // Patch clock must postdate the START reservation (see syncClock).
+      await syncClock(pool, clock);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
         dueDate: null,
@@ -1616,29 +1832,39 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 1,
         schedule_revision_no: 1,
-        deadline_at: new Date('2026-08-01T21:00:00.001Z'),
-        breached_at: new Date('2026-08-01T21:00:00.001Z'),
         recovered_at: null,
       });
+      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
+      // Breach = max(first late, episode start = START reservation).
+      expect(incidents[0]!.breached_at).toEqual(reservedStart);
     });
   });
 
   it('B2 regression: REVISION_REQUESTED uses pending episode for forward dueDate move', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
+      // Submit on time against a future due date (no ep1 incident), then
+      // revise: episode 2 is pending with the same future deadline.
+      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
-        service, clock, ctx.staffA, ctx.manager, '2026-08-01',
+        service, clock, ctx.staffA, ctx.manager, due,
       );
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // Patch after the old deadline but with a forward move: the pending
+      // episode binds the OLD revision deadline, not the new one.
+      clock.now = shiftMs(dueEnd, 60 * 60_000);
+      const forwardDue = shiftMs(dueEnd, 24 * 60 * 60_000).toISOString().slice(0, 10);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
-        dueDate: '2026-08-10',
+        dueDate: forwardDue,
       } as never);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1647,24 +1873,32 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         delay_type: 'LATE_SUBMISSION',
         episode_no: 2,
         schedule_revision_no: 1,
-        breached_at: new Date('2026-08-01T21:00:00.001Z'),
         recovered_at: null,
       });
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(dueEnd, 1));
+      expect(incidents[0]!.breached_at).toEqual(shiftMs(dueEnd, 1));
     });
   });
 
   it('B2 regression: REVISION_REQUESTED dueDate move backward creates episode-2 incident at requestTime', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
+      // Far-future due: submit on time, then revise (episode 2 pending).
+      const farDue = shiftMs(baseline, 2 * 24 * 60 * 60_000).toISOString().slice(0, 10);
       let job = await moveToRevisionRequested(
-        service, clock, ctx.staffA, ctx.manager, '2026-08-10',
+        service, clock, ctx.staffA, ctx.manager, farDue,
       );
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // Backward move to a nearer (but still elapsed-at-request) due date:
+      // the new revision breaches at the patch requestTime.
+      const nearDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const nearEnd = new Date(`${nearDue}T21:00:00.000Z`);
+      clock.now = shiftMs(nearEnd, 60 * 60_000);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
-        dueDate: '2026-08-01',
+        dueDate: nearDue,
       } as never);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -1673,22 +1907,27 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         delay_type: 'LATE_SUBMISSION',
         episode_no: 2,
         schedule_revision_no: 2,
-        deadline_at: new Date('2026-08-01T21:00:00.001Z'),
-        breached_at: clock.now,
         recovered_at: null,
       });
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(nearEnd, 1));
+      expect(incidents[0]!.breached_at).toEqual(clock.now);
     });
   });
 
   it('B2 regression: REVISION_REQUESTED dueDate removal preserves the pending old revision', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
+      const due = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueEnd = new Date(`${due}T21:00:00.000Z`);
       let job = await moveToRevisionRequested(
-        service, clock, ctx.staffA, ctx.manager, '2026-08-01',
+        service, clock, ctx.staffA, ctx.manager, due,
       );
-      clock.now = new Date('2026-08-04T09:00:00.000Z');
+      // Remove the due date after the old deadline: the pending episode
+      // keeps the old revision binding.
+      clock.now = shiftMs(dueEnd, 60 * 60_000);
       job = await service.patch(ctx.staffA, job.id, {
         expectedVersion: job.version,
         dueDate: null,
@@ -1700,9 +1939,10 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         delay_type: 'LATE_SUBMISSION',
         episode_no: 2,
         schedule_revision_no: 1,
-        breached_at: new Date('2026-08-01T21:00:00.001Z'),
         recovered_at: null,
       });
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(dueEnd, 1));
+      expect(incidents[0]!.breached_at).toEqual(shiftMs(dueEnd, 1));
     });
   });
 
@@ -1710,7 +1950,6 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const startedAt = new Date('2026-07-30T09:00:00.000Z');
-      const rearmedAt = new Date('2026-08-02T12:00:00.000Z');
       const clock = { now: startedAt };
       const service = buildService(pool, clock);
       let job = (await service.create(ctx.staffA, {
@@ -1752,9 +1991,9 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       );
       expect(modernActivations.rows).toHaveLength(0);
 
-      clock.now = rearmedAt;
+      const withdrawActionId = randomUUID();
       job = await service.withdrawFromApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: withdrawActionId, expectedVersion: job.version,
       });
       expect(job.status).toBe('IN_PROGRESS');
 
@@ -1765,9 +2004,12 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         [ctx.organizationId, job.id],
       );
       expect(activations.rows).toHaveLength(1);
+      const reservedWithdraw = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdrawActionId,
+      );
       expect(activations.rows[0]).toMatchObject({
         episode_no: 1,
-        activated_at: rearmedAt,
+        activated_at: reservedWithdraw,
         activated_by_command: 'WITHDRAW_FROM_APPROVAL',
       });
 
@@ -1776,7 +2018,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 1,
-        breached_at: rearmedAt,
+        breached_at: reservedWithdraw,
         recovered_at: null,
       });
       expect(incidents[0]!.breached_at).not.toEqual(startedAt);
@@ -1784,10 +2026,9 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // The first post-fact submission remains seq_no 1. A later re-arm then
       // advances to episode 2; it must not reinterpret the legacy row as a
       // historical submission count.
-      const submittedAt = new Date('2026-08-02T13:00:00.000Z');
-      clock.now = submittedAt;
+      const submitActionId = randomUUID();
       job = await service.submitForApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: submitActionId, expectedVersion: job.version,
         note: 'Legacy kaydın ilk takip teslimi.',
       });
       const facts = await pool.query<{ seq_no: number }>(
@@ -1797,16 +2038,18 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         [ctx.organizationId, job.id],
       );
       expect(facts.rows.map((row) => Number(row.seq_no))).toEqual([1]);
+      const reservedSubmit = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`, submitActionId,
+      );
       expect((await selectIncidents(pool, ctx.organizationId, job.id))[0]).toMatchObject({
         episode_no: 1,
-        breached_at: rearmedAt,
-        recovered_at: submittedAt,
+        breached_at: reservedWithdraw,
+        recovered_at: reservedSubmit,
       });
 
-      const nextRearmAt = new Date('2026-08-02T14:00:00.000Z');
-      clock.now = nextRearmAt;
+      const revisionActionId = randomUUID();
       job = await service.requestRevision(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: revisionActionId, expectedVersion: job.version,
         revisionReason: 'İkinci takip düzeltmesi.',
       });
       const allActivations = await pool.query<{ episode_no: number; activated_at: Date }>(
@@ -1816,9 +2059,12 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
           ORDER BY episode_no`,
         [ctx.organizationId, job.id],
       );
+      const reservedRevision = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`, revisionActionId,
+      );
       expect(allActivations.rows).toEqual([
-        { episode_no: 1, activated_at: rearmedAt },
-        { episode_no: 2, activated_at: nextRearmAt },
+        { episode_no: 1, activated_at: reservedWithdraw },
+        { episode_no: 2, activated_at: reservedRevision },
       ]);
     });
   });
@@ -1827,8 +2073,6 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const startedAt = new Date('2026-07-30T09:00:00.000Z');
-      const rearmedAt = new Date('2026-08-02T12:00:00.000Z');
-      const cancelledAt = new Date('2026-08-02T13:00:00.000Z');
       const clock = { now: startedAt };
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, '2026-08-01', 'Legacy revision request');
@@ -1849,9 +2093,9 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         [ctx.organizationId, job.id],
       )).rows).toHaveLength(0);
 
-      clock.now = rearmedAt;
+      const revisionActionId = randomUUID();
       job = await service.requestRevision(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: revisionActionId, expectedVersion: job.version,
         revisionReason: 'Legacy kaydı yeniden başlat.',
       });
       expect(job.status).toBe('REVISION_REQUESTED');
@@ -1861,21 +2105,27 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
           WHERE organization_id = $1 AND job_card_id = $2`,
         [ctx.organizationId, job.id],
       );
-      expect(activation.rows).toEqual([{ episode_no: 1, activated_at: rearmedAt }]);
+      const reservedRevision = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`, revisionActionId,
+      );
+      expect(activation.rows).toEqual([{ episode_no: 1, activated_at: reservedRevision }]);
 
-      clock.now = cancelledAt;
+      const cancelActionId = randomUUID();
       job = await service.cancel(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: cancelActionId, expectedVersion: job.version,
         cancelReason: 'Legacy iş iptal edildi.',
       });
       expect(job.status).toBe('CANCELLED');
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedCancel = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`, cancelActionId,
+      );
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 1,
-        breached_at: rearmedAt,
-        recovered_at: cancelledAt,
+        breached_at: reservedRevision,
+        recovered_at: reservedCancel,
       });
       expect(incidents[0]!.breached_at).not.toEqual(startedAt);
     });
@@ -1884,9 +2134,11 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
   it('D2-1 regression: a derived breach after requestTime is not materialized', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
+      const baseline = await dbBaseline(pool);
       const startedAt = new Date('2026-07-30T09:00:00.000Z');
-      const futureActivation = new Date('2026-08-10T09:00:00.000Z');
-      const requestTime = new Date('2026-08-04T09:00:00.000Z');
+      // A durable activation in the future relative to the DB reservation
+      // clock (not merely relative to a fixed fixture date).
+      const futureActivation = shiftMs(baseline, 7 * 24 * 60 * 60_000);
       const clock = { now: startedAt };
       const service = buildService(pool, clock);
       let job = await createDueTask(service, ctx.staffA, '2026-08-01', 'Gelecek aktivasyon');
@@ -1913,7 +2165,8 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         [ctx.organizationId, job.id, futureActivation],
       );
 
-      clock.now = requestTime;
+      // The cancel reservation (≈ now) predates the future activation, so
+      // the derived breach stays unmaterialized.
       job = await service.cancel(ctx.manager, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         cancelReason: 'Gelecek aktivasyon testi.',
@@ -1926,31 +2179,52 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
   it('IN_PROGRESS late + CANCEL recovers the pending LATE_SUBMISSION', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: CREATE_AT };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
-      let job = await createLateDelivery(service, ctx.staffA, ctx.customerId);
-      clock.now = new Date('2026-08-03T07:10:00.000Z');
+      // GENERAL_TASK has no interval end (START never attributable), while
+      // the past due date makes the submission episode late at CANCEL.
+      const dueDate = shiftMs(baseline, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const dueEnd = new Date(`${dueDate}T21:00:00.000Z`);
+      let job = (await service.create(ctx.staffA, {
+        clientActionId: randomUUID(),
+        type: 'GENERAL_TASK',
+        title: 'Iptal edilen gecikme',
+        description: null,
+        customerId: null,
+        contactId: null,
+        assignedTo: ctx.staffA.id,
+        priority: 'normal',
+        dueDate,
+        scheduledAt: null,
+        scheduledEndsAt: undefined,
+        engagementKind: undefined,
+      } as never)) as JobCard;
+      const startActionId = randomUUID();
       job = await service.start(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: startActionId, expectedVersion: job.version,
       });
-      const cancelledAt = new Date('2026-08-03T09:00:00.000Z');
-      clock.now = cancelledAt;
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      const cancelActionId = randomUUID();
       job = await service.cancel(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: cancelActionId, expectedVersion: job.version,
         cancelReason: 'Müşteri vazgeçti.',
       });
       expect(job.status).toBe('CANCELLED');
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
       expect(incidents).toHaveLength(1);
+      const reservedStart = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_START:${job.id}`);
+      const reservedCancel = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`);
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 1,
         schedule_revision_no: 1,
         accountable_user_id: ctx.staffAId,
       });
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.001Z'));
-      expect(incidents[0]!.breached_at).toEqual(new Date('2026-08-03T07:30:00.001Z'));
-      expect(incidents[0]!.recovered_at).toEqual(cancelledAt);
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(dueEnd, 1));
+      // Breach = max(first late, episode start = START reservation).
+      expect(incidents[0]!.breached_at).toEqual(reservedStart);
+      expect(incidents[0]!.recovered_at).toEqual(reservedCancel);
       expect(incidents[0]!.recovery_actor_user_id).toBe(ctx.managerId);
     });
   });
@@ -1990,14 +2264,16 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         [ctx.organizationId, job.id],
       );
       clock.now = new Date('2026-08-04T10:00:00.000Z');
+      const revisionActionId = randomUUID();
       job = await service.requestRevision(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: revisionActionId, expectedVersion: job.version,
         revisionReason: 'Eksik bilgi var.',
       });
       expect(job.status).toBe('REVISION_REQUESTED');
       clock.now = new Date('2026-08-04T11:00:00.000Z');
+      const cancelActionId = randomUUID();
       job = await service.cancel(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: cancelActionId, expectedVersion: job.version,
         cancelReason: 'Müşteri vazgeçti.',
       });
       expect(job.status).toBe('CANCELLED');
@@ -2011,22 +2287,29 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       });
       // The next obligation starts exactly when REQUEST_REVISION armed it;
       // it must never be backdated to the previous SUBMITTED fact/deadline.
-      expect(incidents[0]!.breached_at).toEqual(new Date('2026-08-04T10:00:00.000Z'));
-      expect(incidents[0]!.recovered_at).toEqual(clock.now);
+      const reservedRevision = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_REQUEST_REVISION:${job.id}`,
+      );
+      const reservedCancel = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`);
+      expect(incidents[0]!.breached_at).toEqual(reservedRevision);
+      expect(incidents[0]!.recovered_at).toEqual(reservedCancel);
       expect(incidents[0]!.recovery_actor_user_id).toBe(ctx.managerId);
     });
   });
 
+  // The exact 24h equality is proven by the pure boundary tests; the PG
+  // path uses a same-instant withdraw (clean) and day-old submissions.
   it('WITHDRAW before 24h creates nothing; at/after 24h recovers APPROVAL_WAIT', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      async function submittedAt(at: Date) {
-        const clock = { now: at };
+      const baseline = await dbBaseline(pool);
+      async function submittedNow(title: string) {
+        const clock = { now: baseline };
         const service = buildService(pool, clock);
         let job = (await service.create(ctx.staffA, {
           clientActionId: randomUUID(),
           type: 'GENERAL_TASK',
-          title: 'Geri çekilen onay',
+          title,
           description: null,
           customerId: null,
           contactId: null,
@@ -2046,60 +2329,66 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         });
         return { clock, service, job };
       }
-      const submittedAtInstant = new Date('2026-08-04T09:00:00.000Z');
 
-      const early = await submittedAt(submittedAtInstant);
-      early.clock.now = new Date('2026-08-05T08:59:59.000Z');
+      const early = await submittedNow('Erken geri çekme');
       const withdrawnEarly = await early.service.withdrawFromApproval(ctx.staffA, early.job.id, {
         clientActionId: randomUUID(), expectedVersion: early.job.version,
       });
       expect(withdrawnEarly.status).toBe('IN_PROGRESS');
       expect(await selectIncidents(pool, ctx.organizationId, early.job.id)).toHaveLength(0);
 
-      const exact = await submittedAt(submittedAtInstant);
-      exact.clock.now = new Date('2026-08-05T09:00:00.000Z');
-      const withdrawnExact = await exact.service.withdrawFromApproval(ctx.staffA, exact.job.id, {
-        clientActionId: randomUUID(), expectedVersion: exact.job.version,
+      const breached = await submittedNow('Geç geri çekme');
+      const submittedAt = shiftMs(baseline, -25 * 60 * 60_000);
+      await rewindSubmissionTo(pool, ctx.organizationId, breached.job.id, submittedAt);
+      const withdrawActionId = randomUUID();
+      const withdrawn = await breached.service.withdrawFromApproval(ctx.staffA, breached.job.id, {
+        clientActionId: withdrawActionId,
+        expectedVersion: breached.job.version,
       });
-      expect(withdrawnExact.status).toBe('IN_PROGRESS');
-      const exactIncidents = await selectIncidents(pool, ctx.organizationId, exact.job.id);
-      expect(exactIncidents).toHaveLength(1);
-      expect(exactIncidents[0]).toMatchObject({
+      expect(withdrawn.status).toBe('IN_PROGRESS');
+      const breachedIncidents = await selectIncidents(pool, ctx.organizationId, breached.job.id);
+      expect(breachedIncidents).toHaveLength(1);
+      const reservedWithdraw = await reservedAtFor(
+        pool, ctx.organizationId, breached.job.id, `JOB_WITHDRAW_FROM_APPROVAL:${breached.job.id}`,
+      );
+      expect(breachedIncidents[0]).toMatchObject({
         delay_type: 'APPROVAL_WAIT',
         episode_no: 1,
         accountable_user_id: null,
         accountable_role: 'MANAGEMENT',
         accountable_source: 'ROLE_POLICY',
-        recovered_at: exact.clock.now,
+        recovered_at: reservedWithdraw,
         // The recovering actor may be STAFF; accountability stays MANAGEMENT.
         recovery_actor_user_id: ctx.staffAId,
       });
+      expect(breachedIncidents[0]!.deadline_at).toEqual(shiftMs(submittedAt, 24 * 60 * 60_000));
 
-      const late = await submittedAt(submittedAtInstant);
-      late.clock.now = new Date('2026-08-05T10:00:00.000Z');
-      const withdrawActionId = randomUUID();
-      const withdrawExpectedVersion = late.job.version;
-      const withdrawn = await late.service.withdrawFromApproval(ctx.staffA, late.job.id, {
-        clientActionId: withdrawActionId,
-        expectedVersion: withdrawExpectedVersion,
+      const late = await submittedNow('Tekrar geri çekme');
+      await rewindSubmissionTo(pool, ctx.organizationId, late.job.id, submittedAt);
+      const lateWithdrawActionId = randomUUID();
+      const lateWithdrawExpectedVersion = late.job.version;
+      const withdrawnLate = await late.service.withdrawFromApproval(ctx.staffA, late.job.id, {
+        clientActionId: lateWithdrawActionId,
+        expectedVersion: lateWithdrawExpectedVersion,
       });
       const lateIncidents = await selectIncidents(pool, ctx.organizationId, late.job.id);
       expect(lateIncidents).toHaveLength(1);
-      expect(lateIncidents[0]).toMatchObject({
-        delay_type: 'APPROVAL_WAIT',
-        recovered_at: late.clock.now,
-      });
+      expect(lateIncidents[0]).toMatchObject({ delay_type: 'APPROVAL_WAIT' });
+      const reservedLateWithdraw = await reservedAtFor(
+        pool, ctx.organizationId, late.job.id, `JOB_WITHDRAW_FROM_APPROVAL:${late.job.id}`,
+      );
+      expect(lateIncidents[0]!.recovered_at).toEqual(reservedLateWithdraw);
 
       // Exact semantic replay uses the same action identity, payload and
       // expected-version contract; it returns the original receipt rather
       // than entering a second lifecycle attempt.
       const replayed = await late.service.withdrawFromApproval(ctx.staffA, late.job.id, {
-        clientActionId: withdrawActionId,
-        expectedVersion: withdrawExpectedVersion,
+        clientActionId: lateWithdrawActionId,
+        expectedVersion: lateWithdrawExpectedVersion,
       });
       expect(replayed).toMatchObject({
-        id: withdrawn.id,
-        version: withdrawn.version,
+        id: withdrawnLate.id,
+        version: withdrawnLate.version,
         status: 'IN_PROGRESS',
       });
     });
@@ -2140,10 +2429,12 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
   it('second submission episode breaches no earlier than its activation', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: CREATE_AT };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
-      // GENERAL_TASK needs no delivery items; scheduledAt is the phase
-      // deadline for non-meeting types (E = 07:30Z).
+      // GENERAL_TASK with a future due date: the first submit lands on time
+      // (no ep1 incident). START never attributes (no interval end).
+      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
       let job = (await service.create(ctx.staffA, {
         clientActionId: randomUUID(),
         type: 'GENERAL_TASK',
@@ -2153,34 +2444,34 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
         contactId: null,
         assignedTo: ctx.staffA.id,
         priority: 'normal',
-        dueDate: null,
-        scheduledAt: '2026-08-03T07:30:00.000Z',
+        dueDate: futureDue,
+        scheduledAt: null,
         scheduledEndsAt: undefined,
         engagementKind: undefined,
       } as never)) as JobCard;
-      clock.now = new Date('2026-08-03T07:30:00.000Z');
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      // First submit exactly at the deadline: on time, no incident.
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ilk gonderim.',
       });
-      // Revision requested after the first-late boundary re-arms the episode.
-      const revisionRequestedAt = new Date('2026-08-03T08:00:00.000Z');
-      clock.now = revisionRequestedAt;
-      job = await service.requestRevision(ctx.manager, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
-        revisionReason: 'Detay ekleyin.',
-      });
-      clock.now = new Date('2026-08-03T08:05:00.000Z');
-      job = await service.resume(ctx.staffA, job.id, {
+      // Withdraw re-arms the episode while IN_PROGRESS (episode 2 activation
+      // at its reservation); the dueDate move below needs an editable state.
+      job = await service.withdrawFromApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-03T08:10:00.000Z');
+      // Move the due date into the past (new revision).
+      await syncClock(pool, clock);
+      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
+      job = await service.patch(ctx.staffA, job.id, {
+        expectedVersion: job.version,
+        dueDate: pastDue,
+      } as never);
+      const submitActionId = randomUUID();
       job = await service.submitForApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: submitActionId, expectedVersion: job.version,
         note: 'Ikinci gonderim.',
       });
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
@@ -2188,14 +2479,26 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 2,
-        schedule_revision_no: 1,
+        schedule_revision_no: 2,
         accountable_user_id: ctx.staffAId,
       });
-      // First-late boundary (07:30:00.001) predates the episode: breach starts
-      // at the provable episode activation, not at the nominal instant.
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-03T07:30:00.001Z'));
-      expect(incidents[0]!.breached_at).toEqual(revisionRequestedAt);
-      expect(incidents[0]!.recovered_at).toEqual(clock.now);
+      // The breach starts at the patch that introduced the elapsed deadline —
+      // never earlier than the provable episode activation (asserted below) —
+      // and recovery runs at the submit reservation.
+      expect(incidents[0]!.deadline_at).toEqual(shiftMs(pastEnd, 1));
+      expect(incidents[0]!.breached_at).toEqual(clock.now);
+      const activation = await pool.query<{ activated_at: Date }>(
+        `SELECT activated_at FROM job_card_submission_episode_activations
+          WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = 2`,
+        [ctx.organizationId, job.id],
+      );
+      expect(activation.rows).toHaveLength(1);
+      expect((incidents[0]!.breached_at as Date).getTime())
+        .toBeGreaterThanOrEqual(activation.rows[0]!.activated_at.getTime());
+      const reservedSubmit = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`, submitActionId,
+      );
+      expect(incidents[0]!.recovered_at).toEqual(reservedSubmit);
     });
   });
 
@@ -2229,8 +2532,8 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
     return { organizationId, ...actors(organizationId, managerId, staffAId, staffBId), staffAId, staffBId, managerId, customerId };
   }
 
-  /** GENERAL_TASK with due fallback: E = 2026-08-01T21:00Z, no delivery items. */
-  async function createDueTask(service: JobCardService, staff: JobCardActor): Promise<JobCard> {
+  /** GENERAL_TASK with an explicit organization-local due date, no delivery items. */
+  async function createDueTask(service: JobCardService, staff: JobCardActor, dueDate: string): Promise<JobCard> {
     return (await service.create(staff, {
       clientActionId: randomUUID(),
       type: 'GENERAL_TASK',
@@ -2240,7 +2543,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       contactId: null,
       assignedTo: staff.id,
       priority: 'normal',
-      dueDate: '2026-08-01',
+      dueDate,
       scheduledAt: null,
       scheduledEndsAt: undefined,
       engagementKind: undefined,
@@ -2269,26 +2572,51 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
   it('A. withdraw after deadline opens the new episode at withdraw time', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
       const service = buildService(pool, clock);
-      let job = await createDueTask(service, ctx.staffA);
+      // Future due: the first submit lands on time (no ep1 incident).
+      const futureDue = shiftMs(baseline, 24 * 60 * 60_000).toISOString().slice(0, 10);
+      let job = (await service.create(ctx.staffA, {
+        clientActionId: randomUUID(),
+        type: 'GENERAL_TASK',
+        title: 'Teslim gorevi',
+        description: null,
+        customerId: null,
+        contactId: null,
+        assignedTo: ctx.staffA.id,
+        priority: 'normal',
+        dueDate: futureDue,
+        scheduledAt: null,
+        scheduledEndsAt: undefined,
+        engagementKind: undefined,
+      } as never)) as JobCard;
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      // On-time first submit: episode 1 leaves no incident.
-      clock.now = new Date('2026-08-01T09:00:00.000Z');
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ilk gonderim.',
       });
-      // Withdraw at 12:00 next day, past the 21:00Z deadline: the new
-      // obligation starts HERE, not at the first-late boundary.
-      const withdrawnAt = new Date('2026-08-02T12:00:00.000Z');
-      clock.now = withdrawnAt;
+      // Model a day-old waiting approval so the withdraw finds the 24h wait
+      // elapsed (the new obligation still starts at withdraw, not earlier).
+      const submittedAt = shiftMs(baseline, -25 * 60 * 60_000);
+      await rewindSubmissionTo(pool, ctx.organizationId, job.id, submittedAt);
+      const withdrawActionId = randomUUID();
       job = await service.withdrawFromApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: withdrawActionId, expectedVersion: job.version,
       });
       expect(job.status).toBe('IN_PROGRESS');
+
+      // Move the due date into the past while IN_PROGRESS: the pending
+      // episode binds the new revision from the patch requestTime.
+      await syncClock(pool, clock);
+      const pastDue = shiftMs(baseline, -24 * 60 * 60_000).toISOString().slice(0, 10);
+      const pastEnd = new Date(`${pastDue}T21:00:00.000Z`);
+      job = await service.patch(ctx.staffA, job.id, {
+        expectedVersion: job.version,
+        dueDate: pastDue,
+      } as never);
 
       const activations = await selectActivations(pool, ctx.organizationId, job.id);
       expect(activations).toHaveLength(1);
@@ -2296,33 +2624,38 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
         episode_no: 2,
         activated_by_command: 'WITHDRAW_FROM_APPROVAL',
       });
-      expect(activations[0]!.activated_at).toEqual(withdrawnAt);
+      const reservedWithdraw = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdrawActionId,
+      );
+      expect(activations[0]!.activated_at).toEqual(reservedWithdraw);
 
       const incidents = await selectIncidents(pool, ctx.organizationId, job.id);
-      // Two legitimate effects in one transaction (§15): the 27h approval
-      // wait is recovered (MANAGEMENT), the new staff episode opens.
+      // Two legitimate effects (§15): the 25h approval wait is recovered
+      // (MANAGEMENT), the new staff episode opens.
       expect(incidents).toHaveLength(2);
       const byType = new Map(incidents.map((row) => [row.delay_type, row]));
       expect(byType.get('APPROVAL_WAIT')).toMatchObject({
         episode_no: 1,
         accountable_role: 'MANAGEMENT',
-        recovered_at: withdrawnAt,
+        deadline_at: shiftMs(submittedAt, 24 * 60 * 60_000),
+        breached_at: shiftMs(submittedAt, 24 * 60 * 60_000),
+        recovered_at: reservedWithdraw,
       });
       const late = byType.get('LATE_SUBMISSION')!;
       expect(late).toMatchObject({
         episode_no: 2,
-        schedule_revision_no: 1,
+        schedule_revision_no: 2,
         accountable_user_id: ctx.staffAId,
         accountable_role: 'STAFF',
       });
-      expect(late.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
-      expect(late.breached_at).toEqual(withdrawnAt);
+      expect(late.deadline_at).toEqual(shiftMs(pastEnd, 1));
+      expect(late.breached_at).toEqual(clock.now);
       expect(late.recovered_at).toBeNull();
 
       // The later submit recovers the same incident; seq aligns with episode.
-      clock.now = new Date('2026-08-02T13:00:00.000Z');
+      const submitActionId = randomUUID();
       job = await service.submitForApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: submitActionId, expectedVersion: job.version,
         note: 'Ikinci gonderim.',
       });
       expect(await submittedSeqs(pool, ctx.organizationId, job.id)).toEqual([1, 2]);
@@ -2330,11 +2663,14 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       expect(after).toHaveLength(2);
       const afterByType = new Map(after.map((row) => [row.delay_type, row]));
       expect(afterByType.get('APPROVAL_WAIT')).toMatchObject({
-        recovered_at: withdrawnAt,
+        recovered_at: reservedWithdraw,
       });
+      const reservedSubmit = await reservedAtFor(
+        pool, ctx.organizationId, job.id, `JOB_SUBMIT_FOR_APPROVAL:${job.id}`, submitActionId,
+      );
       expect(afterByType.get('LATE_SUBMISSION')).toMatchObject({
         episode_no: 2,
-        recovered_at: clock.now,
+        recovered_at: reservedSubmit,
         recovery_actor_user_id: ctx.staffAId,
       });
     });
@@ -2343,23 +2679,23 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
   it('B. withdraw before deadline persists activation; later cancel proves breach', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
+      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
       const service = buildService(pool, clock);
-      let job = await createDueTask(service, ctx.staffA);
+      let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-01T09:00:00.000Z');
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ilk gonderim.',
       });
       // Withdraw before the deadline: activation persisted, no incident yet.
-      const withdrawnAt = new Date('2026-08-01T12:00:00.000Z');
-      clock.now = withdrawnAt;
       job = await service.withdrawFromApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
+      const withdrawnAt = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`);
       const activations = await selectActivations(pool, ctx.organizationId, job.id);
       expect(activations).toHaveLength(1);
       expect(activations[0]!.activated_at).toEqual(withdrawnAt);
@@ -2367,7 +2703,21 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
 
       // Later cancel proves the episode was already active at the deadline:
       // breach at the first-late boundary, from durable evidence.
-      clock.now = new Date('2026-08-02T11:00:00.000Z');
+      // The writer assertion above uses the real reservation. Now construct a
+      // coherent historical domain snapshot three days older, simulating elapsed
+      // days without sleeping or changing the arbitration clock/intent receipt.
+      await pool.query(`UPDATE job_cards SET due_date=due_date-3,
+        started_at=started_at-interval '3 days' WHERE id=$1`, [job.id]);
+      await pool.query(`UPDATE job_card_schedule_revisions SET due_date=due_date-3,
+        created_at=created_at-interval '3 days' WHERE job_card_id=$1`, [job.id]);
+      await pool.query(`UPDATE job_card_submission_episode_activations
+        SET activated_at=activated_at-interval '3 days' WHERE job_card_id=$1`, [job.id]);
+      await pool.query(`UPDATE job_card_accountability_facts SET occurred_at=occurred_at-interval '3 days'
+        WHERE job_card_id=$1`, [job.id]);
+      await pool.query(`UPDATE job_card_assignment_history SET changed_at=changed_at-interval '3 days'
+        WHERE job_card_id=$1`, [job.id]);
+      const firstLate = shiftMs(new Date(`${futureDue}T21:00:00.000Z`), -3 * 86_400_000 + 1);
+      expect(shiftMs(withdrawnAt, -3 * 86_400_000).valueOf()).toBeLessThan(firstLate.valueOf());
       job = await service.cancel(ctx.manager, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         cancelReason: 'Müşteri vazgeçti.',
@@ -2378,50 +2728,54 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 2,
-        recovered_at: clock.now,
+        recovered_at: await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_CANCEL:${job.id}`),
       });
-      expect(incidents[0]!.deadline_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
-      expect(incidents[0]!.breached_at).toEqual(new Date('2026-08-01T21:00:00.001Z'));
+      expect(incidents[0]!.deadline_at).toEqual(firstLate);
+      expect(incidents[0]!.breached_at).toEqual(firstLate);
     });
   });
 
   it('C. repeated withdraw cycles keep independent episode identities', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
-      const clock = { now: new Date('2026-07-30T09:00:00.000Z') };
+      const baseline = await dbBaseline(pool);
+      const clock = { now: baseline };
+      const futureDue = shiftMs(baseline, 2 * 86_400_000).toISOString().slice(0, 10);
       const service = buildService(pool, clock);
-      let job = await createDueTask(service, ctx.staffA);
+      let job = await createDueTask(service, ctx.staffA, futureDue);
       job = await service.start(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-01T09:00:00.000Z');
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ilk gonderim.',
       });
-      const withdraw1At = new Date('2026-08-01T12:00:00.000Z');
-      clock.now = withdraw1At;
       const withdrawId = randomUUID();
       const withdraw1Version = job.version;
       job = await service.withdrawFromApproval(ctx.staffA, job.id, {
         clientActionId: withdrawId, expectedVersion: withdraw1Version,
       });
-      clock.now = new Date('2026-08-01T13:00:00.000Z');
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ikinci gonderim.',
       });
-      const withdraw2At = new Date('2026-08-02T09:00:00.000Z');
-      clock.now = withdraw2At;
+      expect(await selectIncidents(pool, ctx.organizationId, job.id)).toHaveLength(0);
+      const withdraw1At = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdrawId);
+      // Completed episode 2 has no breach. Model an already elapsed deadline
+      // before re-arming episode 3; its activation must prevent backdating.
+      const pastDue = shiftMs(baseline, -2 * 86_400_000).toISOString().slice(0, 10);
+      await pool.query('UPDATE job_cards SET due_date=$2 WHERE id=$1', [job.id, pastDue]);
+      await pool.query('UPDATE job_card_schedule_revisions SET due_date=$2 WHERE job_card_id=$1', [job.id, pastDue]);
+      const withdraw2Id = randomUUID();
       job = await service.withdrawFromApproval(ctx.staffA, job.id, {
-        clientActionId: randomUUID(), expectedVersion: job.version,
+        clientActionId: withdraw2Id, expectedVersion: job.version,
       });
-      clock.now = new Date('2026-08-02T10:00:00.000Z');
       job = await service.submitForApproval(ctx.staffA, job.id, {
         clientActionId: randomUUID(), expectedVersion: job.version,
         note: 'Ucuncu gonderim.',
       });
 
+      const withdraw2At = await reservedAtFor(pool, ctx.organizationId, job.id, `JOB_WITHDRAW_FROM_APPROVAL:${job.id}`, withdraw2Id);
       expect(await submittedSeqs(pool, ctx.organizationId, job.id)).toEqual([1, 2, 3]);
       const activations = await selectActivations(pool, ctx.organizationId, job.id);
       expect(activations.map((row) => row.episode_no)).toEqual([2, 3]);
@@ -2433,7 +2787,7 @@ describe.skipIf(!databaseUrl)('OVR-2 exact episode activation (candidate RED)', 
       expect(incidents[0]).toMatchObject({
         delay_type: 'LATE_SUBMISSION',
         episode_no: 3,
-        recovered_at: clock.now,
+        recovered_at: (await pool.query<{ staff_completed_at: Date }>('SELECT staff_completed_at FROM job_cards WHERE id=$1', [job.id])).rows[0]!.staff_completed_at,
       });
       expect(incidents[0]!.breached_at).toEqual(withdraw2At);
 

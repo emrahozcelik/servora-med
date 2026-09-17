@@ -27,6 +27,8 @@ import type {
   JobCardRepository,
   JobCardTransaction,
   JobLifecycleInstants,
+  LifecycleIntentClaim,
+  LifecycleIntentReservation,
   NotePageQuery,
   PageQuery,
   ProductReference,
@@ -75,6 +77,7 @@ import {
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
   type PaginatedOverdueIncidentHistory,
+  LIFECYCLE_INTENT_TTL_MS_DEFAULT,
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
   type MeetingDetailsCandidate,
@@ -441,12 +444,23 @@ export class JobCardService {
       enabled: boolean;
       reminderLeadMinutes: number;
     }> = { enabled: false, reminderLeadMinutes: 30 },
+    private readonly lifecycle: Readonly<{
+      intentTtlMs?: number;
+    }> = {},
   ) { this.notesService = new JobCardNotesService(repository); }
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
     for (const event of events) {
       this.realtimePublisher.publish(event);
     }
+  }
+
+  /**
+   * 049: lifecycle intent processing budget. Configured via
+   * JOB_CARD_LIFECYCLE_INTENT_TTL_MS, defaulting to the domain constant.
+   */
+  private intentTtlMs(): number {
+    return this.lifecycle.intentTtlMs ?? LIFECYCLE_INTENT_TTL_MS_DEFAULT;
   }
 
   /**
@@ -729,7 +743,7 @@ export class JobCardService {
     }
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     const receipt = decodeJobCardMutationReceipt(result.response);
-    return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? requestTime);
+    return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
   }
 
   async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
@@ -2263,7 +2277,6 @@ export class JobCardService {
 
   async start(actor: JobCardActor, jobCardId: string, input: StartInput) {
     const lifecycleInput = this.lifecycleInput(input);
-    const requestTime = this.now();
     const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
       note: null, revisionReason: null, cancelReason: null,
@@ -2271,24 +2284,17 @@ export class JobCardService {
     };
     assertStaffStartActor(actor);
     if (!this.geolocation.enabled) {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, requestTime);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
     }
 
     const capture = parseStartLocationCapture(input.locationCapture);
-    const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition, lifecycleInput, capture);
-    const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
+    const claim = this.intentClaim(actor, jobCardId, lifecycleInput.clientActionId, definition, lifecycleInput, capture);
+    const completed = await this.repository.findCompletedLifecycleIntent<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
-      return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? requestTime);
+      return this.presentLifecycleReceipt(actor, receipt);
     }
 
-    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
-    if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-    if (job.version !== lifecycleInput.expectedVersion) {
-      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-    }
-    assertCanTransition(actor, job, 'START', undefined, requestTime);
-    assertPlannedIntervalForStart(job);
     if (capture.outcome === 'UNAVAILABLE') {
       throw new AppError(
         'LOCATION_REQUIRED',
@@ -2297,13 +2303,31 @@ export class JobCardService {
         { reason: capture.reason },
       );
     }
+    // 049: reserve BEFORE the provider call. The reservation commits and
+    // releases the JobCard lock, so geocoder latency never holds it; the
+    // claim hash covers only the pre-provider capture core, which the
+    // normalizer keeps stable across provider resolution, so the same
+    // claim finalizes below.
+    const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
+      claim,
+      { jobCardId, ttlMs: this.intentTtlMs(),
+        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+      },
+    );
+    if (reserved.kind === 'replay') {
+      const receipt = decodeJobCardMutationReceipt(reserved.response);
+      return this.presentLifecycleReceipt(actor, receipt);
+    }
     const resolvedCapture = await this.resolveStartLocation({
       organizationId: actor.organizationId,
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
     });
-    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture, requestTime);
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture, {
+      claim,
+      reservation: reserved.reservation,
+    });
   }
 
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: SubmitInput) {
@@ -2368,41 +2392,59 @@ export class JobCardService {
     return { clientActionId, expectedVersion: input.expectedVersion };
   }
 
+  private assertLifecycleReservation(
+    actor: JobCardActor, job: JobCard, definition: LifecycleDefinition, reservedAt: Date,
+  ): void {
+    if (definition.command === 'START') assertStaffStartActor(actor);
+    assertCanTransition(actor, job, definition.command,
+      definition.revisionReason ?? definition.cancelReason ?? undefined, reservedAt);
+    if (definition.command === 'START') assertPlannedIntervalForStart(job);
+  }
+
   private async runLifecycle(
     actor: JobCardActor,
     jobCardId: string,
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
     startLocation?: JobActionLocationCapture,
-    requestTimeOverride?: Date,
+    preReserved?: { claim: LifecycleIntentClaim; reservation: LifecycleIntentReservation },
   ) {
-    const requestTime = requestTimeOverride ?? this.now();
-    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
-      this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition, input, startLocation),
+    const claim = preReserved?.claim
+      ?? this.intentClaim(actor, jobCardId, input.clientActionId, definition, input, startLocation);
+    // Pre-049 compatibility: a completed processed_actions receipt for the
+    // same identity still replays through the same hash gate, and legacy
+    // NULL-hash rows stay fail-closed via CLIENT_ACTION_REUSED.
+    const legacyCompleted = await this.repository.findCompletedCriticalAction<unknown>({
+      organizationId: claim.organizationId,
+      userId: claim.userId,
+      clientActionId: claim.clientActionId,
+      operationKey: claim.operationKey,
+      requestHash: claim.requestHash,
+    });
+    if (legacyCompleted) {
+      const receipt = decodeJobCardMutationReceipt(legacyCompleted);
+      return this.presentLifecycleReceipt(actor, receipt);
+    }
+    const reserved = preReserved
+      ? { kind: 'reserved' as const, reservation: preReserved.reservation }
+      : await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
+        claim,
+        { jobCardId, ttlMs: this.intentTtlMs(),
+        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+      },
+      );
+    if (reserved.kind === 'replay') {
+      const receipt = decodeJobCardMutationReceipt(reserved.response);
+      return this.presentLifecycleReceipt(actor, receipt);
+    }
+    // 049: business time is the reservation instant sampled under the
+    // JobCard lock — never service-entry time.
+    const requestTime = reserved.reservation.reservedAt;
+    let lockedAssignees = new Map<string, JobCardAssignee>();
+    const result = await this.repository.finalizeLifecycleIntent<JobCardMutationReceipt>(
+      claim,
+      reserved.reservation,
       async (tx) => {
-        let lockedAssignees = new Map<string, JobCardAssignee>();
-        const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
-          || definition.command === 'APPROVE';
-        if (mayScheduleFollowUp) {
-          const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
-          if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-          const needsSchedulingUserLocks = jobSnapshot.type === 'SALES_MEETING'
-            || jobSnapshot.followUpProposedAssignee !== null
-            || definition.followUpProposal?.assignedTo !== undefined
-            || definition.approveFollowUp?.assignedTo !== undefined;
-          if (needsSchedulingUserLocks) {
-            lockedAssignees = await this.lockUsersInOrder(
-              tx,
-              actor.organizationId,
-              [
-                jobSnapshot.assignedTo,
-                jobSnapshot.followUpProposedAssignee,
-                definition.followUpProposal?.assignedTo,
-                definition.approveFollowUp?.assignedTo,
-              ],
-            );
-          }
-        }
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
@@ -2703,15 +2745,49 @@ export class JobCardService {
           },
           realtimeEvents: [...realtimeEvents, ...childRealtimeEvents],
         };
-      });
+      },
+      {
+        jobCardId,
+        // 049: scheduling user locks stay ahead of the JobCard/intent
+        // locks (users -> job_cards -> intents), exactly as before.
+        lockUsers: async (tx) => {
+          lockedAssignees = new Map<string, JobCardAssignee>();
+          const mayScheduleFollowUp = definition.command === 'SUBMIT_FOR_APPROVAL'
+            || definition.command === 'APPROVE';
+          if (mayScheduleFollowUp) {
+            const jobSnapshot = await tx.getJob(actor.organizationId, jobCardId);
+            if (!jobSnapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+            const needsSchedulingUserLocks = jobSnapshot.type === 'SALES_MEETING'
+              || jobSnapshot.followUpProposedAssignee !== null
+              || definition.followUpProposal?.assignedTo !== undefined
+              || definition.approveFollowUp?.assignedTo !== undefined;
+            if (needsSchedulingUserLocks) {
+              lockedAssignees = await this.lockUsersInOrder(
+                tx,
+                actor.organizationId,
+                [
+                  jobSnapshot.assignedTo,
+                  jobSnapshot.followUpProposedAssignee,
+                  definition.followUpProposal?.assignedTo,
+                  definition.approveFollowUp?.assignedTo,
+                ],
+              );
+            }
+          }
+        },
+      },
+    );
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     const receipt = decodeJobCardMutationReceipt(result.response);
+    return this.presentLifecycleReceipt(actor, receipt);
+  }
+
+  private async presentLifecycleReceipt(actor: JobCardActor, receipt: ReturnType<typeof decodeJobCardMutationReceipt>) {
     const detail = await this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
-    if (definition.command === 'APPROVE' && receipt.followUpJobCardId) {
-      return { ...detail, followUpJobCardId: receipt.followUpJobCardId };
-    }
-    return detail;
+    return receipt.followUpJobCardId
+      ? { ...detail, followUpJobCardId: receipt.followUpJobCardId }
+      : detail;
   }
 
   /**
@@ -3292,19 +3368,21 @@ export class JobCardService {
     }
   }
 
-  private lifecycleClaim(
+  private intentClaim(
     actor: JobCardActor,
     jobCardId: string,
     clientActionId: string,
     definition: LifecycleDefinition,
     input: { expectedVersion: number },
     startLocation?: LifecycleLocationCapture,
-  ) {
+  ): LifecycleIntentClaim {
     return {
       organizationId: actor.organizationId,
       userId: actor.id,
       clientActionId,
       operationKey: `${definition.operationKey}:${jobCardId}`,
+      command: definition.command,
+      expectedVersion: input.expectedVersion,
       // JobCard critical-action request identity (AUDIT-0 remediation, F5):
       // expectedVersion is a concurrency precondition and part of the
       // semantic request.

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
+import { AppError } from '../src/errors/index.js';
 import type {
   ActivityInput,
   CreateNoteRecord,
   CriticalActionClaim,
+  CriticalActionWorkResult,
   JobCardRepository,
   JobCardTransaction,
+  LifecycleIntentClaim,
+  LifecycleIntentReservation,
   SubmissionDeliveryItem,
   TransitionInput,
 } from '../src/modules/job-cards/repository.js';
@@ -72,6 +76,15 @@ class LifecycleRepository implements JobCardRepository {
   completed = new Map<string, unknown>();
   processing = new Set<string>();
   claims: CriticalActionClaim[] = [];
+  // 049 test-double clock + intent rows. Defaults to the shared module
+  // `time` instant; tests with their own service clock set intentClock.
+  intentClock = new Date('2026-07-13T12:00:00.000Z');
+  intentRows = new Map<string, {
+    state: 'PENDING' | 'COMPLETED' | 'FAILED';
+    reservedAt: Date;
+    response: unknown;
+    requestHash: string | undefined;
+  }>();
   failTransition = false;
   failActivity = false;
   failNote = false;
@@ -279,6 +292,130 @@ class LifecycleRepository implements JobCardRepository {
   }
 
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) { return work(this.tx()); }
+  private intentKey(claim: { userId: string; clientActionId: string; operationKey: string }) {
+    return `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+  }
+
+  private intentConflict(kind: 'VERSION_CONFLICT' | 'ACTION_IN_PROGRESS' | 'CLIENT_ACTION_REUSED' | 'JOB_CARD_NOT_FOUND'): never {
+    const statusCode = kind === 'JOB_CARD_NOT_FOUND' ? 404 : 409;
+    const message =
+      kind === 'VERSION_CONFLICT'
+        ? 'JobCard ba\u015fka bir i\u015flem taraf\u0131ndan g\u00fcncellendi.'
+        : kind === 'ACTION_IN_PROGRESS'
+          ? 'Ayn\u0131 i\u015flem halen devam ediyor.'
+          : kind === 'JOB_CARD_NOT_FOUND'
+            ? 'JobCard bulunamad\u0131.'
+            : 'clientActionId farkl\u0131 bir i\u015flem i\u00e7eri\u011fiyle yeniden kullan\u0131lamaz.';
+    throw new AppError(kind, statusCode, message);
+  }
+
+  async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
+    const hit = this.completed.get(this.intentKey(claim));
+    return (hit ?? null) as T | null;
+  }
+
+  async findCompletedLifecycleIntent<T>(claim: LifecycleIntentClaim): Promise<T | null> {
+    const row = this.intentRows.get(this.intentKey(claim));
+    if (!row || row.state !== 'COMPLETED') return null;
+    if (claim.requestHash !== undefined && row.requestHash !== claim.requestHash) {
+      this.intentConflict('CLIENT_ACTION_REUSED');
+    }
+    return row.response as T;
+  }
+
+  async reserveLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    _input: { jobCardId: string; ttlMs: number },
+  ): Promise<
+    | { kind: 'reserved'; reservation: LifecycleIntentReservation }
+    | { kind: 'replay'; response: T; reservedAt: Date }
+  > {
+    this.claims.push({
+      organizationId: claim.organizationId,
+      userId: claim.userId,
+      clientActionId: claim.clientActionId,
+      operationKey: claim.operationKey,
+      requestHash: claim.requestHash,
+    });
+    const key = this.intentKey(claim);
+    const completed = this.completed.get(key);
+    if (completed !== undefined) {
+      return { kind: 'replay', response: completed as T, reservedAt: new Date(this.intentClock) };
+    }
+    if (this.processing.has(key)) this.intentConflict('ACTION_IN_PROGRESS');
+    const row = this.intentRows.get(key);
+    if (row) {
+      if (claim.requestHash !== undefined && row.requestHash !== claim.requestHash) {
+        this.intentConflict('CLIENT_ACTION_REUSED');
+      }
+      if (row.state === 'COMPLETED') {
+        return { kind: 'replay', response: row.response as T, reservedAt: row.reservedAt };
+      }
+      if (row.state === 'PENDING') this.intentConflict('ACTION_IN_PROGRESS');
+      if (row.state === 'FAILED') throw new AppError('LIFECYCLE_INTENT_FAILED', 409, 'Failed identity cannot renew.');
+    }
+    if (claim.expectedVersion !== this.job.version) this.intentConflict('VERSION_CONFLICT');
+    const reservedAt = new Date(this.intentClock);
+    this.intentRows.set(key, {
+      state: 'PENDING', reservedAt, response: null, requestHash: claim.requestHash,
+    });
+    return { kind: 'reserved', reservation: { intentId: key, reservedAt } };
+  }
+
+  async finalizeLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    reservation: LifecycleIntentReservation,
+    work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>,
+    options: {
+      jobCardId: string;
+      lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+    },
+  ): Promise<
+    | { kind: 'completed'; response: T; realtimeEvents: readonly unknown[] }
+    | { kind: 'replay'; response: T; realtimeEvents: readonly unknown[] }
+  > {
+    const tx = this.tx();
+    if (options.lockUsers) await options.lockUsers(tx);
+    const key = this.intentKey(claim);
+    const row = this.intentRows.get(key);
+    if (!row) this.intentConflict('JOB_CARD_NOT_FOUND');
+    const current = this.intentRows.get(key)!;
+    if (claim.requestHash !== undefined && current.requestHash !== claim.requestHash) {
+      this.intentConflict('CLIENT_ACTION_REUSED');
+    }
+    if (current.state === 'COMPLETED') {
+      return { kind: 'replay', response: current.response as T, realtimeEvents: [] };
+    }
+    if (current.state !== 'PENDING' || current.reservedAt.getTime() !== reservation.reservedAt.getTime()) {
+      this.intentConflict('ACTION_IN_PROGRESS');
+    }
+    const before = {
+      job: { ...this.job }, events: [...this.events], transitions: [...this.transitions],
+      acceptedAt: this.acceptedAt, acceptedBy: this.acceptedBy, startedAt: this.startedAt,
+      lifecycle: { ...this.lifecycle },
+      revision: { ...this.revision }, cancellation: { ...this.cancellation },
+      notes: [...this.notes],
+    };
+    try {
+      const completedWork = await work(tx);
+      current.state = 'COMPLETED';
+      current.response = completedWork.response;
+      return {
+        kind: 'completed',
+        response: completedWork.response,
+        realtimeEvents: completedWork.realtimeEvents,
+      };
+    } catch (error) {
+      this.job = before.job; this.events = before.events; this.transitions = before.transitions;
+      this.acceptedAt = before.acceptedAt; this.acceptedBy = before.acceptedBy;
+      this.startedAt = before.startedAt; this.lifecycle = before.lifecycle;
+      this.revision = before.revision; this.cancellation = before.cancellation;
+      this.notes = before.notes;
+      current.state = 'FAILED';
+      throw error;
+    }
+  }
+
   async listJobCards() { return { items: [], total: 0, limit: 25, offset: 0 }; }
   async listBoard() { throw new Error('unused'); }
   async findJobCard() { return this.job; }
@@ -340,11 +477,19 @@ function twoJobRepository() {
         }
       : null;
   };
-  const repository = {
-    async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
-      const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-      if (completed.has(key)) return { kind: 'replay' as const, response: completed.get(key) as T, realtimeEvents: [] as const };
-      const tx = {
+  const intentRows = new Map<string, {
+    state: 'PENDING' | 'COMPLETED' | 'FAILED';
+    reservedAt: Date;
+    response: unknown;
+    requestHash: string | undefined;
+  }>();
+  const intentClock = new Date('2026-07-13T12:00:00.000Z');
+  const intentKey = (claim: { userId: string; clientActionId: string; operationKey: string }) =>
+    `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+  const intentConflict = (kind: 'VERSION_CONFLICT' | 'ACTION_IN_PROGRESS' | 'CLIENT_ACTION_REUSED' | 'JOB_CARD_NOT_FOUND'): never => {
+    throw new AppError(kind, kind === 'JOB_CARD_NOT_FOUND' ? 404 : 409, kind);
+  };
+  const buildTx = () => ({
         getJobForUpdate: async (organizationId: string, id: string) => {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
@@ -382,10 +527,82 @@ function twoJobRepository() {
         }),
         getSubmissionMeetingDetails: async () => null,
         getSubmissionDeliveryItems: async () => [],
-      } as JobCardTransaction;
+      }) as JobCardTransaction;
+  const repository = {
+    async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
+      const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+      if (completed.has(key)) return { kind: 'replay' as const, response: completed.get(key) as T, realtimeEvents: [] as const };
+      const tx = buildTx();
       const completedResult = await work(tx);
       completed.set(key, completedResult.response);
       return { kind: 'completed' as const, response: completedResult.response, realtimeEvents: completedResult.realtimeEvents };
+    },
+    async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
+      const hit = completed.get(intentKey(claim));
+      return (hit ?? null) as T | null;
+    },
+    async findCompletedLifecycleIntent<T>(claim: LifecycleIntentClaim): Promise<T | null> {
+      const row = intentRows.get(intentKey(claim));
+      if (!row || row.state !== 'COMPLETED') return null;
+      return row.response as T;
+    },
+    async reserveLifecycleIntent<T>(
+      claim: LifecycleIntentClaim,
+      input: { jobCardId: string; ttlMs: number },
+    ): Promise<
+      | { kind: 'reserved'; reservation: LifecycleIntentReservation }
+      | { kind: 'replay'; response: T; reservedAt: Date }
+    > {
+      const key = intentKey(claim);
+      const hit = completed.get(key);
+      if (hit !== undefined) {
+        return { kind: 'replay', response: hit as T, reservedAt: new Date(intentClock) };
+      }
+      const row = intentRows.get(key);
+      if (row) {
+        if (row.state === 'COMPLETED') {
+          return { kind: 'replay', response: row.response as T, reservedAt: row.reservedAt };
+        }
+        intentConflict('ACTION_IN_PROGRESS');
+      }
+      const job = jobs.get(input.jobCardId);
+      if (!job || claim.expectedVersion !== job.version) intentConflict('VERSION_CONFLICT');
+      const reservedAt = new Date(intentClock);
+      intentRows.set(key, { state: 'PENDING', reservedAt, response: null, requestHash: claim.requestHash });
+      return { kind: 'reserved', reservation: { intentId: key, reservedAt } };
+    },
+    async finalizeLifecycleIntent<T>(
+      claim: LifecycleIntentClaim,
+      reservation: LifecycleIntentReservation,
+      work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>,
+      options: {
+        jobCardId: string;
+        lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+      },
+    ): Promise<
+      | { kind: 'completed'; response: T; realtimeEvents: readonly unknown[] }
+      | { kind: 'replay'; response: T; realtimeEvents: readonly unknown[] }
+    > {
+      const tx = buildTx();
+      if (options.lockUsers) await options.lockUsers(tx);
+      const key = intentKey(claim);
+      const row = intentRows.get(key);
+      if (!row) intentConflict('JOB_CARD_NOT_FOUND');
+      const current = intentRows.get(key)!;
+      if (current.state === 'COMPLETED') {
+        return { kind: 'replay', response: current.response as T, realtimeEvents: [] };
+      }
+      if (current.state !== 'PENDING' || current.reservedAt.getTime() !== reservation.reservedAt.getTime()) {
+        intentConflict('ACTION_IN_PROGRESS');
+      }
+      const completedWork = await work(tx);
+      current.state = 'COMPLETED';
+      current.response = completedWork.response;
+      return {
+        kind: 'completed',
+        response: completedWork.response,
+        realtimeEvents: completedWork.realtimeEvents,
+      };
     },
     findJobCardDetail: async (organizationId: string, id: string) => detailFor(organizationId, id),
   } as JobCardRepository;
@@ -603,7 +820,11 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.events).toHaveLength(1);
     expect(repo.events[0]).toMatchObject({ event: 'JOB_ACCEPTED' });
     expect(repo.claims[0]?.operationKey).toBe('JOB_ACCEPT_ASSIGNMENT:job-1');
-    expect(repo.completed.get('staff-1:accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1'))
+    // 049: the immutable receipt lives on the intent row, keyed by the same
+    // semantic identity, with business time from the reservation.
+    expect(repo.intentRows.get('staff-1:accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1'))
+      .toMatchObject({ state: 'COMPLETED' });
+    expect(repo.intentRows.get('staff-1:accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1')?.response)
       .toEqual({ jobCardId: 'job-1', evaluatedAt: time.toISOString() });
   });
 

@@ -32,7 +32,7 @@ type Fixture = {
 
 async function runAllMigrations(store: PostgresMigrationStore) {
   const result = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-  const expectedCount = 48;
+  const expectedCount = 49;
   if (result.appliedVersions.length !== expectedCount) {
     throw new Error(`Expected ${expectedCount} migrations, got ${result.appliedVersions.length}`);
   }

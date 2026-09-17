@@ -231,6 +231,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           enabled: config.capabilities?.calendar ?? false,
           reminderLeadMinutes: config.calendarReminderLeadMinutes ?? 30,
         },
+        { intentTtlMs: config.lifecycleIntentTtlMs },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',

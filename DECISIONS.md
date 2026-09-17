@@ -908,3 +908,39 @@ uzlaştırması sonrasındaki güncel durumu kaydeder.
   kullanılmıştır. Post-backup SHA-256:
   `cf9860bb443d05a4d82f0b504a5f48ff8431448886cc0bb6ae48b8dd0e758bdb`.
   Bu yollar production backup'ı veya production deployment kanıtı değildir.
+
+## 049 lifecycle intent prerequisite — 2026-09-17
+
+Accepted contract for the isolated 049 candidate; this entry does not claim a
+production migration or authorize the OVR-3 scanner.
+
+- Lifecycle business time is `reserved_at`: PostgreSQL `clock_timestamp()`
+  truncated to milliseconds, sampled after the organization-scoped JobCard
+  `FOR UPDATE` lock. It replaces service-entry time for lifecycle facts,
+  transition timestamps, episode activation, OVR evaluation/recovery and receipt
+  `evaluatedAt`. Other request/query clocks are unchanged.
+- A short reservation transaction validates version, actor/command eligibility
+  and START planned interval before committing PENDING. START provider work runs
+  after this commit, with no JobCard lock held. Finalization revalidates under lock.
+- Identity remains `(organization_id, user_id, client_action_id, operation_key)`;
+  operation namespaces and semantic request hashes are unchanged. Completed
+  receipts remain authoritative in `processed_actions`, including legacy
+  NULL-hash fail-closed behavior. Receipt recheck after the reservation lock wait
+  precedes the new-attempt version fence.
+- Default TTL is 60,000 ms (`JOB_CARD_LIFECYCLE_INTENT_TTL_MS`). The original
+  reservation never renews. A live duplicate returns ACTION_IN_PROGRESS;
+  expired/FAILED identities cannot execute again. A new deliberate attempt needs
+  a new client action key. Expiry is checked against the DB clock before and
+  after business work; expiry rolls back all transactional business effects.
+- Finalization keeps claim → scheduling User locks → JobCard → intent order.
+  Business changes, audit/realtime records, `processed_actions` completion and
+  intent completion commit atomically. Definitive failure bookkeeping uses the
+  same connection after rollback; secondary bookkeeping failure cannot replace
+  the original error. An uncertain COMMIT must not blindly mark the intent FAILED.
+- Migration 049 is additive and has no backfill. Demo purge deletes intent rows
+  before JobCards. No SCANNER provenance, worker, timer or migration 050 is added.
+- PostgreSQL fixtures use the DB arbitration baseline and persisted reservations;
+  production has no test-clock bypass. Exact boundary policy tests remain
+  deterministic. Historical read-path fixtures are explicitly constructed as
+  historical snapshots rather than pretending the injected service clock moves
+  PostgreSQL time.

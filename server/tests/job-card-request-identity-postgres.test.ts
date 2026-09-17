@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { readDbBaseline, DAY_MS } from './support/db-clock-baseline.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -34,6 +35,7 @@ const MIGRATIONS = [
   '044_job_card_accountability_facts.sql',
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
+  '049_job_card_lifecycle_intents.sql',
 ] as const;
 
 describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0 remediation)', () => {
@@ -109,12 +111,24 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
 
       const repository = new PostgresJobCardRepository(pool);
       const service = new JobCardService(repository, () => new Date('2026-07-20T08:00:00.000Z'));
+      const proposalDate = new Date((await readDbBaseline(pool!)).valueOf() + 7 * DAY_MS);
+      proposalDate.setUTCHours(10, 0, 0, 0);
+      if (proposalDate.getUTCDay() === 0) proposalDate.setUTCDate(proposalDate.getUTCDate() + 1);
+      const proposalAt = proposalDate.toISOString();
       const staff: JobCardActor = { id: staffId, organizationId, role: 'STAFF' };
       const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
 
       const claimRow = async (clientActionId: string, operationKey: string) => (
         await pool!.query<{ request_hash: string | null; status: string; status_code: number }>(
           `SELECT request_hash, status, status_code FROM processed_actions
+            WHERE client_action_id = $1 AND operation_key = $2`,
+          [clientActionId, operationKey],
+        )
+      ).rows;
+      // 049: reservation and canonical processed_actions receipt share the hash.
+      const intentRow = async (clientActionId: string, operationKey: string) => (
+        await pool!.query<{ request_hash: string | null; state: string }>(
+          `SELECT request_hash, state FROM job_card_lifecycle_intents
             WHERE client_action_id = $1 AND operation_key = $2`,
           [clientActionId, operationKey],
         )
@@ -129,6 +143,7 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
         children: (await pool!.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM job_cards WHERE source_job_card_id IS NOT NULL`)).rows[0]!.n,
         items: (await pool!.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM job_card_delivery_items`)).rows[0]!.n,
         processed: (await pool!.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM processed_actions`)).rows[0]!.n,
+        intents: (await pool!.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM job_card_lifecycle_intents`)).rows[0]!.n,
       });
 
       // ---- JOB_CREATE: exact retry + payload mismatch ----
@@ -156,6 +171,8 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
         clientActionId: 'cancel-key-1', expectedVersion: 1, cancelReason: 'Zamanlama değişti',
       });
       expect((await claimRow('cancel-key-1', `JOB_CANCEL:${cancelJobId}`))[0]!.request_hash).not.toBeNull();
+      expect((await intentRow('cancel-key-1', `JOB_CANCEL:${cancelJobId}`))[0]!.request_hash)
+        .toBe((await claimRow('cancel-key-1', `JOB_CANCEL:${cancelJobId}`))[0]!.request_hash);
       const afterCancel = await snapshot();
       const cancelReplay = await service.cancel(manager, cancelJobId, {
         clientActionId: 'cancel-key-1', expectedVersion: 1, cancelReason: 'Zamanlama değişti',
@@ -286,7 +303,7 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
       await service.submitForApproval(staff, proposalJobId, {
         clientActionId: 'proposal-key-1', expectedVersion: 3, note: 'Ziyaret tamamlandı',
         followUpProposal: {
-          scheduledAt: '2026-07-25T10:00:00.000Z', type: 'SALES_MEETING',
+          scheduledAt: proposalAt, type: 'SALES_MEETING',
           assignedTo: staffId, followUpInstructions: 'Tekrar arayın',
         },
       });
@@ -295,7 +312,7 @@ describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0
       await expect(service.submitForApproval(staff, proposalJobId, {
         clientActionId: 'proposal-key-1', expectedVersion: 3, note: 'Ziyaret tamamlandı',
         followUpProposal: {
-          scheduledAt: '2026-07-30T14:00:00.000Z', type: 'SALES_MEETING',
+          scheduledAt: new Date(Date.parse(proposalAt) + DAY_MS).toISOString(), type: 'SALES_MEETING',
           assignedTo: staffId, followUpInstructions: 'Numune bırakın',
         },
       })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED', statusCode: 409 });

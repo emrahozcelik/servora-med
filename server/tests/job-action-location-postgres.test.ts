@@ -46,6 +46,9 @@ const migrations = [
   '042_unsuccessful_visit_reason.sql',
   '043_job_card_schedule_and_assignment_history.sql',
   '044_job_card_accountability_facts.sql',
+  '047_job_card_overdue_incidents.sql',
+  '048_overdue_episode_activation_legacy_first.sql',
+  '049_job_card_lifecycle_intents.sql',
 
 ] as const;
 
