@@ -37,7 +37,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=041_user_lifecycle_reconciliation` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION` must equal the exact latest canonical migration identifier included in the deployed release. Obtain that value from the exact release's `MigrationCatalog` or `server/dist/db/migrations`; this runbook intentionally does not pin a current migration version.
 - `DEMO_DATA_CREATION_ENABLED=false` (default false all environments; creation DISABLED, list/preview/purge remain AVAILABLE; enable explicitly only for staging/dev where disposable `TEST_DATABASE_URL` is used)
 
 ### HEALTH_SCHEMA_VERSION verification
@@ -345,15 +345,13 @@ restore is available.
 
 This runbook does not assert the current live production schema. The
 deploy-time read-only comparison is authoritative, and derives the pending
-set from the candidate release's `MigrationCatalog`. The current canonical
-target is `041_user_lifecycle_reconciliation`; production's installed schema
-remains UNKNOWN until that comparison runs. Conditional examples are:
+set from the candidate release's `MigrationCatalog`. No fixed current target
+is embedded here, and operators must not copy a concrete migration version
+from this runbook. Conceptually:
 
-- exact 039 (`039_contact_deleted_audit`) → pending 040 (`040_demo_lifecycle_simplification`) and 041 (`041_user_lifecycle_reconciliation`)
-- exact 040 (`040_demo_lifecycle_simplification`) → pending 041 (`041_user_lifecycle_reconciliation`)
-- exact 041 (`041_user_lifecycle_reconciliation`) → no pending migration
-- an older exact ordered prefix → the remaining ordered `MigrationCatalog` set
-  is pending
+- an exact ordered prefix → the remaining ordered `MigrationCatalog` set is pending
+- an exact catalog match → no pending migration
+- a non-prefix, ahead, duplicate, or otherwise divergent history → deployment stops
 
 If activation/health/browser smoke fails and zero migrations were applied, the
 old release may be switched back atomically and the application restarted. A
