@@ -45,6 +45,7 @@ async function applyMigrations(pool: Pool) {
   '044_job_card_accountability_facts.sql',
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
+  '049_job_card_lifecycle_intents.sql',
 
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -272,10 +273,16 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       expect(JSON.stringify(activity)).not.toMatch(/Takip görüşmesi|Görüşme olumlu|oldValue|newValue|metadata/);
 
       const range = { from: '2026-07-15', to: '2026-07-15' };
-      await expect(reports.getDashboard({ organizationId, requestedRange: range, requestTime }))
+      const completionDay = (await pool.query<{ day: string }>(
+        `SELECT to_char(reserved_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS day
+         FROM job_card_lifecycle_intents WHERE job_card_id=$1 AND command='APPROVE'`, [delivery.id],
+      )).rows[0]!.day;
+      const completionRange = { from: completionDay, to: completionDay };
+      const reportTime = (await pool.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+      await expect(reports.getDashboard({ organizationId, requestedRange: completionRange, requestTime: reportTime }))
         .resolves.toMatchObject({ counters: { completedInPeriod: 3 } });
       await expect(reports.getOne({ organizationId, staffUserId: staffId,
-        requestedRange: range, requestTime })).resolves.toMatchObject({
+        requestedRange: completionRange, requestTime: reportTime })).resolves.toMatchObject({
         counters: { completedInPeriod: 3 },
       });
       await expect(reports.getStaffMeetingsByOutcome({ organizationId, staffUserId: staffId,
@@ -284,7 +291,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
       ]);
       await expect(reports.getDeliveryReport({ organizationId, requestedRange: range,
-        requestTime, groupBy: 'purpose', staffUserId: null, limit: 50, offset: 0 }))
+        requestTime: reportTime, groupBy: 'purpose', staffUserId: null, limit: 50, offset: 0 }))
         .resolves.toMatchObject({ total: 1,
           items: [{ purpose: 'SAMPLE', unit: 'adet', quantity: '2.000' }] });
 

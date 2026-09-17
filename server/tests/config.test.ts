@@ -122,6 +122,7 @@ describe('loadConfig', () => {
       releaseSha: 'dev',
       actionScopedGeolocationEnabled: false,
       calendarReminderLeadMinutes: 30,
+      lifecycleIntentTtlMs: 60000,
       reverseGeocoderProvider: null,
       googleGeocodingApiKey: null,
       reverseGeocoderTimeoutMs: 2000,
@@ -169,6 +170,7 @@ describe('loadConfig', () => {
       releaseSha: 'dev',
       actionScopedGeolocationEnabled: false,
       calendarReminderLeadMinutes: 30,
+      lifecycleIntentTtlMs: 60000,
       reverseGeocoderProvider: null,
       googleGeocodingApiKey: null,
       reverseGeocoderTimeoutMs: 2000,
@@ -664,10 +666,19 @@ describe('loadConfig', () => {
     ['SESSION_TTL_SECONDS', '0'],
     ['LOGIN_RATE_LIMIT_MAX', '-1'],
     ['RATE_LIMIT_WINDOW_MS', 'abc'],
+    ['JOB_CARD_LIFECYCLE_INTENT_TTL_MS', '0'],
   ])('rejects invalid positive integer %s=%s', (name, value) => {
     expect(() => loadConfig({ ...validEnvironment, [name]: value })).toThrow(
       `${name} must be a positive integer`,
     );
+  });
+
+  it('parses the lifecycle intent TTL', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      JOB_CARD_LIFECYCLE_INTENT_TTL_MS: '90000',
+    })).toMatchObject({ lifecycleIntentTtlMs: 90000 });
+    expect(loadConfig({ ...validEnvironment })).toMatchObject({ lifecycleIntentTtlMs: 60000 });
   });
 
   it('parses the calendar capability and bounded reminder lead', () => {

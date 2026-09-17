@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { AppError } from '../src/errors/index.js';
 import type {
   CriticalActionClaim,
   CriticalActionWorkResult,
   JobCardRepository,
   JobCardTransaction,
   ActiveManagementRecipient,
+  LifecycleIntentClaim,
+  LifecycleIntentReservation,
+  LifecycleIntentReservationInput,
 } from '../src/modules/job-cards/repository.js';
 import type { NotificationAppendInput } from '../src/modules/notifications/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -43,6 +47,15 @@ class MemoryJobCardRepository implements JobCardRepository {
   failLocation = false;
   beforeCriticalWork?: () => void;
   locationAppends: AppendJobActionLocationInput[] = [];
+  // 049 test-double clock + intent rows. The fake DB clock defaults to real
+  // time; tests asserting exact business instants set intentClock explicitly.
+  intentClock = new Date();
+  intentRows = new Map<string, {
+    state: 'PENDING' | 'COMPLETED' | 'FAILED';
+    reservedAt: Date;
+    response: unknown;
+    requestHash: string | undefined;
+  }>();
 
   private persistedDetail() {
     return {
@@ -106,7 +119,25 @@ class MemoryJobCardRepository implements JobCardRepository {
     const jobBefore = { ...this.job };
     const activityCount = this.activities.length;
     const locationCount = this.locationAppends.length;
-    const tx: JobCardTransaction = {
+    const tx = this.transaction();
+    try {
+      this.beforeCriticalWork?.();
+      const workResult = await work(tx);
+      this.completed.set(key, workResult.response);
+      if (this.nextCriticalResult === 'replay') {
+        return { kind: 'replay' as const, response: workResult.response, realtimeEvents: [] as const };
+      }
+      return { kind: 'completed' as const, response: workResult.response, realtimeEvents: workResult.realtimeEvents };
+    } catch (error) {
+      this.job = jobBefore;
+      this.activities.splice(activityCount);
+      this.locationAppends.splice(locationCount);
+      throw error;
+    } finally { this.processing.delete(key); }
+  }
+
+  private transaction(): JobCardTransaction {
+    return {
       getJob: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
       getJobForUpdate: async (organizationId, id) =>
@@ -202,20 +233,121 @@ class MemoryJobCardRepository implements JobCardRepository {
       getSubmissionMeetingDetails: async () => null,
       getSubmissionDeliveryItems: async () => [],
     };
+  }
+
+  private intentKey(claim: { organizationId: string; userId: string; clientActionId: string; operationKey: string }) {
+    return `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+  }
+
+  private intentConflict(kind: 'VERSION_CONFLICT' | 'ACTION_IN_PROGRESS' | 'CLIENT_ACTION_REUSED' | 'JOB_CARD_NOT_FOUND'): never {
+    const statusCode = kind === 'JOB_CARD_NOT_FOUND' ? 404 : 409;
+    const message =
+      kind === 'VERSION_CONFLICT'
+        ? 'JobCard ba\u015fka bir i\u015flem taraf\u0131ndan g\u00fcncellendi.'
+        : kind === 'ACTION_IN_PROGRESS'
+          ? 'Ayn\u0131 i\u015flem halen devam ediyor.'
+          : kind === 'JOB_CARD_NOT_FOUND'
+            ? 'JobCard bulunamad\u0131.'
+            : 'clientActionId farkl\u0131 bir i\u015flem i\u00e7eri\u011fiyle yeniden kullan\u0131lamaz.';
+    throw new AppError(kind, statusCode, message);
+  }
+
+  async findCompletedLifecycleIntent<T>(claim: LifecycleIntentClaim): Promise<T | null> {
+    const row = this.intentRows.get(this.intentKey(claim));
+    if (!row || row.state !== 'COMPLETED') return null;
+    if (claim.requestHash !== undefined && row.requestHash !== claim.requestHash) {
+      this.intentConflict('CLIENT_ACTION_REUSED');
+    }
+    return row.response as T;
+  }
+
+  async reserveLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    input: LifecycleIntentReservationInput,
+  ): Promise<
+    | { kind: 'reserved'; reservation: LifecycleIntentReservation }
+    | { kind: 'replay'; response: T; reservedAt: Date }
+  > {
+    // Mirrors the production reservation ordering: org-scoped job resolution,
+    // completed-receipt recheck, intent-row checks, version fence, clock
+    // sample, eligibility preflight, then the PENDING insert.
+    if (claim.organizationId !== this.job.organizationId) this.intentConflict('JOB_CARD_NOT_FOUND');
+    const key = this.intentKey(claim);
+    const completed = this.completed.get(key);
+    if (completed !== undefined) {
+      return { kind: 'replay', response: completed as T, reservedAt: new Date(this.intentClock) };
+    }
+    if (this.processing.has(key)) this.intentConflict('ACTION_IN_PROGRESS');
+    const row = this.intentRows.get(key);
+    if (row) {
+      if (claim.requestHash !== undefined && row.requestHash !== claim.requestHash) {
+        this.intentConflict('CLIENT_ACTION_REUSED');
+      }
+      if (row.state === 'COMPLETED') {
+        return { kind: 'replay', response: row.response as T, reservedAt: row.reservedAt };
+      }
+      if (row.state === 'PENDING') this.intentConflict('ACTION_IN_PROGRESS');
+      if (row.state === 'FAILED') throw new AppError('LIFECYCLE_INTENT_FAILED', 409, 'Failed identity cannot renew.');
+    }
+    if (claim.expectedVersion !== this.job.version) this.intentConflict('VERSION_CONFLICT');
+    const reservedAt = new Date(this.intentClock);
+    if (input.preflight) await input.preflight(this.transaction(), this.job, reservedAt);
+    this.intentRows.set(key, {
+      state: 'PENDING', reservedAt, response: null, requestHash: claim.requestHash,
+    });
+    return { kind: 'reserved', reservation: { intentId: key, reservedAt } };
+  }
+
+  async finalizeLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    reservation: LifecycleIntentReservation,
+    work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>,
+    options: {
+      jobCardId: string;
+      lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+    },
+  ): Promise<
+    | { kind: 'completed'; response: T; realtimeEvents: readonly RealtimeEventRecord[] }
+    | { kind: 'replay'; response: T; realtimeEvents: readonly RealtimeEventRecord[] }
+  > {
+    const tx = this.transaction();
+    if (options.lockUsers) await options.lockUsers(tx);
+    const key = this.intentKey(claim);
+    const row = this.intentRows.get(key);
+    if (!row) this.intentConflict('JOB_CARD_NOT_FOUND');
+    const current = this.intentRows.get(key)!;
+    if (claim.requestHash !== undefined && current.requestHash !== claim.requestHash) {
+      this.intentConflict('CLIENT_ACTION_REUSED');
+    }
+    if (current.state === 'COMPLETED') {
+      return { kind: 'replay', response: current.response as T, realtimeEvents: [] };
+    }
+    if (current.state !== 'PENDING' || current.reservedAt.getTime() !== reservation.reservedAt.getTime()) {
+      this.intentConflict('ACTION_IN_PROGRESS');
+    }
+    const jobBefore = { ...this.job };
+    const activityCount = this.activities.length;
+    const locationCount = this.locationAppends.length;
     try {
       this.beforeCriticalWork?.();
       const workResult = await work(tx);
-      this.completed.set(key, workResult.response);
+      current.state = 'COMPLETED';
+      current.response = workResult.response;
       if (this.nextCriticalResult === 'replay') {
-        return { kind: 'replay' as const, response: workResult.response, realtimeEvents: [] as const };
+        return { kind: 'replay', response: workResult.response, realtimeEvents: [] };
       }
-      return { kind: 'completed' as const, response: workResult.response, realtimeEvents: workResult.realtimeEvents };
+      return {
+        kind: 'completed',
+        response: workResult.response,
+        realtimeEvents: workResult.realtimeEvents,
+      };
     } catch (error) {
       this.job = jobBefore;
       this.activities.splice(activityCount);
       this.locationAppends.splice(locationCount);
+      current.state = 'FAILED';
       throw error;
-    } finally { this.processing.delete(key); }
+    }
   }
 }
 

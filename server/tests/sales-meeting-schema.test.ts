@@ -151,8 +151,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(48);
-      expect(firstRun.appliedVersions.at(-1)).toBe('048_overdue_episode_activation_legacy_first');
+      expect(firstRun.appliedVersions).toHaveLength(49);
+      expect(firstRun.appliedVersions.at(-1)).toBe('049_job_card_lifecycle_intents');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -239,6 +239,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '046_notification_state_realtime',
           '047_job_card_overdue_incidents',
           '048_overdue_episode_activation_legacy_first',
+          '049_job_card_lifecycle_intents',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -255,7 +256,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '045_calendar_request_hash.sql'
           && file !== '046_notification_state_realtime.sql'
           && file !== '047_job_card_overdue_incidents.sql'
-          && file !== '048_overdue_episode_activation_legacy_first.sql')
+          && file !== '048_overdue_episode_activation_legacy_first.sql'
+          && file !== '049_job_card_lifecycle_intents.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -287,6 +289,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '046_notification_state_realtime',
           '047_job_card_overdue_incidents',
           '048_overdue_episode_activation_legacy_first',
+          '049_job_card_lifecycle_intents',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

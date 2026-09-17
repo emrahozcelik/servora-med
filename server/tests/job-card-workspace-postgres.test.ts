@@ -56,6 +56,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
   '044_job_card_accountability_facts.sql',
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
+  '049_job_card_lifecycle_intents.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -395,23 +396,29 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       expect(JSON.stringify(activity)).not.toMatch(/oldValue|newValue|metadata|clientActionId|Birinci not|İkinci not/);
 
       const reports = new PostgresReportsRepository(pool);
+      const approvedDays = await pool.query<{ day: string }>(
+        `SELECT DISTINCT to_char(manager_approved_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM-DD') AS day
+         FROM job_cards WHERE organization_id=$1 AND status='COMPLETED' ORDER BY day`, [organizationId]);
+      expect(approvedDays.rows).toHaveLength(1);
+      const completedDay = approvedDays.rows[0]!.day;
+      const reportTime = (await pool.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
       const dashboard = await reports.getDashboard({
-        organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
-        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+        organizationId, requestedRange: { from: completedDay, to: completedDay },
+        requestTime: reportTime,
       });
       expect(dashboard.counters.completedInPeriod).toBe(3);
-      expect(dashboard.completedTrend).toEqual([{ date: '2026-07-14', count: 3 }]);
+      expect(dashboard.completedTrend).toEqual([{ date: completedDay, count: 3 }]);
       await expect(reports.getOne({
         organizationId,
         staffUserId: staffId,
-        requestedRange: { from: '2026-07-14', to: '2026-07-14' },
-        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+        requestedRange: { from: completedDay, to: completedDay },
+        requestTime: reportTime,
       })).resolves.toMatchObject({
         counters: { completedInPeriod: 3 },
       });
       const deliveries = await reports.getDeliveryReport({
         organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
-        requestTime: new Date('2026-07-14T09:00:00.000Z'), groupBy: 'purpose',
+        requestTime: reportTime, groupBy: 'purpose',
         staffUserId: null, limit: 50, offset: 0,
       });
       expect(deliveries).toMatchObject({

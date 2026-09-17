@@ -98,6 +98,54 @@ export type CriticalActionClaim = {
   requestHash?: string;
 };
 
+/**
+ * 049: lifecycle intent claim. The semantic identity is the same
+ * (organization_id, user_id, client_action_id, operation_key) contract as
+ * critical actions; `command` and `expectedVersion` participate in the
+ * request hash, never in the identity.
+ */
+export type LifecycleIntentClaim = {
+  organizationId: string;
+  userId: string;
+  clientActionId: string;
+  operationKey: string;
+  command: LifecycleCommand;
+  requestHash?: string;
+  expectedVersion: number;
+};
+
+export type LifecycleIntentReservationInput = {
+  jobCardId: string;
+  ttlMs: number;
+  preflight?: (tx: JobCardTransaction, job: JobCard, reservedAt: Date) => Promise<void>;
+};
+
+function lifecycleIntentError(code: string): AppError {
+  return new AppError(code, 409, code === 'LIFECYCLE_INTENT_EXPIRED'
+    ? 'İşlem rezervasyon süresi doldu. Yeni bir işlem anahtarıyla tekrar deneyin.'
+    : 'Bu işlem tamamlanamadı. Yeni bir işlem anahtarıyla tekrar deneyin.');
+}
+
+export type LifecycleIntentReservation = {
+  intentId: string;
+  reservedAt: Date;
+};
+
+export type LifecycleIntentReservationResult<T> =
+  | { kind: 'reserved'; reservation: LifecycleIntentReservation }
+  | { kind: 'replay'; response: T; reservedAt: Date };
+
+type LifecycleIntentRow = {
+  id: string;
+  request_hash: string | null;
+  expected_version: number;
+  state: string;
+  reserved_at: Date;
+  expires_at: Date;
+  live: boolean;
+  failure_code: string | null;
+};
+
 export type JobCardInvalidationUpdateInput = {
   organizationId: string;
   jobCardId: string;
@@ -621,6 +669,38 @@ export interface JobCardRepository extends SubmissionReader {
     work: (
       transaction: JobCardTransaction,
     ) => Promise<CriticalActionWorkResult<T>>,
+  ): Promise<CriticalActionResult<T>>;
+  /**
+   * 049: lock-free fast path for exact completed lifecycle-intent replays.
+   * Optimization only; correctness comes from reserveLifecycleIntent.
+   */
+  findCompletedLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+  ): Promise<T | null>;
+  /**
+   * 049: reserve a lifecycle intent under the authoritative JobCard lock.
+   * Completed recheck first, version fence only for new attempts,
+   * reserved_at sampled after the lock wait.
+   */
+  reserveLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    input: LifecycleIntentReservationInput,
+  ): Promise<LifecycleIntentReservationResult<T>>;
+  /**
+   * 049: finalize a reserved intent. Business mutation and COMPLETED
+   * marking commit atomically; definitive failures mark FAILED on the
+   * same pooled connection and the original domain error wins.
+   */
+  finalizeLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    reservation: LifecycleIntentReservation,
+    work: (
+      transaction: JobCardTransaction,
+    ) => Promise<CriticalActionWorkResult<T>>,
+    options: {
+      jobCardId: string;
+      lockUsers?: (transaction: JobCardTransaction) => Promise<void>;
+    },
   ): Promise<CriticalActionResult<T>>;
   listJobCards(
     scope: JobCardReadScope,
@@ -2514,6 +2594,200 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  /** Completed receipts retain the existing processed_actions authority. */
+  async findCompletedLifecycleIntent<T>(claim: LifecycleIntentClaim): Promise<T | null> {
+    return this.findCompletedCriticalAction<T>(claim);
+  }
+
+  private async lifecycleReceipt<T>(client: PoolClient, claim: LifecycleIntentClaim) {
+    const result = await client.query<{
+      status: string; request_hash: string | null; response_body: T | null; reserved_at: Date;
+    }>(
+      `SELECT p.status, p.request_hash, p.response_body,
+              COALESCE(i.reserved_at, p.created_at) AS reserved_at
+         FROM processed_actions p
+         LEFT JOIN job_card_lifecycle_intents i
+           ON i.organization_id=p.organization_id AND i.user_id=p.user_id
+          AND i.client_action_id=p.client_action_id AND i.operation_key=p.operation_key
+        WHERE p.organization_id=$1 AND p.user_id=$2
+          AND p.client_action_id=$3 AND p.operation_key=$4`,
+      [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    assertCriticalActionRequestHash(claim.requestHash, row.request_hash);
+    if (row.status !== 'completed' || row.response_body === null) {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    return { kind: 'replay' as const, response: row.response_body, reservedAt: row.reserved_at };
+  }
+
+  /** Short transaction: JobCard -> receipt recheck -> intent -> preflight -> reservation. */
+  async reserveLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    input: LifecycleIntentReservationInput,
+  ): Promise<LifecycleIntentReservationResult<T>> {
+    if (!Number.isInteger(input.ttlMs) || input.ttlMs <= 0) {
+      throw new AppError('LIFECYCLE_INTENT_TTL_INVALID', 500, 'Lifecycle intent TTL geçersiz.');
+    }
+    const client = await this.pool.connect();
+    let active = false;
+    let released = false;
+    try {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+      active = true;
+      const tx = new PostgresJobCardTransaction(client);
+      const job = await tx.getJobForUpdate(claim.organizationId, input.jobCardId);
+      if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      // Recheck after the lock wait, before the NEW-attempt version fence.
+      const replay = await this.lifecycleReceipt<T>(client, claim);
+      if (replay) {
+        await client.query('COMMIT'); active = false;
+        return replay;
+      }
+      const existing = await client.query<LifecycleIntentRow>(
+        `SELECT id, request_hash, expected_version, state, reserved_at, expires_at,
+                expires_at > clock_timestamp() AS live, failure_code
+           FROM job_card_lifecycle_intents
+          WHERE organization_id=$1 AND user_id=$2 AND client_action_id=$3 AND operation_key=$4
+          FOR UPDATE`,
+        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+      );
+      const row = existing.rows[0];
+      if (row) {
+        assertCriticalActionRequestHash(claim.requestHash, row.request_hash);
+        if (row.state === 'COMPLETED') throw new AppError('INVARIANT_VIOLATION', 500, 'Lifecycle receipt eksik.');
+        if (row.state === 'FAILED') throw lifecycleIntentError(row.failure_code ?? 'LIFECYCLE_INTENT_FAILED');
+        if (!row.live) {
+          await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
+            failed_at=date_trunc('milliseconds',clock_timestamp()), failure_code='LIFECYCLE_INTENT_EXPIRED'
+            WHERE id=$1`, [row.id]);
+          await client.query('COMMIT'); active = false;
+          throw lifecycleIntentError('LIFECYCLE_INTENT_EXPIRED');
+        }
+        throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+      }
+      if (job.version !== claim.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      const sampled = await client.query<{ reserved_at: Date }>(
+        "SELECT date_trunc('milliseconds', clock_timestamp()) AS reserved_at",
+      );
+      const reservedAt = sampled.rows[0]!.reserved_at;
+      if (input.preflight) await input.preflight(tx, job, reservedAt);
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO job_card_lifecycle_intents
+          (organization_id,job_card_id,user_id,client_action_id,operation_key,command,
+           request_hash,expected_version,state,reserved_at,expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9,$10) RETURNING id`,
+        [claim.organizationId,input.jobCardId,claim.userId,claim.clientActionId,claim.operationKey,
+          claim.command,claim.requestHash ?? null,claim.expectedVersion,reservedAt,
+          new Date(reservedAt.valueOf()+input.ttlMs)],
+      );
+      await client.query('COMMIT'); active = false;
+      return { kind: 'reserved', reservation: { intentId: inserted.rows[0]!.id, reservedAt } };
+    } catch (error) {
+      if (active) {
+        try { await client.query('ROLLBACK'); }
+        catch { client.release(true); released = true; throw error; }
+      }
+      throw error;
+    } finally {
+      if (!released) client.release();
+    }
+  }
+
+  /** Claim -> User -> JobCard -> intent; business, receipt and completion are atomic. */
+  async finalizeLifecycleIntent<T>(
+    claim: LifecycleIntentClaim,
+    reservation: LifecycleIntentReservation,
+    work: (transaction: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>,
+    options: { jobCardId: string; lockUsers?: (transaction: JobCardTransaction) => Promise<void> },
+  ): Promise<CriticalActionResult<T>> {
+    const client = await this.pool.connect();
+    let active = false;
+    let released = false;
+    let committing = false;
+    try {
+      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED'); active = true;
+      const claimed = await client.query<{ id: string }>(
+        `INSERT INTO processed_actions (organization_id,user_id,client_action_id,operation_key,request_hash,status)
+         VALUES ($1,$2,$3,$4,$5,'processing')
+         ON CONFLICT (organization_id,user_id,client_action_id,operation_key) DO NOTHING RETURNING id`,
+        [claim.organizationId,claim.userId,claim.clientActionId,claim.operationKey,claim.requestHash ?? null],
+      );
+      if (claimed.rowCount === 0) {
+        const replay = await this.lifecycleReceipt<T>(client, claim);
+        if (!replay) throw new AppError('INVARIANT_VIOLATION',500,'Critical-action receipt eksik.');
+        await client.query('COMMIT'); active = false;
+        return { kind:'replay', response:replay.response, realtimeEvents:[] };
+      }
+      const tx = new PostgresJobCardTransaction(client);
+      if (options.lockUsers) await options.lockUsers(tx);
+      const job = await tx.getJobForUpdate(claim.organizationId, options.jobCardId);
+      if (!job) throw new AppError('JOB_CARD_NOT_FOUND',404,'JobCard bulunamadı.');
+      const locked = await client.query<LifecycleIntentRow>(
+        `SELECT id,request_hash,expected_version,state,reserved_at,expires_at,failure_code
+           FROM job_card_lifecycle_intents
+          WHERE id = $1 AND organization_id=$2 AND user_id=$3
+            AND client_action_id=$4 AND operation_key=$5 AND job_card_id=$6 FOR UPDATE`,
+        [reservation.intentId,claim.organizationId,claim.userId,claim.clientActionId,claim.operationKey,options.jobCardId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new AppError('INVARIANT_VIOLATION',500,'Lifecycle intent bulunamadı.');
+      assertCriticalActionRequestHash(claim.requestHash,row.request_hash);
+      if (row.state === 'FAILED') throw lifecycleIntentError(row.failure_code ?? 'LIFECYCLE_INTENT_FAILED');
+      if (row.state !== 'PENDING' || row.reserved_at.valueOf() !== reservation.reservedAt.valueOf()) {
+        throw new AppError('ACTION_IN_PROGRESS',409,'Aynı işlem halen devam ediyor.');
+      }
+      if (job.version !== claim.expectedVersion) throw new AppError('VERSION_CONFLICT',409,'JobCard başka bir işlem tarafından güncellendi.');
+      const assertUnexpired = async () => {
+        const fence = await client.query<{ expired:boolean }>('SELECT clock_timestamp() >= $1::timestamptz AS expired',[row.expires_at]);
+        if (fence.rows[0]!.expired) throw lifecycleIntentError('LIFECYCLE_INTENT_EXPIRED');
+      };
+      await assertUnexpired();
+      const result = await work(tx);
+      await assertUnexpired();
+      await client.query(`UPDATE job_card_lifecycle_intents SET state='COMPLETED',
+        completed_at=date_trunc('milliseconds',clock_timestamp()) WHERE id=$1`,[reservation.intentId]);
+      await client.query(`UPDATE processed_actions SET status='completed',status_code=200,
+        response_body=$2,completed_at=NOW() WHERE id=$1`,[claimed.rows[0]!.id,result.response]);
+      committing = true;
+      await client.query('COMMIT'); active = false;
+      return { kind:'completed',response:result.response,realtimeEvents:result.realtimeEvents };
+    } catch (error) {
+      if (committing) {
+        client.release(true); released=true; active=false;
+        // An uncertain COMMIT may already have persisted both the mutation and receipt.
+        try {
+          const completed = await this.findCompletedCriticalAction<T>(claim);
+          if (completed !== null) return { kind:'replay',response:completed,realtimeEvents:[] };
+        } catch { /* Preserve the original uncertain outcome for exact retry. */ }
+        throw error;
+      }
+      if (active) {
+        try { await client.query('ROLLBACK'); active=false; }
+        catch { client.release(true); released=true; throw error; }
+      }
+      if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500
+          && !['CLIENT_ACTION_REUSED','ACTION_IN_PROGRESS'].includes(error.code)) {
+        try {
+          await client.query('BEGIN'); active=true;
+          await new PostgresJobCardTransaction(client).getJobForUpdate(claim.organizationId, options.jobCardId);
+          await client.query(`UPDATE job_card_lifecycle_intents SET state='FAILED',
+            failed_at=date_trunc('milliseconds',clock_timestamp()),failure_code=$3
+            WHERE id=$1 AND reserved_at=$2 AND state='PENDING'`,
+            [reservation.intentId,reservation.reservedAt,error.code]);
+          await client.query('COMMIT'); active=false;
+        } catch {
+          try { await client.query('ROLLBACK'); active=false; }
+          catch { client.release(true); released=true; }
+        }
+      }
+      throw error;
+    } finally {
+      if (!released) client.release();
     }
   }
 

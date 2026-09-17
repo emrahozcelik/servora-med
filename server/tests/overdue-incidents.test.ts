@@ -85,6 +85,29 @@ describe('OVR-2 incident deadline policy (unit)', () => {
     expect(isInstantBreached(deadline, deadline)).toBe(true);
   });
 
+  it('pins exact reserved_at boundaries per §21 (LATE_START / LATE_SUBMISSION / APPROVAL_WAIT)', () => {
+    // LATE_START: the deadline IS scheduled_ends_at. Starting one
+    // millisecond early is on time; exactly at the end is late.
+    const scheduledEndsAt = new Date('2026-08-03T07:30:00.000Z');
+    const startDeadline = lateStartDeadlineAt(scheduledEndsAt.toISOString())!;
+    expect(startDeadline).toEqual(scheduledEndsAt);
+    expect(isInstantBreached(startDeadline, new Date('2026-08-03T07:29:59.999Z'))).toBe(false);
+    expect(isInstantBreached(startDeadline, scheduledEndsAt)).toBe(true);
+    // LATE_SUBMISSION: exactly at the effective deadline is on time;
+    // the first late instant is effective deadline + 1ms.
+    const effective = new Date('2026-08-03T07:30:00.000Z');
+    const firstLate = submissionBreachInstant(effective);
+    expect(firstLate).toEqual(new Date('2026-08-03T07:30:00.001Z'));
+    expect(isInstantBreached(firstLate, effective)).toBe(false);
+    expect(isInstantBreached(firstLate, firstLate)).toBe(true);
+    // APPROVAL_WAIT: one millisecond before submitted + 24h is on time;
+    // exactly at the boundary is late.
+    const submitted = new Date('2026-08-04T09:00:00.000Z');
+    const approvalDeadline = approvalWaitDeadlineAt(submitted);
+    expect(isInstantBreached(approvalDeadline, new Date('2026-08-05T08:59:59.999Z'))).toBe(false);
+    expect(isInstantBreached(approvalDeadline, approvalDeadline)).toBe(true);
+  });
+
   it('proves the millisecond domain clock: schedule instants reject sub-ms input', () => {
     // isoInstant caps fractional seconds at three digits, so no
     // client-supplied scheduled instant can carry sub-millisecond precision

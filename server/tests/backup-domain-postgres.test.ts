@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     const version = await pool!.query<{ version: string }>(
       'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
     );
-    expect(version.rows[0]!.version).toBe('048_overdue_episode_activation_legacy_first');
+    expect(version.rows[0]!.version).toBe('049_job_card_lifecycle_intents');
 
     const policyCount = await pool!.query<{ count: number }>(
       'SELECT COUNT(*)::int AS count FROM backup_policy',

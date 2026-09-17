@@ -11,6 +11,7 @@ import {
 } from '../src/modules/job-cards/job-card-duration.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { readDbBaseline, DAY_MS, HOUR_MS } from './support/db-clock-baseline.js';
 import type { JobCardType } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -53,6 +54,7 @@ const migrations = [
   '044_job_card_accountability_facts.sql',
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
+  '049_job_card_lifecycle_intents.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
@@ -329,8 +331,9 @@ describe.skipIf(!databaseUrl)('R3 SM/PD START requires a valid scheduled interva
     await withMigratedDatabase(async (pool) => {
       const organizationId = await createOrganization(pool);
       const actorUserId = await createUser(pool, organizationId, 'STAFF');
+      const future = (await readDbBaseline(pool)).valueOf() + DAY_MS;
       const jobCardId = await createAcceptedJob(pool, organizationId, actorUserId, 'SALES_MEETING', {
-        at: '2026-09-09T15:00:00.000Z', endsAt: '2026-09-09T16:00:00.000Z',
+        at: new Date(future).toISOString(), endsAt: new Date(future + HOUR_MS).toISOString(),
       });
       const actor = { id: actorUserId, organizationId, role: 'STAFF' as const };
 

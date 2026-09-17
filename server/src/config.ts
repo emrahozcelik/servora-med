@@ -5,6 +5,7 @@ import type {
   AuthenticatedSupport,
 } from './modules/capabilities/types.js';
 import { validateBackupInstanceId } from './modules/backup/object-keys.js';
+import { LIFECYCLE_INTENT_TTL_MS_DEFAULT } from './modules/job-cards/types.js';
 import {
   validateR2AccountId,
   validateR2BucketName,
@@ -76,6 +77,12 @@ export type AppConfig = {
   geocodingGlobalMonthlyLimit: number;
   capabilities?: AuthenticatedCapabilities;
   calendarReminderLeadMinutes?: number;
+  /**
+   * 049: lifecycle intent processing budget in milliseconds. Positive
+   * integer, default 60_000. Consumed by JobCard lifecycle reservation
+   * (expires_at = reserved_at + TTL, no renewal).
+   */
+  lifecycleIntentTtlMs: number;
   support?: AuthenticatedSupport;
   webPush: WebPushConfig;
   backupLocalEngine: BackupLocalEngineConfig;
@@ -562,6 +569,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       'CALENDAR_REMINDER_LEAD_MINUTES',
       5,
       1_440,
+    ),
+    lifecycleIntentTtlMs: readPositiveInteger(
+      env.JOB_CARD_LIFECYCLE_INTENT_TTL_MS,
+      LIFECYCLE_INTENT_TTL_MS_DEFAULT,
+      'JOB_CARD_LIFECYCLE_INTENT_TTL_MS',
     ),
     support: readSupportConfig(env),
     webPush: readWebPushConfig(env),

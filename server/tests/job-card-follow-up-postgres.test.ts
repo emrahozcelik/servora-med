@@ -9,6 +9,8 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { followUpCreateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { assertCanTransition } from '../src/modules/job-cards/policy.js';
+import { readDbBaseline, readReservedAt, DAY_MS } from './support/db-clock-baseline.js';
 import type {
   FollowUpCreateInput,
   JobCardActor,
@@ -470,11 +472,12 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
 
   it('D2-5/6/8: gates future acceptance at exact scheduledAt and preserves null schedules', async () => {
     await withFixture(async (fixture) => {
+      const baseline = await readDbBaseline(fixture.pool);
       const source = await fixture.createSource();
       const future = await fixture.service.createFollowUp(
         fixture.admin,
         source,
-        input(fixture.staffA.id, { scheduledAt: '2026-08-08T10:00:00.000Z' }),
+        input(fixture.staffA.id, { scheduledAt: new Date(baseline.valueOf() + DAY_MS).toISOString() }),
       );
 
       await expect(fixture.service.acceptAssignment(fixture.staffA, future.id, {
@@ -487,14 +490,21 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         workflowContext: { allowedCommands: ['CANCEL'] },
       });
 
-      const atScheduledTime = new JobCardService(
-        new PostgresJobCardRepository(fixture.pool),
-        () => new Date('2026-08-08T10:00:00.000Z'),
-      );
-      await expect(atScheduledTime.acceptAssignment(fixture.staffA, future.id, {
-        clientActionId: randomUUID(),
-        expectedVersion: future.version,
-      })).resolves.toMatchObject({ status: 'ACCEPTED', version: future.version + 1 });
+      // Make the persisted schedule eligible relative to the DB clock, then
+      // pin the exact equality/+1ms predicate to the actual reservation instant.
+      await fixture.pool.query('UPDATE job_cards SET scheduled_at=$2 WHERE id=$1', [future.id, baseline]);
+      const accepted = await fixture.service.acceptAssignment(fixture.staffA, future.id, {
+        clientActionId: randomUUID(), expectedVersion: future.version,
+      });
+      expect(accepted).toMatchObject({ status: 'ACCEPTED', version: future.version + 1 });
+      const reservedAt = await readReservedAt(fixture.pool, future.id, 'ACCEPT_ASSIGNMENT');
+      const persisted = await new PostgresJobCardRepository(fixture.pool).findJobCard(fixture.organizationId, future.id);
+      if (!persisted) throw new Error('missing accepted fixture');
+      const equalityJob = { ...persisted, status: 'NEW' as const, scheduledAt: reservedAt.toISOString() };
+      expect(() => assertCanTransition(fixture.staffA, equalityJob, 'ACCEPT_ASSIGNMENT', undefined, reservedAt)).not.toThrow();
+      expect(() => assertCanTransition(fixture.staffA, { ...equalityJob,
+        scheduledAt: new Date(reservedAt.valueOf() + 1).toISOString(),
+      }, 'ACCEPT_ASSIGNMENT', undefined, reservedAt)).toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION' }));
 
       const unscheduled = await fixture.service.createFollowUp(
         fixture.admin,

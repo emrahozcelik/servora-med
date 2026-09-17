@@ -651,3 +651,12 @@ export type FollowUpSuggestion = {
   followUpInstructions: string;
   evaluation: RoleProjectedCustomerScheduleEvaluation;
 };
+
+/**
+ * 049: lifecycle intent processing budget. A PENDING intent reserves
+ * exactly this long (expires_at = reserved_at + TTL, no renewal); an
+ * expired/FAILED identity cannot renew and requires a new client action key.
+ * Owned here (domain constant); config.ts only mirrors it as the env
+ * default for JOB_CARD_LIFECYCLE_INTENT_TTL_MS.
+ */
+export const LIFECYCLE_INTENT_TTL_MS_DEFAULT = 60_000;

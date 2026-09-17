@@ -8,6 +8,8 @@ import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { suggestedFollowUpInstant } from '../src/modules/job-cards/follow-up-policy.js';
+import { readDbBaseline, DAY_MS, HOUR_MS } from './support/db-clock-baseline.js';
 import type {
   JobCard,
   JobCardActor,
@@ -19,11 +21,11 @@ const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
 
 const CLOCK = new Date('2026-08-01T10:00:00.000Z');
-const PROPOSAL_AT = '2026-08-08T10:00:00.000Z'; // Saturday (working day)
-// WORKING-DAY V1: the explicit Manager override must target a working day.
-// Tuesday 2026-08-11 replaces the previous Sunday 2026-08-09 fixture.
-const EXPLICIT_AT = '2026-08-11T10:00:00.000Z';
-const STAFF_ADJUSTED_AT = '2026-08-10T10:00:00.000Z'; // Monday
+let PROPOSAL_AT: string;
+let EXPLICIT_AT: string;
+let STAFF_ADJUSTED_AT: string;
+let SUNDAY_AT: string;
+const plusHours = (at: string, hours: number) => new Date(Date.parse(at) + hours * HOUR_MS).toISOString();
 
 type Fixture = {
   pool: Pool;
@@ -68,6 +70,22 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       migrationsDirectory: MIGRATIONS_DIRECTORY,
       store: new PostgresMigrationStore(pool),
     });
+
+    const baseline = await readDbBaseline(pool);
+    PROPOSAL_AT = suggestedFollowUpInstant({ evaluatedAt: baseline,
+      sourceScheduledAt: CLOCK, timezone: 'Europe/Istanbul', durationMs: HOUR_MS }).toISOString();
+    // Explicit overrides remain future, working-day schedules; Sunday stays
+    // future too so NON_WORKING_DAY, rather than past-date validation, decides.
+    const workingAfter = (days: number) => {
+      const date = new Date(Date.parse(PROPOSAL_AT) + days * DAY_MS);
+      if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() + 1);
+      return date.toISOString();
+    };
+    STAFF_ADJUSTED_AT = workingAfter(2);
+    EXPLICIT_AT = workingAfter(3);
+    const sunday = new Date(Date.parse(PROPOSAL_AT) + DAY_MS);
+    while (sunday.getUTCDay() !== 0) sunday.setUTCDate(sunday.getUTCDate() + 1);
+    SUNDAY_AT = sunday.toISOString();
 
     const organizationId = (await pool.query<{ id: string }>(
       `INSERT INTO organizations (name, timezone)
@@ -226,7 +244,7 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
         assignedTo: staffB.id,
         type: 'SALES_MEETING',
         scheduledAt: PROPOSAL_AT,
-        scheduledEndsAt: '2026-08-08T11:00:00.000Z',
+        scheduledEndsAt: plusHours(PROPOSAL_AT, 1),
         status: 'NEW',
       });
       expect(child.followUpContext).toMatchObject({
@@ -280,7 +298,7 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
       expect(child).toMatchObject({
         assignedTo: staffB.id,
         scheduledAt: PROPOSAL_AT,
-        scheduledEndsAt: '2026-08-08T11:00:00.000Z',
+        scheduledEndsAt: plusHours(PROPOSAL_AT, 1),
         status: 'NEW',
       });
       expect(child.followUpContext).toMatchObject({
@@ -306,7 +324,7 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
       // The caller supplied no schedule, so the slot must be the existing
       // automatic policy target with the canonical SALES_MEETING duration.
       expect(child.scheduledAt).toBe(PROPOSAL_AT);
-      expect(child.scheduledEndsAt).toBe('2026-08-08T11:00:00.000Z');
+      expect(child.scheduledEndsAt).toBe(plusHours(PROPOSAL_AT, 1));
     });
   });
 
@@ -323,7 +341,7 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
            organization_id, assigned_user_id, title, starts_at, ends_at, timezone,
            created_by, updated_by
          ) VALUES ($1, $2, 'Engel', $3, $4, 'Europe/Istanbul', $5, $5)`,
-        [organizationId, staffB.id, PROPOSAL_AT, '2026-08-08T11:00:00.000Z', manager.id],
+        [organizationId, staffB.id, PROPOSAL_AT, plusHours(PROPOSAL_AT, 1), manager.id],
       );
 
       const approved = await service.approve(manager, submitted.id, {
@@ -338,8 +356,8 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
 
       const child = await service.detail(manager, approved.followUpJobCardId);
       expect(child.assignedTo).toBe(staffB.id);
-      expect(child.scheduledAt).toBe('2026-08-08T11:00:00.000Z');
-      expect(child.scheduledEndsAt).toBe('2026-08-08T12:00:00.000Z');
+      expect(child.scheduledAt).toBe(plusHours(PROPOSAL_AT, 1));
+      expect(child.scheduledEndsAt).toBe(plusHours(PROPOSAL_AT, 2));
     });
   });
 
@@ -381,7 +399,7 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
       expect(child).toMatchObject({
         assignedTo: staffB.id,
         scheduledAt: EXPLICIT_AT,
-        scheduledEndsAt: '2026-08-11T11:00:00.000Z',
+        scheduledEndsAt: plusHours(EXPLICIT_AT, 1),
         status: 'NEW',
       });
       expect(child.followUpContext).toMatchObject({
@@ -397,8 +415,8 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
         clientActionId: randomUUID(),
         expectedVersion: submitted.version,
         followUp: {
-          // 2026-08-09 is a Sunday.
-          scheduledAt: '2026-08-09T10:00:00.000Z',
+          // Future Sunday at the same local clock.
+          scheduledAt: SUNDAY_AT,
           type: 'SALES_MEETING',
           assignedTo: staffB.id,
           followUpInstructions: 'Pazar planı denemesi.',

@@ -11,6 +11,8 @@ import { CalendarService } from '../src/modules/calendar/service.js';
 import { canonicalScheduledEnd } from '../src/modules/job-cards/job-card-duration.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
+import { suggestedFollowUpInstant } from '../src/modules/job-cards/follow-up-policy.js';
+import { readReservedAt } from './support/db-clock-baseline.js';
 import { PostgresStaffOffboardingService } from '../src/modules/people/offboarding.js';
 import type { CalendarActor } from '../src/modules/calendar/types.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
@@ -867,7 +869,11 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         });
         const proposal = submitted.followUpProposal;
         if (!proposal) throw new Error('Expected an AUTO follow-up proposal.');
-        expect(proposal.scheduledAt).toBe('2026-09-17T08:00:00.000Z');
+        expect(proposal.scheduledAt).toBe(suggestedFollowUpInstant({
+          evaluatedAt: await readReservedAt(pool, source.id, 'SUBMIT_FOR_APPROVAL'),
+          sourceScheduledAt: new Date('2026-09-09T08:00:00.000Z'),
+          timezone: 'Europe/Istanbul', durationMs: 60 * 60_000,
+        }).toISOString());
 
         const jobToTransfer = await insertJob(pool, {
           organizationId,
@@ -1148,7 +1154,11 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
         });
         const proposal = submitted.followUpProposal;
         if (!proposal) throw new Error('Expected a reverse AUTO follow-up proposal.');
-        expect(proposal.scheduledAt).toBe('2026-09-17T08:00:00.000Z');
+        expect(proposal.scheduledAt).toBe(suggestedFollowUpInstant({
+          evaluatedAt: await readReservedAt(pool, source.id, 'SUBMIT_FOR_APPROVAL'),
+          sourceScheduledAt: new Date('2026-09-09T08:00:00.000Z'),
+          timezone: 'Europe/Istanbul', durationMs: 60 * 60_000,
+        }).toISOString());
 
         const jobToTransfer = await insertJob(pool, {
           organizationId,
