@@ -179,15 +179,17 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable canonical migration files (current head: `046_notification_state_realtime`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, the messaging participant lifecycle, the BR1–BR5 backup runtime contracts, the JobCard INVALIDATED foundation, demo-dataset audit types, contact-delete audit history, Demo lifecycle simplification, User/Staff lifecycle reconciliation, the JobCard schedule/assignment history and calendar request-hash migrations, and the notification state realtime invalidation.
+The migration runner applies the immutable canonical migration files listed by the exact release's `MigrationCatalog`. The catalog, migration SQL and schema compatibility checks are authoritative for the executable schema; feature history and current scope are documented separately from the migration head.
 
 The `MigrationCatalog` is the authoritative expected migration history for a release. `HEALTH_SCHEMA_VERSION` is a production configuration assertion against that catalog head; it is not an independent migration authority.
 
-Current schema posture: canonical source `main` and the protected local
-`servora_med` database are at schema head `046_notification_state_realtime`.
-Production schema remains **UNKNOWN** until a separately authorized,
-read-only production readiness discovery; this README does not imply that
-production migrations have run.
+The canonical source schema head is the final migration identifier in the exact
+release's `MigrationCatalog`; this README intentionally does not pin a current
+migration number. `HEALTH_SCHEMA_VERSION` is a production readiness assertion
+against that catalog head, not an independent migration authority.
+README does not assert live production schema or release state. Production
+schema and release status come from separately captured deployment/readiness
+evidence.
 
 ### First Admin Bootstrap
 
@@ -512,7 +514,7 @@ silent database-name rewrite. See
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `045_calendar_request_hash`; must equal the latest canonical migration in the deployed release); optional in development/test |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness; must equal the exact latest canonical migration identifier in the deployed release's `MigrationCatalog` head; optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |
