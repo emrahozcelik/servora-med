@@ -1876,6 +1876,7 @@ export class JobCardService {
           type: job.type,
           dueDate: job.dueDate,
           episodeNo: pendingSubmissionEpisodeNo,
+          allowStartedAtFallback: job.status === 'IN_PROGRESS',
           scheduleRevisionNo: null,
           revisionEffectiveAt: null,
           source: 'MUTATION',
@@ -2024,6 +2025,7 @@ export class JobCardService {
           type: updated.type,
           dueDate: updated.dueDate,
           episodeNo: pendingSubmissionEpisodeNo,
+          allowStartedAtFallback: job.status === 'IN_PROGRESS',
           scheduleRevisionNo: appendedScheduleRevisionNo,
           revisionEffectiveAt: requestTime,
           source: 'MUTATION',
@@ -2685,6 +2687,7 @@ export class JobCardService {
               type: job.type,
               dueDate: job.dueDate,
               episodeNo: armedEpisodeNo,
+              allowStartedAtFallback: false,
               scheduleRevisionNo: null,
               revisionEffectiveAt: null,
               source: 'TRANSITION',
@@ -2904,6 +2907,7 @@ export class JobCardService {
       type: JobCard['type'];
       dueDate: string | null;
       episodeNo: number;
+      allowStartedAtFallback: boolean;
       scheduleRevisionNo: number | null;
       revisionEffectiveAt: Date | null;
       source: OverdueIncidentSource;
@@ -2953,6 +2957,7 @@ export class JobCardService {
       type: input.job.type,
       dueDate: input.job.dueDate,
       episodeNo,
+      allowStartedAtFallback: input.job.status === 'IN_PROGRESS',
       scheduleRevisionNo: null,
       revisionEffectiveAt: null,
       source: input.source,
@@ -3108,6 +3113,7 @@ export class JobCardService {
           type: job.type,
           dueDate: job.dueDate,
           episodeNo,
+          allowStartedAtFallback: true,
           scheduleRevisionNo: null,
           revisionEffectiveAt: null,
           source: 'TRANSITION',
@@ -3151,6 +3157,7 @@ export class JobCardService {
             type: job.type,
             dueDate: job.dueDate,
             episodeNo,
+            allowStartedAtFallback: true,
             scheduleRevisionNo: null,
             revisionEffectiveAt: null,
             source: 'TRANSITION',

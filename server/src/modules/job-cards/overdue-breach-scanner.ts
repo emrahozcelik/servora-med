@@ -42,11 +42,11 @@
  *
  * The mechanism therefore reuses the durable state 049 already introduced
  * instead of adding a parallel one: a live `PENDING` lifecycle reservation
- * whose `reserved_at` is strictly before the delay type's first-late boundary
- * is durable evidence that a valid lifecycle request was accepted *inside* the
- * boundary and is still in flight. This scanner must not contradict it, so it
- * skips the delay type for that job. No grace period, no lease, no claim table,
- * no DB-clock domain decision.
+ * whose `reserved_at` is strictly before the shared producer's eligible breach
+ * instant is durable evidence that a valid lifecycle request was accepted
+ * before the breach and is still in flight. This scanner must not contradict
+ * it, so it skips the delay type for that job. No grace period, no lease, no
+ * claim table, no DB-clock domain decision.
  *
  * The wait is bounded by construction: `expires_at` (reserved_at + TTL) is the
  * point after which finalize can never commit, so once the reservation expires
@@ -162,10 +162,10 @@ implements OverdueBreachScannerRepository {
       }
       if (plan.kind === 'not-breached') return { kind: 'skipped-not-breached' };
       // Request-time ordering guard: a lifecycle request accepted strictly
-      // inside this delay type's first-late boundary and still in flight is
-      // authoritative over clock-only discovery for this obligation.
+      // before the shared producer's eligible breach instant and still in
+      // flight is authoritative over clock-only discovery for this obligation.
       const inFlight = (await tx.listLiveLifecycleIntents(organizationId, jobCardId, {
-        reservedBefore: plan.boundaryAt,
+        reservedBefore: plan.breachAt,
         atTime: input.scanTime,
       })).some((intent) =>
         DISCHARGING_COMMANDS_BY_DELAY_TYPE[input.delayType].includes(intent.command),
@@ -206,6 +206,7 @@ function planBreach(
           type: job.type,
           dueDate: job.dueDate,
           episodeNo,
+          allowStartedAtFallback: job.status === 'IN_PROGRESS',
           scheduleRevisionNo: null,
           revisionEffectiveAt: null,
           source: 'SCANNER',

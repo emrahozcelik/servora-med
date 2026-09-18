@@ -346,9 +346,9 @@ export type OverdueScanCandidate = {
 
 /**
  * OVR-3 ordering evidence: a persisted lifecycle reservation that was accepted
- * (reserved) before a delay type's first-late boundary and whose processing
- * budget has not run out yet. Its existence proves a valid lifecycle request
- * is still in flight with business time inside the boundary.
+ * (reserved) before the shared producer's eligible breach instant and whose
+ * processing budget has not run out yet. Its existence proves a valid
+ * lifecycle request is still in flight with business time before the breach.
  */
 export type LiveLifecycleIntent = {
   intentId: string;
@@ -634,9 +634,10 @@ export interface JobCardTransaction extends SubmissionReader {
   ): Promise<string | null>;
   /**
    * OVR-3: live lifecycle reservations for the job whose business time is
-   * strictly before `reservedBefore` (a delay type's first-late boundary) and
-   * whose reservation budget is unexpired at `atTime`. Read under the JobCard
-   * lock; never falls back to the DB statement clock for the boundary.
+   * strictly before `reservedBefore` (the shared producer's eligible breach
+   * instant) and whose reservation budget is unexpired at `atTime`. Read under
+   * the JobCard lock; never falls back to the DB statement clock for the
+   * boundary.
    */
   listLiveLifecycleIntents(
     organizationId: string,

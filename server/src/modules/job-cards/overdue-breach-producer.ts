@@ -13,15 +13,14 @@
  * Each delay type is split in two:
  *
  *   plan…Breach()       pure evaluation against durable state; produces the
- *                       exact first-late boundary and the incident row that
- *                       would be written (nothing is written yet);
+ *                       exact first eligible breach instant and the incident
+ *                       row that would be written (nothing is written yet);
  *   materialize…IfBreached()  plan + insert, the request-driven contract.
  *
- * The split exists because the clock-only scanner needs the boundary of a
- * *planned* breach before deciding whether a lifecycle request accepted inside
- * that boundary is still in flight, and it must use the producer's own
- * boundary — never a second copy of the +1ms / 24h / due-date-local-midnight
- * rules.
+ * The split exists because the clock-only scanner needs the instant of a
+ * *planned* breach before deciding whether a lifecycle request accepted before
+ * that instant is still in flight, and it must use the producer's own result —
+ * never a second copy of the +1ms / 24h / due-date-local-midnight rules.
  *
  * Clock discipline is inherited from `overdue-incidents.ts`: every instant is
  * either a persisted fact or derived from the caller's injected `requestTime`.
@@ -64,15 +63,16 @@ export type OverdueBreachUnprovableReason =
   | 'SUBMITTED_FACT_MISSING';
 
 /**
- * The producer's decision. `boundaryAt` is the delay type's first-late
- * boundary (equality is late for every type: `scheduled_ends_at`,
- * effective submission deadline + 1ms, submitted + 24h) — the instant a
- * lifecycle request had to be accepted before to stay inside the boundary.
+ * The producer's decision. `breachAt` is the actual first instant at which
+ * the episode is both late and eligible (the shared `breachedAt` value). A
+ * lifecycle request reserved before this instant is still authoritative over
+ * clock-only discovery, even when a later eligibility bound (for example a
+ * retroactive schedule revision) falls after the nominal deadline.
  */
 export type OverdueBreachPlan =
   | {
       kind: 'breached';
-      boundaryAt: Date;
+      breachAt: Date;
       incident: InsertOverdueIncidentInput;
     }
   | { kind: 'not-breached' }
@@ -111,7 +111,8 @@ export async function resolveGoverningRevision(
  * Provable activation of a submission episode, or null when it cannot be
  * proven (then nothing is materialized — never a guess).
  *
- * A modern episode 1 starts at START (`started_at`, first-wins, requestTime).
+ * A modern episode 1 starts at START (`started_at`, first-wins, requestTime)
+ * while the job is still in its initial `IN_PROGRESS` state.
  * A legacy factless WAITING_APPROVAL row may re-arm tracked episode 1 at an
  * exact REQUEST_REVISION or WITHDRAW_FROM_APPROVAL time. A later episode
  * starts exactly at the REQUEST_REVISION or WITHDRAW_FROM_APPROVAL that
@@ -126,12 +127,17 @@ export async function resolveSubmissionEpisodeActivation(
   organizationId: string,
   jobCardId: string,
   episodeNo: number,
+  allowStartedAtFallback: boolean,
 ): Promise<Date | null> {
   const activation = await tx.getSubmissionEpisodeActivation(
     organizationId, jobCardId, episodeNo,
   );
   if (activation) return activation.activatedAt;
-  if (episodeNo === 1) {
+  // A missing activation on a reopened `REVISION_REQUESTED` episode is
+  // ambiguous legacy history. `started_at` proves only the ordinary initial
+  // episode; callers must opt into that fallback from the current lifecycle
+  // state rather than treating it as universal evidence for episode 1.
+  if (allowStartedAtFallback && episodeNo === 1) {
     return (await tx.getJobLifecycleInstants(organizationId, jobCardId)).startedAt;
   }
   return null;
@@ -225,7 +231,7 @@ export async function planLateStartBreach(
   );
   return {
     kind: 'breached',
-    boundaryAt: deadlineAt,
+    breachAt: breachedAt,
     incident: {
       organizationId: input.organizationId,
       jobCardId: input.jobCardId,
@@ -262,6 +268,7 @@ export async function planLateSubmissionBreach(
     type: JobCard['type'];
     dueDate: string | null;
     episodeNo: number;
+    allowStartedAtFallback: boolean;
     scheduleRevisionNo: number | null;
     revisionEffectiveAt: Date | null;
     source: OverdueIncidentSource;
@@ -270,6 +277,7 @@ export async function planLateSubmissionBreach(
 ): Promise<OverdueBreachPlan> {
   const episodeActivationAt = await resolveSubmissionEpisodeActivation(
     tx, input.organizationId, input.jobCardId, input.episodeNo,
+    input.allowStartedAtFallback,
   );
   if (episodeActivationAt === null) {
     return { kind: 'unprovable', reason: 'EPISODE_ACTIVATION_UNPROVABLE' };
@@ -314,7 +322,7 @@ export async function planLateSubmissionBreach(
   );
   return {
     kind: 'breached',
-    boundaryAt: deadlineAt,
+    breachAt: breachedAt,
     incident: {
       organizationId: input.organizationId,
       jobCardId: input.jobCardId,
@@ -363,7 +371,7 @@ export async function planApprovalWaitBreach(
   if (!isInstantBreached(breachedAt, input.requestTime)) return { kind: 'not-breached' };
   return {
     kind: 'breached',
-    boundaryAt: deadlineAt,
+    breachAt: breachedAt,
     incident: {
       organizationId: input.organizationId,
       jobCardId: input.jobCardId,

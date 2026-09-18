@@ -450,6 +450,30 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
     });
   });
 
+  it('LATE_SUBMISSION: a reopened legacy episode 1 without activation is never inferred from started_at', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await seedOrganization(pool, 'UTC');
+      const staffId = await seedStaff(pool, organizationId);
+      const jobCardId = await seedJob(pool, {
+        organizationId, staffId, status: 'IN_PROGRESS', acceptedAt: EARLY,
+        startedAt: EARLY, scheduledAt: EARLY, scheduledEndsAt: BOUNDARY,
+        revisionCreatedAt: EARLY,
+      });
+      await pool.query(
+        `UPDATE job_cards
+            SET status = 'REVISION_REQUESTED',
+                staff_completed_at = $3, staff_completed_by = $4,
+                revision_requested_at = $3, revision_requested_by = $4,
+                revision_reason = 'Legacy fixture'
+          WHERE organization_id = $1 AND id = $2`,
+        [organizationId, jobCardId, EARLY, staffId],
+      );
+      const report = await scannerFor(pool).runOnce(new Date('2026-08-04T00:00:00.000Z'));
+      expect(report.skippedIncompleteEvidence).toBe(1);
+      expect(await incidents(pool, organizationId, jobCardId)).toHaveLength(0);
+    });
+  });
+
   it('APPROVAL_WAIT: 24h threshold, proven SUBMITTED fact and fact-bound identity', async () => {
     await withIntentSchema(databaseUrl, async (pool) => {
       const organizationId = await seedOrganization(pool, 'UTC');
@@ -682,6 +706,65 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
       // The pre-deadline request completes on its own business time: no breach,
       // and therefore no recovered-before-breached contradiction.
       expect(await incidents(pool, organizationId, created.id)).toHaveLength(0);
+    });
+  });
+
+  it('a request between the nominal deadline and a later revision breach boundary is still protected', async () => {
+    await withIntentSchema(databaseUrl, async (pool) => {
+      const organizationId = await seedOrganization(pool, 'UTC');
+      const staffId = await seedStaff(pool, organizationId);
+      const clock = { now: await readDbClock(pool) };
+      const scheduledAt = new Date(clock.now.getTime() - 60_000);
+      const nominalDeadline = new Date(clock.now.getTime() - 2_000);
+      const revisionEffectiveAt = new Date(clock.now.getTime() + 1_500);
+      const jobCardId = await seedJob(pool, {
+        organizationId, staffId, status: 'ACCEPTED', acceptedAt: scheduledAt,
+        scheduledAt, scheduledEndsAt: nominalDeadline,
+        revisionCreatedAt: revisionEffectiveAt,
+      });
+      let providerEntered = false;
+      let releaseProvider: (() => void) | null = null;
+      const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+      const geocoder: ReverseGeocoder = {
+        reverse: async () => {
+          providerEntered = true;
+          await providerGate;
+          return { neighborhood: 'N', district: 'D', city: 'C', approximateLabel: 'N, D' };
+        },
+      };
+      const service = buildService(pool, clock, geocoder);
+      const staff = staffActor(staffId, organizationId);
+      const started = service.start(staff, jobCardId, {
+        clientActionId: randomUUID(), expectedVersion: 1,
+        locationCapture: {
+          outcome: 'captured', latitude: 39.9, longitude: 32.8,
+          accuracyMeters: 10, capturedAt: new Date().toISOString(),
+        },
+      });
+      try {
+        await waitFor(async () => providerEntered, 5_000, 'provider call entered');
+        const reservation = (await pool.query<{ reserved_at: Date }>(
+          `SELECT reserved_at FROM job_card_lifecycle_intents
+             WHERE job_card_id = $1 AND command = 'START'`,
+          [jobCardId],
+        )).rows[0]!;
+        expect(reservation.reserved_at.getTime()).toBeGreaterThanOrEqual(nominalDeadline.getTime());
+        expect(reservation.reserved_at.getTime()).toBeLessThan(revisionEffectiveAt.getTime());
+
+        await waitFor(
+          async () => (await readDbClock(pool)).getTime() >= revisionEffectiveAt.getTime(),
+          5_000,
+          'revision-effective breach boundary',
+        );
+        const report = await scannerFor(pool).runOnce(await readDbClock(pool));
+        expect(report.skippedInFlightRequest).toBe(1);
+        expect(report.inserted).toBe(0);
+        expect(await incidents(pool, organizationId, jobCardId)).toHaveLength(0);
+      } finally {
+        releaseProvider?.();
+      }
+      await started;
+      expect(await incidents(pool, organizationId, jobCardId)).toHaveLength(0);
     });
   });
 
