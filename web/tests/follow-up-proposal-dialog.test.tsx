@@ -183,10 +183,22 @@ describe('JobDetail follow-up proposal integration', () => {
     card: Record<string, unknown>;
     suggestion?: Record<string, unknown>;
     approveResult?: Record<string, unknown>;
-    approveError?: { status: number; code: string; message: string };
+    approveError?: {
+      status: number;
+      code: string;
+      message: string;
+      details?: { conflicts: Array<Record<string, unknown>> };
+    };
+    approveErrors?: Array<{
+      status: number;
+      code: string;
+      message: string;
+      details?: { conflicts: Array<Record<string, unknown>> };
+    }>;
     frequency?: boolean;
   }) {
     const { card, suggestion, approveResult, approveError, frequency } = overrides;
+    let remainingApproveErrors = [...(overrides.approveErrors ?? [])];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -212,9 +224,14 @@ describe('JobDetail follow-up proposal integration', () => {
         return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
       }
       if (url.endsWith('/approve') && method === 'POST') {
-        if (approveError) {
-          return new Response(JSON.stringify({ error: approveError.message, code: approveError.code, details: { conflicts: [] } }), {
-            status: approveError.status, headers: { 'content-type': 'application/json' },
+        const nextApproveError = remainingApproveErrors.shift() ?? approveError;
+        if (nextApproveError) {
+          return new Response(JSON.stringify({
+            error: nextApproveError.message,
+            code: nextApproveError.code,
+            details: nextApproveError.details ?? { conflicts: [] },
+          }), {
+            status: nextApproveError.status, headers: { 'content-type': 'application/json' },
           });
         }
         return Response.json(approveResult ?? {
@@ -422,6 +439,111 @@ describe('JobDetail follow-up proposal integration', () => {
       // ...and the background page error region must not present it.
       const pageError = host.querySelector('.detail-feedback-error');
       expect(pageError === null || !pageError.textContent?.includes(duplicateMessage)).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('renders a follow-up approval calendar conflict inside the open dialog, not on the page', async () => {
+    const calendarMessage = 'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.';
+    stubFetch({
+      card: managerCard,
+      approveErrors: [{
+        status: 409,
+        code: 'CALENDAR_CONFLICT',
+        message: calendarMessage,
+        details: {
+          conflicts: [{
+            source: 'JOB',
+            id: 'job-existing',
+            title: 'Aynı personelin mevcut planı',
+            startsAt: '2026-08-08T10:00:00.000Z',
+            endsAt: '2026-08-08T11:00:00.000Z',
+            assignedUser: { id: 's1', name: 'Ayşe Personel' },
+            relatedJobPath: '/jobs/job-existing',
+          }],
+        },
+      }],
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const confirm = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
+      await act(async () => { confirm.click(); await flush(); });
+
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(dialog.textContent).toContain(calendarMessage);
+      expect(Array.from(dialog.querySelectorAll('[role="alert"]'))
+        .some((alert) => alert.textContent?.includes(calendarMessage))).toBe(true);
+      const pageError = host.querySelector('.detail-feedback-error');
+      expect(pageError === null || !pageError.textContent?.includes(calendarMessage)).toBe(true);
+      expect(host.textContent).not.toContain('İş tamamlandı ve takip işi planlandı.');
+      expect(dialog.querySelector('#follow-up-proposal-scheduled-at')?.hasAttribute('disabled')).toBe(false);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+
+      const firstApproveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
+        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(firstApproveCall).toBeDefined();
+      const firstBody = JSON.parse(String((firstApproveCall?.[1] as RequestInit).body));
+      const scheduledAt = dialog.querySelector<HTMLInputElement>('#follow-up-proposal-scheduled-at')!;
+      await act(async () => {
+        const setNativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+        setNativeValue.call(scheduledAt, '2026-08-08T12:00');
+        scheduledAt.dispatchEvent(new Event('input', { bubbles: true }));
+        await flush();
+      });
+      await act(async () => { confirm.click(); await flush(); });
+      const approveCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) => (
+        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+      ));
+      expect(approveCalls).toHaveLength(2);
+      const secondBody = JSON.parse(String((approveCalls[1][1] as RequestInit).body));
+      expect(secondBody.clientActionId).not.toBe(firstBody.clientActionId);
+      expect(secondBody.followUp.scheduledAt).not.toBe(firstBody.followUp.scheduledAt);
+      expect(host.textContent).toContain('İş tamamlandı ve takip işi planlandı.');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('keeps an assignee-not-found approval failure inside the open dialog', async () => {
+    const assigneeMessage = 'Takip işi sorumlusu bulunamadı.';
+    stubFetch({
+      card: managerCard,
+      approveError: { status: 404, code: 'ASSIGNEE_NOT_FOUND', message: assigneeMessage },
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const confirm = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
+      await act(async () => { confirm.click(); await flush(); });
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(dialog.textContent).toContain(assigneeMessage);
+      const pageError = host.querySelector('.detail-feedback-error');
+      expect(pageError === null || !pageError.textContent?.includes(assigneeMessage)).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();
