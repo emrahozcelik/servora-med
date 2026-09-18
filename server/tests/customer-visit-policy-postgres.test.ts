@@ -215,4 +215,54 @@ describe('customer visit policy PostgreSQL (calendar disabled)', () => {
       .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT' });
   });
 
+  describe('legacy NULL-end duplicate enforcement', () => {
+    const seedLegacyNullEnd = async (customerId: string, scheduledAt = '2026-09-18T10:00:00.000Z') => {
+      const job = await service.create(staff, meeting(customerId, scheduledAt));
+      await pool.query(`UPDATE job_cards SET scheduled_ends_at = NULL WHERE id = $1`, [job.id]);
+      return job;
+    };
+
+    it('blocks an equivalent create against a legacy NULL-end meeting', async () => {
+      const id = await customer();
+      await seedLegacyNullEnd(id);
+      await expect(service.create(staff, meeting(id, '2026-09-18T10:00:00.000Z')))
+        .rejects.toMatchObject({ code: 'CUSTOMER_VISIT_DUPLICATE' });
+      expect((await pool.query('SELECT count(*)::int AS count FROM job_cards WHERE customer_id=$1', [id])).rows[0].count).toBe(1);
+    });
+
+    it('blocks a patch into a legacy NULL-end interval', async () => {
+      const id = await customer();
+      await seedLegacyNullEnd(id);
+      const second = await service.create(manager, meeting(id, '2026-09-18T14:00:00.000Z'));
+      await expect(service.patch(manager, second.id, { expectedVersion: second.version, scheduledAt: '2026-09-18T10:00:00.000Z' }))
+        .rejects.toMatchObject({ code: 'CUSTOMER_VISIT_DUPLICATE' });
+      expect((await service.detail(manager, second.id)).version).toBe(second.version);
+    });
+
+    it('still excludes itself when its own end is NULL', async () => {
+      const id = await customer();
+      const legacy = await seedLegacyNullEnd(id);
+      await expect(service.patch(manager, legacy.id, { expectedVersion: legacy.version, scheduledAt: '2026-09-18T10:30:00.000Z' }))
+        .resolves.toMatchObject({ id: legacy.id });
+    });
+
+    it.each(['CANCELLED', 'INVALIDATED'] as const)('legacy NULL-end %s still does not block', async (status) => {
+      const id = await customer();
+      const legacy = await seedLegacyNullEnd(id);
+      if (status === 'CANCELLED') {
+        await pool.query(`UPDATE job_cards SET status='CANCELLED',cancelled_at=now(),cancelled_by=$2,cancel_reason='test' WHERE id=$1`, [legacy.id, manager.id]);
+      } else {
+        await service.invalidate(admin, legacy.id, { clientActionId: randomUUID(), expectedVersion: legacy.version,
+          reasonCode: 'DUPLICATE', reasonNote: 'test' });
+      }
+      await expect(service.create(staff, meeting(id, '2026-09-18T10:00:00.000Z'))).resolves.toMatchObject({ customerId: id });
+    });
+
+    it('allows an adjacent interval next to a legacy NULL-end meeting', async () => {
+      const id = await customer();
+      await seedLegacyNullEnd(id); // effective 10:00-11:00 via the canonical meeting duration
+      await expect(service.create(staff, meeting(id, '2026-09-18T11:00:00.000Z'))).resolves.toMatchObject({ customerId: id });
+    });
+  });
+
 });

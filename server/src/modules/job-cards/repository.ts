@@ -1,4 +1,5 @@
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
+import { canonicalScheduledDurationMs } from './job-card-duration.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_STATUSES,
@@ -1924,16 +1925,21 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async findCustomerVisitDuplicate(input: CustomerVisitDuplicateInput): Promise<CustomerVisitDuplicate | null> {
     // Caller holds the Customer lock. READ COMMITTED sees the preceding
     // writer's commit; no extra JobCard locks (and no inverted lock order).
+    // Legacy rows may lack scheduled_ends_at: their effective end is derived
+    // from the single canonical duration owner (job-card-duration.ts), passed
+    // as a bind value so SQL carries no independent duration semantics.
+    const legacyFallbackMs = canonicalScheduledDurationMs('SALES_MEETING');
     const result = await this.client.query<{ id: string }>(
       `SELECT id FROM job_cards
        WHERE organization_id = $1 AND customer_id = $2
          AND assigned_to = $3 AND engagement_kind = $4 AND type = 'SALES_MEETING'
          AND status NOT IN ('CANCELLED', 'INVALIDATED')
-         AND scheduled_at < $6 AND $5 < scheduled_ends_at
+         AND scheduled_at < $6
+         AND $5 < COALESCE(scheduled_ends_at, scheduled_at + ($8 * INTERVAL '1 millisecond'))
          AND ($7::uuid IS NULL OR id <> $7)
        ORDER BY scheduled_at, id LIMIT 1`,
       [input.organizationId, input.customerId, input.assignedTo, input.engagementKind,
-        input.startsAt, input.endsAt, input.excludeJobId ?? null],
+        input.startsAt, input.endsAt, input.excludeJobId ?? null, legacyFallbackMs],
     );
     const row = result.rows[0];
     return row ? { jobCardId: row.id, jobPath: `/jobs/${row.id}` } : null;

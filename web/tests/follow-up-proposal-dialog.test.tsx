@@ -183,9 +183,10 @@ describe('JobDetail follow-up proposal integration', () => {
     card: Record<string, unknown>;
     suggestion?: Record<string, unknown>;
     approveResult?: Record<string, unknown>;
+    approveError?: { status: number; code: string; message: string };
     frequency?: boolean;
   }) {
-    const { card, suggestion, approveResult, frequency } = overrides;
+    const { card, suggestion, approveResult, approveError, frequency } = overrides;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -211,6 +212,11 @@ describe('JobDetail follow-up proposal integration', () => {
         return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
       }
       if (url.endsWith('/approve') && method === 'POST') {
+        if (approveError) {
+          return new Response(JSON.stringify({ error: approveError.message, code: approveError.code, details: { conflicts: [] } }), {
+            status: approveError.status, headers: { 'content-type': 'application/json' },
+          });
+        }
         return Response.json(approveResult ?? {
           ...card, status: 'COMPLETED', version: 5, followUpJobCardId: 'child-1',
         });
@@ -386,6 +392,36 @@ describe('JobDetail follow-up proposal integration', () => {
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.followUp).toMatchObject({ priority: 'normal', dueDate: null });
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('renders a follow-up approval duplicate inside the open dialog, not on the page', async () => {
+    const duplicateMessage = 'Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor.';
+    stubFetch({ card: managerCard, approveError: { status: 409, code: 'CUSTOMER_VISIT_DUPLICATE', message: duplicateMessage } });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const confirm = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
+      await act(async () => { confirm.click(); await flush(); });
+      // Dialog stays open with the duplicate in its inline error region...
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(dialog.textContent).toContain(duplicateMessage);
+      // ...and the background page error region must not present it.
+      const pageError = host.querySelector('.detail-feedback-error');
+      expect(pageError === null || !pageError.textContent?.includes(duplicateMessage)).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();
