@@ -34,6 +34,7 @@ describe('Web Push lifecycle', () => {
       webPushRepository: {
         findCurrentSession: vi.fn(),
         upsert: vi.fn(),
+        rebindExisting: vi.fn(),
         disable: vi.fn(),
         cleanupDueDeliveries: vi.fn().mockResolvedValue(0),
         claimDueDeliveries: vi.fn().mockResolvedValue([]),
@@ -68,6 +69,7 @@ describe('Web Push lifecycle', () => {
       webPushRepository: {
         findCurrentSession: vi.fn(),
         upsert: vi.fn(),
+        rebindExisting: vi.fn(),
         disable: vi.fn(),
         cleanupDueDeliveries: vi.fn().mockResolvedValue(0),
         claimDueDeliveries: vi.fn().mockResolvedValue([]),
@@ -107,6 +109,7 @@ describe('Web Push lifecycle', () => {
       webPushRepository: {
         findCurrentSession: vi.fn(),
         upsert: vi.fn(),
+        rebindExisting: vi.fn(),
         disable: vi.fn(),
         cleanupDueDeliveries: vi.fn().mockResolvedValue(0),
         claimDueDeliveries: vi.fn().mockResolvedValue([]),

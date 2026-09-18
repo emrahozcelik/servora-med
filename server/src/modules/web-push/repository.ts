@@ -140,6 +140,7 @@ export type ProtectedWebPushDeliveryGuard = Readonly<{
 export interface WebPushRepository {
   findCurrentSession(identity: WebPushIdentity): Promise<WebPushSubscriptionRecord | null>;
   upsert(input: UpsertWebPushSubscriptionInput): Promise<WebPushSubscriptionRecord>;
+  rebindExisting(input: UpsertWebPushSubscriptionInput): Promise<WebPushSubscriptionRecord | null>;
   disable(
     identity: WebPushIdentity,
     subscriptionId: string,
@@ -380,6 +381,91 @@ export class PostgresWebPushRepository implements WebPushRepository {
 
       await client.query('COMMIT');
       return mapSubscription(saved);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async rebindExisting(
+    input: UpsertWebPushSubscriptionInput,
+  ): Promise<WebPushSubscriptionRecord | null> {
+    const client = await this.pool.connect();
+    const endpointHash = fingerprintPushEndpoint(input.endpoint);
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        [endpointHash],
+      );
+      const endpointOwnerResult = await client.query<WebPushSubscriptionRow>(
+        `SELECT ${SUBSCRIPTION_COLUMNS}
+           FROM web_push_subscriptions
+          WHERE endpoint_hash = $1
+          FOR UPDATE`,
+        [endpointHash],
+      );
+      const endpointOwner = endpointOwnerResult.rows[0] ?? null;
+      const recoveryBlocked = !endpointOwner
+        || endpointOwner.organization_id !== input.organizationId
+        || endpointOwner.recipient_user_id !== input.userId
+        || endpointOwner.vapid_public_key_fingerprint
+          !== input.vapidPublicKeyFingerprint
+        || ['USER_DISABLED', 'PROVIDER_STALE', 'VAPID_ROTATED']
+          .includes(endpointOwner.disabled_reason ?? '');
+      if (recoveryBlocked) {
+        await client.query('COMMIT');
+        return null;
+      }
+
+      const currentResult = await client.query<WebPushSubscriptionRow>(
+        `SELECT ${SUBSCRIPTION_COLUMNS}
+           FROM web_push_subscriptions
+          WHERE organization_id = $1
+            AND recipient_user_id = $2
+            AND session_id = $3
+            AND disabled_at IS NULL
+          FOR UPDATE`,
+        [input.organizationId, input.userId, input.sessionId],
+      );
+      const current = currentResult.rows[0] ?? null;
+      if (current && current.id !== endpointOwner.id) {
+        await client.query('COMMIT');
+        return null;
+      }
+      if (endpointOwner.session_id !== input.sessionId) {
+        await this.abandonDeliveries(client, [endpointOwner.id], 'REPLACED', input.now);
+      }
+      const updated = await client.query<WebPushSubscriptionRow>(
+        `UPDATE web_push_subscriptions
+            SET session_id = $2,
+                endpoint = $3,
+                p256dh = $4,
+                auth = $5,
+                expiration_time = $6,
+                vapid_public_key_fingerprint = $7,
+                updated_at = $8,
+                disabled_at = NULL,
+                disabled_reason = NULL,
+                last_failure_at = NULL,
+                consecutive_failures = 0
+          WHERE id = $1
+        RETURNING ${SUBSCRIPTION_COLUMNS}`,
+        [
+          endpointOwner.id,
+          input.sessionId,
+          input.endpoint,
+          input.p256dh,
+          input.auth,
+          input.expirationTime,
+          input.vapidPublicKeyFingerprint,
+          input.now,
+        ],
+      );
+      await client.query('COMMIT');
+      return mapSubscription(updated.rows[0]!);
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

@@ -38,6 +38,18 @@ export const webPushRoutes: FastifyPluginAsync<WebPushRoutesOptions> = async (
     preHandler: options.authenticate,
     config: { rateLimit: mutationRateLimit },
   }, handlers.create);
+  app.post('/subscriptions/recover', {
+    preHandler: options.authenticate,
+    config: { rateLimit: mutationRateLimit },
+  }, handlers.recover);
+  app.post(
+    '/subscriptions/:subscriptionId/reconcile-missing',
+    {
+      preHandler: options.authenticate,
+      config: { rateLimit: mutationRateLimit },
+    },
+    handlers.reconcileMissing,
+  );
   app.delete(
     '/subscriptions/:subscriptionId',
     {

@@ -187,6 +187,20 @@ describe('WebPushService create', () => {
 });
 
 describe('WebPushService disable', () => {
+  it('records browser-missing reconciliation as machine-managed replacement', async () => {
+    const repository = { disable: vi.fn().mockResolvedValue(activeSubscription) };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    await expect(service.reconcileMissing(identity, activeSubscription.id))
+      .resolves.toBeUndefined();
+    expect(repository.disable).toHaveBeenCalledWith(
+      identity,
+      activeSubscription.id,
+      'REPLACED',
+      expect.any(Date),
+    );
+  });
+
   it('allows idempotent current-session cleanup even while Web Push is disabled', async () => {
     const repository = { disable: vi.fn().mockResolvedValue(activeSubscription) };
     const service = new WebPushService(disabledConfig, repository as never);
@@ -209,5 +223,46 @@ describe('WebPushService disable', () => {
       statusCode: 404,
       details: null,
     });
+  });
+});
+
+describe('WebPushService recover', () => {
+  const recoveryInput = {
+    endpoint: activeSubscription.endpoint,
+    expirationTime: null,
+    keys: {
+      p256dh: activeSubscription.p256dh,
+      auth: activeSubscription.auth,
+    },
+  };
+
+  it('rebinds only through the ownership-checking repository operation', async () => {
+    const repository = {
+      rebindExisting: vi.fn().mockResolvedValue(activeSubscription),
+    };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    await expect(service.recover(identity, recoveryInput)).resolves.toEqual({ rebound: true });
+    expect(repository.rebindExisting).toHaveBeenCalledWith(expect.objectContaining({
+      ...identity,
+      endpoint: recoveryInput.endpoint,
+      p256dh: recoveryInput.keys.p256dh,
+      auth: recoveryInput.keys.auth,
+    }));
+  });
+
+  it('returns one opaque non-rebound result for explicit-disable and ownership guards', async () => {
+    const repository = { rebindExisting: vi.fn().mockResolvedValue(null) };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    await expect(service.recover(identity, recoveryInput)).resolves.toEqual({ rebound: false });
+  });
+
+  it('does not inspect endpoint ownership while Web Push is disabled', async () => {
+    const repository = { rebindExisting: vi.fn() };
+    const service = new WebPushService(disabledConfig, repository as never);
+
+    await expect(service.recover(identity, recoveryInput)).resolves.toEqual({ rebound: false });
+    expect(repository.rebindExisting).not.toHaveBeenCalled();
   });
 });

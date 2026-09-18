@@ -97,6 +97,7 @@ async function createApp(
   });
   const webPushRepository = {
     findCurrentSession: vi.fn(),
+    rebindExisting: vi.fn().mockResolvedValue(null),
     upsert: vi.fn().mockImplementation(async (input) => ({
       id: 'subscription-1',
       organizationId: input.organizationId,
@@ -224,6 +225,35 @@ describe('Web Push HTTP routes', () => {
     expect(response.body).not.toContain(auth);
   });
 
+  it('offers an ownership-opaque silent recovery endpoint for an existing browser subscription', async () => {
+    const { app, cookie, webPushRepository } = await createApp(false, enabledWebPush);
+    const payload = {
+      endpoint: 'https://fcm.googleapis.com/push/rebind',
+      expirationTime: null,
+      keys: {
+        p256dh: Buffer.alloc(65, 4).toString('base64url'),
+        auth: Buffer.alloc(16, 7).toString('base64url'),
+      },
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/web-push/subscriptions/recover',
+      headers: { cookie },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ rebound: false });
+    expect(webPushRepository.rebindExisting).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1', userId: 'user-1', sessionId: 'session-1',
+      endpoint: payload.endpoint,
+    }));
+    expect(response.body).not.toContain(payload.endpoint);
+    expect(response.body).not.toContain(payload.keys.p256dh);
+    expect(response.body).not.toContain(payload.keys.auth);
+  });
+
   it('disables idempotently in current-session scope and hides other scopes', async () => {
     const { app, cookie, webPushRepository } = await createApp();
     const subscriptionId = '11111111-1111-4111-8111-111111111111';
@@ -249,6 +279,28 @@ describe('Web Push HTTP routes', () => {
       url: '/api/web-push/subscriptions/not-a-uuid',
       headers: { cookie },
     })).statusCode).toBe(400);
+  });
+
+  it('reconciles a missing browser subscription without recording explicit disable', async () => {
+    const { app, cookie, webPushRepository } = await createApp(false, enabledWebPush);
+    const subscriptionId = '11111111-1111-4111-8111-111111111111';
+    webPushRepository.disable.mockResolvedValue({ id: subscriptionId });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/web-push/subscriptions/${subscriptionId}/reconcile-missing`,
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(webPushRepository.disable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'organization-1', userId: 'user-1', sessionId: 'session-1',
+      }),
+      subscriptionId,
+      'REPLACED',
+      expect.any(Date),
+    );
   });
 
   it('rate-limits mutations per session without charging status reads', async () => {

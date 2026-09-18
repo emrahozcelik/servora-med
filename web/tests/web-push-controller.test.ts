@@ -29,6 +29,8 @@ function api(overrides: Record<string, unknown> = {}) {
   return {
     getStatus: vi.fn().mockResolvedValue(status),
     createSubscription: vi.fn(),
+    recoverSubscription: vi.fn().mockResolvedValue({ rebound: false }),
+    reconcileMissingSubscription: vi.fn(),
     disableSubscription: vi.fn(),
     ...overrides,
   };
@@ -113,10 +115,10 @@ describe('WebPushController', () => {
     const controller = createWebPushController({ api: service, browser: adapter, target: window });
 
     await controller.start('org-1:user-1');
-    expect(adapter.currentSubscription).not.toHaveBeenCalled();
+    expect(adapter.currentSubscription).toHaveBeenCalledTimes(1);
     await controller.enable();
 
-    expect(adapter.currentSubscription).toHaveBeenCalledTimes(1);
+    expect(adapter.currentSubscription).toHaveBeenCalledTimes(2);
     expect(adapter.subscribe).toHaveBeenCalledTimes(1);
     expect(adapter.subscribe).toHaveBeenCalledWith('AQID');
     expect(service.createSubscription).toHaveBeenCalledTimes(1);
@@ -185,7 +187,7 @@ describe('WebPushController', () => {
     expect(controller.getSnapshot().pending).toBeNull();
   });
 
-  it('recovery true-null browser subscription disables server record (C4)', async () => {
+  it('recovery true-null browser subscription reconciles without recording user intent (C4)', async () => {
     const serverSub = {
       id: 'subscription-1',
       createdAt: '2026-07-22T10:00:00.000Z',
@@ -200,14 +202,15 @@ describe('WebPushController', () => {
         .mockResolvedValueOnce({ ...status, subscription: serverSub })
         .mockResolvedValueOnce({ ...status, subscription: serverSub })
         .mockResolvedValue({ ...status, subscription: null }),
-      disableSubscription: vi.fn().mockResolvedValue(undefined),
+      reconcileMissingSubscription: vi.fn().mockResolvedValue(undefined),
     });
     const controller = createWebPushController({ api: service, browser: adapter, target: window });
 
     await controller.start('org-1:user-1');
     await controller.recover();
 
-    expect(service.disableSubscription).toHaveBeenCalledWith('subscription-1');
+    expect(service.reconcileMissingSubscription).toHaveBeenCalledWith('subscription-1');
+    expect(service.disableSubscription).not.toHaveBeenCalled();
     expect(adapter.subscribe).not.toHaveBeenCalled();
   });
 
@@ -320,7 +323,7 @@ describe('WebPushController', () => {
     await controller.enable();
 
     expect(adapter.subscribe).not.toHaveBeenCalled();
-    expect(adapter.currentSubscription).toHaveBeenCalledTimes(2);
+    expect(adapter.currentSubscription).toHaveBeenCalledTimes(3);
     expect(service.createSubscription).toHaveBeenCalledTimes(2);
   });
 
@@ -416,7 +419,96 @@ describe('WebPushController', () => {
     await controller.start('org-1:user-1');
     await controller.recover();
 
-    expect(service.disableSubscription).toHaveBeenCalledWith('subscription-1');
+    expect(service.reconcileMissingSubscription).toHaveBeenCalledWith('subscription-1');
+    expect(service.disableSubscription).not.toHaveBeenCalled();
+  });
+
+  it('silently rebinds an existing owned browser subscription for a new session', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/push/rebind', expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    const rebound = {
+      id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64),
+    };
+    let recovered = false;
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(subscription),
+    });
+    const service = api({
+      getStatus: vi.fn().mockImplementation(async () => (
+        recovered ? { ...status, subscription: rebound } : status
+      )),
+      recoverSubscription: vi.fn().mockImplementation(async () => {
+        recovered = true;
+        return { rebound: true };
+      }),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+
+    expect(service.recoverSubscription).toHaveBeenCalledWith({
+      endpoint: subscription.endpoint, expirationTime: null, keys: subscription.keys,
+    });
+    expect(adapter.requestPermission).not.toHaveBeenCalled();
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().status?.subscription).toEqual(rebound);
+  });
+
+  it.each(['default', 'denied'] as const)(
+    'does not attempt silent rebind while browser permission is %s',
+    async (permission) => {
+      const adapter = browser({ permission: () => permission });
+      const service = api({ recoverSubscription: vi.fn() });
+      const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+      await controller.start('org-1:user-1');
+
+      expect(adapter.currentSubscription).not.toHaveBeenCalled();
+      expect(adapter.requestPermission).not.toHaveBeenCalled();
+      expect(service.recoverSubscription).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not attempt silent rebind without an existing browser subscription', async () => {
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(null),
+    });
+    const service = api({ recoverSubscription: vi.fn() });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+
+    expect(service.recoverSubscription).not.toHaveBeenCalled();
+    expect(adapter.requestPermission).not.toHaveBeenCalled();
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unowned or explicitly disabled browser endpoint unbound', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/push/not-rebound', expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(false),
+    };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(subscription),
+    });
+    const service = api({
+      recoverSubscription: vi.fn().mockResolvedValue({ rebound: false }),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+
+    expect(service.recoverSubscription).toHaveBeenCalledTimes(1);
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(adapter.unsubscribe).not.toHaveBeenCalled();
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().status?.subscription).toBeNull();
   });
 
   it('clears recipient-scoped state and best-effort unsubscribes locally after logout', async () => {

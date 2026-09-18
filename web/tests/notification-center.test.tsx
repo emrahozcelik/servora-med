@@ -789,6 +789,8 @@ describe('NotificationCenter', () => {
       api: {
         getStatus,
         createSubscription: vi.fn(),
+        recoverSubscription: vi.fn().mockResolvedValue({ rebound: false }),
+        reconcileMissingSubscription: vi.fn(),
         disableSubscription: vi.fn(),
       },
       browser: {

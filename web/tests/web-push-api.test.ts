@@ -6,6 +6,8 @@ import {
   getWebPushStatus,
   parseCreateWebPushSubscriptionRequest,
   parseWebPushStatus,
+  reconcileMissingWebPushSubscription,
+  recoverWebPushSubscription,
 } from '../src/services/web-push-api';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -80,5 +82,40 @@ describe('Web Push API adapter', () => {
       expirationTime: -1,
       keys: { p256dh: 'public-key', auth: 'auth-key' },
     })).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+  });
+
+  it('recovers an existing subscription without exposing ownership details', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ rebound: true }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ rebound: false, owner: 'hidden' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const input = {
+      endpoint: 'https://fcm.googleapis.com/push/example',
+      expirationTime: null,
+      keys: { p256dh: 'public-key', auth: 'auth-key' },
+    };
+
+    await expect(recoverWebPushSubscription(input)).resolves.toEqual({ rebound: true });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/web-push/subscriptions/recover',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }));
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual(input);
+    await expect(recoverWebPushSubscription(input))
+      .rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('reconciles a missing browser subscription separately from explicit disable', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(reconcileMissingWebPushSubscription(publicSubscription.id))
+      .resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/web-push/subscriptions/${publicSubscription.id}/reconcile-missing`,
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
   });
 });
