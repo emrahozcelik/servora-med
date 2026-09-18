@@ -24,7 +24,8 @@ export const FOLLOW_UP_MIN_LEAD_MINUTES = 15;
 export const FOLLOW_UP_SEARCH_HORIZON_DAYS = 30;
 export const RECENT_VISIT_WARNING_DAYS = 7;
 export const FREQUENT_VISIT_WINDOW_DAYS = 14;
-export const FREQUENT_VISIT_MAX_COUNT = 3;
+/** Informational trigger only; never a write limit. */
+export const FREQUENT_VISIT_ADVISORY_THRESHOLD = 3;
 
 /**
  * Follow-up proposals must leave a short operational buffer after the

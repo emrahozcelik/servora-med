@@ -312,62 +312,6 @@ describe('Delivery create CRM defaults', () => {
     expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
   });
 
-  it('advisory suggested alternative CTA moves the whole delivery interval', async () => {
-    preview.useCustomerSchedulePreview.mockReturnValue({
-      evaluation: {
-        level: 'CONFLICT',
-        safeMessage: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
-        conflicts: [], recentVisit: null,
-        suggestedAlternativeAt: '2026-08-10T09:30:00.000Z',
-      },
-      previewing: false,
-    });
-    await act(async () => root.render(view(staffUser)));
-    await settle();
-    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
-    await settle();
-    await selectProduct(container);
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
-    const cta = container.querySelector('button.compact-button') as HTMLButtonElement;
-    expect(cta).toBeTruthy();
-    await act(async () => cta.click());
-    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
-    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
-    await settle();
-    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
-      scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
-    }));
-  });
-
-  it('authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves the whole delivery interval', async () => {
-    api.createProductDelivery.mockRejectedValueOnce(new ApiError(
-      409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
-      false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
-    ));
-    await act(async () => root.render(view(staffUser)));
-    await settle();
-    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
-    await settle();
-    await selectProduct(container);
-    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
-    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
-    await settle();
-    expect(container.querySelector('.form-error')?.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    const cta = container.querySelector('button.compact-button') as HTMLButtonElement;
-    expect(cta).toBeTruthy();
-    await act(async () => cta.click());
-    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
-    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
-    await settle();
-    expect(api.createProductDelivery).toHaveBeenLastCalledWith(expect.objectContaining({
-      scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
-    }));
-  });
-
   it('cancels the customer side flow without resetting delivery fields', async () => {
     await act(async () => root.render(view(manager)));
     await settle();
@@ -572,7 +516,9 @@ describe('Delivery create ambiguous attempt contract', () => {
 
   it('resolves the attempt on a definitive response and permits a corrected new submission', async () => {
     api.createProductDelivery.mockReset();
-    api.createProductDelivery.mockRejectedValueOnce(new ApiError(409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Çakışma', false))
+    // Definitive 409 the server can actually emit for a delivery (Staff
+    // double-booking); visit-frequency codes no longer exist.
+    api.createProductDelivery.mockRejectedValueOnce(new ApiError(409, 'CALENDAR_CONFLICT', 'Çakışma', false))
       .mockResolvedValueOnce({ jobCardId: 'job-3', version: 1 });
     await fillValidForm();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();

@@ -98,6 +98,16 @@ function queryIncludesUserId(values: readonly unknown[], userId: string) {
     || (Array.isArray(value) && value.includes(userId)));
 }
 
+/**
+ * Assignee row-lock matcher. getAssigneeForUpdate takes FOR NO KEY UPDATE
+ * (deadlock-free against critical-action KEY SHARE checks) instead of
+ * FOR UPDATE; both modes still conflict with offboarding's FOR UPDATE, so
+ * the serialization proofs below hold for either strength.
+ */
+function isUserRowLockQuery(text: string) {
+  return text.includes('FOR NO KEY UPDATE') || text.includes('FOR UPDATE');
+}
+
 async function waitForBlockingPid(pool: Pool, waitingPid: number, blockingPid: number) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const result = await pool.query<{ blocking_pids: number[]; state: string; wait_event_type: string | null }>(
@@ -698,7 +708,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
             if (!jobUserLockObserved
               && query.text.includes('SELECT id, organization_id, role, is_active')
               && query.text.includes('FROM users')
-              && query.text.includes('FOR UPDATE')
+              && isUserRowLockQuery(query.text)
               && query.values[1] === replacement.id) {
               jobUserLockObserved = true;
               jobUserLockAcquired.resolve(query.processId);
@@ -914,7 +924,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
           after: async (query) => {
             if (!approvalLockObserved
               && query.text.includes('FROM users')
-              && query.text.includes('FOR UPDATE')
+              && isUserRowLockQuery(query.text)
               && queryIncludesUserId(query.values, replacement.id)) {
               approvalLockObserved = true;
               approvalLockAcquired.resolve(query.processId);
@@ -1211,7 +1221,7 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
           before: (query) => {
             if (!approvalLockObserved
               && query.text.includes('FROM users')
-              && query.text.includes('FOR UPDATE')
+              && isUserRowLockQuery(query.text)
               && queryIncludesUserId(query.values, replacement.id)) {
               approvalLockObserved = true;
               approvalLockAttempted.resolve(query.processId);

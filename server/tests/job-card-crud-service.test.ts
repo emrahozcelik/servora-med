@@ -127,6 +127,7 @@ class CrudMemoryRepository implements JobCardRepository {
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createJobCard: async (input: CreateJobCardRecord) => {
@@ -240,6 +241,7 @@ class CrudMemoryRepository implements JobCardRepository {
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createJobCard: async () => { throw new Error('unused'); },
@@ -1244,8 +1246,8 @@ describe('JobCardService create and reads', () => {
     repository.notificationDrafts = [];
     repository.realtimeResourceKeys = [];
     const enforceSpy = vi.spyOn(
-      service as unknown as { enforceCustomerSchedule: (...args: unknown[]) => Promise<unknown> },
-      'enforceCustomerSchedule',
+      service as unknown as { assessCustomerSchedule: (...args: unknown[]) => Promise<unknown> },
+      'assessCustomerSchedule',
     );
 
     const updated = await service.patch(manager, created.id, {

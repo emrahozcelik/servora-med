@@ -162,6 +162,7 @@ class MemoryJobCardRepository implements JobCardRepository {
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
       }),
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createNote: async (input) => ({

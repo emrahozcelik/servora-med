@@ -99,19 +99,22 @@ describe('JobDetail joint slot edit', () => {
     expect(onSave).toHaveBeenCalledWith(
       '2026-08-17T10:00:00.000Z',
       undefined,
-      null,
+      undefined,
     );
   });
 
-  it('moves only the start with the existing customer alternative CTA', async () => {
+  it('never blocks the Staff edit on an advisory evaluation', async () => {
+    // Frequency insight is management-only: even a WARNING advisory renders
+    // no blocking notice for Staff and the save still reaches onSave.
     preview.evaluation = {
-      level: 'CONFLICT',
-      safeMessage: 'Aynı müşteriye aynı gün başka bir iş planlandı.',
+      level: 'WARNING',
+      safeMessage: 'Bu plan dahil, müşteriyle 14 günlük yakın dönem içinde 4 saha teması planlandı veya gerçekleştirildi.',
       conflicts: [],
       recentVisit: null,
-      suggestedAlternativeAt: '2026-08-17T10:00:00.000Z',
-      frequencyCount: 0,
+      suggestedAlternativeAt: null,
+      frequencyCount: 4,
     };
+    const onSave = vi.fn().mockResolvedValue(undefined);
     await act(async () => root.render(<JobDetailPanel
       job={job}
       items={[]}
@@ -120,15 +123,16 @@ describe('JobDetail joint slot edit', () => {
       message=""
       onBack={() => {}}
       onCommand={() => {}}
-      onSaveSchedule={() => {}}
+      onSaveSchedule={onSave}
     />));
 
-    const button = Array.from(container.querySelectorAll('button'))
-      .find((candidate) => candidate.textContent?.includes('Müşteri için önerilen alternatif zamanı kullan'));
-    expect(button).toBeTruthy();
-    await act(async () => (button as HTMLButtonElement).click());
-    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
-      .toBe(isoInstantToLocalDateTime('2026-08-17T10:00:00.000Z'));
-    expect(container.querySelector('#job-scheduled-ends-at')).toBeNull();
+    expect(container.querySelector('.customer-schedule-notice')).toBeNull();
+    expect(container.querySelector('.customer-schedule-notice button')).toBeNull();
+    await act(async () => (container.querySelector('.job-schedule-edit form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledWith(
+      '2026-08-16T10:00:00.000Z',
+      undefined,
+      undefined,
+    );
   });
 });

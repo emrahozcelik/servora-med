@@ -13,7 +13,6 @@ import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import type { AvailableSlot } from './jobs/jobs-api';
-import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
@@ -97,8 +96,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
-  const [overrideReason, setOverrideReason] = useState('');
-  const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<ProductDeliveryCreateRequest | null>(null);
@@ -112,7 +109,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
   useEffect(() => {
-    setAuthoritativeEvaluation(null);
     setCalendarConflicts([]);
   }, [assignedTo, customerId, scheduledLocal]);
 
@@ -131,12 +127,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     enabled: user.capabilities?.calendar === true
       && customerReady,
   });
-
-  function useSuggestedAlternative() {
-    const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
-    if (!alternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
-  }
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
@@ -214,20 +204,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       const definitive = isDefinitiveMutationError(caught);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
-      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
-        const details = caught.details ?? {};
-        setAuthoritativeEvaluation({
-          level: 'CONFLICT',
-          safeMessage: null,
-          conflicts: Array.isArray(details.conflicts)
-            ? details.conflicts as CustomerScheduleConflictDetail[]
-            : [],
-          recentVisit: null,
-          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string'
-            ? details.suggestedAlternativeAt
-            : null,
-        });
-      }
       if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
         // STAFF never receives conflict details (server projects them away);
         // MANAGER/ADMIN may see the rich same-org conflict list.
@@ -275,7 +251,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
         scheduledAt: scheduledLocal,
         deliveryNote: String(data.get('deliveryNote') ?? ''),
-        overrideReason: overrideReason.trim() || null,
       });
       attemptRef.current = request;
       setPending(false);
@@ -352,11 +327,8 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
       <CustomerScheduleNotice
-        evaluation={authoritativeEvaluation ?? evaluation}
+        evaluation={evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
-        overrideReason={overrideReason}
-        onOverrideReasonChange={setOverrideReason}
-        onUseSuggestedAlternative={useSuggestedAlternative}
       />
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice

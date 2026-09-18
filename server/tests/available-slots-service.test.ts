@@ -48,6 +48,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
@@ -76,8 +77,10 @@ describe('JobCardService.availableSlots', () => {
       const weekday = new Date(`${slot.startsAt.slice(0, 10)}T00:00:00Z`).getUTCDay();
       expect(weekday, slot.startsAt).not.toBe(0);
     }
-    expect(tx.listActiveOnSiteJobs).toHaveBeenCalledTimes(1);
-    expect(tx.listRecentOnSiteVisits).toHaveBeenCalledTimes(1);
+    // Frequency is advisory-only: slot search consults the assignee
+    // calendar snapshot, never the Customer contact history.
+    expect(tx.listActiveOnSiteJobs).not.toHaveBeenCalled();
+    expect(tx.listRecentOnSiteVisits).not.toHaveBeenCalled();
     expect(tx.listAssigneeCalendarIntervals).toHaveBeenCalledTimes(1);
   });
 
@@ -91,6 +94,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
@@ -132,6 +136,7 @@ describe('JobCardService.availableSlots', () => {
         }),
         customerExists: vi.fn().mockResolvedValue(true),
         getOrganizationTimezone: vi.fn().mockResolvedValue('Europe/Berlin'),
+        findCustomerVisitDuplicate: async () => null,
         listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
         listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
         listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
@@ -201,6 +206,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
@@ -228,7 +234,7 @@ describe('JobCardService.availableSlots', () => {
     });
   });
 
-  it('removes a customer-conflicting local day while retaining later days', async () => {
+  it('retains the day when another Staff has a Customer contact', async () => {
     const tx = {
       getAssignee: vi.fn().mockResolvedValue({
         id: input.assignedTo,
@@ -238,6 +244,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([{
         id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         title: 'Aynı müşteri planı',
@@ -264,8 +271,8 @@ describe('JobCardService.availableSlots', () => {
     ).availableSlots(actor, input);
 
     expect(result.slots[0]).toEqual({
-      startsAt: '2026-08-18T10:00:00.000Z',
-      endsAt: '2026-08-18T11:00:00.000Z',
+      startsAt: '2026-08-17T10:00:00.000Z',
+      endsAt: '2026-08-17T11:00:00.000Z',
     });
   });
 
@@ -279,6 +286,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([{
@@ -302,7 +310,7 @@ describe('JobCardService.availableSlots', () => {
     expect(result.slots[0]!.startsAt).toBe('2026-08-18T10:00:00.000Z');
   });
 
-  it('omits candidates that exceed the customer frequency limit without an override path', async () => {
+  it('retains candidates regardless of Customer contact frequency', async () => {
     const tx = {
       getAssignee: vi.fn().mockResolvedValue({
         id: input.assignedTo,
@@ -312,6 +320,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([
         '2026-08-10T10:00:00.000Z',
@@ -340,7 +349,7 @@ describe('JobCardService.availableSlots', () => {
       { enabled: true, reminderLeadMinutes: 30 },
     ).availableSlots(actor, input);
 
-    expect(result.slots[0]!.startsAt).toBe('2026-08-24T10:00:00.000Z');
+    expect(result.slots[0]!.startsAt).toBe('2026-08-17T10:00:00.000Z');
   });
 
   it('self-excludes an authorized current job from customer and assignee evaluation', async () => {
@@ -362,6 +371,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([{
         id: currentJobId,
         title: 'Mevcut plan',
@@ -425,6 +435,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn((
@@ -470,6 +481,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),
@@ -511,6 +523,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),
@@ -553,6 +566,7 @@ describe('JobCardService.availableSlots', () => {
       }),
       customerExists: vi.fn().mockResolvedValue(true),
       getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
       listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
       listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
@@ -599,6 +613,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),
@@ -635,6 +650,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),
@@ -671,6 +687,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),
@@ -699,6 +716,7 @@ describe('JobCardService.availableSlots', () => {
       getAssignee: vi.fn(),
       customerExists: vi.fn(),
       getOrganizationTimezone: vi.fn(),
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: vi.fn(),
       listRecentOnSiteVisits: vi.fn(),
       listAssigneeCalendarIntervals: vi.fn(),

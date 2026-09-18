@@ -142,7 +142,9 @@ export type FollowUpProposal = {
   origin: FollowUpProposalOrigin;
   proposedBy: RelatedName;
 };
-export type CustomerScheduleLevel = 'CLEAR' | 'WARNING' | 'CONFLICT' | 'FREQUENCY_EXCEEDED';
+/** Preview advisory only: the server never blocks on visit frequency and never
+ * returns a same-day conflict level. Duplicates surface as 409 submit errors. */
+export type CustomerScheduleLevel = 'CLEAR' | 'WARNING';
 export type CustomerScheduleConflictDetail = {
   jobCardId: string;
   title: string;
@@ -622,7 +624,7 @@ function parseCustomerScheduleEvaluation(value: unknown): CustomerScheduleEvalua
     'level', 'safeMessage', 'conflicts', 'recentVisit', 'suggestedAlternativeAt',
   ]);
   return {
-    level: oneOf(v.level, 'evaluation.level', ['CLEAR', 'WARNING', 'CONFLICT', 'FREQUENCY_EXCEEDED'] as const),
+    level: oneOf(v.level, 'evaluation.level', ['CLEAR', 'WARNING'] as const),
     safeMessage: nullableString(v.safeMessage, 'evaluation.safeMessage'),
     conflicts: array(v.conflicts, 'evaluation.conflicts').map((entry) => {
       const c = exactObject(entry, 'conflict', [
@@ -1038,6 +1040,7 @@ export const getFollowUpSuggestion = async (id: string, at?: string) =>
   parseFollowUpSuggestion(await request(`${jobPath(id)}/follow-up-suggestion${at === undefined ? '' : query({ at })}`));
 
 export type CustomerSchedulePreviewInput = {
+  engagementKind?: JobCardEngagementKind | null;
   type: JobCardType;
   customerId: string | null;
   scheduledAt: string;

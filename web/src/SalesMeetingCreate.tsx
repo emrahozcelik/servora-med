@@ -3,8 +3,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   createJobCard,
   JOB_CARD_ENGAGEMENT_KINDS,
-  type CustomerScheduleConflictDetail,
-  type CustomerScheduleEvaluation,
   type JobCardEngagementKind,
   type JobCardPriority,
 } from './jobs/jobs-api';
@@ -54,8 +52,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [pending, setPending] = useState(false); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [overrideReason, setOverrideReason] = useState('');
-  const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<CreateAttempt | null>(null); const [ambiguous, setAmbiguous] = useState(false);
@@ -66,11 +62,11 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
   useEffect(() => {
-    setAuthoritativeEvaluation(null);
     setCalendarConflicts([]);
   }, [assignedTo, customerId, scheduledLocal, engagementKind]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
+    engagementKind: engagementKind || null,
     type: 'SALES_MEETING',
     customerId: customerId || null,
     scheduledLocal,
@@ -86,12 +82,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       && customerReady
       && engagementKind !== '',
   });
-
-  function useSuggestedAlternative() {
-    const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
-    if (!alternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
-  }
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
@@ -127,12 +117,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       else setAmbiguous(true);
       if (definitive) { attemptRef.current = null; setAmbiguous(false); }
       else setAmbiguous(true);
-      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
-        const details = caught.details ?? {};
-        setAuthoritativeEvaluation({ level: 'CONFLICT', safeMessage: null,
-          conflicts: Array.isArray(details.conflicts) ? details.conflicts as CustomerScheduleConflictDetail[] : [], recentVisit: null,
-          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string' ? details.suggestedAlternativeAt : null });
-      }
       if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
         const raw = caught.details?.conflicts;
         setCalendarConflicts(user.role === 'STAFF' ? [] : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
@@ -164,7 +148,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
         description: description.trim() || null, contactId: null, priority,
-        ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       } satisfies Parameters<typeof createJobCard>[0];
     attemptRef.current = { input };
     await sendAttempt(input);
@@ -234,11 +217,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
       <CustomerScheduleNotice
-        evaluation={authoritativeEvaluation ?? evaluation}
+        evaluation={evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
-        overrideReason={overrideReason}
-        onOverrideReasonChange={setOverrideReason}
-        onUseSuggestedAlternative={useSuggestedAlternative}
       />
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <AvailableSlotsNotice

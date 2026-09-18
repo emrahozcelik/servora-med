@@ -102,6 +102,7 @@ class SalesMeetingRepository implements JobCardRepository {
         ) ?? null;
       },
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       createJobCard: async (input: CreateJobCardRecord) => {

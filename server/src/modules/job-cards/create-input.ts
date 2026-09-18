@@ -316,7 +316,7 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
 
 export type { JobCardCreateInput };
 
-const PREVIEW_FIELDS = ['type', 'customerId', 'scheduledAt', 'jobCardId'] as const;
+const PREVIEW_FIELDS = ['engagementKind', 'type', 'customerId', 'scheduledAt', 'jobCardId'] as const;
 
 /** Parse the generic customer-schedule preview body. jobCardId is optional (edit preview). */
 export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSchedulePreviewInput {
@@ -328,6 +328,7 @@ export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSched
   if (!JOB_CARD_TYPES.includes(record.type as JobCardType)) throw validation('type');
   return {
     type: record.type as JobCardType,
+    engagementKind: record.engagementKind == null ? null : parseEngagementKind(record.engagementKind),
     customerId: optionalUuid(record.customerId, 'customerId'),
     scheduledAt: requiredScheduledAt(record.scheduledAt),
     jobCardId: record.jobCardId === undefined || record.jobCardId === null

@@ -114,24 +114,13 @@ describe('FollowUpProposalSection', () => {
     expect(host.textContent).toContain('Önerilen alternatif zamanı kullan');
   });
 
-  it('requires an override reason when the frequency guard is exceeded', () => {
-    const { host, onOverrideReasonChange } = renderSection({
-      mode: 'manager',
-      evaluation: {
-        level: 'FREQUENCY_EXCEEDED',
-        safeMessage: 'Sık ziyaret uyarısı.',
-        conflicts: [], recentVisit: null, suggestedAlternativeAt: null,
-      },
-    });
-    expect(host.textContent).toContain('Sık ziyaret uyarısı');
-    expect(host.textContent).toContain('Neden *');
-    const textarea = host.querySelector<HTMLTextAreaElement>('#follow-up-override-reason')!;
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
-        ?.set?.call(textarea, 'Klinik acil takip istedi.');
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(onOverrideReasonChange).toHaveBeenCalledWith('Klinik acil takip istedi.');
+  it('shows frequency information without an override field', () => {
+    const { host } = renderSection({ mode: 'manager', evaluation: {
+      level: 'WARNING', safeMessage: '14 günde 5 saha teması.',
+      conflicts: [], recentVisit: null, suggestedAlternativeAt: null,
+    } });
+    expect(host.textContent).toContain('14 günde 5 saha teması.');
+    expect(host.querySelector('#follow-up-override-reason')).toBeNull();
   });
 
   it('reports a draft-less proposal as needing an explicit date', () => {
@@ -155,7 +144,7 @@ describe('FollowUpProposalSection', () => {
   it('R1-6: Staff frequency warning has no override reason field', () => {
     const { host } = renderSection({
       evaluation: {
-        level: 'FREQUENCY_EXCEEDED',
+        level: 'WARNING',
         safeMessage: 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.',
         conflicts: [], recentVisit: null, suggestedAlternativeAt: null,
       },
@@ -194,10 +183,9 @@ describe('JobDetail follow-up proposal integration', () => {
     card: Record<string, unknown>;
     suggestion?: Record<string, unknown>;
     approveResult?: Record<string, unknown>;
-    conflict?: boolean;
     frequency?: boolean;
   }) {
-    const { card, suggestion, approveResult, conflict, frequency } = overrides;
+    const { card, suggestion, approveResult, frequency } = overrides;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -211,16 +199,11 @@ describe('JobDetail follow-up proposal integration', () => {
           assignedTo: 's1',
           followUpInstructions: 'Takip: Klinik teslimi',
           evaluation: {
-            level: conflict ? 'CONFLICT' : frequency ? 'FREQUENCY_EXCEEDED' : 'CLEAR',
-            safeMessage: conflict ? 'Bu müşteri için yakın tarihte başka bir iş planlandı.' : null,
-            conflicts: conflict ? [{
-              jobCardId: 'job-2', title: 'Başka personelin teslimi',
-              scheduledAt: '2026-08-08T09:00:00.000Z', type: 'PRODUCT_DELIVERY',
-              status: 'NEW', assignee: { id: 's2', name: 'Bora Yılmaz' },
-              jobPath: '/jobs/job-2',
-            }] : [],
+            level: frequency ? 'WARNING' : 'CLEAR',
+            safeMessage: frequency ? '14 günde 5 saha teması.' : null,
+            conflicts: [],
             recentVisit: null,
-            suggestedAlternativeAt: conflict ? '2026-08-09T10:00:00.000Z' : null,
+            suggestedAlternativeAt: null,
           },
         });
       }
@@ -322,31 +305,9 @@ describe('JobDetail follow-up proposal integration', () => {
     }
   });
 
-  it('Manager sees the conflict list and the alternative suggestion after an authoritative conflict', async () => {
-    stubFetch({ card: managerCard, conflict: true });
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
-    try {
-      await act(async () => {
-        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
-        await flush();
-      });
-      const approve = Array.from(host.querySelectorAll('button'))
-        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
-      await act(async () => { approve.click(); await flush(); });
-      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
-      expect(dialog.textContent).toContain('Başka personelin teslimi');
-      const alternative = Array.from(dialog.querySelectorAll('button'))
-        .find((button) => button.textContent?.includes('Önerilen alternatif zamanı kullan'))!;
-      expect(alternative).not.toBeNull();
-    } finally {
-      await act(async () => root.unmount());
-      host.remove();
-    }
-  });
-
-  it('Manager must provide a frequency override reason before the payload is sent', async () => {
+  it('Manager sees no conflict list or alternative CTA for an advisory follow-up suggestion', async () => {
+    // The suggestion endpoint only emits CLEAR/WARNING advisories: no
+    // conflicts, no alternative time. The approval still proceeds.
     stubFetch({ card: managerCard, frequency: true });
     const host = document.createElement('div');
     document.body.append(host);
@@ -360,29 +321,43 @@ describe('JobDetail follow-up proposal integration', () => {
         .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
       await act(async () => { approve.click(); await flush(); });
       const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
-      expect(dialog.textContent).toContain('Sık ziyaret uyarısı');
+      expect(dialog.querySelector('.follow-up-conflict-list')).toBeNull();
+      expect(dialog.textContent).not.toContain('Önerilen alternatif zamanı kullan');
+      expect(dialog.textContent).toContain('14 günde 5 saha teması.');
       const confirm = Array.from(dialog.querySelectorAll('button'))
         .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
       await act(async () => { confirm.click(); await flush(); });
-      // No approval call without the override reason in the payload.
-      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
-      ))).toBe(false);
+      expect(host.textContent).toContain('İş tamamlandı ve takip işi planlandı.');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 
-      // eslint-disable-next-line no-console
-      const reason = Array.from(dialog.querySelectorAll('textarea'))
-        .find((el) => el.id === 'follow-up-override-reason') as HTMLTextAreaElement;
+  it('Manager approves frequent contact without override reason', async () => {
+    stubFetch({ card: managerCard, frequency: true });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
       await act(async () => {
-        Object.getOwnPropertyDescriptor(reason.constructor.prototype, 'value')
-          ?.set?.call(reason, 'Klinik acil takip istedi.');
-        reason.dispatchEvent(new Event('input', { bubbles: true }));
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
       });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog.textContent).toContain('14 günde 5 saha teması.');
+      const confirm = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
       await act(async () => { confirm.click(); await flush(); });
+      expect(dialog.querySelector('#follow-up-override-reason')).toBeNull();
       const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
         String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
-      expect(body.followUp.overrideReason).toBe('Klinik acil takip istedi.');
+      expect(body.followUp).not.toHaveProperty('overrideReason');
     } finally {
       await act(async () => root.unmount());
       host.remove();

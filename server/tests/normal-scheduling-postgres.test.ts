@@ -121,7 +121,7 @@ function withFollowUpCustomerLockBarrier(pool: Pool): {
         });
       }
       if (text?.includes('SELECT id, organization_id, role, is_active FROM users')
-        && text.includes('FOR UPDATE')) {
+        && /FOR (?:NO KEY )?UPDATE/.test(text)) {
         if (connectionOrder === 1) followUpAssigneeLocks += 1;
         if (connectionOrder !== 2) return originalQuery(...qargs);
         return Promise.resolve(originalQuery(...qargs)).then((result) => {
@@ -171,7 +171,7 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('normal customer scheduling PostgreSQL contract', () => {
-  it('NJS-12: concurrent same-Customer/day create serializes; exactly one succeeds', async () => {
+  it('NJS-12: concurrent same-Customer/day create serializes; meeting and delivery both succeed', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `normal_sched_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -241,12 +241,8 @@ describe.skipIf(!databaseUrl)('normal customer scheduling PostgreSQL contract', 
 
       const fulfilled = results.filter((result) => result.status === 'fulfilled');
       const rejected = results.filter((result) => result.status === 'rejected');
-      expect(fulfilled).toHaveLength(1);
-      expect(rejected).toHaveLength(1);
-      expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
-        code: 'CUSTOMER_SCHEDULE_CONFLICT',
-        statusCode: 409,
-      });
+      expect(fulfilled).toHaveLength(2);
+      expect(rejected).toHaveLength(0);
 
       const count = await pool.query<{ total: string }>(
         `SELECT COUNT(*)::text AS total FROM job_cards
@@ -254,7 +250,7 @@ describe.skipIf(!databaseUrl)('normal customer scheduling PostgreSQL contract', 
             AND status NOT IN ('COMPLETED', 'CANCELLED')`,
         [organizationId, customerId],
       );
-      expect(Number(count.rows[0]!.total)).toBe(1);
+      expect(Number(count.rows[0]!.total)).toBe(2);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -1076,7 +1072,7 @@ describe.skipIf(!databaseUrl)('create-time assignee availability parity PostgreS
       expect(results[0]).toMatchObject({ status: 'fulfilled' });
       expect(results[1]).toMatchObject({
         status: 'rejected',
-        reason: { code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 },
+        reason: { code: 'CALENDAR_CONFLICT', statusCode: 409 },
       });
       expect(barrier.followUpAssigneeLockCount()).toBe(1);
 

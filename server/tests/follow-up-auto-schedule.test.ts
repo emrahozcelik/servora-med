@@ -73,6 +73,7 @@ class CountingTransaction {
         this.counts.getOrganizationTimezone = (this.counts.getOrganizationTimezone ?? 0) + 1;
         return 'UTC';
       },
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async (_o, _c, from, to) => {
         this.record('listActiveOnSiteJobs', from, to);
         return this.activeJobs;
@@ -121,23 +122,23 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     const proposal = await autoSchedule(tx);
 
     expect(proposal.scheduledAt.toISOString()).toBe(FIRST_GRID_AT);
+    // Frequency no longer narrows slot search: only the timezone and the
+    // assignee calendar snapshot are read.
     expect(tx.counts).toMatchObject({
       getOrganizationTimezone: 1,
-      listActiveOnSiteJobs: 1,
-      listRecentOnSiteVisits: 1,
       listAssigneeCalendarIntervals: 1,
     });
-    // Snapshot lower bound stays anchored to the first candidate (exact old
-    // semantics); the upper bound is the constant floor-anchored envelope.
-    expect(tx.ranges.listActiveOnSiteJobs?.[0]?.[0]).toBe('2026-07-24T18:30:00.000Z');
-    expect(tx.ranges.listActiveOnSiteJobs?.[0]?.[1]).toBe('2026-09-15T01:45:00.000Z');
+    expect(tx.counts.listActiveOnSiteJobs ?? 0).toBe(0);
+    expect(tx.counts.listRecentOnSiteVisits ?? 0).toBe(0);
+    // Calendar envelope stays anchored to the first candidate (exact old
+    // semantics); the upper bound is the constant horizon + duration.
     expect(tx.ranges.listAssigneeCalendarIntervals?.[0]).toEqual([
       FIRST_GRID_AT,
       '2026-08-31T10:45:00.000Z',
     ]);
   });
 
-  it('keeps the envelope a safe superset of the legacy first/last bounds', async () => {
+  it('keeps the calendar envelope covering the full candidate horizon', async () => {
     const tx = new CountingTransaction();
     await autoSchedule(tx);
 
@@ -149,14 +150,15 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     });
     const legacyFirst = legacy[0]!;
     const legacyLast = legacy[legacy.length - 1]!;
-    const pad = 14 * 24 * 60 * 60 * 1000 + 15 * 60 * 60 * 1000;
-    const [from, to] = tx.ranges.listActiveOnSiteJobs?.[0] ?? [];
-    expect(from).toBe(new Date(legacyFirst.startsAt.valueOf() - pad).toISOString());
-    expect(new Date(to!).valueOf()).toBeGreaterThanOrEqual(
-      legacyLast.endsAt.valueOf() + pad,
-    );
+    const [from, to] = tx.ranges.listAssigneeCalendarIntervals?.[0] ?? [];
+    // Envelope starts at the first inspected candidate and extends past the
+    // horizon by one meeting duration; Customer contact history is not read.
+    expect(from).toBe(legacyFirst.startsAt.toISOString());
     const horizonAt = resolveFollowUpSearchHorizonAt(FLOOR_AT, 'UTC');
-    expect(new Date(to!).valueOf()).toBe(horizonAt.valueOf() + 60 * 60 * 1000 + pad);
+    expect(to).toBe(new Date(horizonAt.valueOf() + 60 * 60 * 1000).toISOString());
+    expect(new Date(to!).valueOf()).toBeGreaterThanOrEqual(legacyLast.endsAt.valueOf());
+    expect(tx.counts.listActiveOnSiteJobs ?? 0).toBe(0);
+    expect(tx.counts.listRecentOnSiteVisits ?? 0).toBe(0);
   });
 
   it('advances past an assignee-blocked first candidate', async () => {
@@ -169,18 +171,19 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     expect(proposal.scheduledAt.toISOString()).toBe('2026-08-08T11:00:00.000Z');
   });
 
-  it('advances past a customer-CONFLICT first candidate without extra snapshot reads', async () => {
+  it('keeps a candidate despite another Customer contact', async () => {
     const tx = new CountingTransaction([activeJob('other-1', '2026-08-08T10:00:00.000Z')]);
     const proposal = await autoSchedule(tx);
 
     // Every Saturday 08-08 candidate conflicts; the next date is Sunday 08-09,
     // which WORKING-DAY V1 skips entirely, so selection lands on Monday 08-10.
-    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-10T00:00:00.000Z');
+    expect(proposal.scheduledAt.toISOString()).toBe(FIRST_GRID_AT);
     expect(tx.counts).toMatchObject({
-      listActiveOnSiteJobs: 1,
-      listRecentOnSiteVisits: 1,
+      getOrganizationTimezone: 1,
       listAssigneeCalendarIntervals: 1,
     });
+    expect(tx.counts.listActiveOnSiteJobs ?? 0).toBe(0);
+    expect(tx.counts.listRecentOnSiteVisits ?? 0).toBe(0);
   });
 
   it('accepts a WARNING candidate instead of skipping it', async () => {
@@ -190,7 +193,7 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     expect(proposal.scheduledAt.toISOString()).toBe(FIRST_GRID_AT);
   });
 
-  it('advances past frequency-exceeded candidates to the first allowed date', async () => {
+  it('keeps high-frequency candidates because frequency is advisory', async () => {
     // Three visits on 08-05..08-07 exceed the 14-day frequency cap for every
     // candidate up to 08-18; 08-19 is the first date with a clean window.
     const tx = new CountingTransaction([], [
@@ -200,12 +203,13 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     ]);
     const proposal = await autoSchedule(tx);
 
-    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-19T00:00:00.000Z');
+    expect(proposal.scheduledAt.toISOString()).toBe(FIRST_GRID_AT);
     expect(tx.counts).toMatchObject({
-      listActiveOnSiteJobs: 1,
-      listRecentOnSiteVisits: 1,
+      getOrganizationTimezone: 1,
       listAssigneeCalendarIntervals: 1,
     });
+    expect(tx.counts.listActiveOnSiteJobs ?? 0).toBe(0);
+    expect(tx.counts.listRecentOnSiteVisits ?? 0).toBe(0);
   });
 
   it('honours a persisted SYSTEM target as the effective start', async () => {

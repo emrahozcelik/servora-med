@@ -98,7 +98,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [pending, setPending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [overrideReason, setOverrideReason] = useState('');
   const [fatalError, setFatalError] = useState<{ status: '403' | '404' | 'error'; message: string } | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
   const attempt = useRef<Attempt | null>(null);
@@ -128,7 +127,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setPending(false);
     setSubmitError('');
     setFieldErrors({});
-    setOverrideReason('');
     setFatalError(null);
     pendingRef.current = false;
   }, [sourceId]);
@@ -221,6 +219,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   const readySource = state.kind === 'ready' ? state.source : null;
   const { evaluation, previewing } = useCustomerSchedulePreview({
+    engagementKind: engagementKind,
     type,
     customerId: readySource?.customerId ?? null,
     scheduledLocal,
@@ -236,11 +235,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     enabled: user.capabilities?.calendar === true
       && state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
   });
-
-  function useSuggestedAlternative() {
-    if (!evaluation?.suggestedAlternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
-  }
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
@@ -322,7 +316,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       priority,
       dueDate: type === 'SALES_MEETING' ? null : dueDate || null,
       contactId: null,
-      ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       ...(type === 'SALES_MEETING' ? { engagementKind } : {}),
     };
     const input: FollowUpCreateInput = type === 'SALES_MEETING'
@@ -500,9 +493,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           <CustomerScheduleNotice
             evaluation={evaluation}
             mode="manager"
-            overrideReason={overrideReason}
-            onOverrideReasonChange={setOverrideReason}
-            onUseSuggestedAlternative={useSuggestedAlternative}
           />
           {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
           <AvailableSlotsNotice

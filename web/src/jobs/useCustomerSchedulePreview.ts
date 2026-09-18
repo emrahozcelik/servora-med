@@ -4,11 +4,13 @@ import {
   previewCustomerSchedule,
   type CustomerScheduleEvaluation,
   type JobCardType,
+  type JobCardEngagementKind,
 } from './jobs-api';
 import { localDateTimeToIso } from './scheduling';
 
 export type CustomerSchedulePreviewInputs = {
   type: JobCardType;
+  engagementKind?: JobCardEngagementKind | null;
   customerId: string | null;
   scheduledLocal: string;
   jobCardId?: string | null;
@@ -31,7 +33,7 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
   const requestSeq = useRef(0);
 
   const {
-    type, customerId, scheduledLocal, jobCardId, enabled,
+    type, customerId, scheduledLocal, jobCardId, enabled, engagementKind,
   } = inputs;
 
   useEffect(() => {
@@ -44,8 +46,9 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
       setPreviewing(false);
       return;
     }
-    if (type !== 'SALES_MEETING' && type !== 'PRODUCT_DELIVERY') {
+    if (type !== 'SALES_MEETING') {
       setEvaluation(null);
+      setPreviewing(false);
       return;
     }
     if (!customerId || !scheduledLocal) {
@@ -59,6 +62,7 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
       try {
         previewCustomerSchedule({
           type,
+          engagementKind,
           customerId,
           scheduledAt: localDateTimeToIso(scheduledLocal),
           jobCardId: jobCardId ?? null,
@@ -82,7 +86,7 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
       }
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [enabled, type, customerId, scheduledLocal, jobCardId]);
+  }, [enabled, type, customerId, scheduledLocal, jobCardId, engagementKind]);
 
   return { evaluation, previewing };
 }

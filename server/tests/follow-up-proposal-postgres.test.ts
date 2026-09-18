@@ -151,7 +151,7 @@ function withUserLockHold(pool: Pool): {
       const text = typeof queryArgs[0] === 'string'
         ? queryArgs[0]
         : (queryArgs[0] as { text?: string } | undefined)?.text;
-      if (text?.includes('FROM users') && text.includes('FOR UPDATE')) {
+      if (text?.includes('FROM users') && /FOR (?:NO KEY )?UPDATE/.test(text)) {
         userLockCount += 1;
         if (userLockCount === 1) {
           return Promise.resolve(originalQuery(...queryArgs)).then((result) => {
@@ -817,7 +817,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('R1-6: Staff receives the frequency warning with Manager-review wording and no override surface', async () => {
+  it('R1-6: Staff receives no frequency escalation', async () => {
     await withFixture(async ({
       service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,
     }) => {
@@ -840,11 +840,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         );
       }
       const staffSuggestion = await service.getFollowUpSuggestion(staffA, job.id);
-      expect(staffSuggestion.evaluation.level).toBe('FREQUENCY_EXCEEDED');
-      expect(staffSuggestion.evaluation.safeMessage).toContain('yönetici onayında ayrıca değerlendirilecek');
-      expect(staffSuggestion.evaluation.safeMessage).not.toContain('nedeni belirtin');
+      expect(staffSuggestion.evaluation.level).toBe('CLEAR');
+      expect(staffSuggestion.evaluation.safeMessage).toBeNull();
       const managerSuggestion = await service.getFollowUpSuggestion(manager, job.id);
-      expect(managerSuggestion.evaluation.safeMessage).toContain('14 günlük bir dönemde ziyaret sıklığı sınırını aşıyor');
+      expect(managerSuggestion.evaluation.safeMessage).toContain('saha teması planlandı veya gerçekleştirildi');
     });
   });
 
@@ -1362,7 +1361,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('CSI-1/2/3/4 + CSI-8/9: suggestions skip same-Customer ON_SITE days regardless of assignee', async () => {
+  it('CSI-1/2/3/4 + CSI-8/9: suggestions retain days with other Staff Customer contacts', async () => {
     await withFixture(async ({ service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
@@ -1395,19 +1394,17 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       // The base day is occupied by another Staff's ON_SITE job: the
       // suggestion advances one calendar day at a time, skipping the
       // organization-local Sunday, preserving the wall-clock slot.
-      expect(suggestion.scheduledAt).toBe(nextNonSundaySlotIso(PROPOSAL_AT));
-      expect(suggestion.evaluation.safeMessage).toContain('sonraki uygun tarih önerildi');
+      expect(suggestion.scheduledAt).toBe(PROPOSAL_AT);
+      expect(suggestion.evaluation.safeMessage).toBeNull();
       // Staff projection leaks no conflict details (CSI-7).
       expect(suggestion.evaluation.conflicts).toEqual([]);
       expect(suggestion.evaluation.recentVisit).toBeNull();
 
       // Manager receives rich conflict details (CSI-6).
       const evaluation = await service.getFollowUpSuggestion(manager, job.id, PROPOSAL_AT);
-      expect(evaluation.evaluation.level).toBe('CONFLICT');
-      expect(evaluation.evaluation.conflicts).toEqual([
-        expect.objectContaining({ title: 'Başka personelin teslimi' }),
-      ]);
-      expect(evaluation.evaluation.suggestedAlternativeAt).toBe(nextNonSundaySlotIso(PROPOSAL_AT));
+      expect(evaluation.evaluation.level).toBe('CLEAR');
+      expect(evaluation.evaluation.conflicts).toEqual([]);
+      expect(evaluation.evaluation.suggestedAlternativeAt).toBeNull();
     });
   });
 
@@ -1432,15 +1429,15 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       // Another Manager schedules a conflicting ON_SITE job after submission.
       await pool.query(
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
-           scheduled_at)
-         VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'Sonradan planlanan teslim', $2, $3, $4, $5)`,
-        [organizationId, customerId, staffB.id, manager.id, baselineIso(new Date(PROPOSAL_AT), -HOUR_MS)],
+           scheduled_at, scheduled_ends_at, engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'NEW', 'Duplicate follow-up', $2, $3, $4, $5, $5::timestamptz + interval '1 hour', 'FOLLOW_UP')`,
+        [organizationId, customerId, staffA.id, manager.id, PROPOSAL_AT],
       );
 
       await expect(service.approve(manager, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: submitted.version,
-      })).rejects.toMatchObject(appError('FOLLOW_UP_CUSTOMER_CONFLICT', 409));
+      })).rejects.toMatchObject(appError('CUSTOMER_VISIT_DUPLICATE', 409));
 
       const approved = await service.approve(manager, job.id, {
         clientActionId: randomUUID(),
@@ -1546,7 +1543,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('CSI-12/13/14: the 4th visit in 14 days requires a Manager override reason that is audited', async () => {
+  it('CSI-12/13/14: frequent contact requires no override and records system insight', async () => {
     await withFixture(async ({
       service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,
     }) => {
@@ -1581,13 +1578,8 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
 
       const evaluation = await service.getFollowUpSuggestion(manager, job.id, PROPOSAL_AT);
-      expect(evaluation.evaluation.level).toBe('FREQUENCY_EXCEEDED');
+      expect(evaluation.evaluation.level).toBe('WARNING');
       expect(evaluation.evaluation.recentVisit).toMatchObject({ jobType: 'SALES_MEETING' });
-
-      await expect(service.approve(manager, job.id, {
-        clientActionId: randomUUID(),
-        expectedVersion: submitted.version,
-      })).rejects.toMatchObject(appError('FOLLOW_UP_OVERRIDE_REASON_REQUIRED', 400));
 
       const approved = await service.approve(manager, job.id, {
         clientActionId: randomUUID(),
@@ -1597,7 +1589,6 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Kontrol görüşmesi',
-          overrideReason: 'Klinik acil takip istedi.',
         },
       }) as JobCard & { followUpJobCardId: string };
 
@@ -1606,9 +1597,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
           WHERE job_card_id = $1 AND event_type = 'JOB_APPROVED'`,
         [job.id],
       );
-      expect(approveActivity.rows[0]!.metadata).toMatchObject({
-        customerVisitOverrideReason: 'Klinik acil takip istedi.',
-      });
+      expect(approveActivity.rows[0]!.metadata).not.toHaveProperty('customerVisitOverrideReason');
       const childActivity = await pool.query(
         `SELECT metadata FROM job_card_activity_logs
           WHERE job_card_id = $1 AND event_type = 'JOB_CREATED'`,
@@ -1616,7 +1605,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       );
       expect(childActivity.rows[0]!.metadata).toMatchObject({
         sourceJobCardId: job.id,
-        customerVisitOverrideReason: 'Klinik acil takip istedi.',
+        customerFrequencyAdvisory: { source: 'SYSTEM', windowDays: 14, countIncludingCandidate: 5 },
       });
     });
   });

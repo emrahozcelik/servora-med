@@ -217,42 +217,39 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
-  it('AAP-24: advisory suggested alternative CTA moves only the start', async () => {
+  it('AAP-24: same-day advisory never blocks the Staff submit', async () => {
+    // Same Customer + same day is advisory only: no blocking notice appears
+    // for Staff and the submit reaches the server unchanged.
     preview.useCustomerSchedulePreview.mockReturnValue({
       evaluation: {
-        level: 'CONFLICT',
-        safeMessage: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
+        level: 'WARNING',
+        safeMessage: 'Bu plan dahil, müşteriyle 14 günlük yakın dönem içinde 4 saha teması planlandı veya gerçekleştirildi.',
         conflicts: [], recentVisit: null,
-        suggestedAlternativeAt: '2026-08-10T09:30:00.000Z',
+        suggestedAlternativeAt: null,
       },
       previewing: false,
     });
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
-    const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
-    expect(cta).toBeTruthy();
-    await act(async () => cta.click());
-    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
+    expect(host.querySelector('.customer-schedule-notice')).toBeNull();
+    expect(host.querySelector('button.compact-button')).toBeNull();
     await fillAndSubmit();
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
-      scheduledAt: '2026-08-10T06:30:00.000Z',
+      scheduledAt: '2026-08-01T09:30:00.000Z',
     }));
   });
 
-  it('AAP-25: authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves only the start', async () => {
+  it('AAP-25: authoritative duplicate retains the draft and permits a corrected retry', async () => {
     jobs.createJobCard.mockRejectedValue(new ApiError(
-      409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
+      409, 'CUSTOMER_VISIT_DUPLICATE', 'Aynı müşteri için aynı saatte benzer bir ziyaret zaten planlanmış.',
       false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
     ));
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
     await fillAndSubmit();
-    expect(host.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
-    expect(cta).toBeTruthy();
-    await act(async () => cta.click());
-    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+    expect(host.textContent).toContain('Aynı müşteri için aynı saatte benzer bir ziyaret zaten planlanmış.');
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T12:30');
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-10T09:30');
     expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     jobs.createJobCard.mockResolvedValue({ id: 'job-2', version: 1 });
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
