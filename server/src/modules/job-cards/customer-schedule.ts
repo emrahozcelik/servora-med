@@ -1,35 +1,46 @@
 import {
-  FREQUENT_VISIT_MAX_COUNT,
+  FREQUENT_VISIT_ADVISORY_THRESHOLD,
   FREQUENT_VISIT_WINDOW_DAYS,
-  FOLLOW_UP_SEARCH_HORIZON_DAYS,
   RECENT_VISIT_WARNING_DAYS,
-  advanceByOneDay,
 } from './follow-up-policy.js';
 import {
   addCalendarDaysToDateKey,
   dateKeyToOrdinal,
   localDateKey,
 } from './local-calendar.js';
-import { canonicalScheduledDurationMs } from './job-card-duration.js';
-import { occupiesNonWorkingDay } from './working-day-policy.js';
-import type { JobCardType } from './types.js';
+import type { JobCardType, JobCardEngagementKind } from './types.js';
 
 export { localDateKey } from './local-calendar.js';
 
-/**
- * Shared domain-layer Customer scheduling intelligence.
- *
- * V1 visit classification without a visit-mode column:
- *   ON_SITE            SALES_MEETING, PRODUCT_DELIVERY
- *   REMOTE_OR_NON_VISIT GENERAL_TASK
- * A GENERAL_TASK referencing the same Customer never blocks an ON_SITE visit.
- */
-
-const ON_SITE_TYPES: readonly JobCardType[] = ['SALES_MEETING', 'PRODUCT_DELIVERY'];
-
+/** Physical calendar types; independent of Customer contact frequency. */
 export function isOnSiteJobType(type: JobCardType): boolean {
-  return (ON_SITE_TYPES as readonly string[]).includes(type);
+  return type === 'SALES_MEETING' || type === 'PRODUCT_DELIVERY';
 }
+
+/** V1 customer-contact observation. TRAINING/OTHER have no assumed sales-contact meaning. */
+export const FREQUENCY_ENGAGEMENT_KINDS: readonly JobCardEngagementKind[] = [
+  'CUSTOMER_VISIT', 'PRODUCT_DEMO', 'SALES_MEETING', 'FOLLOW_UP',
+];
+
+export function observesCustomerFrequency(type: JobCardType, kind: JobCardEngagementKind | null): boolean {
+  return type === 'SALES_MEETING' && kind !== null && FREQUENCY_ENGAGEMENT_KINDS.includes(kind);
+}
+
+export type CustomerVisitDuplicateInput = {
+  organizationId: string;
+  customerId: string;
+  assignedTo: string;
+  engagementKind: JobCardEngagementKind;
+  startsAt: string;
+  endsAt: string;
+  excludeJobId?: string;
+};
+export type CustomerVisitDuplicate = { jobCardId: string; jobPath: string };
+export type CustomerFrequencyAdvisory = {
+  source: 'SYSTEM';
+  windowDays: number;
+  countIncludingCandidate: number;
+};
 
 export type ActiveOnSiteJobRecord = {
   id: string;
@@ -66,7 +77,7 @@ export type CustomerScheduleReader = {
   ): Promise<RecentOnSiteVisitRecord[]>;
 };
 
-export type CustomerScheduleLevel = 'CLEAR' | 'WARNING' | 'CONFLICT' | 'FREQUENCY_EXCEEDED';
+export type CustomerScheduleLevel = 'CLEAR' | 'WARNING';
 
 export type CustomerScheduleConflictDetail = {
   jobCardId: string;
@@ -98,39 +109,8 @@ export type CustomerScheduleEvaluation = {
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const MAX_TZ_OFFSET_MS = 15 * 60 * 60 * 1000;
 
-export type CustomerScheduleSnapshot = Readonly<{
-  timezone: string;
-  activeJobs: readonly ActiveOnSiteJobRecord[];
-  recentVisits: readonly RecentOnSiteVisitRecord[];
-}>;
-
 /**
- * Adapter used by bounded joint-slot evaluation. It preserves the canonical
- * customer evaluator while ensuring every candidate reads the same already
- * loaded snapshot instead of issuing candidate-sized database queries.
- */
-export function createCustomerScheduleSnapshotReader(
-  snapshot: CustomerScheduleSnapshot,
-): CustomerScheduleReader {
-  const inRange = (value: string, from: Date, to: Date) => {
-    const timestamp = new Date(value).valueOf();
-    return timestamp >= from.valueOf() && timestamp <= to.valueOf();
-  };
-  return {
-    async getOrganizationTimezone() {
-      return snapshot.timezone;
-    },
-    async listActiveOnSiteJobs(_organizationId, _customerId, from, to) {
-      return snapshot.activeJobs.filter((job) => inRange(job.scheduledAt, from, to));
-    },
-    async listRecentOnSiteVisits(_organizationId, _customerId, from, to) {
-      return snapshot.recentVisits.filter((visit) => inRange(visit.occurredAt, from, to));
-    },
-  };
-}
-
-/**
- * Maximum number of ON_SITE commitments/history records (including the
+ * Maximum number of observed Customer contact records (including the
  * candidate itself) inside any contiguous `windowDays`-calendar-day window that
  * contains the candidate's local date. This is a true rolling window: records
  * are only counted when a single window spans them, never a past-union-future
@@ -162,6 +142,7 @@ export type EvaluateCustomerScheduleInput = {
   customerId: string | null;
   proposedAt: Date;
   jobType: JobCardType;
+  engagementKind?: JobCardEngagementKind | null;
   excludeJobId?: string;
   now: Date;
 };
@@ -169,112 +150,42 @@ export type EvaluateCustomerScheduleInput = {
 export async function evaluateCustomerSchedule(
   input: EvaluateCustomerScheduleInput,
 ): Promise<CustomerScheduleEvaluation> {
-  const { reader, organizationId, customerId, proposedAt, jobType, excludeJobId, now } = input;
-  if (customerId === null || !isOnSiteJobType(jobType)) {
-    return {
-      level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
-      suggestedAlternativeAt: null, frequencyCount: 0,
-    };
-  }
+  const { reader, organizationId, customerId, proposedAt, jobType, excludeJobId } = input;
+  const clear: CustomerScheduleEvaluation = {
+    level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+    suggestedAlternativeAt: null, frequencyCount: 0,
+  };
+  if (customerId === null || !observesCustomerFrequency(jobType, input.engagementKind ?? 'SALES_MEETING')) return clear;
   const timezone = await reader.getOrganizationTimezone(organizationId);
-  const horizonFrom = new Date(proposedAt.valueOf() - MAX_TZ_OFFSET_MS);
-  const horizonTo = new Date(
-    proposedAt.valueOf() + (FOLLOW_UP_SEARCH_HORIZON_DAYS + 1) * DAY_MS + MAX_TZ_OFFSET_MS,
-  );
-  const activeJobs = (await reader.listActiveOnSiteJobs(
-    organizationId, customerId, horizonFrom, horizonTo,
-  )).filter((job) => job.id !== excludeJobId);
-
-  const occupiedDates = new Set(activeJobs.map((job) => localDateKey(new Date(job.scheduledAt), timezone)));
-  const proposedDate = localDateKey(proposedAt, timezone);
-  const conflicts = activeJobs
-    .filter((job) => localDateKey(new Date(job.scheduledAt), timezone) === proposedDate)
-    .map((job): CustomerScheduleConflictDetail => ({
-      jobCardId: job.id,
-      title: job.title,
-      scheduledAt: job.scheduledAt,
-      type: job.type,
-      status: job.status,
-      assignee: { id: job.assignedTo, name: job.assigneeName },
-      jobPath: `/jobs/${job.id}`,
-    }));
-
-  const recentVisits = await reader.listRecentOnSiteVisits(
-    organizationId,
-    customerId,
-    new Date(proposedAt.valueOf() - RECENT_VISIT_WARNING_DAYS * DAY_MS),
-    proposedAt,
-  );
-  const recentVisitRecord = recentVisits.reduce<RecentOnSiteVisitRecord | null>(
-    (latest, visit) => (
-      latest === null || new Date(visit.occurredAt).valueOf() > new Date(latest.occurredAt).valueOf()
-        ? visit : latest),
-    null,
-  );
-  const recentVisit: RecentVisitSummary | null = recentVisitRecord === null
-    ? null
-    : {
-        occurredAt: recentVisitRecord.occurredAt,
-        jobType: recentVisitRecord.type,
-        title: recentVisitRecord.title,
-        staffName: recentVisitRecord.staffName,
-        resultSummary: recentVisitRecord.resultSummary,
-      };
-
-  const frequencyPast = await reader.listRecentOnSiteVisits(
-    organizationId,
-    customerId,
-    new Date(proposedAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * DAY_MS - MAX_TZ_OFFSET_MS),
-    proposedAt,
-  );
-  const frequencyFuture = activeJobs.filter((job) => {
-    const value = new Date(job.scheduledAt).valueOf();
-    return value > proposedAt.valueOf()
-      && value <= proposedAt.valueOf() + FREQUENT_VISIT_WINDOW_DAYS * DAY_MS + MAX_TZ_OFFSET_MS;
-  });
+  const from = new Date(proposedAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * DAY_MS - MAX_TZ_OFFSET_MS);
+  const to = new Date(proposedAt.valueOf() + FREQUENT_VISIT_WINDOW_DAYS * DAY_MS + MAX_TZ_OFFSET_MS);
+  // Reader queries select only the explicitly observed engagement kinds.
+  // Count each row once, including overdue active plans on the past side.
+  const activeJobs = (await reader.listActiveOnSiteJobs(organizationId, customerId, from, to))
+    .filter((job) => job.id !== excludeJobId && job.type === 'SALES_MEETING');
+  const recentVisits = (await reader.listRecentOnSiteVisits(organizationId, customerId, from, proposedAt))
+    .filter((visit) => visit.id !== excludeJobId && visit.type === 'SALES_MEETING');
+  const dates = new Map<string, string>();
+  for (const job of activeJobs) dates.set(job.id, localDateKey(new Date(job.scheduledAt), timezone));
+  for (const visit of recentVisits) dates.set(visit.id, localDateKey(new Date(visit.occurredAt), timezone));
   const frequencyCount = maxCommitmentsInWindow(
-    proposedDate,
-    [
-      ...frequencyPast.map((visit) => localDateKey(new Date(visit.occurredAt), timezone)),
-      ...frequencyFuture.map((job) => localDateKey(new Date(job.scheduledAt), timezone)),
-    ],
-    FREQUENT_VISIT_WINDOW_DAYS,
+    localDateKey(proposedAt, timezone), [...dates.values()], FREQUENT_VISIT_WINDOW_DAYS,
   );
-  const frequencyExceeded = frequencyCount > FREQUENT_VISIT_MAX_COUNT;
-
-  let suggestedAlternativeAt: string | null = null;
-  if (conflicts.length > 0) {
-    // The suggestion keeps the proposed wall clock and moves forward one
-    // organization-local calendar day at a time. WORKING-DAY V1: it must never
-    // land on a Sunday, nor on a Saturday whose canonical duration spills past
-    // local midnight into Sunday — so the shared occupied-interval predicate
-    // gates every candidate. Existing occupied-date and bounded-search
-    // semantics are unchanged.
-    const alternativeDurationMs = canonicalScheduledDurationMs(jobType) ?? 0;
-    let candidate = proposedAt;
-    for (let step = 0; step < FOLLOW_UP_SEARCH_HORIZON_DAYS; step += 1) {
-      candidate = advanceByOneDay(candidate, timezone);
-      if (occupiedDates.has(localDateKey(candidate, timezone))) continue;
-      const candidateEnd = new Date(candidate.valueOf() + alternativeDurationMs);
-      if (occupiesNonWorkingDay({ startsAt: candidate, endsAt: candidateEnd, timezone })) continue;
-      suggestedAlternativeAt = candidate.toISOString();
-      break;
-    }
-  }
-
-  let level: CustomerScheduleLevel = 'CLEAR';
-  let safeMessage: string | null = null;
-  if (conflicts.length > 0) {
-    level = 'CONFLICT';
-    safeMessage = 'Bu müşteri için yakın tarihte başka bir iş planlandı.';
-  } else if (frequencyExceeded) {
-    level = 'FREQUENCY_EXCEEDED';
-    safeMessage = 'Bu ziyaret, müşteri için 14 günlük bir dönemde ziyaret sıklığı sınırını aşıyor.';
-  } else if (recentVisit !== null) {
-    level = 'WARNING';
-    safeMessage = 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.';
-  }
-
-  void now;
-  return { level, safeMessage, conflicts, recentVisit, suggestedAlternativeAt, frequencyCount };
+  const latest = recentVisits.filter((visit) => Date.parse(visit.occurredAt)
+    >= proposedAt.valueOf() - RECENT_VISIT_WARNING_DAYS * DAY_MS)
+    .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))[0];
+  const recentVisit: RecentVisitSummary | null = latest ? {
+    occurredAt: latest.occurredAt, jobType: latest.type, title: latest.title,
+    staffName: latest.staffName, resultSummary: latest.resultSummary,
+  } : null;
+  const notable = frequencyCount > FREQUENT_VISIT_ADVISORY_THRESHOLD;
+  return {
+    ...clear,
+    level: notable || recentVisit !== null ? 'WARNING' : 'CLEAR',
+    safeMessage: notable
+      ? `Bu plan dahil, müşteriyle 14 günlük yakın dönem içinde ${frequencyCount} saha teması planlandı veya gerçekleştirildi.`
+      : recentVisit ? 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.' : null,
+    recentVisit,
+    frequencyCount,
+  };
 }

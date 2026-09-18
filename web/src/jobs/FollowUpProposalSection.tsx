@@ -32,10 +32,8 @@ export type FollowUpProposalSectionProps = {
   assigneeName: string;
   assignees?: RelatedName[];
   allowTypeEdit: boolean;
-  overrideReason: string;
   inlineError: string | null;
   onChange: (next: Partial<FollowUpDraft>) => void;
-  onOverrideReasonChange: (value: string) => void;
   onUseSuggestedAlternative: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
   /**
@@ -89,10 +87,8 @@ export function FollowUpProposalSection({
   assigneeName,
   assignees = [],
   allowTypeEdit,
-  overrideReason,
   inlineError,
   onChange,
-  onOverrideReasonChange,
   onUseSuggestedAlternative,
   initialFocusRef,
   autoSupported = false,
@@ -104,7 +100,6 @@ export function FollowUpProposalSection({
   const scheduledLocal = draft?.scheduledAt
     ? isoInstantToLocalDateTime(draft.scheduledAt)
     : '';  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const frequencyExceeded = evaluation?.level === 'FREQUENCY_EXCEEDED';
   const staffAuto = mode === 'staff' && autoSupported;
 
   return (
@@ -321,7 +316,7 @@ export function FollowUpProposalSection({
 
           {evaluation?.conflicts && evaluation.conflicts.length > 0 && (
             <div className="follow-up-conflict-list" role="alert">
-              <p className="field-error">Aynı müşteri için aynı tarihte başka bir plan bulunuyor:</p>
+              <p className="field-error">Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor:</p>
               <ul>
                 {evaluation.conflicts.map((conflict) => (
                   <li key={conflict.jobCardId}>
@@ -361,21 +356,9 @@ export function FollowUpProposalSection({
             </div>
           )}
 
-          {frequencyExceeded && (
-            <div className="follow-up-frequency-warning" role="alert">
-              <p className="follow-up-recent-visit-title">Sık ziyaret uyarısı</p>
-              <p className="form-help">Bu ziyaret, müşteri için 14 günlük bir dönemde
-                ziyaret sıklığı sınırını aşıyor. Yeni ziyareti yine de planlamak için nedeni belirtin.</p>
-              <div className="field-group">
-                <label htmlFor="follow-up-override-reason">Neden *</label>
-                <textarea
-                  id="follow-up-override-reason"
-                  rows={2}
-                  maxLength={2000}
-                  value={overrideReason}
-                  onChange={(event) => onOverrideReasonChange(event.target.value)}
-                />
-              </div>
+          {evaluation?.safeMessage && evaluation.level === 'WARNING' && (
+            <div className="follow-up-frequency-warning" role="status">
+              <p className="form-help">{evaluation.safeMessage}</p>
             </div>
           )}
         </div>

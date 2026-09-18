@@ -4,7 +4,7 @@ import {
   FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
   FOLLOW_UP_MIN_LEAD_MINUTES,
   FOLLOW_UP_SEARCH_HORIZON_DAYS,
-  FREQUENT_VISIT_MAX_COUNT,
+  FREQUENT_VISIT_ADVISORY_THRESHOLD,
   FREQUENT_VISIT_WINDOW_DAYS,
   RECENT_VISIT_WARNING_DAYS,
   advanceByOneDay,
@@ -88,10 +88,11 @@ describe('follow-up policy V1 constants', () => {
     expect(followUpLeadReferenceAt({ meetingAt: null, requestAt })).toEqual(requestAt);
   });
 
-  it('keeps the recent-visit and frequency windows with max 3', () => {
+  it('keeps the recent-visit and frequency windows with advisory threshold 3', () => {
     expect(RECENT_VISIT_WARNING_DAYS).toBe(7);
     expect(FREQUENT_VISIT_WINDOW_DAYS).toBe(14);
-    expect(FREQUENT_VISIT_MAX_COUNT).toBe(3);
+    // Advisory trigger only; never a write limit.
+    expect(FREQUENT_VISIT_ADVISORY_THRESHOLD).toBe(3);
   });
 
   it('maps follow-up type defaults', () => {

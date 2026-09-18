@@ -40,6 +40,8 @@ type Fixture = {
   submitSystemProposal(input: {
     title?: string;
     assignedTo?: string;
+    scheduledAt?: string;
+    scheduledEndsAt?: string;
   }): Promise<JobCard>;
   submitExplicitProposal(input: {
     title?: string;
@@ -119,6 +121,10 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     const submitSystemProposal: Fixture['submitSystemProposal'] = async (input = {}) => {
       const title = input.title ?? 'Klinik ziyareti';
       const assignedTo = input.assignedTo ?? staffA.id;
+      // Distinct sources must not share the duplicate identity (same
+      // Customer + Staff + kind + overlapping interval).
+      const scheduledAt = input.scheduledAt ?? '2026-08-01T10:00:00.000Z';
+      const scheduledEndsAt = input.scheduledEndsAt ?? '2026-08-01T11:00:00.000Z';
       const created = await service.create(staffA, {
         clientActionId: randomUUID(),
         type: 'SALES_MEETING',
@@ -129,8 +135,8 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
         assignedTo,
         priority: 'normal',
         dueDate: null,
-        scheduledAt: '2026-08-01T10:00:00.000Z',
-        scheduledEndsAt: '2026-08-01T11:00:00.000Z',
+        scheduledAt,
+        scheduledEndsAt,
         engagementKind: 'CUSTOMER_VISIT',
       } as never);
       const started = await service.start(staffA, created.id, {
@@ -515,7 +521,11 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
         dueDate: null,
       });
 
-      const second = await submitSystemProposal({ title: 'İkinci ziyaret' });
+      const second = await submitSystemProposal({
+        title: 'İkinci ziyaret',
+        scheduledAt: '2026-08-01T12:00:00.000Z',
+        scheduledEndsAt: '2026-08-01T13:00:00.000Z',
+      });
       await expect(service.approve(manager, second.id, {
         clientActionId: randomUUID(),
         expectedVersion: second.version,
@@ -584,7 +594,11 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
       // The mandatory follow-up contract pins valid types to SALES_MEETING, so
       // a different caller-supplied type must be rejected rather than silently
       // replaced by the persisted value.
-      const second = await submitSystemProposal({ title: 'Üçüncü ziyaret' });
+      const second = await submitSystemProposal({
+        title: 'Üçüncü ziyaret',
+        scheduledAt: '2026-08-01T14:00:00.000Z',
+        scheduledEndsAt: '2026-08-01T15:00:00.000Z',
+      });
       await expect(service.approve(manager, second.id, {
         clientActionId: randomUUID(),
         expectedVersion: second.version,

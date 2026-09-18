@@ -163,7 +163,7 @@ describe.skipIf(!databaseUrl)('available slots PostgreSQL authority', () => {
     );
   }
 
-  it('uses the canonical positive blocking set, customer policy, and half-open SQL overlap', async () => {
+  it('uses the canonical positive blocking set, advisory customer policy, and half-open SQL overlap', async () => {
     const result = await service!.availableSlots(manager, {
       type: 'SALES_MEETING',
       customerId,
@@ -178,13 +178,13 @@ describe.skipIf(!databaseUrl)('available slots PostgreSQL authority', () => {
         endsAt: '2026-08-17T15:00:00.000Z',
       },
       {
-        startsAt: '2026-08-22T14:00:00.000Z',
-        endsAt: '2026-08-22T15:00:00.000Z',
+        startsAt: '2026-08-21T14:00:00.000Z',
+        endsAt: '2026-08-21T15:00:00.000Z',
       },
     ]);
     expect(result.slots.map((slot) => slot.startsAt)).not.toContain('2026-08-18T14:00:00.000Z');
     expect(result.slots.map((slot) => slot.startsAt)).not.toContain('2026-08-19T14:00:00.000Z');
     expect(result.slots.map((slot) => slot.startsAt)).not.toContain('2026-08-20T14:00:00.000Z');
-    expect(result.slots.map((slot) => slot.startsAt)).not.toContain('2026-08-21T14:00:00.000Z');
+    expect(result.slots.map((slot) => slot.startsAt)).toContain('2026-08-21T14:00:00.000Z');
   });
 });

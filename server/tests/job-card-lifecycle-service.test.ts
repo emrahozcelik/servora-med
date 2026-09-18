@@ -212,6 +212,7 @@ class LifecycleRepository implements JobCardRepository {
       getAssigneeForUpdate: async () => this.assignee,
       getCustomerForUpdate: async () => ({ id: 'customer-1', status: 'active' }),
       getOrganizationTimezone: async () => this.timezone,
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => this.activeOnSiteJobs,
       listRecentOnSiteVisits: async () => this.recentOnSiteVisits,
       listAssigneeCalendarIntervals: async () => [],

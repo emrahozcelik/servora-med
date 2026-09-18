@@ -37,7 +37,7 @@ const activeJob = (overrides: Partial<ActiveOnSiteJobRecord> = {}): ActiveOnSite
   id: 'job-1',
   title: 'Ürün teslimatı',
   scheduledAt: '2026-08-08T10:00:00.000Z',
-  type: 'PRODUCT_DELIVERY',
+  type: 'SALES_MEETING',
   status: 'ACCEPTED',
   assignedTo: 'staff-2',
   assigneeName: 'Bora Yılmaz',
@@ -46,7 +46,7 @@ const activeJob = (overrides: Partial<ActiveOnSiteJobRecord> = {}): ActiveOnSite
 
 const visit = (overrides: Partial<RecentOnSiteVisitRecord> = {}): RecentOnSiteVisitRecord => ({
   id: 'visit-1',
-  type: 'PRODUCT_DELIVERY',
+  type: 'SALES_MEETING',
   title: 'Ürün teslimatı',
   occurredAt: '2026-08-05T09:00:00.000Z',
   staffName: 'Bora Yılmaz',
@@ -106,26 +106,25 @@ describe('evaluateCustomerSchedule', () => {
     expect(taskResult.level).toBe('CLEAR');
   });
 
-  it('CSI-1: detects a same-Customer future ON_SITE job on the same local date', async () => {
+  it('CSI-1: allows a same-Customer plan on the same local date', async () => {
     const result = await evaluateCustomerSchedule({
       ...baseInput(),
       reader: stubReader({
         activeJobs: [activeJob({ id: 'other', scheduledAt: '2026-08-08T08:00:00.000Z' })],
       }),
     });
-    expect(result.level).toBe('CONFLICT');
-    expect(result.conflicts).toHaveLength(1);
-    expect(result.conflicts[0]).toMatchObject({ jobCardId: 'other', title: 'Ürün teslimatı' });
+    expect(result.level).toBe('CLEAR');
+    expect(result.conflicts).toEqual([]);
   });
 
-  it('CSI-2: detects another Staff member\'s Job regardless of assignee', async () => {
+  it('CSI-2: does not block another Staff member\'s contact', async () => {
     const result = await evaluateCustomerSchedule({
       ...baseInput(),
       reader: stubReader({
         activeJobs: [activeJob({ assignedTo: 'someone-else', assigneeName: 'Ayşe K' })],
       }),
     });
-    expect(result.level).toBe('CONFLICT');
+    expect(result.level).toBe('CLEAR');
   });
 
   it('ignores the excluded JobCard itself', async () => {
@@ -154,7 +153,7 @@ describe('evaluateCustomerSchedule', () => {
       }),
     });
     expect(result.level).toBe('WARNING');
-    expect(result.recentVisit).toMatchObject({ jobType: 'PRODUCT_DELIVERY', staffName: 'Bora Yılmaz' });
+    expect(result.recentVisit).toMatchObject({ jobType: 'SALES_MEETING', staffName: 'Bora Yılmaz' });
   });
 
   it('ignores visits older than the recent window', async () => {
@@ -168,7 +167,7 @@ describe('evaluateCustomerSchedule', () => {
     expect(result.recentVisit).toBeNull();
   });
 
-  it('CSI-8/9: suggests the earliest conflict-free alternative within the horizon', async () => {
+  it('CSI-8/9: does not suggest another day solely due to Customer plans', async () => {
     const result = await evaluateCustomerSchedule({
       ...baseInput({ proposedAt: instant('2026-08-08T10:30:00.000Z') }),
       reader: stubReader({
@@ -178,18 +177,18 @@ describe('evaluateCustomerSchedule', () => {
         ],
       }),
     });
-    expect(result.level).toBe('CONFLICT');
-    expect(result.suggestedAlternativeAt).toBe('2026-08-10T10:30:00.000Z');
+    expect(result.level).toBe('CLEAR');
+    expect(result.suggestedAlternativeAt).toBeNull();
   });
 
-  it('does not specially skip weekends when suggesting alternatives', async () => {
+  it('does not move a Customer contact solely due to its date', async () => {
     const result = await evaluateCustomerSchedule({
       ...baseInput({ proposedAt: instant('2026-08-14T10:30:00.000Z') }), // Friday
       reader: stubReader({
         activeJobs: [activeJob({ scheduledAt: '2026-08-14T08:00:00.000Z' })],
       }),
     });
-    expect(result.suggestedAlternativeAt).toBe('2026-08-15T10:30:00.000Z'); // Saturday
+    expect(result.suggestedAlternativeAt).toBeNull(); // Saturday
   });
 
   it('returns null alternative when every horizon day is occupied', async () => {
@@ -205,7 +204,7 @@ describe('evaluateCustomerSchedule', () => {
     expect(result.suggestedAlternativeAt).toBeNull();
   });
 
-  it('CSI-12: a 4th visit/commitment in 14 days exceeds the frequency guard', async () => {
+  it('CSI-12: a 4th visit/commitment in 14 days triggers informational frequency', async () => {
     const proposedAt = instant('2026-08-15T10:30:00.000Z');
     const result = await evaluateCustomerSchedule({
       ...baseInput({ proposedAt }),
@@ -220,11 +219,11 @@ describe('evaluateCustomerSchedule', () => {
         })],
       }),
     });
-    expect(result.level).toBe('FREQUENCY_EXCEEDED');
+    expect(result.level).toBe('WARNING');
     expect(result.frequencyCount).toBe(4);
   });
 
-  it('stays below the guard for exactly 3 commitments', async () => {
+  it('stays below the advisory trigger for exactly 3 commitments', async () => {
     const proposedAt = instant('2026-08-15T10:30:00.000Z');
     const result = await evaluateCustomerSchedule({
       ...baseInput({ proposedAt }),
@@ -236,7 +235,7 @@ describe('evaluateCustomerSchedule', () => {
         })],
       }),
     });
-    expect(result.level).not.toBe('FREQUENCY_EXCEEDED');
+    expect(result.level).not.toBe('CONFLICT');
     expect(result.frequencyCount).toBe(3);
   });
 
@@ -255,7 +254,7 @@ describe('evaluateCustomerSchedule', () => {
         })],
       }),
     });
-    expect(result.level).not.toBe('FREQUENCY_EXCEEDED');
+    expect(result.level).not.toBe('CONFLICT');
     expect(result.frequencyCount).toBe(3);
   });
 
@@ -271,7 +270,7 @@ describe('evaluateCustomerSchedule', () => {
         ],
       }),
     });
-    expect(result.level).toBe('FREQUENCY_EXCEEDED');
+    expect(result.level).toBe('WARNING');
     expect(result.frequencyCount).toBe(4);
   });
 
@@ -287,7 +286,7 @@ describe('evaluateCustomerSchedule', () => {
         ],
       }),
     });
-    expect(result.level).toBe('FREQUENCY_EXCEEDED');
+    expect(result.level).toBe('WARNING');
     expect(result.frequencyCount).toBe(4);
   });
 
@@ -296,7 +295,7 @@ describe('evaluateCustomerSchedule', () => {
     expect(count).toBe(3);
   });
 
-  it('prefers CONFLICT over FREQUENCY_EXCEEDED when both apply', async () => {
+  it('same-day contact contributes only to advisory frequency', async () => {
     const proposedAt = instant('2026-08-15T10:30:00.000Z');
     const result = await evaluateCustomerSchedule({
       ...baseInput({ proposedAt }),
@@ -311,6 +310,7 @@ describe('evaluateCustomerSchedule', () => {
         ],
       }),
     });
-    expect(result.level).toBe('CONFLICT');
+    expect(result.level).toBe('WARNING');
+    expect(result.frequencyCount).toBe(5);
   });
 });

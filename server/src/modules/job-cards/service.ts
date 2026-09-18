@@ -128,14 +128,15 @@ import {
   resolveFollowUpSearchHorizonAt,
 } from './follow-up-auto-scheduler.js';
 import {
-  createCustomerScheduleSnapshotReader,
   evaluateCustomerSchedule,
   isOnSiteJobType,
   MAX_TZ_OFFSET_MS,
   type CustomerScheduleEvaluation,
+  type CustomerFrequencyAdvisory,
 } from './customer-schedule.js';
 import {
   FREQUENT_VISIT_WINDOW_DAYS,
+  FREQUENT_VISIT_ADVISORY_THRESHOLD,
   FOLLOW_UP_SEARCH_HORIZON_DAYS,
   defaultFollowUpInstructions,
   defaultFollowUpType,
@@ -817,11 +818,12 @@ export class JobCardService {
             timezone: await transaction.getOrganizationTimezone(actor.organizationId),
           });
         }
-        const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
+        const frequencyAdvisory = await this.assessCustomerSchedule(transaction, actor, {
           customerId: input.customerId,
           proposedAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
           jobType: input.type,
-          overrideReason: (input as { overrideReason?: string | null }).overrideReason ?? null,
+          assignedTo: input.assignedTo,
+          engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
         });
         if (this.calendar.enabled
           && (input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
@@ -886,8 +888,8 @@ export class JobCardService {
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
           newValue: createdValue,
-          metadata: overrideReason !== null
-            ? { customerVisitOverrideReason: overrideReason }
+          metadata: frequencyAdvisory !== null
+            ? { customerFrequencyAdvisory: frequencyAdvisory }
             : undefined,
         });
         const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
@@ -960,12 +962,6 @@ export class JobCardService {
             endsAt: new Date(canonicalEnd),
             timezone: await transaction.getOrganizationTimezone(actor.organizationId),
           });
-          const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
-            customerId: input.customerId,
-            proposedAt: new Date(input.scheduledAt),
-            jobType: 'PRODUCT_DELIVERY',
-            overrideReason: input.overrideReason ?? null,
-          });
           if (this.calendar.enabled) {
             await transaction.assertCalendarAvailability({
               organizationId: actor.organizationId,
@@ -1021,7 +1017,6 @@ export class JobCardService {
             organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
             event: 'JOB_CREATED', clientActionId: input.clientActionId,
             newValue: createdValue,
-            metadata: overrideReason !== null ? { customerVisitOverrideReason: overrideReason } : undefined,
           });
           const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
             activity, organizationId: actor.organizationId, jobCardId: job.id,
@@ -1129,7 +1124,6 @@ export class JobCardService {
         // source inherits the source dataset directly (never from client input).
         await this.assertFollowUpDepth(transaction, source);
 
-        let followUpOverrideReason: string | null = null;
         const lockedAssignee = lockedAssignees.get(input.assignedTo) ?? null;
         if (source.customerId === null) {
           if (input.contactId !== null) {
@@ -1156,16 +1150,6 @@ export class JobCardService {
             source.customerId,
             input.contactId,
           );
-          // Customer scheduling for post-hoc follow-up: the source is already
-          // COMPLETED, so it is never part of the active set; evaluate the
-          // manually selected child date against the inherited Customer.
-          followUpOverrideReason = await this.enforceCustomerSchedule(transaction, actor, {
-            customerId: source.customerId,
-            proposedAt: input.scheduledAt !== null ? new Date(input.scheduledAt) : null,
-            jobType: input.type,
-            overrideReason: input.overrideReason,
-            errorMode: 'follow-up',
-          });
         }
 
         const childDataClass: 'BUSINESS' | 'DEMO' =
@@ -1191,9 +1175,6 @@ export class JobCardService {
           demoDatasetId: childDemoDatasetId,
           activityMetadata: {
             sourceJobCardId,
-            ...(followUpOverrideReason !== null
-              ? { customerVisitOverrideReason: followUpOverrideReason }
-              : {}),
           },
         });
         return { response: { jobCardId: job.id }, realtimeEvents };
@@ -1235,7 +1216,7 @@ export class JobCardService {
         acceptedAt: Date;
         acceptedBy: string;
       };
-      activityMetadata?: unknown;
+      activityMetadata?: Record<string, unknown>;
     },
   ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
     const assignee = input.assignee;
@@ -1266,6 +1247,11 @@ export class JobCardService {
         timezone: await transaction.getOrganizationTimezone(actor.organizationId),
       });
     }
+    const frequencyAdvisory = await this.assessCustomerSchedule(transaction, actor, {
+      customerId: input.customerId, jobType: input.type,
+      proposedAt: input.scheduledAt === null ? null : new Date(input.scheduledAt),
+      scheduledEndsAt, assignedTo: input.assignedTo, engagementKind: input.engagementKind,
+    });
     if (this.calendar.enabled && input.scheduledAt !== null && scheduledEndsAt !== null) {
       try {
         await transaction.assertCalendarAvailability({
@@ -1341,9 +1327,10 @@ export class JobCardService {
       event: 'JOB_CREATED',
       clientActionId: input.clientActionId,
       newValue: createdValue,
-      metadata: input.activityMetadata === undefined
-        ? { sourceJobCardId: input.sourceJobCardId }
-        : input.activityMetadata,
+      metadata: {
+        sourceJobCardId: input.sourceJobCardId, ...input.activityMetadata,
+        ...(frequencyAdvisory ? { customerFrequencyAdvisory: frequencyAdvisory } : {}),
+      },
     });
     const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
       activity,
@@ -1587,7 +1574,6 @@ export class JobCardService {
       status?: JobCardStatus;
       clearAcceptance?: boolean;
     };
-    const overrideReasonInput = fields.overrideReason ?? null;
     delete fields.overrideReason;
     if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
@@ -1832,13 +1818,16 @@ export class JobCardService {
       }
       const customerChanged = fields.customerId !== undefined
         && fields.customerId !== job.customerId;
-      const overrideReason = (scheduleChanged || customerChanged)
-        ? await this.enforceCustomerSchedule(transaction, actor, {
+      const engagementChanged = fields.engagementKind !== undefined && fields.engagementKind !== job.engagementKind;
+      const frequencyAdvisory = (scheduleChanged || customerChanged || assigneeChanged || engagementChanged)
+        ? await this.assessCustomerSchedule(transaction, actor, {
             customerId: nextCustomerId,
             proposedAt: nextScheduledAt !== null ? new Date(nextScheduledAt) : null,
             jobType: job.type,
             excludeJobId: job.id,
-            overrideReason: overrideReasonInput,
+            assignedTo: fields.assignedTo ?? job.assignedTo,
+            engagementKind: fields.engagementKind ?? job.engagementKind,
+            scheduledEndsAt: nextScheduledEndsAt,
           })
         : null;
       if (this.calendar.enabled && isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
@@ -1957,8 +1946,8 @@ export class JobCardService {
           event: 'JOB_FIELDS_UPDATED',
           oldValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, job[key as keyof typeof job]])),
           newValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, updated[key as keyof typeof updated]])),
-          metadata: overrideReason !== null
-            ? { customerVisitOverrideReason: overrideReason }
+          metadata: frequencyAdvisory !== null
+            ? { customerFrequencyAdvisory: frequencyAdvisory }
             : undefined,
         });
         realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
@@ -2495,7 +2484,6 @@ export class JobCardService {
         let submissionMeetingDetails: MeetingDetailsCandidate | null = null;
         let approval: {
           proposal: ValidatedFollowUpProposal;
-          overrideReason: string | null;
           priority: JobCardPriority;
           dueDate: string | null;
         } | null = null;
@@ -2541,7 +2529,6 @@ export class JobCardService {
                 },
               );
             if (!autoScheduled) {
-              await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
             }
             persistedProposal = {
               scheduledAt: new Date(proposal.scheduledAt),
@@ -2611,9 +2598,6 @@ export class JobCardService {
               assignedTo: approval.proposal.assignedTo,
               followUpInstructions: approval.proposal.followUpInstructions,
             },
-            ...(approval.overrideReason
-              ? { customerVisitOverrideReason: approval.overrideReason }
-              : {}),
           };
         }
 
@@ -2733,9 +2717,6 @@ export class JobCardService {
               : {}),
             activityMetadata: {
               sourceJobCardId: jobCardId,
-              ...(approval.overrideReason
-                ? { customerVisitOverrideReason: approval.overrideReason }
-                : {}),
             },
           });
           followUpJobCardId = child.job.id;
@@ -3301,123 +3282,51 @@ export class JobCardService {
     };
   }
 
-  /** Advisory evaluation at Staff submission; never blocks, informs the suggestion only. */
-  private evaluateProposalAdvisory(
-    tx: JobCardTransaction,
-    actor: JobCardActor,
-    job: JobCard,
-    proposal: FollowUpProposalFields,
-    requestTime: Date,
-  ): Promise<CustomerScheduleEvaluation> {
-    return evaluateCustomerSchedule({
-      reader: tx,
-      organizationId: actor.organizationId,
-      customerId: job.customerId,
-      proposedAt: new Date(proposal.scheduledAt),
-      jobType: proposal.type,
-      excludeJobId: job.id,
-      now: requestTime,
-    });
-  }
-
-  /**
-   * Authoritative evaluation at Manager approval. The caller has already
-   * acquired User and source JobCard locks; Customer is the next resource
-   * class so same-Customer scheduling decisions serialize and a waiting
-   * transaction sees the first one's committed child.
-   */
-  private async evaluateForApproval(
-    tx: JobCardTransaction,
-    actor: JobCardActor,
-    job: JobCard,
-    proposal: FollowUpProposalFields,
-    requestTime: Date,
-  ): Promise<CustomerScheduleEvaluation> {
-    if (job.customerId !== null) {
-      const customer = await tx.getCustomerForUpdate(actor.organizationId, job.customerId);
-      if (!customer) {
-        throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
-      }
-    }
-    return evaluateCustomerSchedule({
-      reader: tx,
-      organizationId: actor.organizationId,
-      customerId: job.customerId,
-      proposedAt: new Date(proposal.scheduledAt),
-      jobType: proposal.type,
-      excludeJobId: job.id,
-      now: requestTime,
-    });
-  }
-
-  /**
-   * Authoritative Customer-schedule enforcement for normal ON_SITE writers
-   * (create, patch/reschedule, post-hoc follow-up). Returns a normalized
-   * override reason when a Manager/Admin overrides FREQUENCY_EXCEEDED, or
-   * null when no override occurred. The caller is responsible for locking the
-   * target Customer row before invoking this so same-Customer decisions
-   * serialize. Error details are role-projected (Staff never sees other
-   * Staff's conflicts or recent-visit detail).
-   */
-  private async enforceCustomerSchedule(
+  /** Caller holds the Customer row lock, after User/JobCard locks. */
+  private async assertCustomerVisitUnique(
     tx: JobCardTransaction,
     actor: JobCardActor,
     input: {
-      customerId: string | null;
-      proposedAt: Date | null;
-      jobType: JobCardType;
-      excludeJobId?: string;
-      overrideReason?: string | null;
-      errorMode?: 'normal' | 'follow-up';
+      customerId: string | null; jobType: JobCardType; proposedAt: Date | null;
+      scheduledEndsAt?: string | null; assignedTo: string;
+      engagementKind: JobCardEngagementKind | null; excludeJobId?: string;
     },
-  ): Promise<string | null> {
-    if (input.customerId === null || !isOnSiteJobType(input.jobType) || input.proposedAt === null) {
-      return null;
-    }
-    const evaluation = await evaluateCustomerSchedule({
-      reader: tx,
-      organizationId: actor.organizationId,
-      customerId: input.customerId,
-      proposedAt: input.proposedAt,
-      jobType: input.jobType,
-      excludeJobId: input.excludeJobId,
-      now: this.now(),
+  ): Promise<void> {
+    if (input.jobType !== 'SALES_MEETING' || input.customerId === null
+      || input.proposedAt === null || input.engagementKind === null) return;
+    const startsAt = input.proposedAt.toISOString();
+    const endsAt = input.scheduledEndsAt ?? canonicalScheduledEnd('SALES_MEETING', startsAt);
+    if (endsAt === null) throw validation('scheduledAt');
+    const duplicate = await tx.findCustomerVisitDuplicate({
+      organizationId: actor.organizationId, customerId: input.customerId,
+      assignedTo: input.assignedTo, engagementKind: input.engagementKind,
+      startsAt, endsAt, excludeJobId: input.excludeJobId,
     });
-    const projected = this.projectEvaluation(actor, evaluation);
-    if (evaluation.level === 'CONFLICT') {
-      const followUp = input.errorMode === 'follow-up';
-      throw new AppError(
-        followUp ? 'FOLLOW_UP_CUSTOMER_CONFLICT' : 'CUSTOMER_SCHEDULE_CONFLICT',
-        409,
-        followUp
-          ? 'Aynı müşteri için aynı tarihte başka bir plan bulunuyor.'
-          : 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
-        {
-          conflicts: projected.conflicts,
-          suggestedAlternativeAt: projected.suggestedAlternativeAt,
-        },
-      );
-    }
-    if (evaluation.level === 'FREQUENCY_EXCEEDED') {
-      if (actor.role === 'STAFF' && input.errorMode !== 'follow-up') {
-        throw new AppError(
-          'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED',
-          409,
-          'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
-        );
-      }
-      if (typeof input.overrideReason !== 'string' || !input.overrideReason.trim()) {
-        throw new AppError(
-          input.errorMode === 'follow-up'
-            ? 'FOLLOW_UP_OVERRIDE_REASON_REQUIRED'
-            : 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED',
-          400,
-          'Sık ziyaret uyarısı için neden zorunludur.',
-        );
-      }
-      return boundedTrimmedString(input.overrideReason, 'overrideReason', 1, 2_000);
-    }
-    return null;
+    if (duplicate) throw new AppError(
+      'CUSTOMER_VISIT_DUPLICATE', 409,
+      'Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor.',
+      { conflicts: actor.role === 'STAFF' ? [] : [duplicate] },
+    );
+  }
+
+  /** Duplicate authorization and frequency observation remain independent. */
+  private async assessCustomerSchedule(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      customerId: string | null; proposedAt: Date | null; jobType: JobCardType;
+      scheduledEndsAt?: string | null; assignedTo: string;
+      engagementKind: JobCardEngagementKind | null; excludeJobId?: string;
+    },
+  ): Promise<CustomerFrequencyAdvisory | null> {
+    await this.assertCustomerVisitUnique(tx, actor, input);
+    if (input.proposedAt === null) return null;
+    const evaluation = await evaluateCustomerSchedule({
+      reader: tx, organizationId: actor.organizationId, ...input, proposedAt: input.proposedAt, now: this.now(),
+    });
+    return evaluation.frequencyCount > FREQUENT_VISIT_ADVISORY_THRESHOLD
+      ? { source: 'SYSTEM', windowDays: FREQUENT_VISIT_WINDOW_DAYS, countIncludingCandidate: evaluation.frequencyCount }
+      : null;
   }
 
   private async resolveApproveFollowUp(
@@ -3429,7 +3338,6 @@ export class JobCardService {
     lockedAssignees: ReadonlyMap<string, JobCardAssignee>,
   ): Promise<{
     proposal: ValidatedFollowUpProposal;
-    overrideReason: string | null;
     priority: JobCardPriority;
     dueDate: string | null;
   } | null> {
@@ -3484,7 +3392,6 @@ export class JobCardService {
       );
       return {
         proposal,
-        overrideReason: null,
         priority: normalizePriority(input?.priority),
         dueDate: normalizeFollowUpDueDate(input?.dueDate, proposal.type),
       };
@@ -3515,30 +3422,11 @@ export class JobCardService {
     );
     const priority = normalizePriority(input?.priority);
     const dueDate = normalizeFollowUpDueDate(input?.dueDate, proposal.type);
-    const evaluation = await this.evaluateForApproval(tx, actor, job, proposal, requestTime);
-    let overrideReason: string | null = null;
-    if (evaluation.level === 'FREQUENCY_EXCEEDED') {
-      if (typeof input?.overrideReason !== 'string' || !input.overrideReason.trim()) {
-        throw new AppError(
-          'FOLLOW_UP_OVERRIDE_REASON_REQUIRED',
-          400,
-          'Sık ziyaret uyarısı için neden zorunludur.',
-        );
-      }
-      overrideReason = boundedTrimmedString(input.overrideReason, 'followUp.overrideReason', 1, 2_000);
+    if (job.customerId !== null) {
+      const customer = await tx.getCustomerForUpdate(actor.organizationId, job.customerId);
+      if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
     }
-    if (evaluation.level === 'CONFLICT') {
-      throw new AppError(
-        'FOLLOW_UP_CUSTOMER_CONFLICT',
-        409,
-        'Aynı müşteri için aynı tarihte başka bir plan bulunuyor.',
-        {
-          conflicts: evaluation.conflicts,
-          suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
-        },
-      );
-    }
-    return { proposal, overrideReason, priority, dueDate };
+    return { proposal, priority, dueDate };
   }
 
   private async autoScheduleFollowUpProposal(
@@ -3637,23 +3525,6 @@ export class JobCardService {
     }
     const firstCandidate = firstSlot.value;
 
-    const snapshotFrom = new Date(
-      firstCandidate.startsAt.valueOf()
-        - FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
-        - MAX_TZ_OFFSET_MS,
-    );
-    const snapshotTo = new Date(
-      horizonAt.valueOf()
-        + durationMs
-        + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
-        + MAX_TZ_OFFSET_MS,
-    );
-    const activeJobs = await tx.listActiveOnSiteJobs(
-      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
-    );
-    const recentVisits = await tx.listRecentOnSiteVisits(
-      actor.organizationId, job.customerId, snapshotFrom, snapshotTo,
-    );
     const assigneeIntervals = await tx.listAssigneeCalendarIntervals(
       actor.organizationId,
       assignedTo,
@@ -3665,40 +3536,24 @@ export class JobCardService {
       startsAt: new Date(interval.startsAt),
       endsAt: new Date(interval.endsAt),
     }));
-    const customerReader = createCustomerScheduleSnapshotReader({
-      timezone,
-      activeJobs,
-      recentVisits,
-    });
     let current: IteratorResult<AvailableSlotCandidate, void> = { done: false, value: firstCandidate };
     while (!current.done) {
       const candidate = current.value;
       if (!isFollowUpSlotBlocked(candidate, blockers)) {
-        const evaluation = await evaluateCustomerSchedule({
-          reader: customerReader,
-          organizationId: actor.organizationId,
-          customerId: job.customerId,
-          proposedAt: candidate.startsAt,
-          jobType: type,
-          excludeJobId: job.id,
-          now: requestTime,
-        });
-        if (evaluation.level === 'CLEAR' || evaluation.level === 'WARNING') {
-          return {
-            scheduledAt: candidate.startsAt,
-            type,
-            assignedTo,
-            followUpInstructions: input === undefined
-              ? defaultFollowUpInstructions(job.title)
-              : boundedTrimmedString(
-                input.followUpInstructions,
-                'followUpProposal.followUpInstructions',
-                1,
-                4_000,
-              ),
-            assignee,
-          };
-        }
+        return {
+          scheduledAt: candidate.startsAt,
+          type,
+          assignedTo,
+          followUpInstructions: input === undefined
+            ? defaultFollowUpInstructions(job.title)
+            : boundedTrimmedString(
+              input.followUpInstructions,
+              'followUpProposal.followUpInstructions',
+              1,
+              4_000,
+            ),
+          assignee,
+        };
       }
       current = slotCandidates.next();
     }
@@ -3709,78 +3564,17 @@ export class JobCardService {
     );
   }
 
-  private async computeFollowUpSuggestion(
-    reader: JobCardTransaction,
-    actor: JobCardActor,
-    job: JobCard,
-    evaluatedAt: Date,
-  ): Promise<{
-    fields: FollowUpProposalFields | null;
-    baseEvaluation: CustomerScheduleEvaluation;
-    skippedConflict: boolean;
-  }> {
-    const timezone = await reader.getOrganizationTimezone(actor.organizationId);
-    const baseAt = suggestedFollowUpInstant({
-      evaluatedAt,
-      sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
-      timezone,
-      durationMs: canonicalScheduledDurationMs(defaultFollowUpType(job.type)),
-    });
-    const baseFields: FollowUpProposalFields = {
-      scheduledAt: baseAt,
-      type: defaultFollowUpType(job.type),
-      assignedTo: job.assignedTo,
-      followUpInstructions: defaultFollowUpInstructions(job.title),
-    };
-    return evaluateCustomerSchedule({
-      reader,
-      organizationId: actor.organizationId,
-      customerId: job.customerId,
-      proposedAt: baseAt,
-      jobType: baseFields.type,
-      excludeJobId: job.id,
-      now: evaluatedAt,
-    }).then((baseEvaluation) => {
-      if (baseEvaluation.level !== 'CONFLICT') {
-        return { fields: baseFields, baseEvaluation, skippedConflict: false };
-      }
-      if (baseEvaluation.suggestedAlternativeAt === null) {
-        return { fields: null, baseEvaluation, skippedConflict: false };
-      }
-      return {
-        fields: {
-          ...baseFields,
-          scheduledAt: new Date(baseEvaluation.suggestedAlternativeAt),
-        },
-        baseEvaluation,
-        skippedConflict: true,
-      };
-    });
-  }
-
   private projectEvaluation(
     actor: JobCardActor,
     evaluation: CustomerScheduleEvaluation,
-    overrides?: { safeMessage?: string | null; staffFrequencyMessage?: string | null },
   ): RoleProjectedCustomerScheduleEvaluation {
-    const safeMessage = overrides?.safeMessage !== undefined
-      ? overrides.safeMessage
-      : evaluation.safeMessage;
     if (actor.role === 'STAFF') {
-      return {
-        level: evaluation.level,
-        safeMessage: evaluation.level === 'FREQUENCY_EXCEEDED'
-          ? (overrides?.staffFrequencyMessage
-            ?? 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.')
-          : safeMessage,
-        conflicts: [],
-        recentVisit: null,
-        suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
-      };
+      return { level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null };
     }
+
     return {
       level: evaluation.level,
-      safeMessage,
+      safeMessage: evaluation.safeMessage,
       conflicts: evaluation.conflicts,
       recentVisit: evaluation.recentVisit === null
         ? null
@@ -3861,17 +3655,7 @@ export class JobCardService {
         evaluation: this.projectEvaluation(actor, evaluation),
       };
     }
-    const { fields, baseEvaluation, skippedConflict } = await this.repository
-      .executeTransaction((tx) => this.computeFollowUpSuggestion(tx, actor, job, this.now()));
-    if (fields === null) {
-      return {
-        scheduledAt: null,
-        type: defaultFields.type,
-        assignedTo: defaultFields.assignedTo,
-        followUpInstructions: defaultFields.followUpInstructions,
-        evaluation: this.projectEvaluation(actor, baseEvaluation),
-      };
-    }
+    const fields = defaultFields;
     const finalEvaluation = await this.repository.executeTransaction((tx) => (
       evaluateCustomerSchedule({
         reader: tx,
@@ -3888,11 +3672,7 @@ export class JobCardService {
       type: fields.type,
       assignedTo: fields.assignedTo,
       followUpInstructions: fields.followUpInstructions,
-      evaluation: this.projectEvaluation(actor, finalEvaluation, skippedConflict
-        ? {
-            safeMessage: 'Bu müşteri için yakın tarihte başka bir plan bulunduğundan sonraki uygun tarih önerildi.',
-          }
-        : undefined),
+      evaluation: this.projectEvaluation(actor, finalEvaluation),
     };
   }
 
@@ -3982,47 +3762,14 @@ export class JobCardService {
     if (candidates.length === 0) return { slots: [] };
 
     const lastCandidate = candidates[candidates.length - 1]!;
-    const snapshotFrom = new Date(
-      startsAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000 - MAX_TZ_OFFSET_MS,
+    const assigneeIntervals = await tx.listAssigneeCalendarIntervals(
+      actor.organizationId, input.assignedTo,
+      new Date(startsAt.valueOf() - MAX_TZ_OFFSET_MS),
+      new Date(lastCandidate.endsAt.valueOf() + MAX_TZ_OFFSET_MS),
+      excludeJobId ?? null,
     );
-    const snapshotTo = new Date(
-      lastCandidate.endsAt.valueOf()
-        + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
-        + MAX_TZ_OFFSET_MS,
-    );
-    const [activeJobs, recentVisits, assigneeIntervals] = await Promise.all([
-      tx.listActiveOnSiteJobs(actor.organizationId, input.customerId, snapshotFrom, snapshotTo),
-      tx.listRecentOnSiteVisits(actor.organizationId, input.customerId, snapshotFrom, snapshotTo),
-      tx.listAssigneeCalendarIntervals(
-        actor.organizationId,
-        input.assignedTo,
-        new Date(startsAt.valueOf() - MAX_TZ_OFFSET_MS),
-        new Date(lastCandidate.endsAt.valueOf() + MAX_TZ_OFFSET_MS),
-        excludeJobId ?? null,
-      ),
-    ]);
-    const customerReader = createCustomerScheduleSnapshotReader({
-      timezone,
-      activeJobs,
-      recentVisits,
-    });
-    const customerClearCandidates = [];
-    for (const candidate of candidates) {
-      const evaluation = await evaluateCustomerSchedule({
-        reader: customerReader,
-        organizationId: actor.organizationId,
-        customerId: input.customerId,
-        proposedAt: candidate.startsAt,
-        jobType: input.type,
-        excludeJobId,
-        now: this.now(),
-      });
-      if (evaluation.level !== 'CONFLICT' && evaluation.level !== 'FREQUENCY_EXCEEDED') {
-        customerClearCandidates.push(candidate);
-      }
-    }
     const available = filterAvailableSlotCandidates(
-      customerClearCandidates,
+      candidates,
       assigneeIntervals.map((interval) => ({
         startsAt: new Date(interval.startsAt),
         endsAt: new Date(interval.endsAt),
@@ -4063,13 +3810,11 @@ export class JobCardService {
       customerId: input.customerId,
       proposedAt,
       jobType: input.type,
+      engagementKind: input.engagementKind,
       excludeJobId,
       now: this.now(),
     });
-    return this.projectEvaluation(actor, evaluation, {
-      staffFrequencyMessage:
-        'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
-    });
+    return this.projectEvaluation(actor, evaluation);
   }
 
   private async resolveStartLocation(input: {

@@ -179,6 +179,7 @@ export type ProductDeliveryCreateInput = Extract<
 };
 
 export type CustomerSchedulePreviewInput = {
+  engagementKind?: JobCardEngagementKind | null;
   type: JobCardType;
   customerId: string | null;
   scheduledAt: string;

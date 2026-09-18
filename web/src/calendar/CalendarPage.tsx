@@ -128,23 +128,8 @@ function describeManualMutationError(caught: unknown): {
       conflicts: Array.isArray(raw) ? raw as Array<Record<string, unknown>> : [],
     };
   }
-  if (api.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
-    return {
-      message: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin; taslağınız korundu.',
-      conflicts: [],
-    };
-  }
-  if (api.code === 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED') {
-    return {
-      message: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
-      conflicts: [],
-    };
-  }
-  if (api.code === 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED') {
-    return {
-      message: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. İş detayından planlama nedenini belirterek kaydedebilirsiniz.',
-      conflicts: [],
-    };
+  if (api.code === 'CUSTOMER_VISIT_DUPLICATE') {
+    return { message: 'Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor. Taslağınız korundu.', conflicts: [] };
   }
   if (api.code === 'VERSION_CONFLICT') {
     return {

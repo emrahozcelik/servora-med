@@ -39,6 +39,7 @@ class ProductDeliveryRepository {
         organizationId === 'org-1' && id === 'customer-1' ? { id, status: 'active' as const } : null,
       getContactForUpdate: async () => null,
       getOrganizationTimezone: async () => 'Europe/Istanbul',
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async () => [],
       listRecentOnSiteVisits: async () => [],
       listAssigneeCalendarIntervals: async () => [],

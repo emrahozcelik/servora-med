@@ -102,20 +102,9 @@ function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
   element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
 }
 
-const conflictEvaluation = {
-  level: 'CONFLICT',
-  safeMessage: null,
-  conflicts: [{
-    jobCardId: 'j-other', title: 'A Klinik teslim', scheduledAt: '2026-07-01T09:00:00.000Z',
-    type: 'PRODUCT_DELIVERY', status: 'ACCEPTED',
-    assignee: { id: 'staff-2', name: 'Bora' }, jobPath: '/jobs/j-other',
-  }],
-  recentVisit: null,
-  suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
-};
 const frequencyEvaluation = {
-  level: 'FREQUENCY_EXCEEDED',
-  safeMessage: null,
+  level: 'WARNING',
+  safeMessage: 'Bu plan dahil 14 günde 5 saha teması.',
   conflicts: [],
   recentVisit: {
     occurredAt: '2026-07-10T00:00:00.000Z', jobType: 'SALES_MEETING',
@@ -123,15 +112,7 @@ const frequencyEvaluation = {
   },
   suggestedAlternativeAt: null,
 };
-// Real Staff-projected server shape: conflicts/recentVisit are stripped,
-// only safeMessage and suggestedAlternativeAt survive projection.
-const staffConflictEvaluation = {
-  level: 'CONFLICT',
-  safeMessage: 'Bu müşteri için yakın tarihte başka bir iş planlandı.',
-  conflicts: [],
-  recentVisit: null,
-  suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
-};
+// Real Staff-projected server shape: Staff previews are always CLEAR.
 const staffWarningEvaluation = {
   level: 'WARNING',
   safeMessage: 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.',
@@ -180,46 +161,41 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
     expect(jobs.previewCustomerSchedule).toHaveBeenCalledWith({
-      type: 'SALES_MEETING', customerId: 'c1',
+      type: 'SALES_MEETING', customerId: 'c1', engagementKind: 'CUSTOMER_VISIT',
       scheduledAt: localDateTimeToIso('2026-07-01T10:00'), jobCardId: null,
     });
   });
 
-  it('shows the conflict notice with alternative CTA and applies the alternative', async () => {
-    jobs.previewCustomerSchedule.mockResolvedValue(conflictEvaluation);
+  it('keeps a same-day second visit advisory and submits without blocking', async () => {
+    // Same Customer + same day is not a conflict: the preview stays advisory
+    // and the manager submits without any override reason.
+    jobs.previewCustomerSchedule.mockResolvedValue({
+      level: 'WARNING',
+      safeMessage: 'Bu plan dahil, müşteriyle 14 günlük yakın dönem içinde 4 saha teması planlandı veya gerçekleştirildi.',
+      conflicts: [],
+      recentVisit: null,
+      suggestedAlternativeAt: null,
+    });
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
-    expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    expect(container.textContent).toContain('A Klinik teslim');
-    const alternativeButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
-    expect(alternativeButton).toBeTruthy();
-    await act(async () => alternativeButton!.click());
-    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
-      .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
+    expect(container.textContent).toContain('14 günlük yakın dönem içinde 4 saha teması');
+    expect(container.textContent).not.toContain('aynı gün');
+    expect(container.querySelector('#customer-visit-override-reason')).toBeNull();
+    change(container.querySelector('#meeting-assignee')!, 'staff-2');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'c1',
+      scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
+    }));
+    expect(jobs.createJobCard.mock.calls[0][0]).not.toHaveProperty('overrideReason');
+    expect(onCreated).toHaveBeenCalledWith('meeting-1');
   });
 
-  it('keeps the conflict notice visible for Staff without conflict details', async () => {
-    jobs.previewCustomerSchedule.mockResolvedValue(staffConflictEvaluation);
-    await render(staff);
-    change(container.querySelector('#meeting-title')!, 'Görüşme');
-    change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
-    await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
-    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    await advancePreview();
-    expect(container.textContent).toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
-    expect(container.textContent).not.toContain('A Klinik teslim');
-    const alternativeButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
-    expect(alternativeButton).toBeTruthy();
-  });
-
-  it('shows the safe warning message for Staff on a WARNING evaluation', async () => {
+  it('does not display frequency warnings to Staff', async () => {
     jobs.previewCustomerSchedule.mockResolvedValue(staffWarningEvaluation);
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
@@ -227,7 +203,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
-    expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
+    expect(container.textContent).not.toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
   });
 
   it('discards a stale preview response after the customer is cleared', async () => {
@@ -241,13 +217,13 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await advancePreview();
     expect(jobs.previewCustomerSchedule).toHaveBeenCalledTimes(1);
     await clearCustomerSelection(container, 'meeting-customer');
-    await act(async () => { resolvePreview(staffConflictEvaluation); });
+    await act(async () => { resolvePreview({ level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null }); });
     await settle();
-    expect(container.textContent).not.toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
+    expect(container.textContent).not.toContain('yakın dönem');
     expect(container.textContent).not.toContain('Müşteri planı kontrol ediliyor');
   });
 
-  it('shows the frequency review message for Staff without an override reason field', async () => {
+  it('does not ask Staff to escalate frequent contact', async () => {
     jobs.previewCustomerSchedule.mockResolvedValue(frequencyEvaluation);
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
@@ -255,12 +231,12 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await pickCustomerByNameWithFakeTimers(container, 'meeting-customer', 'A Klinik');
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-17T14:30');
     await advancePreview();
-    expect(container.textContent).toContain('ziyaret sıklığı sınırı aşılıyor');
-    expect(container.textContent).toContain('yönetici değerlendirmesi gerekiyor');
+    expect(container.textContent).not.toContain('ziyaret sıklığı sınırı aşılıyor');
+    expect(container.textContent).not.toContain('yönetici değerlendirmesi gerekiyor');
     expect(container.querySelector('#customer-visit-override-reason')).toBeNull();
   });
 
-  it('shows the override reason field for Manager and submits it with the create', async () => {
+  it('shows management information and submits without override reason', async () => {
     jobs.previewCustomerSchedule.mockResolvedValue(frequencyEvaluation);
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
@@ -269,22 +245,22 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-17T14:30');
     await advancePreview();
     const reason = container.querySelector('#customer-visit-override-reason') as HTMLTextAreaElement;
-    expect(reason).toBeTruthy();
-    change(reason, 'Yönetici onayı ile planlanıyor');
+    expect(reason).toBeNull();
+    expect(container.textContent).toContain('Bu plan dahil 14 günde 5 saha teması.');
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       type: 'SALES_MEETING', customerId: 'c1',
       scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
-      overrideReason: 'Yönetici onayı ile planlanıyor',
     }));
+    expect(jobs.createJobCard.mock.calls[0][0]).not.toHaveProperty('overrideReason');
     expect(onCreated).toHaveBeenCalledWith('meeting-1');
   });
 
   it('retains the form and shows the authoritative conflict error when the server rejects the create', async () => {
     jobs.createJobCard.mockRejectedValue(new ApiError(
-      409, 'CUSTOMER_SCHEDULE_CONFLICT',
-      'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
+      409, 'CUSTOMER_VISIT_DUPLICATE',
+      'Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor. Farklı bir gün seçin.',
       false,
       {
         conflicts: [{
@@ -302,14 +278,8 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
-    expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    expect(container.textContent).toContain('A Klinik teslim');
-    const alternativeButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
-    expect(alternativeButton).toBeTruthy();
-    await act(async () => alternativeButton!.click());
-    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
-      .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
+    expect(container.textContent).toContain('Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor.');
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-01T10:00');
     expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     expect(onCreated).not.toHaveBeenCalled();
   });
@@ -330,36 +300,24 @@ describe('CustomerScheduleNotice presentation', () => {
   it('renders nothing for a CLEAR evaluation', async () => {
     await renderNotice({
       evaluation: { level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null },
-      mode: 'manager', overrideReason: '', onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
+      mode: 'manager',
     });
     expect(container.textContent).toBe('');
   });
 
   it('renders the recent visit card for Manager', async () => {
     await renderNotice({
-      evaluation: frequencyEvaluation, mode: 'manager', overrideReason: '',
-      onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
+      evaluation: frequencyEvaluation, mode: 'manager',
     });
     expect(container.textContent).toContain('Yakın tarihli müşteri ziyareti');
     expect(container.textContent).toContain('Ayşe Personel');
   });
 
-  it('renders the conflict message and alternative CTA for Staff from the projected shape', async () => {
+  it('hides frequency warnings from Staff', async () => {
     await renderNotice({
-      evaluation: staffConflictEvaluation, mode: 'staff', overrideReason: '',
-      onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
+      evaluation: staffWarningEvaluation, mode: 'staff',
     });
-    expect(container.textContent).toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
-    expect(container.textContent).not.toContain('A Klinik teslim');
-    expect(container.textContent).toContain('önerilen alternatif zamanı kullan');
-  });
-
-  it('renders the safe warning message for Staff on a WARNING evaluation', async () => {
-    await renderNotice({
-      evaluation: staffWarningEvaluation, mode: 'staff', overrideReason: '',
-      onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
-    });
-    expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
+    expect(container.textContent).not.toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
   });
 });
 
@@ -394,20 +352,8 @@ describe('Delivery authoritative conflict alternative', () => {
     vi.useRealTimers();
   });
 
-  it('applies the authoritative suggested alternative after a rejected delivery create', async () => {
-    api.createProductDelivery.mockRejectedValue(new ApiError(
-      409, 'CUSTOMER_SCHEDULE_CONFLICT',
-      'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
-      false,
-      {
-        conflicts: [{
-          jobCardId: 'j-other', title: 'A Klinik teslim', scheduledAt: '2026-07-01T09:00:00.000Z',
-          type: 'PRODUCT_DELIVERY', status: 'ACCEPTED',
-          assignee: { id: 'staff-2', name: 'Bora' }, jobPath: '/jobs/j-other',
-        }],
-        suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
-      },
-    ));
+  it('creates delivery without Customer frequency preview or override', async () => {
+    api.createProductDelivery.mockResolvedValue({ id: 'delivery-1', version: 1 });
     await act(async () => root.render(<MemoryRouter><DeliveryCreateView user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     await pickCustomerByNameWithFakeTimers(container, 'delivery-customer', 'A Klinik');
@@ -417,15 +363,8 @@ describe('Delivery authoritative conflict alternative', () => {
     change(container.querySelector('#delivery-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
-    expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    expect(container.textContent).toContain('A Klinik teslim');
-    const alternativeButton = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
-    expect(alternativeButton).toBeTruthy();
-    await act(async () => alternativeButton!.click());
-    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value)
-      .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
-    expect(onCreated).not.toHaveBeenCalled();
+    expect(jobs.previewCustomerSchedule).not.toHaveBeenCalled();
+    expect(container.querySelector('#customer-visit-override-reason')).toBeNull();
+    expect(onCreated).toHaveBeenCalled();
   });
 });

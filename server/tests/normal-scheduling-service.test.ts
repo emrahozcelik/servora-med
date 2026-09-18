@@ -86,6 +86,7 @@ class SchedulingMemoryRepository implements JobCardRepository {
       getContactForUpdate: async (org, id) =>
         this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       getOrganizationTimezone: async () => this.timezone,
+      findCustomerVisitDuplicate: async () => null,
       listActiveOnSiteJobs: async (_org, _customer, from, to) => this.activeOnSiteJobs
         .filter((job) => job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY')
         .filter((job) => {
@@ -384,31 +385,25 @@ describe('normal customer scheduling — create', () => {
     }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
   });
 
-  it('NJS-1: Sales Meeting create detects same-Customer same-day ON_SITE conflict', async () => {
+  it('NJS-1: non-overlapping same-day contact is allowed', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.activeOnSiteJobs = [activeJob()];
-    await expect(serviceOf(repository).create(manager, meetingInput()))
-      .rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
-    expect(repository.jobs).toHaveLength(0);
+    await expect(serviceOf(repository).create(manager, meetingInput())).resolves.toMatchObject({ customerId: 'customer-1' });
+    expect(repository.jobs).toHaveLength(1);
   });
 
-  it('NJS-2: Product Delivery create detects existing Sales Meeting conflict', async () => {
+  it('NJS-2: delivery is exempt from Customer policy', async () => {
     const repository = new SchedulingMemoryRepository();
-    repository.activeOnSiteJobs = [activeJob({ type: 'SALES_MEETING', title: 'Planlı görüşme' })];
-    await expect(serviceOf(repository).create(manager, deliveryInput()))
-      .rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
-    expect(repository.jobs).toHaveLength(0);
+    repository.activeOnSiteJobs = [activeJob()];
+    await expect(serviceOf(repository).create(manager, deliveryInput())).resolves.toMatchObject({ customerId: 'customer-1' });
+    expect(repository.jobs).toHaveLength(1);
   });
 
-  it('NJS-3: conflict is cross-Staff', async () => {
+  it('NJS-3: another Staff contact is not a Customer duplicate', async () => {
     const repository = new SchedulingMemoryRepository();
-    repository.activeOnSiteJobs = [activeJob({ assignedTo: 'staff-2', assigneeName: 'Staff Two' })];
-    const error = await serviceOf(repository).create(manager, meetingInput({ assignedTo: 'staff-1' }))
-      .catch((caught) => caught);
-    expect(error).toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT' });
-    expect(error.details.conflicts).toEqual([expect.objectContaining({
-      jobCardId: 'existing-1', title: 'Mevcut teslimat',
-    })]);
+    repository.activeOnSiteJobs = [activeJob()];
+    await expect(serviceOf(repository).create(manager, meetingInput())).resolves.toMatchObject({ customerId: 'customer-1' });
+    expect(repository.jobs).toHaveLength(1);
   });
 
   it('NJS-4: GENERAL_TASK same Customer does not block ON_SITE create', async () => {
@@ -434,7 +429,7 @@ describe('normal customer scheduling — create', () => {
     expect(repository.jobs).toHaveLength(1);
   });
 
-  it('NJS-7: Manager 4th qualifying visit requires override reason', async () => {
+  it('NJS-7: Manager 4th qualifying visit needs no override', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.recentOnSiteVisits = [
       visit({ id: 'v1', occurredAt: '2026-07-15T09:00:00.000Z' }),
@@ -442,10 +437,10 @@ describe('normal customer scheduling — create', () => {
       visit({ id: 'v3', occurredAt: '2026-07-17T09:00:00.000Z' }),
     ];
     await expect(serviceOf(repository).create(manager, meetingInput()))
-      .rejects.toMatchObject({ code: 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED', statusCode: 400 });
+      .resolves.toMatchObject({ type: 'SALES_MEETING' });
   });
 
-  it('NJS-8: create frequency override reason is audited in JOB_CREATED metadata', async () => {
+  it('NJS-8: system frequency insight is audited in JOB_CREATED metadata', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.recentOnSiteVisits = [
       visit({ id: 'v1', occurredAt: '2026-07-15T09:00:00.000Z' }),
@@ -457,19 +452,17 @@ describe('normal customer scheduling — create', () => {
     }));
     expect(created.type).toBe('SALES_MEETING');
     const createdActivity = repository.activities.find((activity) => activity.event === 'JOB_CREATED');
-    expect(createdActivity?.metadata).toEqual({ customerVisitOverrideReason: 'Klinik acil numune istedi.' });
+    expect(createdActivity?.metadata).toEqual({ customerFrequencyAdvisory: { source: 'SYSTEM', windowDays: 14, countIncludingCandidate: 4 } });
   });
 
-  it('NJS-9: same-day conflict cannot be overridden with a reason', async () => {
+  it('NJS-9: legacy override input is not required or persisted', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.activeOnSiteJobs = [activeJob()];
-    await expect(serviceOf(repository).create(manager, meetingInput({
-      overrideReason: 'Yine de planla',
-    }))).rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT' });
-    expect(repository.jobs).toHaveLength(0);
+    await expect(serviceOf(repository).create(manager, meetingInput({ overrideReason: 'Legacy reason' }))).resolves.toMatchObject({ customerId: 'customer-1' });
+    expect(repository.jobs).toHaveLength(1);
   });
 
-  it('NJS-25: Staff normal create FREQUENCY_EXCEEDED is blocked without override capability', async () => {
+  it('NJS-25: Staff normal create is allowed at notable frequency', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.recentOnSiteVisits = [
       visit({ id: 'v1', occurredAt: '2026-07-15T09:00:00.000Z' }),
@@ -479,8 +472,8 @@ describe('normal customer scheduling — create', () => {
     await expect(serviceOf(repository).create(staff, meetingInput({
       assignedTo: 'staff-1',
       overrideReason: 'Yine de planla',
-    }))).rejects.toMatchObject({ code: 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED', statusCode: 409 });
-    expect(repository.jobs).toHaveLength(0);
+    }))).resolves.toMatchObject({ type: 'SALES_MEETING' });
+    expect(repository.jobs).toHaveLength(1);
   });
 
   it('NJS-14: Staff preview projection strips conflicts and recent visit', async () => {
@@ -490,7 +483,7 @@ describe('normal customer scheduling — create', () => {
     const result = await serviceOf(repository).previewCustomerSchedule(staff, {
       type: 'SALES_MEETING', customerId: 'customer-1', scheduledAt: '2026-07-20T10:30:00.000Z',
     });
-    expect(result.level).toBe('CONFLICT');
+    expect(result.level).toBe('CLEAR');
     expect(result.conflicts).toEqual([]);
     expect(result.recentVisit).toBeNull();
   });
@@ -501,9 +494,7 @@ describe('normal customer scheduling — create', () => {
     const managerResult = await serviceOf(repository).previewCustomerSchedule(manager, {
       type: 'SALES_MEETING', customerId: 'customer-1', scheduledAt: '2026-07-20T10:30:00.000Z',
     });
-    expect(managerResult.conflicts).toEqual([expect.objectContaining({
-      jobCardId: 'existing-1', title: 'Mevcut teslimat', assignee: { id: 'staff-2', name: 'Staff Two' },
-    })]);
+    expect(managerResult.conflicts).toEqual([]);
     const staffResult = await serviceOf(repository).previewCustomerSchedule(staff, {
       type: 'SALES_MEETING', customerId: 'customer-1', scheduledAt: '2026-07-20T10:30:00.000Z',
     });
@@ -543,13 +534,13 @@ describe('normal customer scheduling — patch / reschedule', () => {
     return serviceOf(repository).create(actor, deliveryInput({ clientActionId: `delivery-${repository.jobs.length + 1}` }));
   }
 
-  it('NJS-16: reschedule into conflicting Customer/day is rejected', async () => {
+  it('NJS-16: delivery reschedule into same Customer day is allowed', async () => {
     const repository = new SchedulingMemoryRepository();
     const created = await createDelivery(repository);
     repository.activeOnSiteJobs = [activeJob({ id: 'other-1', scheduledAt: '2026-07-25T09:00:00.000Z' })];
     await expect(serviceOf(repository).patch(manager, created.id, {
       expectedVersion: 1, scheduledAt: '2026-07-25T10:00:00.000Z',
-    })).rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
+    })).resolves.toMatchObject({ scheduledAt: '2026-07-25T10:00:00.000Z' });
   });
 
   it('NJS-17: reschedule away from conflict succeeds', async () => {
@@ -608,7 +599,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(updated.scheduledAt).toBe('2026-07-21T10:00:00.000Z');
   });
 
-  it('NJS-26: Staff patch/reschedule FREQUENCY_EXCEEDED is blocked', async () => {
+  it('NJS-26: Staff delivery reschedule is exempt from frequency', async () => {
     const repository = new SchedulingMemoryRepository();
     const created = await createDelivery(repository, staff);
     repository.recentOnSiteVisits = [
@@ -618,7 +609,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
     ];
     await expect(serviceOf(repository).patch(staff, created.id, {
       expectedVersion: 1, scheduledAt: '2026-07-28T10:00:00.000Z',
-    })).rejects.toMatchObject({ code: 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED', statusCode: 409 });
+    })).resolves.toMatchObject({ type: 'PRODUCT_DELIVERY' });
   });
 
   it('NJS-27: patch acquires Job lock before Customer lock', async () => {
@@ -660,7 +651,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(repository.lockOrder).not.toContain('assignee');
   });
 
-  it('P0-C7: Customer schedule conflict still precedes calendar conflict on patch', async () => {
+  it('P0-C7: calendar conflict still blocks delivery patch', async () => {
     const repository = new SchedulingMemoryRepository();
     const service = calendarServiceOf(repository);
     const created = await service.create(manager, deliveryInput({ clientActionId: 'p0-precedence' }));
@@ -673,7 +664,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
       expectedVersion: 1,
       scheduledAt: '2026-07-25T10:00:00.000Z',
       scheduledEndsAt: '2026-07-25T10:30:00.000Z',
-    })).rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
+    })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
   });
 
   it('NJS-15: Customerless General Task create is unaffected', async () => {
@@ -845,14 +836,14 @@ describe('create-time assignee availability parity (AAP)', () => {
     })]);
   });
 
-  it('AAP-9: customer + assignee conflict both present → CUSTOMER_SCHEDULE_CONFLICT wins', async () => {
+  it('AAP-9: same-day Customer plan does not mask calendar conflict', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.activeOnSiteJobs = [activeJob()];
     repository.calendarEvents = [
       { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
     ];
     await expect(calendarServiceOf(repository).create(manager, meetingInput()))
-      .rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
   });
 
   it('AAP-10: failed create is atomic → no job/activity side effects', async () => {
@@ -893,7 +884,7 @@ describe('create-time assignee availability parity (AAP)', () => {
 });
 
 describe('staff2 / admin sanity', () => {
-  it('Admin can override frequency with reason', async () => {
+  it('Admin can create with advisory frequency', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.activeOnSiteJobs = [
       activeJob({ id: 'a1', scheduledAt: '2026-07-15T09:00:00.000Z' }),

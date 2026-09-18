@@ -1,3 +1,5 @@
+import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
+import { canonicalScheduledDurationMs } from './job-card-duration.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_STATUSES,
@@ -533,6 +535,7 @@ export interface JobCardTransaction extends SubmissionReader {
   ): Promise<NoteAuthorSnapshot | null>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
+  findCustomerVisitDuplicate(input: CustomerVisitDuplicateInput): Promise<CustomerVisitDuplicate | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
   getOrganizationTimezone(organizationId: string): Promise<string>;
@@ -1897,11 +1900,14 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getAssigneeForUpdate(organizationId: string, userId: string) {
+    // Critical-action foreign keys hold KEY SHARE on the actor. NO KEY UPDATE
+    // still serializes scheduling and blocks role/deactivation changes without
+    // deadlocking two self-assigned Staff action claims.
     const result = await this.client.query<{
       id: string; organization_id: string; role: JobCardAssignee['role']; is_active: boolean;
     }>(
       `SELECT id, organization_id, role, is_active FROM users
-       WHERE organization_id = $1 AND id = $2 FOR UPDATE`, [organizationId, userId],
+       WHERE organization_id = $1 AND id = $2 FOR NO KEY UPDATE`, [organizationId, userId],
     );
     const row = result.rows[0];
     return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
@@ -1914,6 +1920,29 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         WHERE organization_id = $1 AND id = $2`, [organizationId, userId]);
     const row = result.rows[0];
     return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
+  }
+
+  async findCustomerVisitDuplicate(input: CustomerVisitDuplicateInput): Promise<CustomerVisitDuplicate | null> {
+    // Caller holds the Customer lock. READ COMMITTED sees the preceding
+    // writer's commit; no extra JobCard locks (and no inverted lock order).
+    // Legacy rows may lack scheduled_ends_at: their effective end is derived
+    // from the single canonical duration owner (job-card-duration.ts), passed
+    // as a bind value so SQL carries no independent duration semantics.
+    const legacyFallbackMs = canonicalScheduledDurationMs('SALES_MEETING');
+    const result = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_cards
+       WHERE organization_id = $1 AND customer_id = $2
+         AND assigned_to = $3 AND engagement_kind = $4 AND type = 'SALES_MEETING'
+         AND status NOT IN ('CANCELLED', 'INVALIDATED')
+         AND scheduled_at < $6
+         AND $5 < COALESCE(scheduled_ends_at, scheduled_at + ($8 * INTERVAL '1 millisecond'))
+         AND ($7::uuid IS NULL OR id <> $7)
+       ORDER BY scheduled_at, id LIMIT 1`,
+      [input.organizationId, input.customerId, input.assignedTo, input.engagementKind,
+        input.startsAt, input.endsAt, input.excludeJobId ?? null, legacyFallbackMs],
+    );
+    const row = result.rows[0];
+    return row ? { jobCardId: row.id, jobPath: `/jobs/${row.id}` } : null;
   }
 
   async getCustomerForUpdate(organizationId: string, customerId: string) {
@@ -1947,12 +1976,12 @@ class PostgresJobCardTransaction implements JobCardTransaction {
          FROM job_cards j
          JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
         WHERE j.organization_id = $1 AND j.customer_id = $2
-          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+          AND j.type = 'SALES_MEETING' AND j.engagement_kind = ANY($5::text[])
           AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL
           AND j.scheduled_at >= $3 AND j.scheduled_at <= $4
         ORDER BY j.scheduled_at ASC, j.id ASC`,
-      [organizationId, customerId, from, to],
+      [organizationId, customerId, from, to, FREQUENCY_ENGAGEMENT_KINDS],
     );
     return result.rows.map((row) => ({
       id: row.id,
@@ -1990,12 +2019,12 @@ class PostgresJobCardTransaction implements JobCardTransaction {
             WHERE d.organization_id = j.organization_id AND d.job_card_id = j.id
          ) di ON TRUE
         WHERE j.organization_id = $1 AND j.customer_id = $2
-          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+          AND j.type = 'SALES_MEETING' AND j.engagement_kind = ANY($5::text[])
           AND j.status = 'COMPLETED'
           AND COALESCE(md.meeting_at, di.latest_delivered_at, j.staff_completed_at, j.scheduled_at) >= $3
           AND COALESCE(md.meeting_at, di.latest_delivered_at, j.staff_completed_at, j.scheduled_at) <= $4
         ORDER BY 5 ASC`,
-      [organizationId, customerId, from, to],
+      [organizationId, customerId, from, to, FREQUENCY_ENGAGEMENT_KINDS],
     );
     return result.rows.map((row) => ({
       id: row.id,
@@ -3086,12 +3115,12 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
          FROM job_cards j
          JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
         WHERE j.organization_id = $1 AND j.customer_id = $2
-          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+          AND j.type = 'SALES_MEETING' AND j.engagement_kind = ANY($5::text[])
           AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL
           AND j.scheduled_at >= $3 AND j.scheduled_at <= $4
         ORDER BY j.scheduled_at ASC, j.id ASC`,
-      [organizationId, customerId, from, to],
+      [organizationId, customerId, from, to, FREQUENCY_ENGAGEMENT_KINDS],
     );
     return result.rows.map((row) => ({
       id: row.id,
@@ -3129,12 +3158,12 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
             WHERE d.organization_id = j.organization_id AND d.job_card_id = j.id
          ) di ON TRUE
         WHERE j.organization_id = $1 AND j.customer_id = $2
-          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+          AND j.type = 'SALES_MEETING' AND j.engagement_kind = ANY($5::text[])
           AND j.status = 'COMPLETED'
           AND COALESCE(md.meeting_at, di.latest_delivered_at, j.staff_completed_at, j.scheduled_at) >= $3
           AND COALESCE(md.meeting_at, di.latest_delivered_at, j.staff_completed_at, j.scheduled_at) <= $4
         ORDER BY 5 ASC`,
-      [organizationId, customerId, from, to],
+      [organizationId, customerId, from, to, FREQUENCY_ENGAGEMENT_KINDS],
     );
     return result.rows.map((row) => ({
       id: row.id,

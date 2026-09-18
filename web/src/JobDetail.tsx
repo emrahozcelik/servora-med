@@ -344,11 +344,11 @@ function JobScheduleEditForm({
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
-  const [overrideReason, setOverrideReason] = useState('');
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
+    engagementKind: job.engagementKind,
     type: job.type,
     customerId: job.customerId,
     scheduledLocal: localValue,
@@ -364,14 +364,6 @@ function JobScheduleEditForm({
     enabled: user.capabilities?.calendar === true && intervalJob,
   });
 
-  function useSuggestedAlternative() {
-    if (!evaluation?.suggestedAlternativeAt) return;
-    const nextStart = isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt);
-    setLocalValue(nextStart);
-    setFieldError('');
-    setSubmitError('');
-  }
-
   function useAvailableSlot(slot: AvailableSlot) {
     setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
     setFieldError('');
@@ -384,7 +376,6 @@ function JobScheduleEditForm({
     setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
     setFieldError('');
     setSubmitError('');
-    setOverrideReason('');
   }, [canonicalKey, job.scheduledAt, intervalJob]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -398,7 +389,7 @@ function JobScheduleEditForm({
       }
       setFieldError('');
       try {
-        await onSave(null, null, overrideReason.trim() || null);
+        await onSave(null, null, undefined);
       } catch (caught) {
         setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
       }
@@ -409,7 +400,7 @@ function JobScheduleEditForm({
       await onSave(
         localDateTimeToIso(localValue),
         undefined,
-        overrideReason.trim() || null,
+        undefined,
       );
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
@@ -444,9 +435,6 @@ function JobScheduleEditForm({
         <CustomerScheduleNotice
           evaluation={evaluation}
           mode={user.role === 'STAFF' ? 'staff' : 'manager'}
-          overrideReason={overrideReason}
-          onOverrideReasonChange={setOverrideReason}
-          onUseSuggestedAlternative={useSuggestedAlternative}
         />
         {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
         <AvailableSlotsNotice
@@ -949,7 +937,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     evaluation: CustomerScheduleEvaluation | null;
     assigneeName: string;
     assignees: RelatedName[];
-    overrideReason: string;
     inlineError: string | null;
     /**
      * Staff AUTO no-slot fallback. False in the normal automatic path (the
@@ -1525,6 +1512,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           'FOLLOW_UP_PROPOSAL_REQUIRED', 'FOLLOW_UP_PROPOSAL_INVALID',
           'FOLLOW_UP_OVERRIDE_REASON_REQUIRED', 'FOLLOW_UP_CUSTOMER_CONFLICT',
           'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 'ASSIGNEE_NOT_FOUND',
+          'CUSTOMER_VISIT_DUPLICATE',
         ];
         if (caught instanceof ApiError && dialogErrorCodes.includes(caught.code)
           && dialog !== null && (dialog.kind === 'submit' || dialog.kind === 'approve')) {
@@ -1908,7 +1896,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         evaluation: suggestion.evaluation,
         assigneeName: job.assignee.name,
         assignees: [],
-        overrideReason: '',
         inlineError: null,
         explicitScheduleAllowed: suggestion.scheduledAt === null,
         loadError: null,
@@ -1923,7 +1910,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         evaluation: null,
         assigneeName: job.assignee.name,
         assignees: [],
-        overrideReason: '',
         inlineError: null,
         explicitScheduleAllowed: false,
         loadError: caught instanceof ApiError
@@ -1986,7 +1972,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       evaluation,
       assigneeName: job.assignee.name,
       assignees,
-      overrideReason: '',
       inlineError: null,
       explicitScheduleAllowed: false,
       loadError: null,
@@ -2057,10 +2042,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
         return;
       }
-      if (followUp.evaluation?.level === 'FREQUENCY_EXCEEDED' && !followUp.overrideReason.trim()) {
-        setFollowUp((current) => current ? { ...current, inlineError: 'Sık ziyaret uyarısı için neden zorunludur.' } : current);
-        return;
-      }
       void execute('APPROVE', reason, {
         followUp: {
           scheduledAt: followUp.draft.scheduledAt,
@@ -2069,9 +2050,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           followUpInstructions: followUp.draft.followUpInstructions.trim(),
           priority: followUp.draft.priority ?? 'normal',
           dueDate: followUp.draft.dueDate ?? null,
-          ...(followUp.overrideReason.trim()
-            ? { overrideReason: followUp.overrideReason.trim() }
-            : {}),
         },
       });
       return;
@@ -2265,7 +2243,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             assigneeName: followUp.assigneeName,
             assignees: followUp.assignees,
             allowTypeEdit: dialog.kind === 'approve',
-            overrideReason: followUp.overrideReason,
             inlineError: followUp.inlineError,
             autoSupported: dialog.kind === 'submit'
               && followUp.draft !== null
@@ -2275,9 +2252,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             onRetrySuggestion: () => { void retrySubmitFollowUp(); },
             expandInstructions: followUp.expandInstructions,
             onChange: updateFollowUpDraft,
-            onOverrideReasonChange: (value) => setFollowUp((current) => current
-              ? { ...current, overrideReason: value }
-              : current),
             onUseSuggestedAlternative: useSuggestedAlternative,
           }
         : undefined}
