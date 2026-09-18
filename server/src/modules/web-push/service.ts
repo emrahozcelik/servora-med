@@ -102,6 +102,27 @@ export class WebPushService {
     };
   }
 
+  async recover(
+    identity: WebPushIdentity,
+    input: CreateWebPushSubscription,
+  ): Promise<Readonly<{ rebound: boolean }>> {
+    if (!this.config.enabled) return { rebound: false };
+    const subscription = await this.repository.rebindExisting({
+      ...identity,
+      endpoint: input.endpoint,
+      p256dh: input.keys.p256dh,
+      auth: input.keys.auth,
+      expirationTime: input.expirationTime === null
+        ? null
+        : new Date(input.expirationTime),
+      vapidPublicKeyFingerprint: fingerprintVapidPublicKey(
+        this.config.vapidPublicKey!,
+      ),
+      now: new Date(),
+    });
+    return { rebound: subscription !== null };
+  }
+
   async disable(identity: WebPushIdentity, subscriptionId: string): Promise<void> {
     const disabled = await this.repository.disable(
       identity,
@@ -116,5 +137,17 @@ export class WebPushService {
         'Cihaz bildirimi bulunamadı.',
       );
     }
+  }
+
+  async reconcileMissing(
+    identity: WebPushIdentity,
+    subscriptionId: string,
+  ): Promise<void> {
+    await this.repository.disable(
+      identity,
+      subscriptionId,
+      'REPLACED',
+      new Date(),
+    );
   }
 }

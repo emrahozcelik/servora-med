@@ -3,6 +3,8 @@ import {
   createWebPushSubscription,
   disableWebPushSubscription,
   getWebPushStatus,
+  reconcileMissingWebPushSubscription,
+  recoverWebPushSubscription,
   type CreateWebPushSubscriptionRequest,
   type WebPushStatus,
 } from '../services/web-push-api';
@@ -29,6 +31,8 @@ export type WebPushSnapshot = Readonly<{
 export type WebPushApi = Readonly<{
   getStatus: () => Promise<WebPushStatus>;
   createSubscription: (input: CreateWebPushSubscriptionRequest) => Promise<unknown>;
+  recoverSubscription: (input: CreateWebPushSubscriptionRequest) => Promise<{ rebound: boolean }>;
+  reconcileMissingSubscription: (subscriptionId: string) => Promise<void>;
   disableSubscription: (subscriptionId: string) => Promise<void>;
 }>;
 
@@ -111,6 +115,8 @@ export function createWebPushController({
   api = {
     getStatus: getWebPushStatus,
     createSubscription: createWebPushSubscription,
+    recoverSubscription: recoverWebPushSubscription,
+    reconcileMissingSubscription: reconcileMissingWebPushSubscription,
     disableSubscription: disableWebPushSubscription,
   },
   browser,
@@ -174,13 +180,19 @@ export function createWebPushController({
 
     const promise = (async () => {
       const status = await refreshStatus(expectedGeneration);
-      if (!status || expectedGeneration !== generation || !status.enabled || !status.subscription || status.renewalRequired) return;
+      if (!status || expectedGeneration !== generation || !status.enabled || status.renewalRequired) return;
       const state = browserState();
       if (state.capability !== 'supported' || state.permission !== 'granted') return;
       const subscription = await browser.currentSubscription();
       if (expectedGeneration !== generation) return;
+      if (!status.subscription) {
+        if (!subscription) return;
+        await api.recoverSubscription(asCreateWebPushSubscription(subscription));
+        await refreshStatus(expectedGeneration);
+        return;
+      }
       if (!subscription) {
-        await api.disableSubscription(status.subscription.id);
+        await api.reconcileMissingSubscription(status.subscription.id);
         await refreshStatus(expectedGeneration);
         return;
       }

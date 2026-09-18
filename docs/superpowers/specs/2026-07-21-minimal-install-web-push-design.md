@@ -227,6 +227,8 @@ Routes use the existing session authentication and password-change gate:
 ```text
 GET    /api/web-push/status
 POST   /api/web-push/subscriptions
+POST   /api/web-push/subscriptions/recover
+POST   /api/web-push/subscriptions/:subscriptionId/reconcile-missing
 DELETE /api/web-push/subscriptions/:subscriptionId
 ```
 
@@ -276,6 +278,18 @@ type CreateWebPushSubscription = Readonly<{
 }>;
 ```
 
+Silent recovery accepts the same exact browser subscription material at
+`POST /api/web-push/subscriptions/recover`. It returns only
+`{ rebound: boolean }`; an unknown endpoint, an ownership mismatch, or a
+durably blocked endpoint all produce the same `false` result so the endpoint
+cannot be used as an ownership oracle. Recovery never creates a new endpoint
+record and never clears `USER_DISABLED`, `PROVIDER_STALE`, or `VAPID_ROTATED`.
+When the browser returns a definitive null subscription for an active
+current-session record, `reconcile-missing` disables that record as the
+machine-managed `REPLACED` state. Only the explicit settings action writes
+`USER_DISABLED`, so failed browser cleanup cannot erase user intent and
+automatic reconciliation cannot fabricate it.
+
 Validation requires exact fields, bounded lengths, URL-safe Base64 key
 material, and an HTTPS endpoint with no credentials, explicit port (including
 `:443`), IP
@@ -296,15 +310,31 @@ Mozilla endpoint without any product validation.
 
 Creation is idempotent for the same endpoint and current identity/session.
 Because a browser subscription belongs to the service-worker registration
-rather than an auth session, explicit creation applies this locked rebind
-protocol:
+rather than an auth session, explicit creation and silent recovery use separate
+locked protocols. The product contract is:
+
+| Scenario | Expected result |
+| --- | --- |
+| Same session, granted permission, browser subscription exists, matching current-session row | Remain enabled and reconcile the fingerprint without prompting |
+| New session, same organization/user, same server-owned endpoint, no explicit disable | Silently rebind the existing endpoint without prompting or creating a browser subscription |
+| New session, same organization/user, no browser subscription | Remain unbound |
+| Permission `default` or `denied` | Do not prompt or rebind during recovery |
+| Endpoint was explicitly `USER_DISABLED` | Do not rebind, even if browser unsubscribe failed |
+| Endpoint belongs to another user | Do not rebind or reveal its owner |
+| Endpoint belongs to another organization | Do not rebind or reveal its owner |
+| Current-session server row exists but browser subscription is gone | Disable the stale current-session row |
+| Browser subscription exists but the server has no endpoint row | Do not bind; ownership cannot be proven |
+| Endpoint is provider-stale or uses a rotated VAPID key | Do not silently rebind; preserve explicit renewal handling |
+| Explicit logout and browser unsubscribe succeeds | Browser subscription is removed; a later login remains unbound |
+| Explicit logout and browser unsubscribe fails, then the same user/organization logs in | Rebind only when the retained endpoint is server-proven, recoverable, and not `USER_DISABLED` |
+
+Explicit enable applies this protocol:
 
 1. Lock any row with the same global endpoint hash.
 2. If it belongs to the same organization and user, an explicit
    `Cihaz bildirimlerini aç` action may atomically rebind it to the current
    session, refresh endpoint/key/VAPID fingerprints, clear stale/disabled
-   state, and abandon the row's older non-terminal deliveries. Login or status
-   loading never performs this rebind automatically.
+   state, and abandon the row's older non-terminal deliveries.
 3. If it belongs to another user or organization, never transfer or reveal the
    owner. Return an ownership-opaque `409 PUSH_SUBSCRIPTION_CONFLICT`.
 4. After that `409`, the browser may unsubscribe its local subscription,
@@ -316,6 +346,20 @@ logout/login without weakening global endpoint uniqueness. Account switching
 never auto-associates the prior account's endpoint. Deletion is scoped by
 organization, recipient, and current session and returns `404` outside that
 scope.
+
+Silent recovery runs only after current-session status reports no subscription,
+browser permission is already `granted`, and `PushManager.getSubscription()`
+returns an existing subscription. It submits that existing material to a
+dedicated recovery endpoint; it never calls `Notification.requestPermission()`
+or `PushManager.subscribe()`. Under the endpoint-hash lock, the server rebinds
+only when the current session has no different active subscription and the
+endpoint row is already owned by the authenticated organization/user. Its
+disabled reason must be neither `USER_DISABLED`, `PROVIDER_STALE`, nor
+`VAPID_ROTATED`, and its stored VAPID fingerprint must still match current
+configuration.
+Unknown and differently owned endpoints return the same opaque non-rebound
+result. The persisted `USER_DISABLED` row is the durable source of user intent,
+including when browser unsubscribe cleanup fails.
 
 When an already-opted-in current session presents a genuinely new endpoint,
 the same transaction first proves that the new global hash has no other owner,
@@ -404,10 +448,13 @@ visibility, online recovery, and that worker message:
 - a changed VAPID public key also produces `renewalRequired`; old-key records
   receive no new deliveries and rotation requires an explicit user action.
 
-No permission prompt or cross-session rebind occurs during foreground
-reconciliation. A closed app catches up the next time it becomes foreground;
-subscription refresh does not justify background API credentials in the
-worker.
+No permission prompt occurs during foreground reconciliation. If current-session
+status has no subscription, the client may present an existing browser
+subscription to the silent-recovery endpoint. The server alone decides whether
+same-organization/same-user ownership and persisted enable intent permit the
+cross-session rebind. A closed app catches up the next time it becomes
+foreground; subscription refresh does not justify background API credentials
+in the worker.
 
 ## 9. Durable Delivery Outbox
 
@@ -679,7 +726,7 @@ Production operations must:
 | Provider `404/410` | Disable subscription; abandon queued work |
 | Browser refreshes endpoint/keys | Foreground fingerprint reconciliation updates only an already-active current-session record |
 | VAPID public key changes | No old-key delivery; explicit unsubscribe/subscribe renewal required |
-| Same user logs in with a new session | Explicit enable may atomically rebind the same endpoint and abandon old pending work |
+| Same user logs in with a new session | Existing granted browser subscription is silently rebound only after server-side same-user/organization and enable-intent proof; explicit enable remains available otherwise |
 | Different account owns local endpoint | Opaque `409`; unsubscribe/subscribe and one create retry, never transfer |
 | Provider `429/5xx` or network timeout | Bounded exponential retry |
 | Notification already read before claim | Abandon pending delivery |

@@ -328,7 +328,7 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         `SELECT COUNT(*)::int AS count FROM web_push_subscriptions`,
       )).rows[0]!.count).toBe(1);
 
-      const rebound = await repository.upsert({
+      const rebound = await repository.rebindExisting({
         ...baseInput,
         sessionId: sessionTwo,
         p256dh: 'refreshed-p256dh',
@@ -336,6 +336,34 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         now: new Date('2026-07-22T08:05:00.000Z'),
       });
       expect(rebound).toMatchObject({ id: first.id, sessionId: sessionTwo });
+
+      await repository.disable(
+        { organizationId: organizationOne, userId: userOne, sessionId: sessionTwo },
+        first.id,
+        'USER_DISABLED',
+        new Date('2026-07-22T08:06:00.000Z'),
+      );
+      await expect(repository.rebindExisting({
+        ...baseInput,
+        sessionId: sessionOne,
+        now: new Date('2026-07-22T08:07:00.000Z'),
+      })).resolves.toBeNull();
+
+      const explicitlyReenabled = await repository.upsert({
+        ...baseInput,
+        sessionId: sessionTwo,
+        p256dh: 'refreshed-p256dh',
+        auth: 'refreshed-auth',
+        now: new Date('2026-07-22T08:08:00.000Z'),
+      });
+      expect(explicitlyReenabled).toMatchObject({ id: first.id, sessionId: sessionTwo });
+
+      await expect(repository.rebindExisting({
+        ...baseInput,
+        organizationId: organizationTwo,
+        userId: userTwo,
+        sessionId: otherSession,
+      })).resolves.toBeNull();
 
       await expect(repository.upsert({
         ...baseInput,

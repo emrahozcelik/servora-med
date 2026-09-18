@@ -175,6 +175,118 @@ describe('Postgres Web Push repository', () => {
     ]);
   });
 
+  it('atomically rebinds a recoverable endpoint owned by the same organization and user', async () => {
+    const rebound = {
+      ...subscriptionRow,
+      session_id: 'session-2',
+      p256dh: 'refreshed-key',
+      auth: 'refreshed-auth',
+    };
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [subscriptionRow] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [rebound] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    };
+    const repository = new PostgresWebPushRepository({
+      query: vi.fn(),
+      connect: vi.fn().mockResolvedValue(client),
+    } as never);
+    await expect(repository.rebindExisting({
+      organizationId: 'organization-1', userId: 'user-1', sessionId: 'session-2',
+      endpoint: subscriptionRow.endpoint, p256dh: 'refreshed-key', auth: 'refreshed-auth',
+      expirationTime: null, vapidPublicKeyFingerprint: 'b'.repeat(64),
+      now: new Date('2026-07-22T09:00:00.000Z'),
+    })).resolves.toMatchObject({ id: 'subscription-1', sessionId: 'session-2' });
+
+    const sql = client.query.mock.calls.map(([statement]) => statement);
+    expect(sql).toEqual([
+      'BEGIN',
+      expect.stringMatching(/pg_advisory_xact_lock/i),
+      expect.stringMatching(/endpoint_hash = \$1[\s\S]*FOR UPDATE/i),
+      expect.stringMatching(/session_id = \$3[\s\S]*disabled_at IS NULL[\s\S]*FOR UPDATE/i),
+      expect.stringMatching(/UPDATE web_push_deliveries[\s\S]*ABANDONED/i),
+      expect.stringMatching(/UPDATE web_push_subscriptions[\s\S]*session_id = \$2/i),
+      'COMMIT',
+    ]);
+  });
+
+  it.each([
+    ['explicit user disable', { disabled_at: new Date('2026-07-22T08:30:00.000Z'), disabled_reason: 'USER_DISABLED' }],
+    ['provider stale state', { disabled_at: new Date('2026-07-22T08:30:00.000Z'), disabled_reason: 'PROVIDER_STALE' }],
+    ['VAPID rotation state', { disabled_at: new Date('2026-07-22T08:30:00.000Z'), disabled_reason: 'VAPID_ROTATED' }],
+    ['VAPID fingerprint mismatch', { vapid_public_key_fingerprint: 'c'.repeat(64) }],
+    ['different user', { recipient_user_id: 'user-2' }],
+    ['different organization', { organization_id: 'organization-2' }],
+  ])('returns the same opaque miss for %s', async (_label, ownerPatch) => {
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ ...subscriptionRow, ...ownerPatch }] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    };
+    const repository = new PostgresWebPushRepository({
+      query: vi.fn(),
+      connect: vi.fn().mockResolvedValue(client),
+    } as never);
+    await expect(repository.rebindExisting({
+      organizationId: 'organization-1', userId: 'user-1', sessionId: 'session-2',
+      endpoint: subscriptionRow.endpoint, p256dh: 'refreshed-key', auth: 'refreshed-auth',
+      expirationTime: null, vapidPublicKeyFingerprint: 'b'.repeat(64),
+      now: new Date('2026-07-22T09:00:00.000Z'),
+    })).resolves.toBeNull();
+    expect(client.query.mock.calls.map(([statement]) => statement)).toEqual([
+      'BEGIN',
+      expect.stringMatching(/pg_advisory_xact_lock/i),
+      expect.stringMatching(/endpoint_hash = \$1[\s\S]*FOR UPDATE/i),
+      'COMMIT',
+    ]);
+  });
+
+  it('does not replace a different active subscription in the current session', async () => {
+    const current = {
+      ...subscriptionRow,
+      id: 'subscription-2',
+      endpoint: 'https://fcm.googleapis.com/push/current',
+      endpoint_hash: 'd'.repeat(64),
+      session_id: 'session-2',
+    };
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [subscriptionRow] })
+        .mockResolvedValueOnce({ rows: [current] })
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    };
+    const repository = new PostgresWebPushRepository({
+      query: vi.fn(),
+      connect: vi.fn().mockResolvedValue(client),
+    } as never);
+
+    await expect(repository.rebindExisting({
+      organizationId: 'organization-1', userId: 'user-1', sessionId: 'session-2',
+      endpoint: subscriptionRow.endpoint, p256dh: 'refreshed-key', auth: 'refreshed-auth',
+      expirationTime: null, vapidPublicKeyFingerprint: 'b'.repeat(64),
+      now: new Date('2026-07-22T09:00:00.000Z'),
+    })).resolves.toBeNull();
+    expect(client.query.mock.calls.map(([statement]) => statement)).toEqual([
+      'BEGIN',
+      expect.stringMatching(/pg_advisory_xact_lock/i),
+      expect.stringMatching(/endpoint_hash = \$1[\s\S]*FOR UPDATE/i),
+      expect.stringMatching(/session_id = \$3[\s\S]*disabled_at IS NULL[\s\S]*FOR UPDATE/i),
+      'COMMIT',
+    ]);
+  });
+
   it('disables inactive-session subscriptions and abandons their pending work transactionally', async () => {
     const client = {
       query: vi.fn()

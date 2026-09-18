@@ -23,6 +23,7 @@ export type CreateWebPushSubscriptionRequest = Readonly<{
   expirationTime: number | null;
   keys: Readonly<{ p256dh: string; auth: string }>;
 }>;
+export type RecoverWebPushSubscriptionResult = Readonly<{ rebound: boolean }>;
 
 function invalid(field: string, kind: 'REQUEST' | 'RESPONSE' = 'RESPONSE'): never {
   throw new ApiError(
@@ -109,6 +110,27 @@ export async function createWebPushSubscription(input: CreateWebPushSubscription
     '/api/web-push/subscriptions',
     json('POST', parsed),
   ));
+}
+
+export async function recoverWebPushSubscription(
+  input: CreateWebPushSubscriptionRequest,
+): Promise<RecoverWebPushSubscriptionResult> {
+  const parsed = parseCreateWebPushSubscriptionRequest(input);
+  const response = object(await request(
+    '/api/web-push/subscriptions/recover',
+    json('POST', parsed),
+  ));
+  exact(response, ['rebound']);
+  return { rebound: boolean(response.rebound, 'rebound') };
+}
+
+export async function reconcileMissingWebPushSubscription(
+  subscriptionId: string,
+): Promise<void> {
+  await request(
+    `/api/web-push/subscriptions/${encodeURIComponent(subscriptionId)}/reconcile-missing`,
+    { method: 'POST' },
+  );
 }
 
 export async function disableWebPushSubscription(subscriptionId: string): Promise<void> {

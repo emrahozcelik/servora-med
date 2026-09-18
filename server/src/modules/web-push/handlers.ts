@@ -35,6 +35,14 @@ export function createWebPushHandlers(service: WebPushService) {
         identity(request),
         parseCreateWebPushSubscription(request.body),
       )),
+    recover: (request: FastifyRequest) => service.recover(
+      identity(request),
+      parseCreateWebPushSubscription(request.body),
+    ),
+    reconcileMissing: async (request: FastifyRequest, reply: FastifyReply) => {
+      await service.reconcileMissing(identity(request), subscriptionId(request));
+      return reply.code(204).send();
+    },
     disable: async (request: FastifyRequest, reply: FastifyReply) => {
       await service.disable(identity(request), subscriptionId(request));
       return reply.code(204).send();
