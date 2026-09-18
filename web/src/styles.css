@@ -2774,8 +2774,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
 .follow-up-edit .field-group { margin-top: 0.5rem; }
 .follow-up-proposal-fields { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); }
-.follow-up-conflict-list { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }
-.follow-up-conflict-list ul { margin: 0.35rem 0 0.5rem; padding-left: 1.1rem; }
 .follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid oklch(55% 0.12 85deg); border-radius: 0.45rem; }
 .follow-up-recent-visit-title { margin: 0 0 0.25rem; font-weight: 700; }
 .follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }

@@ -34,7 +34,6 @@ export type FollowUpProposalSectionProps = {
   allowTypeEdit: boolean;
   inlineError: string | null;
   onChange: (next: Partial<FollowUpDraft>) => void;
-  onUseSuggestedAlternative: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
   /**
    * Staff automatic scheduling presentation for backend-supported AUTO types.
@@ -89,7 +88,6 @@ export function FollowUpProposalSection({
   allowTypeEdit,
   inlineError,
   onChange,
-  onUseSuggestedAlternative,
   initialFocusRef,
   autoSupported = false,
   allowExplicitSchedule = false,
@@ -313,29 +311,6 @@ export function FollowUpProposalSection({
               onChange={(event) => onChange({ followUpInstructions: event.target.value })}
             />
           </div>
-
-          {evaluation?.conflicts && evaluation.conflicts.length > 0 && (
-            <div className="follow-up-conflict-list" role="alert">
-              <p className="field-error">Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor:</p>
-              <ul>
-                {evaluation.conflicts.map((conflict) => (
-                  <li key={conflict.jobCardId}>
-                    <a href={conflict.jobPath}>{conflict.title}</a>
-                    {' — '}{conflict.assignee.name}
-                  </li>
-                ))}
-              </ul>
-              {evaluation.suggestedAlternativeAt && (
-                <button
-                  className="secondary-button compact-button"
-                  type="button"
-                  onClick={onUseSuggestedAlternative}
-                >
-                  Önerilen alternatif zamanı kullan ({formatDateTime(evaluation.suggestedAlternativeAt)})
-                </button>
-              )}
-            </div>
-          )}
 
           {evaluation?.recentVisit && (
             <div className="follow-up-recent-visit" role="status">

@@ -456,7 +456,6 @@ describe('Manager review', () => {
       inlineError: null,
       onChange: () => {},
       onOverrideReasonChange: () => {},
-      onUseSuggestedAlternative: () => {},
     };
     try {
       await act(async () => root.render(<JobWorkflowDialog
