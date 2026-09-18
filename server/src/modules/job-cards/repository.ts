@@ -79,6 +79,13 @@ import type {
   OverdueIncidentIdentity,
   OverdueIncidentSource,
 } from './overdue-incidents.js';
+import {
+  APPROVAL_WAIT_BREACH_HOURS,
+  approvalWaitBoundarySql,
+  effectiveSubmissionDeadlineSql,
+  lateStartBoundarySql,
+  submissionBreachInstantSql,
+} from './overdue-incidents.js';
 import { AppError } from '../../errors/index.js';
 import type {
   ActiveOnSiteJobRecord,
@@ -328,6 +335,27 @@ export type InsertOverdueIncidentInput = {
   accountableSource: OverdueAccountableSource;
   source: OverdueIncidentSource;
 };
+/**
+ * OVR-3 discovery candidate: organization + job identity only. Discovery must
+ * never derive eligibility, so it carries no breach or evidence decision.
+ */
+export type OverdueScanCandidate = {
+  organizationId: string;
+  jobCardId: string;
+};
+
+/**
+ * OVR-3 ordering evidence: a persisted lifecycle reservation that was accepted
+ * (reserved) before a delay type's first-late boundary and whose processing
+ * budget has not run out yet. Its existence proves a valid lifecycle request
+ * is still in flight with business time inside the boundary.
+ */
+export type LiveLifecycleIntent = {
+  intentId: string;
+  command: LifecycleCommand;
+  reservedAt: Date;
+};
+
 export type LatestSubmittedFact = {
   seqNo: number;
   occurredAt: Date;
@@ -604,6 +632,17 @@ export interface JobCardTransaction extends SubmissionReader {
     jobCardId: string,
     instant: Date,
   ): Promise<string | null>;
+  /**
+   * OVR-3: live lifecycle reservations for the job whose business time is
+   * strictly before `reservedBefore` (a delay type's first-late boundary) and
+   * whose reservation budget is unexpired at `atTime`. Read under the JobCard
+   * lock; never falls back to the DB statement clock for the boundary.
+   */
+  listLiveLifecycleIntents(
+    organizationId: string,
+    jobCardId: string,
+    input: { reservedBefore: Date; atTime: Date },
+  ): Promise<readonly LiveLifecycleIntent[]>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -761,6 +800,16 @@ export interface JobCardRepository extends SubmissionReader {
     jobCardId: string,
     page: PageQuery,
   ): Promise<Paginated<PersistedOverdueIncident>>;
+  /**
+   * OVR-3 bounded candidate discovery per delay type. Prefilter only: the
+   * clock-only scanner re-evaluates eligibility transactionally through the
+   * shared breach producer under the JobCard lock.
+   */
+  listOverdueBreachCandidates(input: {
+    delayType: OverdueIncidentDelayType;
+    scanTime: Date;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -2304,6 +2353,34 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0]?.to_user_id ?? null;
   }
 
+  async listLiveLifecycleIntents(
+    organizationId: string,
+    jobCardId: string,
+    input: { reservedBefore: Date; atTime: Date },
+  ): Promise<readonly LiveLifecycleIntent[]> {
+    // Callers already hold the JobCard row lock. The identity contract is
+    // 049's: business time is `reserved_at` (sampled under the lock) and the
+    // reservation is live while `expires_at` has not been reached, because
+    // finalize can never commit once the budget expired.
+    const result = await this.client.query<{
+      id: string; command: LifecycleCommand; reserved_at: Date;
+    }>(
+      `SELECT id, command, reserved_at
+         FROM job_card_lifecycle_intents
+        WHERE organization_id = $1 AND job_card_id = $2
+          AND state = 'PENDING'
+          AND reserved_at < $3
+          AND expires_at > $4
+        ORDER BY reserved_at ASC, id ASC`,
+      [organizationId, jobCardId, input.reservedBefore, input.atTime],
+    );
+    return result.rows.map((row) => ({
+      intentId: row.id,
+      command: row.command,
+      reservedAt: row.reserved_at,
+    }));
+  }
+
   async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
     await this.client.query(
       `INSERT INTO job_card_meeting_details (organization_id, job_card_id)
@@ -3423,6 +3500,134 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       limit: page.limit,
       offset: page.offset,
     };
+  }
+
+  /**
+   * OVR-3 candidate discovery prefilter for one delay type.
+   *
+   * This is deliberately *only* a prefilter. It returns bounded,
+   * deterministically ordered rows that could carry a clock-only breach and
+   * excludes rows whose incident — for the revision/episode identity the
+   * shared producer would resolve — already exists. Final eligibility is
+   * always re-evaluated under the JobCard lock through that producer.
+   *
+   * The boundary expressions come from the domain renderers so the +1ms
+   * submission step, the due-date local-midnight fallback and the 24h approval
+   * threshold keep exactly one owner (see `overdue-incidents.ts`).
+   *
+   * Evidence prefilters (acceptance present and a revision exists, activation
+   * provable, SUBMITTED fact present) keep the candidate set productive: a row
+   * whose required evidence can never be proven is never returned, so it
+   * cannot starve later candidates out of the bounded batch.
+   */
+  async listOverdueBreachCandidates(input: {
+    delayType: OverdueIncidentDelayType;
+    scanTime: Date;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]> {
+    const currentRevisionSql = `(
+      SELECT MAX(r2.revision_no) FROM job_card_schedule_revisions r2
+       WHERE r2.organization_id = j.organization_id AND r2.job_card_id = j.id)`;
+    const nextEpisodeSql = `(
+      SELECT COALESCE(MAX(f.seq_no), 0) + 1 FROM job_card_accountability_facts f
+       WHERE f.organization_id = j.organization_id AND f.job_card_id = j.id
+         AND f.fact_type = 'SUBMITTED')`;
+    let sql: string;
+    let values: unknown[];
+    switch (input.delayType) {
+      case 'LATE_START': {
+        sql = `SELECT j.organization_id, j.id AS job_card_id
+          FROM job_cards j
+         WHERE j.status = 'ACCEPTED'
+           AND j.accepted_at IS NOT NULL
+           AND j.scheduled_ends_at IS NOT NULL
+           AND ${lateStartBoundarySql({ scheduledEndsAt: 'j.scheduled_ends_at' })} <= $2
+           AND EXISTS (
+             SELECT 1 FROM job_card_schedule_revisions r
+              WHERE r.organization_id = j.organization_id AND r.job_card_id = j.id)
+           AND NOT EXISTS (
+             SELECT 1 FROM job_card_overdue_incidents i
+              WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
+                AND i.delay_type = 'LATE_START' AND i.episode_no = 1
+                AND i.schedule_revision_no = ${currentRevisionSql})
+         ORDER BY j.scheduled_ends_at ASC, j.id ASC
+         LIMIT $1`;
+        values = [input.limit, input.scanTime];
+        break;
+      }
+      case 'LATE_SUBMISSION': {
+        const firstLateSql = submissionBreachInstantSql(effectiveSubmissionDeadlineSql({
+          scheduledEndsAt: 'j.scheduled_ends_at',
+          scheduledAt: 'j.scheduled_at',
+          type: 'j.type',
+          dueDate: 'j.due_date',
+          timezone: 'o.timezone',
+          requestTime: '$2',
+        }));
+        sql = `SELECT j.organization_id, j.id AS job_card_id
+          FROM job_cards j
+          JOIN organizations o ON o.id = j.organization_id
+         WHERE j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+           AND ${firstLateSql} <= $2
+           AND EXISTS (
+             SELECT 1 FROM job_card_schedule_revisions r
+              WHERE r.organization_id = j.organization_id AND r.job_card_id = j.id)
+           AND (
+             EXISTS (
+               SELECT 1 FROM job_card_submission_episode_activations a
+                WHERE a.organization_id = j.organization_id AND a.job_card_id = j.id
+                  AND a.episode_no = ${nextEpisodeSql}
+                  AND a.activated_at <= $2)
+             OR (${nextEpisodeSql} = 1 AND j.started_at IS NOT NULL AND j.started_at <= $2))
+           AND NOT EXISTS (
+             SELECT 1 FROM job_card_overdue_incidents i
+              WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
+                AND i.delay_type = 'LATE_SUBMISSION'
+                AND i.episode_no = ${nextEpisodeSql}
+                AND i.schedule_revision_no = ${currentRevisionSql})
+         ORDER BY ${firstLateSql} ASC, j.id ASC
+         LIMIT $1`;
+        values = [input.limit, input.scanTime];
+        break;
+      }
+      case 'APPROVAL_WAIT': {
+        sql = `SELECT j.organization_id, j.id AS job_card_id
+          FROM job_cards j
+         CROSS JOIN LATERAL (
+           SELECT f.seq_no, f.occurred_at, f.schedule_revision_no
+             FROM job_card_accountability_facts f
+            WHERE f.organization_id = j.organization_id AND f.job_card_id = j.id
+              AND f.fact_type = 'SUBMITTED'
+            ORDER BY f.seq_no DESC
+            LIMIT 1) fact
+         WHERE j.status = 'WAITING_APPROVAL'
+           AND ${approvalWaitBoundarySql({
+             submittedAt: 'fact.occurred_at',
+             hoursParameter: '$3',
+           })} <= $2
+           AND EXISTS (
+             SELECT 1 FROM job_card_schedule_revisions r
+              WHERE r.organization_id = j.organization_id AND r.job_card_id = j.id
+                AND r.revision_no = fact.schedule_revision_no)
+           AND NOT EXISTS (
+             SELECT 1 FROM job_card_overdue_incidents i
+              WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
+                AND i.delay_type = 'APPROVAL_WAIT'
+                AND i.schedule_revision_no = fact.schedule_revision_no
+                AND i.episode_no = fact.seq_no)
+         ORDER BY fact.occurred_at ASC, j.id ASC
+         LIMIT $1`;
+        values = [input.limit, input.scanTime, APPROVAL_WAIT_BREACH_HOURS];
+        break;
+      }
+    }
+    const result = await this.pool.query<{ organization_id: string; job_card_id: string }>(
+      sql, values,
+    );
+    return result.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+    }));
   }
 
   async listNotes(organizationId: string, jobCardId: string, page: NotePageQuery) {

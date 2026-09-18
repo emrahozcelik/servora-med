@@ -34,6 +34,10 @@ import {
   PostgresCalendarReminderWorkerRepository,
   createCalendarReminderWorker,
 } from './modules/calendar/reminder-worker.js';
+import {
+  PostgresOverdueBreachScannerRepository,
+  createOverdueBreachScanner,
+} from './modules/job-cards/overdue-breach-scanner.js';
 
 async function main() {
   const config = loadConfig();
@@ -109,6 +113,26 @@ async function main() {
           },
         },
       ),
+      // OVR-3: the clock-only breach scanner is a system producer. It is
+      // constructed only when explicitly enabled, so a default deployment
+      // keeps its previous behaviour.
+      ...(config.overdueScanner?.enabled === true
+        ? {
+            overdueBreachScanner: createOverdueBreachScanner(
+              new PostgresOverdueBreachScannerRepository(jobCards),
+              {
+                pollIntervalMs: config.overdueScanner.pollIntervalMs,
+                batchSize: config.overdueScanner.batchSize,
+                onReport: (report) => {
+                  app?.log.debug({ overdueScan: report }, 'Overdue breach scan iteration');
+                },
+                onError: (error) => {
+                  console.error('Overdue breach scanner iteration failed', error);
+                },
+              },
+            ),
+          }
+        : {}),
       staffConfidentialNotesRepository: new PostgresStaffConfidentialNotesRepository(
         database.pool,
       ),

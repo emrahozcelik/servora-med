@@ -191,15 +191,18 @@ async function rewindSubmissionTo(
 }
 
 describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
-  it('migration 049 exists and becomes the schema head', async () => {
+  it('migration 050 exists and becomes the schema head', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('049_job_card_lifecycle_intents');
+      expect(catalog.head?.version).toBe('050_overdue_incident_scanner_source');
+      // The 049 lifecycle-intent prerequisite stays applied beneath OVR-3.
+      expect(catalog.entries.map((entry) => entry.version))
+        .toContain('049_job_card_lifecycle_intents');
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('049_job_card_lifecycle_intents');
+        .toBe('050_overdue_incident_scanner_source');
     });
   });
 
@@ -1407,10 +1410,14 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       })).rejects.toMatchObject({ code: '23514' });
       // Episode numbers start at 1.
       await expect(insert({ episode_no: 0 })).rejects.toMatchObject({ code: '23514' });
-      // OVR-2 has no scanner producer/source contract.
+      // OVR-3 (migration 050) admits the clock-only scanner as a third
+      // producer source, and every pre-existing source stays accepted.
+      await insert({ episode_no: 3, source: 'SCANNER' });
+      await insert({ episode_no: 4, source: 'MUTATION' });
+      // An unknown producer source is still rejected.
       await expect(insert({
-        episode_no: 3,
-        source: 'SCANNER',
+        episode_no: 5,
+        source: 'NOT_A_PRODUCER',
       })).rejects.toMatchObject({ code: '23514' });
       // Migration 048 permits the tracked legacy first episode while keeping
       // the durable identity unique.

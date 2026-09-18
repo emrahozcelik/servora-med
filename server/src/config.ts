@@ -50,6 +50,17 @@ export type BackupWorkerConfig = {
   pollIntervalMs: number;
 };
 
+/**
+ * OVR-3 clock-only breach scanner runtime configuration. Optional by design:
+ * `OVERDUE_SCANNER_ENABLED` must be set explicitly, so an unconfigured
+ * deployment never starts a background writer it did not ask for.
+ */
+export type OverdueScannerConfig = {
+  enabled: boolean;
+  pollIntervalMs: number;
+  batchSize: number;
+};
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -90,6 +101,8 @@ export type AppConfig = {
   backupR2: BackupR2Config;
   /** Optional so existing API-only config fixtures remain source-compatible. */
   backupWorker?: BackupWorkerConfig;
+  /** Optional: present only when OVERDUE_SCANNER_* is configured. */
+  overdueScanner?: OverdueScannerConfig;
   demoDataCreationEnabled: boolean;
 };
 
@@ -186,6 +199,26 @@ function readBackupWorkerConfig(env: NodeJS.ProcessEnv): BackupWorkerConfig {
     leaseMs,
     heartbeatIntervalMs,
     pollIntervalMs,
+  };
+}
+
+function readOverdueScannerConfig(env: NodeJS.ProcessEnv): OverdueScannerConfig {
+  return {
+    enabled: readBoolean(env.OVERDUE_SCANNER_ENABLED, 'OVERDUE_SCANNER_ENABLED'),
+    pollIntervalMs: readIntegerInRange(
+      env.OVERDUE_SCANNER_POLL_INTERVAL_MS,
+      60_000,
+      'OVERDUE_SCANNER_POLL_INTERVAL_MS',
+      1_000,
+      3_600_000,
+    ),
+    batchSize: readIntegerInRange(
+      env.OVERDUE_SCANNER_BATCH_SIZE,
+      50,
+      'OVERDUE_SCANNER_BATCH_SIZE',
+      1,
+      500,
+    ),
   };
 }
 
@@ -534,6 +567,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   );
   const geocoding = readGeocodingConfig(env, actionScopedGeolocationEnabled);
   const hasBackupWorkerConfig = Object.keys(env).some((key) => key.startsWith('BACKUP_WORKER_'));
+  const hasOverdueScannerConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_SCANNER_'));
 
   return {
     nodeEnv: typedNodeEnv,
@@ -607,6 +641,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     demoDataCreationEnabled: readBoolean(env.DEMO_DATA_CREATION_ENABLED, 'DEMO_DATA_CREATION_ENABLED'),
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
+    ...(hasOverdueScannerConfig ? { overdueScanner: readOverdueScannerConfig(env) } : {}),
   };
 }
 

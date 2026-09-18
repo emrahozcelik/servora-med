@@ -33,7 +33,7 @@
  * and the DB enforces breached_at >= deadline_at.
  */
 
-import { overdueSinceFor } from './overdue-contract.js';
+import { overdueSinceFor, overdueSinceSql } from './overdue-contract.js';
 import type { JobCardType } from './types.js';
 
 /** Approval-wait breach threshold: one named server-side constant. */
@@ -49,10 +49,18 @@ export type OverdueIncidentDelayType = (typeof OVERDUE_INCIDENT_DELAY_TYPES)[num
 /**
  * How the incident row was materialized. TRANSITION covers request-driven
  * lifecycle transitions; MUTATION covers request-driven reassignment and
- * schedule-revision edits. OVR-3 scanner materialization is intentionally
- * not part of this migration or source contract.
+ * schedule-revision edits; SCANNER covers OVR-3 clock-only discovery, where
+ * an already-provable obligation became late solely because time passed.
+ * The producer never changes the deadline, accountability or recovery
+ * contract: production method is provenance metadata, not a weaker kind of
+ * history (migration 050 widens the CHECK).
  */
-export type OverdueIncidentSource = 'TRANSITION' | 'MUTATION';
+export type OverdueIncidentSource = 'TRANSITION' | 'MUTATION' | 'SCANNER';
+
+/** Every source accepted by the incident CHECK, in migration order. */
+export const OVERDUE_INCIDENT_SOURCES: readonly OverdueIncidentSource[] = [
+  'TRANSITION', 'MUTATION', 'SCANNER',
+] as const satisfies readonly OverdueIncidentSource[];
 
 export type OverdueAccountableRole = 'STAFF' | 'MANAGEMENT';
 export type OverdueAccountableSource =
@@ -186,3 +194,77 @@ export function approvalWaitDeadlineAt(submittedAt: Date): Date {
 export function isInstantBreached(deadlineAt: Date, requestTime: Date): boolean {
   return requestTime.getTime() >= deadlineAt.getTime();
 }
+
+// ---------------------------------------------------------------------------
+// OVR-3: discovery prefilter renderers + in-flight request ordering evidence.
+//
+// The scanner discovers candidates with SQL, but only the shared TypeScript
+// evaluators above decide eligibility. These renderers exist so the prefilter
+// cannot drift from the evaluators it prefilters for: the +1ms submission
+// step, the due-date-local-midnight fallback and the 24h approval threshold
+// keep exactly one owner.
+// ---------------------------------------------------------------------------
+
+/** SQL `timestamptz` expression for the LATE_START first-late boundary. */
+export function lateStartBoundarySql(refs: { scheduledEndsAt: string }): string {
+  return refs.scheduledEndsAt;
+}
+
+/**
+ * SQL `timestamptz` expression for the effective submission deadline, with
+ * the same priority as {@link effectiveSubmissionDeadlineAt}: phase end, else
+ * phase start for non-SALES_MEETING, else the organization-local due-date
+ * midnight. `NULL` when no deadline of any kind is representable.
+ */
+export function effectiveSubmissionDeadlineSql(refs: {
+  scheduledEndsAt: string;
+  scheduledAt: string;
+  type: string;
+  dueDate: string;
+  timezone: string;
+  requestTime: string;
+}): string {
+  return `COALESCE(
+    ${refs.scheduledEndsAt},
+    CASE WHEN ${refs.type} = 'SALES_MEETING' THEN NULL ELSE ${refs.scheduledAt} END,
+    ${overdueSinceSql({ dueDate: refs.dueDate, timezone: refs.timezone, requestTime: refs.requestTime })})`;
+}
+
+/** SQL `timestamptz` expression for the first-late submission instant (+1 ms). */
+export function submissionBreachInstantSql(effectiveDeadlineSql: string): string {
+  return `(${effectiveDeadlineSql} + interval '1 millisecond')`;
+}
+
+/** SQL `timestamptz` expression for the APPROVAL_WAIT first-late boundary. */
+export function approvalWaitBoundarySql(refs: {
+  submittedAt: string;
+  /** Bind parameter holding {@link APPROVAL_WAIT_BREACH_HOURS}. */
+  hoursParameter: string;
+}): string {
+  return `(${refs.submittedAt} + (${refs.hoursParameter}::int * interval '1 hour'))`;
+}
+
+/**
+ * OVR-3 ordering evidence: which lifecycle commands, when accepted before a
+ * delay type's first-late boundary, prove that the obligation was discharged
+ * inside the boundary.
+ *
+ * A reservation sampled before the boundary means the request's business time
+ * is on time, so the producer path for that command finds the episode NOT
+ * breached and either persists nothing (START/SUBMIT/APPROVE/…) or resolves
+ * the episode. The clock-only scanner must therefore not materialize that
+ * obligation while such a reservation is still in flight; doing so would
+ * create a breach the very same request then contradicts (recovered_at <
+ * breached_at).
+ *
+ * CANCEL belongs to every set: a pre-boundary cancellation stays inside the
+ * boundary for that episode, and its producer path evaluates the same delay
+ * type before terminating.
+ */
+export const DISCHARGING_COMMANDS_BY_DELAY_TYPE: Readonly<
+  Record<OverdueIncidentDelayType, readonly string[]>
+> = {
+  LATE_START: ['START', 'CANCEL'],
+  LATE_SUBMISSION: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+  APPROVAL_WAIT: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+};

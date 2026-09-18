@@ -109,9 +109,10 @@ describe('runMigrations', () => {
       '047_job_card_overdue_incidents.sql',
       '048_overdue_episode_activation_legacy_first.sql',
       '049_job_card_lifecycle_intents.sql',
+      '050_overdue_incident_scanner_source.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('049_job_card_lifecycle_intents.sql');
-    expect(expectedSchemaVersion).toBe(49);
+    expect(migrations.at(-1)?.name).toBe('050_overdue_incident_scanner_source.sql');
+    expect(expectedSchemaVersion).toBe(50);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

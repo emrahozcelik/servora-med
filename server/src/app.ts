@@ -64,6 +64,7 @@ import type { CalendarRepository } from './modules/calendar/repository.js';
 import { CalendarService } from './modules/calendar/service.js';
 import { calendarRoutes } from './modules/calendar/routes.js';
 import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.js';
+import type { OverdueBreachScanner } from './modules/job-cards/overdue-breach-scanner.js';
 import { MessagingService } from './modules/messaging/service.js';
 import { PostgresMessagingRepository } from './modules/messaging/repository.js';
 import { messagingRoutes } from './modules/messaging/routes.js';
@@ -143,6 +144,12 @@ export type AppDependencies = {
   overviewRepository?: OverviewReadModel;
   calendarRepository?: CalendarRepository;
   calendarReminderWorker?: CalendarReminderWorker;
+  /**
+   * OVR-3 clock-only breach scanner. Optional: present only when
+   * `OVERDUE_SCANNER_ENABLED=true` was configured, so the process never starts
+   * a background incident writer implicitly.
+   */
+  overdueBreachScanner?: OverdueBreachScanner;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
@@ -307,6 +314,17 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         });
         app.addHook('onClose', async () => {
           await dependencies.calendarReminderWorker!.stop();
+        });
+      }
+      // OVR-3: system producer, no fabricated user and no HTTP surface. It
+      // shares the process lifecycle so shutdown waits for an active
+      // iteration instead of cutting a transaction mid-write.
+      if (dependencies.overdueBreachScanner) {
+        app.addHook('onReady', () => {
+          dependencies.overdueBreachScanner!.start();
+        });
+        app.addHook('onClose', async () => {
+          await dependencies.overdueBreachScanner!.stop();
         });
       }
     }
