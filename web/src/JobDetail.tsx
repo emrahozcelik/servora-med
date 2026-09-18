@@ -1512,7 +1512,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           'FOLLOW_UP_PROPOSAL_REQUIRED', 'FOLLOW_UP_PROPOSAL_INVALID',
           'FOLLOW_UP_OVERRIDE_REASON_REQUIRED', 'FOLLOW_UP_CUSTOMER_CONFLICT',
           'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 'ASSIGNEE_NOT_FOUND',
-          'CUSTOMER_VISIT_DUPLICATE',
+          'CUSTOMER_VISIT_DUPLICATE', 'CALENDAR_CONFLICT',
         ];
         if (caught instanceof ApiError && dialogErrorCodes.includes(caught.code)
           && dialog !== null && (dialog.kind === 'submit' || dialog.kind === 'approve')) {
