@@ -654,6 +654,30 @@ GET /api/health
 503 {"status":"unavailable"}  # otherwise — no infrastructure details
 ```
 
+### Backup aggregate vs deployment backup gate
+
+`/api/health` may report the backup aggregate as `status: unavailable` while
+the BR5 worker remains intentionally disabled (`BACKUP_WORKER_ENABLED=false`).
+This is an expected state under the current policy:
+
+`/api/health` backup aggregate semantics, and how they relate to the
+mandatory deployment backup gates:
+
+- The aggregate reports `ok` only when at least one verified successful
+  `backup_run` exists and worker/scheduler health pass; otherwise (or if its
+  health query fails) it reports `unavailable`.
+- When `BACKUP_WORKER_ENABLED=false`, missing worker/scheduler heartbeats do
+  not by themselves make the backup aggregate `unavailable`: worker/scheduler
+  health is treated as automatically healthy while the worker is disabled.
+  The aggregate still requires the verified successful `backup_run`.
+- Mandatory deployment backup success is separately proven by the deployment
+  workflow itself (predeploy backup gate and the postdeploy backup summary,
+  e.g. `postdeploy_backup=PASS`), and must be evaluated independently from
+  this aggregate.
+- Never infer "backup failed" solely from an aggregate `unavailable` when the
+  worker is intentionally disabled. The BR5 worker activation gates in this
+  runbook are unchanged.
+
 ## Verification status (repository vs operator)
 
 | Claim | Status |
