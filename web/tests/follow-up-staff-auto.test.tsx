@@ -104,7 +104,6 @@ describe('FollowUpProposalSection Staff AUTO presentation', () => {
         inlineError={null}
         onChange={() => {}}
         onOverrideReasonChange={() => {}}
-        onUseSuggestedAlternative={() => {}}
         autoSupported
         {...props}
       />);
@@ -150,7 +149,6 @@ describe('FollowUpProposalSection Staff AUTO presentation', () => {
         inlineError={null}
         onChange={() => {}}
         onOverrideReasonChange={() => {}}
-        onUseSuggestedAlternative={() => {}}
       />);
     });
     expect(host.querySelector('#follow-up-proposal-scheduled-at')).not.toBeNull();

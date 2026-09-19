@@ -28,10 +28,9 @@ export const FOLLOW_UP_ERROR_MESSAGES: Record<string, string> = {
   CONTACT_INACTIVE: 'Seçilen ilgili kişi artık aktif değil.',
   CONTACT_NOT_IN_CUSTOMER: 'Seçilen ilgili kişi kaynak işin müşterisine bağlı değil.',
   ACTION_IN_PROGRESS: 'Bu takip işi oluşturuluyor olabilir. Kısa bir süre bekleyip aynı bilgilerle tekrar deneyin.',
-  // Legacy codes the server no longer emits (frequency is advisory-only since
-  // the scheduling-policy reconciliation). Kept as defensive fallbacks with
+  // Legacy code the server no longer emits (frequency is advisory-only since
+  // the scheduling-policy reconciliation). Kept as a defensive fallback with
   // contract-consistent wording; never a same-day or frequency gate.
-  FOLLOW_UP_CUSTOMER_CONFLICT: 'Aynı müşteri, personel ve ziyaret türü için bu saat aralığında zaten bir plan bulunuyor. Farklı bir zaman seçin.',
   FOLLOW_UP_OVERRIDE_REASON_REQUIRED: 'Bu işlem için ek bilgi gerekiyor. Lütfen gerekli alanı doldurun.',
 };
 

@@ -1510,7 +1510,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         }
         const dialogErrorCodes = [
           'FOLLOW_UP_PROPOSAL_REQUIRED', 'FOLLOW_UP_PROPOSAL_INVALID',
-          'FOLLOW_UP_OVERRIDE_REASON_REQUIRED', 'FOLLOW_UP_CUSTOMER_CONFLICT',
+          'FOLLOW_UP_OVERRIDE_REASON_REQUIRED',
           'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 'ASSIGNEE_NOT_FOUND',
           'CUSTOMER_VISIT_DUPLICATE', 'CALENDAR_CONFLICT',
         ];
@@ -1521,16 +1521,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           // explicit-schedule fallback. The server message stays visible and
           // reopening the dialog re-evaluates the suggestion contract.
           setFollowUp((current) => current ? { ...current, inlineError: caught.message } : current);
-          if (caught.code === 'FOLLOW_UP_CUSTOMER_CONFLICT'
-            && typeof caught.details?.suggestedAlternativeAt === 'string') {
-            setFollowUp((current) => current ? {
-              ...current,
-              inlineError: caught.message,
-              evaluation: current.evaluation
-                ? { ...current.evaluation, suggestedAlternativeAt: caught.details!.suggestedAlternativeAt as string }
-                : current.evaluation,
-            } : current);
-          }
           return;
         }
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
@@ -1994,27 +1984,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       : current);
   }
 
-  function useSuggestedAlternative() {
-    setFollowUp((current) => {
-      const alternative = current?.evaluation?.suggestedAlternativeAt;
-      if (!current?.draft || !alternative) return current;
-      return {
-        ...current,
-        draft: { ...current.draft, scheduledAt: alternative },
-        evaluation: current.evaluation
-          ? {
-              ...current.evaluation,
-              level: 'CLEAR',
-              conflicts: [],
-              safeMessage: null,
-              suggestedAlternativeAt: null,
-            }
-          : current.evaluation,
-        inlineError: null,
-      };
-    });
-  }
-
   function retryUncertainAttempt() {
     const attempt = lifecycleAttempt.current;
     if (attempt) void execute(attempt.command);
@@ -2252,7 +2221,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             onRetrySuggestion: () => { void retrySubmitFollowUp(); },
             expandInstructions: followUp.expandInstructions,
             onChange: updateFollowUpDraft,
-            onUseSuggestedAlternative: useSuggestedAlternative,
           }
         : undefined}
       returnFocusRef={dialogTriggerRef}

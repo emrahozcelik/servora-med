@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FollowUpProposalSection } from '../src/jobs/FollowUpProposalSection';
+import { parseFollowUpSuggestion } from '../src/jobs/jobs-api';
 import { JobDetailScreen } from '../src/JobDetail';
 import type {
   FollowUpDraft,
@@ -50,7 +51,6 @@ function renderSection(props: Partial<Parameters<typeof FollowUpProposalSection>
       inlineError={null}
       onChange={onChange}
       onOverrideReasonChange={onOverrideReasonChange}
-      onUseSuggestedAlternative={() => {}}
       {...props}
     />);
   });
@@ -84,34 +84,28 @@ describe('FollowUpProposalSection', () => {
     expect(host.querySelector('.follow-up-conflict-list')).toBeNull();
   });
 
-  it('renders the manager editors, recent visit card, and conflict alternative button', () => {
+  it('renders the manager editors and recent visit card for an advisory evaluation', () => {
     const { host } = renderSection({
       mode: 'manager',
       origin: 'STAFF_ADJUSTED',
       assignees: [{ id: 's1', name: 'Ayşe Personel' }, { id: 's2', name: 'Bora Yılmaz' }],
       allowTypeEdit: true,
       evaluation: {
-        level: 'CONFLICT',
-        safeMessage: 'Bu müşteri için yakın tarihte başka bir iş planlandı.',
-        conflicts: [{
-          jobCardId: 'job-2', title: 'Başka personelin teslimi',
-          scheduledAt: '2026-08-08T09:00:00.000Z', type: 'PRODUCT_DELIVERY',
-          status: 'NEW', assignee: { id: 's2', name: 'Bora Yılmaz' },
-          jobPath: '/jobs/job-2',
-        }],
+        level: 'WARNING',
+        safeMessage: 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.',
+        conflicts: [],
         recentVisit: {
           occurredAt: '2026-08-04T09:00:00.000Z', jobType: 'PRODUCT_DELIVERY',
           title: 'Ürün teslimi', staffName: 'Bora Yılmaz', resultSummary: 'Teslim edildi.',
         },
-        suggestedAlternativeAt: '2026-08-09T10:00:00.000Z',
+        suggestedAlternativeAt: null,
       },
     });
     expect(host.textContent).toContain('PERSONEL ÖNERİSİ');
     expect(host.querySelector('#follow-up-proposal-assignee')).not.toBeNull();
     expect(host.querySelector('#follow-up-proposal-type')).not.toBeNull();
-    expect(host.textContent).toContain('Başka personelin teslimi');
     expect(host.textContent).toContain('Yakın tarihli müşteri ziyareti');
-    expect(host.textContent).toContain('Önerilen alternatif zamanı kullan');
+    expect(host.querySelector('.follow-up-conflict-list')).toBeNull();
   });
 
   it('shows frequency information without an override field', () => {
@@ -548,5 +542,38 @@ describe('JobDetail follow-up proposal integration', () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+describe('follow-up suggestion contract', () => {
+  const suggestion = {
+    scheduledAt: '2026-08-08T10:00:00.000Z',
+    type: 'SALES_MEETING',
+    assignedTo: 's1',
+    followUpInstructions: 'Takip: Klinik teslimi',
+    evaluation: {
+      level: 'WARNING',
+      safeMessage: '14 günde 5 saha teması.',
+      conflicts: [],
+      recentVisit: null,
+      suggestedAlternativeAt: null,
+    },
+  };
+
+  it('accepts the advisory-only levels the server can emit', () => {
+    for (const level of ['CLEAR', 'WARNING'] as const) {
+      const parsed = parseFollowUpSuggestion({
+        ...suggestion,
+        evaluation: { ...suggestion.evaluation, level },
+      });
+      expect(parsed.evaluation.level).toBe(level);
+    }
+  });
+
+  it('rejects a legacy CONFLICT level instead of rendering it without UI support', () => {
+    expect(() => parseFollowUpSuggestion({
+      ...suggestion,
+      evaluation: { ...suggestion.evaluation, level: 'CONFLICT' },
+    })).toThrowError(/evaluation\.level/);
   });
 });
