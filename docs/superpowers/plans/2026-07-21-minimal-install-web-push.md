@@ -802,3 +802,23 @@ recorded:
   (Task 10A start was `bfb27c8…`).
 - **Merge SHA**: pending branding rebase + green CI + explicit merge decision.
 - **Known risk**: at-least-once crash window on claimed deliveries (lease reclaim).
+
+## Production Rollout Closure — Logout/Login Persistence (PR #307, 2026-09-19)
+
+- The logout/login persistence contract was merged through **PR #307** (fix
+  `db203a2`, test `9617d44`; implementation head
+  `9617d44ba2f9c49f404138bc938569a17fac6442`, independently re-reviewed
+  outside the GitHub review record before merge).
+- Resulting production release: `20de90ccb97876bf5680d51e0ad4786509cd76f5`
+  (single release together with #305/#306; release record:
+  `docs/operations/2026-09-19-production-release-20de90c.md`).
+- Deterministic + CI verification complete: PR #307 exact-head CI
+  (run `35434735795`) and resulting-main push CI (run `35436495389`) green
+  (server + web); production deploy run `35437182240` succeeded with
+  browser smoke PASS and post-deploy backup PASS.
+- Physical affected-iOS field verification remains **PENDING**: the installed
+  PWA on the affected iPhone must still demonstrate logout → login
+  persistence (subscription survives, no new notification permission prompt).
+  Until that acceptance succeeds, the item is
+  "code/production remediation deployed; affected-device field acceptance
+  pending" — not fully closed.
