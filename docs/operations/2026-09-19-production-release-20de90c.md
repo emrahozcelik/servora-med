@@ -34,7 +34,8 @@ This was a deliberate release-bundling decision, **not** skipped validation:
   Made the follow-up future fixture working-day deterministic (`a2b86fc`,
   merged as `f6ed43b`).
 - **PR #307 — preserve Web Push subscription across normal logout/login.**
-  Approved implementation head `9617d44ba2f9c49f404138bc938569a17fac6442`
+  Independently reviewed implementation head
+  `9617d44ba2f9c49f404138bc938569a17fac6442`
   (`db203a2` fix + `9617d44` test), merged as `20de90c`.
 
 ### Review provenance (accuracy note)
@@ -87,11 +88,17 @@ These are three separate facts; do not conflate them.
 - **BR5 WORKER: disabled.** `BACKUP_WORKER_ENABLED=false` remains the safe
   default; the BR5 worker authorization gates in
   [production-deployment.md](./production-deployment.md) are unchanged.
-- **HEALTH BACKUP AGGREGATE:** `/api/health` may report the backup aggregate
-  as `unavailable` while the worker remains intentionally disabled. Observed in
-  this release's health response. This is an expected state under the current
-  policy and is **not** evidence that the deployment's mandatory predeploy or
-  postdeploy backup failed.
+- **HEALTH BACKUP AGGREGATE:** the aggregate reports `ok` only when at least
+  one verified successful `backup_run` exists and worker/scheduler health
+  pass. When `BACKUP_WORKER_ENABLED=false`, missing worker/scheduler
+  heartbeats do **not** by themselves make the aggregate `unavailable` —
+  worker/scheduler health is treated as automatically healthy while the
+  worker is disabled; the aggregate still requires the verified successful
+  `backup_run` (or reports `unavailable` if its health query fails). Observed
+  in this release's health response (all evidence fields `null`), which
+  indicates no verified successful `backup_run` evidence existed yet at that
+  moment. This is **not** evidence that the deployment's mandatory predeploy
+  or postdeploy backup failed; those are a separate workflow gate.
 
 ## Web Push rollout status (PR #307)
 
