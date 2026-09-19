@@ -327,6 +327,66 @@ describe('WebPushController', () => {
     expect(service.createSubscription).toHaveBeenCalledTimes(2);
   });
 
+  it('does not rotate a subscription after logout stops a pending explicit enable', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/push/example', expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    const renewal = { ...status, renewalRequired: true, subscription: {
+      id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64),
+    } };
+    let resolveBrowserRead!: (value: typeof subscription) => void;
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockImplementation(() => new Promise((resolve) => {
+        resolveBrowserRead = resolve;
+      })),
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    });
+    const service = api({ getStatus: vi.fn().mockResolvedValue(renewal) });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    const enabling = controller.enable();
+    await vi.waitFor(() => expect(adapter.currentSubscription).toHaveBeenCalledTimes(1));
+    controller.stop();
+    resolveBrowserRead(subscription);
+    await enabling;
+
+    expect(adapter.unsubscribe).not.toHaveBeenCalled();
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('does not rotate after logout races an ownership conflict during explicit enable', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/push/example', expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    let rejectCreate!: (error: unknown) => void;
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(subscription),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    });
+    const service = api({
+      createSubscription: vi.fn().mockImplementation(() => new Promise((_, reject) => {
+        rejectCreate = reject;
+      })),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    const enabling = controller.enable();
+    await vi.waitFor(() => expect(service.createSubscription).toHaveBeenCalledTimes(1));
+    controller.stop();
+    rejectCreate(new ApiError(409, 'PUSH_SUBSCRIPTION_CONFLICT', 'ownership conflict'));
+    await enabling;
+
+    expect(adapter.unsubscribe).not.toHaveBeenCalled();
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+  });
+
   it('disables the server record before best-effort local unsubscribe', async () => {
     const calls: string[] = [];
     const subscription = {
@@ -350,6 +410,39 @@ describe('WebPushController', () => {
 
     expect(calls.slice(0, 2)).toEqual(['server', 'browser']);
     expect(calls).toContain('unsubscribe');
+  });
+
+  it('does not unsubscribe after logout stops a pending explicit disable', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/push/example', expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    let resolveBrowserRead!: (value: typeof subscription) => void;
+    const active = { ...status, subscription: {
+      id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64),
+    } };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn()
+        .mockResolvedValueOnce(subscription)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveBrowserRead = resolve; })),
+      fingerprint: vi.fn().mockResolvedValue('a'.repeat(64)),
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    });
+    const service = api({
+      getStatus: vi.fn().mockResolvedValue(active),
+      disableSubscription: vi.fn().mockResolvedValue(undefined),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    const disabling = controller.disable();
+    await vi.waitFor(() => expect(service.disableSubscription).toHaveBeenCalledTimes(1));
+    controller.stop();
+    resolveBrowserRead(subscription);
+    await disabling;
+
+    expect(adapter.unsubscribe).not.toHaveBeenCalled();
   });
 
   it('rotates once after an ownership-opaque conflict and then stops on a second conflict', async () => {
@@ -511,7 +604,7 @@ describe('WebPushController', () => {
     expect(controller.getSnapshot().status?.subscription).toBeNull();
   });
 
-  it('clears recipient-scoped state and best-effort unsubscribes locally after logout', async () => {
+  it('stops recipient-scoped recovery without unsubscribing the browser subscription', async () => {
     const subscription = {
       endpoint: 'https://fcm.googleapis.com/push/example', expirationTime: null,
       keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
@@ -523,12 +616,12 @@ describe('WebPushController', () => {
     const controller = createWebPushController({ api: api(), browser: adapter, target: window });
 
     await controller.start('org-1:user-1');
-    await controller.clearLocalSubscription();
+    controller.stop();
 
-    expect(adapter.unsubscribe).toHaveBeenCalledWith(subscription);
+    expect(adapter.unsubscribe).not.toHaveBeenCalled();
     expect(controller.getSnapshot().status).toBeNull();
     await controller.recover();
-    expect(adapter.currentSubscription).toHaveBeenCalledTimes(1);
+    expect(adapter.currentSubscription).not.toHaveBeenCalled();
   });
 
   it('does not auto-rotate a renewal-required subscription before an explicit command', async () => {
@@ -914,7 +1007,7 @@ describe('WebPushController', () => {
     expect(apiB.getStatus.mock.calls.length).toBeGreaterThan(callsB);
   });
 
-  it('ignores worker messages after clearLocalSubscription logout', async () => {
+  it('ignores worker messages after non-destructive logout stop', async () => {
     const serviceWorkerTarget = makeServiceWorkerTarget();
     const service = api();
     const controller = createWebPushController({
@@ -922,7 +1015,7 @@ describe('WebPushController', () => {
     });
 
     await controller.start('org-1:user-1');
-    await controller.clearLocalSubscription();
+    controller.stop();
     const calls = service.getStatus.mock.calls.length;
     serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
     await new Promise((r) => setTimeout(r, 0));

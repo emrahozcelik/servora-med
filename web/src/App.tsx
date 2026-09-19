@@ -114,7 +114,6 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
     setPending(true); setError('');
     try {
       await logout();
-      await resolvedWebPushController.clearLocalSubscription();
       onSignedOut();
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Oturum kapatılamadı.'); setPending(false); }

@@ -325,8 +325,15 @@ locked protocols. The product contract is:
 | Current-session server row exists but browser subscription is gone | Disable the stale current-session row |
 | Browser subscription exists but the server has no endpoint row | Do not bind; ownership cannot be proven |
 | Endpoint is provider-stale or uses a rotated VAPID key | Do not silently rebind; preserve explicit renewal handling |
-| Explicit logout and browser unsubscribe succeeds | Browser subscription is removed; a later login remains unbound |
-| Explicit logout and browser unsubscribe fails, then the same user/organization logs in | Rebind only when the retained endpoint is server-proven, recoverable, and not `USER_DISABLED` |
+| Normal logout | Revoke the auth session and stop recipient-scoped client recovery; preserve the browser subscription for a later same-user recovery |
+| Explicit disable | Disable the server record with `USER_DISABLED`, then best-effort unsubscribe the browser subscription; later login must remain opted out |
+
+Normal logout and explicit device-notification disable are separate product
+commands. Logout never calls browser `unsubscribe()`. The browser endpoint may
+remain registered while the revoked session is immediately ineligible for
+delivery; a later login can silently rebind it only when the existing ownership,
+VAPID and disabled-reason checks pass. Browser cleanup failures do not weaken
+server session revocation or delivery eligibility.
 
 Explicit enable applies this protocol:
 
@@ -419,11 +426,14 @@ sessions before every send. Logout and password-change session revocation
 therefore stop delivery server-side even if browser `unsubscribe()` fails.
 Expired/revoked-session subscriptions are disabled during dispatcher cleanup.
 
-On explicit logout the web performs best-effort local browser unsubscription
-after the authoritative server logout. On account change, push UI state is
-cleared. A new account must click enable explicitly; an old endpoint is never
-auto-associated during login. The same user may explicitly rebind the retained
-browser endpoint to a later session through the protocol in section 7.
+On normal logout the web performs the authoritative server logout and then
+stops the recipient-scoped client controller without browser unsubscription.
+The revoked session is no longer eligible for delivery. On account change,
+push UI state is cleared and an old endpoint is never auto-associated with a
+different account. The same user may silently rebind a retained browser
+endpoint to a later session through the recovery protocol in section 7. An
+explicit device-notification disable remains the only user action that requests
+browser unsubscription.
 
 ### 8.1 Browser refresh and VAPID rotation
 

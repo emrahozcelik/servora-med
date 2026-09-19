@@ -73,7 +73,6 @@ export type WebPushController = Readonly<{
   enable: () => Promise<void>;
   disable: () => Promise<void>;
   recover: () => Promise<void>;
-  clearLocalSubscription: () => Promise<void>;
 }>;
 
 const emptySnapshot: WebPushSnapshot = {
@@ -252,8 +251,10 @@ export function createWebPushController({
         if (!isRecoverableSubscriptionReadError(error)) throw error;
         subscription = null;
       }
+      if (expectedGeneration !== generation) return;
       if (status.renewalRequired && subscription) {
         await browser.unsubscribe(subscription);
+        if (expectedGeneration !== generation) return;
         subscription = null;
       }
       if (!subscription) subscription = await browser.subscribe(status.vapidPublicKey!);
@@ -262,8 +263,11 @@ export function createWebPushController({
         await api.createSubscription(asCreateWebPushSubscription(subscription));
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'PUSH_SUBSCRIPTION_CONFLICT') throw error;
+        if (expectedGeneration !== generation) return;
         await browser.unsubscribe(subscription);
+        if (expectedGeneration !== generation) return;
         const rotated = await browser.subscribe(status.vapidPublicKey!);
+        if (expectedGeneration !== generation) return;
         await api.createSubscription(asCreateWebPushSubscription(rotated));
       }
       await refreshStatus(expectedGeneration);
@@ -281,8 +285,10 @@ export function createWebPushController({
       if (!status?.subscription || expectedGeneration !== generation) return;
       settle(status, '', 'disable');
       await api.disableSubscription(status.subscription.id);
+      if (expectedGeneration !== generation) return;
       try {
         const subscription = await browser.currentSubscription();
+        if (expectedGeneration !== generation) return;
         if (subscription) await browser.unsubscribe(subscription);
       } catch {
         // Server disablement is authoritative; browser cleanup is best effort.
@@ -292,21 +298,6 @@ export function createWebPushController({
       if (expectedGeneration === generation) settle(snapshot.status, errorMessage(error, 'Cihaz bildirimleri kapatılamadı.'));
     }).finally(() => { operation = null; });
     return operation;
-  };
-
-  const clearLocalSubscription = async () => {
-    try {
-      const subscription = await browser.currentSubscription();
-      if (subscription) await browser.unsubscribe(subscription);
-    } catch {
-      // Server session revocation is authoritative; local cleanup is best effort.
-    } finally {
-      identityKey = null;
-      generation += 1;
-      operation = null;
-      recovery = null;
-      publish(emptySnapshot);
-    }
   };
 
   return {
@@ -351,6 +342,5 @@ export function createWebPushController({
     enable,
     disable,
     recover,
-    clearLocalSubscription,
   };
 }
