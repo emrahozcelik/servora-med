@@ -37,6 +37,15 @@ export class RealtimeService {
   private readonly activeSubscriptions = new Set<RealtimeSubscriptionInternal>();
   private shuttingDown = false;
 
+  /**
+   * Observability seam: number of currently open SSE subscriptions. Shutdown
+   * logs this before closing so a restart is never silent about how many
+   * hijacked streams it is tearing down (OVR-3 outage follow-up).
+   */
+  get openSubscriptionCount(): number {
+    return this.activeSubscriptions.size;
+  }
+
   close() {
     this.shuttingDown = true;
     for (const sub of [...this.activeSubscriptions]) {

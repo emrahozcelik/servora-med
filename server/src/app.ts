@@ -180,6 +180,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
   const app = Fastify({
     trustProxy: resolveTrustProxyOption(config.trustedProxy),
     logger: buildLoggerOptions(config, dependencies.loggerDestination),
+    // OVR-3 production outage (2026-09-18): a hijacked SSE stream keeps
+    // server.close() waiting on the socket indefinitely, so app.close() hung
+    // until the shutdown guard force-exited with code 1 — before ANY onClose
+    // hook (SSE teardown, scanner/calendar/web-push workers) could run.
+    // Ask Fastify to destroy open connections during close so shutdown
+    // always reaches the real cleanup hooks.
+    forceCloseConnections: true,
   });
 
   await app.register(cookie);
