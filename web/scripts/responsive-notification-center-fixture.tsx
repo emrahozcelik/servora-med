@@ -163,7 +163,6 @@ function createFixtureController(snapshot: WebPushSnapshot): WebPushController {
     enable: async () => {},
     disable: async () => {},
     recover: async () => {},
-    clearLocalSubscription: async () => {},
   };
 }
 

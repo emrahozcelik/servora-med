@@ -22,7 +22,6 @@ const unsupportedController: WebPushController = {
   enable: async () => {},
   disable: async () => {},
   recover: async () => {},
-  clearLocalSubscription: async () => {},
 };
 
 const WebPushContext = createContext<WebPushController>(unsupportedController);
@@ -55,6 +54,5 @@ export function useWebPush() {
     ...snapshot,
     enable: controller.enable,
     disable: controller.disable,
-    clearLocalSubscription: controller.clearLocalSubscription,
   };
 }

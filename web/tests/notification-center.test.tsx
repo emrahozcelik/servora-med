@@ -280,7 +280,6 @@ describe('NotificationCenter', () => {
       enable: handlers.enable ?? (async () => {}),
       disable: handlers.disable ?? (async () => {}),
       recover: async () => {},
-      clearLocalSubscription: async () => {},
     };
   }
 

@@ -6,6 +6,13 @@
 > `2026-07-21-minimal-install-web-push-design.md` receives explicit design
 > approval and the docs PR is merged.
 
+> **Contract supersession — 2026-09-19:** The original runtime acceptance
+> recorded logout-time browser unsubscription. The current product contract
+> separates auth logout from device-notification opt-out: normal logout keeps
+> the browser subscription and explicit disable remains destructive. The
+> historical checklist below is retained for traceability; current behavior is
+> defined by the paired design spec and the logout-persistence remediation.
+
 **Goal:** Make Servora-Med minimally installable and add optional,
 recipient-safe Web Push derived from committed persistent notifications without
 adding offline business behavior.
@@ -162,9 +169,11 @@ Task 4 API adapter, styles, focused tests, and responsive fixture.
   server-save retry reuses the same browser subscription.
 - [x] RED→GREEN: explicit disable completes server disable before best-effort
   browser unsubscribe and then reloads canonical status.
-- [x] RED→GREEN: logout best-effort unsubscribes locally after authoritative
-  server session revocation; identity/account changes clear all controller
-  state and never auto-associate an old endpoint.
+- [x] HISTORICAL (superseded 2026-09-19): logout best-effort unsubscribed
+  locally after authoritative server session revocation; the current contract
+  preserves the browser subscription and uses `stop()` for identity cleanup.
+  Identity/account changes still clear all controller state and never
+  auto-associate an old endpoint.
 - [x] RED→GREEN: after cross-account `409`, explicit enable unsubscribes,
   creates a fresh browser subscription, and retries create exactly once; a
   second conflict stops without a loop.
@@ -477,8 +486,9 @@ recorded:
 - Enable/disable commands share a synchronous gate. Server-save retry retains
   the browser subscription, cross-owner conflict rotates once only after an
   explicit command, and server disablement precedes best-effort browser cleanup.
-- Identity reset and logout clear recipient-scoped state; logout performs local
-  best-effort unsubscribe only after the authoritative server logout succeeds.
+- Identity reset and logout clear recipient-scoped controller state without
+  unsubscribing the browser. Explicit device-notification disable performs
+  best-effort browser cleanup only after server disablement succeeds.
   Mount/focus/visibility/online recovery reconciles only an already-active
   current-session record and ignores stale identity responses.
 - The existing notification settings dialog now presents enabled, disabled,
@@ -728,7 +738,7 @@ recorded:
 - **Listener lifecycle**: message listener registers once on first `start()`,
   is removed on `stop()`, and is optional when `serviceWorkerTarget` is absent.
 - **Identity isolation**: generation guards reject stale recovery mutations
-  after logout/`clearLocalSubscription` and account switch. Two independent
+  after logout/`stop()` and account switch. Two independent
   controller instances with separate SW targets do not cross-call APIs.
 - **UI loading/pending**: settings show
   `Cihaz bildirimi durumu yükleniyor…` (`role="status"`) while `enabled === null`;
