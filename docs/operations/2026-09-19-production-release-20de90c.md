@@ -103,26 +103,34 @@ These are three separate facts; do not conflate them.
 ## Web Push rollout status (PR #307)
 
 - Automated/code status: **FIXED / MERGED / DEPLOYED** (release `20de90c…`).
-- Physical affected-iOS validation: **PENDING**.
+- Physical affected-iOS validation: **PASS — regression CLOSED.**
 
-Manual acceptance on the affected device is still required before the field
-regression can be closed:
+The affected-device field acceptance was performed and **passed**. After a
+normal logout and re-login as the same user, the device-notification preference
+in `Kurulum ve cihaz bildirimleri` was preserved and push worked: no re-prompt
+for notification permission, and no change to the iOS notification
+permission/settings.
 
-1. Open the installed PWA on the affected iPhone.
-2. Confirm device notifications currently show `Cihaz bildirimlerini kapat`.
+Acceptance procedure exercised on the affected iPhone:
+
+1. Open the installed PWA.
+2. Confirm device notifications show `Cihaz bildirimlerini kapat`.
 3. Logout normally.
-4. Do not change iOS notification permission/settings.
+4. Leave iOS notification permission/settings unchanged.
 5. Login again as the same user.
 6. Open `Kurulum ve cihaz bildirimleri`.
 7. Wait for reconciliation.
-8. Expected: `Cihaz bildirimlerini kapat`.
-9. No new notification permission prompt.
-10. Record: iOS version, standalone PWA yes/no, production SHA, before state,
-    after state.
+8. Observed: `Cihaz bildirimlerini kapat` — preserved.
+9. Observed: no new notification permission prompt.
 
-Until that succeeds, do not write "iOS issue fully closed". Accurate wording:
-**"Code/production remediation deployed; affected-device field acceptance
-pending."**
+Scope of this close: it closes **only** the `#307` logout/login
+subscription-preference regression. The broader **Phase S** mobile Web Push
+acceptance — Chrome Android physical matrix, iPhone/iPad Home Screen matrix
+(`AC-IOS-01 …`, still `Deferred — Phase S`), lock-screen privacy, mobile
+logout/account-switch, Focus/DND, and production VAPID/enablement — is tracked
+separately in
+[2026-07-22-minimal-install-web-push-acceptance.md](../superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md)
+and **remains open**.
 
 ## OVR safety
 
