@@ -1,5 +1,4 @@
 import { AppError } from '../../errors/index.js';
-import { assertWorkingDay } from '../job-cards/working-day-policy.js';
 import type { CalendarRepository } from './repository.js';
 import {
   manualEventCancelRequestHash,
@@ -109,15 +108,11 @@ export class CalendarService {
   async create(actor: CalendarActor, input: ManualEventCreateInput) {
     this.requireEnabled();
     await this.requireAssignable(actor, input.assignedUserId);
-    // WORKING-DAY V1 (§21): the request parser knows the syntax but not the
-    // organization timezone, so enforcement lives here, against the
-    // authoritative `organizations.timezone`. The submitted event timezone is
-    // display provenance only and must not shift the Sunday boundary.
-    assertWorkingDay({
-      startsAt: new Date(input.startsAt),
-      endsAt: new Date(input.endsAt),
-      timezone: await this.repository.getOrganizationTimezone(actor.organizationId),
-    });
+    // WORKING-DAY contract reconciliation: a manual calendar event is an
+    // explicit human choice, so an organization-local Sunday is allowed. The
+    // submitted event timezone stays display provenance only — it neither
+    // creates nor lifts a Sunday constraint, because no such constraint applies
+    // to this write path.
     return this.present(
       actor,
       await this.repository.createManual(
@@ -152,23 +147,11 @@ export class CalendarService {
     );
     if (replay) return this.present(actor, replay);
     const merged = preserveManualEventDuration(current, input);
-    // WORKING-DAY V1 (§22): validate the MERGED effective interval, so a
-    // startsAt-only move into Sunday, an endsAt-only extension into Sunday and a
-    // both-field move into Sunday are all rejected. Only a patch that actually
-    // carries a scheduling field can change the occupied interval; a title-,
-    // description-, assignee- or timezone-only patch therefore leaves the
-    // occupied interval untouched and never newly rejects a legacy Sunday record
-    // (§10/§11). The derived endsAt is used only for validation, never for the
-    // request hash.
-    const scheduleTouched = input.startsAt !== undefined || input.endsAt !== undefined;
-    const effectiveEndsAt = merged.endsAt ?? current.endsAt;
-    if (scheduleTouched && effectiveEndsAt !== null) {
-      assertWorkingDay({
-        startsAt: new Date(merged.startsAt ?? current.startsAt),
-        endsAt: new Date(effectiveEndsAt),
-        timezone: await this.repository.getOrganizationTimezone(actor.organizationId),
-      });
-    }
+    // WORKING-DAY contract reconciliation: a manual reschedule onto the
+    // organization-local Sunday is honoured verbatim — no rejection, no silent
+    // re-dating. `preserveManualEventDuration` still delta-shifts a
+    // startsAt-only move so the human's interval duration survives; the derived
+    // endsAt is used for the write only, never for the request hash.
     return this.present(
       actor,
       await this.repository.patchManual(

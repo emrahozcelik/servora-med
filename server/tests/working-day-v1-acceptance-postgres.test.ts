@@ -14,16 +14,29 @@ import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor, NormalizedJobCardCreateInput } from '../src/modules/job-cards/types.js';
 
 /**
- * WORKING-DAY V1 acceptance on real PostgreSQL.
+ * WORKING-DAY V1 acceptance on real PostgreSQL — HUMAN / MANUAL write paths.
  *
- * Contract under test (§3, §4, §5, §9, §11, §12, §13, §21, §22, §24, §36):
- *   WORKING_DAY_INTERVAL_RULE = NO_SUNDAY_OVERLAP
- *   Sunday is determined EXCLUSIVELY in the organization timezone.
- *   ERROR_CODE = NON_WORKING_DAY / HTTP_STATUS = 400.
+ * Contract under test (§3, §4, §5, §9, §10, §11, §12, §13, §21, §22, §36):
+ *
+ *   The organization-local Sunday is a SYSTEM / AUTOMATIC scheduling
+ *   constraint ONLY. Every write path in this file is an explicit human
+ *   choice, so Sunday is ALLOWED: the write succeeds and the chosen instant
+ *   is persisted verbatim — never rejected, never silently advanced.
+ *
+ *   TIMEZONE: the organization timezone (`organizations.timezone`) is the only
+ *   authority for deciding whether a local date is Sunday. It is honoured
+ *   wherever the rule applies — i.e. on the automatic paths pinned in
+ *   `working-day-contract-system-sunday.test.ts`. A client-supplied manual-event
+ *   timezone remains display provenance and never gates a write.
+ *
+ * The automatic half of the contract (never advertise, return or spill into
+ * Sunday) is pinned in `working-day-contract-system-sunday.test.ts`; the
+ * focused human-side regression probe is
+ * `working-day-contract-human-sunday-postgres.test.ts`.
  *
  * Calendar fixtures (org timezone UTC unless stated):
  *   2026-09-12 = Saturday (working day)
- *   2026-09-13 = Sunday   (non-working day)
+ *   2026-09-13 = Sunday   (non-working day for SYSTEM scheduling only)
  *   2026-09-14 = Monday   (working day)
  */
 
@@ -34,12 +47,6 @@ const fixedNow = new Date('2026-09-10T08:00:00.000Z');
 const SAT = '2026-09-12';
 const SUN = '2026-09-13';
 const MON = '2026-09-14';
-
-const NON_WORKING_DAY_ERROR = {
-  code: 'NON_WORKING_DAY',
-  statusCode: 400,
-  message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
-} as const;
 
 async function createSchemaPool(): Promise<{ pool: Pool; cleanup: () => Promise<void> }> {
   const admin = new Pool({ connectionString: databaseUrl, max: 1 });
@@ -169,7 +176,18 @@ async function version(pool: Pool, jobId: string): Promise<number> {
   return row.rows[0]!.version;
 }
 
-describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard create', () => {
+async function persistedJobSchedule(pool: Pool, jobId: string) {
+  const row = await pool.query<{ scheduled_at: Date | null; scheduled_ends_at: Date | null }>(
+    `SELECT scheduled_at, scheduled_ends_at FROM job_cards WHERE id = $1`,
+    [jobId],
+  );
+  return {
+    scheduledAt: row.rows[0]!.scheduled_at?.toISOString() ?? null,
+    scheduledEndsAt: row.rows[0]!.scheduled_ends_at?.toISOString() ?? null,
+  };
+}
+
+describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard create (human)', () => {
   let pool: Pool | null = null;
   let cleanup: (() => Promise<void>) | null = null;
 
@@ -180,16 +198,26 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard create', () => {
   });
   afterAll(async () => { await cleanup?.(); });
 
-  it('rejects a Sunday SALES_MEETING (2026-09-13)', async () => {
+  it('allows a Sunday SALES_MEETING (2026-09-13) and persists it verbatim', async () => {
     const o = await setupOrg(pool!);
-    await expect(jobCards(pool!).create(o.manager, meetingCreate(o, `${SUN}T10:00:00.000Z`)))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    const created = await jobCards(pool!).create(o.manager, meetingCreate(o, `${SUN}T10:00:00.000Z`));
+    expect(created).toMatchObject({
+      scheduledAt: `${SUN}T10:00:00.000Z`,
+      scheduledEndsAt: `${SUN}T11:00:00.000Z`,
+    });
+    await expect(persistedJobSchedule(pool!, created.id)).resolves.toEqual({
+      scheduledAt: `${SUN}T10:00:00.000Z`,
+      scheduledEndsAt: `${SUN}T11:00:00.000Z`,
+    });
   });
 
-  it('rejects a Saturday SALES_MEETING whose canonical hour spills into Sunday', async () => {
+  it('allows a Saturday SALES_MEETING whose canonical hour spills into Sunday', async () => {
     const o = await setupOrg(pool!);
-    await expect(jobCards(pool!).create(o.manager, meetingCreate(o, `${SAT}T23:30:00.000Z`)))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    const created = await jobCards(pool!).create(o.manager, meetingCreate(o, `${SAT}T23:30:00.000Z`));
+    expect(created).toMatchObject({
+      scheduledAt: `${SAT}T23:30:00.000Z`,
+      scheduledEndsAt: `${SUN}T00:30:00.000Z`,
+    });
   });
 
   it('allows a Saturday SALES_MEETING ending exactly at Sunday 00:00', async () => {
@@ -199,10 +227,12 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard create', () => {
     expect(created.scheduledEndsAt).toBe(`${SUN}T00:00:00.000Z`);
   });
 
-  it('rejects a Sunday GENERAL_TASK point and allows a Monday point', async () => {
+  it('allows a Sunday GENERAL_TASK point and a Monday point', async () => {
     const o = await setupOrg(pool!);
-    await expect(jobCards(pool!).create(o.manager, taskCreate(o, `${SUN}T00:00:00.000Z`)))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    const sunday = await jobCards(pool!).create(o.manager, taskCreate(o, `${SUN}T00:00:00.000Z`));
+    expect(sunday.scheduledAt).toBe(`${SUN}T00:00:00.000Z`);
+    expect(sunday.scheduledEndsAt).toBeNull();
+
     const monday = await jobCards(pool!).create(o.manager, taskCreate(o, `${MON}T00:00:00.000Z`));
     expect(monday.scheduledAt).toBe(`${MON}T00:00:00.000Z`);
     expect(monday.scheduledEndsAt).toBeNull();
@@ -214,19 +244,24 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard create', () => {
     expect(created.scheduledAt).toBeNull();
   });
 
-  it('decides Sunday in the ORGANIZATION timezone, not UTC', async () => {
-    // 2026-09-12T21:30Z is Sunday 00:30 in Europe/Istanbul (UTC+3).
+  it('does not gate human writes on the organization timezone Sunday rule', async () => {
+    // 2026-09-12T21:30Z is Sunday 00:30 in Europe/Istanbul (UTC+3) and still
+    // Saturday in UTC. A human create must succeed under either organization
+    // timezone: the Sunday rule does not apply to this write path.
     const istanbul = await setupOrg(pool!, 'Europe/Istanbul');
-    await expect(jobCards(pool!).create(istanbul.manager, meetingCreate(istanbul, `${SAT}T21:30:00.000Z`)))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
-    // The same instant is still Saturday in UTC, where it must be allowed.
+    const istanbulCreated = await jobCards(pool!).create(
+      istanbul.manager,
+      meetingCreate(istanbul, `${SAT}T21:30:00.000Z`),
+    );
+    expect(istanbulCreated.scheduledAt).toBe(`${SAT}T21:30:00.000Z`);
+
     const utc = await setupOrg(pool!, 'UTC');
-    const allowed = await jobCards(pool!).create(utc.manager, meetingCreate(utc, `${SAT}T21:30:00.000Z`));
-    expect(allowed.scheduledAt).toBe(`${SAT}T21:30:00.000Z`);
+    const utcCreated = await jobCards(pool!).create(utc.manager, meetingCreate(utc, `${SAT}T21:30:00.000Z`));
+    expect(utcCreated.scheduledAt).toBe(`${SAT}T21:30:00.000Z`);
   });
 });
 
-describe.skipIf(!databaseUrl)('WORKING-DAY V1 — PRODUCT_DELIVERY create', () => {
+describe.skipIf(!databaseUrl)('WORKING-DAY V1 — PRODUCT_DELIVERY create (human)', () => {
   let pool: Pool | null = null;
   let cleanup: (() => Promise<void>) | null = null;
 
@@ -262,10 +297,13 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — PRODUCT_DELIVERY create', () =
     } as never);
   }
 
-  it('rejects a Sunday PRODUCT_DELIVERY', async () => {
+  it('allows a Sunday PRODUCT_DELIVERY', async () => {
     const o = await setupOrg(pool!);
-    await expect(createDelivery(o, `${SUN}T10:00:00.000Z`))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    const created = await createDelivery(o, `${SUN}T10:00:00.000Z`);
+    await expect(persistedJobSchedule(pool!, created.jobCardId)).resolves.toEqual({
+      scheduledAt: `${SUN}T10:00:00.000Z`,
+      scheduledEndsAt: `${SUN}T10:30:00.000Z`,
+    });
   });
 
   it('allows a Saturday PRODUCT_DELIVERY ending exactly at Sunday 00:00', async () => {
@@ -279,14 +317,17 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — PRODUCT_DELIVERY create', () =
     expect(row.rows[0]!.scheduled_ends_at.toISOString()).toBe(`${SUN}T00:00:00.000Z`);
   });
 
-  it('rejects a Saturday PRODUCT_DELIVERY spilling 15 minutes into Sunday', async () => {
+  it('allows a Saturday PRODUCT_DELIVERY spilling 15 minutes into Sunday', async () => {
     const o = await setupOrg(pool!);
-    await expect(createDelivery(o, `${SAT}T23:45:00.000Z`))
-      .rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    const created = await createDelivery(o, `${SAT}T23:45:00.000Z`);
+    await expect(persistedJobSchedule(pool!, created.jobCardId)).resolves.toEqual({
+      scheduledAt: `${SAT}T23:45:00.000Z`,
+      scheduledEndsAt: `${SUN}T00:15:00.000Z`,
+    });
   });
 });
 
-describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard patch / reschedule', () => {
+describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard patch / reschedule (human)', () => {
   let pool: Pool | null = null;
   let cleanup: (() => Promise<void>) | null = null;
 
@@ -297,23 +338,30 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard patch / reschedule', (
   });
   afterAll(async () => { await cleanup?.(); });
 
-  it('closes the startsAt-only reschedule bypass into Sunday', async () => {
+  it('allows a startsAt-only reschedule onto Sunday', async () => {
     const o = await setupOrg(pool!);
     const created = await jobCards(pool!).create(o.manager, meetingCreate(o, `${MON}T10:00:00.000Z`));
-    await expect(jobCards(pool!).patch(o.manager, created.id, {
+    const patched = await jobCards(pool!).patch(o.manager, created.id, {
       expectedVersion: await version(pool!, created.id),
       scheduledAt: `${SUN}T10:00:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.scheduledAt).toBe(`${SUN}T10:00:00.000Z`);
+    await expect(persistedJobSchedule(pool!, created.id)).resolves.toEqual({
+      scheduledAt: `${SUN}T10:00:00.000Z`,
+      scheduledEndsAt: `${SUN}T11:00:00.000Z`,
+    });
   });
 
-  it('closes the endsAt-only bypass that extends a Saturday plan into Sunday', async () => {
+  it('allows an endsAt-only change that extends a Saturday plan into Sunday', async () => {
     const o = await setupOrg(pool!);
     const created = await jobCards(pool!).create(o.manager, meetingCreate(o, `${SAT}T23:00:00.000Z`));
-    await expect(jobCards(pool!).patch(o.manager, created.id, {
+    const patched = await jobCards(pool!).patch(o.manager, created.id, {
       expectedVersion: await version(pool!, created.id),
       scheduledAt: `${SAT}T23:30:00.000Z`,
       scheduledEndsAt: `${SUN}T00:30:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.scheduledAt).toBe(`${SAT}T23:30:00.000Z`);
+    expect(patched.scheduledEndsAt).toBe(`${SUN}T00:30:00.000Z`);
   });
 
   it('allows an unrelated edit on a legacy Sunday row (no schedule change)', async () => {
@@ -327,13 +375,18 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard patch / reschedule', (
     expect(patched.scheduledAt).toBe(`${SUN}T10:00:00.000Z`);
   });
 
-  it('rejects a schedule-changing patch on a legacy Sunday row', async () => {
+  it('allows a schedule-changing patch on a legacy Sunday row', async () => {
     const o = await setupOrg(pool!);
     const legacyId = await insertLegacySundayMeeting(pool!, o);
-    await expect(jobCards(pool!).patch(o.manager, legacyId, {
+    const patched = await jobCards(pool!).patch(o.manager, legacyId, {
       expectedVersion: await version(pool!, legacyId),
       scheduledAt: `${SUN}T12:00:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.scheduledAt).toBe(`${SUN}T12:00:00.000Z`);
+    await expect(persistedJobSchedule(pool!, legacyId)).resolves.toEqual({
+      scheduledAt: `${SUN}T12:00:00.000Z`,
+      scheduledEndsAt: `${SUN}T13:00:00.000Z`,
+    });
   });
 
   it('allows rescheduling a legacy Sunday row onto a working day', async () => {
@@ -358,7 +411,7 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — JobCard patch / reschedule', (
   });
 });
 
-describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent', () => {
+describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent (human)', () => {
   let pool: Pool | null = null;
   let cleanup: (() => Promise<void>) | null = null;
 
@@ -381,18 +434,26 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent', () => {
     };
   }
 
-  it('rejects a Sunday manual event', async () => {
+  it('allows a Sunday manual event', async () => {
     const o = await setupOrg(pool!);
-    await expect(calendar(pool!).create(o.manager, createInput(
+    const created = await calendar(pool!).create(o.manager, createInput(
       o, `${SUN}T10:00:00.000Z`, `${SUN}T11:00:00.000Z`,
-    ))).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    ));
+    expect(created).toMatchObject({
+      startsAt: `${SUN}T10:00:00.000Z`,
+      endsAt: `${SUN}T11:00:00.000Z`,
+    });
   });
 
-  it('rejects a Saturday manual event spilling into Sunday', async () => {
+  it('allows a Saturday manual event spilling into Sunday', async () => {
     const o = await setupOrg(pool!);
-    await expect(calendar(pool!).create(o.manager, createInput(
+    const created = await calendar(pool!).create(o.manager, createInput(
       o, `${SAT}T23:30:00.000Z`, `${SUN}T00:30:00.000Z`,
-    ))).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    ));
+    expect(created).toMatchObject({
+      startsAt: `${SAT}T23:30:00.000Z`,
+      endsAt: `${SUN}T00:30:00.000Z`,
+    });
   });
 
   it('allows a Saturday manual event ending exactly at Sunday 00:00', async () => {
@@ -403,14 +464,19 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent', () => {
     expect(created).toMatchObject({ startsAt: `${SAT}T23:00:00.000Z`, endsAt: `${SUN}T00:00:00.000Z` });
   });
 
-  it('cannot be bypassed by a client-supplied event timezone', async () => {
+  it('treats a client-supplied event timezone as display provenance only', async () => {
+    // The organization timezone (UTC) decides nothing here: a human manual
+    // event carries no Sunday constraint at all, and the submitted timezone is
+    // stored verbatim as display provenance.
     const o = await setupOrg(pool!, 'UTC');
-    // 2026-09-13T10:00Z is Monday 2026-09-14 00:00 in Pacific/Kiritimati
-    // (UTC+14). A timezone-trusting implementation would allow it; the
-    // authoritative organization timezone (UTC) makes it Sunday and rejects it.
-    await expect(calendar(pool!).create(o.manager, createInput(
+    const created = await calendar(pool!).create(o.manager, createInput(
       o, `${SUN}T10:00:00.000Z`, `${SUN}T11:00:00.000Z`, 'Pacific/Kiritimati',
-    ))).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    ));
+    expect(created).toMatchObject({
+      startsAt: `${SUN}T10:00:00.000Z`,
+      endsAt: `${SUN}T11:00:00.000Z`,
+      timezone: 'Pacific/Kiritimati',
+    });
   });
 
   it('allows a UTC-Sunday instant that is organization-local Monday', async () => {
@@ -421,41 +487,48 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent', () => {
     expect(created.startsAt).toBe(`${SUN}T10:00:00.000Z`);
   });
 
-  it('rejects a startsAt-only patch that moves an event into Sunday', async () => {
+  it('allows a startsAt-only patch that moves an event into Sunday', async () => {
     const o = await setupOrg(pool!);
     const created = await calendar(pool!).create(o.manager, createInput(
       o, `${MON}T10:00:00.000Z`, `${MON}T11:00:00.000Z`,
     ));
-    await expect(calendar(pool!).patch(o.manager, created.id, {
+    const patched = await calendar(pool!).patch(o.manager, created.id, {
       clientActionId: randomUUID(),
       expectedVersion: created.version,
       startsAt: `${SUN}T10:00:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.startsAt).toBe(`${SUN}T10:00:00.000Z`);
+    // Duration survives the human move: the end is delta-shifted, not re-dated.
+    expect(patched.endsAt).toBe(`${SUN}T11:00:00.000Z`);
   });
 
-  it('rejects an endsAt-only patch that extends an event into Sunday', async () => {
+  it('allows an endsAt-only patch that extends an event into Sunday', async () => {
     const o = await setupOrg(pool!);
     const created = await calendar(pool!).create(o.manager, createInput(
       o, `${SAT}T22:00:00.000Z`, `${SAT}T23:00:00.000Z`,
     ));
-    await expect(calendar(pool!).patch(o.manager, created.id, {
+    const patched = await calendar(pool!).patch(o.manager, created.id, {
       clientActionId: randomUUID(),
       expectedVersion: created.version,
       endsAt: `${SUN}T01:00:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.startsAt).toBe(`${SAT}T22:00:00.000Z`);
+    expect(patched.endsAt).toBe(`${SUN}T01:00:00.000Z`);
   });
 
-  it('rejects a both-field patch that moves an event onto Sunday', async () => {
+  it('allows a both-field patch that moves an event onto Sunday', async () => {
     const o = await setupOrg(pool!);
     const created = await calendar(pool!).create(o.manager, createInput(
       o, `${MON}T10:00:00.000Z`, `${MON}T11:00:00.000Z`,
     ));
-    await expect(calendar(pool!).patch(o.manager, created.id, {
+    const patched = await calendar(pool!).patch(o.manager, created.id, {
       clientActionId: randomUUID(),
       expectedVersion: created.version,
       startsAt: `${SUN}T09:00:00.000Z`,
       endsAt: `${SUN}T10:00:00.000Z`,
-    })).rejects.toMatchObject(NON_WORKING_DAY_ERROR);
+    });
+    expect(patched.startsAt).toBe(`${SUN}T09:00:00.000Z`);
+    expect(patched.endsAt).toBe(`${SUN}T10:00:00.000Z`);
   });
 
   it('allows a title-only edit on a legacy Sunday event', async () => {
@@ -493,8 +566,8 @@ describe.skipIf(!databaseUrl)('WORKING-DAY V1 — manual CalendarEvent', () => {
       startsAt: `${MON}T12:00:00.000Z`,
     };
     const patched = await calendar(pool!).patch(o.manager, created.id, callerPatch);
-    // The guard must not disturb duration-preserving semantics: a startsAt-only
-    // move delta-shifts the persisted end.
+    // Duration-preserving semantics must survive: a startsAt-only move
+    // delta-shifts the persisted end.
     expect(patched.startsAt).toBe(`${MON}T12:00:00.000Z`);
     expect(patched.endsAt).toBe(`${MON}T13:00:00.000Z`);
     // The request identity binds the caller's ORIGINAL patch. Hashing the

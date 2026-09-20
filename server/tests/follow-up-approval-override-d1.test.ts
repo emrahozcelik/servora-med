@@ -414,23 +414,55 @@ describe.skipIf(!databaseUrl)('D1: SYSTEM follow-up proposal approval overrides'
     });
   });
 
-  it('D1-6b: an explicit Manager Sunday override is rejected with NON_WORKING_DAY', async () => {
+  it('D1-6b: an explicit Manager Sunday override is allowed and persisted verbatim', async () => {
     await withFixture(async ({ service, manager, staffB, submitSystemProposal }) => {
       const submitted = await submitSystemProposal();
-      await expect(service.approve(manager, submitted.id, {
+      const approved = await service.approve(manager, submitted.id, {
         clientActionId: randomUUID(),
         expectedVersion: submitted.version,
         followUp: {
-          // Future Sunday at the same local clock.
+          // Future Sunday at the same local clock. WORKING-DAY contract
+          // reconciliation: the organization-local Sunday is a SYSTEM /
+          // AUTOMATIC scheduling constraint only, so an explicit human choice
+          // must be honoured — never rejected and never silently advanced.
           scheduledAt: SUNDAY_AT,
           type: 'SALES_MEETING',
           assignedTo: staffB.id,
           followUpInstructions: 'Pazar planı denemesi.',
         },
-      })).rejects.toMatchObject({
-        code: 'NON_WORKING_DAY',
-        statusCode: 400,
-        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
+      }) as ApprovedChild;
+
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({
+        assignedTo: staffB.id,
+        scheduledAt: SUNDAY_AT,
+        scheduledEndsAt: plusHours(SUNDAY_AT, 1),
+        status: 'NEW',
+      });
+      expect(child.followUpContext).toMatchObject({
+        followUpInstructions: 'Pazar planı denemesi.',
+      });
+    });
+  });
+
+  it('D1-6c: an explicit Staff Sunday proposal is accepted and persisted as STAFF_ADJUSTED', async () => {
+    await withFixture(async ({ service, manager, submitExplicitProposal }) => {
+      const submitted = await submitExplicitProposal({ scheduledAt: SUNDAY_AT });
+      expect(submitted.followUpProposal).toMatchObject({
+        origin: 'STAFF_ADJUSTED',
+        scheduledAt: SUNDAY_AT,
+      });
+
+      // The persisted Sunday proposal must survive Manager approval unchanged,
+      // and the resulting child must carry the same instant.
+      const approved = await service.approve(manager, submitted.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+      }) as ApprovedChild;
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({
+        scheduledAt: SUNDAY_AT,
+        scheduledEndsAt: plusHours(SUNDAY_AT, 1),
       });
     });
   });

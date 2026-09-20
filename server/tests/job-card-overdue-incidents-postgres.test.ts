@@ -10,7 +10,6 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
-import { advanceInstantToWorkingDay, isWorkingDaySafeEnvelope, sundayAvoidingShiftDays } from './support/working-day-safe-baseline.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
 import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 
@@ -224,10 +223,9 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      // The elapsed delivery slot must stay out of the organization-local
-      // Sunday on weekend runs; shift only this slot back by whole days.
-      const slotShiftDays = sundayAvoidingShiftDays(baseline, 'Europe/Istanbul', -60 * 60_000, -30 * 60_000);
-      const scheduledAt = shiftMs(baseline, -60 * 60_000 - slotShiftDays * 24 * 60 * 60_000);
+      // The human create path no longer rejects the organization-local Sunday,
+      // so the elapsed delivery slot needs no working-day steering.
+      const scheduledAt = shiftMs(baseline, -60 * 60_000);
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -647,7 +645,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('on-time START and end-less jobs create no incident', async (testCtx) => {
+  it('on-time START and end-less jobs create no incident', async () => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -664,12 +662,8 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       // (START requires scheduledAt <= reservation, so the window straddles now
       // with a generous margin: PD canonical end is start + 30m.) On-time
       // semantics need the real reservation instant to fall INSIDE the slot;
-      // when the DB clock sits so close to the organization-local Sunday that
-      // the canonical 30m straddle envelope cannot avoid it, the scenario is
-      // unsatisfiable and must report SKIPPED (never PASSED) for that window.
-      if (!isWorkingDaySafeEnvelope(shiftMs(baseline, -10 * 60_000), shiftMs(baseline, 20 * 60_000), 'Europe/Istanbul')) {
-        testCtx.skip(true, 'DB clock straddles the Europe/Istanbul Sunday window');
-      }
+      // the human create path imposes no working-day constraint, so the
+      // canonical 30m straddle envelope is always usable.
       const scheduledAt = shiftMs(baseline, -10 * 60_000);
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -1302,10 +1296,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         expectedVersion: versionBeforeFailedSubmit,
         note: 'Eksik teslim bilgisiyle deneme.',
         followUpProposal: {
-          scheduledAt: advanceInstantToWorkingDay(
-            shiftMs(baseline, 7 * 24 * 60 * 60_000),
-            'Europe/Istanbul',
-          ).toISOString(),
+          scheduledAt: shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString(),
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Tekrar arayın',
@@ -1615,7 +1606,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B1 candidate RED: START recovers an older revision even when the current revision is on time', async (testCtx) => {
+  it('B1 candidate RED: START recovers an older revision even when the current revision is on time', async () => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: CREATE_AT };
@@ -1631,12 +1622,8 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // the older open LATE_START episode.
       const baseline = await dbBaseline(pool);
       // The current-revision START must land on time inside a slot that
-      // straddles the real reservation instant; when the DB clock sits too
-      // close to the organization-local Sunday for the canonical 30m envelope
-      // to avoid it, the scenario is unsatisfiable → report SKIPPED.
-      if (!isWorkingDaySafeEnvelope(shiftMs(baseline, -10 * 60_000), shiftMs(baseline, 20 * 60_000), 'Europe/Istanbul')) {
-        testCtx.skip(true, 'DB clock straddles the Europe/Istanbul Sunday window');
-      }
+      // straddles the real reservation instant; the human patch path imposes
+      // no working-day constraint, so the canonical 30m envelope always works.
       const rev2Start = shiftMs(baseline, -10 * 60_000);
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,

@@ -12,7 +12,6 @@ import { PostgresCalendarRepository } from '../src/modules/calendar/repository.j
 import { CalendarService } from '../src/modules/calendar/service.js';
 import { canonicalScheduledEnd, canonicalScheduledDurationMs } from '../src/modules/job-cards/job-card-duration.js';
 import { suggestedFollowUpInstant } from '../src/modules/job-cards/follow-up-policy.js';
-import { advanceToWorkingDay } from '../src/modules/job-cards/working-day-policy.js';
 import {
   baselineAlignedToGrid,
   baselineIso,
@@ -22,7 +21,6 @@ import {
   readDbBaseline,
   readReservedAt,
 } from './support/db-clock-baseline.js';
-import { advanceInstantToWorkingDay, sundayAvoidingShiftDays } from './support/working-day-safe-baseline.js';
 import type {
   JobCard,
   JobCardActor,
@@ -44,9 +42,6 @@ const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', impor
 // run; tests read the same variables.
 let BASELINE = new Date('2026-08-01T10:00:00.000Z');
 let CLOCK: Date = BASELINE;
-// Whole-day backward shift applied to scheduled-slot derivations only, so
-// weekend runs never anchor a slot inside the organization-local Sunday.
-let SLOT_SHIFT_DAYS = 0;
 let PARENT_SCHEDULED_AT = '2026-08-01T10:00:00.000Z';
 let MEETING_AT = '2026-08-01T09:30:00.000Z';
 let PROPOSAL_AT = '2026-08-08T10:00:00.000Z';
@@ -57,9 +52,6 @@ let SUNDAY_AT = '2026-08-09T10:00:00.000Z';
 
 /** UTC ISO instant at `deltaMs` from the current fixture baseline. */
 const atBase = (deltaMs: number) => baselineIso(BASELINE, deltaMs);
-
-/** Scheduled-slot instant at `deltaMs` from the baseline, Sunday-shifted. */
-const slotAt = (deltaMs: number) => baselineIso(BASELINE, deltaMs - SLOT_SHIFT_DAYS * DAY_MS);
 
 /** UTC-midnight floor of an ISO instant (calendar-day window helper). */
 const dayFloorIso = (iso: string) =>
@@ -90,22 +82,6 @@ function nextNonSundaySlotIso(iso: string): string {
     if (candidate.getUTCDay() !== 0) return candidate.toISOString();
   }
   throw new Error('no non-Sunday day found within 8 days');
-}
-
-/**
- * A working-day-safe explicit schedule at `deltaMs` from the baseline: when
- * the candidate interval would touch an organization-local Sunday it advances
- * exactly like the production working-day rule, so weekday variance of the DB
- * baseline cannot invalidate the fixture.
- */
-function workingSafeExplicitAt(deltaMs: number): string {
-  const startsAt = new Date(atBase(deltaMs));
-  const advanced = advanceToWorkingDay({
-    startsAt,
-    endsAt: new Date(startsAt.getTime() + HOUR_MS),
-    timezone: 'Europe/Istanbul',
-  });
-  return (advanced?.startsAt ?? startsAt).toISOString();
 }
 
 /** First Europe/Istanbul-local Sunday strictly after the baseline, at 10:00 UTC. */
@@ -240,16 +216,13 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     // +7-day SYSTEM target uses the same policy function the production
     // scheduler runs, anchored on the baseline.
     BASELINE = baselineAlignedToGrid(await readDbBaseline(pool));
-    // Weekend runs can put the elapsed parent slot (baseline − 1h) inside the
-    // organization-local Sunday, which the production working-day policy
-    // correctly refuses (NON_WORKING_DAY). Shift ONLY scheduled-slot
-    // derivations back by whole days until the slot envelope is working-day
-    // safe; facts, deadlines and the service clock stay anchored to the DB
-    // baseline so lifecycle ordering is unchanged.
-    SLOT_SHIFT_DAYS = sundayAvoidingShiftDays(BASELINE, 'Europe/Istanbul', -2 * HOUR_MS, 0);
+    // Explicit human schedules are NOT working-day filtered any more, so the
+    // fixture no longer needs to steer derived slots away from the
+    // organization-local Sunday. That removes the fixture's dependence on which
+    // weekday the DB clock happens to fall on.
     CLOCK = BASELINE;
-    PARENT_SCHEDULED_AT = slotAt(-HOUR_MS);
-    MEETING_AT = slotAt(-HOUR_MS - 30 * MINUTE_MS);
+    PARENT_SCHEDULED_AT = atBase(-HOUR_MS);
+    MEETING_AT = atBase(-HOUR_MS - 30 * MINUTE_MS);
     PROPOSAL_AT = suggestedFollowUpInstant({
       evaluatedAt: BASELINE,
       sourceScheduledAt: new Date(PARENT_SCHEDULED_AT),
@@ -261,8 +234,8 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       throw new Error('SALES_MEETING canonical duration is required for follow-up fixtures');
     }
     PROPOSAL_ENDS_AT = proposalEndsAt;
-    EARLY_EXPLICIT_AT = workingSafeExplicitAt(45 * MINUTE_MS);
-    EXPLICIT_LATER_AT = workingSafeExplicitAt(2 * HOUR_MS);
+    EARLY_EXPLICIT_AT = atBase(45 * MINUTE_MS);
+    EXPLICIT_LATER_AT = atBase(2 * HOUR_MS);
     SUNDAY_AT = nextSundayIso(BASELINE);
 
     const organizationId = (await pool.query<{ id: string }>(
@@ -743,27 +716,29 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('§14/§15: rejects a Staff proposal whose explicit schedule lands on a Sunday', async () => {
+  it('§14/§15: accepts a Staff proposal whose explicit schedule lands on a Sunday', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Pazar denemesi', assignedTo: staffA.id,
       });
-      await expect(service.submitForApproval(staffA, job.id, {
+      // The first Istanbul-local Sunday after the DB baseline. WORKING-DAY
+      // contract reconciliation: the Sunday rule is a SYSTEM / AUTOMATIC
+      // constraint only, so an explicit human proposal is persisted verbatim
+      // instead of being rejected or silently moved.
+      const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: job.version,
         note: 'Görüşme tamamlandı.',
         followUpProposal: {
-          // The first Istanbul-local Sunday after the DB baseline: a valid
-          // future target that only the working-day rule rejects.
           scheduledAt: SUNDAY_AT,
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Pazar denemesi',
         },
-      })).rejects.toMatchObject({
-        code: 'NON_WORKING_DAY',
-        statusCode: 400,
-        message: 'Pazar günleri planlama yapılamaz. Lütfen Cumartesi veya Pazartesi seçin.',
+      });
+      expect(submitted.followUpProposal).toMatchObject({
+        scheduledAt: SUNDAY_AT,
+        origin: 'STAFF_ADJUSTED',
       });
     });
   });
@@ -1518,8 +1493,8 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       // Distinct parent slots one grid hour apart, derived from the DB
       // baseline: the +7-day targets inherit the parent wall-clock times and
       // serialize into non-overlapping child slots.
-      const firstParentAt = slotAt(-2 * HOUR_MS);
-      const secondParentAt = slotAt(-HOUR_MS);
+      const firstParentAt = atBase(-2 * HOUR_MS);
+      const secondParentAt = atBase(-HOUR_MS);
       const firstJob = await createInProgressJob({
         type: 'SALES_MEETING', title: 'İlk otomatik takip', assignedTo: staffA.id,
         scheduledAt: firstParentAt,
@@ -1694,10 +1669,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       // Legacy near-term target: a fresh DB-clock sample +5 minutes. The
       // 15-minute lead floor is deliberately NOT enforced for legacy persisted
       // proposals, so this near-term target (above the business instant but
-      // below requestTime+15m) must survive approval unchanged.
-      const legacyScheduledAt = advanceInstantToWorkingDay(
-        new Date((await readDbBaseline(pool)).getTime() + 5 * MINUTE_MS),
-        'Europe/Istanbul',
+      // below requestTime+15m) must survive approval unchanged. Approval is an
+      // explicit human write, so it needs no working-day steering.
+      const legacyScheduledAt = new Date(
+        (await readDbBaseline(pool)).getTime() + 5 * MINUTE_MS,
       ).toISOString();
       const persisted = await pool.query<{ id: string }>(
         `INSERT INTO job_cards (
