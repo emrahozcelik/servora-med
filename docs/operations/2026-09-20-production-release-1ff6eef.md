@@ -153,33 +153,44 @@ These are three separate facts; do not conflate them.
 
 ## OVR safety
 
-`OVERDUE_SCANNER_ENABLED=false` is preserved. This release changed nothing about
-the flag's value:
+**Effective scanner state remained disabled.** Production forensics found
+`OVERDUE_SCANNER_ENABLED` unset; config resolves unset to `false`. This
+deployment did not modify the production environment and no scanner activation
+occurred.
+
+Supporting evidence:
 
 - `ops/deploy-production.sh` contains **no** reference to `OVERDUE` or to the
   scanner, and it excludes the environment file from the release transfer
   (`--exclude='*/.env'`, `--exclude='*/.env.*'`), so the production environment
   file is not touched by a deployment.
 - `server/src/config.ts` reads the flag through the fail-closed `readBoolean`
-  helper — `if (!resolved || resolved === 'false') return false;` — so an unset
-  or explicitly-false value yields `false`.
+  helper — `if (!resolved || resolved === 'false') return false;` — so unset
+  resolves to `false`.
 - `server/src/index.ts` constructs the scanner only when
   `config.overdueScanner?.enabled === true`.
 - None of the six changed `server/src` files touches scanner enablement.
-- No OVR scanner activation was performed as part of this release.
+- Existing OVR incident history was not modified.
 
-Scope note for accuracy: the statements above are about what this release
-changed. The **runtime** value of the flag on the host is not externally
-observable — `GET /api/health` exposes only `status`, `releaseSha`, and
-`backup`. No claim is made here about reading that value directly.
+Accuracy note: the runtime value is not exposed by `GET /api/health` (which
+returns only `status`, `releaseSha`, and `backup`), so the effective state above
+is derived from the config resolution rule plus the production forensic finding,
+not from a direct runtime read.
 
-## Carried-over open item (unchanged by this release)
+## Web Push field acceptance (closed since the previous release)
 
-The Web Push physical-iOS acceptance from the `20de90c` release
-([2026-09-19-production-release-20de90c.md](./2026-09-19-production-release-20de90c.md))
-is still **PENDING** on the affected device. This release does not change that
-status, and that item must not be written as fully closed until the manual
-acceptance steps pass.
+The Web Push physical-iOS acceptance that was **PENDING** at the `20de90c`
+release has since been **completed and passed**: after a normal logout and
+re-login as the same user, the device-notification preference is preserved and
+push works, with no new notification permission prompt. The corrected status is
+recorded in
+[2026-09-19-production-release-20de90c.md](./2026-09-19-production-release-20de90c.md).
+
+This closes **only** the `#307` logout/login subscription-preference regression.
+The broader **Phase S** mobile Web Push acceptance (Chrome Android physical
+matrix, iPhone/iPad Home Screen matrix, lock-screen privacy, mobile
+logout/account-switch, Focus/DND, production VAPID/enablement) remains separate
+and **open**.
 
 ## Rollback
 
