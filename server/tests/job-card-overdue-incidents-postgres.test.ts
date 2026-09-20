@@ -10,6 +10,7 @@ import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
+import { advanceInstantToWorkingDay, isWorkingDaySafeEnvelope, sundayAvoidingShiftDays } from './support/working-day-safe-baseline.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
 import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 
@@ -223,7 +224,10 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
       const baseline = await dbBaseline(pool);
       const clock = { now: baseline };
       const service = buildService(pool, clock);
-      const scheduledAt = shiftMs(baseline, -60 * 60_000);
+      // The elapsed delivery slot must stay out of the organization-local
+      // Sunday on weekend runs; shift only this slot back by whole days.
+      const slotShiftDays = sundayAvoidingShiftDays(baseline, 'Europe/Istanbul', -60 * 60_000, -30 * 60_000);
+      const scheduledAt = shiftMs(baseline, -60 * 60_000 - slotShiftDays * 24 * 60 * 60_000);
 
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -643,7 +647,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
     });
   });
 
-  it('on-time START and end-less jobs create no incident', async () => {
+  it('on-time START and end-less jobs create no incident', async (testCtx) => {
     await withSchema(async (pool) => {
       const organizationId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('OVR2 Org', 'Europe/Istanbul') RETURNING id`,
@@ -658,7 +662,14 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
 
       // Started after the planned start but before the end: on time, no incident.
       // (START requires scheduledAt <= reservation, so the window straddles now
-      // with a generous margin: PD canonical end is start + 30m.)
+      // with a generous margin: PD canonical end is start + 30m.) On-time
+      // semantics need the real reservation instant to fall INSIDE the slot;
+      // when the DB clock sits so close to the organization-local Sunday that
+      // the canonical 30m straddle envelope cannot avoid it, the scenario is
+      // unsatisfiable and must report SKIPPED (never PASSED) for that window.
+      if (!isWorkingDaySafeEnvelope(shiftMs(baseline, -10 * 60_000), shiftMs(baseline, 20 * 60_000), 'Europe/Istanbul')) {
+        testCtx.skip(true, 'DB clock straddles the Europe/Istanbul Sunday window');
+      }
       const scheduledAt = shiftMs(baseline, -10 * 60_000);
       let job = (await service.create(staffA, {
         clientActionId: randomUUID(),
@@ -1291,7 +1302,10 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         expectedVersion: versionBeforeFailedSubmit,
         note: 'Eksik teslim bilgisiyle deneme.',
         followUpProposal: {
-          scheduledAt: shiftMs(baseline, 7 * 24 * 60 * 60_000).toISOString(),
+          scheduledAt: advanceInstantToWorkingDay(
+            shiftMs(baseline, 7 * 24 * 60 * 60_000),
+            'Europe/Istanbul',
+          ).toISOString(),
           type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Tekrar arayın',
@@ -1601,7 +1615,7 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
     });
   });
 
-  it('B1 candidate RED: START recovers an older revision even when the current revision is on time', async () => {
+  it('B1 candidate RED: START recovers an older revision even when the current revision is on time', async (testCtx) => {
     await withSchema(async (pool) => {
       const ctx = await setupOrg(pool);
       const clock = { now: CREATE_AT };
@@ -1616,6 +1630,13 @@ describe.skipIf(!databaseUrl)('OVR-2 contract reconciliation (candidate RED)', (
       // 30m): START lands on time for the current revision while resolving
       // the older open LATE_START episode.
       const baseline = await dbBaseline(pool);
+      // The current-revision START must land on time inside a slot that
+      // straddles the real reservation instant; when the DB clock sits too
+      // close to the organization-local Sunday for the canonical 30m envelope
+      // to avoid it, the scenario is unsatisfiable → report SKIPPED.
+      if (!isWorkingDaySafeEnvelope(shiftMs(baseline, -10 * 60_000), shiftMs(baseline, 20 * 60_000), 'Europe/Istanbul')) {
+        testCtx.skip(true, 'DB clock straddles the Europe/Istanbul Sunday window');
+      }
       const rev2Start = shiftMs(baseline, -10 * 60_000);
       job = await service.patch(ctx.manager, job.id, {
         expectedVersion: job.version,

@@ -10,6 +10,7 @@ import {
   type OverdueScanCandidateOutcome,
 } from '../src/modules/job-cards/overdue-breach-scanner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { sundayAvoidingShiftDays } from './support/working-day-safe-baseline.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { ReverseGeocoder } from '../src/modules/job-cards/reverse-geocoder.js';
 import type { JobCardActor, JobCardStatus } from '../src/modules/job-cards/types.js';
@@ -630,6 +631,10 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
         [organizationId],
       )).rows[0]!.id;
       const clock = { now: await readDbClock(pool) };
+      // Weekend runs: keep the elapsed slot out of the org-local Sunday so
+      // the create-time working-day policy does not reject the fixture.
+      const slotShiftDays = sundayAvoidingShiftDays(clock.now, 'UTC', -3_600_000, 0);
+      const scheduledAt = new Date(clock.now.getTime() - 3_600_000 - slotShiftDays * 86_400_000).toISOString();
       let providerEntered = false;
       let releaseProvider: (() => void) | null = null;
       const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
@@ -646,7 +651,7 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
         clientActionId: randomUUID(), type: 'PRODUCT_DELIVERY', title: 'Yarış işi',
         description: null, customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: null,
-        scheduledAt: new Date(clock.now.getTime() - 3_600_000).toISOString(),
+        scheduledAt,
         scheduledEndsAt: undefined, engagementKind: undefined,
       } as never)) as unknown as { id: string; version: number };
       expect(await incidents(pool, organizationId, created.id)).toHaveLength(0);
