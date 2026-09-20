@@ -124,7 +124,14 @@ async function main() {
                 pollIntervalMs: config.overdueScanner.pollIntervalMs,
                 batchSize: config.overdueScanner.batchSize,
                 onReport: (report) => {
-                  app?.log.debug({ overdueScan: report }, 'Overdue breach scan iteration');
+                  // OVR-3 outage follow-up: the first production activation
+                  // produced no per-iteration evidence. Iterate at info level
+                  // (bounded by poll cadence) until activation monitoring
+                  // proves this volume is unnecessary.
+                  app?.log.info(
+                    { overdueScan: report },
+                    'Overdue breach scan iteration',
+                  );
                 },
                 onError: (error) => {
                   console.error('Overdue breach scanner iteration failed', error);
@@ -149,7 +156,15 @@ async function main() {
     app = await buildApp(config, appDependencies);
 
     const shutdown = createShutdown({
-      closeApp: () => app!.close(),
+      closeApp: async () => {
+        // OVR-3 outage follow-up: record how many realtime streams are open so
+        // shutdown is never silent about the teardown it is performing.
+        const streams = realtimeService.openSubscriptionCount;
+        if (streams > 0) {
+          app!.log.info({ streams }, 'Closing realtime streams');
+        }
+        await app!.close();
+      },
       closeDb: () => closeDatabase(database),
       log: (message, fields) => app!.log.info(fields ?? {}, message),
       exit: (code) => {

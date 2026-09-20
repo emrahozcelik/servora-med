@@ -349,7 +349,14 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: dependencies.realtimeService,
         authenticate: authenticateDomain,
       });
-      app.addHook('onClose', async () => {
+      // OVR-3 production outage (2026-09-18): a hijacked SSE stream keeps
+      // server.close() waiting on the socket indefinitely, so app.close()
+      // hung until the shutdown guard force-exited with code 1 — before ANY
+      // onClose hook (scanner/calendar/web-push workers) could run. preClose
+      // runs BEFORE connection draining: it is the hook Fastify provides for
+      // removing server-blocking state. Ordinary in-flight HTTP requests are
+      // still drained gracefully afterwards.
+      app.addHook('preClose', async () => {
         dependencies.realtimeService!.close();
       });
     }
