@@ -134,7 +134,9 @@ and **remains open**.
 
 ## OVR safety
 
-- `OVERDUE_SCANNER_ENABLED=false`.
+- Effective scanner state: **disabled**. The breach scanner is constructed only
+  when `OVERDUE_SCANNER_ENABLED` resolves to `true`, and config resolves an unset
+  variable to `false`. This release did not enable it.
 - No OVR scanner activation occurred in this release.
 - Existing OVR incident history was not modified.
 
