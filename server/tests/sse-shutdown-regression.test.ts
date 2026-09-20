@@ -10,16 +10,28 @@ import { SESSION_COOKIE_NAME } from '../src/modules/auth/middleware.js';
  *
  * SIGTERM at 15:24:08 left app.close() hanging for the full 25 s shutdown
  * guard because an open hijacked SSE stream keeps server.close() waiting on
- * the socket — and Fastify only destroys open connections during close when
- * `forceCloseConnections` is set. The hang force-exited the process with
- * code 1 BEFORE any onClose hook (realtime teardown, scanner/calendar/web
- * push workers) could run, which combined with operator restarts and the
- * systemd start limit into a ~2.5 minute outage.
+ * the socket. Fastify reaches onClose hooks only AFTER in-flight HTTP
+ * requests complete, so the hook that closes the SSE could never run and the
+ * hang force-exited the process with code 1 BEFORE any cleanup (scanner/
+ * calendar/web-push workers) could run — which combined with operator
+ * restarts and the systemd start limit into a ~2.5 minute outage.
  *
- * This test reproduces the exact mechanism against the real app: one open
- * hijacked SSE connection, then app.close(). Without the fix close never
- * resolves and the realtime onClose hook never fires; with the fix both
- * happen promptly.
+ * The remediation registers realtime teardown in `preClose`, the hook
+ * Fastify runs BEFORE connection draining, exactly for removing
+ * server-blocking state. Ordinary in-flight HTTP requests must still drain
+ * gracefully, so these tests also pin down that the shutdown:
+ * 1. closes the SSE via preClose (no stall),
+ * 2. does NOT forcibly reset an ordinary in-flight request,
+ * 3. lets the ordinary request complete,
+ * 4. resolves app.close(),
+ * 5. runs realtime teardown exactly once.
+ *
+ * The realtime stand-in below is deliberately faithful to the production
+ * contract instead of being a no-op: RealtimeService.close() walks its active
+ * subscriptions and calls each sink's close(), and it is that sink close that
+ * ends the hijacked reply (routes.ts close() -> reply.raw.end()). A no-op
+ * mock would keep the hijacked socket open no matter which hook the teardown
+ * runs from, so it could not tell `preClose` apart from a force-close.
  */
 
 const testConfig = {
@@ -76,17 +88,72 @@ function activeManagerAuthRepository() {
   } as never;
 }
 
+type FakeSink = { send: (event: unknown) => void; close?: () => void };
+
+/**
+ * Stand-in for RealtimeService that preserves the one property this
+ * regression depends on: close() ends every open stream through its sink.
+ */
+function fakeRealtimeService() {
+  const openSinks: FakeSink[] = [];
+  const service = {
+    open: vi.fn(async (_viewer: unknown, _cursor: unknown, sink: FakeSink) => {
+      openSinks.push(sink);
+      return { close: vi.fn() };
+    }),
+    close: vi.fn(() => {
+      for (const sink of openSinks.splice(0)) {
+        sink.close?.();
+      }
+    }),
+  };
+  return { service };
+}
+
+/** Open a real hijacked SSE stream the way Caddy forwards one. */
+async function openSseStream(port: number): Promise<net.Socket> {
+  const socket = net.connect(port, '127.0.0.1');
+  await new Promise<void>((resolve) => socket.once('connect', resolve));
+  socket.write(
+    `GET /api/realtime/events HTTP/1.1\r\n`
+    + `Host: 127.0.0.1\r\n`
+    + `Cookie: ${SESSION_COOKIE_NAME}=any-token\r\n`
+    + `Accept: text/event-stream\r\n\r\n`,
+  );
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('SSE response timed out')), 5_000);
+    const onData = (chunk: Buffer) => {
+      if (chunk.toString().includes('200')) {
+        clearTimeout(timer);
+        socket.removeListener('data', onData);
+        resolve();
+      }
+    };
+    socket.on('data', onData);
+  });
+  // Allow the handler to finish registering the subscription.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return socket;
+}
+
+/** Wait until `predicate` holds, else fail with `message`. */
+async function waitFor(predicate: () => boolean, timeoutMs: number, message: string) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error(message);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 afterAll(async () => {
   vi.restoreAllMocks();
 });
 
 describe('shutdown with an open SSE stream (OVR-3 outage regression)', () => {
   it('closes promptly and runs realtime teardown despite an open hijacked stream', async () => {
-    const realtimeClose = vi.fn();
-    const realtimeService = {
-      open: vi.fn(async () => ({ close: realtimeClose })),
-      close: vi.fn(),
-    };
+    const { service: realtimeService } = fakeRealtimeService();
 
     const app = await buildApp(testConfig, {
       authRepository: activeManagerAuthRepository(),
@@ -98,43 +165,115 @@ describe('shutdown with an open SSE stream (OVR-3 outage regression)', () => {
       throw new Error('expected a TCP address');
     }
 
-    // Open a real SSE stream the way Caddy forwards one: raw socket, hijacked
-    // reply, headers flushed, no end of body.
-    const socket = net.connect(address.port, '127.0.0.1');
-    await new Promise<void>((resolve) => socket.once('connect', resolve));
-    socket.write(
-      `GET /api/realtime/events HTTP/1.1\r\n`
-      + `Host: 127.0.0.1\r\n`
-      + `Cookie: ${SESSION_COOKIE_NAME}=any-token\r\n`
-      + `Accept: text/event-stream\r\n\r\n`,
-    );
-    await new Promise<void>((resolve) => {
-      const onData = (chunk: Buffer) => {
-        if (chunk.toString().includes('200')) {
-          socket.removeListener('data', onData);
-          resolve();
+    let socket: net.Socket | null = null;
+    try {
+      socket = await openSseStream(address.port);
+      expect(realtimeService.open).toHaveBeenCalledTimes(1);
+
+      // SIGTERM equivalent: the app must reach its cleanup hooks and finish.
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+
+      await waitFor(() => closed, 3_000, 'app.close() must not stall on an open SSE stream');
+
+      socket.destroy();
+      socket = null;
+      await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 1_000))]);
+      expect(realtimeService.close).toHaveBeenCalledTimes(1);
+    } finally {
+      socket?.destroy();
+      await app.close().catch(() => {});
+    }
+  });
+
+  it('preClose closes the SSE while an ordinary in-flight request still completes', async () => {
+    const { service: realtimeService } = fakeRealtimeService();
+
+    const app = await buildApp(testConfig, {
+      authRepository: activeManagerAuthRepository(),
+      realtimeService: realtimeService as never,
+    });
+
+    // Test-only ordinary route whose handler holds the request open until the
+    // gate is released AFTER app.close() has begun.
+    let slowEntered = false;
+    let releaseSlow: (() => void) | null = null;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    app.get('/test/slow', async () => {
+      slowEntered = true;
+      await slowGate;
+      return { ok: true };
+    });
+
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('expected a TCP address');
+    }
+
+    let sseSocket: net.Socket | null = null;
+    let slowSocket: net.Socket | null = null;
+    try {
+      sseSocket = await openSseStream(address.port);
+      expect(realtimeService.open).toHaveBeenCalledTimes(1);
+
+      // Ordinary in-flight request on its own connection, held by the gate.
+      slowSocket = net.connect(address.port, '127.0.0.1');
+      await new Promise<void>((resolve) => slowSocket!.once('connect', resolve));
+      const slowResponse: Buffer[] = [];
+      let slowReset = false;
+      slowSocket.on('data', (chunk) => slowResponse.push(chunk));
+      slowSocket.on('error', () => {
+        slowReset = true;
+      });
+      slowSocket.write(
+        `GET /test/slow HTTP/1.1\r\n`
+        + `Host: 127.0.0.1\r\n`
+        + `Connection: close\r\n\r\n`,
+      );
+      await waitFor(() => slowEntered, 5_000, 'slow handler never entered');
+
+      // SIGTERM equivalent: preClose must close the SSE (removing the
+      // server-blocking state) while the ordinary request keeps draining.
+      let closed = false;
+      const closing = app.close().then(() => {
+        closed = true;
+      });
+
+      await waitFor(() => realtimeService.close.mock.calls.length > 0, 3_000,
+        'realtime teardown must run from preClose during shutdown');
+      const sseClosed = new Promise<boolean>((resolve) => {
+        if (sseSocket!.destroyed || !sseSocket!.writable) {
+          resolve(true);
+          return;
         }
-      };
-      socket.on('data', onData);
-    });
-    // Allow the handler to finish registering the subscription.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(realtimeService.open).toHaveBeenCalledTimes(1);
+        sseSocket!.once('close', () => resolve(true));
+        setTimeout(() => resolve(false), 3_000);
+      });
+      expect(await sseClosed, 'SSE stream must be closed by preClose').toBe(true);
 
-    // SIGTERM equivalent: the app must reach its cleanup hooks and finish.
-    let closed = false;
-    const closing = app.close().then(() => {
-      closed = true;
-    });
-    const deadline = new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(closed), 3_000);
-    });
+      // The ordinary request must NOT have been forcibly reset; release it
+      // and let it complete while shutdown is still draining.
+      expect(slowReset, 'ordinary in-flight request must not be reset').toBe(false);
+      releaseSlow!();
 
-    const settledInTime = await deadline;
-    expect(settledInTime, 'app.close() must not stall on an open SSE stream').toBe(true);
+      await waitFor(() => closed, 3_000,
+        'app.close() must resolve after the ordinary request drains');
+      await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 1_000))]);
 
-    socket.destroy();
-    await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 1_000))]);
-    expect(realtimeService.close).toHaveBeenCalledTimes(1);
+      const slowBody = Buffer.concat(slowResponse).toString();
+      expect(slowBody.includes('200'), 'ordinary request must complete with 200').toBe(true);
+      expect(slowBody.includes('ok'), 'ordinary request body must arrive').toBe(true);
+      expect(realtimeService.close, 'realtime teardown must run exactly once').toHaveBeenCalledTimes(1);
+    } finally {
+      releaseSlow?.();
+      sseSocket?.destroy();
+      slowSocket?.destroy();
+      await app.close().catch(() => {});
+    }
   });
 });
