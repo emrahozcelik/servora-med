@@ -13,6 +13,15 @@ import {
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
+/**
+ * The guard deletes buckets with `expires_at < NOW()`, and `expires_at` is
+ * derived from the injected `now`. A pinned absolute `now` therefore silently
+ * expires once the wall clock moves past the instant it produces, turning the
+ * fixture into a time bomb. Every injected instant below is derived from the
+ * live clock instead, so the buckets are always still valid when asserted on.
+ */
+const liveNow = (): Date => new Date();
+
 const migrations = [
   '001_auth_foundation.sql',
   '002_delivery_tracer.sql',
@@ -69,7 +78,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
       const orgB = randomUUID();
       const user1 = randomUUID();
       const user2 = randomUUID();
-      const now = new Date('2026-07-21T12:00:00.000Z');
+      const now = liveNow();
       const guard = new PostgresReverseGeocodingQuotaGuard(pool, {
         userDailyLimit: 2,
         organizationDailyLimit: 3,
@@ -145,7 +154,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
     await withMigratedDatabase(async (pool) => {
       const organizationId = randomUUID();
       const actorUserId = randomUUID();
-      const now = new Date('2026-07-21T15:00:00.000Z');
+      const now = liveNow();
       const limit = 10;
       const guard = new PostgresReverseGeocodingQuotaGuard(pool, {
         userDailyLimit: limit,
@@ -177,11 +186,21 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
     await withMigratedDatabase(async (pool) => {
       const organizationId = randomUUID();
       const actorUserId = randomUUID();
-      // 2026-07-21 21:30 UTC is 2026-07-22 00:30 in Europe/Istanbul.
-      const lateUtc = new Date('2026-07-21T21:30:00.000Z');
-      const earlyUtc = new Date('2026-07-21T20:30:00.000Z');
-      expect(istanbulDateString(earlyUtc)).toBe('2026-07-21');
-      expect(istanbulDateString(lateUtc)).toBe('2026-07-22');
+      // 20:30Z and 21:30Z on the same UTC date straddle the Istanbul midnight
+      // (UTC+03): 23:30 local, then 00:30 local on the following day.
+      const utcToday = liveNow();
+      const earlyUtc = new Date(Date.UTC(
+        utcToday.getUTCFullYear(),
+        utcToday.getUTCMonth(),
+        utcToday.getUTCDate(),
+        20,
+        30,
+        0,
+        0,
+      ));
+      const lateUtc = new Date(earlyUtc.getTime() + 60 * 60 * 1000);
+      expect(istanbulDateString(earlyUtc)).not.toBe(istanbulDateString(lateUtc));
+      expect(istanbulDateString(lateUtc) > istanbulDateString(earlyUtc)).toBe(true);
       expect(utcMonthStartString(new Date('2026-07-31T23:00:00.000Z'))).toBe('2026-07-01');
       expect(utcMonthStartString(new Date('2026-08-01T00:00:00.000Z'))).toBe('2026-08-01');
 
@@ -204,8 +223,8 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
           ORDER BY period_start`,
       );
       expect(dayBuckets.rows).toEqual([
-        { period_start: '2026-07-21', used_count: 1 },
-        { period_start: '2026-07-22', used_count: 1 },
+        { period_start: istanbulDateString(earlyUtc), used_count: 1 },
+        { period_start: istanbulDateString(lateUtc), used_count: 1 },
       ]);
     });
   });
@@ -230,7 +249,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
         provider: 'GOOGLE',
         organizationId: randomUUID(),
         actorUserId: randomUUID(),
-        now: new Date('2026-07-21T12:00:00.000Z'),
+        now: liveNow(),
       });
       expect(decision.allowed).toBe(true);
 
@@ -248,8 +267,19 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
       });
       const org = randomUUID();
       const user = randomUUID();
-      // Fresh Istanbul day / UTC month period relative to earlier reserves in this test.
-      const now = new Date('2026-09-22T10:00:00.000Z');
+      // The GLOBAL_MONTH bucket is shared by every organization and keyed by the
+      // UTC month, so this guard must reserve in a *different* UTC month than the
+      // reserve above — otherwise it inherits that used_count under a limit of 1.
+      const nextMonth = liveNow();
+      const now = new Date(Date.UTC(
+        nextMonth.getUTCFullYear(),
+        nextMonth.getUTCMonth() + 1,
+        15,
+        10,
+        0,
+        0,
+        0,
+      ));
       expect((await limited.reserve({
         provider: 'GOOGLE', organizationId: org, actorUserId: user, now,
       })).allowed).toBe(true);
@@ -264,7 +294,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL reverse-geocoding quota guard', () => 
 
   it('isolates organization buckets from each other', async () => {
     await withMigratedDatabase(async (pool) => {
-      const now = new Date('2026-07-21T12:00:00.000Z');
+      const now = liveNow();
       const guard = new PostgresReverseGeocodingQuotaGuard(pool, {
         userDailyLimit: 5,
         organizationDailyLimit: 1,
