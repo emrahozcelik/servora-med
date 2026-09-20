@@ -7,15 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { followUpCreateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
-import { localDateKey } from '../src/modules/job-cards/local-calendar.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import { assertCanTransition } from '../src/modules/job-cards/policy.js';
-import {
-  NON_WORKING_DAY,
-  advanceToWorkingDay,
-  assertWorkingDay,
-} from '../src/modules/job-cards/working-day-policy.js';
 import { readDbBaseline, readReservedAt, DAY_MS } from './support/db-clock-baseline.js';
 import type {
   FollowUpCreateInput,
@@ -246,50 +240,6 @@ function input(
 }
 
 const appError = (code: string, statusCode: number) => expect.objectContaining({ code, statusCode });
-
-/**
- * The authoritative organization timezone, read from the same column the
- * service reads (`organizations.timezone`). Working-day eligibility is decided
- * by the organization's own calendar, so the fixture must not assume a
- * timezone the production path does not use.
- */
-async function readOrganizationTimezone(pool: Pool, organizationId: string): Promise<string> {
-  const result = await pool.query<{ timezone: string }>(
-    `SELECT timezone FROM organizations WHERE id = $1`,
-    [organizationId],
-  );
-  if (result.rows.length !== 1) {
-    throw new Error(`Expected one organization ${organizationId}, found ${result.rows.length}`);
-  }
-  return result.rows[0]!.timezone;
-}
-
-/**
- * The first WORKING-DAY V1-valid instant at or after `from`, on the
- * organization's own calendar.
- *
- * A fixture schedule has to satisfy two independent rules: it must be strictly
- * after the authoritative DB clock (D2-5/6/8 asserts early acceptance is
- * rejected) and it must be a valid organization-local working day. A fixed
- * `baseline + 24h` offset only satisfies the first: when the DB baseline falls
- * on an organization-local Saturday, `+24h` is an organization-local Sunday and
- * follow-up creation fails with NON_WORKING_DAY. That made the test's result
- * depend on the wall-clock weekday instead of on the predicate it exercises.
- *
- * The candidate is advanced with the canonical production policy
- * (`advanceToWorkingDay`) rather than a second working-day implementation kept
- * in the test. `endsAt: null` mirrors how `createFollowUpChild` validates a
- * GENERAL_TASK schedule: a degenerate occupied point. Because the policy
- * preserves the organization-local wall clock, the returned instant is always
- * strictly after `from`, and never more than two calendar days beyond it.
- */
-function nextWorkingDayInstant(from: Date, timezone: string): Date {
-  const advanced = advanceToWorkingDay({ startsAt: from, endsAt: null, timezone });
-  if (!advanced) {
-    throw new Error(`No working day found for ${from.toISOString()} in ${timezone}`);
-  }
-  return advanced.startsAt;
-}
 
 describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
   it('creates siblings, presents one safe DTO, lists children for management, and replays once', async () => {
@@ -523,11 +473,11 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
   it('D2-5/6/8: gates future acceptance at exact scheduledAt and preserves null schedules', async () => {
     await withFixture(async (fixture) => {
       const baseline = await readDbBaseline(fixture.pool);
-      const timezone = await readOrganizationTimezone(fixture.pool, fixture.organizationId);
       const source = await fixture.createSource();
-      // A future instant that is also a valid organization-local working day;
-      // the test is about future acceptance, not about Sunday rejection.
-      const futureScheduledAt = nextWorkingDayInstant(new Date(baseline.valueOf() + DAY_MS), timezone);
+      // A strictly future instant relative to the authoritative DB clock. The
+      // test is about future acceptance; human writes are not gated on Sunday,
+      // so the fixture needs no working-day steering.
+      const futureScheduledAt = new Date(baseline.valueOf() + DAY_MS);
       const future = await fixture.service.createFollowUp(
         fixture.admin,
         source,
@@ -980,53 +930,9 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
 });
 
 /**
- * D2-5/6/8 fixture determinism.
- *
- * Pins the defect that made the future-acceptance test depend on the wall-clock
- * weekday, and proves the replacement holds for every baseline weekday. This
- * block needs no database: it exercises the fixture construction against the
- * same production working-day seam (`assertWorkingDay`) that failed in CI.
+ * D2-5/6/8 fixture determinism is no longer a concern: the future-acceptance
+ * fixture derives its schedule as a plain `baseline + 24h` offset, and human
+ * writes are not gated on the organization-local Sunday rule. The retired
+ * working-day steering helper (and the block that pinned it) was removed with
+ * the human prohibition it existed to dodge.
  */
-describe('D2-5/6/8 future-fixture working-day determinism', () => {
-  const timezone = 'Europe/Istanbul';
-
-  // 09:12 Europe/Istanbul on Saturday 2026-09-12 — the wall clock of the
-  // failing run. 2026-09-13 is the organization-local Sunday the retired
-  // `baseline + 24h` fixture landed on; 2026-09-14 is the following Monday.
-  const saturdayBaseline = new Date('2026-09-12T06:12:00.000Z');
-
-  const expectNonWorkingDay = (startsAt: Date) => {
-    try {
-      assertWorkingDay({ startsAt, endsAt: null, timezone });
-      throw new Error(`expected NON_WORKING_DAY for ${startsAt.toISOString()}`);
-    } catch (caught) {
-      expect(caught).toMatchObject({ code: NON_WORKING_DAY, statusCode: 400 });
-    }
-  };
-
-  it('shows the retired "+24h" fixture was invalid on an organization-local Saturday baseline', () => {
-    const retired = new Date(saturdayBaseline.valueOf() + DAY_MS);
-    expect(localDateKey(retired, timezone)).toBe('2026-09-13');
-    expectNonWorkingDay(retired);
-  });
-
-  it('derives a valid, strictly future working-day instant for that same baseline', () => {
-    const derived = nextWorkingDayInstant(new Date(saturdayBaseline.valueOf() + DAY_MS), timezone);
-    expect(localDateKey(derived, timezone)).toBe('2026-09-14');
-    expect(derived.valueOf()).toBeGreaterThan(saturdayBaseline.valueOf());
-    expect(() => assertWorkingDay({ startsAt: derived, endsAt: null, timezone })).not.toThrow();
-  });
-
-  it('is valid and strictly future for every baseline weekday', () => {
-    for (let offset = 0; offset < 7; offset += 1) {
-      const baseline = new Date(saturdayBaseline.valueOf() + offset * DAY_MS);
-      const derived = nextWorkingDayInstant(new Date(baseline.valueOf() + DAY_MS), timezone);
-      const label = `${baseline.toISOString()} -> ${derived.toISOString()}`;
-      expect(derived.valueOf(), label).toBeGreaterThan(baseline.valueOf());
-      expect(
-        () => assertWorkingDay({ startsAt: derived, endsAt: null, timezone }),
-        label,
-      ).not.toThrow();
-    }
-  });
-});

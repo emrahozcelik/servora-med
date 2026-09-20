@@ -10,7 +10,6 @@ import {
   type OverdueScanCandidateOutcome,
 } from '../src/modules/job-cards/overdue-breach-scanner.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
-import { sundayAvoidingShiftDays } from './support/working-day-safe-baseline.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { ReverseGeocoder } from '../src/modules/job-cards/reverse-geocoder.js';
 import type { JobCardActor, JobCardStatus } from '../src/modules/job-cards/types.js';
@@ -631,10 +630,9 @@ describe.skipIf(!databaseUrl)('OVR-3 clock-only breach scanner (PostgreSQL)', ()
         [organizationId],
       )).rows[0]!.id;
       const clock = { now: await readDbClock(pool) };
-      // Weekend runs: keep the elapsed slot out of the org-local Sunday so
-      // the create-time working-day policy does not reject the fixture.
-      const slotShiftDays = sundayAvoidingShiftDays(clock.now, 'UTC', -3_600_000, 0);
-      const scheduledAt = new Date(clock.now.getTime() - 3_600_000 - slotShiftDays * 86_400_000).toISOString();
+      // The human create path no longer rejects the organization-local Sunday,
+      // so this elapsed fixture slot needs no working-day steering.
+      const scheduledAt = new Date(clock.now.getTime() - 3_600_000).toISOString();
       let providerEntered = false;
       let releaseProvider: (() => void) | null = null;
       const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
