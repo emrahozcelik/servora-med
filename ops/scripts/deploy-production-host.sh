@@ -27,6 +27,9 @@ readonly BACKUP_DIR="/var/backups/servora-med"
 readonly STATE_DIR="/var/lib/servora-med/deploy"
 readonly PREDEPLOY_LAUNCHER="/usr/local/libexec/servora-med/predeploy-backup-launcher"
 readonly PREDEPLOY_UNIT="/etc/systemd/system/servora-med-predeploy-backup@.service"
+readonly SCHEDULED_BACKUP_UNIT="/etc/systemd/system/servora-med-backup.service"
+readonly SCHEDULED_BACKUP_TIMER="/etc/systemd/system/servora-med-backup.timer"
+readonly MANUAL_BACKUP_UNIT="/etc/systemd/system/servora-med-backup-manual.service"
 # Distinct post-deploy unit: the post-deploy safety backup must never be started
 # through the timer's unit, which would record it as `scheduled` and let a deploy
 # hide a broken daily timer (DECISIONS.md -> OPS-004 item 7).
@@ -40,7 +43,11 @@ readonly BACKUP_ENV_FILE="/etc/servora-med/servora-med-backup.env"
 readonly OBSERVATION_STATE_DIR="/var/lib/servora-med-backup"
 readonly OBSERVATION_STATE_FILE="/var/lib/servora-med-backup/observation-v1.json"
 readonly EXPECTED_LAUNCHER_SHA256="0048f0ee65d2b997c5faf9f5d1ce55ae83a91a8fdec91e89d147569b907af4f8"
-readonly EXPECTED_UNIT_SHA256="722126db70c5037826a75f9b4149e3ffd825eab89de329aba1f030225ad5c56e"
+readonly EXPECTED_PREDEPLOY_UNIT_SHA256="722126db70c5037826a75f9b4149e3ffd825eab89de329aba1f030225ad5c56e"
+readonly EXPECTED_SCHEDULED_BACKUP_UNIT_SHA256="685307836028e42536cffb23b26328db4785c256205da448f8bb787d82dfb440"
+readonly EXPECTED_SCHEDULED_BACKUP_TIMER_SHA256="98c100ca2490beb09fa13d5f876c1c8d16d4b016bd28e9c8cbc5473ad3cb4089"
+readonly EXPECTED_POSTDEPLOY_BACKUP_UNIT_SHA256="0407a0edd60ff3be82e15bf587021c22c23494c41883baf149a2caeebc3b40f3"
+readonly EXPECTED_MANUAL_BACKUP_UNIT_SHA256="4d84f77b691fc945197d686286e1233014455fa966ccbc5b175045f0c809f5d0"
 readonly NODE_BIN="/usr/bin/node"
 readonly SERVICE_USER="servora-med"
 # Immutable release-tree evidence for Release Identity V1. The marker file is
@@ -129,7 +136,7 @@ fi
 require_commands() {
   [[ "$(id -u)" -eq 0 ]] || fail ROOT_REQUIRED
   local command_name
-  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep od; do
+  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep od sync uname; do
     command -v "$command_name" >/dev/null 2>&1 || fail "HOST_BOOTSTRAP_REQUIRED_${command_name}"
   done
   [[ -x "$NODE_BIN" ]] || fail HOST_BOOTSTRAP_REQUIRED_node
@@ -157,20 +164,18 @@ assert_env_contract() {
 }
 
 assert_host_backup_contract() {
-  [[ -f "$PREDEPLOY_LAUNCHER" && ! -L "$PREDEPLOY_LAUNCHER" ]] || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ -f "$PREDEPLOY_UNIT" && ! -L "$PREDEPLOY_UNIT" ]] || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ "$(sha256sum "$PREDEPLOY_LAUNCHER" | awk '{print $1}')" == "$EXPECTED_LAUNCHER_SHA256" ]] \
-    || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ "$(sha256sum "$PREDEPLOY_UNIT" | awk '{print $1}')" == "$EXPECTED_UNIT_SHA256" ]] \
-    || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ "$(stat -c '%U:%G:%a' "$PREDEPLOY_LAUNCHER")" == 'root:root:755' ]] \
-    || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ "$(stat -c '%U:%G:%a' "$PREDEPLOY_UNIT")" == 'root:root:644' ]] \
-    || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  # The post-deploy backup runs through its own unit, so an operator must have
-  # installed it before this release can complete a deployment.
-  [[ -f "$POSTDEPLOY_BACKUP_UNIT" && ! -L "$POSTDEPLOY_BACKUP_UNIT" ]] \
-    || fail POSTDEPLOY_BACKUP_UNIT_MISSING
+  assert_reviewed_host_file "$SCHEDULED_BACKUP_UNIT" 644 \
+    "$EXPECTED_SCHEDULED_BACKUP_UNIT_SHA256" SCHEDULED_BACKUP_HOST_CONTRACT_DRIFT
+  assert_reviewed_host_file "$SCHEDULED_BACKUP_TIMER" 644 \
+    "$EXPECTED_SCHEDULED_BACKUP_TIMER_SHA256" SCHEDULED_BACKUP_TIMER_HOST_CONTRACT_DRIFT
+  assert_reviewed_host_file "$POSTDEPLOY_BACKUP_UNIT" 644 \
+    "$EXPECTED_POSTDEPLOY_BACKUP_UNIT_SHA256" POSTDEPLOY_BACKUP_HOST_CONTRACT_DRIFT
+  assert_reviewed_host_file "$PREDEPLOY_UNIT" 644 \
+    "$EXPECTED_PREDEPLOY_UNIT_SHA256" PREDEPLOY_HOST_CONTRACT_DRIFT
+  assert_reviewed_host_file "$PREDEPLOY_LAUNCHER" 755 \
+    "$EXPECTED_LAUNCHER_SHA256" PREDEPLOY_HOST_CONTRACT_DRIFT
+  assert_reviewed_host_file "$MANUAL_BACKUP_UNIT" 644 \
+    "$EXPECTED_MANUAL_BACKUP_UNIT_SHA256" MANUAL_BACKUP_HOST_CONTRACT_DRIFT
   # Observation state publishing is mandatory once this release is active: a
   # deployment that silently skipped it would leave the public backup health
   # projection permanently `unavailable` for a healthy host backup path.
@@ -179,10 +184,20 @@ assert_host_backup_contract() {
     || fail BACKUP_OBSERVATION_PATH_MISSING
 }
 
-# Proves the host provider actually published evidence for the release that just
-# went live, and that the artifact kept its restrictive contract. Paths and
-# filenames stay operator-internal: only the contract result is reported.
+assert_reviewed_host_file() {
+  local path="$1" expected_mode="$2" expected_sha256="$3" failure_reason="$4"
+  [[ -f "$path" && ! -L "$path" ]] || fail "$failure_reason"
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:${expected_mode}" ]] \
+    || fail "$failure_reason"
+  [[ "$(sha256sum "$path" | awk '{print $1}')" == "$expected_sha256" ]] \
+    || fail "$failure_reason"
+}
+
+# Proves the postdeploy backup that just completed published its own successful,
+# verified evidence and that the artifact kept its restrictive contract. Paths
+# and filenames stay operator-internal: only the contract result is reported.
 assert_observation_state_contract() {
+  local postdeploy_started_at="$1" postdeploy_completed_at="$2"
   [[ -d "$OBSERVATION_STATE_DIR" && ! -L "$OBSERVATION_STATE_DIR" ]] \
     || fail OBSERVATION_STATE_DIR_CONTRACT_INVALID
   [[ "$(stat -c '%U:%G:%a' "$OBSERVATION_STATE_DIR")" == 'servora-med:servora-med:700' ]] \
@@ -195,8 +210,30 @@ assert_observation_state_contract() {
   node -e '
     const fs = require("node:fs");
     const document = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    if (document.schemaVersion !== 1) process.exit(1);
-  ' "$OBSERVATION_STATE_FILE" || fail OBSERVATION_STATE_FILE_CONTRACT_INVALID
+    const canonicalInstant = (value) => {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value)) return null;
+      const millis = Date.parse(value);
+      if (!Number.isFinite(millis)) return null;
+      return new Date(millis).toISOString().replace(".000Z", "Z") === value ? millis : null;
+    };
+    const executionStarted = canonicalInstant(process.argv[2]);
+    const executionCompleted = canonicalInstant(process.argv[3]);
+    const attemptCompleted = canonicalInstant(document.latestAttemptCompletedAt);
+    const verifiedAt = canonicalInstant(document.latestVerifiedAt);
+    if (document.schemaVersion !== 1
+      || document.latestAttemptTrigger !== "postdeploy"
+      || document.latestAttemptResult !== "success"
+      || document.latestVerifiedTrigger !== "postdeploy"
+      || executionStarted === null
+      || executionCompleted === null
+      || attemptCompleted === null
+      || verifiedAt === null
+      || executionStarted > executionCompleted
+      || attemptCompleted < executionStarted
+      || attemptCompleted > executionCompleted
+      || verifiedAt !== attemptCompleted) process.exit(1);
+  ' "$OBSERVATION_STATE_FILE" "$postdeploy_started_at" "$postdeploy_completed_at" \
+    || fail OBSERVATION_STATE_FILE_CONTRACT_INVALID
   echo "OBSERVATION_STATE_CONTRACT=PASS"
 }
 
@@ -394,6 +431,8 @@ validate_release_tree() {
     "$root/ops/scripts/deploy-production-host.sh" \
     "$root/ops/scripts/predeploy-backup-launcher.sh" \
     "$root/ops/release-capabilities/release-identity-v1" \
+    "$root/ops/systemd/servora-med-backup.service" \
+    "$root/ops/systemd/servora-med-backup.timer" \
     "$root/ops/systemd/servora-med-predeploy-backup@.service" \
     "$root/ops/systemd/servora-med-postdeploy-backup.service" \
     "$root/ops/systemd/servora-med-backup-manual.service"; do
@@ -408,8 +447,16 @@ assert_candidate_backup_contract() {
   local release="$1"
   [[ "$(sha256sum "$release/ops/scripts/predeploy-backup-launcher.sh" | awk '{print $1}')" == "$EXPECTED_LAUNCHER_SHA256" ]] \
     || fail PREDEPLOY_HOST_CONTRACT_DRIFT
-  [[ "$(sha256sum "$release/ops/systemd/servora-med-predeploy-backup@.service" | awk '{print $1}')" == "$EXPECTED_UNIT_SHA256" ]] \
+  [[ "$(sha256sum "$release/ops/systemd/servora-med-predeploy-backup@.service" | awk '{print $1}')" == "$EXPECTED_PREDEPLOY_UNIT_SHA256" ]] \
     || fail PREDEPLOY_HOST_CONTRACT_DRIFT
+  [[ "$(sha256sum "$release/ops/systemd/servora-med-backup.service" | awk '{print $1}')" == "$EXPECTED_SCHEDULED_BACKUP_UNIT_SHA256" ]] \
+    || fail SCHEDULED_BACKUP_HOST_CONTRACT_DRIFT
+  [[ "$(sha256sum "$release/ops/systemd/servora-med-backup.timer" | awk '{print $1}')" == "$EXPECTED_SCHEDULED_BACKUP_TIMER_SHA256" ]] \
+    || fail SCHEDULED_BACKUP_TIMER_HOST_CONTRACT_DRIFT
+  [[ "$(sha256sum "$release/ops/systemd/servora-med-postdeploy-backup.service" | awk '{print $1}')" == "$EXPECTED_POSTDEPLOY_BACKUP_UNIT_SHA256" ]] \
+    || fail POSTDEPLOY_BACKUP_HOST_CONTRACT_DRIFT
+  [[ "$(sha256sum "$release/ops/systemd/servora-med-backup-manual.service" | awk '{print $1}')" == "$EXPECTED_MANUAL_BACKUP_UNIT_SHA256" ]] \
+    || fail MANUAL_BACKUP_HOST_CONTRACT_DRIFT
 }
 
 assert_candidate_host_helper_contract() {
@@ -1273,7 +1320,8 @@ postdeploy_phase() {
   printf '%s\n' "$verification_output"
   # The live release must also have published host observation evidence: without
   # it the public backup health projection cannot describe this host's backups.
-  if ! verification_output="$(assert_observation_state_contract 2>&1)"; then
+  if ! verification_output="$(assert_observation_state_contract \
+    "$backup_started_at" "$backup_completed_at" 2>&1)"; then
     echo "LIVE_BUT_OBSERVATION_STATE_FAILED sha=${SHA}" >&2
     printf '%s\n' "$verification_output" >&2
     exit 2

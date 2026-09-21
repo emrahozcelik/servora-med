@@ -128,14 +128,60 @@ expect_eq "manual success does not advance the scheduled baseline" \
 expect_eq "manual success does not overwrite the scheduled attempt" \
   "$(state_field latestScheduledAttemptResult)" "success"
 
+# --- B: durability failures are visible --------------------------------------
+# Shadow only `sync`; every other command remains the real platform tool. A
+# pre-rename flush failure must leave the previously canonical document intact.
+SYNC_FAIL_BIN="$TMP/sync-fail-bin"
+mkdir -p "$SYNC_FAIL_BIN"
+cat >"$SYNC_FAIL_BIN/sync" <<'SH'
+#!/bin/sh
+echo 'injected sync failure' >&2
+exit 73
+SH
+chmod +x "$SYNC_FAIL_BIN/sync"
+canonical_before_flush_failure="$(cat "$STATE")"
+expect_exit "pre-rename flush failure fails the observation write" 1 \
+  env PATH="$SYNC_FAIL_BIN:$PATH" "$WRITER" --state "$STATE" --trigger postdeploy \
+    --started-at 2026-09-21T16:30:00Z --outcome success --completed-at 2026-09-21T16:30:03Z
+expect_eq "pre-rename flush failure preserves the prior canonical state" \
+  "$(cat "$STATE")" "$canonical_before_flush_failure"
+
+# A directory-flush error happens after rename. The new document can therefore
+# be visible in the running filesystem even though crash durability is not
+# established. The writer must report failure; callers must never treat this as
+# a successfully durable observation write.
+SYNC_SECOND_FAIL_BIN="$TMP/sync-second-fail-bin"
+SYNC_COUNTER_FILE="$TMP/sync-counter"
+mkdir -p "$SYNC_SECOND_FAIL_BIN"
+cat >"$SYNC_SECOND_FAIL_BIN/sync" <<'SH'
+#!/bin/sh
+count=0
+if [ -f "$SYNC_COUNTER_FILE" ]; then count="$(cat "$SYNC_COUNTER_FILE")"; fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$SYNC_COUNTER_FILE"
+if [ "$count" -eq 2 ]; then
+  echo 'injected directory sync failure' >&2
+  exit 74
+fi
+exit 0
+SH
+chmod +x "$SYNC_SECOND_FAIL_BIN/sync"
+expect_exit "post-rename directory flush failure fails the observation write" 1 \
+  env PATH="$SYNC_SECOND_FAIL_BIN:$PATH" SYNC_COUNTER_FILE="$SYNC_COUNTER_FILE" \
+    "$WRITER" --state "$STATE" --trigger postdeploy --started-at 2026-09-21T16:45:00Z \
+    --outcome success --completed-at 2026-09-21T16:45:03Z
+expect_eq "post-rename flush failure leaves a complete parseable document" \
+  "$(state_field latestAttemptStartedAt)" "2026-09-21T16:45:00Z"
+
 # --- B: a state write failure fails visibly and leaves canonical state intact --
 canonical_before="$(cat "$STATE")"
+attempt_before="$(state_field latestAttemptStartedAt)"
 chmod 500 "$STATE_DIR"
 expect_exit "writer fails when the state directory is not writable" 1 \
   "$WRITER" --state "$STATE" --trigger scheduled --started-at 2026-09-21T17:00:00Z --outcome running
 chmod 700 "$STATE_DIR"
 expect_eq "canonical state survives a failed write" "$(cat "$STATE")" "$canonical_before"
-expect_eq "failed write did not advance the attempt" "$(state_field latestAttemptStartedAt)" "2026-09-21T16:00:00Z"
+expect_eq "failed write did not advance the attempt" "$(state_field latestAttemptStartedAt)" "$attempt_before"
 
 # --- A: malformed / unsupported / unsafe existing state ------------------------
 printf '{ not json\n' >"$STATE"

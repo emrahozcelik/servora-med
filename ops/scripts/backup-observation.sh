@@ -285,6 +285,22 @@ json_string_or_null() {
   fi
 }
 
+# Establishes the durability boundary without hiding platform or I/O errors.
+# Production Linux uses GNU sync's targeted file/directory flush. The supported
+# macOS local/pilot path uses BSD sync's dependency-free global flush because it
+# has no GNU-compatible `-f PATH` form. Any non-zero result is a write failure.
+flush_path() {
+  local path="$1"
+  case "$(uname -s)" in
+    Linux) sync -f "$path" ;;
+    Darwin) sync ;;
+    *)
+      printf 'backup-observation: unsupported durability platform\n' >&2
+      return 1
+      ;;
+  esac
+}
+
 attempt_completed="null"
 failure_class_json="null"
 verified_at_json="$(json_string_or_null "$prior_verified_at")"
@@ -365,13 +381,19 @@ cat >"$tmp_path" <<JSON
 JSON
 
 # Flush the complete document to stable storage before it can become canonical.
-# GNU coreutils supports the targeted form; BSD sync accepts the call and
-# performs a full flush, so the guard is safe on both production and the macOS
-# pilot host.
-sync -f "$tmp_path" 2>/dev/null || true
+if ! flush_path "$tmp_path"; then
+  printf 'backup-observation: state temp-file flush failed\n' >&2
+  exit 1
+fi
 
 mv -f -- "$tmp_path" "$STATE_PATH"
-sync -f "$STATE_DIR" 2>/dev/null || true
+# The rename has already happened when this boundary fails. The complete new
+# document may therefore be visible to the running system, but crash durability
+# is unproven; returning failure prevents the backup from reporting success.
+if ! flush_path "$STATE_DIR"; then
+  printf 'backup-observation: state directory flush failed after rename\n' >&2
+  exit 1
+fi
 
 trap - EXIT
 exit 0

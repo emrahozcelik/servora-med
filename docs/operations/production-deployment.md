@@ -291,12 +291,79 @@ sudo install -o root -g root -m 0755 \
   /usr/local/libexec/servora-med/deploy-production-host
 ```
 
+OPS-004 also changes the root-owned backup trigger-provenance contract. Before
+the first deployment containing host observation publishing, the same reviewed
+checkout must be used to install every load-bearing file; mixing versions is
+not supported:
+
+```bash
+sudo install -o root -g root -m 0755 \
+  ops/scripts/predeploy-backup-launcher.sh \
+  /usr/local/libexec/servora-med/predeploy-backup-launcher
+
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-backup.service \
+  /etc/systemd/system/servora-med-backup.service
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-backup.timer \
+  /etc/systemd/system/servora-med-backup.timer
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-predeploy-backup@.service \
+  /etc/systemd/system/servora-med-predeploy-backup@.service
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-postdeploy-backup.service \
+  /etc/systemd/system/servora-med-postdeploy-backup.service
+sudo install -o root -g root -m 0644 \
+  ops/systemd/servora-med-backup-manual.service \
+  /etc/systemd/system/servora-med-backup-manual.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now servora-med-backup.timer
+```
+
+The protected `/etc/servora-med/servora-med-backup.env` must contain exactly
+one normalized writer path before this bootstrap is considered complete:
+
+```text
+BACKUP_OBSERVATION_PATH=/var/lib/servora-med-backup/observation-v1.json
+```
+
+The deploy preflight rejects a symlink, ownership/mode drift, or any byte-level
+content drift in the scheduled service, timer, predeploy template/launcher,
+postdeploy service, or manual service. In particular, the installed call sites
+must preserve `--trigger=scheduled`, `--trigger=predeploy`,
+`--trigger=postdeploy`, and `--trigger=manual`; the pre-OPS-004 scheduled unit
+with an argument-less `ExecStart` is not compatible. `sync` is also a required
+host command because an observation is not reported as successfully written
+unless its file and rename durability boundaries complete.
+
+The writer flushes the complete temporary file before rename, then flushes the
+state directory after rename. A directory-flush error necessarily occurs after
+the atomic rename, so the complete new JSON may already be visible in the live
+filesystem even though crash durability is unproven. That operation still exits
+non-zero and fails the backup; operators must not interpret the visible file as
+a successful durable write solely from that failed invocation.
+
+This host bootstrap only enables backup observation **publishing**, which is a
+deployment prerequisite. Public-health provider activation is a later,
+separately authorized application configuration change. Do not make that
+cutover as part of this bootstrap. When the separate gate is approved, set the
+application environment (not the backup environment) to:
+
+```text
+BACKUP_PROVIDER=host-observation
+BACKUP_OBSERVATION_PATH=/var/lib/servora-med-backup/observation-v1.json
+```
+
+Until that approval, keep the existing `BACKUP_PROVIDER` selection unchanged;
+merely configuring the writer path does not activate the public-health reader.
+
 The helper's sudoers entry must be reviewed on the host and limited to
 `/usr/local/libexec/servora-med/deploy-production-host` (with validated
 arguments). Do not grant `NOPASSWD: ALL`, arbitrary `systemctl`, arbitrary
-shell, or wildcard destructive filesystem access. Verify the existing
-predeploy launcher/unit hashes before enabling the new rule; drift stops the
-deployment with `PREDEPLOY_HOST_CONTRACT_DRIFT`.
+shell, or wildcard destructive filesystem access. Verify the installed
+reviewed backup files before enabling the new rule; any byte-level drift stops
+deployment at the corresponding host-contract preflight.
 
 The helper stages `/opt/servora-med/releases/<sha>` without overwriting an
 existing SHA directory, verifies the transferred archive checksum and every
