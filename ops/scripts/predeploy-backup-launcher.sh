@@ -56,4 +56,7 @@ if ! assert_physical_file "$BACKUP_SCRIPT" || [[ ! -x "$BACKUP_SCRIPT" ]]; then
   exit 65
 fi
 
-exec "$BACKUP_SCRIPT"
+# Explicit, non-inferable trigger provenance: the release SHA alone cannot say
+# whether this run was a pre-deploy safety backup or a post-deploy one, so the
+# launcher — which only the predeploy template invokes — states it.
+exec "$BACKUP_SCRIPT" --trigger=predeploy

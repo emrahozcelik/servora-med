@@ -1272,7 +1272,11 @@ describe('controlled production deployment automation contract', () => {
       expect(result.result.status).toBe(2);
       expect(`${result.result.stdout}${result.result.stderr}`).toContain('LIVE_BUT_POSTDEPLOY_BACKUP_FAILED');
       expect(result.events).toContain('health');
-      expect(result.events).toContain('systemctl:start servora-med-backup.service');
+      // The post-deploy safety backup runs through its own unit, so a deploy can
+      // never record a `scheduled` run and hide a broken daily timer
+      // (DECISIONS.md -> OPS-004 item 7).
+      expect(result.events).toContain('systemctl:start servora-med-postdeploy-backup.service');
+      expect(result.events).not.toContain('systemctl:start servora-med-backup.service');
       expect(result.events.some((event) => event.startsWith('switch:'))).toBe(false);
       expect(result.events).not.toContain('systemctl:restart servora-med.service');
     } finally {
@@ -2053,14 +2057,18 @@ describe('release identity capability evidence — artifact binding', () => {
       'server/dist/db/migrate.js',
       'server/dist/db/schema-check.js',
       'ops/scripts/backup-postgres.sh',
+      'ops/scripts/backup-observation.sh',
       'ops/scripts/migration-state.mjs',
       'ops/scripts/migration-reconciliation.mjs',
       'ops/scripts/deploy-production-host.sh',
       'ops/scripts/predeploy-backup-launcher.sh',
       'ops/systemd/servora-med-predeploy-backup@.service',
+      'ops/systemd/servora-med-postdeploy-backup.service',
+      'ops/systemd/servora-med-backup-manual.service',
     ];
     for (const file of files) writeFileSync(join(root, file), 'fixture');
     chmodSync(join(root, 'ops/scripts/backup-postgres.sh'), 0o755);
+    chmodSync(join(root, 'ops/scripts/backup-observation.sh'), 0o755);
     if (withMarker) {
       copyFileSync(markerRepoPath, join(root, 'ops/release-capabilities/release-identity-v1'));
     }

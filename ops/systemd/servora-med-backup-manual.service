@@ -1,5 +1,5 @@
 [Unit]
-Description=Servora-Med PostgreSQL pre-deploy backup for release %i
+Description=Servora-Med PostgreSQL backup (operator on-demand, oneshot)
 After=network-online.target postgresql.service
 
 [Service]
@@ -7,9 +7,10 @@ Type=oneshot
 User=servora-med
 Group=servora-med
 EnvironmentFile=/etc/servora-med/servora-med-backup.env
-# The root-installed launcher validates %i and derives the fixed SHA release
-# path independently of the deploy caller.
-ExecStart=/usr/local/libexec/servora-med/predeploy-backup-launcher %i
+# Explicit operator class. A manual run is a valid local restore point but must
+# never satisfy the daily schedule heartbeat, so it cannot share a unit with the
+# timer (DECISIONS.md -> OPS-004 item 7).
+ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh --trigger=manual
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
@@ -19,11 +20,9 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/backups/servora-med /var/log/servora-med
-# Owns /var/lib/servora-med-backup at 0700 servora-med:servora-med. The launcher
-# passes the explicit `predeploy` trigger class to the backup script.
 StateDirectory=servora-med-backup
 StateDirectoryMode=0700
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=servora-med-predeploy-backup
+SyslogIdentifier=servora-med-backup-manual

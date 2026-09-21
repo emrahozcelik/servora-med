@@ -27,8 +27,20 @@ readonly BACKUP_DIR="/var/backups/servora-med"
 readonly STATE_DIR="/var/lib/servora-med/deploy"
 readonly PREDEPLOY_LAUNCHER="/usr/local/libexec/servora-med/predeploy-backup-launcher"
 readonly PREDEPLOY_UNIT="/etc/systemd/system/servora-med-predeploy-backup@.service"
-readonly EXPECTED_LAUNCHER_SHA256="166aab1e43a88f317f0d4a429de09e3f07d205e910ca03577d7efbda8bcf6f0d"
-readonly EXPECTED_UNIT_SHA256="bb59f68869582585794d406090eb6abf6b738b7d95e981b1ca884a027659d3a0"
+# Distinct post-deploy unit: the post-deploy safety backup must never be started
+# through the timer's unit, which would record it as `scheduled` and let a deploy
+# hide a broken daily timer (DECISIONS.md -> OPS-004 item 7).
+# The NAME is what `systemctl start/show` receives (matching the pre-deploy
+# path); the file path is only used for the installed-file contract assertions.
+readonly POSTDEPLOY_BACKUP_UNIT_NAME="servora-med-postdeploy-backup.service"
+readonly POSTDEPLOY_BACKUP_UNIT="/etc/systemd/system/${POSTDEPLOY_BACKUP_UNIT_NAME}"
+readonly BACKUP_ENV_FILE="/etc/servora-med/servora-med-backup.env"
+# Host-side backup observation state (OPS-BACKUP-OBS-1): the SSOT the public
+# backup health projection reads for the active host provider.
+readonly OBSERVATION_STATE_DIR="/var/lib/servora-med-backup"
+readonly OBSERVATION_STATE_FILE="/var/lib/servora-med-backup/observation-v1.json"
+readonly EXPECTED_LAUNCHER_SHA256="0048f0ee65d2b997c5faf9f5d1ce55ae83a91a8fdec91e89d147569b907af4f8"
+readonly EXPECTED_UNIT_SHA256="722126db70c5037826a75f9b4149e3ffd825eab89de329aba1f030225ad5c56e"
 readonly NODE_BIN="/usr/bin/node"
 readonly SERVICE_USER="servora-med"
 # Immutable release-tree evidence for Release Identity V1. The marker file is
@@ -155,6 +167,37 @@ assert_host_backup_contract() {
     || fail PREDEPLOY_HOST_CONTRACT_DRIFT
   [[ "$(stat -c '%U:%G:%a' "$PREDEPLOY_UNIT")" == 'root:root:644' ]] \
     || fail PREDEPLOY_HOST_CONTRACT_DRIFT
+  # The post-deploy backup runs through its own unit, so an operator must have
+  # installed it before this release can complete a deployment.
+  [[ -f "$POSTDEPLOY_BACKUP_UNIT" && ! -L "$POSTDEPLOY_BACKUP_UNIT" ]] \
+    || fail POSTDEPLOY_BACKUP_UNIT_MISSING
+  # Observation state publishing is mandatory once this release is active: a
+  # deployment that silently skipped it would leave the public backup health
+  # projection permanently `unavailable` for a healthy host backup path.
+  [[ -f "$BACKUP_ENV_FILE" && ! -L "$BACKUP_ENV_FILE" ]] || fail BACKUP_ENV_CONTRACT_MISSING
+  grep -Fxq "BACKUP_OBSERVATION_PATH=${OBSERVATION_STATE_FILE}" "$BACKUP_ENV_FILE" \
+    || fail BACKUP_OBSERVATION_PATH_MISSING
+}
+
+# Proves the host provider actually published evidence for the release that just
+# went live, and that the artifact kept its restrictive contract. Paths and
+# filenames stay operator-internal: only the contract result is reported.
+assert_observation_state_contract() {
+  [[ -d "$OBSERVATION_STATE_DIR" && ! -L "$OBSERVATION_STATE_DIR" ]] \
+    || fail OBSERVATION_STATE_DIR_CONTRACT_INVALID
+  [[ "$(stat -c '%U:%G:%a' "$OBSERVATION_STATE_DIR")" == 'servora-med:servora-med:700' ]] \
+    || fail OBSERVATION_STATE_DIR_CONTRACT_INVALID
+  [[ -f "$OBSERVATION_STATE_FILE" && ! -L "$OBSERVATION_STATE_FILE" ]] \
+    || fail OBSERVATION_STATE_FILE_MISSING
+  [[ "$(stat -c '%U:%G:%a' "$OBSERVATION_STATE_FILE")" == 'servora-med:servora-med:600' ]] \
+    || fail OBSERVATION_STATE_FILE_CONTRACT_INVALID
+  # A canonical document is a single JSON object, never a partial write.
+  node -e '
+    const fs = require("node:fs");
+    const document = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (document.schemaVersion !== 1) process.exit(1);
+  ' "$OBSERVATION_STATE_FILE" || fail OBSERVATION_STATE_FILE_CONTRACT_INVALID
+  echo "OBSERVATION_STATE_CONTRACT=PASS"
 }
 
 assert_release_dir() {
@@ -345,15 +388,19 @@ validate_release_tree() {
     "$root/server/dist/db/migrate.js" \
     "$root/server/dist/db/schema-check.js" \
     "$root/ops/scripts/backup-postgres.sh" \
+    "$root/ops/scripts/backup-observation.sh" \
     "$root/ops/scripts/migration-state.mjs" \
     "$root/ops/scripts/migration-reconciliation.mjs" \
     "$root/ops/scripts/deploy-production-host.sh" \
     "$root/ops/scripts/predeploy-backup-launcher.sh" \
     "$root/ops/release-capabilities/release-identity-v1" \
-    "$root/ops/systemd/servora-med-predeploy-backup@.service"; do
+    "$root/ops/systemd/servora-med-predeploy-backup@.service" \
+    "$root/ops/systemd/servora-med-postdeploy-backup.service" \
+    "$root/ops/systemd/servora-med-backup-manual.service"; do
     assert_release_file "$required" || fail RELEASE_TREE_INVALID
   done
   [[ -x "$root/ops/scripts/backup-postgres.sh" ]] || fail RELEASE_TREE_INVALID
+  [[ -x "$root/ops/scripts/backup-observation.sh" ]] || fail RELEASE_TREE_INVALID
   validate_extracted_links "$root"
 }
 
@@ -1203,7 +1250,7 @@ postdeploy_phase() {
   [[ "$(current_release)" == "$release" ]] || fail CURRENT_RELEASE_NOT_CANDIDATE
   systemctl is-active --quiet "$SERVICE" || fail CURRENT_SERVICE_NOT_ACTIVE
   health_gate || fail HEALTH_FAILED
-  local backup_unit="servora-med-backup.service"
+  local backup_unit="$POSTDEPLOY_BACKUP_UNIT_NAME"
   local backup_start backup_started_at backup_completed_at backup_result backup_exit before_names
   before_names="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'servora-med-*.dump' -printf '%f\n' | sort || true)"
   backup_start="$(date +%s)"
@@ -1220,6 +1267,14 @@ postdeploy_phase() {
   local verification_output
   if ! verification_output="$(verify_backup_artifact "$backup_start" "$before_names" 2>&1)"; then
     echo "LIVE_BUT_POSTDEPLOY_BACKUP_FAILED sha=${SHA}" >&2
+    printf '%s\n' "$verification_output" >&2
+    exit 2
+  fi
+  printf '%s\n' "$verification_output"
+  # The live release must also have published host observation evidence: without
+  # it the public backup health projection cannot describe this host's backups.
+  if ! verification_output="$(assert_observation_state_contract 2>&1)"; then
+    echo "LIVE_BUT_OBSERVATION_STATE_FAILED sha=${SHA}" >&2
     printf '%s\n' "$verification_output" >&2
     exit 2
   fi

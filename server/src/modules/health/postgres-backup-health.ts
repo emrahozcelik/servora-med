@@ -31,6 +31,8 @@ export function createPostgresBackupHealth(
         latestScheduledRunStatus: null,
         workerHeartbeatAt: null,
         schedulerLastTickAt: null,
+        provider: 'br5-r2',
+        providerStatus: 'unavailable',
       };
       try {
         const [verified, scheduledVerified, latest, scheduledLatest, worker] = await Promise.all([
@@ -67,14 +69,21 @@ export function createPostgresBackupHealth(
           || (workerHeartbeatAt !== null && currentTime - workerHeartbeatAt.getTime() <= workerStaleAfterMs);
         const schedulerHealthy = !workerEnabled
           || (schedulerLastTickAt !== null && currentTime - schedulerLastTickAt.getTime() <= schedulerStaleAfterMs);
+        const status = verifiedAt && workerHealthy && schedulerHealthy ? 'ok' : 'unavailable';
         return {
-          status: verifiedAt && workerHealthy && schedulerHealthy ? 'ok' : 'unavailable',
+          status,
           latestVerifiedAt: verifiedAt?.toISOString() ?? null,
           latestScheduledVerifiedAt: scheduledVerified.rows[0]?.verified_at?.toISOString() ?? null,
           latestRunStatus: latest.rows[0]?.status ?? null,
           latestScheduledRunStatus: scheduledLatest.rows[0]?.status ?? null,
           workerHeartbeatAt: workerHeartbeatAt?.toISOString() ?? null,
           schedulerLastTickAt: schedulerLastTickAt?.toISOString() ?? null,
+          provider: 'br5-r2',
+          // This provider predates the shared observation evaluator and keeps its
+          // established binary semantics; the label is a faithful 1:1 embedding
+          // so consumers see a uniform provider vocabulary. Adopting the shared
+          // freshness evaluator here belongs to a future BR5 enablement slice.
+          providerStatus: status === 'ok' ? 'healthy' : 'unavailable',
         };
       } catch {
         return unavailable;

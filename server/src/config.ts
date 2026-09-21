@@ -51,6 +51,26 @@ export type BackupWorkerConfig = {
 };
 
 /**
+ * Active backup observability provider (OPS-004 item 9). Exactly one provider
+ * is selected at wiring time and mapped onto the shared public health contract,
+ * so BR5/R2 and the host observation artifact can coexist later without being
+ * forced into one table.
+ *
+ * `none` means the mechanism is intentionally disabled — which is a distinct,
+ * truthful state and not a failed backup run.
+ */
+export type BackupProviderName = 'none' | 'host-observation' | 'br5-r2';
+
+export type BackupProviderConfig = {
+  provider: BackupProviderName;
+  /**
+   * Absolute path to the host-side `observation-v1.json`. Required for — and
+   * only used by — the `host-observation` provider.
+   */
+  observationPath: string | null;
+};
+
+/**
  * OVR-3 clock-only breach scanner runtime configuration. Optional by design:
  * `OVERDUE_SCANNER_ENABLED` must be set explicitly, so an unconfigured
  * deployment never starts a background writer it did not ask for.
@@ -101,6 +121,13 @@ export type AppConfig = {
   backupR2: BackupR2Config;
   /** Optional so existing API-only config fixtures remain source-compatible. */
   backupWorker?: BackupWorkerConfig;
+  /**
+   * Active backup observability provider. `loadConfig` always sets it; optional
+   * here so existing API-only config fixtures remain source-compatible. An
+   * absent value means "no provider configured", which is reported as
+   * intentionally disabled rather than as a failed backup run.
+   */
+  backupProvider?: BackupProviderConfig;
   /** Optional: present only when OVERDUE_SCANNER_* is configured. */
   overdueScanner?: OverdueScannerConfig;
   demoDataCreationEnabled: boolean;
@@ -200,6 +227,62 @@ function readBackupWorkerConfig(env: NodeJS.ProcessEnv): BackupWorkerConfig {
     heartbeatIntervalMs,
     pollIntervalMs,
   };
+}
+
+/**
+ * Provider used when `BACKUP_PROVIDER` is unset.
+ *
+ * It is deliberately the provider that was wired before this slice existed, so
+ * deploying this code changes no deployment's active provider by itself.
+ * Activating the host observation provider is an explicit, reviewed
+ * configuration change — and a set `BACKUP_OBSERVATION_PATH` alone never
+ * activates it implicitly.
+ */
+export const DEFAULT_BACKUP_PROVIDER: BackupProviderName = 'br5-r2';
+
+function readBackupProviderConfig(env: NodeJS.ProcessEnv): BackupProviderConfig {
+  const raw = (env.BACKUP_PROVIDER ?? '').trim();
+  if (raw === '') {
+    // An observation path configured while the provider is off is still
+    // validated, so a typo cannot hide until the provider is switched on.
+    return {
+      provider: DEFAULT_BACKUP_PROVIDER,
+      observationPath: readObservationPath(env.BACKUP_OBSERVATION_PATH, false),
+    };
+  }
+  if (raw !== 'none' && raw !== 'host-observation' && raw !== 'br5-r2') {
+    throw new Error('BACKUP_PROVIDER must be one of none, host-observation, br5-r2');
+  }
+  return {
+    provider: raw,
+    observationPath: readObservationPath(env.BACKUP_OBSERVATION_PATH, raw === 'host-observation'),
+  };
+}
+
+/**
+ * Fail-closed validation of the observation artifact path. The reader must never
+ * be pointed at a relative, ambiguous or traversing path: a wrong path is an
+ * untrustworthy evidence source, not a degraded one.
+ */
+function readObservationPath(value: string | undefined, required: boolean): string | null {
+  const raw = value ?? '';
+  if (raw.length === 0) {
+    if (required) {
+      throw new Error('BACKUP_OBSERVATION_PATH is required when BACKUP_PROVIDER=host-observation');
+    }
+    return null;
+  }
+  if (raw !== raw.trim()) throw new Error('BACKUP_OBSERVATION_PATH must not have surrounding whitespace');
+  if (raw.includes('\0') || raw.length > 4096) {
+    throw new Error('BACKUP_OBSERVATION_PATH must be a single absolute filesystem path');
+  }
+  if (!raw.startsWith('/') || raw.endsWith('/') || raw.includes('//')) {
+    throw new Error('BACKUP_OBSERVATION_PATH must be a normalized absolute filesystem path');
+  }
+  if (raw.split('/').some((segment) => segment === '.' || segment === '..')) {
+    throw new Error('BACKUP_OBSERVATION_PATH must not contain . or .. segments');
+  }
+  return raw;
 }
 
 function readOverdueScannerConfig(env: NodeJS.ProcessEnv): OverdueScannerConfig {
@@ -640,6 +723,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       instanceId: readOptionalInstanceId(env.BACKUP_INSTANCE_ID, 'BACKUP_INSTANCE_ID'),
     },
     demoDataCreationEnabled: readBoolean(env.DEMO_DATA_CREATION_ENABLED, 'DEMO_DATA_CREATION_ENABLED'),
+    backupProvider: readBackupProviderConfig(env),
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
     ...(hasOverdueScannerConfig ? { overdueScanner: readOverdueScannerConfig(env) } : {}),
   };

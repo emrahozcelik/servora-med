@@ -16,6 +16,7 @@ mkdir -p \
   "$TMP/var/backups/servora-med" \
   "$TMP/var/backups/servora-med/br-workspaces" \
   "$TMP/var/lib/servora-med-alerting" \
+  "$TMP/var/lib/servora-med-backup" \
   "$TMP/var/log/servora-med" \
   "$TMP/usr/local/libexec/servora-med" \
   "$TMP/units"
@@ -63,6 +64,8 @@ rewrite_unit() {
 
 rewrite_unit "$ROOT/ops/systemd/servora-med.service" "$TMP/units/servora-med.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-backup.service" "$TMP/units/servora-med-backup.service"
+rewrite_unit "$ROOT/ops/systemd/servora-med-backup-manual.service" "$TMP/units/servora-med-backup-manual.service"
+rewrite_unit "$ROOT/ops/systemd/servora-med-postdeploy-backup.service" "$TMP/units/servora-med-postdeploy-backup.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-predeploy-backup@.service" "$TMP/units/servora-med-predeploy-backup@.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-backup-worker.service" "$TMP/units/servora-med-backup-worker.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-alerting.service" "$TMP/units/servora-med-alerting.service"
@@ -79,6 +82,8 @@ fi
 systemd-analyze verify \
   "$TMP/units/servora-med.service" \
   "$TMP/units/servora-med-backup.service" \
+  "$TMP/units/servora-med-backup-manual.service" \
+  "$TMP/units/servora-med-postdeploy-backup.service" \
   "$TMP/units/servora-med-predeploy-backup@.service" \
   "$TMP/units/servora-med-backup-worker.service" \
   "$TMP/units/servora-med-backup.timer" \

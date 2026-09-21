@@ -150,6 +150,7 @@ describe('loadConfig', () => {
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
       backupEncryption: { recipient: null },
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
+      backupProvider: { provider: 'br5-r2', observationPath: null },
       demoDataCreationEnabled: false,
     });
   });
@@ -198,6 +199,7 @@ describe('loadConfig', () => {
       backupLocalEngine: { tempRoot: null, filesRoot: null },
       backupEncryption: { recipient: null },
       backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
+      backupProvider: { provider: 'br5-r2', observationPath: null },
       demoDataCreationEnabled: false,
     });
   });
