@@ -944,3 +944,28 @@ production migration or authorize the OVR-3 scanner.
   deterministic. Historical read-path fixtures are explicitly constructed as
   historical snapshots rather than pretending the injected service clock moves
   PostgreSQL time.
+
+## OVR-3 second activation — 2026-09-21
+
+The OVR-3 clock-only overdue breach scanner is **enabled in production** as of
+this entry. This supersedes the scanner's previous operational status
+("disabled / rollout paused"). Earlier statements remain accurate as history for
+the releases they describe, but they no longer describe the current state.
+
+- Activation was bounded: one environment key
+  (`OVERDUE_SCANNER_ENABLED` `UNSET → true`) plus exactly one service restart.
+  No deploy, no migration, no source change, no manual scan.
+- The scanner is constructed on the next start
+  (`config.overdueScanner?.enabled === true`), the first tick runs immediately,
+  and the loop held a stable 60 s cadence with `failed = 0` across the mandated
+  observation window and well beyond it.
+- Clock-only discovery produced legitimate incidents — all `LATE_SUBMISSION`
+  with `source = SCANNER` — and one was later recovered through the ordinary
+  lifecycle path, so the OVR-2 recovery contract is now demonstrated against a
+  scanner-produced row in production.
+- The scanner remains subject to the same producer contract as the
+  request-driven paths: it never writes recovery, never fabricates a user, and
+  never dates a breach before its episode activation.
+- Rollback was not required. Evidence, per-incident classification and residual
+  follow-ups are recorded in
+  [2026-09-21-ovr3-scanner-second-activation.md](./docs/operations/2026-09-21-ovr3-scanner-second-activation.md).
