@@ -287,6 +287,8 @@ type ResolvedRouteIdentity = {
 
 Field notes: `id/title/parentId` are the required minimum; `section` only on authenticated-shell routes; `parentLocation` only where the parent URL needs params. Deliberately absent: `homeEligible` (R3), `mobileTitle` (R6), actions, tabs, filters, authorization, fetching, domain types. `titleResolver`-as-domain-model is replaced by the generic `runtimeLabel` overlay: the page passes a string, never a fetcher or entity type, so the shell package stays domain-free. Ownership (H3): the page supplies `runtimeLabel` only; the resolution layer owns combination into `ResolvedRouteIdentity`; every consumer reads — none recomputes.
 
+Implementation verification: the current registry contains **38** identities. Settings data-management children use the hierarchy `settings → settingsDataManagement → settingsDemoData/settingsBackupRecovery`; shell-external login/forbidden/not-found remain outside this authenticated identity registry. Identity matching follows the exact AppRouter pathname shapes and returns null for unknown descendants.
+
 ---
 
 ## 6. PageHeader contract

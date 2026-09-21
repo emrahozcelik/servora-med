@@ -1,5 +1,6 @@
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
+import { matchRouteIdentity, resolveParentPath, type RouteIdentity } from './route-identity';
 
 export type NavLinkItem = {
   kind: 'link';
@@ -104,62 +105,73 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
   };
 }
 
-/** Section title for the single mobile top bar (not a second page h1). */
+/**
+ * Role-aware display title for a static identity. Role presentation lives
+ * here in the navigation layer — never in the identity registry. Covers
+ * exactly the two pre-existing role variants (jobs list, staff area).
+ */
+export function resolveIdentityTitle(identity: RouteIdentity, role: CurrentUser['role']): string {
+  if (identity.id === 'jobs' && role === 'STAFF') return 'İşlerim';
+  if ((identity.id === 'staff' || identity.id === 'staffProfile') && role === 'STAFF') return 'Profilim';
+  return identity.title;
+}
+
+/**
+ * Section title for the single mobile top bar (not a second page h1).
+ *
+ * TRANSITIONAL (Slice 3A): thin compatibility adapter over the canonical
+ * route-identity registry. There is no independent title if-chain anymore;
+ * full ReturnLink/breadcrumb migration happens in Slice 3B.
+ */
 export function resolveShellTitle(pathname: string, role: CurrentUser['role']): string {
-  if (pathname.startsWith('/overview')) return 'Genel Bakış';
-  if (pathname.startsWith('/calendar')) return 'Takvim';
-  if (pathname.startsWith('/messages')) return 'Mesajlar';
-  if (pathname.startsWith('/docs')) return 'Dokümantasyon';
-  if (pathname.startsWith('/help')) return 'Yardım Merkezi';
-  if (pathname.startsWith(paths.settingsDemoData)) return 'Demo verileri';
-  if (pathname.startsWith(paths.settingsBackupRecovery)) return 'Yedekleme ve Kurtarma';
-  if (pathname === paths.settingsDataManagement || pathname.startsWith(`${paths.settingsDataManagement}/`)) return 'Veri Yönetimi';
-  if (pathname.startsWith('/settings')) return 'Ayarlar';
-  if (pathname.startsWith('/jobs/new-')) return 'Yeni iş';
-  if (/^\/jobs\/[^/]+/.test(pathname)) return 'İş detayı';
-  if (pathname.startsWith('/jobs')) return role === 'STAFF' ? 'İşlerim' : 'İşler';
-  if (pathname.startsWith('/customers/new')) return 'Yeni müşteri';
-  if (/^\/customers\/[^/]+\/contacts\//.test(pathname)) return 'İlgili kişi';
-  if (/^\/customers\/[^/]+/.test(pathname)) return 'Müşteri';
-  if (pathname.startsWith('/customers')) return 'Müşteriler';
-  if (pathname.startsWith('/products/new')) return 'Yeni ürün';
-  if (/^\/products\/[^/]+/.test(pathname)) return 'Ürün';
-  if (pathname.startsWith('/products')) return 'Ürünler';
-  if (pathname.startsWith('/reports')) return 'Raporlar';
-  if (pathname.startsWith('/users/new')) return 'Yeni kullanıcı';
-  if (/^\/users\/[^/]+/.test(pathname)) return 'Kullanıcı';
-  if (pathname.startsWith('/users')) return 'Kullanıcılar';
-  if (/^\/staff\/[^/]+\/reports/.test(pathname)) return 'Personel raporu';
-  if (/^\/staff\/[^/]+/.test(pathname)) return role === 'STAFF' ? 'Profilim' : 'Personel profili';
-  if (pathname.startsWith('/staff') && role === 'STAFF') return 'Profilim';
-  if (pathname.startsWith('/staff')) return 'Personel';
-  return 'Dünya Dental';
+  const match = matchRouteIdentity(pathname);
+  if (!match) return 'Dünya Dental';
+  return resolveIdentityTitle(match.identity, role);
 }
 
-/** Parent path for nested routes; null on top-level sections. */
+/**
+ * Parent path for nested routes; null on top-level sections.
+ *
+ * TRANSITIONAL (Slice 3A): derives from the canonical identity hierarchy
+ * instead of a duplicate if-chain. Visible behavior is unchanged: routes
+ * that historically exposed no shell back target keep null until Slice 3B
+ * migrates them to breadcrumb/ReturnLink coverage (see BACK_TO_SUPPRESSED).
+ */
 export function resolveShellBackTo(pathname: string): string | null {
-  if (pathname.startsWith(paths.settingsDemoData)) return paths.settings;
-  if (pathname.startsWith(paths.settingsBackupRecovery)) return paths.settings;
-  if (pathname === paths.settingsDataManagement) return paths.settings;
-  if (pathname.startsWith('/jobs/new-') || /^\/jobs\/[^/]+/.test(pathname)) return paths.jobs;
-
-  const contactMatch = pathname.match(/^\/customers\/([^/]+)\/contacts\//);
-  if (contactMatch) return paths.customer(contactMatch[1]!);
-
-  if (pathname === paths.newCustomer) return paths.customers;
-  if (/^\/customers\/[^/]+/.test(pathname)) return paths.customers;
-
-  if (pathname === paths.newProduct || /^\/products\/[^/]+/.test(pathname)) return paths.products;
-
-  if (pathname === paths.newUser || /^\/users\/[^/]+/.test(pathname)) return paths.users;
-
-  const staffReportMatch = pathname.match(/^\/staff\/([^/]+)\/reports/);
-  if (staffReportMatch) return paths.staffProfile(staffReportMatch[1]!);
-
-  if (/^\/staff\/[^/]+/.test(pathname)) return paths.staff;
-
-  return null;
+  const match = matchRouteIdentity(pathname);
+  if (!match) return null;
+  if (BACK_TO_SUPPRESSED.has(match.identity.id)) return null;
+  const legacyBackTo = LEGACY_BACK_TO_OVERRIDES[match.identity.id];
+  if (legacyBackTo !== undefined) return legacyBackTo;
+  return resolveParentPath(match.identity, match.params);
 }
+
+/**
+ * Transitional Slice 3A adapter for the legacy visible shell back behavior.
+ * This is not hierarchy metadata: Slice 3B removes it when ReturnLink and
+ * breadcrumb navigation migrate to the canonical identity hierarchy.
+ */
+const LEGACY_BACK_TO_OVERRIDES: Partial<Record<RouteIdentity['id'], string>> = {
+  settingsDemoData: paths.settings,
+  settingsBackupRecovery: paths.settings,
+};
+
+/**
+ * Nested identities whose hierarchy parent is modeled (for breadcrumbs in
+ * 3B) but whose legacy shell surface exposed no back target. Slice 3B
+ * deletes this set when breadcrumb/ReturnLink coverage lands; do not extend.
+ */
+const BACK_TO_SUPPRESSED: ReadonlySet<RouteIdentity['id']> = new Set([
+  'settingsProfile',
+  'settingsSecurity',
+  'settingsNotifications',
+  'settingsApplication',
+  'reportStaff',
+  'reportCustomers',
+  'reportDeliveries',
+  'reportApprovals',
+  'reportSalesFollowUp',
+]);
 
 export function isJobsListPath(pathname: string): boolean {
   return pathname === paths.jobs || pathname === '/jobs/';

@@ -5,6 +5,7 @@ import { validatePasswordChange } from '../PasswordChange';
 import { paths } from '../paths';
 import { changePassword, type CurrentUser } from '../services/api';
 import { OperationalCard } from '../ui/antd/OperationalCard';
+import { PageHeader } from '../ui/PageHeader';
 import { RecordDescriptions } from '../ui/antd/RecordDescriptions';
 import { SettingsTabs } from '../ui/antd/SettingsTabs';
 import { UserAvatar } from '../ui/antd/UserAvatar';
@@ -130,6 +131,8 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
 
   if (changed) return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
+    {/* Changed-confirmation keeps its single legacy h1: it is a flow-terminal
+        confirmation, not the route identity surface (PageHeader stays on the form state). */}
     <header className="workspace-heading"><div>
       <h1>Parolanız değiştirildi</h1>
     </div></header>
@@ -141,9 +144,7 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
 
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
-    <header className="workspace-heading"><div>
-      <h1>Güvenlik</h1>
-    </div></header>
+    <PageHeader />
     <OperationalCard title="Parola değiştir">
       {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
       <form onSubmit={submit}>

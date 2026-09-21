@@ -7,14 +7,21 @@ export function isStandaloneDisplayMode(environment?: DisplayModeEnvironment): b
   return environment.matchMedia('(display-mode: standalone)').matches;
 }
 
-export function resolveDocumentTitle(
-  routeTitle: string,
-  standalone = isStandaloneDisplayMode(typeof window === 'undefined' ? undefined : window),
-): string {
-  return standalone ? routeTitle : CANONICAL_DOCUMENT_TITLE;
+/**
+ * Unified document title (Slice 3A, DESIGN.md normative):
+ * `{resolved route title} · Dünya Dental` in BOTH browser and standalone
+ * PWA modes. No browser-vs-PWA route-title fork. The input must be the
+ * resolved identity's effective title — never a locally recomputed string.
+ */
+export function resolveDocumentTitle(resolvedTitle: string): string {
+  return `${resolvedTitle} · Dünya Dental`;
 }
 
-export function setDocumentTitle(routeTitle: string): void {
+/**
+ * Applies the unified title; null/empty falls back to the canonical boot
+ * title (unknown routes, pre-auth screens).
+ */
+export function setDocumentTitle(resolvedTitle: string | null): void {
   if (typeof document === 'undefined') return;
-  document.title = resolveDocumentTitle(routeTitle);
+  document.title = resolvedTitle ? resolveDocumentTitle(resolvedTitle) : CANONICAL_DOCUMENT_TITLE;
 }

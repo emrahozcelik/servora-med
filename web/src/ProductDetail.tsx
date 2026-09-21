@@ -7,7 +7,9 @@ import {
   deleteProduct as deleteProductApi, getProduct, updateProduct, type CreateProductInput, type Product,
 } from './services/products-api';
 import { ConfirmationAction } from './ui/antd/ConfirmationAction';
+import { PageHeader } from './ui/PageHeader';
 import { ResultState } from './ui/antd/ResultState';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 
 type ProductDetailState =
   | { kind: 'loading' }
@@ -81,6 +83,15 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
+  const readyName = state.kind === 'ready' ? state.product.name : undefined;
+
+  // Runtime overlay contract: plain label only; the identity layer owns
+  // combination and resets on navigation (provider remount). Clearing on
+  // non-ready states keeps the generic fallback visible while loading.
+  useEffect(() => {
+    setRouteRuntimeLabel(readyName);
+  }, [setRouteRuntimeLabel, readyName]);
 
   useEffect(() => {
     if (editFocusTarget === 'summary') editErrorRef.current?.focus();
@@ -188,8 +199,10 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   </>;
 
   return <main className="product-detail">
-    <div className="detail-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1>{product.name}</h1></div>
-      <span className="product-version">Sürüm {product.version}</span></div>
+    <PageHeader
+      eyebrow="Ürün kataloğu"
+      actions={<span className="product-version">Sürüm {product.version}</span>}
+    />
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {error && <div className="detail-feedback detail-feedback-error" role="alert">{error}</div>}
     <section className="record-section" aria-labelledby="product-info-title"><h2 id="product-info-title">Ürün bilgileri</h2><ProductFacts product={product} /></section>
