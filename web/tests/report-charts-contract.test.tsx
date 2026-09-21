@@ -24,6 +24,31 @@ describe('TrendBars contract', () => {
     expect(html).toContain('data-report-trend-bars="true"');
   });
 
+  it('keeps the structural base class and base-scoped density modifier when a consumer adds a custom class (VIS-01)', () => {
+    // The Overview passes className="overview-trend"; the chart geometry lives on
+    // .report-trend-bars in styles.css, so a consumer class must be additive —
+    // replacing the base class silently rendered the chart at 0px height.
+    const custom = renderToStaticMarkup(
+      <TrendBars points={dayPoints(30)} className="overview-trend" />,
+    );
+    expect(custom).toMatch(
+      /class="report-trend-bars report-trend-bars--density-normal overview-trend"/,
+    );
+
+    // Dense consumers keep the base-scoped modifier as well.
+    const dense = renderToStaticMarkup(
+      <TrendBars points={dayPoints(366)} className="overview-trend" />,
+    );
+    expect(dense).toMatch(
+      /class="report-trend-bars report-trend-bars--density-dense overview-trend"/,
+    );
+
+    // Default (no consumer class) output is unchanged.
+    expect(renderToStaticMarkup(<TrendBars points={dayPoints(366)} />)).toMatch(
+      /class="report-trend-bars report-trend-bars--density-dense"/,
+    );
+  });
+
   it('handles empty, single, all-zero max, and 366-day density', () => {
     expect(renderToStaticMarkup(<TrendBars points={[]} />)).toContain('data-point-count="0"');
     const single = renderToStaticMarkup(<TrendBars points={[{ date: '2026-07-01', count: 4 }]} />);

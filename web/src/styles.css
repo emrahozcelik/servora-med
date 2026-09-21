@@ -3433,7 +3433,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   padding: 1.15rem;
   border: 1px solid var(--rule);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-raised);
   background: var(--paper);
 }
 .overview-section h2,
@@ -4505,19 +4505,21 @@ button:disabled { cursor: wait; opacity: 0.65; }
   font-weight: 720;
 }
 .servora-metric-statistic--attention {
-  border-left: 3px solid var(--warning);
+  /* Full outline follows the card radius; a left-only stripe on a rounded,
+     borderless card renders as a detached curved fragment (UX audit VIS-02). */
+  border: 1px solid var(--warning);
 }
 .servora-metric-statistic--attention .ant-statistic-content {
   color: var(--warning);
 }
 .servora-metric-statistic--success {
-  border-left: 3px solid var(--success);
+  border: 1px solid var(--success);
 }
 .servora-metric-statistic--success .ant-statistic-content {
   color: var(--success);
 }
 .servora-metric-statistic--warning {
-  border-left: 3px solid var(--warning);
+  border: 1px solid var(--warning);
 }
 .servora-metric-statistic--warning .ant-statistic-content {
   color: var(--warning);
