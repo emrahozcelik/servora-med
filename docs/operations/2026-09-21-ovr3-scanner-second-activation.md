@@ -187,8 +187,9 @@ UUIDs.
   directory mtime unchanged.
 - No migration: `HEALTH_SCHEMA_VERSION=050_overdue_incident_scanner_source`
   unchanged.
-- No source change; no manual `runOnce()`; no synthetic incident; no incident
-  deletion or rewriting (all 54 baseline rows survive intact).
+- No source change; no manual `runOnce()`; no synthetic incident; no manual
+  incident deletion or rewriting; all 54 baseline incident rows remained
+  present.
 - No lifecycle mutation for testing: live lifecycle reservations = `0`.
 - No repeated restarts: exactly one `Started servora-med.service` line and one
   `Shutting down` line in the window.
@@ -225,5 +226,5 @@ Open follow-ups, none of which block the enabled state:
 - `LATE_START` and `APPROVAL_WAIT` have produced **zero** production candidates
   so far; those paths are currently exercised only by tests. Any production
   exercise of them needs its own bounded mandate.
-- The remaining unrecovered scanner incidents will be recovered by ordinary
-  lifecycle actions; no separate recovery work is required.
+- Recovery of the remaining open scanner incidents is owned by ordinary
+  lifecycle actions; no manual recovery should be performed.
