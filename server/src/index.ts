@@ -124,11 +124,10 @@ async function main() {
                 pollIntervalMs: config.overdueScanner.pollIntervalMs,
                 batchSize: config.overdueScanner.batchSize,
                 onReport: (report) => {
-                  // OVR-3 outage follow-up: the first production activation
-                  // produced no per-iteration evidence. Iterate at info level
-                  // (bounded by poll cadence) until activation monitoring
-                  // proves this volume is unnecessary.
-                  app?.log.info(
+                  // OVR-3 activation monitoring is complete, so the detailed
+                  // per-iteration report is kept at debug level. The error path
+                  // stays visible: iteration failures are reported via onError.
+                  app?.log.debug(
                     { overdueScan: report },
                     'Overdue breach scan iteration',
                   );
