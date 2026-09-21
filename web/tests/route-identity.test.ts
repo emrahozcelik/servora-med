@@ -11,6 +11,10 @@ import {
 } from '../src/shell/route-identity';
 
 describe('route identity registry', () => {
+  it('contains the actual 38 registered identities', () => {
+    expect(routeIdentityIds()).toHaveLength(38);
+  });
+
   it('resolves every canonical static path to an identity', () => {
     const staticPaths = [
       paths.overview, paths.calendar, paths.messages, paths.jobs,
@@ -86,7 +90,15 @@ describe('route identity registry', () => {
 
     const nested = matchRouteIdentity('/settings/data-management/demo-data');
     expect(nested?.identity.id).toBe('settingsDemoData');
-    expect(resolveParentPath(nested!.identity, nested!.params)).toBe(paths.settings);
+    expect(resolveParentPath(nested!.identity, nested!.params)).toBe(paths.settingsDataManagement);
+
+    const demoChain = parentChain('settingsDemoData');
+    expect(demoChain).toEqual(['settingsDemoData', 'settingsDataManagement', 'settings']);
+    expect(resolveParentPath(getRouteIdentity('settingsDemoData'), {})).toBe(paths.settingsDataManagement);
+
+    const backupChain = parentChain('settingsBackupRecovery');
+    expect(backupChain).toEqual(['settingsBackupRecovery', 'settingsDataManagement', 'settings']);
+    expect(resolveParentPath(getRouteIdentity('settingsBackupRecovery'), {})).toBe(paths.settingsDataManagement);
   });
 
   it('proves parent locations equal canonical builder outputs', () => {
@@ -101,5 +113,20 @@ describe('route identity registry', () => {
     expect(resolveParentPath(getRouteIdentity('jobs'), {})).toBeNull();
     expect(resolveParentPath(getRouteIdentity('contactDetail'), {})).toBeNull();
     expect(routePathForIdentity('jobDetail', {})).toBeNull();
+  });
+
+  it('rejects unknown descendants instead of overmatching known prefixes', () => {
+    const unknownDescendants = [
+      '/overview/extra',
+      '/reports/unknown',
+      '/settings/security/extra',
+      '/settings/data-management/unknown',
+      '/jobs/a/b',
+      '/products/a/b',
+      '/staff/s1/reports/extra',
+    ];
+    for (const pathname of unknownDescendants) {
+      expect(matchRouteIdentity(pathname), pathname).toBeNull();
+    }
   });
 });

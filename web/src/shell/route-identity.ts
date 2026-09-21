@@ -85,8 +85,8 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
   settingsNotifications: { title: 'Bildirimler', parentId: 'settings', section: 'Hesap' },
   settingsApplication: { title: 'Uygulama', parentId: 'settings', section: 'Hesap' },
   settingsDataManagement: { title: 'Veri Yönetimi', parentId: 'settings', section: 'Hesap' },
-  settingsDemoData: { title: 'Demo verileri', parentId: 'settings', section: 'Hesap' },
-  settingsBackupRecovery: { title: 'Yedekleme ve Kurtarma', parentId: 'settings', section: 'Hesap' },
+  settingsDemoData: { title: 'Demo verileri', parentId: 'settingsDataManagement', section: 'Hesap' },
+  settingsBackupRecovery: { title: 'Yedekleme ve Kurtarma', parentId: 'settingsDataManagement', section: 'Hesap' },
   docs: { title: 'Dokümantasyon', parentId: null, section: 'Destek' },
   help: { title: 'Yardım Merkezi', parentId: null, section: 'Destek' },
 };
@@ -112,9 +112,6 @@ type RoutePattern = {
 const matchExact = (path: string) => (pathname: string): RouteParams | null =>
   (pathname === path || pathname === `${path}/` ? {} : null);
 
-const matchPrefix = (prefix: string) => (pathname: string): RouteParams | null =>
-  (pathname === prefix || pathname.startsWith(`${prefix}/`) ? {} : null);
-
 const matchParam = (pattern: RegExp, names: string[]) => (pathname: string): RouteParams | null => {
   const match = pathname.match(pattern);
   if (!match) return null;
@@ -137,44 +134,44 @@ const matchParam = (pattern: RegExp, names: string[]) => (pathname: string): Rou
  * resolver precedence (specific nested routes before their parents).
  */
 const PATTERNS: RoutePattern[] = [
-  { id: 'overview', test: matchPrefix('/overview') },
-  { id: 'calendar', test: matchPrefix('/calendar') },
-  { id: 'messages', test: matchPrefix('/messages') },
-  { id: 'docs', test: matchPrefix('/docs') },
-  { id: 'help', test: matchPrefix('/help') },
-  { id: 'settingsDemoData', test: matchPrefix(paths.settingsDemoData) },
-  { id: 'settingsBackupRecovery', test: matchPrefix(paths.settingsBackupRecovery) },
-  { id: 'settingsDataManagement', test: matchPrefix(paths.settingsDataManagement) },
+  { id: 'overview', test: matchExact(paths.overview) },
+  { id: 'calendar', test: matchExact(paths.calendar) },
+  { id: 'messages', test: matchExact(paths.messages) },
+  { id: 'docs', test: matchExact(paths.docs) },
+  { id: 'help', test: matchExact(paths.help) },
+  { id: 'settingsDemoData', test: matchExact(paths.settingsDemoData) },
+  { id: 'settingsBackupRecovery', test: matchExact(paths.settingsBackupRecovery) },
+  { id: 'settingsDataManagement', test: matchExact(paths.settingsDataManagement) },
   { id: 'settingsProfile', test: matchExact(paths.settingsProfile) },
   { id: 'settingsSecurity', test: matchExact(paths.settingsSecurity) },
   { id: 'settingsNotifications', test: matchExact(paths.settingsNotifications) },
   { id: 'settingsApplication', test: matchExact(paths.settingsApplication) },
-  { id: 'settings', test: matchPrefix('/settings') },
+  { id: 'settings', test: matchExact(paths.settings) },
   { id: 'jobCreateDelivery', test: matchExact(paths.newDelivery) },
   { id: 'jobCreateTask', test: matchExact(paths.newTask) },
   { id: 'jobCreateMeeting', test: matchExact(paths.newMeeting) },
-  { id: 'followUpCreate', test: matchPrefix('/jobs/new-follow-up') },
+  { id: 'followUpCreate', test: matchExact('/jobs/new-follow-up') },
   { id: 'jobDetail', test: matchParam(/^\/jobs\/([^/]+)\/?$/, ['jobCardId']) },
-  { id: 'jobs', test: matchPrefix('/jobs') },
+  { id: 'jobs', test: matchExact(paths.jobs) },
   { id: 'customerCreate', test: matchExact(paths.newCustomer) },
   { id: 'contactDetail', test: matchParam(/^\/customers\/([^/]+)\/contacts\/([^/]+)\/?$/, ['customerId', 'contactId']) },
   { id: 'customerDetail', test: matchParam(/^\/customers\/([^/]+)\/?$/, ['customerId']) },
-  { id: 'customers', test: matchPrefix('/customers') },
+  { id: 'customers', test: matchExact(paths.customers) },
   { id: 'productCreate', test: matchExact(paths.newProduct) },
   { id: 'productDetail', test: matchParam(/^\/products\/([^/]+)\/?$/, ['productId']) },
-  { id: 'products', test: matchPrefix('/products') },
+  { id: 'products', test: matchExact(paths.products) },
   { id: 'reportStaff', test: matchExact(paths.staffPerformanceReports) },
   { id: 'reportCustomers', test: matchExact(paths.customerReports) },
   { id: 'reportDeliveries', test: matchExact(paths.deliveryReports) },
   { id: 'reportApprovals', test: matchExact(paths.approvalReports) },
   { id: 'reportSalesFollowUp', test: matchExact(paths.salesFollowUpReports) },
-  { id: 'reports', test: matchPrefix('/reports') },
+  { id: 'reports', test: matchExact(paths.reports) },
   { id: 'userCreate', test: matchExact(paths.newUser) },
   { id: 'userDetail', test: matchParam(/^\/users\/([^/]+)\/?$/, ['userId']) },
-  { id: 'users', test: matchPrefix('/users') },
-  { id: 'staffReport', test: matchParam(/^\/staff\/([^/]+)\/reports(?:\/.*)?$/, ['staffUserId']) },
+  { id: 'users', test: matchExact(paths.users) },
+  { id: 'staffReport', test: matchParam(/^\/staff\/([^/]+)\/reports\/?$/, ['staffUserId']) },
   { id: 'staffProfile', test: matchParam(/^\/staff\/([^/]+)\/?$/, ['staffUserId']) },
-  { id: 'staff', test: matchPrefix('/staff') },
+  { id: 'staff', test: matchExact(paths.staff) },
 ];
 
 /** Resolves a pathname to its static route identity plus captured params. Null when unknown. */
