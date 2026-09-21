@@ -959,10 +959,10 @@ the releases they describe, but they no longer describe the current state.
   (`config.overdueScanner?.enabled === true`), the first tick runs immediately,
   and the loop held a stable 60 s cadence with `failed = 0` across the mandated
   observation window and well beyond it.
-- Clock-only discovery produced legitimate incidents — all `LATE_SUBMISSION`
-  with `source = SCANNER` — and one was later recovered through the ordinary
-  lifecycle path, so the OVR-2 recovery contract is now demonstrated against a
-  scanner-produced row in production.
+- During this second activation, clock-only discovery produced legitimate
+  incidents — all `LATE_SUBMISSION` with `source = SCANNER` — and one was later
+  recovered through the ordinary lifecycle path, so the OVR-2 recovery contract
+  is now demonstrated against a scanner-produced row in production.
 - The scanner remains subject to the same producer contract as the
   request-driven paths: it never writes recovery, never fabricates a user, and
   never dates a breach before its episode activation.

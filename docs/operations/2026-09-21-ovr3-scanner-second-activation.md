@@ -223,8 +223,13 @@ Open follow-ups, none of which block the enabled state:
   confidence is established, either return it to `debug` or replace it with a
   bounded liveness signal, per the intent already written in the deployed
   comment.
-- `LATE_START` and `APPROVAL_WAIT` have produced **zero** production candidates
-  so far; those paths are currently exercised only by tests. Any production
-  exercise of them needs its own bounded mandate.
+- During the second-activation preflight, `LATE_START` had zero **new**
+  discoverable candidates because seven `SCANNER / LATE_START` incidents from
+  the first production activation already satisfied the convergence guard.
+  `LATE_START` therefore **does** have production evidence; the zero observed
+  here is convergence, not absence of exercise. `APPROVAL_WAIT` still has no
+  observed production candidate/incident evidence and remains covered only by
+  tests so far; any deliberate production exercise of it would require its own
+  bounded mandate.
 - Recovery of the remaining open scanner incidents is owned by ordinary
   lifecycle actions; no manual recovery should be performed.
