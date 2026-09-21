@@ -46,9 +46,19 @@ body {
 button, input, textarea, select { font: inherit; }
 button, input { min-height: var(--control-height); }
 button { cursor: pointer; }
-button:disabled { cursor: wait; opacity: 0.65; }
+button:disabled { cursor: not-allowed; opacity: 0.65; }
 
 :focus-visible {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: 3px;
+}
+/* Anchors must share the same Servora focus language as controls (VIS-03).
+   Ant's injected link style (:where(...) a:focus-visible, specificity 0-1-1
+   from genLinkStyle/genFocusOutline) otherwise beats the global :focus-visible
+   rule (0-1-0) with colorPrimaryBorder + 1px offset. The html qualifier
+   (0-1-2) wins by specificity alone — stable in dev and production builds
+   regardless of runtime style-injection order, with no !important. */
+html a:focus-visible {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: 3px;
 }

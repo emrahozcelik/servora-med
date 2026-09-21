@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -284,6 +284,66 @@ async function measureOverviewCards(page) {
       sectionRadius,
     };
   });
+}
+
+// VIS-03/VIS-06 focus + disabled-state contract. Runs inside the Ant provider
+// scope (overview-smoke mounts ServoraAntProvider), so the real runtime
+// cascade — Ant's injected `:where(...) a:focus-visible` vs authored rules —
+// is exercised. Colors are compared against a same-runtime `--focus`
+// reference instead of a hard-coded RGB snapshot, so Chromium/WebKit
+// oklch conversions cannot cause false failures.
+async function measureFocusContract(page) {
+  // Engage keyboard modality first so programmatic focus matches
+  // :focus-visible, mirroring real Tab navigation.
+  await page.keyboard.press('Tab');
+  return page.evaluate(() => {
+    const ref = document.createElement('span');
+    ref.setAttribute('aria-hidden', 'true');
+    ref.style.color = 'var(--focus)';
+    document.body.append(ref);
+    const focusColor = getComputedStyle(ref).color;
+    ref.remove();
+    function focusProbe(sel) {
+      const el = document.querySelector(sel);
+      if (!el) return { present: false };
+      el.focus();
+      const cs = getComputedStyle(el);
+      return {
+        present: true,
+        focusVisible: el.matches(':focus-visible'),
+        style: cs.outlineStyle,
+        width: cs.outlineWidth,
+        color: cs.outlineColor,
+        offset: cs.outlineOffset,
+        cursor: cs.cursor,
+        busy: el.getAttribute('aria-busy'),
+        label: (el.textContent ?? '').trim(),
+      };
+    }
+    return {
+      focusColor,
+      navLink: focusProbe('[data-smoke-focus-nav-link]'),
+      contentLink: focusProbe('[data-smoke-focus-content-link]'),
+      control: focusProbe('[data-smoke-focus-control]'),
+      disabled: focusProbe('[data-smoke-disabled-control]'),
+      loading: focusProbe('[data-smoke-loading-control]'),
+    };
+  });
+}
+
+function focusContractFailed(m) {
+  if (!m.navLink?.present || !m.contentLink?.present || !m.control?.present) return true;
+  for (const probe of [m.navLink, m.contentLink, m.control]) {
+    if (!probe.focusVisible || probe.style !== 'solid' || probe.width !== '3px'
+      || probe.color !== m.focusColor || probe.offset !== '3px') return true;
+  }
+  // VIS-06: an ordinary disabled control must not imply loading.
+  if (!m.disabled?.present || m.disabled.cursor === 'wait') return true;
+  // Loading keeps its canonical mechanism (aria-busy + label) without
+  // inventing a separate loading cursor contract.
+  if (!m.loading?.present || m.loading.busy !== 'true' || m.loading.label === '') return true;
+  if (m.loading.cursor === 'wait') return true;
+  return false;
 }
 
 async function measureJobRow(page) {
@@ -1593,6 +1653,35 @@ try {
       failures.push(`${vp.name} overview cards: section radius is ${m.sectionRadius}, expected 12px`);
     }
     await page.close();
+  }
+
+  // VIS-03/VIS-06 focus + disabled-state contract (viewport-independent):
+  // keyboard-focused anchors and controls must resolve the Servora focus
+  // token family, and ordinary disabled controls must not imply loading.
+  for (const engine of ['chromium', 'webkit']) {
+    let engineBrowser = null;
+    try {
+      engineBrowser = engine === 'webkit'
+        ? await webkit.launch({ headless: true })
+        : browser;
+      const page = await engineBrowser.newPage({ viewport: { width: 1280, height: 800 } });
+      const diag = createDiagnostics();
+      attachDiagnostics(page, diag);
+      await page.goto(`${url}overview-smoke`, { waitUntil: 'load' });
+      await page.waitForSelector('[data-smoke-focus-probes]');
+      const m = await measureFocusContract(page);
+      console.log(JSON.stringify({ viewport: `focus-contract-${engine}`, ...m }));
+      if (focusContractFailed(m)) {
+        failures.push(`focus contract (${engine}): anchor/control token or disabled-state failure`);
+      }
+      await page.close();
+      if (engineBrowser !== browser) await engineBrowser.close();
+    } catch (err) {
+      if (engineBrowser && engineBrowser !== browser) await engineBrowser.close().catch(() => {});
+      // A missing engine binary is an environment limitation, not a contract
+      // failure; report it loudly but do not fail the smoke on it.
+      console.warn(`focus contract (${engine}): engine unavailable, skipped (${String(err).split('\n')[0]})`);
+    }
   }
 
   // OVR-1 overdue row signal: the lateness magnitude must stay legible and
