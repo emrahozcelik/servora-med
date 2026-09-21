@@ -141,8 +141,20 @@ export function resolveShellBackTo(pathname: string): string | null {
   const match = matchRouteIdentity(pathname);
   if (!match) return null;
   if (BACK_TO_SUPPRESSED.has(match.identity.id)) return null;
+  const legacyBackTo = LEGACY_BACK_TO_OVERRIDES[match.identity.id];
+  if (legacyBackTo !== undefined) return legacyBackTo;
   return resolveParentPath(match.identity, match.params);
 }
+
+/**
+ * Transitional Slice 3A adapter for the legacy visible shell back behavior.
+ * This is not hierarchy metadata: Slice 3B removes it when ReturnLink and
+ * breadcrumb navigation migrate to the canonical identity hierarchy.
+ */
+const LEGACY_BACK_TO_OVERRIDES: Partial<Record<RouteIdentity['id'], string>> = {
+  settingsDemoData: paths.settings,
+  settingsBackupRecovery: paths.settings,
+};
 
 /**
  * Nested identities whose hierarchy parent is modeled (for breadcrumbs in

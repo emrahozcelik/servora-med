@@ -6,6 +6,8 @@ import {
   resolveShellBackTo,
   resolveShellTitle,
 } from '../src/shell/navigation-model';
+import { getRouteIdentity, resolveParentPath } from '../src/shell/route-identity';
+import { paths } from '../src/paths';
 import type { CurrentUser } from '../src/services/api';
 
 const staff: CurrentUser = {
@@ -66,6 +68,14 @@ describe('buildNavigationModel', () => {
     expect(resolveShellTitle('/settings/data-management/demo-data', 'ADMIN')).toBe('Demo verileri');
   });
 
+  it('keeps canonical settings hierarchy separate from transitional shell back behavior', () => {
+    expect(resolveParentPath(getRouteIdentity('settingsDemoData'), {})).toBe(paths.settingsDataManagement);
+    expect(resolveParentPath(getRouteIdentity('settingsBackupRecovery'), {})).toBe(paths.settingsDataManagement);
+    expect(resolveShellBackTo(paths.settingsDemoData)).toBe(paths.settings);
+    expect(resolveShellBackTo(paths.settingsBackupRecovery)).toBe(paths.settings);
+    expect(resolveShellBackTo(paths.settingsDataManagement)).toBe(paths.settings);
+  });
+
   it('shows Backup & Recovery only for an ADMIN when the backup capability is enabled', () => {
     const enabled = buildNavigationModel({
       ...admin,
@@ -123,5 +133,23 @@ describe('shell title and back helpers', () => {
     expect(resolveShellBackTo('/staff/s1/reports')).toBe('/staff/s1');
     expect(isJobsListPath('/jobs')).toBe(true);
     expect(isJobsListPath('/jobs/abc')).toBe(false);
+  });
+
+  it('keeps legacy shell back suppressed for routes awaiting Slice 3B migration', () => {
+    const suppressedPaths = [
+      paths.settingsProfile,
+      paths.settingsSecurity,
+      paths.settingsNotifications,
+      paths.settingsApplication,
+      paths.staffPerformanceReports,
+      paths.customerReports,
+      paths.deliveryReports,
+      paths.approvalReports,
+      paths.salesFollowUpReports,
+    ];
+
+    for (const pathname of suppressedPaths) {
+      expect(resolveShellBackTo(pathname), pathname).toBeNull();
+    }
   });
 });
