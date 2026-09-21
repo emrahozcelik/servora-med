@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
@@ -9,6 +9,9 @@ import { LoadingSkeleton, ResultState } from '../ui/antd';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
+import { PageHeader } from '../ui/PageHeader';
+import { ResolvedIdentityProvider, useOptionalResolvedIdentity } from '../shell/resolved-identity';
+import { matchRouteIdentity } from '../shell/route-identity';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
 import { canonicalJobSearchParams, enterBoard, followUpJobsSearch, forceMobileList, overdueJobsSearch, parseJobSearch, selectStatus, statusQuickSearch, updateJobSearch, type JobSearchState } from './job-search';
@@ -37,7 +40,29 @@ type BoardState =
   | { kind: 'ready'; board: JobCardBoard }
   | { kind: 'error'; message: string };
 
-export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask, onCreateMeeting, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
+export function JobWorkspace(props: {
+  user: CurrentUser;
+  notice?: string;
+  onCreateDelivery?: () => void;
+  onCreateTask?: () => void;
+  onCreateMeeting?: () => void;
+  onCommand?: (intent: JobCommandIntent) => void;
+  load?: typeof listJobCards;
+  loadBoard?: typeof getJobCardBoard;
+}) {
+  const location = useLocation();
+  const resolved = useOptionalResolvedIdentity();
+  if (!resolved) {
+    const match = matchRouteIdentity(location.pathname);
+    if (!match) return null;
+    return <ResolvedIdentityProvider match={match} role={props.user.role}>
+      <JobWorkspaceContent {...props} />
+    </ResolvedIdentityProvider>;
+  }
+  return <JobWorkspaceContent {...props} />;
+}
+
+function JobWorkspaceContent({ user, notice = '', onCreateDelivery, onCreateTask, onCreateMeeting, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
   user: CurrentUser;
   notice?: string;
   onCreateDelivery?: () => void;
@@ -173,19 +198,16 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
 
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
-    <div className="workspace-heading job-workspace-heading">
-      <div>
-        <p className="eyebrow">Çalışma alanı</p>
-        <h1 className="route-identity-heading">{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1>
-      </div>
-      <div className="workspace-create-actions workspace-create-actions--toolbar">
+    <PageHeader
+      eyebrow="Çalışma alanı"
+      actions={<div className="workspace-create-actions workspace-create-actions--toolbar">
         <NewJobMenu
           onCreateMeeting={onCreateMeeting}
           onCreateTask={onCreateTask}
           onCreateDelivery={onCreateDelivery}
         />
-      </div>
-    </div>
+      </div>}
+    />
     <nav className="job-quick-views" aria-label="Hızlı iş görünümleri" data-job-quick-views="true">
       {quickViews.map((view) => (
         <Link

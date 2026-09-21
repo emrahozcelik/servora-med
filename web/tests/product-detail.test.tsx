@@ -8,6 +8,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { ProductDetailScreen } from '../src/ProductDetail';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Product } from '../src/services/products-api';
+import { ResolvedIdentityProvider } from '../src/shell/resolved-identity';
+import { matchRouteIdentity } from '../src/shell/route-identity';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -43,7 +45,15 @@ describe('Product detail', () => {
     const props = {
       productId: product.id, user, load, update: vi.fn(), ...overrides,
     };
-    await act(async () => root.render(<MemoryRouter><ProductDetailScreen {...props} /></MemoryRouter>));
+    const match = matchRouteIdentity(`/products/${product.id}`);
+    if (!match) throw new Error('expected product detail identity');
+    await act(async () => root.render(
+      <MemoryRouter>
+        <ResolvedIdentityProvider match={match} role={user.role}>
+          <ProductDetailScreen {...props} />
+        </ResolvedIdentityProvider>
+      </MemoryRouter>,
+    ));
     return props;
   }
 
@@ -70,9 +80,9 @@ describe('Product detail', () => {
 
   it('renders every nullable field as meaningful absence without fabricated values', async () => {
     await render();
-    const heading = container.querySelector('.detail-heading h1')!;
-    expect(heading.textContent).toBe(product.name);
-    expect(heading.classList.contains('route-identity-heading')).toBe(false);
+    const headings = container.querySelectorAll('.page-header h1');
+    expect(headings).toHaveLength(1);
+    expect(headings[0]!.textContent).toBe(product.name);
     for (const label of ['SKU', 'Marka', 'Kategori', 'Model', 'Birim', 'Referans fiyat']) {
       expect(container.textContent).toContain(label);
     }

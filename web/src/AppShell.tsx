@@ -17,9 +17,10 @@ import {
   buildNavigationModel,
   isJobsListPath,
   resolveShellBackTo,
-  resolveShellTitle,
   type NavLinkItem,
 } from './shell/navigation-model';
+import { matchRouteIdentity } from './shell/route-identity';
+import { ResolvedIdentityProvider, useResolvedIdentity } from './shell/resolved-identity';
 
 export type AppShellProps = {
   user: CurrentUser;
@@ -103,7 +104,30 @@ function focusableElements(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
 }
 
+/** Stable remount key so navigation resets any page-supplied runtime label (stale-label safety). */
+function identityScopeKey(pathname: string): string {
+  const match = matchRouteIdentity(pathname);
+  if (!match) return 'unknown';
+  const paramsKey = Object.entries(match.params)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+  return paramsKey ? `${match.identity.id}?${paramsKey}` : match.identity.id;
+}
+
 export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShellProps) {
+  const location = useLocation();
+  const match = matchRouteIdentity(location.pathname);
+  return (
+    <ResolvedIdentityProvider scopeKey={identityScopeKey(location.pathname)} match={match} role={user.role}>
+      <ShellBody user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut}>
+        {children}
+      </ShellBody>
+    </ResolvedIdentityProvider>
+  );
+}
+
+function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps) {
   const desktop = useDesktopLayout();
   const location = useLocation();
   const navigate = useNavigate();
@@ -116,7 +140,16 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
-  const title = resolveShellTitle(location.pathname, user.role);
+  const resolved = useResolvedIdentity();
+  // Single resolved identity feeds MobileTopBar, desktop topbar, and
+  // document.title. Unknown paths fall back to the canonical boot title.
+  const title = resolved?.effectiveTitle ?? 'Dünya Dental';
+  // Transitional compatibility: only routes already migrated to PageHeader
+  // suppress the legacy desktop title. Remaining pages migrate in controlled
+  // follow-up work instead of losing route orientation in this foundation PR.
+  const pageHeaderRoute = resolved?.identity.id === 'jobs'
+    || resolved?.identity.id === 'settingsSecurity'
+    || resolved?.identity.id === 'productDetail';
   const backTo = resolveShellBackTo(location.pathname);
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
@@ -126,8 +159,8 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
     : model.destinations;
 
   useEffect(() => {
-    setDocumentTitle(title);
-  }, [title]);
+    setDocumentTitle(resolved?.effectiveTitle ?? null);
+  }, [resolved?.effectiveTitle]);
 
   function closeDrawer(restoreFocus: boolean) {
     restoreFocusRef.current = restoreFocus;
@@ -204,7 +237,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
             </div>
           </aside>
           <header className="desktop-shell-topbar">
-            <p className="desktop-shell-title">{title}</p>
+            {!pageHeaderRoute && <p className="desktop-shell-title">{title}</p>}
             <div className="desktop-shell-topbar-brand">
               <DunyaDentalBrand variant="topbar" />
             </div>

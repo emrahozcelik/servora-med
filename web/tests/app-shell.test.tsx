@@ -199,12 +199,10 @@ describe('responsive authenticated AppShell', () => {
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
   });
 
-  it('renders the shared route title as neutral desktop text and updates it after navigation', async () => {
+  it('keeps the legacy desktop title for non-migrated pages and updates document title after navigation', async () => {
     await render(manager, true, '/products');
     const topbar = container.querySelector('.desktop-shell-topbar')!;
-    const title = topbar.querySelector('.desktop-shell-title')!;
-    expect(title.tagName).toBe('P');
-    expect(title.textContent).toBe('Ürünler');
+    expect(topbar.querySelector('.desktop-shell-title')?.textContent).toBe('Ürünler');
     expect(topbar.querySelector('h1')).toBeNull();
     expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
 
@@ -212,12 +210,12 @@ describe('responsive authenticated AppShell', () => {
       .find((link) => link.textContent === 'Müşteriler')!;
     await act(async () => customers.click());
 
-    expect(container.querySelector('.desktop-shell-title')?.textContent).toBe('Müşteriler');
+    expect(document.title).toBe('Müşteriler · Dünya Dental');
     expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
     expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
   });
 
-  it('uses the route-only title in standalone mode without repeating the product name', async () => {
+  it('uses the unified resolved title in standalone mode without repeating the product name', async () => {
     setStandaloneDisplayMode();
     await act(async () => root.render(
       <MemoryRouter initialEntries={['/products']}>
@@ -227,8 +225,7 @@ describe('responsive authenticated AppShell', () => {
       </MemoryRouter>,
     ));
 
-    expect(document.title).toBe('Ürünler');
-    expect(document.title).not.toContain('Dünya Dental');
+    expect(document.title).toBe('Ürünler · Dünya Dental');
   });
 
   it('renders only compact structure below 64rem and opens a labelled modal drawer', async () => {

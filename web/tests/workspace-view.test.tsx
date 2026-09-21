@@ -8,6 +8,8 @@ import { JobFilters } from '../src/jobs/JobFilters';
 import { jobTypeLabels } from '../src/jobs/job-labels';
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
 import { paths } from '../src/paths';
+import { ResolvedIdentityProvider } from '../src/shell/resolved-identity';
+import { matchRouteIdentity } from '../src/shell/route-identity';
 
 describe('JobCard workspace ownership', () => {
   it('renders both exhaustive JobCard type filter labels', () => {
@@ -36,12 +38,14 @@ describe('JobCard workspace ownership', () => {
   });
 
   it('exposes distinct accessible create actions with stable routes', () => {
-    const html = renderToStaticMarkup(<MemoryRouter><JobWorkspace
+    const match = matchRouteIdentity(paths.jobs);
+    if (!match) throw new Error('expected jobs identity');
+    const html = renderToStaticMarkup(<MemoryRouter><ResolvedIdentityProvider match={match} role="MANAGER"><JobWorkspace
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
         role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 }}
       onCreateDelivery={() => undefined} onCreateTask={() => undefined}
       onCreateMeeting={() => undefined}
-    /></MemoryRouter>);
+    /></ResolvedIdentityProvider></MemoryRouter>);
 
     expect(html).toContain('Yeni iş');
     expect(html).toContain('new-job-menu-trigger');
