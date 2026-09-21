@@ -253,6 +253,23 @@ async function measureOverviewCards(page) {
       const head = title.closest('.servora-operational-card .servora-ant-card-head');
       return !head || tr.right <= head.getBoundingClientRect().right + 1;
     });
+    // VIS-02: semantic metric tones must use a full radius-following outline.
+    // VIS-04: the section radius must resolve to the canonical raised token.
+    const kpiRegion = document.querySelector('[data-smoke-overview-kpis]');
+    const kpiVariants = [...(kpiRegion?.querySelectorAll('.servora-metric-statistic') ?? [])]
+      .map((card) => {
+        const style = getComputedStyle(card);
+        return {
+          classes: card.className,
+          borderTopWidth: style.borderTopWidth,
+          borderRightWidth: style.borderRightWidth,
+          borderBottomWidth: style.borderBottomWidth,
+          borderLeftWidth: style.borderLeftWidth,
+          borderTopColor: style.borderTopColor,
+          borderRadius: style.borderRadius,
+        };
+      });
+    const sectionRadius = section ? getComputedStyle(section).borderRadius : '';
     return {
       overflowX: root.scrollWidth > root.clientWidth + 1,
       scrollWidth: root.scrollWidth,
@@ -262,6 +279,9 @@ async function measureOverviewCards(page) {
       titleContained,
       titleCount: titles.length,
       headCount: heads.length,
+      kpiVariantCount: kpiVariants.length,
+      kpiVariants,
+      sectionRadius,
     };
   });
 }
@@ -817,6 +837,21 @@ async function measure(page) {
         || trendBarsRect.left < trendSectionRect.left - 2
         || (trendBarsEl?.scrollWidth ?? 0) > (trendBarsEl?.clientWidth ?? 0) + 2
       ));
+    // VIS-01: TrendBars rendered through the Overview consumer className. The
+    // structural base class must survive, and the chart must have real geometry.
+    const trendOverviewEl = chartSection
+      ?.querySelector('[data-smoke-chart-trend-overview] [data-report-trend-bars="true"]');
+    const trendOverviewRect = trendOverviewEl?.getBoundingClientRect();
+    const trendOverviewBars = trendOverviewEl
+      ? Array.from(trendOverviewEl.querySelectorAll(':scope > span'))
+      : [];
+    const trendOverviewBarRects = trendOverviewBars.map((bar) => bar.getBoundingClientRect());
+    const trendOverviewOverflow = Boolean(trendOverviewRect && trendSectionRect
+      && (
+        trendOverviewRect.right > trendSectionRect.right + 2
+        || trendOverviewRect.left < trendSectionRect.left - 2
+        || (trendOverviewEl?.scrollWidth ?? 0) > (trendOverviewEl?.clientWidth ?? 0) + 2
+      ));
     const calendarTables = calendarSection
       ? Array.from(calendarSection.querySelectorAll('.report-calendar-table'))
       : [];
@@ -940,6 +975,17 @@ async function measure(page) {
       trendOverflow,
       trendDensity: trendBarsEl?.getAttribute('data-density') ?? '',
       trendPointCount: Number(trendBarsEl?.getAttribute('data-point-count') ?? 0),
+      trendOverviewPresent: Boolean(trendOverviewEl),
+      trendOverviewHasBaseClass: trendOverviewEl?.classList.contains('report-trend-bars') ?? false,
+      trendOverviewDensity: trendOverviewEl?.getAttribute('data-density') ?? '',
+      trendOverviewClassList: trendOverviewEl?.className ?? '',
+      trendOverviewHeight: trendOverviewRect ? Math.round(trendOverviewRect.height) : 0,
+      trendOverviewBarCount: trendOverviewBarRects.length,
+      trendOverviewMaxBarHeight: Math.round(Math.max(0, ...trendOverviewBarRects.map((r) => r.height))),
+      trendOverviewMaxBarWidth: Math.round(Math.max(0, ...trendOverviewBarRects.map((r) => r.width))),
+      trendOverviewVisibleBarCount: trendOverviewBarRects
+        .filter((r) => r.height >= 3 && r.width > 0).length,
+      trendOverviewOverflow,
       calendarTableCount: calendarTables.length,
       calendarOverflow,
       metersPresent: Boolean(metersEl),
@@ -1205,6 +1251,9 @@ async function waitForChartFixtures(page) {
   await page.waitForSelector(
     '[data-report-trend-bars="true"][data-point-count="366"]',
   );
+  await page.waitForSelector(
+    '[data-smoke-chart-trend-overview] [data-report-trend-bars="true"][data-point-count="30"]',
+  );
   await page.waitForSelector('[data-report-meters="true"]');
   await page.waitForSelector('[data-report-segmented="true"]');
   await page.waitForFunction(() =>
@@ -1234,6 +1283,16 @@ function chartContractFailed(m) {
     || m.meterLabelOverflow
     || m.segmentedOverflow
     || m.legendOverflow
+    // VIS-01: consumer-class trend must keep the structural base class and
+    // real chart geometry (container > 0, bars painted at >= 3px).
+    || !m.trendOverviewPresent
+    || !m.trendOverviewHasBaseClass
+    || m.trendOverviewDensity !== 'density-normal'
+    || m.trendOverviewHeight <= 0
+    || m.trendOverviewMaxBarHeight < 3
+    || m.trendOverviewMaxBarWidth <= 0
+    || m.trendOverviewVisibleBarCount <= 0
+    || m.trendOverviewOverflow
   );
 }
 
@@ -1508,6 +1567,31 @@ try {
     if (m.overflowX) failures.push(`${vp.name} overview cards: document horizontal overflow`);
     if (!m.stackFitsSection) failures.push(`${vp.name} overview cards: card stack exceeds section width`);
     if (!m.titleContained) failures.push(`${vp.name} overview cards: card title expands card width`);
+    // VIS-02: every semantic tone must carry a full outline (no left-only stripe)
+    // and the canonical raised radius; the value color stays the semantic channel.
+    // The default tone intentionally stays borderless (unchanged appearance).
+    if (m.kpiVariantCount !== 4) {
+      failures.push(`${vp.name} overview cards: KPI fixture missing variants`);
+    }
+    for (const kpi of m.kpiVariants ?? []) {
+      if (!kpi.classes.includes('servora-metric-statistic--')) continue;
+      const outlineComplete = kpi.borderTopWidth === '1px' && kpi.borderRightWidth === '1px'
+        && kpi.borderBottomWidth === '1px' && kpi.borderLeftWidth === '1px';
+      if (!outlineComplete) {
+        failures.push(
+          `${vp.name} overview cards: metric tone outline incomplete`
+          + ` (${kpi.classes}: T${kpi.borderTopWidth} R${kpi.borderRightWidth}`
+          + ` B${kpi.borderBottomWidth} L${kpi.borderLeftWidth})`,
+        );
+      }
+      if (kpi.borderRadius !== '12px') {
+        failures.push(`${vp.name} overview cards: metric card radius drifted (${kpi.borderRadius})`);
+      }
+    }
+    // VIS-04: overview panels must resolve the canonical raised radius (12px).
+    if (m.sectionRadius !== '12px') {
+      failures.push(`${vp.name} overview cards: section radius is ${m.sectionRadius}, expected 12px`);
+    }
     await page.close();
   }
 

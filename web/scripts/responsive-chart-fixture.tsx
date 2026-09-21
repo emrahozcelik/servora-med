@@ -64,6 +64,16 @@ const longLegendSegments = [
 
 const trend366 = leapYearTrend();
 
+/** 30-point trend mirroring the Overview completion-trend usage (density-normal). */
+function overviewTrend() {
+  const points: { date: string; count: number }[] = [];
+  for (let i = 0; i < 30; i += 1) {
+    const day = String(i + 1).padStart(2, '0');
+    points.push({ date: `2026-09-${day}`, count: i % 5 === 0 ? 0 : (i % 4) + 1 });
+  }
+  return points;
+}
+
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
@@ -80,6 +90,17 @@ if (root) {
       >
         <h2>Günlük tamamlanan iş trendi (366 gün)</h2>
         <TrendBars points={trend366} />
+      </section>
+
+      {/* ---- TrendBars with a consumer className (Overview usage, VIS-01):
+           the structural base class must survive the custom class. ---- */}
+      <section
+        className="report-workspace"
+        aria-label="Overview trend fixture"
+        data-smoke-chart-trend-overview
+      >
+        <h2>Tamamlanma eğilimi (30 gün, overview sınıfı)</h2>
+        <TrendBars points={overviewTrend()} className="overview-trend" />
       </section>
 
       {/* ---- CompletedTrendCalendar: 366 points ---- */}

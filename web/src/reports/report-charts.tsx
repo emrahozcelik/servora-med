@@ -165,6 +165,9 @@ export function trendDensityClass(pointCount: number): 'density-normal' | 'densi
   return 'density-dense';
 }
 
+/** Structural class carrying the trend bar geometry contract in styles.css. */
+const TREND_BARS_BASE_CLASS = 'report-trend-bars';
+
 /**
  * Decorative daily trend bars. Always pair with an accessible summary/table.
  * Never conveys meaning alone (always aria-hidden).
@@ -172,16 +175,21 @@ export function trendDensityClass(pointCount: number): 'density-normal' | 'densi
  */
 export function TrendBars({
   points,
-  className = 'report-trend-bars',
+  className,
 }: {
   points: readonly TrendPoint[];
   className?: string;
 }) {
   const max = points.reduce((peak, point) => Math.max(peak, point.count), 0);
   const density = trendDensityClass(points.length);
+  // The structural base class and its density modifier are always rendered;
+  // a consumer className (e.g. "overview-trend") is additive spacing/layout
+  // context only and must never replace the base geometry contract.
+  const classes = [TREND_BARS_BASE_CLASS, `${TREND_BARS_BASE_CLASS}--${density}`];
+  if (className && className !== TREND_BARS_BASE_CLASS) classes.push(className);
   return (
     <div
-      className={`${className} ${className}--${density}`}
+      className={classes.join(' ')}
       data-density={density}
       data-point-count={points.length}
       data-report-trend-bars="true"
