@@ -129,6 +129,25 @@ function withFailure(
   return next;
 }
 
+function withRunning(doc: Doc, trigger: BackupTriggerClass, startedAt: string): Doc {
+  const next: Doc = {
+    ...doc,
+    updatedAt: startedAt,
+    latestAttemptTrigger: trigger,
+    latestAttemptStartedAt: startedAt,
+    latestAttemptCompletedAt: null,
+    latestAttemptResult: 'running',
+    latestAttemptFailureClass: null,
+  };
+  if (trigger === 'scheduled') {
+    next.latestScheduledAttemptStartedAt = startedAt;
+    next.latestScheduledAttemptCompletedAt = null;
+    next.latestScheduledAttemptResult = 'running';
+    next.latestScheduledAttemptFailureClass = null;
+  }
+  return next;
+}
+
 function successDocument(trigger: BackupTriggerClass, at: string): Doc {
   return withSuccess(emptyDocument(at), trigger, at);
 }
@@ -404,8 +423,48 @@ describe('B. the canonical writer produces documents the reader accepts', () => 
     await expect(readStatus(statePath)).resolves.toMatchObject({
       providerStatus: 'unavailable',
       latestRunStatus: 'RUNNING',
+      latestScheduledRunStatus: 'RUNNING',
       latestAttemptCompletedAt: null,
       latestVerifiedAt: null,
+      latestScheduledVerifiedAt: null,
+    });
+  });
+
+  it('advances the scheduled baseline when a running attempt completes successfully', async () => {
+    const priorVerifiedAt = instant(-HOUR);
+    const runningAt = instant(-30_000);
+    const completedAt = instant(-25_000);
+    const statePath = await publish([
+      '--trigger', 'scheduled',
+      '--started-at', priorVerifiedAt,
+      '--outcome', 'success',
+      '--completed-at', priorVerifiedAt,
+    ]);
+    execFileSync('bash', [
+      WRITER,
+      '--state', statePath,
+      '--trigger', 'scheduled',
+      '--started-at', runningAt,
+      '--outcome', 'running',
+    ], { stdio: 'pipe' });
+    execFileSync('bash', [
+      WRITER,
+      '--state', statePath,
+      '--trigger', 'scheduled',
+      '--started-at', runningAt,
+      '--outcome', 'success',
+      '--completed-at', completedAt,
+    ], { stdio: 'pipe' });
+
+    await expect(readStatus(statePath)).resolves.toMatchObject({
+      status: 'ok',
+      providerStatus: 'healthy',
+      latestVerifiedAt: completedAt,
+      latestScheduledVerifiedAt: completedAt,
+      latestRunStatus: 'SUCCESS',
+      latestScheduledRunStatus: 'SUCCESS',
+      latestAttemptAt: runningAt,
+      latestAttemptCompletedAt: completedAt,
     });
   });
 
@@ -515,22 +574,49 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
     expect(stateOf(afterManual).latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-30 * HOUR));
   });
 
-  it('reports failed when the scheduled attempt failed and a fresh deploy backup exists', () => {
-    const failedScheduled = withFailure(
-      successDocument('scheduled', instant(-30 * HOUR)),
-      'scheduled',
-      instant(-2 * HOUR),
-      instant(-2 * HOUR + 4000),
-      'DUMP_FAILED',
-    );
-    const afterDeploy = withSuccess(failedScheduled, 'postdeploy', instant(-HOUR));
-    const state = stateOf(afterDeploy);
+  it('keeps the fresh prior scheduled heartbeat while the next scheduled attempt runs', () => {
+    const priorSuccess = successDocument('scheduled', instant(-HOUR));
+    const state = stateOf(withRunning(priorSuccess, 'scheduled', instant(-30_000)));
 
-    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('failed');
-    // The fresh deploy artifact is still reported, but it cannot mask the failure.
-    expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
+    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(true);
+    expect(evaluateBackupProviderStatus(state, NOW)).toBe('healthy');
+    expect(state.latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
   });
+
+  it.each(['postdeploy', 'manual'] as const)(
+    'keeps a running scheduled attempt stale when only a fresh %s success exists',
+    (freshTrigger) => {
+      const staleBaseline = successDocument('scheduled', instant(-30 * HOUR));
+      const afterFreshBackup = withSuccess(staleBaseline, freshTrigger, instant(-HOUR));
+      const whileScheduledRuns = withRunning(afterFreshBackup, 'scheduled', instant(-30_000));
+      const state = stateOf(whileScheduledRuns);
+
+      expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
+      expect(evaluateBackupProviderStatus(state, NOW)).toBe('stale');
+      expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
+      expect(state.latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-30 * HOUR));
+    },
+  );
+
+  it.each(['postdeploy', 'manual'] as const)(
+    'reports failed when the scheduled attempt failed and a fresh %s backup exists',
+    (freshTrigger) => {
+      const failedScheduled = withFailure(
+        successDocument('scheduled', instant(-30 * HOUR)),
+        'scheduled',
+        instant(-2 * HOUR),
+        instant(-2 * HOUR + 4000),
+        'DUMP_FAILED',
+      );
+      const afterFreshBackup = withSuccess(failedScheduled, freshTrigger, instant(-HOUR));
+      const state = stateOf(afterFreshBackup);
+
+      expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
+      expect(evaluateBackupProviderStatus(state, NOW)).toBe('failed');
+      // The fresh artifact is still reported, but it cannot mask the failure.
+      expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
+    },
+  );
 
   it('treats a scheduled attempt that succeeded but went stale as stale, not failed', () => {
     const state = stateOf(successDocument('scheduled', instant(-30 * HOUR)));
@@ -738,6 +824,39 @@ describe('F. the public health contract changed only additively', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ status: 'ok', releaseSha: TEST_RELEASE_SHA });
     expect(response.json().backup).toMatchObject({ status: 'unavailable', providerStatus: 'failed' });
+  });
+
+  it('keeps a fresh scheduled success healthy while the next scheduled attempt is running', async () => {
+    const dir = await makeTempDir();
+    const statePath = path.join(dir, 'observation-v1.json');
+    execFileSync('bash', [
+      WRITER,
+      '--state', statePath,
+      '--trigger', 'scheduled',
+      '--started-at', instant(-HOUR),
+      '--outcome', 'success',
+      '--completed-at', instant(-HOUR),
+    ], { stdio: 'pipe' });
+    execFileSync('bash', [
+      WRITER,
+      '--state', statePath,
+      '--trigger', 'scheduled',
+      '--started-at', instant(-30_000),
+      '--outcome', 'running',
+    ], { stdio: 'pipe' });
+    const app = await appWithHostProvider(statePath);
+
+    const response = await app.inject({ method: 'GET', url: '/api/health/backup' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: 'ok',
+      providerStatus: 'healthy',
+      latestVerifiedAt: instant(-HOUR),
+      latestScheduledVerifiedAt: instant(-HOUR),
+      latestRunStatus: 'RUNNING',
+      latestScheduledRunStatus: 'RUNNING',
+    });
   });
 
   it.each([

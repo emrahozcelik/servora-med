@@ -256,13 +256,14 @@ export function parseBackupObservationState(value: unknown): BackupObservationSt
 /**
  * Schedule heartbeat (host-backup-observability.md §5).
  *
- * `null` means the scheduled baseline is not established yet: no natural timer
- * slot has been accepted, so there is nothing to compare against and the
- * heartbeat must not be reported as broken.
+ * `null` means the scheduled baseline is not established yet: no completed
+ * scheduled success has been accepted, so a first scheduled attempt that is
+ * still running has nothing trustworthy to compare against.
  *
- * `false` means the daily timer contract is violated. Deploy/manual backups
- * cannot satisfy it, which is what stops a busy deploy from hiding a broken
- * timer.
+ * `false` means either an explicit scheduled failure was observed or the prior
+ * scheduled verified baseline is no longer fresh. A running attempt does not
+ * erase that baseline: its heartbeat remains true or false according to the
+ * prior verified instant. Deploy/manual backups cannot satisfy this dimension.
  */
 export function evaluateScheduledHeartbeat(
   state: BackupObservationState,
@@ -270,9 +271,9 @@ export function evaluateScheduledHeartbeat(
 ): boolean | null {
   const attempt = state.latestScheduledAttempt;
   if (attempt === null) return null;
-  if (attempt.result !== 'success') return false;
+  if (attempt.result === 'failure') return false;
   const verified = state.latestScheduledVerifiedSuccess;
-  if (verified === null) return false;
+  if (verified === null) return attempt.result === 'running' ? null : false;
   const verifiedMs = parseObservationInstant(verified.verifiedAt);
   if (verifiedMs === null || verifiedMs > nowMs) return false;
   return nowMs - verifiedMs <= BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS;
@@ -312,7 +313,7 @@ export function evaluateBackupProviderStatus(
   // artifact must not mask a broken daily timer.
   const heartbeat = evaluateScheduledHeartbeat(state, nowMs);
   if (heartbeat === false) {
-    if (state.latestScheduledAttempt?.result !== 'success') return 'failed';
+    if (state.latestScheduledAttempt?.result === 'failure') return 'failed';
     // The timer ran but stopped producing fresh verified artifacts.
     return 'stale';
   }
