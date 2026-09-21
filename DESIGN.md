@@ -30,6 +30,8 @@ Motion energy is responsive: immediate press and state feedback, short transitio
 
 The implemented palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue accent. These values are the current baseline, not an immutable brand lock. A coordinated palette revision is allowed when it is performed through the canonical token contract, Ant theme mapping, contrast regression tests, and representative browser evidence. Screen-level one-off colors remain prohibited.
 
+**Token source rule.** `servora-visual-tokens.ts` is the canonical implementation source for visual token values. DESIGN.md describes semantic intent and may show examples, but copied token values here MUST NOT become a competing source of truth. No token values change under this rule.
+
 ### Primary
 
 - **Mineral Blue** (`oklch(47% 0.105 238deg)`): Primary actions, current selection, and the smallest set of active state indicators. Focus uses the related `oklch(58% 0.14 238deg)` token.
@@ -88,7 +90,7 @@ layout:
 
 **Workspace.** Default operational content sits in a readable column capped near `{layout.workspace-max}`. The JobCard board may use a wider usable region when the board gate is open, but density must remain scannable, not ERP-compressed.
 
-**Shell.** At `{layout.shell-sidebar-min}` and above, navigation uses a persistent sidebar. Below that threshold, navigation is mobile chrome (single top bar, drawer overflow, and bottom destinations). Layout decisions should prefer **usable content width** after chrome is accounted for, not raw viewport alone.
+**Shell.** At `{layout.shell-sidebar-min}` and above, navigation uses a persistent sidebar. Below that threshold, navigation is mobile chrome (single top bar, drawer overflow, and bottom destinations). The 768–1023 band intentionally keeps mobile chrome; there is no separate tablet shell in this contract. Layout decisions should prefer **usable content width** after chrome is accounted for, not raw viewport alone.
 
 **Responsive structure.**
 
@@ -301,7 +303,82 @@ One primary **Yeni iş** control. Desktop: disclosure menu without focus trap; E
 
 ### Mobile top bar
 
-A **single** sticky top bar: optional back, section title from one route-metadata source, profile or overflow. Do not stack a second header under brand chrome. Avoid a large duplicate visual title in content for the same section name.
+A **single** sticky top bar: resolved route title from the single route-identity source, notification affordance, Menu affordance. The top bar MUST NOT contain brand chrome below 1024px (brand lives in the drawer), MUST NOT contain breadcrumb or return logic (return renders through the PageHeader region), and MUST NOT repeat the route title as a second visible copy in content. Bell and Menu usable target sizes MUST NOT be reduced to recover title space. Common static section names MUST remain readable at supported widths (named regression: at 320px `Genel Bakış` MUST NOT degrade to a meaningless clip); long dynamic entity names MAY ellipsize. Readability is judged by rendered geometry, never by character counts.
+
+### Route identity and navigation registries
+
+Navigation and route identity are coordinated but separate systems. The navigation model owns destinations, role/capability filtering, bottom/overflow placement, and landing/home policy. The route identity registry owns static route identity, the generic fallback title, deterministic hierarchy, param-aware parent location, and breadcrumb semantics. Authorization and home policy MUST NOT be duplicated into route identity.
+
+Every distinct static route with a different canonical title, hierarchy position, or document-title identity MUST have its own route identity key. Umbrella ids covering multiple differently titled static routes are prohibited. Dynamic instances sharing one semantic pattern share one id and use a runtime label overlay.
+
+A route identity entry owns `id`, `title` (generic fallback), `parentId`, optional `parentLocation(params)`, and optional authenticated-shell `section`. Parent URLs MUST reuse the canonical builders from `paths.ts`; URL templates MUST NOT be duplicated. Shell-external routes (login, forbidden, not-found) MUST NOT carry a fake navigation section. Route metadata MUST NOT contain primary/secondary actions, tabs, filters, authorization, loading/business state, home eligibility, or mobile-specific title aliases.
+
+### Resolved active identity
+
+There is exactly ONE resolved active route identity. It combines static route identity, current params, and an optional plain runtime label supplied by the page after domain data loads into one resolved value. The identity layer MUST NOT fetch domain data and MUST NOT import domain entity types.
+
+PageHeader H1, MobileTopBar title, breadcrumb current item, and `document.title` MUST all consume this same resolved value. No surface MUST independently reconstruct a title fallback.
+
+### PageHeader
+
+PageHeader owns identity presentation: optional section/eyebrow, the semantic H1, optional description, the desktop breadcrumb region, the return-context region, and a page-owned actions passthrough region. Tabs and filters remain page composition below the header. Actions arrive as rendered page-owned controls, never as serialized route metadata. PageHeader MUST NOT own authorization decisions, business actions, pending/loading business logic, tabs, filters, or page data fetching.
+
+### Route identity by viewport
+
+**Desktop (≥1024px).** PageHeader renders the visible semantic H1; nested routes render the hierarchy breadcrumb above it. The desktop top bar MUST NOT repeat the route title and MUST NOT contain a second brand; it remains global shell actions/chrome.
+
+**Mobile/tablet (<1024px).** MobileTopBar renders the visible route title; PageHeader retains the semantic H1 visually hidden. There MUST NOT be a second visible copy of the route title in content.
+
+### Breadcrumb
+
+Desktop breadcrumb is hierarchy-derived, param-aware, never browser history, and never entry context. It appears on nested routes where hierarchy adds information (for example `İşler / <iş>`, `Raporlar / Personel`, `Ayarlar / Güvenlik`, `Müşteriler / <müşteri> / <ilgili kişi>`). Root/list routes MUST NOT render decorative breadcrumbs. A Calendar entry into a job MUST NOT insert Calendar into the breadcrumb; the crumb stays `İşler / <iş>`.
+
+### Return model
+
+Three distinct concepts MUST NOT be conflated. **Hierarchy parent** is deterministic and registry-derived; it drives the breadcrumb and provides the fallback for nested routes. **Context return** is optional and entry-context-derived (for example Calendar → Job). **Return target** is the valid context return when available, otherwise the hierarchy parent.
+
+### Mobile ReturnLink
+
+Nested routes on mobile/tablet expose one ReturnLink, `‹ {label}`, through the PageHeader return-context region: Calendar → Job shows `‹ Takvim`; a direct job URL shows `‹ İşler`; Settings Security shows `‹ Ayarlar`. Root routes have no ReturnLink. The legacy mixture (`Geri`, `İşlere dön`, `Listeye dön`, `Müşterilere dön`, and similar hierarchy-return labels) is not part of this design. Flow-local controls such as compose-close/cancel remain separate.
+
+### Desktop context return
+
+Desktop breadcrumb remains hierarchy-only. PageHeader MAY additionally show a compact contextual-return control ONLY when a valid context return exists AND differs meaningfully from the deterministic hierarchy parent. Calendar → Job Detail shows breadcrumb `İşler / <iş>` plus `Takvime dön`. Jobs → Job Detail shows the breadcrumb with no redundant return control. Direct URL shows the breadcrumb with no context control.
+
+### Context-return safety
+
+Context return is optional, ephemeral, non-portable, and untrusted input; a deterministic hierarchy fallback is always required. A valid context return MUST resolve to a known internal route, contain no external scheme/host, satisfy current-user route access, preserve safe internal query/search, preserve hash only where useful, and fail closed to the hierarchy fallback. `history.back()` MUST NOT serve as the application return contract. Open-redirect-shaped raw URL mechanisms are prohibited.
+
+### Document title
+
+The unified rule is `{resolved route title} · Dünya Dental`, applied consistently in browser mode and standalone PWA mode with no fork. While entity data is unavailable the generic fallback applies (for example `İş detayı · Dünya Dental`); after the runtime label resolves, `{entity label} · Dünya Dental` applies. `CANONICAL_DOCUMENT_TITLE` remains boot/fallback behavior only.
+
+### Brand
+
+Approved brand variants are `full` and `login-hero`. A compact variant is future work and MUST NOT be required. The brand component owns the canonical variant-to-asset mapping, accessible branding semantics, the rendered sizing contract, and linked/non-linked rendering based on the supplied target. It MUST NOT inspect user role, choose role-aware landing, or import authorization/navigation policy; shell/navigation policy resolves home and passes `to`.
+
+Placement is normative. Desktop (≥1024px): sidebar shows the full brand; the top bar shows no brand. Mobile/tablet (<1024px): the top bar shows no brand; the drawer shows brand. Login shows the login hero brand. At most one prominent shell brand is visible in the active shell context. Small-screen title pressure MUST NOT be solved by resizing the wordmark.
+
+### Home
+
+Role-aware home remains navigation policy: overview when eligible/enabled, otherwise jobs, per existing product rules. Home eligibility MUST NOT be added to route identity. AppShell/navigation resolves the home destination and passes it to the brand component; the brand stays presentational.
+
+### Shell responsibility matrix
+
+- **Navigation model:** destinations, role/capability filtering, bottom/overflow placement, landing/home policy. MUST NOT own identity facts or title strings.
+- **Route identity registry:** static identity, generic titles, deterministic param-aware hierarchy, breadcrumb semantics. MUST NOT own authorization, home policy, fetching, or domain types.
+- **Resolved-identity layer:** the single combination of static identity, params, and runtime label. MUST NOT fetch or render.
+- **AppShell:** viewport switch, drawer with focus trap/restore, topbar/bottom-nav/content composition, document-title wiring from the resolved identity, home-target resolution passed to Brand. MUST NOT recompute titles or return targets.
+- **PageHeader:** H1, eyebrow, description, breadcrumb region, return-context region, actions passthrough. MUST NOT own authorization, business actions, tabs, filters, or data fetching.
+- **MobileTopBar:** resolved route title, notification affordance, Menu affordance. MUST NOT own breadcrumb, hierarchy, return logic, or brand.
+- **Brand component:** variant-to-asset mapping, accessible semantics, sizing contract, linked/non-linked rendering from supplied target. MUST NOT own role, home, or authorization policy.
+- **Page/route:** business content, actions with pending states, tabs, filters, entity loading, plain-string runtime label supply, flow-local back. MUST NOT hand-roll hierarchy chrome, bespoke hierarchy back buttons, document-title strings, or per-surface title fallbacks.
+
+No layer SHOULD recompute another layer's identity or policy facts.
+
+### Preserved shell systems
+
+This contract integrates with, and MUST NOT replace: role-aware navigation filtering, the navigation destination source of truth, drawer focus trap and restore, `aria-current`, bottom/overflow navigation behavior, forms and destructive confirmations, the Slice 2 focus contract, Slice 1 responsive chart systems, and the 64rem shell breakpoint.
 
 ### Bottom navigation and Menü
 
