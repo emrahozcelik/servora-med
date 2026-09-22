@@ -199,10 +199,10 @@ describe('responsive authenticated AppShell', () => {
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
   });
 
-  it('keeps the legacy desktop title for non-migrated pages and updates document title after navigation', async () => {
+  it('renders no shell route title on migrated pages and updates document title after navigation', async () => {
     await render(manager, true, '/products');
     const topbar = container.querySelector('.desktop-shell-topbar')!;
-    expect(topbar.querySelector('.desktop-shell-title')?.textContent).toBe('Ürünler');
+    expect(topbar.querySelector('.desktop-shell-title')).toBeNull();
     expect(topbar.querySelector('h1')).toBeNull();
     expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
 

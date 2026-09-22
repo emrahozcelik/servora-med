@@ -45,7 +45,10 @@ export function PageHeader({
   fallbackTitle?: string;
   fallbackEyebrow?: string;
 }) {
+  // Optional hooks stay unconditional (before any early return) so hook
+  // order never depends on provider presence.
   const resolved = useOptionalResolvedIdentity();
+  const navigation = useOptionalRouteNavigation();
   if (!resolved) {
     const title = fallbackTitle ?? fallbackEyebrow ?? eyebrow ?? '';
     return (
@@ -61,7 +64,6 @@ export function PageHeader({
       </header>
     );
   }
-  const navigation = useOptionalRouteNavigation();
   const crumbs = navigation?.breadcrumb
     ?? buildBreadcrumb(
       { identity: resolved.identity, params: resolved.params },

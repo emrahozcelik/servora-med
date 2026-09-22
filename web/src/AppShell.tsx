@@ -143,15 +143,10 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
   const resolved = useResolvedIdentity();
-  // Single resolved identity feeds MobileTopBar, desktop topbar, and
-  // document.title. Unknown paths fall back to the canonical boot title.
+  // Single resolved identity feeds MobileTopBar and document.title. Desktop
+  // route identity is owned by PageHeader; the desktop topbar carries only
+  // global shell chrome/actions (brand + notifications).
   const title = resolved?.effectiveTitle ?? 'Dünya Dental';
-  // Transitional compatibility: only routes already migrated to PageHeader
-  // suppress the legacy desktop title. Remaining pages migrate in controlled
-  // follow-up work instead of losing route orientation in this foundation PR.
-  const pageHeaderRoute = resolved?.identity.id === 'jobs'
-    || resolved?.identity.id === 'settingsSecurity'
-    || resolved?.identity.id === 'productDetail';
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
   const showGlobalAppleGuidance = install.shouldOfferAppleGuidance && !applicationSettingsActive;
@@ -238,7 +233,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             </div>
           </aside>
           <header className="desktop-shell-topbar">
-            {!pageHeaderRoute && <p className="desktop-shell-title">{title}</p>}
             <div className="desktop-shell-topbar-brand">
               <DunyaDentalBrand variant="topbar" />
             </div>

@@ -649,7 +649,9 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
   if (error) return <main className="workspace"><ResultState
     status="error" title="Demo verileri yüklenemedi" description={error} headingLevel={1}
   /></main>;
-  if (!datasets) return <main className="workspace"><LoadingSkeleton title="Demo veri kümeleri yükleniyor" />
+  if (!datasets) return <main className="workspace settings-workspace">
+    <PageHeader fallbackTitle="Demo verileri" />
+    <LoadingSkeleton title="Demo veri kümeleri yükleniyor" />
   </main>;
 
   return <main className="workspace settings-workspace">

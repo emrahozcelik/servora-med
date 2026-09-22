@@ -50,6 +50,31 @@ describe('route navigation model', () => {
     expect(crumbs[1]!.to).toBe('/customers/c1');
   });
 
+  it('ignores even valid context on root routes', () => {
+    const match = matchRouteIdentity('/jobs')!;
+    expect(buildBreadcrumb(match, 'İşler', {}, 'MANAGER')).toEqual([]);
+    expect(resolveHierarchyParent(match, {}, 'MANAGER')).toBeNull();
+    const context = validateContextReturn(
+      { from: { pathname: '/calendar', search: '?month=2026-09', hash: '' } },
+      manager,
+    )!;
+    const resolved = resolveReturnTarget(null, context, 'MANAGER');
+    expect(resolved.returnTarget).toBeNull();
+    expect(resolved.showContextControl).toBe(false);
+    expect(resolved.desktopContextLabel).toBeNull();
+  });
+
+  it('ignores valid context on the settings root', () => {
+    const match = matchRouteIdentity('/settings')!;
+    expect(resolveHierarchyParent(match, {}, 'ADMIN')).toBeNull();
+    const context = validateContextReturn(
+      { from: { pathname: '/calendar', search: '', hash: '' } },
+      { ...manager, role: 'ADMIN' },
+    )!;
+    const resolved = resolveReturnTarget(null, context, 'ADMIN');
+    expect(resolved).toEqual({ returnTarget: null, showContextControl: false, desktopContextLabel: null });
+  });
+
   it('resolves calendar context vs hierarchy fallback', () => {
     const match = matchRouteIdentity('/jobs/abc')!;
     const hierarchy = resolveHierarchyParent(match, {}, 'MANAGER')!;

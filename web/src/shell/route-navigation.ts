@@ -111,33 +111,23 @@ export type ResolvedReturn = {
 };
 
 /**
- * Final return-target resolution: valid context return when available,
- * otherwise hierarchy fallback. Desktop control appears only when context
- * pathname meaningfully differs from hierarchy pathname.
+ * Final return-target resolution: valid context return overrides a nested
+ * route's deterministic hierarchy return; otherwise the hierarchy fallback
+ * applies. Root routes (hierarchy === null) never produce return navigation —
+ * not even with a syntactically valid known context — so context can never
+ * manufacture return chrome on a root. Desktop control appears only when
+ * context pathname meaningfully differs from hierarchy pathname.
  */
 export function resolveReturnTarget(
   hierarchy: HierarchyParent | null,
   context: ValidContextReturn | null,
   role: CurrentUser['role'],
 ): ResolvedReturn {
-  if (!hierarchy && !context) {
+  if (!hierarchy) {
     return { returnTarget: null, showContextControl: false, desktopContextLabel: null };
   }
-  if (context && !hierarchy) {
-    const { id, label } = contextLabelFor(context, role);
-    return {
-      returnTarget: { to: contextReturnHref(context), label },
-      showContextControl: true,
-      desktopContextLabel: desktopContextLabel(id, label),
-    };
-  }
-  if (!context || !hierarchy) {
-    // One side missing (hierarchy-only case handled above for both-null;
-    // here exactly one exists but TS needs narrowing).
-    if (hierarchy) {
-      return { returnTarget: { to: hierarchy.to, label: hierarchy.label }, showContextControl: false, desktopContextLabel: null };
-    }
-    return { returnTarget: null, showContextControl: false, desktopContextLabel: null };
+  if (!context) {
+    return { returnTarget: { to: hierarchy.to, label: hierarchy.label }, showContextControl: false, desktopContextLabel: null };
   }
   const hierarchyPathname = hierarchy.to.split(/[?#]/)[0] ?? hierarchy.to;
   if (context.pathname !== hierarchyPathname) {
