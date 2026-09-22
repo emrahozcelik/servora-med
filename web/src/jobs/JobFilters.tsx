@@ -6,10 +6,12 @@ import { ServoraCheckbox } from '../ui/antd';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { activeWorkflowStatusOptions } from './job-status-presentation';
-import { isValidJobFilterUuid, type JobSearchState } from './job-search';
+import {
+  isValidJobFilterUuid, jobMembership,
+  type JobFilterChanges, type JobSearchState,
+} from './job-search';
 
 type FilterName = 'status';
-type FilterChanges = Partial<Omit<JobSearchState, 'view' | 'offset'>>;
 type DraftErrors = { assignedTo?: string; customerId?: string };
 type AdvancedDraft = {
   type: string;
@@ -67,26 +69,33 @@ function useNarrow() {
 }
 
 export function countActiveJobFilters(filters: JobSearchState): number {
+  const membership = jobMembership(filters);
+  const statusIsMembership = (membership.kind === 'approval' && filters.status === 'WAITING_APPROVAL')
+    || (membership.kind === 'revision' && filters.status === 'REVISION_REQUESTED')
+    || (membership.kind === 'closed' && filters.status === 'closed');
+  // The badge counts narrowing controls inside FilterSheet. Visible search and
+  // selected quick-view membership are not double-counted as hidden filters.
   return countTruthy([
-    filters.q,
-    filters.status && filters.status !== 'active' ? filters.status : '',
+    filters.status && filters.status !== 'active' && !statusIsMembership ? filters.status : '',
     filters.type,
     filters.assignedTo,
     filters.customerId,
     filters.priority,
     filters.dueAfter,
     filters.dueBefore,
-    filters.followUp === 'only',
   ]);
 }
 
-export function JobFilters({ user, filters, onApply, onChange, onViewChange, showViewControl }: {
+export function JobFilters({ user, filters, onApply, onClear, onChange, onViewChange, boardSupported }: {
   user: CurrentUser;
   filters: JobSearchState;
-  onApply: (changes: FilterChanges) => void;
+  onApply: (changes: JobFilterChanges) => void;
+  onClear: () => void;
   onChange: (name: FilterName, value: JobCardStatusFilter) => void;
   onViewChange: (view: JobSearchState['view']) => void;
-  showViewControl: boolean;
+  /** False for list-only memberships (Biten/Geciken/unsupported statuses): the
+   * mode region stays rendered but shows an explicit, non-interactive state. */
+  boardSupported: boolean;
 }) {
   const narrow = useNarrow();
   const filterTriggerRef = useRef<HTMLButtonElement>(null);
@@ -121,7 +130,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     setSheetOpen(false);
   }
 
-  function buildChanges(nextSearch: string, nextAdvanced: AdvancedDraft): FilterChanges | null {
+  function buildChanges(nextSearch: string, nextAdvanced: AdvancedDraft): JobFilterChanges | null {
     const nextErrors: DraftErrors = {};
     if (user.role !== 'STAFF' && nextAdvanced.assignedTo && !isValidJobFilterUuid(nextAdvanced.assignedTo)) {
       nextErrors.assignedTo = 'Geçerli bir personel kimliği girin.';
@@ -172,11 +181,9 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     });
     setDraftStatus('active');
     setErrors({});
-    onApply({
-      q: undefined, type: undefined, assignedTo: undefined, customerId: undefined,
-      priority: undefined, dueAfter: undefined, dueBefore: undefined, followUp: undefined,
-      status: 'active',
-    });
+    // Deliberate reset: canonical Aktif membership. overdue is cleared explicitly
+    // (it is not a sheet control, so `undefined` here is the clear signal).
+    onClear();
     setSheetOpen(false);
   }
 
@@ -218,54 +225,66 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     </div>
   );
 
+  const modeRegion = (
+    <div className="job-view-mode" data-job-view-mode="true">
+      {boardSupported ? (
+        <div className="job-view-switcher" role="group" aria-label="İş görünümü" data-job-view-switcher="true">
+          <button
+            type="button"
+            className="job-view-switcher-option"
+            aria-pressed={filters.view === 'list'}
+            data-state={filters.view === 'list' ? 'current' : 'idle'}
+            onClick={() => onViewChange('list')}
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            className="job-view-switcher-option"
+            aria-pressed={filters.view === 'board'}
+            data-state={filters.view === 'board' ? 'current' : 'idle'}
+            onClick={() => onViewChange('board')}
+          >
+            Pano
+          </button>
+        </div>
+      ) : (
+        <p className="job-view-list-only" data-job-view-list-only="true">
+          Görünüm: Liste · Yalnızca liste
+        </p>
+      )}
+    </div>
+  );
+
   if (narrow) {
     return (
       <div className="filter-region">
         <div className="job-filters job-filters--compact surface-flat" data-job-filters="compact">
           <form className="job-filter-compact-bar" role="search" onSubmit={submit}>
-            <div className="field-group job-filter-search">
-              <label htmlFor="job-search">İş ara</label>
-              <input
-                id="job-search"
-                type="search"
-                maxLength={200}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
+            <div className="job-search-controls">
+              <div className="field-group job-filter-search">
+                <label htmlFor="job-search">İş ara</label>
+                <input
+                  id="job-search"
+                  type="search"
+                  maxLength={200}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <button className="secondary-button job-search-submit" type="submit">Ara</button>
+              <button
+                ref={filterTriggerRef}
+                type="button"
+                className="secondary-button filter-sheet-trigger"
+                aria-expanded={sheetOpen}
+                onClick={openSheet}
+              >
+                {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+              </button>
             </div>
-            <button className="secondary-button job-search-submit" type="submit">Ara</button>
-            <button
-              ref={filterTriggerRef}
-              type="button"
-              className="secondary-button filter-sheet-trigger"
-              aria-expanded={sheetOpen}
-              onClick={openSheet}
-            >
-              {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
-            </button>
           </form>
-          {showViewControl && (
-            <div className="job-view-switcher" role="group" aria-label="İş görünümü" data-job-view-switcher="true">
-              <button
-                type="button"
-                className="job-view-switcher-option"
-                aria-pressed={filters.view === 'list'}
-                data-state={filters.view === 'list' ? 'current' : 'idle'}
-                onClick={() => onViewChange('list')}
-              >
-                Liste
-              </button>
-              <button
-                type="button"
-                className="job-view-switcher-option"
-                aria-pressed={filters.view === 'board'}
-                data-state={filters.view === 'board' ? 'current' : 'idle'}
-                onClick={() => onViewChange('board')}
-              >
-                Pano
-              </button>
-            </div>
-          )}
+          {modeRegion}
           <FilterSheet
             open={sheetOpen}
             title="İş filtreleri"
@@ -305,7 +324,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          {showViewControl && (
+          {boardSupported ? (
             <div className="field-group job-filter-view">
               <label htmlFor="job-view">Görünüm</label>
               <select
@@ -316,6 +335,10 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
                 <option value="list">Liste</option>
                 <option value="board">Pano</option>
               </select>
+            </div>
+          ) : (
+            <div className="field-group job-filter-view" data-job-view-list-only="true">
+              <p className="job-view-list-only">Görünüm: Liste · Yalnızca liste</p>
             </div>
           )}
           <div className="field-group job-filter-status">

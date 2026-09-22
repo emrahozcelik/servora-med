@@ -7,7 +7,7 @@ import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
-import { selectStatus } from './job-search';
+import { listJobsByStatus } from './job-search';
 import { cardScheduleFact } from './scheduling';
 import { workflowLanesFor, type WorkflowLaneStatus } from './workflow-lanes';
 
@@ -18,7 +18,7 @@ function statusHref(
   params: URLSearchParams,
   status: WorkflowLaneStatus | 'COMPLETED' | 'CANCELLED',
 ) {
-  return `?${selectStatus(params, status).toString()}`;
+  return `?${listJobsByStatus(params, status).toString()}`;
 }
 
 function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
@@ -76,13 +76,16 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   );
 }
 
-export function JobBoard({ board, user, params, compact = false }: {
+/** Active-status quick views reuse the matching server-owned board lane. */
+export function JobBoard({ board, user, params, visibleStatus, compact = false }: {
   board: JobCardBoard;
   user: CurrentUser;
   params: URLSearchParams;
+  visibleStatus?: WorkflowLaneStatus;
   compact?: boolean;
 }) {
-  const lanes = workflowLanesFor(user.role, compact);
+  const lanes = workflowLanesFor(user.role, compact)
+    .filter(({ status }) => visibleStatus === undefined || status === visibleStatus);
 
   return (
     <section
@@ -91,14 +94,16 @@ export function JobBoard({ board, user, params, compact = false }: {
       data-job-board="true"
       data-board-layout={compact ? 'compact' : 'wide'}
     >
-      <nav className="job-board-closed" aria-label="Kapanmış işler">
-        <Link to={{ search: statusHref(params, 'COMPLETED') }}>
-          Tamamlandı<strong>{board.closedCounts.COMPLETED}</strong>
-        </Link>
-        <Link to={{ search: statusHref(params, 'CANCELLED') }}>
-          İptal edildi<strong>{board.closedCounts.CANCELLED}</strong>
-        </Link>
-      </nav>
+      {visibleStatus === undefined && (
+        <nav className="job-board-closed" aria-label="Kapanmış işler">
+          <Link to={{ search: statusHref(params, 'COMPLETED') }}>
+            Tamamlandı<strong>{board.closedCounts.COMPLETED}</strong>
+          </Link>
+          <Link to={{ search: statusHref(params, 'CANCELLED') }}>
+            İptal edildi<strong>{board.closedCounts.CANCELLED}</strong>
+          </Link>
+        </nav>
+      )}
       <div className="workflow-board" data-workflow-board="true">
         {lanes.map(({ status, label }) => {
           const column = board.columns[status];

@@ -951,6 +951,20 @@ html a:focus-visible {
   align-items: end;
 }
 .customer-filter-compact-bar { grid-template-columns: minmax(0, 1fr) auto; }
+/* Jobs compact bar: one persistent row at every narrow width. The submit
+   affordance is integrated with the search field instead of consuming its own
+   full-width row (Jobs control-surface audit §14). */
+.job-filter-compact-bar { display: block; }
+.job-search-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
+}
+.job-search-controls .job-filter-search { min-width: 0; }
+.job-search-controls .job-filter-search input { width: 100%; min-width: 0; }
 .job-filters--compact.surface,
 .job-filters--compact.surface-flat,
 .customer-filters--compact.surface {
@@ -982,12 +996,24 @@ html a:focus-visible {
 .job-view-switcher button[data-state="current"] {
   font-weight: 760;
 }
+
+/* Mode region is always rendered so list-only memberships do not collapse the
+   control stack; the list-only state is deliberately non-interactive. */
+.job-view-mode { min-width: 0; }
+.job-view-list-only {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.job-filter-view .job-view-list-only { min-height: var(--control-height); }
 .job-row-mobile-primary { display: none; position: relative; z-index: 1; }
 
 @media (max-width: 56rem) {
-  .job-filter-compact-bar { grid-template-columns: 1fr; }
-  .job-filter-compact-bar .job-search-submit,
-  .job-filter-compact-bar .filter-sheet-trigger,
   .customer-filter-compact-bar .filter-sheet-trigger {
     width: 100%;
   }
@@ -1435,18 +1461,25 @@ html a:focus-visible {
 .job-workspace-heading { margin-bottom: 1.35rem; }
 .job-quick-views {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.45rem;
   margin: 0 0 1rem;
   padding: 0.15rem 0 0.85rem;
   border-bottom: 1px solid var(--rule);
+  /* Narrow shells: one persistent row; the strip scrolls internally instead of
+     wrapping into 2–4 rows of chrome (Jobs control-surface audit §8). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 .job-quick-views a, .job-filter-disclosure summary { min-height: var(--control-height); }
 .job-quick-views a {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 100%;
   padding: 0.55rem 0.85rem;
   border: 1px solid transparent;
   border-radius: var(--radius-chip);
@@ -1455,7 +1488,7 @@ html a:focus-visible {
   font-weight: 680;
   line-height: 1.25;
   text-decoration: none;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .job-quick-views a:hover {
   color: var(--ink);
@@ -1471,6 +1504,10 @@ html a:focus-visible {
 }
 .job-quick-views a[data-state="current"] {
   font-weight: 760;
+}
+/* Desktop keeps the wrapped presentation; narrow shells never wrap (above). */
+@media (min-width: 64rem) {
+  .job-quick-views { flex-wrap: wrap; overflow: visible; }
 }
 .job-order-note { margin: 0 0 1rem; color: var(--muted); line-height: 1.5; }
 /* Flat toolbar: search/status hierarchy without raised card-in-card. */
