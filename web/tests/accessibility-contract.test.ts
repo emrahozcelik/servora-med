@@ -118,6 +118,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.desktop-shell-topbar\s*>\s*\.notification-center\s*\{[^}]*flex:\s*0 0 auto;/s);
   });
 
+  it('gives mobile ReturnLink the canonical reachable target size', () => {
+    expect(css).toMatch(
+      /@media \(max-width: 63\.99rem\)[\s\S]*\.route-return-link\s*\{[^}]*min-height:\s*44px;/s,
+    );
+  });
+
   it('keeps the shell flat and restrained while elevating only the modal drawer', () => {
     expect(css).not.toMatch(/\.shell-sidebar[^}]*box-shadow/);
     expect(css).not.toMatch(/\.authenticated-shell[^}]*gradient|\.shell-sidebar[^}]*gradient/);

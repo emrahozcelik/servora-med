@@ -797,20 +797,6 @@ html a:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mobile-top-back {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 2.75rem;
-  min-height: var(--control-height);
-  padding: 0.45rem 0.65rem;
-  border-radius: 0.55rem;
-  color: var(--accent-hover);
-  font-weight: 700;
-  text-decoration: none;
-}
-.mobile-top-back--spacer { visibility: hidden; pointer-events: none; }
 .authenticated-shell--mobile .shell-content {
   padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
 }

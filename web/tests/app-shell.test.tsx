@@ -509,7 +509,6 @@ describe('responsive authenticated AppShell', () => {
     expect(css).toMatch(/\.compact-shell-header\.mobile-top-bar\s*\{[^}]*safe-area-inset-top/s);
     expect(exactRuleBody('.mobile-shell-title')).toMatch(/text-overflow:\s*ellipsis/);
     expect(exactRuleBody('.mobile-shell-title')).toMatch(/white-space:\s*nowrap/);
-    expect(exactRuleBody('.mobile-top-back')).toMatch(/min-height:\s*var\(--control-height\)/);
     expect(exactRuleBody('.shell-notification-trigger')).toMatch(/min-height:\s*var\(--control-height\)/);
     expect(exactRuleBody('.shell-notification-trigger')).toMatch(/(?:flex:\s*0\s+0\s+2\.75rem|width:\s*2\.75rem)/);
 

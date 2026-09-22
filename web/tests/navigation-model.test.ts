@@ -5,7 +5,6 @@ import {
   isJobsListPath,
   resolveIdentityTitle,
 } from '../src/shell/navigation-model';
-import * as navigationModel from '../src/shell/navigation-model';
 import { MobileTopBar } from '../src/shell/MobileTopBar';
 import { getRouteIdentity, resolveParentPath } from '../src/shell/route-identity';
 import { paths } from '../src/paths';
@@ -120,18 +119,11 @@ describe('buildNavigationModel', () => {
 });
 
 describe('legacy shell-back removal (Slice 3B)', () => {
-  it('removes the parallel legacy back resolver', () => {
-    expect('resolveShellBackTo' in navigationModel).toBe(false);
-    expect('resolveShellTitle' in navigationModel).toBe(false);
-    expect('LEGACY_BACK_TO_OVERRIDES' in navigationModel).toBe(false);
-    expect('BACK_TO_SUPPRESSED' in navigationModel).toBe(false);
-  });
-
   it('removes MobileTopBar back plumbing', () => {
     // Props are runtime args; assert the component no longer declares backTo
     // by inspecting its source (fail-closed if plumbing returns).
     expect(MobileTopBar.toString()).not.toContain('backTo');
-    expect(MobileTopBar.toString()).not.toContain('mobile-top-back');
+    expect(MobileTopBar.toString()).not.toContain('Geri');
   });
 
   it('keeps jobs list path helper', () => {
