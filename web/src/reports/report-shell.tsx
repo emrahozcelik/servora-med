@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
+import { PageHeader } from '../ui/PageHeader';
 import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/antd';
 import type { ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
@@ -230,13 +231,14 @@ export function ReportDateRangeForm({
 }
 
 export function ReportShell({
-  title,
+  title: _title,
   description,
   current,
   refreshLabel,
   range,
   children,
 }: {
+  /** @deprecated H1 comes from resolved route identity; kept for call-site compat. */
   title: string;
   description?: ReactNode;
   current: ReportNavSection;
@@ -244,16 +246,14 @@ export function ReportShell({
   range?: ReportRangeContext | null;
   children: ReactNode;
 }) {
+  void _title;
   return (
     <main className="workspace report-workspace">
-      <header className="workspace-heading">
-        <div>
-          <h1>{title}</h1>
-          {description ? <p className="report-intro">{description}</p> : null}
-          {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}
-        </div>
-        <ReportNavigation current={current} range={range} />
-      </header>
+      <PageHeader fallbackTitle={_title}
+        description={<>{description ? <p className="report-intro">{description}</p> : null}
+          {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}</>}
+        actions={<ReportNavigation current={current} range={range} />}
+      />
       {children}
     </main>
   );

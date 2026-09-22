@@ -594,15 +594,15 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard.mock.calls[2]![0].title).toBe('Yeni görev');
   });
 
-  it('uses the shared create-heading and form-actions contract (T4A)', async () => {
+  it('uses the shared page-header and form-actions contract (T4A)', async () => {
     await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>));
     await settle();
-    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.page-header')).toBeTruthy();
     expect(container.querySelector('.delivery-heading')).toBeNull();
     const actions = container.querySelector('.form-actions');
     expect(actions).toBeTruthy();
     // Heading must not contain the cancel button.
-    expect(container.querySelector('.create-heading [data-cancel-task]')).toBeNull();
+    expect(container.querySelector('.page-header [data-cancel-task]')).toBeNull();
     // Action footer contains both buttons with expected hooks.
     expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
     expect(actions!.querySelectorAll('.primary-button').length).toBe(1);

@@ -15,6 +15,8 @@ import {
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
+import { PageHeader } from './ui/PageHeader';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { ResultState } from './ui/antd/ResultState';
 
@@ -187,8 +189,9 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
   const canManage = user.role !== 'STAFF';
   const canDelete = user.role === 'ADMIN' && customer.hasOperationHistory === false;
   const isReferenced = user.role === 'ADMIN' && customer.hasOperationHistory === true;
-  return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>Müşterilere dön</button>
-    <div className="detail-heading"><div><p className="eyebrow">Müşteri</p><h1>{customer.name}</h1></div><div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div></div>
+  return <main className="customer-detail">
+    <PageHeader eyebrow="Müşteri" fallbackTitle={customer.name} />
+    <div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
@@ -225,7 +228,11 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
 }
 
 export function CustomerDetailScreen({ customerId, user }: { customerId: string; user: CurrentUser }) {
-  const navigate = useNavigate(); const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
+  const navigate = useNavigate(); const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
+  const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
+  useEffect(() => {
+    setRouteRuntimeLabel(customer?.name);
+  }, [setRouteRuntimeLabel, customer?.name]);
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false); const [deletePending, setDeletePending] = useState(false);

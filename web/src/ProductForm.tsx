@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'rea
 
 import { ApiError } from './services/api';
 import { createProduct, type CreateProductInput, type Product } from './services/products-api';
+import { PageHeader } from './ui/PageHeader';
 import { PRODUCT_REFERENCE_PRICE_MAX, PRODUCT_TEXT_LIMITS } from './product-constraints';
 
 type ProductField = keyof typeof PRODUCT_TEXT_LIMITS | 'referencePrice';
@@ -47,11 +48,10 @@ export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, o
   pendingAnnouncement?: string;
   useCreateHeading?: boolean;
 }) {
-  const headingClass = useCreateHeading ? 'create-heading' : 'detail-heading';
   const describedBy = (field: ProductField, help?: string) => [help, fieldErrors[field] ? `product-${field === 'referencePrice' ? 'reference-price' : field}-error` : ''].filter(Boolean).join(' ') || undefined;
+  void useCreateHeading; void title;
   return <main className="product-create">
-    <div className={headingClass}><div>{useCreateHeading ? <h1>{title}</h1> : <><p className="eyebrow">Ürün kataloğu</p><h1>{title}</h1></>}</div></div>
-    <p className="form-intro">{intro}</p>
+    <PageHeader eyebrow="Ürün kataloğu" description={intro} fallbackTitle="Yeni ürün" />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="product-form" noValidate onSubmit={onSubmit}>
       <p className="sr-only" role="status" aria-live="polite">{pending ? pendingAnnouncement : ''}</p>

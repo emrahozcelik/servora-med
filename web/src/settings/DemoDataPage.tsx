@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Link } from 'react-router-dom';
 
 import { ApiError, type CurrentUser } from '../services/api';
 import {
@@ -13,7 +12,7 @@ import {
   type DemoDatasetPurgeResponse,
 } from '../services/demo-data-api';
 import { isDefinitiveMutationError } from '../jobs/mutation-attempt-error';
-import { paths } from '../paths';
+import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
@@ -654,15 +653,10 @@ export function DemoDataPage({ user }: { user: CurrentUser }) {
   </main>;
 
   return <main className="workspace settings-workspace">
-    <header className="workspace-heading">
-      <div>
-        <h1>Demo verileri</h1>
-        <p className="workspace-heading-copy">
-          Demo veri kümelerini inceleyin ve sunucu tarafından güvenli olduğu doğrulanan içeriği kontrollü biçimde silin.
-        </p>
-      </div>
-      <Link className="ghost-button" to={paths.settings}>Ayarlar</Link>
-    </header>
+    <PageHeader
+      fallbackTitle="Demo verileri"
+      description="Demo veri kümelerini inceleyin ve sunucu tarafından güvenli olduğu doğrulanan içeriği kontrollü biçimde silin."
+    />
     {canCreate && datasets !== null && (
       <OperationalCard title="Demo verisi oluştur">
         <p className="demo-data-preview-message">

@@ -11,6 +11,7 @@ import {
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { PageHeader } from './ui/PageHeader';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
@@ -179,9 +180,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
 
   return <main className="task-create">
-    <div className="create-heading">
-      <div><p className="eyebrow">Yeni kayıt</p><h1>Genel görev</h1></div>
-    </div>
+    <PageHeader eyebrow="Yeni kayıt" description="Genel görev" fallbackTitle="Yeni iş" />
     <p className="form-intro">Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="task-form" onSubmit={submit} noValidate>

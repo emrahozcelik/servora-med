@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { PageHeader } from '../ui/PageHeader';
 import type { DeliveryPurpose, JobCardType, MeetingOutcome } from '../jobs/jobs-api';
 import { jobTypeLabels } from '../jobs/job-labels';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
@@ -248,16 +249,12 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
 
 export function StaffOperationalReportScreen({
   staffUserId,
-  onBack,
   embedded = false,
   requestedRange = null,
-  backLabel = 'Personel profiline dön',
 }: {
   staffUserId?: string;
-  onBack: () => void;
   embedded?: boolean;
   requestedRange?: RequestedReportRange;
-  backLabel?: string;
 }) {
   const [report, setReport] = useState<StaffReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -286,7 +283,7 @@ export function StaffOperationalReportScreen({
   useRealtimeInvalidation(['reports'], () => { void load(); });
 
   const content = <>
-    {!embedded && <button className="back-link" type="button" onClick={onBack}>{backLabel}</button>}
+    {!embedded && <PageHeader fallbackTitle="Personel raporu" />}
     {loading && <LoadingSkeleton
       title="Personel operasyon raporu yükleniyor"
       headingLevel={embedded ? 2 : 1}

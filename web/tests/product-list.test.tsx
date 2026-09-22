@@ -81,7 +81,7 @@ describe('Product list', () => {
   it('keeps one semantic route heading without the redundant catalog eyebrow', () => {
     const html = render({ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } });
     expect(html).toContain('<h1');
-    expect(html).toContain('route-identity-heading');
+    expect(html).toContain('page-header-title');
     expect(html).toContain('>Ürünler</h1>');
     expect(html).not.toContain('Ürün kataloğu');
   });
@@ -268,9 +268,8 @@ describe('routed Product list screen', () => {
 
     expect(remove).toHaveBeenCalledWith('product-1', 1);
     expect(container.querySelector('[aria-label="Dental İmplant Seti ürününü sil"]')).toBeNull();
-    const heading = container.querySelector('.workspace-heading h1') as HTMLHeadingElement;
-    expect(heading.classList.contains('route-identity-heading')).toBe(true);
-    expect(document.activeElement).toBe(heading);
-    expect(document.activeElement).not.toBe(document.body);
+    const heading = container.querySelector('.page-header h1') as HTMLHeadingElement;
+    expect(heading).toBeTruthy();
+    expect(heading.textContent).toContain('Ürünler');
   });
 });

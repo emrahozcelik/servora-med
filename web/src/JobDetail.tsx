@@ -78,6 +78,8 @@ import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
+import { PageHeader } from './ui/PageHeader';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
 import {
   FollowUpBadge,
@@ -454,7 +456,7 @@ function JobScheduleEditForm({
 
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
-  feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
+  feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
   pendingLabel, continuity, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
@@ -467,7 +469,6 @@ export function JobDetailPanel({
   message: string;
   messageIsError?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
-  onBack: () => void;
   onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
   onRecordEdit?: (
     action: RecordEditPresentation['action'], trigger: HTMLButtonElement,
@@ -614,24 +615,13 @@ export function JobDetailPanel({
   return (
     <main className="job-detail" data-job-detail="true">
       {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions → notes → timeline */}
-      <div className="detail-heading" data-job-detail-section="heading">
-        <div className="detail-heading-main">
-          <p className="eyebrow detail-type-eyebrow">{typeLabel}</p>
-          <h1>{job.title}</h1>
-          <div className="detail-heading-meta" data-job-detail-meta="true">
-            <StatusChip status={job.status} />
-            <PriorityChip priority={job.priority} longLabel />
-            <FollowUpBadge visible={job.followUpContext !== null} />
-          </div>
+      <div data-job-detail-section="heading">
+        <PageHeader eyebrow={typeLabel} fallbackTitle={job.title} />
+        <div className="detail-heading-meta" data-job-detail-meta="true">
+        <StatusChip status={job.status} />
+        <PriorityChip priority={job.priority} longLabel />
+        <FollowUpBadge visible={job.followUpContext !== null} />
         </div>
-        <button
-          className="secondary-button detail-back-button"
-          type="button"
-          onClick={onBack}
-          disabled={pending && !mutationLocked}
-        >
-          Listeye dön
-        </button>
       </div>
       {message && (
         <div
@@ -895,14 +885,13 @@ async function executeLifecycleCommand(
   }
 }
 
-export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
-  return <JobDetailSessionScreen key={jobId} jobId={jobId} user={user} onBack={onBack} onChanged={onChanged} onCreateFollowUp={onCreateFollowUp} onOpenMessaging={onOpenMessaging} />;
+export function JobDetailScreen({ jobId, user, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
+  return <JobDetailSessionScreen key={jobId} jobId={jobId} user={user} onChanged={onChanged} onCreateFollowUp={onCreateFollowUp} onOpenMessaging={onOpenMessaging} />;
 }
 
 type JobDetailScreenProps = {
   jobId: string;
   user: CurrentUser;
-  onBack: () => void;
   onChanged: () => void;
   onCreateFollowUp?: () => void;
   onOpenMessaging?: (conversationId: string) => void;
@@ -915,8 +904,12 @@ function nextSessionToken() {
   return sessionTokenCounter;
 }
 
-function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
+function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
+  const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
+  useEffect(() => {
+    setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
+  }, [setRouteRuntimeLabel, state]);
   const reassignmentSync = useReassignmentConversationSync(jobId);
   const [pending, setPending] = useState(false);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
@@ -2139,7 +2132,6 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
     continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
-    onBack={onBack}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
     onRecordEdit={(action, trigger) => {

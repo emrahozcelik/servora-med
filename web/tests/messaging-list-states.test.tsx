@@ -89,11 +89,10 @@ describe('MessagingPage conversation list states', () => {
     expect(container.textContent).toContain('Konuşma bulunmuyor');
     expect(container.textContent).not.toContain('Konuşmalar yüklenemedi');
     expect(container.textContent).not.toContain('Konuşma seçin');
-    const pageHeadings = container.querySelectorAll('main > h1');
+    const pageHeadings = container.querySelectorAll('.page-header h1');
     expect(pageHeadings).toHaveLength(1);
     expect(pageHeadings[0]?.textContent).toBe('Mesajlar');
-    expect(pageHeadings[0]?.classList.contains('sr-only')).toBe(true);
-    expect(container.querySelector('.messaging-sidebar-header h2')?.textContent).toBe('Mesajlar');
+    expect(container.querySelector('.messaging-sidebar-heading')?.textContent).toBe('Mesajlar');
     unmount();
   });
 

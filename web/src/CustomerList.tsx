@@ -14,6 +14,7 @@ import {
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -234,7 +235,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, feedback = '', headingRef }: {
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, feedback = '' }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -246,14 +247,13 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   onApplyFilters?: (next: CustomerDraft) => void;
   onOpenCustomer?: (customerId: string) => void;
   feedback?: string;
-  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const canManage = user.role !== 'STAFF';
 
   return <main className="workspace customer-workspace">
-    <div className="workspace-heading workspace-heading--route-actions"><div><h1 className="route-identity-heading" ref={headingRef} tabIndex={-1}>Müşteriler</h1></div>
-      <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
-    </div>
+    <PageHeader fallbackTitle="Müşteriler"
+      actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
+    />
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
@@ -300,7 +300,7 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   embedded?: boolean;
 }) {
   const Root = embedded ? 'div' : 'main';
-  return <Root className="customer-create"><div className="create-heading"><div><h1>Yeni müşteri</h1></div></div>
+  return <Root className="customer-create">{embedded ? <h2>Yeni müşteri</h2> : <PageHeader fallbackTitle="Yeni müşteri" />}
     <p className="form-intro">Müşteri kaydını oluşturun. İletişim kişisi eklemek isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {contactNotice && <div className="success-message" role="status">{contactNotice}
@@ -450,10 +450,8 @@ export function CustomerListScreen({ user, load = listCustomers }: {
     setParams(next);
   }
   const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
-  const headingRef = useRef<HTMLHeadingElement | null>(null);
   return <>
     <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
-      headingRef={headingRef}
       onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
       onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
       onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}

@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { buildContextState } from '../shell/context-return';
 
 import { patchJobCard } from '../jobs/jobs-api';
 import type { AvailableSlot } from '../jobs/jobs-api';
@@ -28,6 +29,7 @@ import {
 } from '../services/calendar-api';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
+import { PageHeader } from '../ui/PageHeader';
 import { OperationalCard } from '../ui/antd/OperationalCard';
 import { ReasonDialog } from '../ui/antd/ReasonDialog';
 import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
@@ -448,6 +450,12 @@ export function EventItem({
   const [cancelAmbiguous, setCancelAmbiguous] = useState(false);
   const localCancelRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = cancelTriggerRef ?? localCancelRef;
+  const location = useLocation();
+  const calendarReturnState = buildContextState({
+    pathname: location.pathname,
+    search: location.search,
+    hash: '',
+  });
 
   async function runCancelAttempt(attempt: {
     eventId: string;
@@ -505,8 +513,12 @@ export function EventItem({
 
   const actionBar = (
     <div className="calendar-event-actions">
-      {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
-      {followUpContext?.sourceJobPath && <Link to={followUpContext.sourceJobPath}>Önceki işi aç</Link>}
+      {event.source === 'JOB' && (
+        <Link to={event.relatedJobPath} state={calendarReturnState ?? undefined}>İşi aç</Link>
+      )}
+      {followUpContext?.sourceJobPath && (
+        <Link to={followUpContext.sourceJobPath} state={calendarReturnState ?? undefined}>Önceki işi aç</Link>
+      )}
       {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
       {event.canCancel && (
         <button
@@ -672,22 +684,22 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace calendar-workspace">
-      <header className="workspace-heading">
-        <div>
-          <p className="eyebrow">Aylık planlama</p>
-          <h1 className="route-identity-heading">Takvim</h1>
-          <p>İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün.</p>
-        </div>
-        <button
-          ref={newPlanTriggerRef}
-          type="button"
-          className="primary-button"
-          disabled={user.role !== 'STAFF' && assignees.length === 0}
-          onClick={openNewPlan}
-        >
-          Manuel plan ekle
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Aylık planlama"
+        fallbackTitle="Takvim"
+        description="İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün."
+        actions={(
+          <button
+            ref={newPlanTriggerRef}
+            type="button"
+            className="primary-button"
+            disabled={user.role !== 'STAFF' && assignees.length === 0}
+            onClick={openNewPlan}
+          >
+            Manuel plan ekle
+          </button>
+        )}
+      />
 
       {/* Loading state */}
       {state === 'loading' && (

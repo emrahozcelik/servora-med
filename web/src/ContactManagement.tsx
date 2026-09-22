@@ -8,6 +8,9 @@ import {
   updateContact, type Contact, type ContactFields,
 } from './services/crm-api';
 import { createRequestGate } from './services/request-gate';
+import { PageHeader } from './ui/PageHeader';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
+import { useSetRouteAncestorLabels } from './shell/route-navigation-provider';
 import { CompactConfirmationAction, ConfirmationAction } from './ui/antd';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
@@ -102,9 +105,9 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
 }) {
   const canDelete = user?.role === 'ADMIN' && contact.hasOperationHistory === false;
   const isReferenced = contact.hasOperationHistory === true;
-  return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>{customerName} kaydına dön</button>
-    <div className="detail-heading"><div><p className="eyebrow">İlgili kişi</p><h1>{contact.name}</h1></div>
-      <div className="record-status">{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div></div>
+  return <main className="customer-detail">
+    <PageHeader eyebrow="İlgili kişi" fallbackTitle={contact.name} />
+    {contact.isPrimary && <div className="record-status"><span className="status" aria-label="Birincil kişi">Birincil kişi</span></div>}
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
@@ -153,7 +156,15 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
 }
 
 export function ContactDetailScreen({ customerId, contactId, user, canManage }: { customerId: string; contactId: string; user: CurrentUser; canManage: boolean }) {
-  const navigate = useNavigate(); const [contact, setContact] = useState<Contact | null>(null); const [customerName, setCustomerName] = useState('Müşteri'); const [loading, setLoading] = useState(true);
+  const navigate = useNavigate(); const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
+  const setAncestorLabels = useSetRouteAncestorLabels();
+  const [contact, setContact] = useState<Contact | null>(null); const [customerName, setCustomerName] = useState('Müşteri'); const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setRouteRuntimeLabel(contact?.name);
+  }, [setRouteRuntimeLabel, contact?.name]);
+  useEffect(() => {
+    if (customerName && customerName !== 'Müşteri') setAncestorLabels({ customerDetail: customerName });
+  }, [setAncestorLabels, customerName]);
   const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0);
   const [deletePending, setDeletePending] = useState(false); const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null); const commandsRef = useRef<HTMLElement>(null); const deleteTriggerRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate());

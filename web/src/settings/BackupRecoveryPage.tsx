@@ -23,6 +23,7 @@ import {
   type BackupStorageState,
 } from '../services/backup-api';
 import { paths } from '../paths';
+import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
 import { OperationalCard } from '../ui/antd/OperationalCard';
@@ -570,12 +571,7 @@ export function BackupRecoveryPage(): ReactNode {
 
   return (
     <main className="workspace settings-workspace backup-recovery-workspace">
-      <header className="workspace-heading">
-        <div>
-          <h1>Yedekleme ve Kurtarma</h1>
-          <p className="workspace-heading-copy">Yedekleme durumunu, geçmişini, zamanlamasını ve güvenli depolama bağlantısını yönetin.</p>
-        </div>
-      </header>
+      <PageHeader description="Yedekleme durumunu, geçmişini, zamanlamasını ve güvenli depolama bağlantısını yönetin." fallbackTitle="Yedekleme ve Kurtarma" />
       <SettingsTabs items={SECTION_TABS} activeKey={section} ariaLabel="Yedekleme yönetimi bölümleri" />
       <div className="backup-recovery-content">{content}</div>
     </main>

@@ -13,6 +13,8 @@ import {
 import type { Paginated } from './services/crm-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
 import { StaffConfidentialNotesSection } from './StaffConfidentialNotes';
+import { PageHeader } from './ui/PageHeader';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -74,11 +76,12 @@ export function StaffJobHistory({ actor, staffUserId }: { actor: CurrentUser; st
   </section>;
 }
 
-export function OwnStaffProfileView({ profile, actor, onBack }: { profile: StaffProfile; actor?: CurrentUser; onBack: () => void }) {
-  return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button><p className="eyebrow">Profilim</p><h1>{profile.user.name}</h1>
+export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile; actor?: CurrentUser }) {
+  return <main className="workspace">
+    <PageHeader eyebrow="Profilim" fallbackTitle={profile.user.name} />
     <ProfileFacts profile={profile} /><section aria-labelledby="counter-title"><h2 id="counter-title">Operasyon özeti</h2><dl className="counter-grid">
       {(Object.keys(counterLabels) as Array<keyof typeof counterLabels>).map((key) => <div key={key}><dt>{counterLabels[key]}</dt><dd>{profile.counters[key]}</dd></div>)}</dl></section>
-    <StaffOperationalReportScreen embedded onBack={onBack} />{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
+    <StaffOperationalReportScreen embedded />{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
   </main>;
 }
 
@@ -91,13 +94,12 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function StaffDirectoryView({ profiles, onOpen, onBack }: {
+export function StaffDirectoryView({ profiles, onOpen }: {
   profiles: StaffProfile[];
   onOpen: (id: string) => void;
-  onBack: () => void;
 }) {
-  return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button>
-    <div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1 className="route-identity-heading">Personel</h1></div></div>
+  return <main className="workspace">
+    <PageHeader eyebrow="Ekip" fallbackTitle="Personel" />
     {profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description="Aktif personel profili yok." />
       : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}>
         <article className="people-row people-list-card" data-staff-id={profile.user.id}
@@ -118,7 +120,7 @@ export function StaffProfileEditView({ profile: initial, actor, managers, onBack
       phone: String(data.get('phone') ?? '') || null, region: String(data.get('region') ?? '') || null, managerUserId: String(data.get('managerUserId') ?? '') || null });
       setProfile(updated); onChanged(updated); setNotice('Personel profili güncellendi.'); }
     catch (e) { setError(e instanceof Error ? e.message : 'Profil güncellenemedi.'); } finally { setPending(false); } }
-  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Personel</p><h1>{profile.user.name}</h1></div><div className="people-actions">{onOpenReport && <button className="secondary-button" onClick={onOpenReport}>Operasyon raporunu aç</button>}</div></div>
+  return <main className="people-form"><PageHeader eyebrow="Personel" fallbackTitle={profile.user.name} actions={onOpenReport ? <button className="secondary-button" onClick={onOpenReport}>Operasyon raporunu aç</button> : undefined} />
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <form onSubmit={submit}><label className="field-group">Unvan<input name="title" defaultValue={profile.title ?? ''} disabled={pending} /></label>
       <label className="field-group">Telefon<input name="phone" type="tel" defaultValue={profile.phone ?? ''} disabled={pending} /></label>
@@ -141,15 +143,18 @@ export function StaffProfileEditRoute(props: {
   return <StaffProfileEditView key={props.profile.user.id} {...props} />;
 }
 
-export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenProfile, onProfileBack, onOpenReport }: {
+export function StaffProfilesScreen({ user, initialStaffUserId, onOpenProfile, onProfileBack, onOpenReport }: {
   user: CurrentUser;
-  onBack: () => void;
   initialStaffUserId?: string;
   onOpenProfile?: (staffUserId: string) => void;
   onProfileBack?: () => void;
   onOpenReport?: (staffUserId: string) => void;
 }) {
+  const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const [profiles, setProfiles] = useState<StaffProfile[]>([]); const [own, setOwn] = useState<StaffProfile | null>(null); const [selected, setSelected] = useState<StaffProfile | null>(null);
+  useEffect(() => {
+    setRouteRuntimeLabel(own?.user.name ?? selected?.user.name);
+  }, [setRouteRuntimeLabel, own?.user.name, selected?.user.name]);
   const [managers, setManagers] = useState<ManagedUser[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const realtimeResourceKeys = user.role === 'STAFF'
@@ -166,8 +171,8 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
   useRealtimeInvalidation(realtimeResourceKeys, () => { setReload((value) => value + 1); });
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><ResultState status="error" title="Personel bilgileri yüklenemedi" description={error} headingLevel={1} /></main>;
-  if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} actor={user} onBack={onBack} />;
+  if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} actor={user} />;
   if (selected) return <StaffProfileEditRoute profile={selected} actor={user} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} onOpenReport={onOpenReport ? () => onOpenReport(selected.user.id) : undefined} />;
-  return <StaffDirectoryView profiles={profiles} onBack={onBack}
+  return <StaffDirectoryView profiles={profiles}
     onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }

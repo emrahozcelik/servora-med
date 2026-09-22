@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -187,17 +188,17 @@ describe('Staff operational report', () => {
     const requestedRange = { from: '2026-07-01', to: '2026-07-31' };
 
     await act(async () => root.render(
-      <StaffOperationalReportScreen
-        staffUserId={STAFF_ID}
-        requestedRange={requestedRange}
-        backLabel="Personel performansına dön"
-        onBack={() => {}}
-      />,
+      <MemoryRouter>
+        <StaffOperationalReportScreen
+          staffUserId={STAFF_ID}
+          requestedRange={requestedRange}
+        />
+      </MemoryRouter>,
     ));
     await act(async () => { await Promise.resolve(); });
 
     expect(getStaffReport).toHaveBeenCalledWith(STAFF_ID, requestedRange);
-    expect(container.textContent).toContain('Personel performansına dön');
+    expect(container.querySelector('.page-header')).toBeTruthy();
   });
 
   it('ignores stale detail success after a newer range request', async () => {

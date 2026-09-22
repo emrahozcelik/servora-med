@@ -201,6 +201,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   return <main className="product-detail">
     <PageHeader
       eyebrow="Ürün kataloğu"
+      fallbackTitle={product.name}
       actions={<span className="product-version">Sürüm {product.version}</span>}
     />
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}

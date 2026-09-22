@@ -70,7 +70,7 @@ describe('Customer list and creation', () => {
   it('renders customer headings without a CRM eyebrow label', () => {
     const listHtml = list({ kind: 'ready', customers: [] });
     expect(listHtml).toContain('Müşteriler');
-    expect(listHtml).toContain('route-identity-heading');
+    expect(listHtml).toContain('page-header-title');
     expect(listHtml).not.toContain('>CRM<');
     expect(listHtml).not.toContain('eyebrow">CRM');
 
@@ -199,7 +199,7 @@ describe('Customer list and creation', () => {
     expect(createButtons).toHaveLength(1);
   });
 
-  it('uses create-heading and form-actions with Cancel-before-Submit DOM order in CustomerCreateForm', () => {
+  it('uses page-header and form-actions with Cancel-before-Submit DOM order in CustomerCreateForm', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <CustomerCreateForm
@@ -211,7 +211,7 @@ describe('Customer list and creation', () => {
         />
       </MemoryRouter>,
     );
-    expect(html).toContain('class="create-heading"');
+    expect(html).toContain('page-header-title');
     expect(html).not.toContain('class="detail-heading"');
 
     // Exactly one Cancel button inside form-actions

@@ -1440,6 +1440,16 @@ html a:focus-visible {
 .page-header-main { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
 .page-header-actions { display: flex; align-items: center; gap: 1rem; }
 .page-header-description { margin: 0.85rem 0 0; color: var(--muted); line-height: 1.5; }
+/* Slice 3B route navigation: desktop hierarchy breadcrumb, mobile ReturnLink,
+   desktop contextual-return control. Visibility is viewport-driven; the 64rem
+   shell breakpoint is unchanged. */
+.route-breadcrumb ol { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; padding: 0; list-style: none; }
+.route-breadcrumb li { display: inline-flex; align-items: center; gap: 0.4rem; }
+.route-breadcrumb li + li::before { content: "/"; color: var(--muted); }
+.route-breadcrumb a { color: var(--muted); text-decoration: none; }
+.route-breadcrumb a:hover { color: var(--ink); text-decoration: underline; }
+.route-return-link { display: none; }
+.route-context-control { display: none; }
 @media (max-width: 63.99rem) {
   /* Mobile/tablet: MobileTopBar carries the visible route identity; the
      content H1 stays semantic but visually hidden (single visible identity). */
@@ -1454,6 +1464,33 @@ html a:focus-visible {
     clip-path: inset(50%);
     white-space: nowrap;
   }
+  .route-breadcrumb { display: none; }
+  .route-return-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-bottom: 0.6rem;
+    color: var(--accent);
+    font-weight: 680;
+    text-decoration: none;
+  }
+  .route-return-link:hover { text-decoration: underline; }
+}
+@media (min-width: 64rem) {
+  .route-return-link { display: none; }
+  .route-context-control {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    margin-left: 0.75rem;
+    padding: 0.3rem 0.65rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-chip);
+    color: var(--ink);
+    font-size: 0.85rem;
+    text-decoration: none;
+  }
+  .route-context-control:hover { border-color: var(--accent); color: var(--accent-hover); }
 }
 
 .scope-note { color: var(--muted); font-size: 0.8125rem; }

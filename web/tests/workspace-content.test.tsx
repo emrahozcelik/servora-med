@@ -219,7 +219,7 @@ describe('repository-managed workspace content', () => {
     const docsHTML = require('react-dom/server').renderToStaticMarkup(
       <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
     );
-    expect(docsHTML).toContain('Ürün dokümantasyonu');
+    expect(docsHTML).toContain('Dokümantasyon');
   });
 });
 

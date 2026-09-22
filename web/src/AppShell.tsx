@@ -16,11 +16,11 @@ import { useInstallOpportunity } from './install/InstallOpportunity';
 import {
   buildNavigationModel,
   isJobsListPath,
-  resolveShellBackTo,
   type NavLinkItem,
 } from './shell/navigation-model';
 import { matchRouteIdentity } from './shell/route-identity';
 import { ResolvedIdentityProvider, useResolvedIdentity } from './shell/resolved-identity';
+import { RouteNavigationProvider } from './shell/route-navigation-provider';
 
 export type AppShellProps = {
   user: CurrentUser;
@@ -120,9 +120,11 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const match = matchRouteIdentity(location.pathname);
   return (
     <ResolvedIdentityProvider scopeKey={identityScopeKey(location.pathname)} match={match} role={user.role}>
-      <ShellBody user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut}>
-        {children}
-      </ShellBody>
+      <RouteNavigationProvider user={user}>
+        <ShellBody user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut}>
+          {children}
+        </ShellBody>
+      </RouteNavigationProvider>
     </ResolvedIdentityProvider>
   );
 }
@@ -150,7 +152,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const pageHeaderRoute = resolved?.identity.id === 'jobs'
     || resolved?.identity.id === 'settingsSecurity'
     || resolved?.identity.id === 'productDetail';
-  const backTo = resolveShellBackTo(location.pathname);
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
   const showGlobalAppleGuidance = install.shouldOfferAppleGuidance && !applicationSettingsActive;
@@ -247,7 +248,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
       ) : (
         <MobileTopBar
           title={title}
-          backTo={backTo}
           menuExpanded={menuExpanded && drawerMode === 'full'}
           menuControlsId="app-navigation-drawer"
           onOpenMenu={(opener) => openDrawer('full', opener)}

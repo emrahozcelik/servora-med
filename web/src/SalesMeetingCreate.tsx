@@ -23,6 +23,7 @@ import { type Customer, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+import { PageHeader } from './ui/PageHeader';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type FieldErrors = {
@@ -156,7 +157,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const referencesUnavailable = !customerReady
     || (user.role !== 'STAFF' && staffState !== 'ready');
   return <main className="task-create meeting-create">
-    <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Görüşme / ziyaret planla</h1></div></div>
+    <PageHeader eyebrow="Yeni kayıt" description="Görüşme / ziyaret planla" fallbackTitle="Yeni iş" />
     <p className="form-intro">
       Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
       Görüşme veya ziyaret sonucu daha sonra kaydedilir.

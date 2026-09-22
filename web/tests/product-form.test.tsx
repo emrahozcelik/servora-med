@@ -113,10 +113,10 @@ describe('Product form', () => {
     expect(document.activeElement).toBe(sku);
   });
 
-  it('uses create-heading for new-product route and a single form-actions region with Cancel before Submit', async () => {
+  it('uses page-header for new-product route and a single form-actions region with Cancel before Submit', async () => {
     await act(async () => root.render(<ProductCreateScreen onCancel={() => {}} onCreated={() => {}} />));
-    expect(container.querySelector('.create-heading')).toBeTruthy();
-    expect(container.querySelector('.detail-heading')).toBeFalsy();
+    expect(container.querySelector('.page-header')).toBeTruthy();
+    expect(container.querySelector('.page-header h1')).toBeTruthy();
     const actions = container.querySelectorAll('.form-actions');
     expect(actions).toHaveLength(1);
     const buttons = actions[0].querySelectorAll('button');
@@ -124,11 +124,11 @@ describe('Product form', () => {
     expect(buttons[1].textContent).toBe('Ürün oluştur');
   });
 
-  it('uses detail-heading for edit mode and keeps form-actions with Cancel before Save', async () => {
+  it('uses page-header for edit mode and keeps form-actions with Cancel before Save', async () => {
     await act(async () => root.render(<ProductForm pending={false} fieldErrors={{}} error="" onCancel={() => {}} onSubmit={() => {}}
       title="Ürünü düzenle" submitLabel="Değişiklikleri kaydet" />));
-    expect(container.querySelector('.detail-heading')).toBeTruthy();
-    expect(container.querySelector('.create-heading')).toBeFalsy();
+    expect(container.querySelector('.page-header')).toBeTruthy();
+    expect(container.querySelectorAll('.page-header h1')).toHaveLength(1);
     const actions = container.querySelectorAll('.form-actions');
     expect(actions).toHaveLength(1);
     const buttons = actions[0].querySelectorAll('button');

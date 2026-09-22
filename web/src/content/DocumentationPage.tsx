@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { CurrentUser } from '../services/api';
+import { PageHeader } from '../ui/PageHeader';
 import { ContentCollapse, ContentAnchor, EmptyState, OperationalCard } from '../ui/antd';
 import type { ContentAnchorItem } from '../ui/antd';
 import { productDocumentation, type WorkspaceContent } from './workspace-content';
@@ -61,12 +62,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace content-workspace">
-      <header className="workspace-heading">
-        <div>
-          <h1>Ürün dokümantasyonu</h1>
-          <p>İş akışları, kayıtlar, bildirimler ve raporlar için kullanım kılavuzları.</p>
-        </div>
-      </header>
+      <PageHeader description="İş akışları, kayıtlar, bildirimler ve raporlar için kullanım kılavuzları." fallbackTitle="Dokümantasyon" />
 
       <div className="content-search">
         <input
