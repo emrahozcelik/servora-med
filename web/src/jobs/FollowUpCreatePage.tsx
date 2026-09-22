@@ -35,6 +35,7 @@ import {
 import { CustomerScheduleNotice } from './CustomerScheduleNotice';
 import { useAvailableSlotSearch } from './useAvailableSlotSearch';
 import { useCustomerSchedulePreview } from './useCustomerSchedulePreview';
+import { PageHeader } from '../ui/PageHeader';
 
 type LoadState =
   | { kind: 'loading' }
@@ -378,7 +379,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   }
 
   return <main className="task-create follow-up-create" data-follow-up-create="true">
-    <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Takip işi oluştur</h1></div></div>
+    <PageHeader eyebrow="Yeni kayıt" description="Takip işi oluştur" fallbackTitle="Yeni iş" />
     <section className="follow-up-source-summary follow-up-create-source-summary" aria-labelledby="follow-up-create-source-title">
       <h2 id="follow-up-create-source-title" className="follow-up-create-source-heading">Kaynak iş</h2>
       <p className="follow-up-create-source-job-title">{source.title}</p>

@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNavigationModel,
   isJobsListPath,
-  resolveShellBackTo,
-  resolveShellTitle,
+  resolveIdentityTitle,
 } from '../src/shell/navigation-model';
+import { MobileTopBar } from '../src/shell/MobileTopBar';
 import { getRouteIdentity, resolveParentPath } from '../src/shell/route-identity';
 import { paths } from '../src/paths';
 import type { CurrentUser } from '../src/services/api';
@@ -63,17 +63,13 @@ describe('buildNavigationModel', () => {
   it('keeps Veri Yönetimi under Settings instead of adding a top-level destination', () => {
     const model = buildNavigationModel(admin);
     expect(model.destinations.map((item) => item.label)).not.toContain('Veri Yönetimi');
-    expect(resolveShellTitle('/settings/data-management', 'ADMIN')).toBe('Veri Yönetimi');
-    expect(resolveShellBackTo('/settings/data-management')).toBe('/settings');
-    expect(resolveShellTitle('/settings/data-management/demo-data', 'ADMIN')).toBe('Demo verileri');
+    expect(resolveIdentityTitle(getRouteIdentity('settingsDataManagement'), 'ADMIN')).toBe('Veri Yönetimi');
+    expect(resolveIdentityTitle(getRouteIdentity('settingsDemoData'), 'ADMIN')).toBe('Demo verileri');
   });
 
-  it('keeps canonical settings hierarchy separate from transitional shell back behavior', () => {
+  it('keeps canonical settings hierarchy in the registry', () => {
     expect(resolveParentPath(getRouteIdentity('settingsDemoData'), {})).toBe(paths.settingsDataManagement);
     expect(resolveParentPath(getRouteIdentity('settingsBackupRecovery'), {})).toBe(paths.settingsDataManagement);
-    expect(resolveShellBackTo(paths.settingsDemoData)).toBe(paths.settings);
-    expect(resolveShellBackTo(paths.settingsBackupRecovery)).toBe(paths.settings);
-    expect(resolveShellBackTo(paths.settingsDataManagement)).toBe(paths.settings);
   });
 
   it('shows Backup & Recovery only for an ADMIN when the backup capability is enabled', () => {
@@ -118,38 +114,20 @@ describe('buildNavigationModel', () => {
       .toEqual(['Genel Bakış', 'İşler', 'Takvim', 'Menü']);
     expect(buildNavigationModel(staff).destinations.map((item) => item.label))
       .not.toContain('Takvim');
-    expect(resolveShellTitle('/calendar', 'STAFF')).toBe('Takvim');
+    expect(resolveIdentityTitle(getRouteIdentity('calendar'), 'STAFF')).toBe('Takvim');
   });
 });
 
-describe('shell title and back helpers', () => {
-  it('resolves section titles and nested back targets', () => {
-    expect(resolveShellTitle('/jobs', 'STAFF')).toBe('İşlerim');
-    expect(resolveShellTitle('/jobs', 'MANAGER')).toBe('İşler');
-    expect(resolveShellTitle('/jobs/abc', 'MANAGER')).toBe('İş detayı');
-    expect(resolveShellBackTo('/jobs/abc')).toBe('/jobs');
-    expect(resolveShellBackTo('/jobs')).toBeNull();
-    expect(resolveShellBackTo('/customers/c1/contacts/x')).toBe('/customers/c1');
-    expect(resolveShellBackTo('/staff/s1/reports')).toBe('/staff/s1');
-    expect(isJobsListPath('/jobs')).toBe(true);
-    expect(isJobsListPath('/jobs/abc')).toBe(false);
+describe('legacy shell-back removal (Slice 3B)', () => {
+  it('removes MobileTopBar back plumbing', () => {
+    // Props are runtime args; assert the component no longer declares backTo
+    // by inspecting its source (fail-closed if plumbing returns).
+    expect(MobileTopBar.toString()).not.toContain('backTo');
+    expect(MobileTopBar.toString()).not.toContain('Geri');
   });
 
-  it('keeps legacy shell back suppressed for routes awaiting Slice 3B migration', () => {
-    const suppressedPaths = [
-      paths.settingsProfile,
-      paths.settingsSecurity,
-      paths.settingsNotifications,
-      paths.settingsApplication,
-      paths.staffPerformanceReports,
-      paths.customerReports,
-      paths.deliveryReports,
-      paths.approvalReports,
-      paths.salesFollowUpReports,
-    ];
-
-    for (const pathname of suppressedPaths) {
-      expect(resolveShellBackTo(pathname), pathname).toBeNull();
-    }
+  it('keeps jobs list path helper', () => {
+    expect(isJobsListPath('/jobs')).toBe(true);
+    expect(isJobsListPath('/jobs/abc')).toBe(false);
   });
 });

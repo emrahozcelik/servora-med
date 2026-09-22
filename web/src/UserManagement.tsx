@@ -7,6 +7,8 @@ import {
   permanentlyDeleteUser, resetUserPassword, updateUser, type ManagedUser, type ManagedUserDetails,
 } from './services/people-api';
 import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
+import { PageHeader } from './ui/PageHeader';
+import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -26,8 +28,8 @@ function openCardIfEmpty(
 export function UserListView({ users, onCreate, onOpen, notice }: {
   users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void; notice?: string;
 }) {
-  return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1 className="route-identity-heading">Kullanıcılar</h1></div>
-    <button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button></div>
+  return <main className="workspace"><PageHeader eyebrow="Yönetim" fallbackTitle="Kullanıcılar"
+    actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button>} />
     {notice && <div className="success-message" role="status">{notice}</div>}
     {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
       : <ul className="people-list">{users.map((user) => <li key={user.id}>
@@ -54,7 +56,7 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
       } } : {}) })); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Kullanıcı oluşturulamadı.'); setPending(false); }
   }
-  return <main className="people-form"><div className="create-heading"><div><h1>Kullanıcı oluştur</h1></div></div>
+  return <main className="people-form"><PageHeader fallbackTitle="Yeni kullanıcı" />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form onSubmit={submit}><Field id="user-name" label="Ad soyad"><input id="user-name" name="name" required disabled={pending} /></Field>
       <Field id="user-email" label="E-posta"><input id="user-email" name="email" type="email" required disabled={pending} /></Field>
@@ -101,8 +103,8 @@ function permanentDeleteUnavailableMessage(user: UserDetailRecord) {
   return null;
 }
 
-export function UserDetailView({ user: initial, viewerRole, onBack, onChanged, onDeleted }: {
-  user: UserDetailRecord; viewerRole: ManagedUser['role']; onBack: () => void;
+export function UserDetailView({ user: initial, viewerRole, onChanged, onDeleted }: {
+  user: UserDetailRecord; viewerRole: ManagedUser['role'];
   onChanged: (user: ManagedUser) => void; onDeleted?: () => void;
 }) {
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
@@ -124,7 +126,7 @@ export function UserDetailView({ user: initial, viewerRole, onBack, onChanged, o
     finally { setDeletePending(false); }
   }
   const deleteUnavailable = permanentDeleteUnavailableMessage(user);
-  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Kullanıcı</p><h1>{user.name}</h1></div><button className="secondary-button" onClick={onBack}>Listeye dön</button></div>
+  return <main className="people-form"><PageHeader eyebrow="Kullanıcı" fallbackTitle={user.name} />
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <section><h2>Temel bilgiler</h2><form onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get('name') ?? ''); void run(() => updateUser(user.id, { expectedVersion: user.version, name }), 'Ad güncellendi.'); }}>
       <Field id="detail-name" label="Ad soyad"><input id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
@@ -165,11 +167,8 @@ export function UserListScreen() {
   if (state === 'error') return <main className="workspace"><ResultState status="error" title="Kullanıcılar yüklenemedi" headingLevel={1} action={<button className="secondary-button" onClick={load}>Tekrar dene</button>} /></main>;
   const notice = typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
     ? (location.state as { notice: string }).notice : undefined;
-  return <>
-    <button className="back-link" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>
-    <UserListView users={users} onCreate={() => navigate(paths.newUser)}
-      onOpen={(id) => navigate(paths.user(id))} notice={notice} />
-  </>;
+  return <UserListView users={users} onCreate={() => navigate(paths.newUser)}
+      onOpen={(id) => navigate(paths.user(id))} notice={notice} />;
 }
 
 export function UserCreateScreen() {
@@ -190,9 +189,13 @@ export function UserCreateScreen() {
 export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role'] }) {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const [user, setUser] = useState<UserDetailRecord | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    setRouteRuntimeLabel(user?.name);
+  }, [setRouteRuntimeLabel, user?.name]);
   useEffect(() => {
     if (!userId) return;
     let active = true;
@@ -211,15 +214,15 @@ export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
   if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
     action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
-  return <UserDetailView viewerRole={viewerRole} user={user} onBack={() => navigate(paths.users)}
+  return <UserDetailView viewerRole={viewerRole} user={user}
     onChanged={(next) => setUser((current) => current ? { ...current, ...next } : next)}
     onDeleted={() => navigate(paths.users, { replace: true, state: { notice: 'Kullanıcı kalıcı olarak silindi.' } })} />;
 }
 
 /** @deprecated Prefer routed screens; kept for existing imports. */
-export function UserManagementScreen({ onBack }: { onBack: () => void }) {
+export function UserManagementScreen() {
   const navigate = useNavigate();
   useEffect(() => { navigate(paths.users, { replace: true }); }, [navigate]);
-  return <main className="workspace"><button className="back-link" type="button" onClick={onBack}>İşlere dön</button>
+  return <main className="workspace">
     <p>Kullanıcı listesine yönlendiriliyorsunuz…</p></main>;
 }

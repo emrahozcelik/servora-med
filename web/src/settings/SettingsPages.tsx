@@ -59,9 +59,7 @@ export function SettingsLandingPage({ user }: { user?: CurrentUser } = {}) {
     }] : []),
   ];
   return <main className="workspace settings-workspace">
-    <header className="workspace-heading workspace-heading--semantic-only">
-      <h1 className="route-identity-heading">Ayarlar</h1>
-    </header>
+    <PageHeader fallbackTitle="Ayarlar" />
     <nav className="settings-card-grid" aria-label="Ayar bölümleri">
       {landingItems.map((item) => (
         <Link key={item.key} to={item.to} className="settings-card-link">
@@ -76,10 +74,8 @@ export function SettingsLandingPage({ user }: { user?: CurrentUser } = {}) {
 
 export function ProfileSettingsPage({ user }: { user: CurrentUser }) {
   return <main className="workspace settings-workspace">
+    <PageHeader fallbackTitle="Profil" />
     <SettingsTabs items={SETTINGS_TABS} activeKey="profile" />
-    <header className="workspace-heading"><div>
-      <h1>Profil</h1>
-    </div></header>
     <OperationalCard title="Profil bilgileri">
       <div className="profile-header">
         <UserAvatar name={user.name} size="large" />
@@ -143,8 +139,8 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
   </main>;
 
   return <main className="workspace settings-workspace">
+    <PageHeader fallbackTitle="Güvenlik" />
     <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
-    <PageHeader />
     <OperationalCard title="Parola değiştir">
       {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
       <form onSubmit={submit}>
@@ -179,10 +175,8 @@ export function NotificationSettingsPage() {
     && webPush.capability === 'supported'
     && webPush.permission !== 'denied';
   return <main className="workspace settings-workspace">
+    <PageHeader fallbackTitle="Bildirimler" />
     <SettingsTabs items={SETTINGS_TABS} activeKey="notifications" />
-    <header className="workspace-heading"><div>
-      <h1>Bildirimler</h1>
-    </div></header>
     <OperationalCard title="Cihaz bildirimleri">
       <h2 id="device-notifications-title" className="sr-only">Bu cihaz</h2>
       <dl className="profile-details">
@@ -226,10 +220,8 @@ export function ApplicationSettingsPage() {
   }
 
   return <main className="workspace settings-workspace">
+    <PageHeader fallbackTitle="Uygulama" />
     <SettingsTabs items={SETTINGS_TABS} activeKey="application" />
-    <header className="workspace-heading"><div>
-      <h1>Uygulama</h1>
-    </div></header>
     <div className="settings-panel">
     <OperationalCard title="Uygulama kurulumu">
       {install.installed && <p className="field-hint" role="status">

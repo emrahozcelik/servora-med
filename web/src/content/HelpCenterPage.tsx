@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { CurrentUser } from '../services/api';
+import { PageHeader } from '../ui/PageHeader';
 import { ContentCollapse, EmptyState, OperationalCard, RecordDescriptions } from '../ui/antd';
 import { helpArticles } from './workspace-content';
 
@@ -64,12 +65,7 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace content-workspace">
-      <header className="workspace-heading">
-        <div>
-          <h1 className="route-identity-heading">Yardım Merkezi</h1>
-          <p>Karşılaştığınız sorunlar için çözüm adımlarını inceleyin veya destek kanalına ulaşın.</p>
-        </div>
-      </header>
+      <PageHeader description="Karşılaştığınız sorunlar için çözüm adımlarını inceleyin veya destek kanalına ulaşın." fallbackTitle="Yardım Merkezi" />
 
       <div className="content-search">
         <input

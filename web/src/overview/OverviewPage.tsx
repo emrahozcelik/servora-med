@@ -13,6 +13,7 @@ import { EmptyState } from '../ui/antd/EmptyState';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
 import { MetricStatistic } from '../ui/antd/MetricStatistic';
 import { OperationalCard } from '../ui/antd/OperationalCard';
+import { PageHeader } from '../ui/PageHeader';
 import { ResultState } from '../ui/antd/ResultState';
 
 export function OverviewPage({
@@ -86,13 +87,11 @@ export function OverviewPage({
 
   return (
     <main className="workspace overview-workspace">
-      <header className="workspace-heading">
-        <div>
-          <p className="eyebrow">{isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}</p>
-          <h1 className="route-identity-heading">Genel Bakış</h1>
-          <p>{user.name}, {overview.range.from} – {overview.range.to} dönemi.</p>
-        </div>
-      </header>
+      <PageHeader
+        eyebrow={isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}
+        fallbackTitle="Genel Bakış"
+        description={`${user.name}, ${overview.range.from} – ${overview.range.to} dönemi.`}
+      />
 
       <div className="overview-kpis" aria-label="Dönem özeti">
         {kpis.map((kpi) => (

@@ -1,6 +1,6 @@
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
-import { matchRouteIdentity, resolveParentPath, type RouteIdentity } from './route-identity';
+import type { RouteIdentity } from './route-identity';
 
 export type NavLinkItem = {
   kind: 'link';
@@ -115,63 +115,6 @@ export function resolveIdentityTitle(identity: RouteIdentity, role: CurrentUser[
   if ((identity.id === 'staff' || identity.id === 'staffProfile') && role === 'STAFF') return 'Profilim';
   return identity.title;
 }
-
-/**
- * Section title for the single mobile top bar (not a second page h1).
- *
- * TRANSITIONAL (Slice 3A): thin compatibility adapter over the canonical
- * route-identity registry. There is no independent title if-chain anymore;
- * full ReturnLink/breadcrumb migration happens in Slice 3B.
- */
-export function resolveShellTitle(pathname: string, role: CurrentUser['role']): string {
-  const match = matchRouteIdentity(pathname);
-  if (!match) return 'Dünya Dental';
-  return resolveIdentityTitle(match.identity, role);
-}
-
-/**
- * Parent path for nested routes; null on top-level sections.
- *
- * TRANSITIONAL (Slice 3A): derives from the canonical identity hierarchy
- * instead of a duplicate if-chain. Visible behavior is unchanged: routes
- * that historically exposed no shell back target keep null until Slice 3B
- * migrates them to breadcrumb/ReturnLink coverage (see BACK_TO_SUPPRESSED).
- */
-export function resolveShellBackTo(pathname: string): string | null {
-  const match = matchRouteIdentity(pathname);
-  if (!match) return null;
-  if (BACK_TO_SUPPRESSED.has(match.identity.id)) return null;
-  const legacyBackTo = LEGACY_BACK_TO_OVERRIDES[match.identity.id];
-  if (legacyBackTo !== undefined) return legacyBackTo;
-  return resolveParentPath(match.identity, match.params);
-}
-
-/**
- * Transitional Slice 3A adapter for the legacy visible shell back behavior.
- * This is not hierarchy metadata: Slice 3B removes it when ReturnLink and
- * breadcrumb navigation migrate to the canonical identity hierarchy.
- */
-const LEGACY_BACK_TO_OVERRIDES: Partial<Record<RouteIdentity['id'], string>> = {
-  settingsDemoData: paths.settings,
-  settingsBackupRecovery: paths.settings,
-};
-
-/**
- * Nested identities whose hierarchy parent is modeled (for breadcrumbs in
- * 3B) but whose legacy shell surface exposed no back target. Slice 3B
- * deletes this set when breadcrumb/ReturnLink coverage lands; do not extend.
- */
-const BACK_TO_SUPPRESSED: ReadonlySet<RouteIdentity['id']> = new Set([
-  'settingsProfile',
-  'settingsSecurity',
-  'settingsNotifications',
-  'settingsApplication',
-  'reportStaff',
-  'reportCustomers',
-  'reportDeliveries',
-  'reportApprovals',
-  'reportSalesFollowUp',
-]);
 
 export function isJobsListPath(pathname: string): boolean {
   return pathname === paths.jobs || pathname === '/jobs/';

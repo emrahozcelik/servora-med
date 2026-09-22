@@ -113,11 +113,15 @@ describe('shared accessibility CSS contract', () => {
     );
   });
 
-  it('keeps long desktop route titles on one safely truncated line beside notifications', () => {
-    expect(css).toMatch(
-      /\.desktop-shell-title\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
-    );
+  it('keeps the desktop topbar free of route-title chrome beside notifications', () => {
+    expect(css).not.toMatch(/\.desktop-shell-title\s*\{/);
     expect(css).toMatch(/\.desktop-shell-topbar\s*>\s*\.notification-center\s*\{[^}]*flex:\s*0 0 auto;/s);
+  });
+
+  it('gives mobile ReturnLink the canonical reachable target size', () => {
+    expect(css).toMatch(
+      /@media \(max-width: 63\.99rem\)[\s\S]*\.route-return-link\s*\{[^}]*min-height:\s*44px;/s,
+    );
   });
 
   it('keeps the shell flat and restrained while elevating only the modal drawer', () => {

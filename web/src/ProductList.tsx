@@ -9,6 +9,7 @@ import {
   deleteProduct, listProducts, type Paginated, type Product, type ProductFilters,
 } from './services/products-api';
 import { ConfirmationAction } from './ui/antd';
+import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -60,7 +61,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct, onRequestDelete, feedback = '', actionError = '', headingRef }: {
+export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct, onRequestDelete, feedback = '', actionError = '' }: {
   state: ProductListState;
   user: CurrentUser;
   filters?: ProductFilterValues;
@@ -72,7 +73,6 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onRequestDelete?: (product: Product, trigger: HTMLButtonElement) => void;
   feedback?: string;
   actionError?: string;
-  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const canManage = user.role !== 'STAFF';
 
@@ -81,8 +81,9 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   </main>;
 
   return <main className="workspace product-workspace">
-    <div className="workspace-heading workspace-heading--route-actions"><div><h1 className="route-identity-heading" ref={headingRef} tabIndex={-1}>Ürünler</h1></div>
-      {canManage && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
+    <PageHeader fallbackTitle="Ürünler"
+      actions={canManage ? <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link> : undefined}
+    />
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
     {actionError && <div className="form-error" role="alert"><p>{actionError}</p></div>}
@@ -199,10 +200,8 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   }
 
   const hasFilters = Boolean(filters.q);
-  const headingRef = useRef<HTMLHeadingElement | null>(null);
   return <>
     <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
-      headingRef={headingRef}
       onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
       onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
       onRetry={() => setReload((value) => value + 1)}
@@ -217,7 +216,6 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
       pendingLabel="Siliniyor…"
       destructive
       returnFocusRef={deleteTriggerRef}
-      fallbackFocusRef={headingRef}
       onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
       onConfirm={() => { void confirmDelete(); }}
     />

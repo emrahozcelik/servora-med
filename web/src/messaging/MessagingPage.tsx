@@ -22,6 +22,7 @@ import { markNotificationsReadByEntity } from '../services/notifications-api';
 import { jobCardStatusLabel } from '../jobs/job-labels';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { LoadConversations, LoadMessages, LoadRecipients } from './MessagingSkeleton';
+import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { ResultState } from '../ui/antd/ResultState';
 import { UserAvatar } from '../ui/antd/UserAvatar';
@@ -795,12 +796,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   // --- Render ---
 
   if (listState.kind === 'loading') {
-    return <main className="workspace messaging-workspace"><h1 className="sr-only">Mesajlar</h1><LoadConversations /></main>;
+    return <main className="workspace messaging-workspace"><PageHeader fallbackTitle="Mesajlar" /><LoadConversations /></main>;
   }
   if (listState.kind === 'error') {
     return (
       <main className="workspace messaging-workspace">
-        <h1 className="sr-only">Mesajlar</h1>
+        <PageHeader fallbackTitle="Mesajlar" />
         <ResultState status="error" title="Konuşmalar yüklenemedi" description={listState.message}
           action={<button className="primary-button" onClick={refresh}>Tekrar dene</button>} />
       </main>
@@ -819,12 +820,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace messaging-workspace">
-      <h1 className="sr-only">Mesajlar</h1>
+      <PageHeader fallbackTitle="Mesajlar" />
       <div className={`messaging-container${createOpen ? ' composing' : ''}`} ref={containerRef}>
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header" hidden={createOpen}>
             <div className="messaging-sidebar-heading-row">
-              <h2 className="messaging-sidebar-heading">Mesajlar</h2>
+              <p className="messaging-sidebar-heading">Mesajlar</p>
               {canCreate && (
                 <button type="button" ref={createTriggerRef} className="secondary-button messaging-new-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
               )}

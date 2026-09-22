@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams 
 
 import { JobWorkspace } from './jobs/JobWorkspace';
 import { paths } from './paths';
-import { reportSectionHref } from './reports/report-navigation';
+import { canAccessRoute } from './shell/route-access';
 import { readStaffPerformanceSearch } from './reports/report-search';
 import type { CurrentUser } from './services/api';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
@@ -228,7 +228,7 @@ function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { jobCardId } = useParams();
   const navigate = useNavigate();
   if (!jobCardId) return <NotFoundView />;
-  return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)}
+  return <JobDetailScreen jobId={jobCardId} user={user}
     onCreateFollowUp={() => navigate(paths.followUpCreate(jobCardId))} onChanged={() => {}}
     onOpenMessaging={(conversationId) => navigate(`${paths.messages}?conversation=${encodeURIComponent(conversationId)}`)} />;
 }
@@ -236,28 +236,23 @@ function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { staffUserId } = useParams();
   const navigate = useNavigate();
-  if (user.role === 'STAFF' && staffUserId && staffUserId !== user.id) return <ForbiddenView />;
-  return <StaffProfilesScreen user={user} initialStaffUserId={staffUserId} onBack={() => navigate(paths.jobs)}
+  if (staffUserId && !canAccessRoute('staffProfile', user, { staffUserId })) return <ForbiddenView />;
+  return <StaffProfilesScreen user={user} initialStaffUserId={staffUserId}
     onOpenProfile={(id) => navigate(paths.staffProfile(id))} onProfileBack={() => navigate(paths.staff)}
     onOpenReport={(id) => navigate(paths.staffReport(id))} />;
 }
 
 function StaffReportRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { staffUserId } = useParams();
-  const navigate = useNavigate();
   const [search] = useSearchParams();
   const rangeState = readStaffPerformanceSearch(search);
-  if (user.role === 'STAFF') return <ForbiddenView />;
+  if (!canAccessRoute('staffReport', user)) return <ForbiddenView />;
   if (!staffUserId) return <NotFoundView />;
   const requestedRange = rangeState.from && rangeState.to
     ? { from: rangeState.from, to: rangeState.to }
     : null;
   return <StaffOperationalReportScreen staffUserId={staffUserId}
-    requestedRange={requestedRange}
-    backLabel={requestedRange ? 'Personel operasyon analizine dön' : 'Personel profiline dön'}
-    onBack={() => navigate(requestedRange
-      ? reportSectionHref('staff', rangeState)
-      : paths.staffProfile(staffUserId))} />;
+    requestedRange={requestedRange} />;
 }
 
 export function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -322,7 +317,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
 }) {
   const [sp] = useSearchParams();
   const sourceId = sp.get('source');
-  if (user.role === 'STAFF') return <ForbiddenView />;
+  if (!canAccessRoute('followUpCreate', user)) return <ForbiddenView />;
   if (!sourceId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
     return <main className="workspace"><ResultState status="error" title="Geçersiz takip bağlantısı"
       description="Takip işi oluşturmak için geçerli bir kaynak iş bağlantısı gerekir."
@@ -336,20 +331,20 @@ export function FollowUpCreateRoute({ user, navigate }: {
 
 export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
   const navigate = useNavigate();
-  const overviewEnabled = user.capabilities?.overviewDashboard === true;
-  const calendarEnabled = user.capabilities?.calendar === true;
-  const messagingEnabled = user.capabilities?.messaging === true;
-  const landingPath = overviewEnabled ? paths.overview : paths.jobs;
+  const overviewAllowed = canAccessRoute('overview', user);
+  const calendarAllowed = canAccessRoute('calendar', user);
+  const messagingAllowed = canAccessRoute('messages', user);
+  const landingPath = overviewAllowed ? paths.overview : paths.jobs;
   return (
     <Suspense fallback={<RouteLoading />}>
       <Routes>
         <Route path="/" element={<Navigate to={landingPath} replace />} />
         <Route path="/login" element={<Navigate to={landingPath} replace />} />
-        <Route path={paths.overview} element={overviewEnabled
+        <Route path={paths.overview} element={overviewAllowed
           ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
-        <Route path={paths.calendar} element={calendarEnabled
+        <Route path={paths.calendar} element={calendarAllowed
           ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
-        <Route path={paths.messages} element={messagingEnabled
+        <Route path={paths.messages} element={messagingAllowed
           ? <MessagingPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
@@ -358,11 +353,11 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.settingsSecurity} element={<SecuritySettingsPage onSessionEnded={onSessionEnded} />} />
         <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
         <Route path={paths.settingsApplication} element={<ApplicationSettingsPage />} />
-        <Route path={paths.settingsDataManagement} element={user.role === 'ADMIN'
+        <Route path={paths.settingsDataManagement} element={canAccessRoute('settingsDataManagement', user)
           ? <DataManagementPage user={user} /> : <ForbiddenView />} />
-        <Route path={paths.settingsDemoData} element={user.role === 'ADMIN'
+        <Route path={paths.settingsDemoData} element={canAccessRoute('settingsDemoData', user)
           ? <DemoDataPage user={user} /> : <ForbiddenView />} />
-        <Route path={paths.settingsBackupRecovery} element={user.role === 'ADMIN' && user.capabilities?.backup === true
+        <Route path={paths.settingsBackupRecovery} element={canAccessRoute('settingsBackupRecovery', user)
           ? <BackupRecoveryPage /> : <ForbiddenView />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
@@ -378,27 +373,28 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/jobs/new-follow-up" element={<FollowUpCreateRoute user={user}
           navigate={navigate} />} />
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
-        <Route path={paths.users} element={user.role === 'ADMIN' ? <UserListScreen /> : <ForbiddenView />} />
-        <Route path={paths.newUser} element={user.role === 'ADMIN' ? <UserCreateScreen /> : <ForbiddenView />} />
-        <Route path="/users/:userId" element={user.role === 'ADMIN' ? <UserDetailScreen viewerRole={user.role} /> : <ForbiddenView />} />
+        <Route path={paths.users} element={canAccessRoute('users', user) ? <UserListScreen /> : <ForbiddenView />} />
+        <Route path={paths.newUser} element={canAccessRoute('userCreate', user) ? <UserCreateScreen /> : <ForbiddenView />} />
+        <Route path="/users/:userId" element={canAccessRoute('userDetail', user) ? <UserDetailScreen viewerRole={user.role} /> : <ForbiddenView />} />
         <Route path={paths.staff} element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />
-        <Route path={paths.reports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ReportsDashboard />} />
-        <Route path={paths.staffPerformanceReports} element={user.role === 'STAFF'
-          ? <ForbiddenView />
-          : <StaffPerformanceReport />} />
-        <Route path={paths.deliveryReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <DeliveryReport user={user} />} />
-        <Route path={paths.customerReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerReport />} />
-        <Route path={paths.approvalReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ApprovalReport />} />
-        <Route path={paths.salesFollowUpReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <SalesFollowUpReport />} />
+        <Route path={paths.reports} element={canAccessRoute('reports', user) ? <ReportsDashboard /> : <ForbiddenView />} />
+        <Route path={paths.staffPerformanceReports} element={canAccessRoute('reportStaff', user)
+          ? <StaffPerformanceReport />
+          : <ForbiddenView />} />
+        <Route path={paths.deliveryReports} element={canAccessRoute('reportDeliveries', user) ? <DeliveryReport user={user} /> : <ForbiddenView />} />
+        <Route path={paths.customerReports} element={canAccessRoute('reportCustomers', user) ? <CustomerReport /> : <ForbiddenView />} />
+        <Route path={paths.approvalReports} element={canAccessRoute('reportApprovals', user) ? <ApprovalReport /> : <ForbiddenView />} />
+        <Route path={paths.salesFollowUpReports} element={canAccessRoute('reportSalesFollowUp', user) ? <SalesFollowUpReport /> : <ForbiddenView />} />
         <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
         <Route path={paths.newCustomer} element={<CustomerCreateScreen user={user} />} />
         <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
         <Route path="/customers/:customerId/contacts/:contactId" element={<ContactRoute user={user} />} />
         <Route path={paths.products} element={<ProductListScreen user={user} />} />
-        <Route path={paths.newProduct} element={user.role === 'STAFF' ? <ForbiddenView />
-          : <ProductCreateScreen onCancel={() => navigate(paths.products)} onCreated={(product) => navigate(paths.product(product.id))} />} />
+        <Route path={paths.newProduct} element={canAccessRoute('productCreate', user)
+          ? <ProductCreateScreen onCancel={() => navigate(paths.products)} onCreated={(product) => navigate(paths.product(product.id))} />
+          : <ForbiddenView />} />
         <Route path="/products/:productId" element={<ProductRoute user={user} />} />
         <Route path="*" element={<NotFoundView />} />
       </Routes>

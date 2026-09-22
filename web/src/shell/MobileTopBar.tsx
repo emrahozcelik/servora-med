@@ -1,10 +1,8 @@
 import type { ReactNode, RefObject } from 'react';
-import { Link } from 'react-router-dom';
 import { DunyaDentalBrand } from './DunyaDentalBrand';
 
 export function MobileTopBar({
   title,
-  backTo,
   menuExpanded,
   menuControlsId,
   onOpenMenu,
@@ -12,7 +10,6 @@ export function MobileTopBar({
   notifications,
 }: {
   title: string;
-  backTo: string | null;
   menuExpanded: boolean;
   menuControlsId: string;
   onOpenMenu: (opener: HTMLElement) => void;
@@ -23,11 +20,6 @@ export function MobileTopBar({
     <header className="compact-shell-header mobile-top-bar">
       <div className="mobile-top-bar-start">
         <DunyaDentalBrand variant="topbar" />
-        {backTo ? (
-          <Link className="mobile-top-back" to={backTo}>Geri</Link>
-        ) : (
-          <span className="mobile-top-back mobile-top-back--spacer" aria-hidden="true" />
-        )}
         <p className="mobile-shell-title">{title}</p>
       </div>
       <div className="mobile-top-bar-actions">

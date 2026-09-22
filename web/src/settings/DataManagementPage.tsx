@@ -10,6 +10,7 @@ import {
 } from '../services/data-management-api';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
 import { OperationalCard } from '../ui/antd/OperationalCard';
+import { PageHeader } from '../ui/PageHeader';
 import { ResultState } from '../ui/antd/ResultState';
 
 export const DATA_MANAGEMENT_SUBTITLE =
@@ -81,13 +82,7 @@ export function DataManagementPage({ user, load = getDataManagementSummary }: Da
   if (!summary) return null;
 
   return <main className="workspace settings-workspace data-management-workspace">
-    <header className="workspace-heading">
-      <div>
-        <h1>Veri Yönetimi</h1>
-        <p className="workspace-heading-copy">{DATA_MANAGEMENT_SUBTITLE}</p>
-      </div>
-      <Link className="ghost-button" to={paths.settings}>Ayarlar</Link>
-    </header>
+    <PageHeader description={DATA_MANAGEMENT_SUBTITLE} fallbackTitle="Veri Yönetimi" />
 
     {error && <p className="form-error" role="alert">{error}</p>}
 

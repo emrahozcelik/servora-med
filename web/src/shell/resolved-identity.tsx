@@ -96,9 +96,8 @@ export function useOptionalResolvedIdentity(): ResolvedRouteIdentity | null {
  */
 export function useSetRouteRuntimeLabel(): (label: string | undefined) => void {
   const context = useContext(ResolvedIdentityContext);
-  if (!context) throw new Error('useSetRouteRuntimeLabel must be used inside ResolvedIdentityProvider');
   return useCallback(
-    (label: string | undefined) => context.setRuntimeLabel(label),
+    (label: string | undefined) => context?.setRuntimeLabel(label),
     [context],
   );
 }

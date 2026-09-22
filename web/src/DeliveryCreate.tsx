@@ -19,6 +19,7 @@ import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import type { Product } from './services/products-api';
 import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+import { PageHeader } from './ui/PageHeader';
 
 export type DeliveryFormValues = {
   customerId: string;
@@ -268,7 +269,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   const semanticInputsDisabled = pending || ambiguous;
   return <main className="delivery-create">
-    <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
+    <PageHeader eyebrow="Yeni kayıt" description="Ürün teslimi" fallbackTitle="Yeni iş" />
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
       {calendarConflicts.map((conflict) => (

@@ -2304,7 +2304,7 @@ describe('Staff JobCard detail', () => {
     expect(precedes(facts, actions)).toBe(true);
     expect(precedes(actions, timelineSection)).toBe(true);
     expect(heading.querySelector('.detail-heading-meta')?.textContent).toContain('Normal öncelik');
-    expect(heading.querySelector('.detail-back-button')?.textContent).toBe('Listeye dön');
+    expect(heading.querySelector('.detail-back-button')).toBeNull();
     expect(host.querySelector('.detail-summary.surface-flat')).not.toBeNull();
   });
 

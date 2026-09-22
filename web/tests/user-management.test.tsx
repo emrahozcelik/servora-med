@@ -34,7 +34,7 @@ describe('Admin user management views', () => {
 
   it('renders role-conditioned Staff fields and explicit labels', () => {
     const html = renderToStaticMarkup(<UserCreateForm managers={[]} onCancel={() => {}} onCreated={() => {}} />);
-    expect(html).toContain('Kullanıcı oluştur'); expect(html).toContain('Geçici parola');
+    expect(html).toContain('Yeni kullanıcı'); expect(html).toContain('Geçici parola');
     expect(html).toContain('Unvan'); expect(html).toContain('Bölge'); expect(html).toContain('Yönetici');
   });
 
@@ -67,9 +67,9 @@ describe('Admin user management views', () => {
     expect(historyBearing).not.toMatch(/<button[^>]*>Kalıcı olarak sil<\/button>/);
   });
 
-  it('user create uses create-heading and form-actions with Vazgeç before submit and no heading cancel', () => {
+  it('user create uses page-header and form-actions with Vazgeç before submit and no heading cancel', () => {
     const html = renderToStaticMarkup(<UserCreateForm managers={[]} onCancel={() => {}} onCreated={() => {}} />);
-    expect(html).toContain('create-heading');
+    expect(html).toContain('page-header');
     expect(html).not.toContain('detail-heading');
     const actions = html.match(/form-actions/g);
     expect(actions).toHaveLength(1);
