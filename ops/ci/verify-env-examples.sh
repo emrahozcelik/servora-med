@@ -101,4 +101,29 @@ for key in WEB_PUSH_VAPID_SUBJECT WEB_PUSH_VAPID_PUBLIC_KEY WEB_PUSH_VAPID_PRIVA
   }
 done
 
-echo "env-example contract passed (HEALTH_SCHEMA_VERSION=${LATEST_MIGRATION}, staging flags, placeholder-only secrets)"
+# 4. OPS-BACKUP-OBS-1 observation provider contract (DECISIONS.md -> OPS-004).
+# The reader (application env) and the writer (backup env) must name the SAME
+# artifact, and the committed examples must not pre-activate the host provider:
+# switching production to it is a separate reviewed cutover, not a template edit.
+BACKUP_EXAMPLE="$ROOT/ops/examples/servora-med-backup.env.example"
+test -f "$BACKUP_EXAMPLE"
+
+OBSERVATION_PATH="/var/lib/servora-med-backup/observation-v1.json"
+
+for example in "$PROD_EXAMPLE" "$STAGING_EXAMPLE"; do
+  if ! grep -qxF "BACKUP_PROVIDER=" "$example"; then
+    echo "BACKUP_PROVIDER must be present and empty (unactivated) in $(basename "$example")" >&2
+    exit 1
+  fi
+  if ! grep -qxF "BACKUP_OBSERVATION_PATH=${OBSERVATION_PATH}" "$example"; then
+    echo "BACKUP_OBSERVATION_PATH must be ${OBSERVATION_PATH} in $(basename "$example")" >&2
+    exit 1
+  fi
+done
+
+if ! grep -qxF "BACKUP_OBSERVATION_PATH=${OBSERVATION_PATH}" "$BACKUP_EXAMPLE"; then
+  echo "the writer env example must point at the same observation artifact as the reader" >&2
+  exit 1
+fi
+
+echo "env-example contract passed (HEALTH_SCHEMA_VERSION=${LATEST_MIGRATION}, staging flags, placeholder-only secrets, OPS-004 observation provider)"

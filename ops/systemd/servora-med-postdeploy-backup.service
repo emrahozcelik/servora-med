@@ -1,0 +1,30 @@
+[Unit]
+Description=Servora-Med PostgreSQL post-deploy backup (oneshot)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=servora-med
+Group=servora-med
+EnvironmentFile=/etc/servora-med/servora-med-backup.env
+# Deliberately a separate unit from servora-med-backup.service: the post-deploy
+# safety backup must never be recorded as `scheduled`, because that would let a
+# deploy hide a broken daily timer (DECISIONS.md -> OPS-004 item 7). It runs from
+# the active /opt/servora-med/current release, which the deploy has already
+# switched before this phase.
+ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh --trigger=postdeploy
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/servora-med /var/log/servora-med
+StateDirectory=servora-med-backup
+StateDirectoryMode=0700
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servora-med-postdeploy-backup

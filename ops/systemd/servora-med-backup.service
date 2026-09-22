@@ -1,5 +1,5 @@
 [Unit]
-Description=Servora-Med PostgreSQL backup (oneshot)
+Description=Servora-Med PostgreSQL backup (scheduled timer, oneshot)
 After=network-online.target postgresql.service
 
 [Service]
@@ -7,7 +7,12 @@ Type=oneshot
 User=servora-med
 Group=servora-med
 EnvironmentFile=/etc/servora-med/servora-med-backup.env
-ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh
+# Trigger provenance is stated by the call site, never inferred. This unit is
+# started only by servora-med-backup.timer, so it records `scheduled` and is the
+# only class that can satisfy the schedule heartbeat. Operator on-demand backups
+# use servora-med-backup-manual.service; deploy backups use the predeploy
+# template and servora-med-postdeploy-backup.service.
+ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh --trigger=scheduled
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
@@ -17,6 +22,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/backups/servora-med /var/log/servora-med
+# Owns /var/lib/servora-med-backup at 0700 servora-med:servora-med, the
+# observation state root (DECISIONS.md -> OPS-004 item 2).
+StateDirectory=servora-med-backup
+StateDirectoryMode=0700
 
 StandardOutput=journal
 StandardError=journal

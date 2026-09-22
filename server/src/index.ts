@@ -1,5 +1,5 @@
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { DEFAULT_BACKUP_PROVIDER, loadConfig, type AppConfig } from './config.js';
 import { closeDatabase, createDatabase } from './db/index.js';
 import { createPostgresReadiness } from './modules/health/postgres-readiness.js';
 import {
@@ -8,6 +8,11 @@ import {
 } from './db/schema-compatibility.js';
 import { loadMigrationCatalog } from './db/migration-catalog.js';
 import { createPostgresBackupHealth } from './modules/health/postgres-backup-health.js';
+import {
+  createDisabledBackupHealth,
+  createHostBackupObservationHealth,
+} from './modules/health/host-backup-observation.js';
+import type { BackupHealthReadinessPort } from './modules/health/service.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
 import {
@@ -38,6 +43,36 @@ import {
   PostgresOverdueBreachScannerRepository,
   createOverdueBreachScanner,
 } from './modules/job-cards/overdue-breach-scanner.js';
+
+/**
+ * Selects exactly one backup observability provider (DECISIONS.md -> OPS-004
+ * item 9). Both providers are projected onto the shared public health contract,
+ * so BR5/R2 and the host observation artifact can coexist later without being
+ * forced into a single table.
+ */
+function createBackupHealthReadiness(
+  config: AppConfig,
+  pool: Parameters<typeof createPostgresBackupHealth>[0],
+): BackupHealthReadinessPort {
+  // `loadConfig` always populates this; the fallback only keeps hand-built
+  // fixtures compiling, and mirrors the documented unset default exactly.
+  const { provider, observationPath } = config.backupProvider
+    ?? { provider: DEFAULT_BACKUP_PROVIDER, observationPath: null };
+  if (provider === 'host-observation') {
+    if (observationPath === null) {
+      // Unreachable through loadConfig, but never degrade silently.
+      throw new Error('BACKUP_OBSERVATION_PATH is required when BACKUP_PROVIDER=host-observation');
+    }
+    return createHostBackupObservationHealth({ observationPath });
+  }
+  if (provider === 'br5-r2') {
+    return createPostgresBackupHealth(pool, {
+      workerEnabled: config.backupWorker?.enabled === true,
+    });
+  }
+  // Intentionally disabled: a distinct truthful state, not a failed backup run.
+  return createDisabledBackupHealth();
+}
 
 async function main() {
   const config = loadConfig();
@@ -143,9 +178,7 @@ async function main() {
         database.pool,
       ),
       healthReadiness: createPostgresReadiness(database.pool, catalog),
-      backupHealthReadiness: createPostgresBackupHealth(database.pool, {
-        workerEnabled: config.backupWorker?.enabled === true,
-      }),
+      backupHealthReadiness: createBackupHealthReadiness(config, database.pool),
       realtimeService,
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),

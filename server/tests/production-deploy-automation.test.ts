@@ -31,10 +31,47 @@ const recoveryHelper = fileURLToPath(new URL('../../ops/scripts/production-recov
 const patchedHostHelper = (() => {
   const p = join(tmpdir(), `patched-host-${process.pid}.sh`);
   try {
-    const content = readFileSync(hostHelper, 'utf8').replace(
-      'readonly APP_ENV_FILE="/etc/servora-med/servora-med.env"',
-      'APP_ENV_FILE="${APP_ENV_FILE:-/etc/servora-med/servora-med.env}"',
-    );
+    const content = readFileSync(hostHelper, 'utf8')
+      .replace(
+        'readonly APP_ENV_FILE="/etc/servora-med/servora-med.env"',
+        'APP_ENV_FILE="${APP_ENV_FILE:-/etc/servora-med/servora-med.env}"',
+      )
+      .replace(
+        'readonly PREDEPLOY_LAUNCHER="/usr/local/libexec/servora-med/predeploy-backup-launcher"',
+        'PREDEPLOY_LAUNCHER="${PREDEPLOY_LAUNCHER:-/usr/local/libexec/servora-med/predeploy-backup-launcher}"',
+      )
+      .replace(
+        'readonly PREDEPLOY_UNIT="/etc/systemd/system/servora-med-predeploy-backup@.service"',
+        'PREDEPLOY_UNIT="${PREDEPLOY_UNIT:-/etc/systemd/system/servora-med-predeploy-backup@.service}"',
+      )
+      .replace(
+        'readonly SCHEDULED_BACKUP_UNIT="/etc/systemd/system/servora-med-backup.service"',
+        'SCHEDULED_BACKUP_UNIT="${SCHEDULED_BACKUP_UNIT:-/etc/systemd/system/servora-med-backup.service}"',
+      )
+      .replace(
+        'readonly SCHEDULED_BACKUP_TIMER="/etc/systemd/system/servora-med-backup.timer"',
+        'SCHEDULED_BACKUP_TIMER="${SCHEDULED_BACKUP_TIMER:-/etc/systemd/system/servora-med-backup.timer}"',
+      )
+      .replace(
+        'readonly MANUAL_BACKUP_UNIT="/etc/systemd/system/servora-med-backup-manual.service"',
+        'MANUAL_BACKUP_UNIT="${MANUAL_BACKUP_UNIT:-/etc/systemd/system/servora-med-backup-manual.service}"',
+      )
+      .replace(
+        'readonly POSTDEPLOY_BACKUP_UNIT="/etc/systemd/system/${POSTDEPLOY_BACKUP_UNIT_NAME}"',
+        'POSTDEPLOY_BACKUP_UNIT="${POSTDEPLOY_BACKUP_UNIT:-/etc/systemd/system/${POSTDEPLOY_BACKUP_UNIT_NAME}}"',
+      )
+      .replace(
+        'readonly BACKUP_ENV_FILE="/etc/servora-med/servora-med-backup.env"',
+        'BACKUP_ENV_FILE="${BACKUP_ENV_FILE:-/etc/servora-med/servora-med-backup.env}"',
+      )
+      .replace(
+        'readonly OBSERVATION_STATE_DIR="/var/lib/servora-med-backup"',
+        'OBSERVATION_STATE_DIR="${OBSERVATION_STATE_DIR:-/var/lib/servora-med-backup}"',
+      )
+      .replace(
+        'readonly OBSERVATION_STATE_FILE="/var/lib/servora-med-backup/observation-v1.json"',
+        'OBSERVATION_STATE_FILE="${OBSERVATION_STATE_FILE:-/var/lib/servora-med-backup/observation-v1.json}"',
+      );
     writeFileSync(p, content, { mode: 0o755 });
   } catch {}
   return p;
@@ -44,6 +81,15 @@ const migrationReconciliation = fileURLToPath(new URL('../../ops/scripts/migrati
 const browserSmoke = fileURLToPath(new URL('../../web/scripts/production-browser-smoke.mjs', import.meta.url));
 const workflow = fileURLToPath(new URL('../../.github/workflows/deploy-production.yml', import.meta.url));
 const deploymentDoc = fileURLToPath(new URL('../../docs/operations/production-deployment.md', import.meta.url));
+const scheduledBackupUnit = fileURLToPath(new URL('../../ops/systemd/servora-med-backup.service', import.meta.url));
+const scheduledBackupTimer = fileURLToPath(new URL('../../ops/systemd/servora-med-backup.timer', import.meta.url));
+const postdeployBackupUnit = fileURLToPath(new URL('../../ops/systemd/servora-med-postdeploy-backup.service', import.meta.url));
+const predeployBackupUnit = fileURLToPath(new URL('../../ops/systemd/servora-med-predeploy-backup@.service', import.meta.url));
+const manualBackupUnit = fileURLToPath(new URL('../../ops/systemd/servora-med-backup-manual.service', import.meta.url));
+const predeployBackupLauncher = fileURLToPath(new URL('../../ops/scripts/predeploy-backup-launcher.sh', import.meta.url));
+const baseScheduledBackupUnit = fileURLToPath(
+  new URL('../../ops/ci/fixtures/servora-med-backup.base.service', import.meta.url),
+);
 
 const TEST_SHA = '0123456789abcdef0123456789abcdef01234567';
 const OLD_RELEASE_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -395,6 +441,72 @@ function createEnvFile(root: string, content: string) {
 
 function runPatchedHost(body: string, extraEnv: NodeJS.ProcessEnv = {}, args: string[] = []) {
   return runSourced(patchedHostHelper, body, args, extraEnv);
+}
+
+function runHostBackupContractFixture(scheduledUnitSource: string) {
+  const root = temporaryDirectory('host-backup-contract');
+  const paths = {
+    scheduled: join(root, 'servora-med-backup.service'),
+    timer: join(root, 'servora-med-backup.timer'),
+    postdeploy: join(root, 'servora-med-postdeploy-backup.service'),
+    predeploy: join(root, 'servora-med-predeploy-backup@.service'),
+    manual: join(root, 'servora-med-backup-manual.service'),
+    launcher: join(root, 'predeploy-backup-launcher'),
+    backupEnv: join(root, 'servora-med-backup.env'),
+    observation: join(root, 'observation-v1.json'),
+  };
+  copyFileSync(scheduledUnitSource, paths.scheduled);
+  copyFileSync(scheduledBackupTimer, paths.timer);
+  copyFileSync(postdeployBackupUnit, paths.postdeploy);
+  copyFileSync(predeployBackupUnit, paths.predeploy);
+  copyFileSync(manualBackupUnit, paths.manual);
+  copyFileSync(predeployBackupLauncher, paths.launcher);
+  writeFileSync(paths.backupEnv, `BACKUP_OBSERVATION_PATH=${paths.observation}\n`);
+  const result = runPatchedHost(
+    `PHASE=TEST
+SHA="${TEST_SHA}"
+stat() {
+  local path="\${@: -1}"
+  case "$path" in
+    *predeploy-backup-launcher) printf 'root:root:755\\n' ;;
+    *servora-med-backup.env) printf 'root:servora-med:640\\n' ;;
+    *) printf 'root:root:644\\n' ;;
+  esac
+}
+assert_host_backup_contract`,
+    {
+      SCHEDULED_BACKUP_UNIT: paths.scheduled,
+      SCHEDULED_BACKUP_TIMER: paths.timer,
+      POSTDEPLOY_BACKUP_UNIT: paths.postdeploy,
+      PREDEPLOY_UNIT: paths.predeploy,
+      MANUAL_BACKUP_UNIT: paths.manual,
+      PREDEPLOY_LAUNCHER: paths.launcher,
+      BACKUP_ENV_FILE: paths.backupEnv,
+      OBSERVATION_STATE_FILE: paths.observation,
+    },
+  );
+  return { result, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function runObservationAcceptanceFixture(document: unknown) {
+  const root = temporaryDirectory('observation-acceptance');
+  const state = join(root, 'observation-v1.json');
+  writeFileSync(state, `${JSON.stringify(document)}\n`, { mode: 0o600 });
+  const result = runPatchedHost(
+    `PHASE=POSTDEPLOY_BACKUP
+SHA="${TEST_SHA}"
+stat() {
+  local path="\${@: -1}"
+  if [[ "$path" == "$OBSERVATION_STATE_DIR" ]]; then
+    printf 'servora-med:servora-med:700\\n'
+  else
+    printf 'servora-med:servora-med:600\\n'
+  fi
+}
+assert_observation_state_contract 2026-09-21T17:00:00Z 2026-09-21T17:00:10Z`,
+    { OBSERVATION_STATE_DIR: root, OBSERVATION_STATE_FILE: state },
+  );
+  return { result, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 function runHealthTransitionHarness(
@@ -824,6 +936,138 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('systemctl enable servora-med.service');
     expect(content).toContain('does not start the process');
     expect(content).not.toContain('systemctl enable --now servora-med.service');
+    expect(content).toContain('ops/systemd/servora-med-backup.service');
+    expect(content).toContain('ops/systemd/servora-med-backup.timer');
+    expect(content).toContain('ops/systemd/servora-med-predeploy-backup@.service');
+    expect(content).toContain('ops/systemd/servora-med-postdeploy-backup.service');
+    expect(content).toContain('ops/systemd/servora-med-backup-manual.service');
+    expect(content).toContain('sudo systemctl daemon-reload');
+    expect(content).toContain(
+      'BACKUP_OBSERVATION_PATH=/var/lib/servora-med-backup/observation-v1.json',
+    );
+    expect(content).toContain('Public-health provider activation is a later');
+    expect(content).toContain('BACKUP_PROVIDER=host-observation');
+  });
+
+  it('rejects the exact base scheduled unit that omits --trigger=scheduled', () => {
+    const fixture = runHostBackupContractFixture(baseScheduledBackupUnit);
+    try {
+      expect(fixture.result.status).not.toBe(0);
+      expect(`${fixture.result.stdout}${fixture.result.stderr}`).toContain(
+        'SCHEDULED_BACKUP_HOST_CONTRACT_DRIFT',
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('accepts only the reviewed trigger-provenance host backup files', () => {
+    const fixture = runHostBackupContractFixture(scheduledBackupUnit);
+    try {
+      expect(fixture.result.status).toBe(0);
+      expect(readFileSync(scheduledBackupUnit, 'utf8')).toContain('--trigger=scheduled');
+      expect(readFileSync(postdeployBackupUnit, 'utf8')).toContain('--trigger=postdeploy');
+      expect(readFileSync(predeployBackupLauncher, 'utf8')).toContain('--trigger=predeploy');
+      expect(readFileSync(manualBackupUnit, 'utf8')).toContain('--trigger=manual');
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('rejects a stale predeploy observation after the postdeploy backup', () => {
+    const fixture = runObservationAcceptanceFixture({
+      schemaVersion: 1,
+      latestAttemptTrigger: 'predeploy',
+      latestAttemptResult: 'success',
+      latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
+      latestVerifiedAt: '2026-09-21T17:00:05Z',
+      latestVerifiedTrigger: 'predeploy',
+    });
+    try {
+      expect(fixture.result.status).not.toBe(0);
+      expect(`${fixture.result.stdout}${fixture.result.stderr}`).toContain(
+        'OBSERVATION_STATE_FILE_CONTRACT_INVALID',
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it('accepts only current, internally consistent postdeploy success evidence', () => {
+    const cases: Array<{ label: string; document: unknown; accepted: boolean }> = [
+      {
+        label: 'stale scheduled observation',
+        document: {
+          schemaVersion: 1,
+          latestAttemptTrigger: 'scheduled',
+          latestAttemptResult: 'success',
+          latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
+          latestVerifiedAt: '2026-09-21T17:00:05Z',
+          latestVerifiedTrigger: 'scheduled',
+        },
+        accepted: false,
+      },
+      {
+        label: 'current postdeploy success',
+        document: {
+          schemaVersion: 1,
+          latestAttemptTrigger: 'postdeploy',
+          latestAttemptResult: 'success',
+          latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
+          latestVerifiedAt: '2026-09-21T17:00:05Z',
+          latestVerifiedTrigger: 'postdeploy',
+        },
+        accepted: true,
+      },
+      {
+        label: 'malformed timestamp',
+        document: {
+          schemaVersion: 1,
+          latestAttemptTrigger: 'postdeploy',
+          latestAttemptResult: 'success',
+          latestAttemptCompletedAt: 'not-an-instant',
+          latestVerifiedAt: 'not-an-instant',
+          latestVerifiedTrigger: 'postdeploy',
+        },
+        accepted: false,
+      },
+      {
+        label: 'future timestamp',
+        document: {
+          schemaVersion: 1,
+          latestAttemptTrigger: 'postdeploy',
+          latestAttemptResult: 'success',
+          latestAttemptCompletedAt: '2026-09-21T17:00:11Z',
+          latestVerifiedAt: '2026-09-21T17:00:11Z',
+          latestVerifiedTrigger: 'postdeploy',
+        },
+        accepted: false,
+      },
+      {
+        label: 'verified timestamp does not correspond to completed attempt',
+        document: {
+          schemaVersion: 1,
+          latestAttemptTrigger: 'postdeploy',
+          latestAttemptResult: 'success',
+          latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
+          latestVerifiedAt: '2026-09-21T17:00:04Z',
+          latestVerifiedTrigger: 'postdeploy',
+        },
+        accepted: false,
+      },
+    ];
+    for (const fixtureCase of cases) {
+      const fixture = runObservationAcceptanceFixture(fixtureCase.document);
+      try {
+        if (fixtureCase.accepted) {
+          expect(fixture.result.status, fixtureCase.label).toBe(0);
+        } else {
+          expect(fixture.result.status, fixtureCase.label).not.toBe(0);
+        }
+      } finally {
+        fixture.cleanup();
+      }
+    }
   });
 
   it('executes strict checksum sidecar validation for valid and malicious fixtures', () => {
@@ -1272,7 +1516,11 @@ describe('controlled production deployment automation contract', () => {
       expect(result.result.status).toBe(2);
       expect(`${result.result.stdout}${result.result.stderr}`).toContain('LIVE_BUT_POSTDEPLOY_BACKUP_FAILED');
       expect(result.events).toContain('health');
-      expect(result.events).toContain('systemctl:start servora-med-backup.service');
+      // The post-deploy safety backup runs through its own unit, so a deploy can
+      // never record a `scheduled` run and hide a broken daily timer
+      // (DECISIONS.md -> OPS-004 item 7).
+      expect(result.events).toContain('systemctl:start servora-med-postdeploy-backup.service');
+      expect(result.events).not.toContain('systemctl:start servora-med-backup.service');
       expect(result.events.some((event) => event.startsWith('switch:'))).toBe(false);
       expect(result.events).not.toContain('systemctl:restart servora-med.service');
     } finally {
@@ -2053,14 +2301,20 @@ describe('release identity capability evidence — artifact binding', () => {
       'server/dist/db/migrate.js',
       'server/dist/db/schema-check.js',
       'ops/scripts/backup-postgres.sh',
+      'ops/scripts/backup-observation.sh',
       'ops/scripts/migration-state.mjs',
       'ops/scripts/migration-reconciliation.mjs',
       'ops/scripts/deploy-production-host.sh',
       'ops/scripts/predeploy-backup-launcher.sh',
+      'ops/systemd/servora-med-backup.service',
+      'ops/systemd/servora-med-backup.timer',
       'ops/systemd/servora-med-predeploy-backup@.service',
+      'ops/systemd/servora-med-postdeploy-backup.service',
+      'ops/systemd/servora-med-backup-manual.service',
     ];
     for (const file of files) writeFileSync(join(root, file), 'fixture');
     chmodSync(join(root, 'ops/scripts/backup-postgres.sh'), 0o755);
+    chmodSync(join(root, 'ops/scripts/backup-observation.sh'), 0o755);
     if (withMarker) {
       copyFileSync(markerRepoPath, join(root, 'ops/release-capabilities/release-identity-v1'));
     }

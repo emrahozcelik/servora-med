@@ -3,7 +3,7 @@
 ```text
 Date: 2026-09-07
 Gate: OPS-BACKUP-OBS-1
-Status: accepted design; no implementation in this document
+Status: accepted design; implemented by OPS_BACKUP_OBS_1_IMPLEMENTATION (see §8)
 Decision record: DECISIONS.md -> OPS-004
 ```
 
@@ -170,7 +170,7 @@ OPS-BACKUP-OFFSITE-1
 OPS-BACKUP-RESTORE-1
 ```
 
-Expected implementation assessment:
+Expected implementation assessment (recorded before implementation):
 
 ```text
 MIGRATION_REQUIRED: NO
@@ -181,3 +181,74 @@ BACKUP_SCRIPT_CHANGE_REQUIRED: YES
 HEALTH_MODULE_CHANGE_REQUIRED: YES
 ALERTING_CHANGE_REQUIRED: FUTURE_GATE
 ```
+
+## 8. Implementation status (`OPS_BACKUP_OBS_1_IMPLEMENTATION`)
+
+Sections 1–7 above remain the accepted design and are unchanged. This section
+records what was actually built against it.
+
+Realized artefacts:
+
+| Responsibility | Implementation |
+|---|---|
+| SSOT | `/var/lib/servora-med-backup/observation-v1.json`, `schemaVersion: 1` |
+| Writer helper | `ops/scripts/backup-observation.sh` (the only writer) |
+| Writer caller | `ops/scripts/backup-postgres.sh` via `BACKUP_OBSERVATION_PATH` |
+| State directory | `StateDirectory=servora-med-backup`, `StateDirectoryMode=0700` |
+| Health reader | `server/src/modules/health/host-backup-observation.ts` |
+| Shared evaluator | `server/src/modules/health/backup-freshness.ts` |
+| Writer contract proof | `ops/ci/verify-backup-observation.sh` |
+| Server contract proof | `server/tests/backup-observation.test.ts` |
+
+Notes on the realized contract:
+
+- The document is deliberately **flat** (one scalar per top-level key, fixed key
+  order) so the pure-bash writer can carry prior evidence forward without a JSON
+  parser and without a new runtime dependency, while remaining one versioned JSON
+  document for readers.
+- The failure-class vocabulary is a **closed set on both sides**
+  (`DUMP_FAILED`, `CHECKSUM_FAILED`, `ARTIFACT_FINALIZE_FAILED`,
+  `OFFSITE_COPY_FAILED`, `OBSERVATION_WRITE_FAILED`, `UNKNOWN`). The writer
+  refuses to publish anything else and the reader treats anything else as
+  untrusted. A test asserts the shell and TypeScript lists never drift, so no
+  free-form text — including raw stderr — can enter the state.
+- Both sides validate instants with a range-limited shape check **plus** an epoch
+  round-trip, so calendar-impossible values such as `2026-02-30T00:00:00Z` are
+  rejected rather than silently normalized.
+- Trigger provenance is an explicit `--trigger` argument from four distinct
+  units. The post-deploy and manual classes have their own units so they cannot
+  be recorded as `scheduled`.
+- The compatibility aggregate `status: ok | unavailable` keeps its pre-existing
+  meaning (`ok` only for the fully healthy provider state); the accepted
+  vocabulary and provider detail travel in additive fields.
+- `BACKUP_PROVIDER` selects the active provider explicitly. An unset value
+  preserves the previously wired application-side projection, so deploying this
+  slice activates nothing by itself.
+
+Actual assessment (matches the expectation above):
+
+```text
+MIGRATION_REQUIRED: NO
+API_CONTRACT_CHANGE: ADDITIVE
+NEW_CONFIG_REQUIRED: YES
+SYSTEMD_CHANGE_REQUIRED: YES
+BACKUP_SCRIPT_CHANGE_REQUIRED: YES
+HEALTH_MODULE_CHANGE_REQUIRED: YES
+ALERTING_CHANGE_REQUIRED: FUTURE_GATE
+```
+
+Explicitly **not** done by this slice — do not read this document as claiming
+otherwise:
+
+- operator alerting is not installed and consumes nothing yet;
+- no offsite/R2 cutover; BR5 and `BACKUP_WORKER_ENABLED` remain disabled;
+- no restore rehearsal, no real-R2 DR acceptance;
+- no production activation: `BACKUP_PROVIDER` is unactivated in the committed
+  env examples, no production env was modified and no production service was
+  restarted or manually backed up;
+- `OPS_BACKUP_TIMER_1_FIRST_RUN_ACCEPTANCE` still has to prove the first natural
+  timer chain.
+
+`DECISIONS.md` → OPS-004 remains the unchanged decision record; this section
+records implementation state only.
+
