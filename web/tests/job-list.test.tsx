@@ -380,6 +380,20 @@ describe('routed JobCard workspace', () => {
       .every((link) => link.getAttribute('data-state') === 'idle')).toBe(true);
   });
 
+  it('renders INVALIDATED as an explicit list-only status without a current quick view', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?status=INVALIDATED', load, manager);
+    await act(async () => { await Promise.resolve(); });
+
+    const current = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .filter((link) => link.getAttribute('aria-current') === 'page');
+    expect(current).toEqual([]);
+    expect(container.querySelector('[data-job-view-list-only]')?.textContent)
+      .toBe('Görünüm: Liste · Yalnızca liste');
+    expect(container.querySelector<HTMLSelectElement>('#job-status')?.value).toBe('INVALIDATED');
+    expect(load).toHaveBeenLastCalledWith({ status: 'INVALIDATED', limit: 25, offset: 0 });
+  });
+
   it('shows Biten işler to Staff without exposing the approval queue', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     await mount('/jobs', load, staff); await act(async () => { await Promise.resolve(); });

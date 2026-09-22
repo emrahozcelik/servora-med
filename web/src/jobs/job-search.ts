@@ -60,8 +60,8 @@ export function jobMembership(state: JobSearchState): JobMembership {
   const status = state.status ?? 'active';
   if (status === 'WAITING_APPROVAL') return { kind: 'approval' };
   if (status === 'REVISION_REQUESTED') return { kind: 'revision' };
-  if (status === 'closed' || status === 'COMPLETED' || status === 'CANCELLED'
-    || status === 'INVALIDATED') return { kind: 'closed' };
+  if (status === 'closed' || status === 'COMPLETED' || status === 'CANCELLED') return { kind: 'closed' };
+  if (status === 'INVALIDATED') return { kind: 'unscoped' };
   if (status === 'all') return { kind: 'unscoped' };
   return { kind: 'active' };
 }

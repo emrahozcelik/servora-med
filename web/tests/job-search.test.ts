@@ -367,6 +367,15 @@ describe('membership / view-mode transition matrix (Jobs control surface)', () =
     expect(supportsBoard(parseJobSearch(new URLSearchParams('status=WAITING_APPROVAL')))).toBe(true);
   });
 
+  it('keeps INVALIDATED outside the Biten membership aggregate', () => {
+    expect(jobMembership(parseJobSearch(new URLSearchParams('status=closed')))).toEqual({ kind: 'closed' });
+    expect(jobMembership(parseJobSearch(new URLSearchParams('status=COMPLETED')))).toEqual({ kind: 'closed' });
+    expect(jobMembership(parseJobSearch(new URLSearchParams('status=CANCELLED')))).toEqual({ kind: 'closed' });
+    expect(jobMembership(parseJobSearch(new URLSearchParams('status=INVALIDATED')))).toEqual({ kind: 'unscoped' });
+    expect(jobMembership(parseJobSearch(new URLSearchParams('status=all')))).toEqual({ kind: 'unscoped' });
+    expect(supportsBoard(parseJobSearch(new URLSearchParams('status=INVALIDATED')))).toBe(false);
+  });
+
   it('filter sheet clear returns to the canonical Aktif membership', () => {
     const current = new URLSearchParams('overdue=true&q=klinik&status=closed&priority=high');
     const cleared = applyJobFilterChanges(current, {
