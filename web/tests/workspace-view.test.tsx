@@ -21,8 +21,9 @@ describe('JobCard workspace ownership', () => {
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
         role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 }}
       filters={{ status: 'active', view: 'list', offset: 0 }}
-      onApply={() => undefined} onChange={() => undefined} onViewChange={() => undefined}
-      showViewControl
+      onApply={() => undefined} onClear={() => undefined}
+      onChange={() => undefined} onViewChange={() => undefined}
+      boardSupported
     />);
     expect(html).toContain('<option value="PRODUCT_DELIVERY">Ürün teslimi</option>');
     expect(html).toContain('<option value="GENERAL_TASK">Genel görev</option>');

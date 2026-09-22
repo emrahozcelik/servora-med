@@ -160,6 +160,18 @@ describe('read-only JobCard board', () => {
     ]);
   });
 
+  it('renders only the selected active-status lane for a status quick-view board', () => {
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={board} user={manager} compact={false}
+        visibleStatus="REVISION_REQUESTED"
+        params={new URLSearchParams('status=REVISION_REQUESTED&view=board')} /></MemoryRouter>,
+    );
+    expect(Array.from(host.querySelectorAll<HTMLElement>('[data-workflow-lane]'))
+      .map((lane) => lane.dataset.workflowLane)).toEqual(['REVISION_REQUESTED']);
+    expect(host.querySelector('.job-board-closed')).toBeNull();
+  });
+
   it('caps lane previews at four while preserving the backend count', () => {
     const previewBoard: JobCardBoard = {
       ...board,
@@ -372,6 +384,7 @@ describe('read-only JobCard board', () => {
 describe('responsive routed JobCard board', () => {
   let container: HTMLDivElement; let root: Root;
   beforeEach(() => {
+    window.sessionStorage.clear();
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => {
@@ -403,7 +416,7 @@ describe('responsive routed JobCard board', () => {
     expect(container.textContent).toContain('ABC Klinik teslimi');
   });
 
-  it('enters board without status/offset and status selection returns to canonical list offset zero', async () => {
+  it('enters the selected active-status board lane and terminal selection returns to list', async () => {
     installMatchMedia(true);
     const listLoad = vi.fn().mockResolvedValue(page([baseItem], 25, 80));
     const boardLoad = vi.fn().mockResolvedValue(board);
@@ -414,8 +427,11 @@ describe('responsive routed JobCard board', () => {
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(view, 'board');
       view.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(router.state.location.search).toBe('?view=board');
+    expect(router.state.location.search).toBe('?status=IN_PROGRESS&view=board');
     expect(boardLoad).toHaveBeenCalledTimes(1);
+    expect(boardLoad).toHaveBeenCalledWith({});
+    expect(Array.from(container.querySelectorAll<HTMLElement>('[data-workflow-lane]'))
+      .map((lane) => lane.dataset.workflowLane)).toEqual(['IN_PROGRESS']);
 
     const closed = Array.from(container.querySelectorAll<HTMLAnchorElement>('a'))
       .find((link) => link.textContent === 'Biten işler')!;
@@ -470,10 +486,11 @@ describe('responsive routed JobCard board', () => {
     expect(container.querySelector('#job-view')).toBeNull();
   });
 
-  it('switches a compact board status filter to the canonical list URL', async () => {
+  it('switches a compact board status filter to its matching board lane', async () => {
     installMatchMedia(false);
     const listLoad = vi.fn().mockResolvedValue(page([item('WAITING_APPROVAL', 'job-filtered')]));
-    const { router } = await mount('/jobs?q=klinik&view=board', listLoad);
+    const boardLoad = vi.fn().mockResolvedValue(board);
+    const { router } = await mount('/jobs?q=klinik&view=board', listLoad, boardLoad);
     await act(async () => { await Promise.resolve(); });
     const trigger = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent?.startsWith('Filtreler'))!;
@@ -486,10 +503,10 @@ describe('responsive routed JobCard board', () => {
     const apply = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === 'Uygula')!;
     await act(async () => apply.click());
-    expect(router.state.location.search).toBe('?q=klinik&status=WAITING_APPROVAL');
-    expect(listLoad).toHaveBeenCalledWith({
-      q: 'klinik', status: 'WAITING_APPROVAL', limit: 25, offset: 0,
-    });
+    expect(router.state.location.search).toBe('?q=klinik&status=WAITING_APPROVAL&view=board');
+    expect(boardLoad).toHaveBeenLastCalledWith({ q: 'klinik' });
+    expect(Array.from(container.querySelectorAll<HTMLElement>('[data-workflow-lane]'))
+      .map((lane) => lane.dataset.workflowLane)).toEqual(['WAITING_APPROVAL']);
   });
 
   it('keeps the inline list and board view control for desktop widths', async () => {

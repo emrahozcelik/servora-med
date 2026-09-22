@@ -34,6 +34,15 @@ function page(items: JobCardListItem[], offset = 0, total = items.length): Pagin
   return { items, total, limit: 25, offset };
 }
 
+const emptyBoard: JobCardBoard = {
+  columns: {
+    NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
+    IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
+    REVISION_REQUESTED: { items: [], count: 0 },
+  },
+  closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+};
+
 function renderList(
   state: JobListState,
   user = manager,
@@ -293,8 +302,16 @@ function change(element: HTMLInputElement | HTMLSelectElement, value: string) {
 
 describe('routed JobCard workspace', () => {
   let container: HTMLDivElement; let root: Root;
-  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   async function mount(initialEntry: string, load: Parameters<typeof JobWorkspace>[0]['load'], user = manager,
     loadBoard?: Parameters<typeof JobWorkspace>[0]['loadBoard']) {
@@ -363,6 +380,20 @@ describe('routed JobCard workspace', () => {
       .every((link) => link.getAttribute('data-state') === 'idle')).toBe(true);
   });
 
+  it('renders INVALIDATED as an explicit list-only status without a current quick view', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?status=INVALIDATED', load, manager);
+    await act(async () => { await Promise.resolve(); });
+
+    const current = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .filter((link) => link.getAttribute('aria-current') === 'page');
+    expect(current).toEqual([]);
+    expect(container.querySelector('[data-job-view-list-only]')?.textContent)
+      .toBe('Görünüm: Liste · Yalnızca liste');
+    expect(container.querySelector<HTMLSelectElement>('#job-status')?.value).toBe('INVALIDATED');
+    expect(load).toHaveBeenLastCalledWith({ status: 'INVALIDATED', limit: 25, offset: 0 });
+  });
+
   it('shows Biten işler to Staff without exposing the approval queue', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     await mount('/jobs', load, staff); await act(async () => { await Promise.resolve(); });
@@ -408,6 +439,8 @@ describe('routed JobCard workspace', () => {
     const manual = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
       .find((link) => link.textContent === 'Geciken')!;
     expect(manual.getAttribute('data-state')).toBe('idle');
+    expect(Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+      .find((link) => link.textContent === 'Aktif işler')?.getAttribute('aria-current')).toBe('page');
   });
 
   it('canonicalizes an overdue board URL to the overdue list and never loads the board', async () => {
@@ -423,12 +456,14 @@ describe('routed JobCard workspace', () => {
     expect(loadBoard).not.toHaveBeenCalled();
   });
 
-  it('hides the board view control in the overdue view', async () => {
+  it('keeps a non-interactive list-only mode slot in the overdue view', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     await mount('/jobs?overdue=true', load, manager);
     await act(async () => { await Promise.resolve(); });
     expect(container.querySelector('[data-job-view-switcher]')).toBeNull();
     expect(container.querySelector('#job-view')).toBeNull();
+    expect(container.querySelector('[data-job-view-list-only]')?.textContent)
+      .toBe('Görünüm: Liste · Yalnızca liste');
   });
 
   it('shows the filtered-empty state for an overdue view without overdue jobs', async () => {
@@ -753,5 +788,82 @@ describe('routed JobCard workspace', () => {
     await act(async () => applied.click());
     await act(async () => applied.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     expect(router.state.location.search).toBe('');
+  });
+
+  it('restores the explicit session board preference after Geciken and Biten', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const loadBoard = vi.fn().mockResolvedValue(emptyBoard);
+    const router = await mount('/jobs', load, manager, loadBoard);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => change(container.querySelector<HTMLSelectElement>('#job-view')!, 'board'));
+    expect(window.sessionStorage.getItem('servora.jobs.view-preference')).toBe('board');
+
+    const quickView = (label: string) => Array.from(
+      container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'),
+    ).find((link) => link.textContent === label)!;
+
+    await act(async () => quickView('Geciken').click());
+    expect(router.state.location.search).toBe('?overdue=true');
+    expect(container.querySelector('[data-job-view-list-only]')?.textContent)
+      .toContain('Görünüm: Liste · Yalnızca liste');
+    expect(container.querySelector('[data-job-view-mode-notice]')?.textContent)
+      .toBe('Geciken işler yalnızca liste görünümünde gösterilir.');
+    expect(window.sessionStorage.getItem('servora.jobs.view-preference')).toBe('board');
+
+    await act(async () => quickView('Aktif işler').click());
+    expect(router.state.location.search).toBe('?view=board');
+    expect(container.querySelector('[data-job-view-mode-notice]')).toBeNull();
+
+    await act(async () => quickView('Biten işler').click());
+    expect(router.state.location.search).toBe('?status=closed');
+    expect(container.querySelector('[data-job-view-mode-notice]')?.textContent)
+      .toBe('Biten işler yalnızca liste görünümünde gösterilir.');
+    await act(async () => quickView('Aktif işler').click());
+    expect(router.state.location.search).toBe('?view=board');
+  });
+
+  it('keeps Onay and Düzeltme on the board and honors an explicit list preference', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const loadBoard = vi.fn().mockResolvedValue(emptyBoard);
+    const router = await mount('/jobs?view=board', load, manager, loadBoard);
+    await act(async () => { await Promise.resolve(); });
+    const quickView = (label: string) => Array.from(
+      container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'),
+    ).find((link) => link.textContent === label)!;
+
+    await act(async () => quickView('Onay kuyruğu').click());
+    expect(router.state.location.search).toBe('?status=WAITING_APPROVAL&view=board');
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane'))
+      .toBe('WAITING_APPROVAL');
+    await act(async () => quickView('Düzeltme istenenler').click());
+    expect(router.state.location.search).toBe('?status=REVISION_REQUESTED&view=board');
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane'))
+      .toBe('REVISION_REQUESTED');
+
+    await act(async () => change(container.querySelector<HTMLSelectElement>('#job-view')!, 'list'));
+    expect(window.sessionStorage.getItem('servora.jobs.view-preference')).toBe('list');
+    await act(async () => quickView('Biten işler').click());
+    await act(async () => quickView('Aktif işler').click());
+    expect(router.state.location.search).toBe('');
+  });
+
+  it('FilterSheet clear returns to Aktif and announces the membership reset', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false, media: '(min-width: 64rem)', onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    })));
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount('/jobs?overdue=true&priority=high', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+    await act(async () => trigger.click());
+    const clear = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Temizle')!;
+    await act(async () => clear.click());
+    expect(router.state.location.search).toBe('');
+    expect(container.querySelector('[data-job-view-mode-notice]')?.textContent)
+      .toBe('Filtreler temizlendi; Aktif işler görünümüne dönüldü.');
   });
 });

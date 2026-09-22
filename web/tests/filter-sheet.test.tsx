@@ -45,7 +45,13 @@ describe('filter sheets and active counts', () => {
     expect(countActiveJobFilters({ view: 'list', offset: 0, status: 'active' })).toBe(0);
     expect(countActiveJobFilters({
       view: 'list', offset: 0, status: 'WAITING_APPROVAL', q: 'abc', priority: 'urgent',
-    })).toBe(3);
+    })).toBe(1);
+    expect(countActiveJobFilters({
+      view: 'list', offset: 0, status: 'NEW', q: 'abc', priority: 'urgent',
+    })).toBe(2);
+    expect(countActiveJobFilters({
+      view: 'list', offset: 0, status: 'WAITING_APPROVAL', followUp: 'only', priority: 'urgent',
+    })).toBe(2);
   });
 
   it('counts customer filters including unassigned', () => {
@@ -66,9 +72,10 @@ describe('filter sheets and active counts', () => {
           user={manager}
           filters={{ view: 'list', offset: 0, status: 'active', q: 'klinik' }}
           onApply={onApply}
+          onClear={() => undefined}
           onChange={onChange}
           onViewChange={() => {}}
-          showViewControl={false}
+          boardSupported={false}
         />,
       );
     });
@@ -95,6 +102,7 @@ describe('filter sheets and active counts', () => {
     document.body.append(host);
     root = createRoot(host);
     const onApply = vi.fn();
+    const onClear = vi.fn();
     const onChange = vi.fn();
     await act(async () => {
       root!.render(
@@ -102,9 +110,10 @@ describe('filter sheets and active counts', () => {
           user={manager}
           filters={{ view: 'list', offset: 0, status: 'active' }}
           onApply={onApply}
+          onClear={onClear}
           onChange={onChange}
           onViewChange={() => {}}
-          showViewControl={false}
+          boardSupported={false}
         />,
       );
     });
@@ -129,7 +138,7 @@ describe('filter sheets and active counts', () => {
     await act(async () => triggerAgain?.click());
     const clear = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Temizle');
     await act(async () => clear?.click());
-    expect(onApply.mock.calls.at(-1)?.[0]).toMatchObject({ followUp: undefined, status: 'active' });
+    expect(onClear).toHaveBeenCalledTimes(1);
   });
 
   it('exposes immediate compact view controls outside the filter sheet', async () => {
@@ -144,9 +153,10 @@ describe('filter sheets and active counts', () => {
           user={manager}
           filters={{ view: 'list', offset: 0, status: 'active' }}
           onApply={() => undefined}
+          onClear={() => undefined}
           onChange={() => undefined}
           onViewChange={onViewChange}
-          showViewControl
+          boardSupported
         />,
       );
     });
@@ -176,9 +186,10 @@ describe('filter sheets and active counts', () => {
           user={manager}
           filters={{ view: 'list', offset: 0, status: 'active' }}
           onApply={() => undefined}
+          onClear={() => undefined}
           onChange={() => undefined}
           onViewChange={onViewChange}
-          showViewControl
+          boardSupported
         />,
       );
     });
@@ -206,9 +217,10 @@ describe('filter sheets and active counts', () => {
           user={manager}
           filters={{ view: 'list', offset: 0, status: 'active' }}
           onApply={() => undefined}
+          onClear={() => undefined}
           onChange={() => undefined}
           onViewChange={() => undefined}
-          showViewControl
+          boardSupported
         />,
       );
     });
