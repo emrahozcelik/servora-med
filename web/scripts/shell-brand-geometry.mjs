@@ -48,6 +48,17 @@ const html = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/>
       <section class="login-panel"><div class="login-form-wrap"><h1>Giriş yap</h1><p class="form-intro">Yerel responsive fixture.</p></div></section>
     </main>
   </div>
+  <div id="drawer-backdrop" class="shell-drawer-backdrop" style="display:none">
+    <aside id="drawer" class="shell-drawer" role="dialog" aria-label="Menü">
+      <div class="drawer-heading"><h2>Menü</h2><button class="drawer-close" type="button">Kapat</button></div>
+      <div class="shell-drawer-brand brand-lockup">
+        <a class="dunya-dental-brand dunya-dental-brand--full" href="/jobs" aria-label="Dünya Dental ana sayfa">
+          <img src="/branding/dunya-dental-sidebar.png" alt="" />
+        </a>
+      </div>
+      <nav class="shell-nav" aria-label="Drawer navigasyonu"><a href="/jobs">İşler</a></nav>
+    </aside>
+  </div>
 </body></html>`;
 
 const viewports = [
@@ -103,11 +114,14 @@ async function measure(page, viewport, mode = 'normal') {
     const mobileTopbar = document.getElementById('mobile-topbar');
     const bottomNav = document.getElementById('bottom-nav');
     const login = document.getElementById('login-fixture');
+    const drawerBackdrop = document.getElementById('drawer-backdrop');
+    const drawer = document.getElementById('drawer');
     const title = document.getElementById('shell-title');
     const modeIsLogin = textMode === 'login';
     if (modeIsLogin) {
       shell.style.display = 'none';
       login.style.display = 'block';
+      drawerBackdrop.style.display = 'none';
       const brand = login.querySelector('.dunya-dental-brand--login-hero');
       const bounds = brand?.getBoundingClientRect() ?? null;
       return {
@@ -122,6 +136,7 @@ async function measure(page, viewport, mode = 'normal') {
 
     login.style.display = 'none';
     shell.style.display = '';
+    drawerBackdrop.style.display = textMode === 'drawer' ? 'flex' : 'none';
     const mobile = viewportWidth < 1024;
     shell.classList.toggle('authenticated-shell--mobile', mobile);
     shell.classList.toggle('authenticated-shell--desktop', !mobile);
@@ -142,8 +157,28 @@ async function measure(page, viewport, mode = 'normal') {
     const bellRect = rect(topbar.querySelector('[aria-label="Bildirimler"]'));
     const menuRect = rect(mobileTopbar.querySelector('.shell-menu-button'));
     const brands = [...document.querySelectorAll('.dunya-dental-brand--full')];
+    const visibleBrands = brands.filter((brand) => {
+      const brandRect = brand.getBoundingClientRect();
+      const style = getComputedStyle(brand);
+      return brandRect.width > 0 && brandRect.height > 0 && style.visibility !== 'hidden';
+    });
     const topbarStyle = getComputedStyle(topbar);
     const sidebarBrand = rect(sidebar.querySelector('.dunya-dental-brand--full'));
+    const drawerBrand = rect(drawer.querySelector('.shell-drawer-brand .dunya-dental-brand--full'));
+    const drawerImage = drawer.querySelector('.shell-drawer-brand .dunya-dental-brand--full img');
+    const drawerImageRect = rect(drawerImage);
+    const drawerStyle = getComputedStyle(drawer);
+    const canonicalFullImage = sidebar.querySelector('.dunya-dental-brand--full img');
+    const canonicalFullImageMaxHeight = canonicalFullImage
+      ? getComputedStyle(canonicalFullImage).maxHeight
+      : null;
+    const drawerImageMaxHeight = drawerImage ? getComputedStyle(drawerImage).maxHeight : null;
+    const naturalRatio = drawerImage?.naturalWidth && drawerImage?.naturalHeight
+      ? drawerImage.naturalWidth / drawerImage.naturalHeight
+      : null;
+    const renderedRatio = drawerImageRect && drawerImageRect.height > 0
+      ? drawerImageRect.width / drawerImageRect.height
+      : null;
     const titleText = title.textContent ?? '';
     return {
       mode: textMode,
@@ -172,11 +207,27 @@ async function measure(page, viewport, mode = 'normal') {
       desktopNotificationRightGap: mobile || !topbarRect || !bellRect
         ? null
         : topbarRect.right - bellRect.right,
-      fullBrandCount: brands.length,
+      fullBrandCount: visibleBrands.length,
       mobileHeaderBrandCount: mobileTopbar.querySelectorAll('.dunya-dental-brand').length,
       desktopTopbarBrandCount: desktopTopbar.querySelectorAll('.dunya-dental-brand').length,
       sidebarBrandInViewport: Boolean(sidebarBrand && sidebarBrand.left >= -1 && sidebarBrand.right <= viewportWidth + 1),
       sidebarBrandHref: sidebar.querySelector('.dunya-dental-brand--full')?.getAttribute('href') ?? null,
+      drawerWidth: drawer.getBoundingClientRect().width,
+      drawerBrandCount: drawer.querySelectorAll('.shell-drawer-brand .dunya-dental-brand--full').length,
+      drawerBrandVisible: Boolean(drawerBrand && drawerBrand.width > 0 && drawerBrand.height > 0),
+      drawerBrandWidth: drawerBrand?.width ?? 0,
+      drawerBrandHeight: drawerBrand?.height ?? 0,
+      drawerBrandContained: Boolean(drawerBrand && drawerBrand.left >= -1
+        && drawerBrand.right <= viewportWidth + 1
+        && drawerBrand.left >= drawer.getBoundingClientRect().left - 1
+        && drawerBrand.right <= drawer.getBoundingClientRect().right + 1),
+      drawerOverflow: drawer.scrollWidth - drawer.clientWidth,
+      drawerImageNaturalRatio: naturalRatio,
+      drawerImageRenderedRatio: renderedRatio,
+      drawerImageMaxHeight,
+      canonicalFullImageMaxHeight,
+      drawerZIndex: Number.parseInt(getComputedStyle(drawerBackdrop).zIndex || '0', 10),
+      drawerStyleOverflowX: drawerStyle.overflowX,
     };
   }, { viewportWidth: width, viewportHeight: height, textMode: mode });
 }
@@ -214,6 +265,26 @@ function verifyShell(row) {
   if (row.mode === 'long') invariant(row.titleScrollWidth >= row.titleClientWidth, `${row.width}px: long title did not expose ellipsis space`);
 }
 
+function verifyDrawer(row) {
+  invariant(row.mobile && row.mode === 'drawer', `${row.width}px drawer: fixture is not mobile/open`);
+  invariant(row.drawerBrandCount === 1 && row.drawerBrandVisible,
+    `${row.width}px drawer: expected exactly one visible full brand`);
+  invariant(row.drawerBrandContained && row.drawerOverflow <= 1 && row.overflow <= 1,
+    `${row.width}px drawer: brand/drawer/page containment failed`
+      + ` (brandContained=${row.drawerBrandContained} drawerOverflow=${row.drawerOverflow} pageOverflow=${row.overflow})`);
+  invariant(row.drawerImageNaturalRatio !== null && row.drawerImageRenderedRatio !== null
+    && Math.abs(row.drawerImageNaturalRatio - row.drawerImageRenderedRatio) <= 0.01,
+  `${row.width}px drawer: full brand aspect ratio changed`
+    + ` (natural=${row.drawerImageNaturalRatio} rendered=${row.drawerImageRenderedRatio})`);
+  invariant(row.drawerImageMaxHeight === row.canonicalFullImageMaxHeight,
+    `${row.width}px drawer: drawer image sizing diverges from canonical full rule`
+      + ` (drawer=${row.drawerImageMaxHeight} canonical=${row.canonicalFullImageMaxHeight})`);
+  invariant(row.drawerZIndex === 30 && row.drawerStyleOverflowX === 'hidden',
+    `${row.width}px drawer: shell layering/overflow contract failed`);
+  invariant(row.mobileHeaderBrandCount === 0 && row.desktopTopbarBrandCount === 0,
+    `${row.width}px drawer: topbar brand leaked while drawer open`);
+}
+
 const { server, vite, url } = await startServer();
 const browser = await chromium.launch({ headless: true });
 const rows = [];
@@ -243,6 +314,14 @@ try {
     invariant(login.overflow <= 1 && login.brandWidth > 0 && login.brandInViewport,
       `${width}px login: responsive brand contract failed`);
     rows.push(login);
+  }
+  for (const width of [320, 390]) {
+    const viewport = viewports.find((candidate) => candidate.width === width);
+    invariant(viewport, `missing viewport fixture for ${width}px`);
+    const drawer = await measure(page, viewport, 'drawer');
+    verifyShell(drawer);
+    verifyDrawer(drawer);
+    rows.push(drawer);
   }
 } finally {
   await browser.close();

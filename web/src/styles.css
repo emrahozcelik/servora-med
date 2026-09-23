@@ -76,9 +76,9 @@ html a:focus-visible {
 }
 .dunya-dental-brand--full { width: 100%; }
 .dunya-dental-brand--full img {
-  width: 100%;
+  width: auto;
   height: auto;
-  max-width: none;
+  max-width: 100%;
   max-height: 8rem;
   object-fit: contain;
 }
@@ -1098,9 +1098,6 @@ html a:focus-visible {
 }
 .shell-drawer-brand .dunya-dental-brand--full {
   justify-content: flex-start;
-}
-.shell-drawer-brand .dunya-dental-brand--full img {
-  max-height: 5.5rem;
 }
 .shell-drawer .shell-nav {
   flex: 1 1 auto;
