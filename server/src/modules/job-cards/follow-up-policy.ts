@@ -74,6 +74,10 @@ const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, JobCardType> = {
   SALES_MEETING: 'SALES_MEETING',
   PRODUCT_DELIVERY: 'SALES_MEETING',
   GENERAL_TASK: 'GENERAL_TASK',
+  // WEEKLY_REPORT has no public creation path yet (Slice 1 keeps it closed);
+  // the open-ended GENERAL_TASK default keeps this exhaustive map total
+  // without granting weekly reports any follow-up semantics.
+  WEEKLY_REPORT: 'GENERAL_TASK',
 };
 
 export function defaultFollowUpType(sourceType: JobCardType): JobCardType {

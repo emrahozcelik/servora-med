@@ -24,7 +24,7 @@ export const TERMINAL_JOB_CARD_STATUSES = [
 export function isOperationallyValidJobCard(status: JobCardStatus): boolean {
   return status !== 'INVALIDATED';
 }
-export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'WEEKLY_REPORT'] as const;
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 
 export const JOB_CARD_ENGAGEMENT_KINDS = [

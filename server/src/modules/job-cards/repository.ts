@@ -2949,6 +2949,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
         dueDate: 'j.due_date',
         timezone: 'o.timezone',
         requestTime: `$${datePosition}::timestamptz`,
+        status: 'j.status',
+        jobType: 'j.type',
       };
       // Parse guarantees status is omitted or 'active'; workspaceWhere already
       // restricts to the five actionable statuses in that case.
