@@ -69,12 +69,12 @@ jobs:
             server/package-lock.json
             web/package-lock.json
 
-      - name: Install Chromium for production browser smoke
+      - name: Install browsers for production smoke
         working-directory: web
         run: |
           set -Eeuo pipefail
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit
 
       - name: Build, transfer, activate, smoke, and back up exact main SHA
         env:
