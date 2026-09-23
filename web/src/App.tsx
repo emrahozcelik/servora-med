@@ -61,7 +61,7 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   return (
     <main className="login-layout">
       <section className="login-introduction" aria-labelledby="product-title">
-        <DunyaDentalBrand variant="login" />
+        <DunyaDentalBrand variant="login-hero" />
         <div className="login-context">
           <p className="eyebrow">İş ve operasyon yönetimi</p>
           <h2 id="product-title">Günlük işlerinizi tek yerden yönetin.</h2>

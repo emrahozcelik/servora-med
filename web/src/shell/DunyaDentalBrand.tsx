@@ -1,18 +1,37 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
-type DunyaDentalBrandVariant = 'login' | 'sidebar' | 'topbar';
+export type DunyaDentalBrandVariant = 'full' | 'login-hero';
 
-/** Explicit variant source map: login and sidebar use the cropped Dünya Dental mark. */
+/** Both approved variants intentionally use the canonical full Dünya Dental artwork. */
 const BRAND_SOURCES: Record<DunyaDentalBrandVariant, string> = {
-  login: '/branding/dunya-dental-sidebar.png',
-  topbar: '/branding/dunya-dental.png',
-  sidebar: '/branding/dunya-dental-sidebar.png',
+  full: '/branding/dunya-dental-sidebar.png',
+  'login-hero': '/branding/dunya-dental-sidebar.png',
 };
 
-export function DunyaDentalBrand({ variant }: Readonly<{ variant: DunyaDentalBrandVariant }>) {
+export type DunyaDentalBrandProps = {
+  variant: DunyaDentalBrandVariant;
+  to?: string;
+  onNavigate?: () => void;
+};
+
+export function DunyaDentalBrand({ variant, to, onNavigate }: Readonly<DunyaDentalBrandProps>) {
   const [failed, setFailed] = useState(false);
-  return <span className={`dunya-dental-brand dunya-dental-brand--${variant}`} aria-label="Dünya Dental">
-    {!failed && <img src={BRAND_SOURCES[variant]} alt="" onError={() => setFailed(true)} />}
-    {failed && <span className="dunya-dental-brand__fallback">Dünya Dental</span>}
-  </span>;
+  const content = (
+    <>
+      {!failed && <img src={BRAND_SOURCES[variant]} alt="" onError={() => setFailed(true)} />}
+      {failed && <span className="dunya-dental-brand__fallback">Dünya Dental</span>}
+    </>
+  );
+  const className = `dunya-dental-brand dunya-dental-brand--${variant}`;
+
+  if (to) {
+    return (
+      <Link className={className} to={to} aria-label="Dünya Dental ana sayfa" onClick={onNavigate}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <span className={className} aria-label="Dünya Dental">{content}</span>;
 }

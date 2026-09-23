@@ -106,6 +106,15 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
 }
 
 /**
+ * Canonical authenticated landing policy shared by routing and shell links.
+ * Overview is available only when the server grants its capability; every
+ * other authenticated user lands on the Jobs workspace.
+ */
+export function resolveHomePath(user: CurrentUser): string {
+  return user.capabilities?.overviewDashboard === true ? paths.overview : paths.jobs;
+}
+
+/**
  * Role-aware display title for a static identity. Role presentation lives
  * here in the navigation layer — never in the identity registry. Covers
  * exactly the two pre-existing role variants (jobs list, staff area).

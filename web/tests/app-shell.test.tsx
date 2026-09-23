@@ -184,8 +184,11 @@ describe('responsive authenticated AppShell', () => {
     expect(navigation.querySelectorAll('a')).toHaveLength(visible.length);
     expect(aside.textContent).toContain(user.name);
     expect(aside.textContent).toContain('Oturumu kapat');
-    expect(aside.querySelector('a[href="/jobs"]')?.getAttribute('aria-current')).toBe('page');
-    expect(aside.querySelector('.dunya-dental-brand--sidebar')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar nav a[href="/jobs"]')?.getAttribute('aria-current')).toBe('page');
+    const sidebarBrand = aside.querySelector<HTMLAnchorElement>('.shell-sidebar-brand .dunya-dental-brand--full');
+    expect(sidebarBrand).not.toBeNull();
+    expect(sidebarBrand?.getAttribute('href')).toBe('/jobs');
+    expect(aside.querySelectorAll('.dunya-dental-brand')).toHaveLength(1);
     expect(aside.querySelector('.notification-center')).toBeNull();
     expect(aside.querySelector('.shell-copyright img')).toBeNull();
     const copyright = aside.querySelector('.shell-copyright');
@@ -193,10 +196,35 @@ describe('responsive authenticated AppShell', () => {
     expect(getComputedStyle(copyright!).textAlign === 'center'
       || copyright!.className.includes('shell-copyright')).toBe(true);
     const topbar = container.querySelector('.desktop-shell-topbar')!;
-    const topbarBrand = topbar.querySelector('.desktop-shell-topbar-brand .dunya-dental-brand--topbar');
-    expect(topbarBrand).not.toBeNull();
-    expect(topbarBrand?.querySelector('img')?.getAttribute('src')).toBe('/branding/dunya-dental.png');
+    expect(topbar.querySelector('.desktop-shell-topbar-brand')).toBeNull();
+    expect(topbar.querySelector('.dunya-dental-brand')).toBeNull();
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
+  });
+
+  it.each([
+    [false, '/jobs'],
+    [true, '/overview'],
+  ] as const)('uses the role-aware home target for the linked desktop brand (%s)', async (overviewEnabled, expectedPath) => {
+    const user = overviewEnabled
+      ? { ...manager, capabilities: { ...manager.capabilities, overviewDashboard: true } }
+      : manager;
+    await render(user, true);
+    expect(container.querySelector<HTMLAnchorElement>('.shell-sidebar-brand .dunya-dental-brand--full')?.getAttribute('href'))
+      .toBe(expectedPath);
+  });
+
+  it.each([
+    [false, '/jobs'],
+    [true, '/overview'],
+  ] as const)('uses the same role-aware home target for the drawer brand (%s)', async (overviewEnabled, expectedPath) => {
+    const user = overviewEnabled
+      ? { ...manager, capabilities: { ...manager.capabilities, overviewDashboard: true } }
+      : manager;
+    await render(user, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector<HTMLAnchorElement>('.shell-drawer-brand .dunya-dental-brand--full')?.getAttribute('href'))
+      .toBe(expectedPath);
   });
 
   it('renders no shell route title on migrated pages and updates document title after navigation', async () => {
@@ -232,7 +260,7 @@ describe('responsive authenticated AppShell', () => {
     await render(staff, false);
     expect(container.querySelector('aside')).toBeNull();
     expect(container.querySelector('.compact-shell-header')).not.toBeNull();
-    expect(container.querySelector('.compact-shell-header .dunya-dental-brand--topbar')).not.toBeNull();
+    expect(container.querySelector('.compact-shell-header .dunya-dental-brand')).toBeNull();
     expect(container.querySelector('.mobile-top-bar-actions [aria-label="Bildirimler"] svg')).not.toBeNull();
     expect(container.querySelector('.mobile-shell-title')?.textContent).toBe('İşlerim');
     expect(container.querySelector('.mobile-bottom-nav')?.textContent).not.toContain('Profilim');
@@ -245,8 +273,22 @@ describe('responsive authenticated AppShell', () => {
     expect(dialog.getAttribute('aria-labelledby')).toBe('app-navigation-title');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(dialog.querySelector('button, a'));
+    const drawerBrand = dialog.querySelector<HTMLAnchorElement>('.shell-drawer-brand .dunya-dental-brand--full');
+    expect(drawerBrand).not.toBeNull();
+    expect(dialog.querySelectorAll('.dunya-dental-brand')).toHaveLength(1);
+    expect(drawerBrand?.getAttribute('href')).toBe('/jobs');
     expect(dialog.textContent).toContain('Profilim');
     expect(dialog.textContent).toContain('Yardım Merkezi');
+  });
+
+  it('closes the drawer and restores focus when the drawer brand is activated', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    const brand = container.querySelector<HTMLAnchorElement>('.shell-drawer-brand a')!;
+    await act(async () => brand.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('uses Menü bottom control as a button that opens overflow drawer and restores focus', async () => {
@@ -260,6 +302,7 @@ describe('responsive authenticated AppShell', () => {
     await act(async () => menu.click());
     const dialog = container.querySelector('[role="dialog"]')!;
     expect(dialog).not.toBeNull();
+    expect(dialog.querySelector('.shell-drawer-brand .dunya-dental-brand--full')).not.toBeNull();
     expect(dialog.textContent).toContain('Personel');
     expect(dialog.textContent).toContain('Ürünler');
     expect(dialog.textContent).toContain('Oturumu kapat');
@@ -369,7 +412,7 @@ describe('responsive authenticated AppShell', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
 
     const aside = container.querySelector('.shell-sidebar')!;
-    expect(aside.querySelector('.shell-sidebar-brand .dunya-dental-brand--sidebar')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-brand .dunya-dental-brand--full')).not.toBeNull();
     expect(aside.querySelector('.shell-sidebar-footer .shell-account')).not.toBeNull();
     expect(aside.querySelector('.shell-sidebar-footer .shell-copyright')).not.toBeNull();
     expect(aside.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
@@ -433,10 +476,8 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.shell-sidebar .shell-signout')).toMatch(/font-weight:\s*680/);
     expect(css).toMatch(/\.shell-sidebar-brand\s*\{/s);
     expect(css).toMatch(/\.shell-sidebar-footer\s*\{[^}]*margin-top:\s*auto/s);
-    expect(exactRuleBody('.desktop-shell-topbar-brand')).toMatch(/flex:\s*0 0 auto/);
-    expect(css).toMatch(
-      /@media \(min-width: 64rem\)[\s\S]*\.desktop-shell-topbar-brand \.dunya-dental-brand--topbar img\s*\{[^}]*height:\s*3\.25rem/s,
-    );
+    expect(exactRuleBody('.desktop-shell-topbar')).toMatch(/justify-content:\s*flex-end/);
+    expect(css).not.toMatch(/\.desktop-shell-topbar-brand/);
     // Default operational workspace stays near 68rem; board gates remain separate.
     expect(css).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100% - 2rem,\s*68rem\)/s);
     expect(css).toMatch(/@container job-board \(min-width: 68rem\)/);
@@ -544,7 +585,7 @@ describe('responsive authenticated AppShell', () => {
     expect(css).not.toMatch(/ant-layout|ant-menu/);
   });
 
-  it('keeps the compact header in normal flow instead of a sticky content overlay', () => {
+  it('keeps the compact header sticky in normal flow below overlay layers', () => {
     const css = readFileSync(
       new URL('../src/styles.css', 'file://' + __dirname + '/'),
       'utf8',
@@ -559,12 +600,16 @@ describe('responsive authenticated AppShell', () => {
       return match[1];
     }
 
-    // The compact header must participate in normal document flow: no sticky
-    // pinning, no top anchor, and no overlay stacking that would cover content
-    // while the page scrolls on mobile.
+    // The compact header sticks in normal flow, while drawer/modal layers keep
+    // precedence via their higher z-index values.
     const body = exactRuleBody('.compact-shell-header');
-    expect(body).not.toMatch(/\bposition:\s*sticky/);
-    expect(body).not.toMatch(/\btop:\s*0\s*;/);
-    expect(body).not.toMatch(/\bz-index:/);
+    const mobileBody = exactRuleBody('.compact-shell-header.mobile-top-bar');
+    expect(mobileBody).toMatch(/\bposition:\s*sticky/);
+    expect(mobileBody).toMatch(/\btop:\s*0\s*;/);
+    expect(mobileBody).toMatch(/\bz-index:\s*10/);
+    expect(mobileBody).toMatch(/safe-area-inset-top/);
+    expect(body).not.toMatch(/\bposition:\s*fixed/);
+    expect(css).toMatch(/\.shell-drawer-backdrop\s*\{[^}]*z-index:\s*30/);
+    expect(css).toMatch(/\.notification-center-desktop-layer, \.notification-center-backdrop\s*\{[^}]*z-index:\s*40/);
   });
 });

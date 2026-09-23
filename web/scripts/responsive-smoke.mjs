@@ -16,7 +16,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <body>
 <div class="authenticated-shell authenticated-shell--desktop" id="shell">
   <aside class="shell-sidebar" style="display:none" id="sidebar">
-    <div class="brand-lockup"><span class="dunya-dental-brand dunya-dental-brand--sidebar" aria-label="Dünya Dental"><img alt="" src="/branding/dunya-dental.png"></span></div>
+    <div class="brand-lockup"><a class="dunya-dental-brand dunya-dental-brand--full" aria-label="Dünya Dental ana sayfa" href="/jobs"><img alt="" src="/branding/dunya-dental-sidebar.png"></a></div>
     <nav class="shell-nav" aria-label="Ana navigasyon">
       <a href="/jobs" aria-current="page">İşler</a>
       <a href="/customers">Müşteriler</a>
@@ -30,7 +30,6 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
   </header>
   <header class="compact-shell-header mobile-top-bar" style="display:none" id="mobile-topbar">
     <div class="mobile-top-bar-start">
-      <span class="dunya-dental-brand dunya-dental-brand--topbar" aria-label="Dünya Dental"><img alt="" src="/branding/dunya-dental.png"></span>
       <p class="mobile-shell-title">İşlerim</p>
     </div>
     <div class="mobile-top-bar-actions">
@@ -539,7 +538,6 @@ async function measure(page) {
     const topbarTitleRect = topbarTitle?.getBoundingClientRect();
     const topbarActions = activeTopbar?.querySelector('.mobile-top-bar-actions');
     const topbarActionsRect = topbarActions?.getBoundingClientRect();
-    const topbarBrandRequired = activeTopbar === mobileTopbar;
     const rectsIntersect = (a, b) => Boolean(
       a && b
       && a.right > b.left + 2
@@ -554,7 +552,7 @@ async function measure(page) {
       && r.top >= -2
       && r.bottom <= window.innerHeight + 2,
     );
-    const topbarContract = Boolean(topbarRect && (!topbarBrandRequired || topbarBrand) && topbarActionRect
+    const topbarContract = Boolean(topbarRect && !topbarBrand && topbarActionRect
       && topbarRect.left >= -2 && topbarRect.right <= window.innerWidth + 2
       && topbarActionRect.right <= window.innerWidth + 2
       && topbarActionRect.left >= topbarRect.left - 2
@@ -738,7 +736,7 @@ async function measure(page) {
     const sidebar = document.getElementById('sidebar');
     const sidebarVisible = sidebar && getComputedStyle(sidebar).display !== 'none';
     const sidebarRect = sidebar?.getBoundingClientRect();
-    const sidebarBrandRect = sidebar?.querySelector('.dunya-dental-brand--sidebar img')?.getBoundingClientRect();
+    const sidebarBrandRect = sidebar?.querySelector('.dunya-dental-brand--full img')?.getBoundingClientRect();
     const sidebarBrandFitted = !sidebarVisible || Boolean(sidebarRect && sidebarBrandRect
       && sidebarBrandRect.width >= 140
       && sidebarBrandRect.left >= sidebarRect.left - 2
@@ -1557,8 +1555,8 @@ try {
     }
     if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
     if (vp.width < 1024) {
-      // Compact topbar must leave the viewport on scroll instead of sticking
-      // over content as an opaque overlay.
+      // Compact topbar remains in normal flow while sticking below overlay
+      // layers, so the route identity stays available during scroll.
       const scrollProbe = await page.evaluate(async () => {
         window.scrollTo(0, document.documentElement.scrollHeight);
         await new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -1579,9 +1577,9 @@ try {
         return result;
       });
       if (scrollProbe.applicable) {
-        if (scrollProbe.position === 'sticky' || scrollProbe.bottom > 2) {
+        if (scrollProbe.position !== 'sticky' || !scrollProbe.stuck) {
           failures.push(
-            `${vp.name}: mobile topbar must scroll out of view`
+            `${vp.name}: mobile topbar must remain sticky in normal flow`
             + ` (position=${scrollProbe.position} bottom=${scrollProbe.bottom})`,
           );
         }

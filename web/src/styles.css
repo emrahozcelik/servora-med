@@ -68,28 +68,21 @@ html a:focus-visible {
 .brand-lockup { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; }
 .dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.68rem; font-weight: 700; }
 .dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
-.dunya-dental-brand--login { margin-inline-start: -0.75rem; }
-.dunya-dental-brand--login img {
+.dunya-dental-brand--login-hero { margin-inline-start: -0.75rem; }
+.dunya-dental-brand--login-hero img {
   width: clamp(13rem, 15vw, 14rem);
   height: auto;
   max-width: 100%;
 }
-.dunya-dental-brand--sidebar { width: 100%; }
-.dunya-dental-brand--sidebar img {
-  width: 100%;
+.dunya-dental-brand--full { width: 100%; }
+.dunya-dental-brand--full img {
+  width: auto;
   height: auto;
-  max-width: none;
+  max-width: 100%;
   max-height: 8rem;
   object-fit: contain;
 }
-.dunya-dental-brand--topbar img { height: 2.25rem; max-width: 7rem; }
 .dunya-dental-brand__fallback { max-width: 100%; overflow-wrap: anywhere; }
-.desktop-shell-topbar-brand {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  min-width: 0;
-}
 .shell-copyright {
   display: flex;
   width: 100%;
@@ -752,30 +745,29 @@ html a:focus-visible {
 .compact-shell-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; min-height: 4.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); background: var(--canvas); }
 /* T2B: mobile top bar — balanced horizontal zones, safe-area, title truncation. */
 .compact-shell-header.mobile-top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   flex-wrap: nowrap;
   gap: 0.55rem;
   min-height: calc(4.5rem + env(safe-area-inset-top, 0px));
   padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.85rem 0.65rem;
 }
 .mobile-top-bar-start { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1 1 auto; overflow: hidden; }
-/* Brand may shrink under large text zoom so the title keeps a visible column. */
-.mobile-top-bar-start .dunya-dental-brand--topbar {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(7rem, 32%);
-}
-.mobile-top-bar-start .dunya-dental-brand--topbar img { max-width: 100%; }
-/* Extreme text zoom: the actions zone shrinks and wraps internally so the
-   bell + menu button never push the page past the viewport. Icon-sized
-   controls keep a px floor (44px) instead of scaling with rem. */
+/* Keep the title zone flexible while action targets keep their 44px floor. */
 .mobile-top-bar-actions {
-  flex: 0 1 auto;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   min-width: 0;
 }
 .mobile-top-bar .shell-menu-button {
   min-width: min(2.75rem, 44px);
+  max-width: min(6rem, 96px);
+  padding-inline: min(0.85rem, 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mobile-top-bar .shell-notification-trigger {
   flex: 0 0 min(2.75rem, 44px);
@@ -1098,6 +1090,14 @@ html a:focus-visible {
 .shell-drawer .drawer-heading > h2 {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.shell-drawer-brand {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+  justify-content: flex-start;
+}
+.shell-drawer-brand .dunya-dental-brand--full {
+  justify-content: flex-start;
 }
 .shell-drawer .shell-nav {
   flex: 1 1 auto;
@@ -3239,8 +3239,8 @@ html a:focus-visible {
 @media (max-width: 720px) {
   .login-layout { display: block; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
-  .dunya-dental-brand--login { margin-inline-start: -0.25rem; }
-  .dunya-dental-brand--login img { width: clamp(8rem, 35vw, 9rem); height: auto; }
+  .dunya-dental-brand--login-hero { margin-inline-start: -0.25rem; }
+  .dunya-dental-brand--login-hero img { width: clamp(8rem, 35vw, 9rem); height: auto; }
   .login-context { display: none; }
   .context-note { margin-block: 0.4rem 0; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
@@ -3432,16 +3432,12 @@ html a:focus-visible {
     grid-column: 2;
     grid-row: 1;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 1rem;
     min-width: 0;
     padding: 0.75rem clamp(1rem, 3vw, 2.5rem);
     border-bottom: 1px solid var(--rule);
     background: var(--canvas);
-  }
-  .desktop-shell-topbar-brand .dunya-dental-brand--topbar img {
-    height: 3.25rem;
-    max-width: 9rem;
   }
   .desktop-shell-topbar > .notification-center { flex: 0 0 auto; }
   .shell-content {
