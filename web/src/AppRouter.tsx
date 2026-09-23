@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams 
 
 import { JobWorkspace } from './jobs/JobWorkspace';
 import { paths } from './paths';
+import { resolveHomePath } from './shell/navigation-model';
 import { canAccessRoute } from './shell/route-access';
 import { readStaffPerformanceSearch } from './reports/report-search';
 import type { CurrentUser } from './services/api';
@@ -334,7 +335,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
   const overviewAllowed = canAccessRoute('overview', user);
   const calendarAllowed = canAccessRoute('calendar', user);
   const messagingAllowed = canAccessRoute('messages', user);
-  const landingPath = overviewAllowed ? paths.overview : paths.jobs;
+  const landingPath = resolveHomePath(user);
   return (
     <Suspense fallback={<RouteLoading />}>
       <Routes>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNavigationModel,
   isJobsListPath,
+  resolveHomePath,
   resolveIdentityTitle,
 } from '../src/shell/navigation-model';
 import { MobileTopBar } from '../src/shell/MobileTopBar';
@@ -20,6 +21,12 @@ const manager: CurrentUser = { ...staff, role: 'MANAGER' };
 const admin: CurrentUser = { ...staff, role: 'ADMIN' };
 
 describe('buildNavigationModel', () => {
+  it('resolves the authenticated home from the overview capability', () => {
+    expect(resolveHomePath({ ...manager, capabilities: { ...manager.capabilities, overviewDashboard: true } }))
+      .toBe(paths.overview);
+    expect(resolveHomePath(manager)).toBe(paths.jobs);
+  });
+
   it('keeps one SSOT for staff destinations and bottom tabs', () => {
     const model = buildNavigationModel(staff);
     expect(model.destinations.map((d) => d.label)).toEqual([

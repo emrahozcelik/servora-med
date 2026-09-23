@@ -16,6 +16,7 @@ import { useInstallOpportunity } from './install/InstallOpportunity';
 import {
   buildNavigationModel,
   isJobsListPath,
+  resolveHomePath,
   type NavLinkItem,
 } from './shell/navigation-model';
 import { matchRouteIdentity } from './shell/route-identity';
@@ -134,6 +135,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const location = useLocation();
   const navigate = useNavigate();
   const model = buildNavigationModel(user);
+  const homePath = resolveHomePath(user);
   const install = useInstallOpportunity();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<'full' | 'overflow'>('full');
@@ -145,7 +147,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
   const resolved = useResolvedIdentity();
   // Single resolved identity feeds MobileTopBar and document.title. Desktop
   // route identity is owned by PageHeader; the desktop topbar carries only
-  // global shell chrome/actions (brand + notifications).
+  // global shell actions (notifications).
   const title = resolved?.effectiveTitle ?? 'Dünya Dental';
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
   const applicationSettingsActive = location.pathname === paths.settingsApplication;
@@ -223,7 +225,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
         <>
           <aside className="shell-sidebar">
             <div className="shell-sidebar-brand brand-lockup">
-              <DunyaDentalBrand variant="sidebar" />
+              <DunyaDentalBrand variant="full" to={homePath} />
             </div>
             <DestinationNav destinations={model.destinations} />
             <div className="shell-sidebar-footer">
@@ -233,9 +235,6 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             </div>
           </aside>
           <header className="desktop-shell-topbar">
-            <div className="desktop-shell-topbar-brand">
-              <DunyaDentalBrand variant="topbar" />
-            </div>
             <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
           </header>
         </>
@@ -291,6 +290,9 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
             <div className="drawer-heading">
               <h2 id="app-navigation-title">{drawerMode === 'overflow' ? 'Diğer menü' : 'Menü'}</h2>
               <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
+            </div>
+            <div className="shell-drawer-brand brand-lockup">
+              <DunyaDentalBrand variant="full" to={homePath} onNavigate={() => closeDrawer(true)} />
             </div>
             <DestinationNav
               destinations={drawerDestinations}

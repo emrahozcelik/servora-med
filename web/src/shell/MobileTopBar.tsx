@@ -1,5 +1,4 @@
 import type { ReactNode, RefObject } from 'react';
-import { DunyaDentalBrand } from './DunyaDentalBrand';
 
 export function MobileTopBar({
   title,
@@ -19,7 +18,6 @@ export function MobileTopBar({
   return (
     <header className="compact-shell-header mobile-top-bar">
       <div className="mobile-top-bar-start">
-        <DunyaDentalBrand variant="topbar" />
         <p className="mobile-shell-title">{title}</p>
       </div>
       <div className="mobile-top-bar-actions">
