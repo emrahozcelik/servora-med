@@ -12,6 +12,10 @@ import {
 } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
+  parseWeeklyReportCreateInput,
+  parseWeeklyReportDraftPatch,
+} from '../weekly-reports/create-input.js';
+import {
   isoInstant,
   operationalNoteCursorTimestamp,
   uuidString,
@@ -112,6 +116,23 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         parseProductDeliveryCreateInput(request.body),
       )),
+    createWeeklyReport: async (request: FastifyRequest, reply: FastifyReply) =>
+      reply.code(201).send(await service.createWeeklyReport(
+        actor(request),
+        parseWeeklyReportCreateInput(request.body),
+      )),
+    getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.getWeeklyReport(actor(request), request.params.id),
+    getWeeklyReportReference: async (request: FastifyRequest) =>
+      service.weeklyReportReference(actor(request)),
+    updateWeeklyReportDraft: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.updateWeeklyReportDraft(
+        actor(request),
+        request.params.id,
+        parseWeeklyReportDraftPatch(request.body),
+      ),
+    listWeeklyReportSubmissions: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.listWeeklyReportSubmissions(actor(request), request.params.id),
     createFollowUp: async (
       request: FastifyRequest<{ Params: Params }>,
       reply: FastifyReply,

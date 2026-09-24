@@ -62,6 +62,7 @@ import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
@@ -809,6 +810,7 @@ export function JobDetailPanel({
 export type LoadedJobDetail =
   | { kind: 'PRODUCT_DELIVERY'; job: JobCard & { type: 'PRODUCT_DELIVERY' }; deliveryItems: DeliveryItem[] }
   | { kind: 'GENERAL_TASK'; job: JobCard & { type: 'GENERAL_TASK' } }
+  | { kind: 'WEEKLY_REPORT'; job: JobCard & { type: 'WEEKLY_REPORT' } }
   | { kind: 'SALES_MEETING'; job: JobCard & { type: 'SALES_MEETING' }; meetingDetails: MeetingDetails | null };
 type DetailState = { kind: 'loading' } | { kind: 'ready'; detail: LoadedJobDetail }
   | { kind: 'error'; message: string; retryable: boolean };
@@ -823,7 +825,10 @@ async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
     };
   }
   if (job.type === 'GENERAL_TASK') {
-    return { kind: job.type, job: { ...job, type: job.type } };
+    return { kind: 'GENERAL_TASK' as const, job: { ...job, type: 'GENERAL_TASK' as const } };
+  }
+  if (job.type === 'WEEKLY_REPORT') {
+    return { kind: 'WEEKLY_REPORT' as const, job: { ...job, type: 'WEEKLY_REPORT' as const } };
   }
   const viewMeeting = job.workflowContext.allowedActions.includes('VIEW_MEETING_RESULT');
   return {
@@ -2071,6 +2076,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     /></main>;
   }
   const { detail } = state;
+  // Weekly reports render in their dedicated component: separate draft
+  // editor, system activity list and submission history. Generic meeting /
+  // delivery sections must never render for this type.
+  if (detail.kind === 'WEEKLY_REPORT') {
+    return <WeeklyReportDetail jobCardId={jobId} user={user} />;
+  }
   const actions = detail.job.workflowContext.allowedActions;
   const viewMeeting = actions.includes('VIEW_MEETING_RESULT');
   const editMeeting = actions.includes('EDIT_MEETING_RESULT');

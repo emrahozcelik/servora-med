@@ -11,14 +11,14 @@ import {
 } from '../src/shell/route-identity';
 
 describe('route identity registry', () => {
-  it('contains the actual 38 registered identities', () => {
-    expect(routeIdentityIds()).toHaveLength(38);
+  it('contains the actual 39 registered identities', () => {
+    expect(routeIdentityIds()).toHaveLength(39);
   });
 
   it('resolves every canonical static path to an identity', () => {
     const staticPaths = [
       paths.overview, paths.calendar, paths.messages, paths.jobs,
-      paths.newDelivery, paths.newTask, paths.newMeeting,
+      paths.newDelivery, paths.newTask, paths.newMeeting, paths.newWeeklyReport,
       paths.customers, paths.newCustomer,
       paths.products, paths.newProduct,
       paths.reports, paths.staffPerformanceReports, paths.customerReports,

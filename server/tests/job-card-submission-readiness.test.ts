@@ -72,6 +72,9 @@ function reader(overrides: {
     getSubmissionCustomer: async () => customer,
     getSubmissionMeetingDetails: async () => meetingDetails,
     getSubmissionDeliveryItems: async () => items,
+    getOrganizationTimezone: async () => 'Europe/Istanbul',
+    getWeeklyReportByJobId: async () => null,
+    listWeeklySourceWorkSnapshot: async () => [],
   };
 }
 

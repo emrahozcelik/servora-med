@@ -30,6 +30,12 @@ const SalesMeetingCreateScreen = lazy(() =>
   })),
 );
 
+const WeeklyReportCreateScreen = lazy(() =>
+  import('./WeeklyReportCreate').then((module) => ({
+    default: module.WeeklyReportCreateScreen,
+  })),
+);
+
 const FollowUpCreatePage = lazy(() =>
   import('./jobs/FollowUpCreatePage').then((module) => ({
     default: module.FollowUpCreatePage,
@@ -300,6 +306,11 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
     onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
 }
 
+function WeeklyReportCreateRoute({ user, navigate }: { user: CurrentUser; navigate: (path: string) => void }) {
+  return <WeeklyReportCreateScreen user={user}
+    onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
+}
+
 function DeliveryCreateRoute({ user, navigate, onDeliveryCreated }: {
   user: CurrentUser;
   navigate: (path: string) => void;
@@ -364,12 +375,15 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
           onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
+          onCreateWeeklyReport={() => { onClearNotice(); navigate(paths.newWeeklyReport); }}
           onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
         <Route path={paths.newDelivery} element={<DeliveryCreateRoute user={user}
           navigate={navigate} onDeliveryCreated={onDeliveryCreated} />} />
         <Route path={paths.newTask} element={<GeneralTaskCreateRoute user={user}
           navigate={navigate} />} />
         <Route path={paths.newMeeting} element={<SalesMeetingCreateRoute user={user}
+          navigate={navigate} />} />
+        <Route path={paths.newWeeklyReport} element={<WeeklyReportCreateRoute user={user}
           navigate={navigate} />} />
         <Route path="/jobs/new-follow-up" element={<FollowUpCreateRoute user={user}
           navigate={navigate} />} />

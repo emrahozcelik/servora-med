@@ -18,6 +18,7 @@ export const paths = {
   newDelivery: '/jobs/new-delivery',
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',
+  newWeeklyReport: '/jobs/new-weekly-report',
   followUpCreate: (sourceJobCardId: string) =>
     `/jobs/new-follow-up?source=${encoded(sourceJobCardId)}`,
   users: '/users',

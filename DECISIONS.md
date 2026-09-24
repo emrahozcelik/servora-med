@@ -1011,3 +1011,103 @@ a user-facing workflow.
   GENERAL_TASK records. Public `WEEKLY_REPORT` creation stays closed until
   Slice 2; recurrence and PDF are deferred (PDF remains a V1 requirement,
   not redefined as browser-print).
+
+## Weekly Report V1 Slice 2 single-report workflow — 2026-09-24
+
+Public single-report flow enabled (bulk/recurrence/PDF/profile-history still
+out). No migration (051 schema proved sufficient).
+
+- **Creation:** `POST /api/job-cards/weekly-reports` (dedicated command).
+  STAFF self-creates (assignedTo omitted/self, no questions) → ACCEPTED with
+  canonical accepted evidence; MANAGER/ADMIN requests one active STAFF
+  (assignedTo required, 0..5 frozen questions) → NEW. Idempotent via
+  processed_actions (`WEEKLY_REPORT_CREATE`) with normalized-intent hash;
+  replay converges, reused key → CLIENT_ACTION_REUSED, same staff/week →
+  WEEKLY_REPORT_ALREADY_EXISTS with report/job navigation metadata.
+- **Title:** deterministic neutral `Haftalık Rapor (YYYY-MM-DD – YYYY-MM-DD)`;
+  localized period labels render in UI only. Title is not identity.
+- **Instructions:** manager request instructions reuse the JobCard
+  `description` primitive (bounded 2000). No new note context, no schema.
+- **Due date:** default Monday after `period_end` (+1 day); explicit ISO
+  override through existing due-date semantics.
+- **Customer:** WEEKLY_REPORT is never customer-scoped (`customer_id = NULL`);
+  customer schedule/conflict/history logic untouched.
+- **Draft:** complete-replacement PUT semantics via PATCH (never sparse
+  merge); editable in ACCEPTED/IN_PROGRESS only (REVISION_REQUESTED requires
+  RESUME first, matching lifecycle); WAITING_APPROVAL/COMPLETED locked.
+  Owner STAFF writes; managers read-only.
+- **Submission:** explicit WEEKLY_REPORT policy branch (summary +
+  nextWeekPlan required, blockers optional, every frozen question answered,
+  empty source-work allowed). Atomic boundary: SUBMIT transition + submit
+  activity + immutable submission + source snapshot in ONE transaction; the
+  activity id comes from the transition result (no client field; unknown
+  submit keys rejected at the route). submittedAt = transition request clock
+  (DB clock_timestamp reservation), identical to staff_completed_at evidence.
+- **F2/F3/F4 closed:** deterministic 23503 mapping, constraint-specific
+  duplicates (ALREADY_EXISTS vs JOB_ATTACHED), server-owned clock.
+- **Reporting:** created-volume/status counters stay inclusive of weekly
+  reports where they literally mean job counts; productive aggregates stay
+  exclusive (unchanged from Slice 1).
+- **Web:** exact parsers accept the 4-type union; productive buckets keep a
+  dedicated 3-type list (server parity); dedicated create/detail UI reuses
+  workflow panels and dialogs.
+
+## Weekly Report V1 Slice 2 remediation (adversarial review F-1..F-8) — 2026-09-24
+
+Closes the independent review findings on the single-report workflow without
+touching the approved server architecture and without a migration (051 stays
+the head). Server stays authoritative; the changes harden the web workflow
+contract and two authority rules.
+
+- **Dirty-draft submission (F-1):** the visible form is compared structurally
+  against a persisted baseline (draft sections, manager-question answers,
+  report version). While dirty, `SUBMIT_FOR_APPROVAL` is not executable and
+  the workflow states `Raporu göndermeden önce değişiklikleri kaydedin.`
+  A successful save moves the baseline and clears the dirty state; reverting
+  an edit to the persisted value is clean again. Save is never chained
+  silently into submit.
+- **Realtime/refresh semantics (F-2):** server/status/history refresh is
+  separated from editable-form hydration. A clean form hydrates normally; a
+  dirty form keeps its local draft and answers, and a concurrent server
+  version move is surfaced as a conflict instead of overwriting unsaved text.
+  `VERSION_CONFLICT` never discards local edits; recovery is the explicit
+  `Sunucudaki sürümü yükle` action, never a silent merge.
+- **Organization timezone default week (F-3):** the create screen no longer
+  derives the default Monday from device-local calendar arithmetic. The
+  canonical current reporting period comes from
+  `GET /api/job-cards/weekly-reports/reference` (organization timezone,
+  `periodStart`, `periodEnd`, default `dueDate`). Manual Monday selection stays
+  allowed; the server keeps validating the canonical ISO date and Monday rule.
+- **STAFF deadline authority (F-4):** a STAFF self-create that supplies
+  `dueDate` is rejected with a field error (fail-closed, never silently
+  ignored) and the server always derives `periodEnd + 1`. The generic
+  `EDIT_JOB_FIELDS` path rejects any STAFF change to a WEEKLY_REPORT
+  `title`, `description`, `assignedTo` or `dueDate`; unchanged (no-op) values
+  stay allowed, and MANAGER/ADMIN override authority is preserved. Other
+  JobCard types keep their existing generic edit authority. Employee lateness
+  therefore cannot be rescheduled away by the assignee.
+- **Manager instructions (F-5):** instructions remain the JobCard
+  `description` primitive (no new schema). The weekly report detail exposes
+  them read-only as `Yönetici talimatı` to both the assigned STAFF and the
+  manager, and the STAFF generic-edit guard prevents a silent rewrite.
+  Modification history stays on the existing `JOB_FIELDS_UPDATED` activity
+  (`oldValue`/`newValue` include `description`); no new audit subsystem.
+- **Ambiguous lifecycle retry (F-6):** `WeeklyReportDetail` retains the exact
+  original attempt (`clientActionId`, `expectedVersion`, payload/reason,
+  `locationCapture`) and only replays it verbatim; unrelated lifecycle actions
+  are disabled while the outcome is uncertain, and the attempt is released
+  only on a definitive answer. This mirrors the generic JobDetail contract
+  rather than introducing a WeeklyReport-only protocol.
+- **Frozen review authority (F-7):** in `WAITING_APPROVAL` and `COMPLETED`
+  the latest immutable `weekly_report_submission` is the primary report
+  document (frozen body, frozen answers, frozen source-work, `submittedAt`,
+  seq). The activity section uses the frozen list wording
+  (`Gönderimde dondurulan çalışma listesi`) and never shows the false
+  `Bu hafta için uygun iş bulunamadı` state merely because `liveSourceWork` is
+  omitted in those statuses. History selection still allows older seq.
+- **START geolocation (F-8):** capture follows
+  `workflowContext.startLocationCaptureEnabled` exactly; no
+  WeeklyReport-specific geolocation policy exists in web code.
+- **Adjacent correctness:** the weekly detail lifecycle dispatcher now also
+  handles `ACCEPT_ASSIGNMENT`, which the presentation already offered for
+  manager-requested (`NEW`) reports — previously a dead control.

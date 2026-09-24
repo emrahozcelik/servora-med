@@ -190,7 +190,21 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
    edebilirsiniz. Yönetici de erişebildiği aktif işleri aynı şekilde iptal edebilir. İptal
    terminaldir; iş yeniden açılamaz.
 
-### 7.4 Profil
+### 7.4 Haftalık Rapor
+
+1. `/jobs/new-weekly-report` — rapor haftası (Pazartesi) ve termin (varsayılan: dönemi
+   izleyen Pazartesi). Müşteri seçilmez; haftalık rapor müşteriye bağlı değildir.
+2. Rapor **Kabul edildi** veya **Uygulanıyor** durumundayken **İşi başlat** ile
+   **Uygulanıyor** durumuna alın, bölümleri doldurun (**Haftanın özeti** ve
+   **Gelecek hafta planı** zorunludur) ve varsa yönetici sorularını yanıtlayın.
+   **Taslağı kaydet** tüm bölümleri birlikte değiştirir.
+3. **Otomatik çalışma listesi** o hafta tamamladığınız işleri gösterir; düzenlenemez.
+4. **Kontrole gönder** ile rapor dondurulur (değiştirilemez kayıt oluşur). Yönetici
+   düzeltme isterse **Düzeltmeye başla** ile **Uygulanıyor** durumuna dönün, düzeltin ve
+   yeniden gönderin (yeni kayıt oluşur, eski kayıt değişmez).
+5. Yönetici raporu **Onayla** ile tamamlar. Onaylanan rapor içeriği değişmez.
+
+### 7.5 Profil
 
 - **Profilim** (`/staff`): kendi açık / onay bekleyen / tamamlanan iş özetiniz.
 - Yöneticiniz `/staff/:id/reports` raporunu sizin için açabilir.
@@ -215,6 +229,9 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 4. Telefonda / dar ekranda yalnız liste gösterilir (sıkışık pano yoktur).
 5. Kartın başlığına veya kart alanına tıklayarak doğrudan iş detayına girin (özet
    aç/kapat adımı yoktur). Durum komutları kart üzerindeki ayrı düğmelerdir.
+6. **Yeni → Haftalık Rapor** ile bir personele haftalık rapor isteyin (tek personel,
+   rapor haftası, en fazla 5 yönetici sorusu). Personel kabul edip doldurur; içeriği
+   siz düzenleyemez veya onun adına gönderemezsiniz.
 
 ### 8.3 Yönetici kontrol kuyruğu (en sık iş)
 

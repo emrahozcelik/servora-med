@@ -11,6 +11,7 @@ export type NewJobMenuProps = {
   onCreateMeeting?: () => void;
   onCreateTask?: () => void;
   onCreateDelivery?: () => void;
+  onCreateWeeklyReport?: () => void;
   /** When true, hide this control (e.g. sticky mobile create is shown elsewhere). */
   hidden?: boolean;
   /**
@@ -21,7 +22,7 @@ export type NewJobMenuProps = {
 };
 
 export function NewJobMenu({
-  onCreateMeeting, onCreateTask, onCreateDelivery, hidden = false, presentation = 'popover',
+  onCreateMeeting, onCreateTask, onCreateDelivery, onCreateWeeklyReport, hidden = false, presentation = 'popover',
 }: NewJobMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -32,6 +33,7 @@ export function NewJobMenu({
     onCreateMeeting ? { key: 'meeting', label: 'Yeni görüşme', run: onCreateMeeting } : null,
     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
     onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
+    onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,
   ].filter((item): item is { key: string; label: string; run: () => void } => item !== null);
 
   useEffect(() => {

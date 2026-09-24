@@ -31,10 +31,10 @@ export type WeeklyReportDraftBody = {
   supportNeeded: string | null;
 };
 
-/** Frozen submission body: every required section resolved to text. */
+/** Frozen submission body: required sections resolved to text, rest optional. */
 export type WeeklyReportSubmittedBody = {
   summary: string;
-  blockers: string;
+  blockers: string | null;
   nextWeekPlan: string;
   highlights: string | null;
   fieldObservations: string | null;
@@ -52,6 +52,46 @@ export type SourceWorkSnapshotItem = {
   customerName: string | null;
   staffCompletedAt: string;
   statusAtSnapshot: Extract<JobCardStatus, 'WAITING_APPROVAL' | 'COMPLETED'>;
+};
+
+/**
+ * Raw source-work candidate row as read inside a JobCard transaction: the
+ * service maps it to {@link SourceWorkSnapshotItem} through the pure
+ * `mapSourceWorkRow` helper (same file family: `source-work.ts`).
+ */
+export type WeeklySourceWorkRow = {
+  jobCardId: string;
+  type: string;
+  title: string;
+  customerName: string | null;
+  staffCompletedAt: Date;
+  status: string;
+};
+
+export type WeeklyReportSubmissionSummary = {
+  seqNo: number;
+  submittedAt: string;
+  submittedBy: string;
+};
+
+/**
+ * Report detail DTO: weekly domain state plus the owning JobCard lifecycle
+ * reference, the bounded live source-work list (editable statuses only) and
+ * submission summaries (full frozen payloads via the history read).
+ */
+export type WeeklyReportDetail = WeeklyReport & {
+  jobStatus: JobCardStatus;
+  jobVersion: number;
+  dueDate: string | null;
+  assignedTo: string;
+  /**
+   * Manager request instructions (JobCard `description`). Read-only for the
+   * assigned STAFF: it is the manager's request intent, not report content.
+   * Sourced from the owning JobCard, never duplicated into the report row.
+   */
+  instructions: string | null;
+  liveSourceWork: SourceWorkSnapshotItem[];
+  submissionSummaries: WeeklyReportSubmissionSummary[];
 };
 
 export type WeeklyReport = {

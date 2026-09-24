@@ -165,7 +165,7 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
         organizationId, jobCardId: jobA2, staffUserId: staffA, periodStart: WEEK_A, questions: [],
       }).catch((error: unknown) => error);
       expect(conflict).toBeInstanceOf(AppError);
-      expect((conflict as AppError).code).toBe('WEEKLY_REPORT_CONFLICT');
+      expect((conflict as AppError).code).toBe('WEEKLY_REPORT_ALREADY_EXISTS');
       expect((conflict as AppError).message).toBe('Bu personel için bu haftaya ait rapor zaten mevcut.');
 
       // Same staff + different week: allowed. Different staff + same week: allowed.
@@ -178,11 +178,11 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
         organizationId, jobCardId: jobB1, staffUserId: staffB, periodStart: WEEK_A, questions: [],
       })).resolves.toMatchObject({ staffUserId: staffB });
 
-      // One report per JobCard even across staff.
+      // One report per JobCard even across staff: separate invariant.
       const cross = await repo.createReport({
         organizationId, jobCardId: jobA1, staffUserId: staffB, periodStart: WEEK_B, questions: [],
       }).catch((error: unknown) => error);
-      expect((cross as AppError).code).toBe('WEEKLY_REPORT_CONFLICT');
+      expect((cross as AppError).code).toBe('WEEKLY_REPORT_JOB_ATTACHED');
 
       // Cross-organization uniqueness is independent.
       const org2 = await insertOrg(pool);
@@ -342,6 +342,49 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
       for (const forbidden of ['updateSubmission', 'deleteSubmission', 'patchSubmission']) {
         expect(surface).not.toContain(forbidden);
       }
+    });
+  });
+
+  it('maps cross-job source activities to a deterministic domain error (no raw 23503)', async () => {
+    await withSchema(async (pool) => {
+      const repo = new PostgresWeeklyReportRepository(pool);
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const jobId = await insertJob(pool, organizationId, 'WEEKLY_REPORT', staffId, managerId);
+      const otherJobId = await insertJob(pool, organizationId, 'WEEKLY_REPORT', staffId, managerId);
+      const foreignActivityId = await insertActivity(pool, organizationId, otherJobId, staffId);
+      const created = await repo.createReport({
+        organizationId, jobCardId: jobId, staffUserId: staffId, periodStart: WEEK_A, questions: QUESTIONS,
+      });
+      await expect(repo.appendSubmission({
+        organizationId, reportId: created.id, submittedBy: staffId,
+        submittedAt: new Date('2026-08-09T12:00:00.000Z'),
+        draft: FULL_DRAFT, answers: FULL_ANSWERS,
+        sourceWork: SOURCE_WORK, jobVersion: 1, sourceActivityId: foreignActivityId,
+      })).rejects.toMatchObject({ code: 'WEEKLY_REPORT_SOURCE_MISMATCH' });
+      await expect(repo.listSubmissions(organizationId, created.id)).resolves.toEqual([]);
+    });
+  });
+
+  it('rejects non-instant submittedAt before any row is written', async () => {
+    await withSchema(async (pool) => {
+      const repo = new PostgresWeeklyReportRepository(pool);
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const jobId = await insertJob(pool, organizationId, 'WEEKLY_REPORT', staffId, managerId);
+      const activityId = await insertActivity(pool, organizationId, jobId, staffId);
+      const created = await repo.createReport({
+        organizationId, jobCardId: jobId, staffUserId: staffId, periodStart: WEEK_A, questions: QUESTIONS,
+      });
+      await expect(repo.appendSubmission({
+        organizationId, reportId: created.id, submittedBy: staffId,
+        submittedAt: new Date('invalid'),
+        draft: FULL_DRAFT, answers: FULL_ANSWERS,
+        sourceWork: SOURCE_WORK, jobVersion: 1, sourceActivityId: activityId,
+      })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      await expect(repo.listSubmissions(organizationId, created.id)).resolves.toEqual([]);
     });
   });
 });

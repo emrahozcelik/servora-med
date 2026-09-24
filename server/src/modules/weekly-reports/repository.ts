@@ -44,11 +44,27 @@ function versionConflict(): AppError {
   );
 }
 
-function duplicateReport(): AppError {
+function alreadyExists(): AppError {
   return new AppError(
-    'WEEKLY_REPORT_CONFLICT',
+    'WEEKLY_REPORT_ALREADY_EXISTS',
     409,
     'Bu personel için bu haftaya ait rapor zaten mevcut.',
+  );
+}
+
+function jobAlreadyAttached(): AppError {
+  return new AppError(
+    'WEEKLY_REPORT_JOB_ATTACHED',
+    409,
+    'Bu iş kaydı zaten bir haftalık rapora bağlı.',
+  );
+}
+
+function sourceMismatch(): AppError {
+  return new AppError(
+    'WEEKLY_REPORT_SOURCE_MISMATCH',
+    409,
+    'Gönderim kaynağı doğrulanamadı.',
   );
 }
 
@@ -60,7 +76,41 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-type WeeklyReportRow = {
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    !!error
+    && typeof error === 'object'
+    && (error as { code?: unknown }).code === '23503'
+  );
+}
+
+function constraintName(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const name = (error as { constraint?: unknown }).constraint;
+  return typeof name === 'string' ? name : null;
+}
+
+// Auto-generated PostgreSQL constraint names (verified against the live
+// schema; stable unless migration 051 is rewritten, which is forbidden).
+const STAFF_WEEK_UNIQUE_CONSTRAINT =
+  'weekly_reports_organization_id_staff_user_id_period_start_key';
+const JOB_ATTACH_UNIQUE_CONSTRAINT =
+  'weekly_reports_organization_id_job_card_id_key';
+
+/**
+ * Constraint-specific duplicate semantics (F3): only the two known identity
+ * conflicts map to domain errors. Any other unique violation is rethrown
+ * unmasked — never converted into a misleading "report already exists".
+ */
+function duplicateReportFor(error: unknown): AppError | null {
+  if (!isUniqueViolation(error)) return null;
+  const name = constraintName(error);
+  if (name === STAFF_WEEK_UNIQUE_CONSTRAINT) return alreadyExists();
+  if (name === JOB_ATTACH_UNIQUE_CONSTRAINT) return jobAlreadyAttached();
+  return null;
+}
+
+export type WeeklyReportRow = {
   id: string;
   organization_id: string;
   job_card_id: string;
@@ -80,7 +130,7 @@ type WeeklyReportRow = {
   updated_at: Date;
 };
 
-type WeeklyReportSubmissionRow = {
+export type WeeklyReportSubmissionRow = {
   id: string;
   organization_id: string;
   weekly_report_id: string;
@@ -99,20 +149,80 @@ type WeeklyReportSubmissionRow = {
   created_at: Date;
 };
 
+/** Minimal query surface: Pool and single transaction clients both satisfy it. */
+export type WeeklyQueryable = {
+  query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
+};
+
+export type WeeklyDraftRowUpdate = {
+  organizationId: string;
+  reportId: string;
+  expectedVersion: number;
+  draft: WeeklyReportDraftBody;
+  answers: ManagerAnswer[];
+};
+
+/**
+ * Version-guarded draft replacement shared by the standalone repository and
+ * the JobCard service path. Returns null on stale version (caller maps to
+ * VERSION_CONFLICT). Complete replacement, never sparse merge.
+ */
+export async function updateWeeklyReportDraftRow(
+  executor: WeeklyQueryable,
+  input: WeeklyDraftRowUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `UPDATE weekly_reports
+        SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
+            draft_highlights = $6, draft_field_observations = $7,
+            draft_support_needed = $8, manager_answers = $9,
+            version = version + 1, updated_at = NOW()
+      WHERE organization_id = $1 AND id = $2 AND version = $10
+      RETURNING *`,
+    [
+      input.organizationId,
+      input.reportId,
+      input.draft.summary,
+      input.draft.blockers,
+      input.draft.nextWeekPlan,
+      input.draft.highlights,
+      input.draft.fieldObservations,
+      input.draft.supportNeeded,
+      JSON.stringify(input.answers),
+      input.expectedVersion,
+    ],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function listWeeklyReportSubmissionRows(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  reportId: string,
+): Promise<WeeklyReportSubmissionRow[]> {
+  const result = await executor.query<WeeklyReportSubmissionRow>(
+    `SELECT * FROM weekly_report_submissions
+      WHERE organization_id = $1 AND weekly_report_id = $2
+      ORDER BY seq_no ASC, id ASC`,
+    [organizationId, reportId],
+  );
+  return result.rows;
+}
+
 /**
  * Host-timezone-independent DATE mapping (same convention as the JobCard
  * repository's `mapCalendarDate`): node-pg materializes DATE as local
  * midnight, so local calendar fields round-trip on any host while
  * `toISOString()` would shift the day outside UTC.
  */
-function dateKey(value: Date): string {
+export function dateKey(value: Date): string {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-function mapReport(row: WeeklyReportRow): WeeklyReport {
+export function mapReport(row: WeeklyReportRow): WeeklyReport {
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -136,7 +246,7 @@ function mapReport(row: WeeklyReportRow): WeeklyReport {
   };
 }
 
-function mapSubmission(row: WeeklyReportSubmissionRow): WeeklyReportSubmission {
+export function mapSubmission(row: WeeklyReportSubmissionRow): WeeklyReportSubmission {
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -244,7 +354,11 @@ export class PostgresWeeklyReportRepository {
       );
       return mapReport(result.rows[0]!);
     } catch (error) {
-      if (isUniqueViolation(error)) throw duplicateReport();
+      const duplicate = duplicateReportFor(error);
+      if (duplicate) throw duplicate;
+      // A referenced job/staff row deleted between the pre-checks and the
+      // insert: deterministic not-found, never a raw FK leak.
+      if (isForeignKeyViolation(error)) throw notFound();
       throw error;
     }
   }
@@ -283,28 +397,13 @@ export class PostgresWeeklyReportRepository {
     if (row.staff_user_id !== input.staffUserId) throw forbidden();
     if (row.version !== input.expectedVersion) throw versionConflict();
     const answers = validateDraftAnswers(row.manager_questions, input.answers);
-    const updated = await this.pool.query<WeeklyReportRow>(
-      `UPDATE weekly_reports
-          SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
-              draft_highlights = $6, draft_field_observations = $7,
-              draft_support_needed = $8, manager_answers = $9,
-              version = version + 1, updated_at = NOW()
-        WHERE organization_id = $1 AND id = $2 AND version = $10
-        RETURNING *`,
-      [
-        input.organizationId,
-        input.reportId,
-        draft.summary,
-        draft.blockers,
-        draft.nextWeekPlan,
-        draft.highlights,
-        draft.fieldObservations,
-        draft.supportNeeded,
-        JSON.stringify(answers),
-        input.expectedVersion,
-      ],
-    );
-    const next = updated.rows[0];
+    const next = await updateWeeklyReportDraftRow(this.pool, {
+      organizationId: input.organizationId,
+      reportId: input.reportId,
+      expectedVersion: input.expectedVersion,
+      draft,
+      answers,
+    });
     // Lost-update race between the read and the write: same deterministic
     // conflict as a stale caller version.
     if (!next) throw versionConflict();
@@ -317,6 +416,15 @@ export class PostgresWeeklyReportRepository {
     if (!Number.isInteger(input.jobVersion) || input.jobVersion < 1) {
       throw new AppError('VALIDATION_ERROR', 400, 'jobVersion geçersizdir.', {
         fieldErrors: { jobVersion: 'jobVersion geçersizdir.' },
+      });
+    }
+    // F4: the submission clock is server-owned. Direct callers must supply a
+    // real instant; the production service path always passes its request
+    // clock and never client time.
+    if (!(input.submittedAt instanceof Date)
+      || Number.isNaN(input.submittedAt.valueOf())) {
+      throw new AppError('VALIDATION_ERROR', 400, 'submittedAt geçersizdir.', {
+        fieldErrors: { submittedAt: 'submittedAt geçersizdir.' },
       });
     }
     const client = await this.pool.connect();
@@ -367,6 +475,10 @@ export class PostgresWeeklyReportRepository {
       return mapSubmission(inserted.rows[0]!);
     } catch (error) {
       await client.query('ROLLBACK');
+      // F2: a source activity from another job/organization (or deleted
+      // mid-flight) violates the composite FK. Deterministic domain error —
+      // raw 23503 never escapes.
+      if (isForeignKeyViolation(error)) throw sourceMismatch();
       throw error;
     } finally {
       client.release();
@@ -382,12 +494,7 @@ export class PostgresWeeklyReportRepository {
       [organizationId, reportId],
     );
     if (!report.rows[0]) throw notFound();
-    const result = await this.pool.query<WeeklyReportSubmissionRow>(
-      `SELECT * FROM weekly_report_submissions
-        WHERE organization_id = $1 AND weekly_report_id = $2
-        ORDER BY seq_no ASC, id ASC`,
-      [organizationId, reportId],
-    );
-    return result.rows.map(mapSubmission);
+    const rows = await listWeeklyReportSubmissionRows(this.pool, organizationId, reportId);
+    return rows.map(mapSubmission);
   }
 }

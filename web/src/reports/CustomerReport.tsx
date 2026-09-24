@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { jobTypeLabels } from '../jobs/job-labels';
-import { JOB_CARD_TYPES } from '../jobs/jobs-api';
+import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
 import { paths } from '../paths';
 import {
   customerStatusLabels,
@@ -86,7 +86,7 @@ function CustomerRow({ item, index }: {
                 className="report-customer-work-types"
                 aria-label="Seçilen dönemde oluşturulan iş türleri"
               >
-                {JOB_CARD_TYPES.map((type) => (
+                {PRODUCTIVE_JOB_CARD_TYPES.map((type) => (
                   <span className="report-customer-chip" key={type}>
                     {jobTypeLabels[type]} {activity.period.createdWorkTypes[type]}
                   </span>

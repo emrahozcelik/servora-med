@@ -18,7 +18,20 @@ export type JobCardInvalidationReasonCode = (typeof JOB_CARD_INVALIDATION_REASON
 export const JOB_CARD_ACTIVITY_STATUSES = [...JOB_CARD_STATUSES, 'PLANNED'] as const;
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
-export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+/**
+ * Productive work types only. Server completion/performance/type-bucket
+ * aggregates never contain weekly reports, so bucket parsers and bucket
+ * displays must use this list (server parity) — never the full union below.
+ */
+export const PRODUCTIVE_JOB_CARD_TYPES = [
+  'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
+] as const;
+/**
+ * Every JobCard type the API can return, including administrative weekly
+ * reports. Job-row parsers, filters and labels use this list so a
+ * WEEKLY_REPORT row can never crash exact parsing.
+ */
+export const JOB_CARD_TYPES = [...PRODUCTIVE_JOB_CARD_TYPES, 'WEEKLY_REPORT'] as const;
 export const JOB_CARD_ENGAGEMENT_KINDS = [
   'SALES_MEETING',
   'CUSTOMER_VISIT',
@@ -63,6 +76,8 @@ export const SUBMISSION_REQUIREMENT_CODES = [
   'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
   'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'UNSUCCESSFUL_REASON_PRESENT',
   'FOLLOW_UP_TIME_VALID',
+  'WEEKLY_REPORT_FOUND', 'WEEKLY_DRAFT_VALID', 'WEEKLY_ANSWERS_COMPLETE',
+  'WEEKLY_SOURCE_WORK_READY',
 ] as const;
 
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
@@ -71,6 +86,7 @@ export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
+export type ProductiveJobCardType = (typeof PRODUCTIVE_JOB_CARD_TYPES)[number];
 export type JobCardEngagementKind = (typeof JOB_CARD_ENGAGEMENT_KINDS)[number];
 export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
 export type UnsuccessfulVisitReasonCode = (typeof UNSUCCESSFUL_VISIT_REASON_CODES)[number];

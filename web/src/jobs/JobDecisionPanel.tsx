@@ -16,6 +16,7 @@ export function JobDecisionPanel({
   pendingLabel,
   startLocationCaptureEnabled,
   startScheduleBlockedReason,
+  disabledCommands = [],
   onCommand,
   onRecordEdit,
 }: {
@@ -32,6 +33,13 @@ export function JobDecisionPanel({
    * authoritative and may still return SCHEDULED_INTERVAL_REQUIRED / 400.
    */
   startScheduleBlockedReason?: string | null;
+  /**
+   * Commands the owner surface has declared non-executable right now (for
+   * example SUBMIT_FOR_APPROVAL while the draft is dirty, or every lifecycle
+   * command while an ambiguous attempt awaits an exact replay). Presentation
+   * only: the server stays authoritative.
+   */
+  disabledCommands?: readonly LifecycleCommand[];
   onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
   onRecordEdit?: (
     action: RecordEditPresentation['action'], trigger: HTMLButtonElement,
@@ -40,6 +48,9 @@ export function JobDecisionPanel({
   if (!primary && secondary.length === 0 && !recordEditAction) return null;
   const hasStart = primary?.command === 'START'
     || secondary.some((transition) => transition.command === 'START');
+  const commandBlocked = (command: LifecycleCommand) => pending
+    || disabledCommands.includes(command)
+    || Boolean(startScheduleBlockedReason && command === 'START');
 
   const destructiveTransitions = secondary.filter((t) => t.command === 'CANCEL');
   const secondaryTransitions = secondary.filter((t) => t.command !== 'CANCEL');
@@ -68,7 +79,7 @@ export function JobDecisionPanel({
       {primary && <button
         className="primary-button compact-button"
         type="button"
-        disabled={pending || Boolean(startScheduleBlockedReason && primary.command === 'START')}
+        disabled={commandBlocked(primary.command)}
         aria-describedby={startScheduleBlockedReason && primary.command === 'START'
           ? START_SCHEDULE_REASON_ID
           : undefined}
@@ -80,8 +91,7 @@ export function JobDecisionPanel({
         key={transition.command}
         className="secondary-button compact-button"
         type="button"
-        disabled={pending
-          || Boolean(startScheduleBlockedReason && transition.command === 'START')}
+        disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
         {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
@@ -90,7 +100,7 @@ export function JobDecisionPanel({
         key={transition.command}
         className="destructive-button compact-button"
         type="button"
-        disabled={pending}
+        disabled={commandBlocked(transition.command)}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
         {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}

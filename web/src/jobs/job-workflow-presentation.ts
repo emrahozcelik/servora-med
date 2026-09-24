@@ -103,6 +103,10 @@ export const requirementLabels: Record<SubmissionRequirement['code'], string> = 
   MEETING_SUMMARY_PRESENT: 'Görüşme özeti',
   UNSUCCESSFUL_REASON_PRESENT: 'Başarısız görüşme nedeni',
   FOLLOW_UP_TIME_VALID: 'Takip zamanı (varsa görüşmeden sonra)',
+  WEEKLY_REPORT_FOUND: 'Haftalık rapor kaydı',
+  WEEKLY_DRAFT_VALID: 'Rapor bölümleri tamam',
+  WEEKLY_ANSWERS_COMPLETE: 'Yönetici soruları yanıtlandı',
+  WEEKLY_SOURCE_WORK_READY: 'Otomatik çalışma listesi hazır',
 };
 
 const PHASE_ORDER: WorkflowPhase[] = [
@@ -523,6 +527,7 @@ export function scheduleFieldLabel(type: JobCard['type']): string {
     case 'SALES_MEETING':
       return 'Planlanan görüşme zamanı';
     case 'GENERAL_TASK':
+    case 'WEEKLY_REPORT':
       return 'Planlanan zaman';
   }
 }

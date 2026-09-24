@@ -11,7 +11,7 @@ import { paths } from '../paths';
  */
 export type RouteId =
   | 'overview' | 'calendar' | 'messages' | 'jobs'
-  | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'followUpCreate' | 'jobDetail'
+  | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
   | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail'
   | 'products' | 'productCreate' | 'productDetail'
   | 'reports' | 'reportStaff' | 'reportCustomers' | 'reportDeliveries' | 'reportApprovals' | 'reportSalesFollowUp'
@@ -52,6 +52,7 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
   jobCreateDelivery: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   jobCreateTask: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   jobCreateMeeting: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+  jobCreateWeeklyReport: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   followUpCreate: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   jobDetail: { title: 'İş detayı', parentId: 'jobs', section: 'Operasyon' },
   customers: { title: 'Müşteriler', parentId: null, section: 'Operasyon' },
@@ -150,6 +151,7 @@ const PATTERNS: RoutePattern[] = [
   { id: 'jobCreateDelivery', test: matchExact(paths.newDelivery) },
   { id: 'jobCreateTask', test: matchExact(paths.newTask) },
   { id: 'jobCreateMeeting', test: matchExact(paths.newMeeting) },
+  { id: 'jobCreateWeeklyReport', test: matchExact(paths.newWeeklyReport) },
   { id: 'followUpCreate', test: matchExact('/jobs/new-follow-up') },
   { id: 'jobDetail', test: matchParam(/^\/jobs\/([^/]+)\/?$/, ['jobCardId']) },
   { id: 'jobs', test: matchExact(paths.jobs) },

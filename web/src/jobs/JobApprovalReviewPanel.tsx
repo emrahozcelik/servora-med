@@ -25,6 +25,8 @@ function typeAwareSummary(job: JobCard): string {
       return 'Görüşme sonucu, özet ve takip bilgilerini kontrol edin.';
     case 'GENERAL_TASK':
       return 'Görev kaydını ve tamamlanma notlarını kontrol edin.';
+    case 'WEEKLY_REPORT':
+      return 'Rapor bölümlerini, yönetici sorusu yanıtlarını ve otomatik çalışma listesini kontrol edin.';
   }
 }
 

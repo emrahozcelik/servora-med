@@ -11,6 +11,7 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
   GENERAL_TASK: 'Genel görev',
   SALES_MEETING: 'Satış görüşmesi',
+  WEEKLY_REPORT: 'Haftalık Rapor',
 };
 
 export const JOB_CARD_ENGAGEMENT_LABELS = {

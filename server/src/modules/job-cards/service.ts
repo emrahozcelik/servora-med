@@ -110,6 +110,38 @@ import {
   normalizeFollowUpDueDate,
   priority as normalizePriority,
 } from './create-input.js';
+import { addCalendarDaysToDateKey } from './local-calendar.js';
+import type { ManagerQuestion } from '../weekly-reports/types.js';
+import type {
+  WeeklyReportDetail,
+  WeeklyReportSubmission,
+} from '../weekly-reports/types.js';
+import {
+  mapReport,
+  mapSubmission,
+} from '../weekly-reports/repository.js';
+import {
+  currentWeeklyReportPeriod,
+  type WeeklyReportReference,
+} from '../weekly-reports/reference.js';
+import {
+  mapSourceWorkRow,
+  weekInstants,
+} from '../weekly-reports/source-work.js';
+import {
+  validateDraftAnswers,
+  validateDraftBody,
+  validateSubmissionAnswers,
+  validateSubmissionBody,
+  validateSourceWorkSnapshot,
+} from '../weekly-reports/validation.js';
+import {
+  weeklyReportAlreadyExists,
+  weeklyReportCreateRequestHash,
+  weeklyReportTitle,
+  type WeeklyReportCreateInput,
+} from '../weekly-reports/create-input.js';
+import { validateManagerQuestions } from '../weekly-reports/validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -434,6 +466,16 @@ function lifecycleReason(value: unknown, field: 'revisionReason' | 'cancelReason
   }
   return requireLifecycleReason(value, field);
 }
+
+export type WeeklyReportCreateResult = {
+  jobCardId: string;
+  reportId: string;
+  staffUserId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: JobCardStatus;
+  dueDate: string | null;
+};
 
 export class JobCardService {
   private readonly notesService: JobCardNotesService;
@@ -915,8 +957,340 @@ export class JobCardService {
     return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
-  async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {
-    const title = input.title.trim();
+  /**
+   * Canonical create-screen reference: the organization-local current
+   * reporting week and its default due date. The date is derived from the
+   * organization timezone, never from the browser's device clock, so a
+   * staff member in a different zone still sees the organization's week.
+   */
+  async weeklyReportReference(actor: JobCardActor): Promise<WeeklyReportReference> {
+    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+    return currentWeeklyReportPeriod(this.now(), timezone);
+  }
+
+  /**
+   * Single-target Weekly Report creation (V1 Slice 2). One transaction
+   * atomically produces the JobCard and its WeeklyReport row — never one
+   * without the other. STAFF self-creates (ACCEPTED with canonical accepted
+   * evidence, mirroring generic self-create); MANAGER/ADMIN requests for
+   * exactly one active STAFF (NEW). Idempotent via processed_actions with a
+   * normalized-intent request hash.
+   */
+  async createWeeklyReport(
+    actor: JobCardActor,
+    input: WeeklyReportCreateInput,
+  ): Promise<WeeklyReportCreateResult> {
+    const selfCreate = actor.role === 'STAFF';
+    let staffUserId: string;
+    let questions: ManagerQuestion[];
+    if (selfCreate) {
+      if (input.assignedTo !== null && input.assignedTo !== actor.id) {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      if (input.questions !== undefined && input.questions !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR', 400, 'Yönetici soruları personel kaydında yer alamaz.',
+        );
+      }
+      // Deadline authority: staff cannot move their own submission deadline.
+      // The canonical default (Monday after the period) is derived below.
+      if (input.dueDate !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Personel kendi haftalık raporu için termin belirleyemez.',
+          { fieldErrors: { dueDate: 'Termin yönetici tarafından belirlenir.' } },
+        );
+      }
+      staffUserId = actor.id;
+      questions = [];
+    } else {
+      if (input.assignedTo === null) {
+        throw new AppError(
+          'VALIDATION_ERROR', 400, 'Haftalık rapor için sorumlu personel zorunludur.',
+        );
+      }
+      staffUserId = input.assignedTo;
+      questions = input.questions === undefined || input.questions === null
+        ? []
+        : validateManagerQuestions(input.questions);
+    }
+    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    const title = weeklyReportTitle(input.periodStart, input.periodEnd);
+    const requestTime = this.now();
+    const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
+      {
+        organizationId: actor.organizationId, userId: actor.id,
+        clientActionId: input.clientActionId, operationKey: 'WEEKLY_REPORT_CREATE',
+        requestHash: weeklyReportCreateRequestHash({
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          assignedTo: staffUserId,
+          dueDate,
+          questions,
+          instructions: input.instructions,
+        }),
+      },
+      async (transaction) => {
+        const lockedAssignees = await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          [staffUserId],
+        );
+        const assignee = this.requiredLockedAssignee(lockedAssignees, staffUserId);
+        assertCreateAssignmentRequest(actor, staffUserId);
+        assertCanCreateForAssignee(actor, assignee);
+        const duplicate = await transaction.getWeeklyReportByStaffWeek(
+          actor.organizationId, staffUserId, input.periodStart,
+        );
+        if (duplicate) {
+          throw weeklyReportAlreadyExists(duplicate.id, duplicate.job_card_id, input.periodStart);
+        }
+        const job = await transaction.createJobCard({
+          organizationId: actor.organizationId, type: 'WEEKLY_REPORT',
+          status: selfCreate ? 'ACCEPTED' : 'NEW',
+          title,
+          description: input.instructions, customerId: null,
+          contactId: null,
+          assignedTo: staffUserId, createdBy: actor.id, priority: 'normal',
+          dueDate,
+          scheduledAt: null,
+          scheduledEndsAt: null,
+          engagementKind: null,
+          acceptedAt: selfCreate ? requestTime : null,
+          acceptedBy: selfCreate ? actor.id : null,
+          sourceJobCardId: null,
+          followUpInstructions: null,
+          historySource: 'CREATE',
+          historyRecordedAt: requestTime,
+        });
+        let reportId: string;
+        try {
+          const report = await transaction.insertWeeklyReportRow({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+            staffUserId,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            questions,
+          });
+          reportId = report.id;
+        } catch (error) {
+          // Lost the staff/week race after the pre-check: the UNIQUE
+          // constraint is authoritative. Re-read for navigation metadata.
+          if ((error as { code?: unknown })?.code === '23505') {
+            const winner = await transaction.getWeeklyReportByStaffWeek(
+              actor.organizationId, staffUserId, input.periodStart,
+            );
+            if (winner) {
+              throw weeklyReportAlreadyExists(winner.id, winner.job_card_id, input.periodStart);
+            }
+          }
+          throw error;
+        }
+        const createdValue: Record<string, unknown> = {
+          status: job.status, assignedTo: job.assignedTo, version: job.version,
+        };
+        if (selfCreate) {
+          createdValue.acceptedAt = requestTime.toISOString();
+          createdValue.acceptedBy = actor.id;
+        }
+        const activity = await transaction.appendActivity({
+          organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+          event: 'JOB_CREATED', clientActionId: input.clientActionId,
+          newValue: createdValue,
+          metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId: job.id,
+          actorUserId: actor.id,
+          event: 'JOB_CREATED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+          calendarAffected: false,
+          customerId: null,
+        });
+        return {
+          response: {
+            jobCardId: job.id,
+            reportId,
+            staffUserId,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            status: job.status,
+            dueDate,
+          },
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
+    }
+    return result.response;
+  }
+
+  /**
+   * Weekly report read context: owning JobCard plus its report row. Same
+   * visibility as the generic detail — cross-tenant and non-owner STAFF
+   * reads are concealed as not-found; managers read their organization.
+   */
+  private async loadWeeklyReportContext(actor: JobCardActor, jobCardId: string) {
+    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    if (!job || job.type !== 'WEEKLY_REPORT'
+      || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    const row = await this.repository.getWeeklyReportByJobId(actor.organizationId, jobCardId);
+    if (!row) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    return { job, report: mapReport(row) };
+  }
+
+  async getWeeklyReport(actor: JobCardActor, jobCardId: string): Promise<WeeklyReportDetail> {
+    const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    const submissionRows = await this.repository.listWeeklyReportSubmissionRows(
+      actor.organizationId, report.id,
+    );
+    let liveSourceWork: WeeklyReportDetail['liveSourceWork'] = [];
+    if (job.status === 'ACCEPTED' || job.status === 'IN_PROGRESS') {
+      const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+      const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+      const rows = await this.repository.listWeeklySourceWorkSnapshot({
+        organizationId: actor.organizationId,
+        staffUserId: report.staffUserId,
+        weekStart,
+        weekEnd,
+      });
+      liveSourceWork = rows.map(mapSourceWorkRow);
+    }
+    return {
+      ...report,
+      jobStatus: job.status,
+      jobVersion: job.version,
+      dueDate: job.dueDate,
+      assignedTo: job.assignedTo,
+      instructions: job.description,
+      liveSourceWork,
+      submissionSummaries: submissionRows.map((row) => ({
+        seqNo: row.seq_no,
+        submittedAt: row.submitted_at.toISOString(),
+        submittedBy: row.submitted_by,
+      })),
+    };
+  }
+
+  /**
+   * Weekly draft write: owner STAFF only (managers read but never author),
+   * editable in ACCEPTED/IN_PROGRESS, locked once awaiting approval or
+   * beyond. Complete replacement semantics — the validated draft body
+   * replaces all sections atomically, never sparse-merged.
+   */
+  async updateWeeklyReportDraft(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: { expectedVersion: number; draft: unknown; answers: unknown },
+  ): Promise<WeeklyReportDetail> {
+    const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    if (actor.role !== 'STAFF' || actor.id !== report.staffUserId) {
+      throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+    }
+    if (job.status !== 'ACCEPTED' && job.status !== 'IN_PROGRESS') {
+      throw new AppError(
+        'WEEKLY_REPORT_DRAFT_LOCKED',
+        409,
+        'Rapor taslağı bu aşamada düzenlenemez.',
+      );
+    }
+    const draft = validateDraftBody(input.draft);
+    const answers = validateDraftAnswers(report.questions, input.answers);
+    const updated = await this.repository.updateWeeklyReportDraftRow({
+      organizationId: actor.organizationId,
+      reportId: report.id,
+      expectedVersion: input.expectedVersion,
+      draft,
+      answers,
+    });
+    if (!updated) {
+      throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+    }
+    return this.getWeeklyReport(actor, jobCardId);
+  }
+
+  async listWeeklyReportSubmissions(
+    actor: JobCardActor,
+    jobCardId: string,
+  ): Promise<WeeklyReportSubmission[]> {
+    const { report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    const rows = await this.repository.listWeeklyReportSubmissionRows(
+      actor.organizationId, report.id,
+    );
+    return rows.map(mapSubmission);
+  }
+
+  /**
+   * Freeze the persisted draft into an immutable submission row inside the
+   * caller's SUBMIT_FOR_APPROVAL transaction. The caller holds the JobCard
+   * lock and just appended the canonical submit activity; this method locks
+   * the report row, re-validates the frozen payload, snapshots live
+   * source-work and links the row to that exact activity id (F2: the id
+   * comes from our own transition result — clients never supply it).
+   * submittedAt is the shared request clock (F4), identical to the
+   * staff_completed_at evidence written by the same transition.
+   */
+  private async appendWeeklyReportSubmission(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      job: JobCard;
+      activityId: string;
+      occurredAt: Date;
+      jobVersion: number;
+    },
+  ): Promise<void> {
+    const { actor, job, activityId, occurredAt, jobVersion } = input;
+    const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, job.id);
+    if (!row || row.staff_user_id !== actor.id) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    const report = mapReport(row);
+    const body = validateSubmissionBody(report.draft);
+    const answers = validateSubmissionAnswers(report.questions, report.answers);
+    const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+    const sourceRows = await tx.listWeeklySourceWorkSnapshot({
+      organizationId: actor.organizationId,
+      staffUserId: actor.id,
+      weekStart,
+      weekEnd,
+    });
+    const sourceWork = validateSourceWorkSnapshot(sourceRows.map(mapSourceWorkRow));
+    const seqNo = await tx.getNextWeeklyReportSubmissionSeqNo(actor.organizationId, report.id);
+    await tx.insertWeeklyReportSubmissionRow({
+      organizationId: actor.organizationId,
+      weeklyReportId: report.id,
+      jobCardId: job.id,
+      seqNo,
+      submittedBy: actor.id,
+      submittedAt: occurredAt,
+      periodStart: report.periodStart,
+      periodEnd: report.periodEnd,
+      body,
+      questions: report.questions,
+      answers,
+      sourceWork,
+      jobVersion,
+      sourceActivityId: activityId,
+    });
+  }
+
+  async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {    const title = input.title.trim();
     if (input.type !== 'PRODUCT_DELIVERY'
       || !input.clientActionId.trim() || !title || !input.customerId
       || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(input.priority)) {
@@ -1638,6 +2012,41 @@ export class JobCardService {
           400,
           'Ürün teslimine yeni ilgili kişi eklenemez.',
         );
+      }
+
+      // Weekly Report authority (V1 Slice 2 remediation): the report's
+      // identity and deadline belong to the manager request (or the
+      // canonical server default); the assigned STAFF authors only the
+      // report draft through the dedicated weekly endpoints. The
+      // customerless / unscheduled contract is enforced for every actor so
+      // a weekly report can never be attached to a customer or a calendar
+      // interval.
+      if (job.type === 'WEEKLY_REPORT') {
+        const customerScoped = fields.customerId !== undefined && fields.customerId !== job.customerId
+          || fields.contactId !== undefined && fields.contactId !== job.contactId
+          || fields.scheduledAt !== undefined && fields.scheduledAt !== (job.scheduledAt ?? null)
+          || fields.scheduledEndsAt !== undefined
+            && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
+        if (customerScoped) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Haftalık rapor müşteriye veya zaman planına bağlanamaz.',
+          );
+        }
+        if (actor.role === 'STAFF') {
+          const staffOwned = fields.title !== undefined && fields.title !== job.title
+            || fields.description !== undefined && fields.description !== job.description
+            || fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo
+            || fields.dueDate !== undefined && fields.dueDate !== (job.dueDate ?? null);
+          if (staffOwned) {
+            throw new AppError(
+              'FORBIDDEN',
+              403,
+              'Haftalık raporun talep alanları personel tarafından düzenlenemez.',
+            );
+          }
+        }
       }
 
       const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
@@ -2582,6 +2991,21 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata,
         });
+
+        // Weekly Report atomic submit (V1 Slice 2): the immutable submission
+        // snapshot is appended in this SAME transaction, linked to the exact
+        // JOB_SUBMITTED_FOR_APPROVAL activity created above. Any failure
+        // rolls back the transition, the activity and the submission
+        // together — no partial state is committable.
+        if (definition.command === 'SUBMIT_FOR_APPROVAL' && job.type === 'WEEKLY_REPORT') {
+          await this.appendWeeklyReportSubmission(tx, {
+            actor,
+            job,
+            activityId: activity.id,
+            occurredAt,
+            jobVersion: updated.version,
+          });
+        }
 
         if (noteId && definition.noteContext && transitionNoteBody
           && authorNameSnapshot && authorRoleSnapshot) {

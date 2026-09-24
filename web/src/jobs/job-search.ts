@@ -1,4 +1,5 @@
 import type { JobCardPriority, JobCardStatusFilter, JobCardType } from './jobs-api';
+import { JOB_CARD_TYPES } from './jobs-api';
 import { activeWorkflowStatuses, type ActiveWorkflowStatus } from './job-status-presentation';
 
 export type JobViewMode = 'list' | 'board';
@@ -47,7 +48,7 @@ const STATUSES = [
   'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED', 'INVALIDATED',
 ] as const;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
-const TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+const TYPES = JOB_CARD_TYPES;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isValidJobFilterUuid(value: string) {

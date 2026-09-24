@@ -17,7 +17,6 @@ import {
   type JobCard,
   type JobCardEngagementKind,
   type JobCardPriority,
-  type JobCardType,
 } from './jobs-api';
 import {
   CUSTOMERLESS_FOLLOW_UP_EXPLANATION,
@@ -87,7 +86,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 }) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
-  const [type, setType] = useState<JobCardType>('GENERAL_TASK');
+  const [type, setType] = useState<'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING'>('GENERAL_TASK');
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
   const [scheduledLocal, setScheduledLocal] = useState('');
@@ -278,7 +277,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const customerless = source.customer === null;
   const instructionCount = codePointLength(instructions);
 
-  function changeType(nextType: JobCardType) {
+  function changeType(nextType: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING') {
     if (customerless && nextType !== 'GENERAL_TASK') return;
     setType(nextType);
     setFieldErrors((current) => ({ ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined }));
@@ -406,7 +405,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
           <div className="field-group"><label htmlFor="follow-up-type">İş türü</label>
             <select id="follow-up-type" value={type} aria-invalid={fieldErrors.type ? true : undefined}
               aria-describedby={customerless ? 'follow-up-type-help' : fieldErrors.type ? 'follow-up-type-error' : undefined}
-              onChange={(event) => changeType(event.target.value as JobCardType)}>
+              onChange={(event) => changeType(event.target.value as 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING')}>
               <option value="GENERAL_TASK">Genel görev</option>
               <option value="PRODUCT_DELIVERY" disabled={customerless}>Ürün teslimi</option>
               <option value="SALES_MEETING" disabled={customerless}>Satış görüşmesi</option>

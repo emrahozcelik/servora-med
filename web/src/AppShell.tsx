@@ -265,6 +265,7 @@ function ShellBody({ user, pendingSignOut, onSignOut, children }: AppShellProps)
                 onCreateMeeting={() => navigate(paths.newMeeting)}
                 onCreateTask={() => navigate(paths.newTask)}
                 onCreateDelivery={() => navigate(paths.newDelivery)}
+                onCreateWeeklyReport={() => navigate(paths.newWeeklyReport)}
               />
             </div>
           )}
