@@ -167,6 +167,18 @@ describe('WeeklyReportDetail', () => {
     return Array.from(host.querySelectorAll('button')).some((button) => button.textContent === text);
   }
 
+  /**
+   * Text of one labelled section only. Asserting on the whole `host.textContent`
+   * is not enough for source work: a submission's rows are also echoed in the
+   * history section, so a page-wide assertion passes even when the review
+   * section renders the wrong list.
+   */
+  function sectionText(ariaLabelledBy: string): string {
+    const section = host.querySelector(`[aria-labelledby="${ariaLabelledBy}"]`);
+    expect(section, `section "${ariaLabelledBy}"`).not.toBeNull();
+    return section!.textContent ?? '';
+  }
+
   function click(element: HTMLElement) {
     act(() => { element.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   }
@@ -480,15 +492,25 @@ describe('WeeklyReportDetail', () => {
         submissionReadiness: null,
       },
     }));
-    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'WAITING_APPROVAL', version: 5 }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      jobStatus: 'WAITING_APPROVAL', version: 5,
+      // The live list must never be the review document. A distinguishable live
+      // row is what makes this assertion discriminate the frozen list.
+      liveSourceWork: [{
+        jobCardId: 'live-1', type: 'GENERAL_TASK', title: 'Canlı iş kaydı',
+        customerName: null, staffCompletedAt: '2026-08-06T09:00:00.000Z',
+        statusAtSnapshot: 'COMPLETED',
+      }],
+    }));
     weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 2 })]);
     await render(managerUser);
     expect(host.textContent).toContain('Gönderilen rapor');
     expect(host.textContent).toContain('#2');
     expect(host.textContent).toContain('Gönderilen özet.');
     expect(host.textContent).toContain('Gönderilen yanıt.');
-    expect(host.textContent).toContain('Gönderimde dondurulan çalışma listesi');
-    expect(host.textContent).toContain('Klinik ziyareti');
+    expect(sectionText('weekly-activity-title')).toContain('Gönderimde dondurulan çalışma listesi');
+    expect(sectionText('weekly-activity-title')).toContain('Klinik ziyareti');
+    expect(sectionText('weekly-activity-title')).not.toContain('Canlı iş kaydı');
   });
 
   // 17
@@ -513,8 +535,12 @@ describe('WeeklyReportDetail', () => {
     }));
     weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 1 })]);
     await render(managerUser);
+    // Scoped to the review section: the frozen rows are echoed in the history
+    // section too, so a page-wide assertion would pass without proving anything.
+    const activity = sectionText('weekly-activity-title');
+    expect(activity).toContain('Klinik ziyareti');
+    expect(activity).not.toContain('Gönderimde dondurulan çalışma listesi boş.');
     expect(host.textContent).not.toContain('Bu hafta için uygun iş bulunamadı');
-    expect(host.textContent).toContain('Klinik ziyareti');
   });
 
   // 18

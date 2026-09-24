@@ -53,6 +53,10 @@ function serviceDouble() {
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     invalidate: vi.fn().mockResolvedValue({ ...result, status: 'INVALIDATED' }),
     getWeeklyReport: vi.fn().mockResolvedValue({ id: 'report-1' }),
+    weeklyReportReference: vi.fn().mockResolvedValue({
+      timezone: 'Europe/Istanbul', periodStart: '2026-08-03',
+      periodEnd: '2026-08-09', dueDate: '2026-08-10',
+    }),
     updateWeeklyReportDraft: vi.fn().mockResolvedValue({ id: 'report-1', version: 2 }),
     listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
@@ -675,6 +679,24 @@ describe('JobCard routes', () => {
       expectedVersion: 1, draft: {}, answers: [],
     });
     expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1');
+  });
+
+  it('serves the canonical weekly report reference without being captured by the job id route', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'GET', url: '/api/job-cards/weekly-reports/reference',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(service.weeklyReportReference).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+    );
+    // `/weekly-reports/reference` also matches the two-segment `/:id/weekly-report`
+    // pattern, so `reference` must not be read as a job id.
+    expect(service.getWeeklyReport).not.toHaveBeenCalled();
+    expect(response.json()).toEqual({
+      timezone: 'Europe/Istanbul', periodStart: '2026-08-03',
+      periodEnd: '2026-08-09', dueDate: '2026-08-10',
+    });
   });
 
   it('rejects client-supplied submission authority fields on submit', async () => {
