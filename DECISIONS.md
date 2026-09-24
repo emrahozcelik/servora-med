@@ -1051,3 +1051,63 @@ out). No migration (051 schema proved sufficient).
 - **Web:** exact parsers accept the 4-type union; productive buckets keep a
   dedicated 3-type list (server parity); dedicated create/detail UI reuses
   workflow panels and dialogs.
+
+## Weekly Report V1 Slice 2 remediation (adversarial review F-1..F-8) — 2026-09-24
+
+Closes the independent review findings on the single-report workflow without
+touching the approved server architecture and without a migration (051 stays
+the head). Server stays authoritative; the changes harden the web workflow
+contract and two authority rules.
+
+- **Dirty-draft submission (F-1):** the visible form is compared structurally
+  against a persisted baseline (draft sections, manager-question answers,
+  report version). While dirty, `SUBMIT_FOR_APPROVAL` is not executable and
+  the workflow states `Raporu göndermeden önce değişiklikleri kaydedin.`
+  A successful save moves the baseline and clears the dirty state; reverting
+  an edit to the persisted value is clean again. Save is never chained
+  silently into submit.
+- **Realtime/refresh semantics (F-2):** server/status/history refresh is
+  separated from editable-form hydration. A clean form hydrates normally; a
+  dirty form keeps its local draft and answers, and a concurrent server
+  version move is surfaced as a conflict instead of overwriting unsaved text.
+  `VERSION_CONFLICT` never discards local edits; recovery is the explicit
+  `Sunucudaki sürümü yükle` action, never a silent merge.
+- **Organization timezone default week (F-3):** the create screen no longer
+  derives the default Monday from device-local calendar arithmetic. The
+  canonical current reporting period comes from
+  `GET /api/job-cards/weekly-reports/reference` (organization timezone,
+  `periodStart`, `periodEnd`, default `dueDate`). Manual Monday selection stays
+  allowed; the server keeps validating the canonical ISO date and Monday rule.
+- **STAFF deadline authority (F-4):** a STAFF self-create that supplies
+  `dueDate` is rejected with a field error (fail-closed, never silently
+  ignored) and the server always derives `periodEnd + 1`. The generic
+  `EDIT_JOB_FIELDS` path rejects any STAFF change to a WEEKLY_REPORT
+  `title`, `description`, `assignedTo` or `dueDate`; unchanged (no-op) values
+  stay allowed, and MANAGER/ADMIN override authority is preserved. Other
+  JobCard types keep their existing generic edit authority. Employee lateness
+  therefore cannot be rescheduled away by the assignee.
+- **Manager instructions (F-5):** instructions remain the JobCard
+  `description` primitive (no new schema). The weekly report detail exposes
+  them read-only as `Yönetici talimatı` to both the assigned STAFF and the
+  manager, and the STAFF generic-edit guard prevents a silent rewrite.
+  Modification history stays on the existing `JOB_FIELDS_UPDATED` activity
+  (`oldValue`/`newValue` include `description`); no new audit subsystem.
+- **Ambiguous lifecycle retry (F-6):** `WeeklyReportDetail` retains the exact
+  original attempt (`clientActionId`, `expectedVersion`, payload/reason,
+  `locationCapture`) and only replays it verbatim; unrelated lifecycle actions
+  are disabled while the outcome is uncertain, and the attempt is released
+  only on a definitive answer. This mirrors the generic JobDetail contract
+  rather than introducing a WeeklyReport-only protocol.
+- **Frozen review authority (F-7):** in `WAITING_APPROVAL` and `COMPLETED`
+  the latest immutable `weekly_report_submission` is the primary report
+  document (frozen body, frozen answers, frozen source-work, `submittedAt`,
+  seq). The activity section uses the frozen list wording
+  (`Gönderimde dondurulan çalışma listesi`) and never shows the false
+  `Bu hafta için uygun iş bulunamadı` state merely because `liveSourceWork` is
+  omitted in those statuses. History selection still allows older seq.
+- **START geolocation (F-8):** capture follows
+  `workflowContext.startLocationCaptureEnabled` exactly; no
+  WeeklyReport-specific geolocation policy exists in web code.
+- **Adjacent correctness:** the weekly detail lifecycle dispatcher now also
+  handles `ACCEPT_ASSIGNMENT`, which the presentation already offered for
+  manager-requested (`NEW`) reports — previously a dead control.

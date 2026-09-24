@@ -123,6 +123,8 @@ export function createJobCardHandlers(service: JobCardService) {
       )),
     getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
       service.getWeeklyReport(actor(request), request.params.id),
+    getWeeklyReportReference: async (request: FastifyRequest) =>
+      service.weeklyReportReference(actor(request)),
     updateWeeklyReportDraft: async (request: FastifyRequest<{ Params: Params }>) =>
       service.updateWeeklyReportDraft(
         actor(request),

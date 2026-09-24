@@ -78,8 +78,21 @@ export type WeeklyReportDetail = {
   jobVersion: number;
   dueDate: string | null;
   assignedTo: string;
+  /** Manager request instructions (JobCard description). Read-only for STAFF. */
+  instructions: string | null;
   liveSourceWork: WeeklySourceWorkItem[];
   submissionSummaries: WeeklyReportSubmissionSummary[];
+};
+/**
+ * Canonical create-screen reference. The organization timezone owns what
+ * "this week" means, so the default period is never derived from the device
+ * clock.
+ */
+export type WeeklyReportReference = {
+  timezone: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
 };
 export type WeeklyReportSubmission = {
   id: string;
@@ -172,7 +185,7 @@ export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
   const root = exactObject(value, 'weeklyReport', [
     'id', 'staffUserId', 'jobCardId', 'periodStart', 'periodEnd', 'draft',
     'questions', 'answers', 'version', 'jobStatus', 'jobVersion', 'dueDate',
-    'assignedTo', 'liveSourceWork', 'submissionSummaries',
+    'assignedTo', 'instructions', 'liveSourceWork', 'submissionSummaries',
   ]);
   return {
     id: string(root.id, 'id'),
@@ -188,8 +201,21 @@ export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
     jobVersion: positiveCount(root.jobVersion, 'jobVersion'),
     dueDate: root.dueDate === null ? null : dateKey(root.dueDate, 'dueDate'),
     assignedTo: string(root.assignedTo, 'assignedTo'),
+    instructions: root.instructions === null ? null : string(root.instructions, 'instructions'),
     liveSourceWork: array(root.liveSourceWork, 'liveSourceWork').map(parseSourceWorkItem),
     submissionSummaries: array(root.submissionSummaries, 'submissionSummaries').map(parseSummary),
+  };
+}
+
+export function parseWeeklyReportReference(value: unknown): WeeklyReportReference {
+  const root = exactObject(value, 'weeklyReportReference', [
+    'timezone', 'periodStart', 'periodEnd', 'dueDate',
+  ]);
+  return {
+    timezone: string(root.timezone, 'timezone'),
+    periodStart: dateKey(root.periodStart, 'periodStart'),
+    periodEnd: dateKey(root.periodEnd, 'periodEnd'),
+    dueDate: dateKey(root.dueDate, 'dueDate'),
   };
 }
 
@@ -263,6 +289,10 @@ const weeklyPath = (jobCardId: string) => `/api/job-cards/${encodeURIComponent(j
 
 export const createWeeklyReport = async (input: WeeklyReportCreateInput) =>
   parseWeeklyReportCreateResult(await request('/api/job-cards/weekly-reports', json('POST', input)));
+
+/** Canonical organization-local current reporting week (create-screen default). */
+export const getWeeklyReportReference = async () =>
+  parseWeeklyReportReference(await request('/api/job-cards/weekly-reports/reference'));
 
 export const getWeeklyReport = async (jobCardId: string) =>
   parseWeeklyReportDetail(await request(weeklyPath(jobCardId)));

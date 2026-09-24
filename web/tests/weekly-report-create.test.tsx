@@ -8,7 +8,10 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const weeklyApi = vi.hoisted(() => ({ createWeeklyReport: vi.fn() }));
+const weeklyApi = vi.hoisted(() => ({
+  createWeeklyReport: vi.fn(),
+  getWeeklyReportReference: vi.fn(),
+}));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 
 vi.mock('../src/jobs/weekly-report-api', async (original) => ({
@@ -29,12 +32,26 @@ const profile = {
     role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 },
 };
 
+/**
+ * Canonical reference deliberately pinned to a week that is NOT the developer
+ * machine's current week (2026-09-24 → device-local Monday 2026-09-21). Any
+ * device-local default would therefore be detectable.
+ */
+const REFERENCE = {
+  timezone: 'Europe/Istanbul',
+  periodStart: '2026-08-03',
+  periodEnd: '2026-08-09',
+  dueDate: '2026-08-10',
+};
+
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement
     ? HTMLSelectElement.prototype
     : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
-  element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+  act(() => {
+    element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+  });
 }
 
 async function flush() {
@@ -53,6 +70,7 @@ describe('Weekly report create screen', () => {
       configurable: true, value: vi.fn(() => `action-${++action}`),
     });
     people.listStaff.mockResolvedValue([profile]);
+    weeklyApi.getWeeklyReportReference.mockResolvedValue(REFERENCE);
     weeklyApi.createWeeklyReport.mockResolvedValue({
       jobCardId: 'job-1', reportId: 'report-1', staffUserId: 'staff-1',
       periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED', dueDate: '2026-08-10',
@@ -75,19 +93,43 @@ describe('Weekly report create screen', () => {
     act(() => { form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
   }
 
-  it('creates a self report for STAFF without personnel selector or questions', async () => {
+  it('defaults the report week from the organization calendar, not the device clock', async () => {
+    await render(staffUser);
+    const period = host.querySelector('#weekly-period') as HTMLInputElement;
+    expect(period.value).toBe(REFERENCE.periodStart);
+    expect(period.value).not.toBe('2026-09-21');
+    expect(weeklyApi.getWeeklyReportReference).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('organizasyon takvimine göre');
+  });
+
+  it('creates a self report for STAFF without personnel selector, questions or due date', async () => {
     await render(staffUser);
     expect(host.querySelector('#weekly-assignee')).toBeNull();
+    expect(host.querySelector('#weekly-question-0')).toBeNull();
     expect(host.textContent).toContain('Ayşe Personel');
-    const period = host.querySelector('#weekly-period') as HTMLInputElement;
-    change(period, '2026-08-03');
     await act(async () => { submit(); await flush(); });
     expect(weeklyApi.createWeeklyReport).toHaveBeenCalledTimes(1);
     const input = weeklyApi.createWeeklyReport.mock.calls[0]![0];
     expect(input).toMatchObject({ periodStart: '2026-08-03' });
     expect(input).not.toHaveProperty('assignedTo');
     expect(input).not.toHaveProperty('questions');
+    expect(input).not.toHaveProperty('dueDate');
     expect(onCreated).toHaveBeenCalledWith('job-1');
+  });
+
+  it('shows STAFF the derived due date read-only instead of an editable field', async () => {
+    await render(staffUser);
+    expect(host.querySelector('#weekly-due')).toBeNull();
+    const derived = host.querySelector('#weekly-due-derived');
+    expect(derived?.textContent).toBe('2026-08-10');
+  });
+
+  it('derives the STAFF read-only due date from a manually chosen week', async () => {
+    await render(staffUser);
+    const period = host.querySelector('#weekly-period') as HTMLInputElement;
+    change(period, '2026-08-17');
+    await flush();
+    expect(host.querySelector('#weekly-due-derived')?.textContent).toBe('2026-08-24');
   });
 
   it('creates a single-target request for MANAGER with questions and instructions', async () => {
@@ -112,6 +154,29 @@ describe('Weekly report create screen', () => {
       questions: [{ key: 'q1', prompt: 'Bu hafta ne öğrendin?' }],
       instructions: 'Lütfen doldurun.',
     });
+  });
+
+  it('keeps an editable due-date override for MANAGER and sends it when entered', async () => {
+    await render(manager);
+    const select = host.querySelector('#weekly-assignee') as HTMLSelectElement;
+    change(select, 'staff-1');
+    const due = host.querySelector('#weekly-due') as HTMLInputElement;
+    expect(due).not.toBeNull();
+    change(due, '2026-08-14');
+    await act(async () => { submit(); await flush(); });
+    expect(weeklyApi.createWeeklyReport).toHaveBeenCalledTimes(1);
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).toMatchObject({
+      periodStart: '2026-08-03', assignedTo: 'staff-1', dueDate: '2026-08-14',
+    });
+  });
+
+  it('omits the MANAGER due-date override when left empty', async () => {
+    await render(manager);
+    const select = host.querySelector('#weekly-assignee') as HTMLSelectElement;
+    change(select, 'staff-1');
+    await act(async () => { submit(); await flush(); });
+    expect(weeklyApi.createWeeklyReport).toHaveBeenCalledTimes(1);
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).not.toHaveProperty('dueDate');
   });
 
   it('blocks MANAGER submit without assignee and surfaces field errors', async () => {

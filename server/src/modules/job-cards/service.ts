@@ -121,6 +121,10 @@ import {
   mapSubmission,
 } from '../weekly-reports/repository.js';
 import {
+  currentWeeklyReportPeriod,
+  type WeeklyReportReference,
+} from '../weekly-reports/reference.js';
+import {
   mapSourceWorkRow,
   weekInstants,
 } from '../weekly-reports/source-work.js';
@@ -954,6 +958,17 @@ export class JobCardService {
   }
 
   /**
+   * Canonical create-screen reference: the organization-local current
+   * reporting week and its default due date. The date is derived from the
+   * organization timezone, never from the browser's device clock, so a
+   * staff member in a different zone still sees the organization's week.
+   */
+  async weeklyReportReference(actor: JobCardActor): Promise<WeeklyReportReference> {
+    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+    return currentWeeklyReportPeriod(this.now(), timezone);
+  }
+
+  /**
    * Single-target Weekly Report creation (V1 Slice 2). One transaction
    * atomically produces the JobCard and its WeeklyReport row — never one
    * without the other. STAFF self-creates (ACCEPTED with canonical accepted
@@ -975,6 +990,16 @@ export class JobCardService {
       if (input.questions !== undefined && input.questions !== null) {
         throw new AppError(
           'VALIDATION_ERROR', 400, 'Yönetici soruları personel kaydında yer alamaz.',
+        );
+      }
+      // Deadline authority: staff cannot move their own submission deadline.
+      // The canonical default (Monday after the period) is derived below.
+      if (input.dueDate !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Personel kendi haftalık raporu için termin belirleyemez.',
+          { fieldErrors: { dueDate: 'Termin yönetici tarafından belirlenir.' } },
         );
       }
       staffUserId = actor.id;
@@ -1151,6 +1176,7 @@ export class JobCardService {
       jobVersion: job.version,
       dueDate: job.dueDate,
       assignedTo: job.assignedTo,
+      instructions: job.description,
       liveSourceWork,
       submissionSummaries: submissionRows.map((row) => ({
         seqNo: row.seq_no,
@@ -1986,6 +2012,41 @@ export class JobCardService {
           400,
           'Ürün teslimine yeni ilgili kişi eklenemez.',
         );
+      }
+
+      // Weekly Report authority (V1 Slice 2 remediation): the report's
+      // identity and deadline belong to the manager request (or the
+      // canonical server default); the assigned STAFF authors only the
+      // report draft through the dedicated weekly endpoints. The
+      // customerless / unscheduled contract is enforced for every actor so
+      // a weekly report can never be attached to a customer or a calendar
+      // interval.
+      if (job.type === 'WEEKLY_REPORT') {
+        const customerScoped = fields.customerId !== undefined && fields.customerId !== job.customerId
+          || fields.contactId !== undefined && fields.contactId !== job.contactId
+          || fields.scheduledAt !== undefined && fields.scheduledAt !== (job.scheduledAt ?? null)
+          || fields.scheduledEndsAt !== undefined
+            && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
+        if (customerScoped) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Haftalık rapor müşteriye veya zaman planına bağlanamaz.',
+          );
+        }
+        if (actor.role === 'STAFF') {
+          const staffOwned = fields.title !== undefined && fields.title !== job.title
+            || fields.description !== undefined && fields.description !== job.description
+            || fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo
+            || fields.dueDate !== undefined && fields.dueDate !== (job.dueDate ?? null);
+          if (staffOwned) {
+            throw new AppError(
+              'FORBIDDEN',
+              403,
+              'Haftalık raporun talep alanları personel tarafından düzenlenemez.',
+            );
+          }
+        }
       }
 
       const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';

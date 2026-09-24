@@ -84,6 +84,12 @@ export type WeeklyReportDetail = WeeklyReport & {
   jobVersion: number;
   dueDate: string | null;
   assignedTo: string;
+  /**
+   * Manager request instructions (JobCard `description`). Read-only for the
+   * assigned STAFF: it is the manager's request intent, not report content.
+   * Sourced from the owning JobCard, never duplicated into the report row.
+   */
+  instructions: string | null;
   liveSourceWork: SourceWorkSnapshotItem[];
   submissionSummaries: WeeklyReportSubmissionSummary[];
 };

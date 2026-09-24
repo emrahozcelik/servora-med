@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseWeeklyReportCreateResult,
   parseWeeklyReportDetail,
+  parseWeeklyReportReference,
   parseWeeklyReportSubmission,
 } from '../src/jobs/weekly-report-api';
 
@@ -23,6 +24,7 @@ const detail = {
   jobVersion: 2,
   dueDate: '2026-08-10',
   assignedTo: 'staff-1',
+  instructions: 'Lütfen haftalık durumu ayrıntılı yazın.',
   liveSourceWork: [{
     jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Ziyaret',
     customerName: 'Klinik', staffCompletedAt: '2026-08-05T09:00:00.000Z',
@@ -41,6 +43,20 @@ describe('weekly report api parsers', () => {
     expect(() => parseWeeklyReportDetail({ ...detail, periodStart: '2026-08-04' })).not.toThrow();
     expect(() => parseWeeklyReportDetail({ ...detail, periodStart: 'not-a-date' })).toThrow();
     expect(() => parseWeeklyReportDetail({ ...detail, jobStatus: 'BOGUS' })).toThrow();
+    expect(() => parseWeeklyReportDetail({ ...detail, instructions: 7 })).toThrow();
+  });
+
+  it('parses the canonical organization reporting-week reference exactly', () => {
+    const reference = {
+      timezone: 'Europe/Istanbul',
+      periodStart: '2026-08-03',
+      periodEnd: '2026-08-09',
+      dueDate: '2026-08-10',
+    };
+    expect(parseWeeklyReportReference(reference)).toEqual(reference);
+    expect(() => parseWeeklyReportReference({ ...reference, bogus: 1 })).toThrow();
+    expect(() => parseWeeklyReportReference({ ...reference, periodStart: 'nope' })).toThrow();
+    expect(() => parseWeeklyReportReference({ ...reference, timezone: 3 })).toThrow();
   });
 
   it('parses a frozen submission exactly', () => {

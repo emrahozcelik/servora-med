@@ -7,7 +7,9 @@ import { PageHeader } from './ui/PageHeader';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import {
   createWeeklyReport,
+  getWeeklyReportReference,
   type WeeklyReportCreateInput,
+  type WeeklyReportReference,
 } from './jobs/weekly-report-api';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
@@ -17,18 +19,10 @@ type CreateAttempt = { input: WeeklyReportCreateInput };
 const MONDAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Display-default Monday in device-local time. Authoritative Monday
- * validation lives on the server (organization calendar); this only prefills
- * the picker so staff rarely type a date by hand.
+ * Pure calendar arithmetic on an already-chosen Monday (periodEnd + 1 day).
+ * Deliberately not a timezone calculation: the *default* Monday comes from the
+ * organization calendar reference, never from the device clock.
  */
-function defaultMondayLocalValue(now: Date = new Date()): string {
-  const copy = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const offset = (copy.getDay() + 6) % 7;
-  copy.setDate(copy.getDate() - offset);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${copy.getFullYear()}-${pad(copy.getMonth() + 1)}-${pad(copy.getDate())}`;
-}
-
 function addDays(dateKey: string, days: number): string | null {
   if (!MONDAY_PATTERN.test(dateKey)) return null;
   const parsed = new Date(`${dateKey}T00:00:00Z`);
@@ -43,13 +37,15 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   onCreated: (jobCardId: string) => void;
 }) {
   const isStaff = user.role === 'STAFF';
-  const [periodStart, setPeriodStart] = useState(() => defaultMondayLocalValue());
+  const [periodStart, setPeriodStart] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState(isStaff ? user.id : '');
   const [questions, setQuestions] = useState<string[]>([]);
   const [instructions, setInstructions] = useState('');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(isStaff ? 'ready' : 'loading');
+  const [reference, setReference] = useState<WeeklyReportReference | null>(null);
+  const [referenceState, setReferenceState] = useState<LoadState>('loading');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [existingJobId, setExistingJobId] = useState<string | null>(null);
@@ -58,6 +54,25 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   const attemptRef = useRef<CreateAttempt | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const gate = useRef(createRequestGate());
+  // Separate request gate: the canonical-week load and the staff list load are
+  // independent reads and must not cancel each other.
+  const referenceGate = useRef(createRequestGate());
+
+  async function loadReference() {
+    const generation = referenceGate.current.next();
+    setReferenceState('loading');
+    try {
+      const canonical = await getWeeklyReportReference();
+      if (!referenceGate.current.isCurrent(generation)) return;
+      setReference(canonical);
+      setReferenceState('ready');
+      // Prefill only when the user has not already picked a week.
+      setPeriodStart((current) => (current ? current : canonical.periodStart));
+    } catch {
+      if (!referenceGate.current.isCurrent(generation)) return;
+      setReferenceState('error');
+    }
+  }
 
   async function loadActiveStaff() {
     const generation = gate.current.next();
@@ -79,10 +94,17 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, user.role]);
 
-  useEffect(() => () => { gate.current.next(); }, []);
+  useEffect(() => () => { gate.current.next(); referenceGate.current.next(); }, []);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => {
+    void loadReference();
+  // Canonical default week is loaded once per mount from the organization calendar.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const impliedDueDate = dueDate || addDays(periodStart, 7) || '';
+  // Derived default deadline (periodEnd + 1). Pure calendar arithmetic on the
+  // chosen Monday; the server derives the identical value for STAFF self-create.
+  const derivedDueDate = addDays(periodStart, 7) ?? '';
 
   function setQuestion(index: number, prompt: string) {
     setQuestions((current) => current.map((entry, position) => (position === index ? prompt : entry)));
@@ -122,7 +144,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
     if (!MONDAY_PATTERN.test(periodStart)) nextErrors.periodStart = 'Rapor haftası (Pazartesi) seçin.';
     const selectedAssignee = isStaff ? user.id : assignedTo;
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
-    if (dueDate && !MONDAY_PATTERN.test(dueDate)) nextErrors.dueDate = 'Termin YYYY-AA-GG biçiminde olmalıdır.';
+    if (!isStaff && dueDate && !MONDAY_PATTERN.test(dueDate)) {
+      nextErrors.dueDate = 'Termin YYYY-AA-GG biçiminde olmalıdır.';
+    }
     const trimmedQuestions = questions.map((prompt) => prompt.trim());
     if (trimmedQuestions.length > 5) nextErrors.questions = 'En fazla 5 yönetici sorusu eklenebilir.';
     trimmedQuestions.forEach((prompt, index) => {
@@ -138,7 +162,10 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
       clientActionId: crypto.randomUUID(),
       periodStart,
       ...(isStaff ? {} : { assignedTo: selectedAssignee || null }),
-      ...(dueDate ? { dueDate } : {}),
+      // STAFF deadline authority: the server derives the canonical due date
+      // and rejects any client-supplied value, so the self-create payload
+      // never carries one.
+      ...(!isStaff && dueDate ? { dueDate } : {}),
       ...(!isStaff && trimmedQuestions.length > 0
         ? { questions: trimmedQuestions.map((prompt, index) => ({ key: `q${index + 1}`, prompt })) }
         : {}),
@@ -164,6 +191,14 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
           <input id="weekly-period" name="periodStart" type="date" required value={periodStart}
             aria-invalid={fieldErrors.periodStart ? true : undefined}
             onChange={(event) => setPeriodStart(event.target.value)} />
+          {referenceState === 'loading' && <span className="field-status" role="status">Rapor haftası organizasyon takviminden yükleniyor…</span>}
+          {referenceState === 'ready' && reference && <span className="field-status" role="status">
+            Varsayılan hafta organizasyon takvimine göre belirlendi ({reference.timezone}).
+          </span>}
+          {referenceState === 'error' && <span className="field-error" role="alert">
+            Organizasyon takvimi yüklenemedi; rapor haftasını elle seçin.{' '}
+            <button className="inline-action" type="button" onClick={() => void loadReference()}>Tekrar dene</button>
+          </span>}
           {fieldErrors.periodStart && <span className="field-error">{fieldErrors.periodStart}</span>}
         </div>
         {isStaff
@@ -182,13 +217,19 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
                 <button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
               {fieldErrors.assignedTo && <span className="field-error">{fieldErrors.assignedTo}</span>}
             </div>}
-        <div className="field-group">
-          <label htmlFor="weekly-due">Termin (isteğe bağlı, varsayılan: dönemi izleyen Pazartesi{impliedDueDate ? ` ${impliedDueDate}` : ''})</label>
-          <input id="weekly-due" name="dueDate" type="date" value={dueDate}
-            aria-invalid={fieldErrors.dueDate ? true : undefined}
-            onChange={(event) => setDueDate(event.target.value)} />
-          {fieldErrors.dueDate && <span className="field-error">{fieldErrors.dueDate}</span>}
-        </div>
+        {isStaff
+          ? <div className="field-group">
+              <span className="field-label">Termin (dönemi izleyen Pazartesi)</span>
+              <p className="fixed-field-value" id="weekly-due-derived">{derivedDueDate || 'Hafta seçilince belirlenir'}</p>
+              <span className="form-help">Termin yönetici tarafından belirlenir; personel kendi teslim tarihini değiştiremez.</span>
+            </div>
+          : <div className="field-group">
+              <label htmlFor="weekly-due">Termin (isteğe bağlı, varsayılan: dönemi izleyen Pazartesi{derivedDueDate ? ` ${derivedDueDate}` : ''})</label>
+              <input id="weekly-due" name="dueDate" type="date" value={dueDate}
+                aria-invalid={fieldErrors.dueDate ? true : undefined}
+                onChange={(event) => setDueDate(event.target.value)} />
+              {fieldErrors.dueDate && <span className="field-error">{fieldErrors.dueDate}</span>}
+            </div>}
         {!isStaff && <div className="field-group">
           <span className="field-label">Yönetici soruları (isteğe bağlı, en fazla 5)</span>
           {questions.map((prompt, index) => (
