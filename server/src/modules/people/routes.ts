@@ -4,12 +4,14 @@ import { createPeopleHandlers } from './handlers.js';
 import type { PostgresStaffOffboardingService } from './offboarding.js';
 import type { PeopleService } from './service.js';
 import type { JobHistoryReadPort } from '../job-cards/history-port.js';
+import type { WeeklyReportHistoryReadPort } from '../weekly-reports/history-port.js';
 
 type Authenticate = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 export type PeopleRoutesOptions = {
   service: PeopleService;
   authenticate: Authenticate;
   jobHistoryReadPort?: JobHistoryReadPort;
+  weeklyReportHistoryReadPort?: WeeklyReportHistoryReadPort;
   offboardingService?: PostgresStaffOffboardingService;
 };
 
@@ -20,6 +22,10 @@ export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app,
   if (options.jobHistoryReadPort) {
     app.get('/staff/me/jobs', auth, handlers.listOwnStaffJobHistory);
     app.get('/staff/:userId/jobs', auth, handlers.listStaffJobHistory);
+  }
+  if (options.weeklyReportHistoryReadPort) {
+    app.get('/staff/me/weekly-reports', auth, handlers.listOwnStaffWeeklyReports);
+    app.get('/staff/:userId/weekly-reports', auth, handlers.listStaffWeeklyReports);
   }
   app.get('/users', auth, handlers.listUsers);
   app.post('/users', auth, handlers.createUser);

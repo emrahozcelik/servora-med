@@ -1,6 +1,6 @@
 import {
-  ApiError, boolean, json, nullableString, number, object, request, string,
-  type UserRole,
+  ApiError, boolean, json, JOB_CARD_STATUSES, nullableString, number, object, request, string,
+  type JobCardStatus, type UserRole,
 } from './api';
 import { request as apiRequest } from './api';
 import { parseJobHistoryItem, type JobHistoryItem, type Paginated } from './crm-api';
@@ -251,3 +251,69 @@ export const listOwnStaffJobs = async (filters: { status?: 'open' | 'completed' 
   parseHistoryPage(await apiRequest(`/api/staff/me/jobs${historyQuery(filters)}`));
 export const listStaffJobs = async (id: string, filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number } = {}) =>
   parseHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/jobs${historyQuery(filters)}`));
+
+/**
+ * Personnel-profile Weekly Report history read model.
+ *
+ * List rows intentionally carry no report content — no draft, no frozen body,
+ * no frozen source-work. Content is read through the report detail and
+ * submission endpoints.
+ */
+export type WeeklyReportHistoryItem = {
+  reportId: string; jobCardId: string; staffUserId: string;
+  periodStart: string; periodEnd: string; status: JobCardStatus; dueDate: string | null;
+  submissionCount: number; latestSubmissionSeqNo: number | null; latestSubmittedAt: string | null;
+  createdAt: string; completedAt: string | null;
+};
+
+function calendarDate(value: unknown, field: string) {
+  const parsed = string(value, field);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
+  }
+  return parsed;
+}
+
+function parseWeeklyReportHistoryItem(value: unknown): WeeklyReportHistoryItem {
+  const v = exactObject(value, [
+    'reportId', 'jobCardId', 'staffUserId', 'periodStart', 'periodEnd', 'status',
+    'dueDate', 'submissionCount', 'latestSubmissionSeqNo', 'latestSubmittedAt',
+    'createdAt', 'completedAt',
+  ], 'haftalık rapor geçmişi kaydı');
+  const status = string(v.status, 'status');
+  if (!(JOB_CARD_STATUSES as readonly string[]).includes(status)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Yanıtta status alanı geçersiz.');
+  }
+  return {
+    reportId: string(v.reportId, 'reportId'),
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    staffUserId: string(v.staffUserId, 'staffUserId'),
+    periodStart: calendarDate(v.periodStart, 'periodStart'),
+    periodEnd: calendarDate(v.periodEnd, 'periodEnd'),
+    status: status as JobCardStatus,
+    dueDate: v.dueDate === null ? null : calendarDate(v.dueDate, 'dueDate'),
+    submissionCount: nonNegativeInteger(v.submissionCount, 'submissionCount'),
+    latestSubmissionSeqNo: v.latestSubmissionSeqNo === null
+      ? null
+      : positiveInteger(v.latestSubmissionSeqNo, 'latestSubmissionSeqNo'),
+    latestSubmittedAt: v.latestSubmittedAt === null ? null : isoDate(v.latestSubmittedAt, 'latestSubmittedAt'),
+    createdAt: isoDate(v.createdAt, 'createdAt'),
+    completedAt: v.completedAt === null ? null : isoDate(v.completedAt, 'completedAt'),
+  };
+}
+
+function parseWeeklyReportHistoryPage(value: unknown): Paginated<WeeklyReportHistoryItem> {
+  const raw = object(value);
+  if (!Array.isArray(raw.items)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz haftalık rapor geçmişi listesi alındı.');
+  }
+  return {
+    items: raw.items.map(parseWeeklyReportHistoryItem),
+    total: number(raw.total, 'total'), limit: number(raw.limit, 'limit'), offset: number(raw.offset, 'offset'),
+  };
+}
+
+export const listOwnWeeklyReports = async (filters: { limit?: number; offset?: number } = {}) =>
+  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/me/weekly-reports${historyQuery(filters)}`));
+export const listStaffWeeklyReports = async (id: string, filters: { limit?: number; offset?: number } = {}) =>
+  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/weekly-reports${historyQuery(filters)}`));

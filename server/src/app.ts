@@ -18,6 +18,7 @@ import { authRoutes } from './modules/auth/routes.js';
 import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
 import type { JobHistoryReadPort } from './modules/job-cards/history-port.js';
+import type { WeeklyReportHistoryReadPort } from './modules/weekly-reports/history-port.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
@@ -127,6 +128,7 @@ export type AppDependencies = {
   authRepository?: AuthRepository;
   jobCardRepository?: JobCardRepository;
   jobHistoryReadPort?: JobHistoryReadPort;
+  weeklyReportHistoryReadPort?: WeeklyReportHistoryReadPort;
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
   productRepository?: ProductRepository;
@@ -259,9 +261,11 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           new AuthCredentialAdministration(),
           dependencies.reportsRepository,
           dependencies.jobHistoryReadPort,
+          dependencies.weeklyReportHistoryReadPort,
         ),
         authenticate: authenticateDomain,
         jobHistoryReadPort: dependencies.jobHistoryReadPort,
+        weeklyReportHistoryReadPort: dependencies.weeklyReportHistoryReadPort,
         offboardingService: dependencies.pool
           ? new PostgresStaffOffboardingService(dependencies.pool, dependencies.realtimeService)
           : undefined,

@@ -61,6 +61,14 @@ function page(raw: unknown, defaultLimit: number) {
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
+/** Positive-integer route parameter (e.g. an immutable submission seq). */
+function positiveIntegerParam(raw: unknown, field: string) {
+  if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw validation(field);
+  return parsed;
+}
+
 function notePage(raw: unknown, defaultLimit: number) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
   const value = raw as Record<string, unknown>;
@@ -139,6 +147,22 @@ export function createJobCardHandlers(service: JobCardService) {
       ),
     listWeeklyReportSubmissions: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listWeeklyReportSubmissions(actor(request), request.params.id),
+    downloadWeeklyReportSubmissionPdf: async (
+      request: FastifyRequest<{ Params: { id: string; seq: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const pdf = await service.weeklyReportSubmissionPdf(
+        actor(request),
+        request.params.id,
+        positiveIntegerParam(request.params.seq, 'seq'),
+      );
+      return reply
+        .header('content-type', 'application/pdf')
+        .header('content-disposition', `attachment; filename="${pdf.fileName}"`)
+        .header('cache-control', 'private, no-store')
+        .header('x-content-type-options', 'nosniff')
+        .send(pdf.buffer);
+    },
     createFollowUp: async (
       request: FastifyRequest<{ Params: Params }>,
       reply: FastifyReply,

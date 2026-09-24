@@ -29,11 +29,13 @@ const weeklyApi = vi.hoisted(() => ({
   getWeeklyReport: vi.fn(),
   listWeeklyReportSubmissions: vi.fn(),
   patchWeeklyReportDraft: vi.fn(),
+  downloadWeeklyReportSubmissionPdf: vi.fn(),
 }));
 const realtime = vi.hoisted(() => ({
   latest: null as { keys: string[]; callback: () => void } | null,
 }));
 const location = vi.hoisted(() => ({ captureStartLocation: vi.fn() }));
+const downloads = vi.hoisted(() => ({ saveBlobAs: vi.fn() }));
 
 vi.mock('../src/jobs/jobs-api', async (original) => ({
   ...await original<typeof import('../src/jobs/jobs-api')>(), ...jobsApi,
@@ -44,6 +46,7 @@ vi.mock('../src/jobs/weekly-report-api', async (original) => ({
 vi.mock('../src/jobs/start-location-capture', async (original) => ({
   ...await original<typeof import('../src/jobs/start-location-capture')>(), ...location,
 }));
+vi.mock('../src/services/file-download', () => ({ saveBlobAs: downloads.saveBlobAs }));
 vi.mock('../src/realtime/RealtimeProvider', () => ({
   useRealtimeInvalidation: (keys: string[], callback: () => void) => {
     realtime.latest = { keys, callback };
@@ -627,5 +630,143 @@ describe('WeeklyReportDetail', () => {
     expect(jobsApi.startJobCard.mock.calls[0]![1]).toMatchObject({
       locationCapture: { outcome: 'unavailable', reason: 'UNSUPPORTED' },
     });
+  });
+
+  // --- PDF export of an immutable submission ---------------------------------
+
+  function submissionVersions(...seqs: number[]): WeeklyReportSubmission[] {
+    return seqs.map((seqNo) => makeSubmission({ seqNo }));
+  }
+
+  /** A stand-in blob: only identity/type/size matter to the component. */
+  function pdfBlob(): Blob {
+    return { type: 'application/pdf', size: 8 } as unknown as Blob;
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((next) => { resolve = next; });
+    return { promise, resolve };
+  }
+
+  /** Drive the version `<select>` the same way a real change event would. */
+  function selectVersion(seq: number) {
+    const select = host.querySelector('#weekly-history-select') as HTMLSelectElement | null;
+    expect(select, '#weekly-history-select').not.toBeNull();
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    descriptor?.set?.call(select, String(seq));
+    act(() => { select!.dispatchEvent(new Event('change', { bubbles: true })); });
+  }
+
+  function alertText(): string {
+    return host.querySelector('[role="alert"]')?.textContent ?? '';
+  }
+
+  // 21
+  it('offers the PDF action only for a report that has a submission', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([]);
+    await render(managerUser);
+    expect(sectionText('weekly-history-title')).toContain('Henüz gönderim yok.');
+    expect(hasButton('PDF indir')).toBe(false);
+
+    // Remount so the load effect runs again with submissions present.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1));
+    await render(managerUser);
+    expect(sectionText('weekly-history-title')).toContain('PDF indir');
+  });
+
+  // 22
+  it('downloads the newest version by default', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1, 2));
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockResolvedValue({
+      blob: pdfBlob(), fileName: 'haftalik-rapor-2026-08-03-seq-2.pdf',
+    });
+    await render(managerUser);
+
+    click(buttonByText('PDF indir'));
+    await flush();
+
+    expect(weeklyApi.downloadWeeklyReportSubmissionPdf).toHaveBeenCalledWith('job-1', 2);
+    expect(downloads.saveBlobAs).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'application/pdf' }), 'haftalik-rapor-2026-08-03-seq-2.pdf',
+    );
+  });
+
+  // 23
+  it('downloads exactly the immutable version chosen in the history', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1, 2, 3));
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockResolvedValue({
+      blob: pdfBlob(), fileName: 'haftalik-rapor-2026-08-03-seq-1.pdf',
+    });
+    await render(managerUser);
+
+    selectVersion(1);
+    click(buttonByText('PDF indir'));
+    await flush();
+
+    expect(weeklyApi.downloadWeeklyReportSubmissionPdf).toHaveBeenCalledWith('job-1', 1);
+  });
+
+  // 24
+  it('locks and relabels the action while the PDF is being prepared', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1));
+    const pending = deferred<{ blob: Blob; fileName: string }>();
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockReturnValue(pending.promise);
+    await render(managerUser);
+
+    click(buttonByText('PDF indir'));
+    await flush();
+    expect(buttonByText('PDF hazırlanıyor…').disabled).toBe(true);
+
+    await act(async () => { pending.resolve({ blob: pdfBlob(), fileName: 'x.pdf' }); await flush(); });
+    expect(buttonByText('PDF indir').disabled).toBe(false);
+  });
+
+  // 25
+  it('shows an alert and re-enables the action when the download fails', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1));
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockRejectedValue(new Error('PDF üretilemedi.'));
+    await render(managerUser);
+
+    click(buttonByText('PDF indir'));
+    await flush();
+
+    expect(alertText()).toContain('PDF üretilemedi.');
+    expect(downloads.saveBlobAs).not.toHaveBeenCalled();
+    expect(buttonByText('PDF indir').disabled).toBe(false);
+  });
+
+  // 26
+  it('never starts a second download while one is already running', async () => {
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1));
+    const pending = deferred<{ blob: Blob; fileName: string }>();
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockReturnValue(pending.promise);
+    await render(managerUser);
+
+    click(buttonByText('PDF indir'));
+    await flush();
+    const busy = buttonByText('PDF hazırlanıyor…');
+    expect(busy.disabled).toBe(true);
+
+    act(() => { busy.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(weeklyApi.downloadWeeklyReportSubmissionPdf).toHaveBeenCalledTimes(1);
+
+    await act(async () => { pending.resolve({ blob: pdfBlob(), fileName: 'x.pdf' }); await flush(); });
+  });
+
+  // 27
+  it('forwards the server blob and filename verbatim to the download trigger', async () => {
+    const payload = { blob: pdfBlob(), fileName: 'haftalik-rapor-2026-08-03-seq-1.pdf' };
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue(submissionVersions(1));
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockResolvedValue(payload);
+    await render(managerUser);
+
+    click(buttonByText('PDF indir'));
+    await flush();
+
+    expect(downloads.saveBlobAs).toHaveBeenCalledTimes(1);
+    expect(downloads.saveBlobAs).toHaveBeenCalledWith(payload.blob, payload.fileName);
   });
 });
