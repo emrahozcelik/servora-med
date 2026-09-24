@@ -681,7 +681,7 @@ describe('JobCard routes', () => {
     expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1');
   });
 
-  it('serves the canonical weekly report reference without being captured by the job id route', async () => {
+  it('serves the canonical weekly report reference with the authenticated actor', async () => {
     const { app, service } = await createApp();
     const response = await app.inject({
       method: 'GET', url: '/api/job-cards/weekly-reports/reference',
@@ -690,8 +690,9 @@ describe('JobCard routes', () => {
     expect(service.weeklyReportReference).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
     );
-    // `/weekly-reports/reference` also matches the two-segment `/:id/weekly-report`
-    // pattern, so `reference` must not be read as a job id.
+    // The job-scoped route's second segment is the literal `weekly-report`, so it
+    // cannot match `reference`; this pins the reference handler to the path and
+    // guards against a future wildcard route swallowing it.
     expect(service.getWeeklyReport).not.toHaveBeenCalled();
     expect(response.json()).toEqual({
       timezone: 'Europe/Istanbul', periodStart: '2026-08-03',

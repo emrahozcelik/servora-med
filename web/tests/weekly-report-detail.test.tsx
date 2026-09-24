@@ -504,10 +504,13 @@ describe('WeeklyReportDetail', () => {
     }));
     weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 2 })]);
     await render(managerUser);
-    expect(host.textContent).toContain('Gönderilen rapor');
-    expect(host.textContent).toContain('#2');
-    expect(host.textContent).toContain('Gönderilen özet.');
-    expect(host.textContent).toContain('Gönderilen yanıt.');
+    // Scoped to the frozen panel: `#2`, the summary and the answer also render in
+    // the history section, so a page-wide assertion would not prove the panel.
+    const frozen = sectionText('weekly-frozen-title');
+    expect(frozen).toContain('Gönderilen rapor');
+    expect(frozen).toContain('#2');
+    expect(frozen).toContain('Gönderilen özet.');
+    expect(frozen).toContain('Gönderilen yanıt.');
     expect(sectionText('weekly-activity-title')).toContain('Gönderimde dondurulan çalışma listesi');
     expect(sectionText('weekly-activity-title')).toContain('Klinik ziyareti');
     expect(sectionText('weekly-activity-title')).not.toContain('Canlı iş kaydı');
@@ -563,10 +566,11 @@ describe('WeeklyReportDetail', () => {
       },
     })]);
     await render(managerUser);
-    expect(host.textContent).toContain('Gönderilen rapor');
-    expect(host.textContent).toContain('Onaylanan özet.');
-    expect(host.textContent).toContain('#3');
-    expect(host.textContent).toContain('Klinik ziyareti');
+    const frozen = sectionText('weekly-frozen-title');
+    expect(frozen).toContain('Gönderilen rapor');
+    expect(frozen).toContain('#3');
+    expect(frozen).toContain('Onaylanan özet.');
+    expect(sectionText('weekly-activity-title')).toContain('Klinik ziyareti');
   });
 
   // 19
