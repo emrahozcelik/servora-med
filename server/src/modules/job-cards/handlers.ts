@@ -12,6 +12,7 @@ import {
 } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
+  parseWeeklyReportBulkRequestInput,
   parseWeeklyReportCreateInput,
   parseWeeklyReportDraftPatch,
 } from '../weekly-reports/create-input.js';
@@ -120,6 +121,11 @@ export function createJobCardHandlers(service: JobCardService) {
       reply.code(201).send(await service.createWeeklyReport(
         actor(request),
         parseWeeklyReportCreateInput(request.body),
+      )),
+    bulkRequestWeeklyReports: async (request: FastifyRequest, reply: FastifyReply) =>
+      reply.code(201).send(await service.bulkRequestWeeklyReports(
+        actor(request),
+        parseWeeklyReportBulkRequestInput(request.body),
       )),
     getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
       service.getWeeklyReport(actor(request), request.params.id),

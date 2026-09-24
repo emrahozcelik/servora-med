@@ -717,7 +717,16 @@ export interface JobCardTransaction extends SubmissionReader {
     organizationId: string,
     weeklyReportId: string,
   ): Promise<number>;
-  /** Insert the WeeklyReport row as part of an atomic job+report creation. */
+  /**
+   * Insert the WeeklyReport row as part of an atomic job+report creation.
+   *
+   * Duplicate identity is resolved by the database, not by an application
+   * pre-check: the (organization, staff, period_start) unique constraint
+   * arbitrates and `DO NOTHING` reports the loss as `null` WITHOUT aborting
+   * the caller's transaction, so the caller can still read the winner row.
+   * Callers own the semantics — single create raises
+   * WEEKLY_REPORT_ALREADY_EXISTS, bulk converges the item to `existing`.
+   */
   insertWeeklyReportRow(input: {
     organizationId: string;
     jobCardId: string;
@@ -725,7 +734,7 @@ export interface JobCardTransaction extends SubmissionReader {
     periodStart: string;
     periodEnd: string;
     questions: ManagerQuestion[];
-  }): Promise<WeeklyReportRow>;
+  }): Promise<WeeklyReportRow | null>;
   /**
    * Append one immutable submission row and bump the report draft version in
    * the same statement pair, so a concurrent draft PATCH with a stale
@@ -2827,12 +2836,13 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     periodStart: string;
     periodEnd: string;
     questions: ManagerQuestion[];
-  }) {
+  }): Promise<WeeklyReportRow | null> {
     const result = await this.client.query<WeeklyReportRow>(
       `INSERT INTO weekly_reports
          (organization_id, job_card_id, staff_user_id, period_start, period_end,
           manager_questions, manager_answers)
        VALUES ($1, $2, $3, $4, $5, $6, '[]')
+       ON CONFLICT (organization_id, staff_user_id, period_start) DO NOTHING
        RETURNING ${WEEKLY_REPORT_COLUMNS}`,
       [
         input.organizationId,
@@ -2843,9 +2853,9 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         JSON.stringify(input.questions),
       ],
     );
-    const row = result.rows[0];
-    if (!row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
-    return row;
+    // null = an existing canonical report won the staff/week identity. The
+    // transaction stays usable, so the caller re-reads the winner row.
+    return result.rows[0] ?? null;
   }
 
   async insertWeeklyReportSubmissionRow(input: {

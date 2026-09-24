@@ -1111,3 +1111,95 @@ contract and two authority rules.
 - **Adjacent correctness:** the weekly detail lifecycle dispatcher now also
   handles `ACCEPT_ASSIGNMENT`, which the presentation already offered for
   manager-requested (`NEW`) reports — previously a dead control.
+
+## Weekly Report V1 Slice 3 bulk manager request — 2026-09-24
+
+MANAGER/ADMIN can request the same reporting week for many staff in ONE
+logical command, producing N INDEPENDENT WeeklyReport JobCards. Recurrence,
+PDF, personnel-profile history and production deployment remain out. No
+migration (051 schema proved sufficient again).
+
+- **Not a shared report:** one item per normalized target, each with its own
+  JobCard id, report id, lifecycle, acceptance, due date, overdue
+  accountability, draft, submissions, revision history and approval. No
+  shared mutable JSON, no reference table; the tiny frozen question
+  definitions are copied per `weekly_reports` row, so a later revision of one
+  person's report can never affect another.
+- **Command:** `POST /api/job-cards/weekly-reports/bulk-request`
+  `{clientActionId, staffUserIds, periodStart, dueDate?, questions?,
+  instructions?}` → `{periodStart, periodEnd, dueDate, items[]}` with
+  `outcome: 'created' | 'existing'`. Items follow the normalized request order.
+- **Authorization:** MANAGER/ADMIN only — there is no STAFF self-create path
+  on this endpoint, so the guard is a role check rather than a target filter.
+  Targets must be same-organization, active STAFF; inactive and
+  MANAGER/ADMIN targets fail closed, unknown/cross-tenant ids stay concealed
+  as `ASSIGNEE_NOT_FOUND`. The server never relies on web-side filtering.
+- **Size and shape:** 1..50 targets (`MAX_BULK_TARGETS`), unique ids.
+  Repeated ids are REJECTED as malformed instead of silently de-duplicated, so
+  the caller's intent is never reinterpreted. Ids are lowercased on parse so
+  their text order equals PostgreSQL `uuid` byte order.
+- **Atomicity:** one receipt and one transaction. Validation, authorization
+  and creation all happen inside it, so a real failure on any target rolls
+  back every JobCard and report created so far — no partial result can commit
+  and no target is written before the last target has been validated.
+- **Duplicate convergence is NOT a command failure:** an already canonical
+  report for (staff, period) is reported as `existing` with its own ids and
+  the remaining targets still commit. Single create keeps its own semantics:
+  the same situation raises `WEEKLY_REPORT_ALREADY_EXISTS` with navigation
+  metadata. Both behaviours now come from ONE shared transaction-level
+  primitive (`createOrResolveWeeklyReportForStaff`), so creation SQL,
+  validation and activity/realtime wiring exist once.
+- **Idempotency mechanism (chosen minimum):** parent receipt only — a
+  `processed_actions` row with `operation_key = 'WEEKLY_REPORT_BULK_REQUEST'`
+  and a hash over the sorted target set plus period/derived periodEnd/dueDate/
+  questions/instructions. No nested per-item receipt rows: the parent receipt
+  plus the `weekly_reports` staff/week unique constraint already prove that a
+  retry cannot duplicate a child, that a race cannot create two canonical
+  reports and that a replay returns the same report identities. Target order
+  is not semantic (the hash sorts), so a reordered retry replays the stored
+  result; changed intent → `CLIENT_ACTION_REUSED`.
+- **Duplicate identity is the database's decision:** `insertWeeklyReportRow`
+  now inserts with `ON CONFLICT (organization_id, staff_user_id, period_start)
+  DO NOTHING` and returns `WeeklyReportRow | null`. The losing insert no longer
+  aborts the caller's transaction, so the winner row can still be read and no
+  raw `23505` can escape. This replaced a pre-check-only path whose 23505
+  branch could not have re-read successfully inside an aborted transaction.
+- **Target locking:** every selected user is locked through the existing
+  `lockUsersInOrder` primitive, which sorts and de-duplicates, so concurrent
+  bulks, single creates and staff self-creates all serialize on the same user
+  row in the same order. Under that lock the staff/week pre-check is
+  authoritative, and a losing create can never leave an orphaned JobCard
+  because the JobCard is only created once the identity is free.
+- **Realtime/notifications:** each newly created JobCard emits exactly the
+  same `JOB_CREATED` activity and realtime event as an equivalent single
+  manager request. `existing` items emit nothing — no fake creation, no new
+  notification kinds.
+- **Web:** one API path for MANAGER/ADMIN — the bulk endpoint is used for 1..N
+  rather than branching to the single endpoint for N=1. This keeps duplicate
+  and idempotency semantics identical between the single-target and
+  multi-target manager flows and avoids two result shapes. STAFF self-create
+  is untouched and keeps the single endpoint and its existing error UX.
+  Selection uses the owned `ServoraSelect` adapter in `mode="multiple"` with
+  client-side search (feature code must not import `antd` directly); no new
+  visual system. The ceiling is enforced by prevention and the notice states
+  that extra picks were not added. The web mirrors `MAX_BULK_TARGETS = 50`
+  only for that pre-request guard; the server remains the enforcing owner.
+- **Result UX:** exactly one target navigates straight to the canonical report
+  (created or existing), like a single request; many targets show
+  `N haftalık rapor isteği işlendi`, `K oluşturuldu`, `M zaten mevcuttu` and
+  per-staff rows with `Oluşturuldu` / `Zaten mevcut` plus `Raporu aç`. A
+  duplicate is never a red error state.
+- **Ambiguous retry:** the hardened Slice 2 attempt-retention contract is
+  reused verbatim — the frozen attempt holds `clientActionId`, the exact
+  selected ids, period, due date, questions and instructions; selection and
+  form are disabled while the outcome is uncertain and only the exact original
+  command may be retried, with the same `clientActionId`.
+- **Reporting/overdue:** no behaviour change. Productive-metric exclusion,
+  the WAITING_APPROVAL employee-overdue exemption, APPROVAL_WAIT management
+  accountability, due-date authority and customerless WeeklyReport semantics
+  are untouched; bulk creation uses the same due date and type configuration
+  as single creation.
+- **Historical note:** the brief anticipated an existing "offboarding/bulk
+  transaction pattern" to audit. No such pattern exists in this repository
+  (`bulk` has zero matches under `server/src`); the reused primitives are
+  `lockUsersInOrder` and `executeCriticalAction`.

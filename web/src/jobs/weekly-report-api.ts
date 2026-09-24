@@ -127,6 +127,43 @@ export type WeeklyReportCreateResult = {
   dueDate: string | null;
 };
 
+/**
+ * Server-authoritative ceiling for one bulk command. Mirrored here only so the
+ * multi-select can refuse an oversized selection before the request; the
+ * backend remains the enforcing owner.
+ */
+export const MAX_BULK_TARGETS = 50;
+
+export type WeeklyReportBulkOutcome = 'created' | 'existing';
+
+export type WeeklyReportBulkItem = {
+  staffUserId: string;
+  jobCardId: string;
+  reportId: string;
+  outcome: WeeklyReportBulkOutcome;
+};
+
+/**
+ * One logical bulk command, one item per requested staff id in request order.
+ * `existing` carries the already-canonical report for that staff/week, so a
+ * duplicate is navigable instead of being an error.
+ */
+export type WeeklyReportBulkResult = {
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  items: WeeklyReportBulkItem[];
+};
+
+export type WeeklyReportBulkRequestInput = {
+  clientActionId: string;
+  staffUserIds: string[];
+  periodStart: string;
+  dueDate?: string | null;
+  questions?: { key: string; prompt: string }[];
+  instructions?: string | null;
+};
+
 function parseQuestion(value: unknown): WeeklyReportQuestion {
   const entry = exactObject(value, 'question', ['key', 'prompt']);
   return { key: string(entry.key, 'question.key'), prompt: string(entry.prompt, 'question.prompt') };
@@ -279,6 +316,28 @@ export type WeeklyReportCreateInput = {
   instructions?: string | null;
 };
 
+function parseBulkItem(value: unknown): WeeklyReportBulkItem {
+  const entry = exactObject(value, 'bulkItem', ['staffUserId', 'jobCardId', 'reportId', 'outcome']);
+  return {
+    staffUserId: string(entry.staffUserId, 'bulkItem.staffUserId'),
+    jobCardId: string(entry.jobCardId, 'bulkItem.jobCardId'),
+    reportId: string(entry.reportId, 'bulkItem.reportId'),
+    outcome: oneOf(entry.outcome, 'bulkItem.outcome', ['created', 'existing'] as const),
+  };
+}
+
+export function parseWeeklyReportBulkResult(value: unknown): WeeklyReportBulkResult {
+  const root = exactObject(value, 'weeklyReportBulk', [
+    'periodStart', 'periodEnd', 'dueDate', 'items',
+  ]);
+  return {
+    periodStart: dateKey(root.periodStart, 'periodStart'),
+    periodEnd: dateKey(root.periodEnd, 'periodEnd'),
+    dueDate: dateKey(root.dueDate, 'dueDate'),
+    items: array(root.items, 'items').map(parseBulkItem),
+  };
+}
+
 export type WeeklyReportDraftPatchInput = {
   expectedVersion: number;
   draft: WeeklyReportDraft;
@@ -289,6 +348,15 @@ const weeklyPath = (jobCardId: string) => `/api/job-cards/${encodeURIComponent(j
 
 export const createWeeklyReport = async (input: WeeklyReportCreateInput) =>
   parseWeeklyReportCreateResult(await request('/api/job-cards/weekly-reports', json('POST', input)));
+
+/**
+ * Manager/ADMIN bulk request. One command, N independent reports — the client
+ * never loops the single-create endpoint per staff member.
+ */
+export const bulkRequestWeeklyReports = async (input: WeeklyReportBulkRequestInput) =>
+  parseWeeklyReportBulkResult(await request(
+    '/api/job-cards/weekly-reports/bulk-request', json('POST', input),
+  ));
 
 /** Canonical organization-local current reporting week (create-screen default). */
 export const getWeeklyReportReference = async () =>
