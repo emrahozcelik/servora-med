@@ -44,11 +44,27 @@ function versionConflict(): AppError {
   );
 }
 
-function duplicateReport(): AppError {
+function alreadyExists(): AppError {
   return new AppError(
-    'WEEKLY_REPORT_CONFLICT',
+    'WEEKLY_REPORT_ALREADY_EXISTS',
     409,
     'Bu personel için bu haftaya ait rapor zaten mevcut.',
+  );
+}
+
+function jobAlreadyAttached(): AppError {
+  return new AppError(
+    'WEEKLY_REPORT_JOB_ATTACHED',
+    409,
+    'Bu iş kaydı zaten bir haftalık rapora bağlı.',
+  );
+}
+
+function sourceMismatch(): AppError {
+  return new AppError(
+    'WEEKLY_REPORT_SOURCE_MISMATCH',
+    409,
+    'Gönderim kaynağı doğrulanamadı.',
   );
 }
 
@@ -58,6 +74,40 @@ function isUniqueViolation(error: unknown): boolean {
     && typeof error === 'object'
     && (error as { code?: unknown }).code === '23505'
   );
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    !!error
+    && typeof error === 'object'
+    && (error as { code?: unknown }).code === '23503'
+  );
+}
+
+function constraintName(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const name = (error as { constraint?: unknown }).constraint;
+  return typeof name === 'string' ? name : null;
+}
+
+// Auto-generated PostgreSQL constraint names (verified against the live
+// schema; stable unless migration 051 is rewritten, which is forbidden).
+const STAFF_WEEK_UNIQUE_CONSTRAINT =
+  'weekly_reports_organization_id_staff_user_id_period_start_key';
+const JOB_ATTACH_UNIQUE_CONSTRAINT =
+  'weekly_reports_organization_id_job_card_id_key';
+
+/**
+ * Constraint-specific duplicate semantics (F3): only the two known identity
+ * conflicts map to domain errors. Any other unique violation is rethrown
+ * unmasked — never converted into a misleading "report already exists".
+ */
+function duplicateReportFor(error: unknown): AppError | null {
+  if (!isUniqueViolation(error)) return null;
+  const name = constraintName(error);
+  if (name === STAFF_WEEK_UNIQUE_CONSTRAINT) return alreadyExists();
+  if (name === JOB_ATTACH_UNIQUE_CONSTRAINT) return jobAlreadyAttached();
+  return null;
 }
 
 export type WeeklyReportRow = {
@@ -244,7 +294,11 @@ export class PostgresWeeklyReportRepository {
       );
       return mapReport(result.rows[0]!);
     } catch (error) {
-      if (isUniqueViolation(error)) throw duplicateReport();
+      const duplicate = duplicateReportFor(error);
+      if (duplicate) throw duplicate;
+      // A referenced job/staff row deleted between the pre-checks and the
+      // insert: deterministic not-found, never a raw FK leak.
+      if (isForeignKeyViolation(error)) throw notFound();
       throw error;
     }
   }
@@ -319,6 +373,15 @@ export class PostgresWeeklyReportRepository {
         fieldErrors: { jobVersion: 'jobVersion geçersizdir.' },
       });
     }
+    // F4: the submission clock is server-owned. Direct callers must supply a
+    // real instant; the production service path always passes its request
+    // clock and never client time.
+    if (!(input.submittedAt instanceof Date)
+      || Number.isNaN(input.submittedAt.valueOf())) {
+      throw new AppError('VALIDATION_ERROR', 400, 'submittedAt geçersizdir.', {
+        fieldErrors: { submittedAt: 'submittedAt geçersizdir.' },
+      });
+    }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -367,6 +430,10 @@ export class PostgresWeeklyReportRepository {
       return mapSubmission(inserted.rows[0]!);
     } catch (error) {
       await client.query('ROLLBACK');
+      // F2: a source activity from another job/organization (or deleted
+      // mid-flight) violates the composite FK. Deterministic domain error —
+      // raw 23503 never escapes.
+      if (isForeignKeyViolation(error)) throw sourceMismatch();
       throw error;
     } finally {
       client.release();
