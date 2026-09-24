@@ -54,6 +54,20 @@ export type SourceWorkSnapshotItem = {
   statusAtSnapshot: Extract<JobCardStatus, 'WAITING_APPROVAL' | 'COMPLETED'>;
 };
 
+/**
+ * Raw source-work candidate row as read inside a JobCard transaction: the
+ * service maps it to {@link SourceWorkSnapshotItem} through the pure
+ * `mapSourceWorkRow` helper (same file family: `source-work.ts`).
+ */
+export type WeeklySourceWorkRow = {
+  jobCardId: string;
+  type: string;
+  title: string;
+  customerName: string | null;
+  staffCompletedAt: Date;
+  status: string;
+};
+
 export type WeeklyReport = {
   id: string;
   organizationId: string;

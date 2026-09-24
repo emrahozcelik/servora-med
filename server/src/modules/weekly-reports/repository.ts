@@ -60,7 +60,7 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-type WeeklyReportRow = {
+export type WeeklyReportRow = {
   id: string;
   organization_id: string;
   job_card_id: string;
@@ -80,7 +80,7 @@ type WeeklyReportRow = {
   updated_at: Date;
 };
 
-type WeeklyReportSubmissionRow = {
+export type WeeklyReportSubmissionRow = {
   id: string;
   organization_id: string;
   weekly_report_id: string;
@@ -105,14 +105,14 @@ type WeeklyReportSubmissionRow = {
  * midnight, so local calendar fields round-trip on any host while
  * `toISOString()` would shift the day outside UTC.
  */
-function dateKey(value: Date): string {
+export function dateKey(value: Date): string {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-function mapReport(row: WeeklyReportRow): WeeklyReport {
+export function mapReport(row: WeeklyReportRow): WeeklyReport {
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -136,7 +136,7 @@ function mapReport(row: WeeklyReportRow): WeeklyReport {
   };
 }
 
-function mapSubmission(row: WeeklyReportSubmissionRow): WeeklyReportSubmission {
+export function mapSubmission(row: WeeklyReportSubmissionRow): WeeklyReportSubmission {
   return {
     id: row.id,
     organizationId: row.organization_id,
