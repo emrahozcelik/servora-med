@@ -777,6 +777,10 @@ describe('deriveJobWorkflowPresentation', () => {
       'MEETING_TIME_VALID',
       'TASK_TITLE_VALID',
       'UNSUCCESSFUL_REASON_PRESENT',
+      'WEEKLY_ANSWERS_COMPLETE',
+      'WEEKLY_DRAFT_VALID',
+      'WEEKLY_REPORT_FOUND',
+      'WEEKLY_SOURCE_WORK_READY',
     ]);
   });
 

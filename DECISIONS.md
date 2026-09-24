@@ -1011,3 +1011,43 @@ a user-facing workflow.
   GENERAL_TASK records. Public `WEEKLY_REPORT` creation stays closed until
   Slice 2; recurrence and PDF are deferred (PDF remains a V1 requirement,
   not redefined as browser-print).
+
+## Weekly Report V1 Slice 2 single-report workflow — 2026-09-24
+
+Public single-report flow enabled (bulk/recurrence/PDF/profile-history still
+out). No migration (051 schema proved sufficient).
+
+- **Creation:** `POST /api/job-cards/weekly-reports` (dedicated command).
+  STAFF self-creates (assignedTo omitted/self, no questions) → ACCEPTED with
+  canonical accepted evidence; MANAGER/ADMIN requests one active STAFF
+  (assignedTo required, 0..5 frozen questions) → NEW. Idempotent via
+  processed_actions (`WEEKLY_REPORT_CREATE`) with normalized-intent hash;
+  replay converges, reused key → CLIENT_ACTION_REUSED, same staff/week →
+  WEEKLY_REPORT_ALREADY_EXISTS with report/job navigation metadata.
+- **Title:** deterministic neutral `Haftalık Rapor (YYYY-MM-DD – YYYY-MM-DD)`;
+  localized period labels render in UI only. Title is not identity.
+- **Instructions:** manager request instructions reuse the JobCard
+  `description` primitive (bounded 2000). No new note context, no schema.
+- **Due date:** default Monday after `period_end` (+1 day); explicit ISO
+  override through existing due-date semantics.
+- **Customer:** WEEKLY_REPORT is never customer-scoped (`customer_id = NULL`);
+  customer schedule/conflict/history logic untouched.
+- **Draft:** complete-replacement PUT semantics via PATCH (never sparse
+  merge); editable in ACCEPTED/IN_PROGRESS only (REVISION_REQUESTED requires
+  RESUME first, matching lifecycle); WAITING_APPROVAL/COMPLETED locked.
+  Owner STAFF writes; managers read-only.
+- **Submission:** explicit WEEKLY_REPORT policy branch (summary +
+  nextWeekPlan required, blockers optional, every frozen question answered,
+  empty source-work allowed). Atomic boundary: SUBMIT transition + submit
+  activity + immutable submission + source snapshot in ONE transaction; the
+  activity id comes from the transition result (no client field; unknown
+  submit keys rejected at the route). submittedAt = transition request clock
+  (DB clock_timestamp reservation), identical to staff_completed_at evidence.
+- **F2/F3/F4 closed:** deterministic 23503 mapping, constraint-specific
+  duplicates (ALREADY_EXISTS vs JOB_ATTACHED), server-owned clock.
+- **Reporting:** created-volume/status counters stay inclusive of weekly
+  reports where they literally mean job counts; productive aggregates stay
+  exclusive (unchanged from Slice 1).
+- **Web:** exact parsers accept the 4-type union; productive buckets keep a
+  dedicated 3-type list (server parity); dedicated create/detail UI reuses
+  workflow panels and dialogs.

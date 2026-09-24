@@ -15,7 +15,7 @@ describe('JobCard workspace ownership', () => {
   it('renders both exhaustive JobCard type filter labels', () => {
     expect(jobTypeLabels).toEqual({
       PRODUCT_DELIVERY: 'Ürün teslimi', GENERAL_TASK: 'Genel görev',
-      SALES_MEETING: 'Satış görüşmesi',
+      SALES_MEETING: 'Satış görüşmesi', WEEKLY_REPORT: 'Haftalık Rapor',
     });
     const html = renderToStaticMarkup(<JobFilters
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
