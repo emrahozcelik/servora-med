@@ -62,6 +62,7 @@ import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
@@ -2075,6 +2076,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     /></main>;
   }
   const { detail } = state;
+  // Weekly reports render in their dedicated component: separate draft
+  // editor, system activity list and submission history. Generic meeting /
+  // delivery sections must never render for this type.
+  if (detail.kind === 'WEEKLY_REPORT') {
+    return <WeeklyReportDetail jobCardId={jobId} user={user} />;
+  }
   const actions = detail.job.workflowContext.allowedActions;
   const viewMeeting = actions.includes('VIEW_MEETING_RESULT');
   const editMeeting = actions.includes('EDIT_MEETING_RESULT');
