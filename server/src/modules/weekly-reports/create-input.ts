@@ -72,6 +72,32 @@ export function weeklyReportTitle(periodStart: string, periodEnd: string): strin
   return `Haftalık Rapor (${periodStart} – ${periodEnd})`;
 }
 
+const DRAFT_PATCH_FIELDS = ['expectedVersion', 'draft', 'answers'] as const;
+
+export type WeeklyReportDraftPatchInput = {
+  expectedVersion: number;
+  draft: unknown;
+  answers: unknown;
+};
+
+/** Complete-replacement draft patch: all sections travel together. */
+export function parseWeeklyReportDraftPatch(value: unknown): WeeklyReportDraftPatchInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !(DRAFT_PATCH_FIELDS as readonly string[]).includes(key))) {
+    throw validation('body');
+  }
+  if (!Number.isInteger(record.expectedVersion)
+    || (record.expectedVersion as number) < 1) {
+    throw validation('expectedVersion');
+  }
+  return {
+    expectedVersion: record.expectedVersion as number,
+    draft: record.draft,
+    answers: record.answers,
+  };
+}
+
 export function weeklyReportCreateRequestHash(input: {
   periodStart: string;
   periodEnd: string;

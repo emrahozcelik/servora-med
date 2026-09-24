@@ -50,6 +50,11 @@ import type {
   WeeklyReportRow,
   WeeklyReportSubmissionRow,
 } from '../weekly-reports/repository.js';
+import {
+  listWeeklyReportSubmissionRows as selectWeeklySubmissions,
+  updateWeeklyReportDraftRow as applyWeeklyDraftRow,
+  type WeeklyDraftRowUpdate,
+} from '../weekly-reports/repository.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
 import type { ApprovalItem } from '../reports/types.js';
 import type {
@@ -780,6 +785,18 @@ export interface JobCardRepository extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<readonly AssignmentHistoryRecord[]>;
+  /**
+   * Version-guarded weekly draft replacement (shared helper; null on stale
+   * version). Used by the WeeklyReport service draft path.
+   */
+  updateWeeklyReportDraftRow(
+    input: WeeklyDraftRowUpdate,
+  ): Promise<WeeklyReportRow | null>;
+  /** Weekly submission rows in seq order (service history read). */
+  listWeeklyReportSubmissionRows(
+    organizationId: string,
+    reportId: string,
+  ): Promise<WeeklyReportSubmissionRow[]>;
   findCompletedCriticalAction<T>(
     claim: CriticalActionClaim,
   ): Promise<T | null>;
@@ -3654,6 +3671,14 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
     weekEnd: Date;
   }) {
     return selectWeeklySourceWork(this.pool, input);
+  }
+
+  async updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate) {
+    return applyWeeklyDraftRow(this.pool, input);
+  }
+
+  async listWeeklyReportSubmissionRows(organizationId: string, reportId: string) {
+    return selectWeeklySubmissions(this.pool, organizationId, reportId);
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

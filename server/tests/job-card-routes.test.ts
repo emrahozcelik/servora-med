@@ -52,6 +52,9 @@ function serviceDouble() {
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     invalidate: vi.fn().mockResolvedValue({ ...result, status: 'INVALIDATED' }),
+    getWeeklyReport: vi.fn().mockResolvedValue({ id: 'report-1' }),
+    updateWeeklyReportDraft: vi.fn().mockResolvedValue({ id: 'report-1', version: 2 }),
+    listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
     listNotes: vi.fn().mockResolvedValue({ items: [], limit: 25, nextCursor: null }),
     addNote: vi.fn().mockResolvedValue({
@@ -658,5 +661,20 @@ describe('JobCard routes', () => {
       expect.objectContaining({ id: 'staff-1' }),
       expect.objectContaining({ clientActionId: 'wr1', periodStart: '2026-08-03' }),
     );
+  });
+
+  it('dispatches weekly report read, draft patch and history with the job id', async () => {
+    const { app, service } = await createApp();
+    expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/weekly-report' })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: 'PATCH', url: '/api/job-cards/job-1/weekly-report',
+      payload: { expectedVersion: 1, draft: {}, answers: [] },
+    })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/weekly-report/submissions' })).statusCode).toBe(200);
+    expect(service.getWeeklyReport).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    expect(service.updateWeeklyReportDraft).toHaveBeenCalledWith(expect.anything(), 'job-1', {
+      expectedVersion: 1, draft: {}, answers: [],
+    });
+    expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1');
   });
 });

@@ -149,6 +149,66 @@ export type WeeklyReportSubmissionRow = {
   created_at: Date;
 };
 
+/** Minimal query surface: Pool and single transaction clients both satisfy it. */
+export type WeeklyQueryable = {
+  query<T>(text: string, values?: unknown[]): Promise<{ rows: T[] }>;
+};
+
+export type WeeklyDraftRowUpdate = {
+  organizationId: string;
+  reportId: string;
+  expectedVersion: number;
+  draft: WeeklyReportDraftBody;
+  answers: ManagerAnswer[];
+};
+
+/**
+ * Version-guarded draft replacement shared by the standalone repository and
+ * the JobCard service path. Returns null on stale version (caller maps to
+ * VERSION_CONFLICT). Complete replacement, never sparse merge.
+ */
+export async function updateWeeklyReportDraftRow(
+  executor: WeeklyQueryable,
+  input: WeeklyDraftRowUpdate,
+): Promise<WeeklyReportRow | null> {
+  const result = await executor.query<WeeklyReportRow>(
+    `UPDATE weekly_reports
+        SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
+            draft_highlights = $6, draft_field_observations = $7,
+            draft_support_needed = $8, manager_answers = $9,
+            version = version + 1, updated_at = NOW()
+      WHERE organization_id = $1 AND id = $2 AND version = $10
+      RETURNING *`,
+    [
+      input.organizationId,
+      input.reportId,
+      input.draft.summary,
+      input.draft.blockers,
+      input.draft.nextWeekPlan,
+      input.draft.highlights,
+      input.draft.fieldObservations,
+      input.draft.supportNeeded,
+      JSON.stringify(input.answers),
+      input.expectedVersion,
+    ],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function listWeeklyReportSubmissionRows(
+  executor: WeeklyQueryable,
+  organizationId: string,
+  reportId: string,
+): Promise<WeeklyReportSubmissionRow[]> {
+  const result = await executor.query<WeeklyReportSubmissionRow>(
+    `SELECT * FROM weekly_report_submissions
+      WHERE organization_id = $1 AND weekly_report_id = $2
+      ORDER BY seq_no ASC, id ASC`,
+    [organizationId, reportId],
+  );
+  return result.rows;
+}
+
 /**
  * Host-timezone-independent DATE mapping (same convention as the JobCard
  * repository's `mapCalendarDate`): node-pg materializes DATE as local
@@ -337,28 +397,13 @@ export class PostgresWeeklyReportRepository {
     if (row.staff_user_id !== input.staffUserId) throw forbidden();
     if (row.version !== input.expectedVersion) throw versionConflict();
     const answers = validateDraftAnswers(row.manager_questions, input.answers);
-    const updated = await this.pool.query<WeeklyReportRow>(
-      `UPDATE weekly_reports
-          SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
-              draft_highlights = $6, draft_field_observations = $7,
-              draft_support_needed = $8, manager_answers = $9,
-              version = version + 1, updated_at = NOW()
-        WHERE organization_id = $1 AND id = $2 AND version = $10
-        RETURNING *`,
-      [
-        input.organizationId,
-        input.reportId,
-        draft.summary,
-        draft.blockers,
-        draft.nextWeekPlan,
-        draft.highlights,
-        draft.fieldObservations,
-        draft.supportNeeded,
-        JSON.stringify(answers),
-        input.expectedVersion,
-      ],
-    );
-    const next = updated.rows[0];
+    const next = await updateWeeklyReportDraftRow(this.pool, {
+      organizationId: input.organizationId,
+      reportId: input.reportId,
+      expectedVersion: input.expectedVersion,
+      draft,
+      answers,
+    });
     // Lost-update race between the read and the write: same deterministic
     // conflict as a stale caller version.
     if (!next) throw versionConflict();
@@ -449,12 +494,7 @@ export class PostgresWeeklyReportRepository {
       [organizationId, reportId],
     );
     if (!report.rows[0]) throw notFound();
-    const result = await this.pool.query<WeeklyReportSubmissionRow>(
-      `SELECT * FROM weekly_report_submissions
-        WHERE organization_id = $1 AND weekly_report_id = $2
-        ORDER BY seq_no ASC, id ASC`,
-      [organizationId, reportId],
-    );
-    return result.rows.map(mapSubmission);
+    const rows = await listWeeklyReportSubmissionRows(this.pool, organizationId, reportId);
+    return rows.map(mapSubmission);
   }
 }

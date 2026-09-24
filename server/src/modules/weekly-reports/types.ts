@@ -68,6 +68,26 @@ export type WeeklySourceWorkRow = {
   status: string;
 };
 
+export type WeeklyReportSubmissionSummary = {
+  seqNo: number;
+  submittedAt: string;
+  submittedBy: string;
+};
+
+/**
+ * Report detail DTO: weekly domain state plus the owning JobCard lifecycle
+ * reference, the bounded live source-work list (editable statuses only) and
+ * submission summaries (full frozen payloads via the history read).
+ */
+export type WeeklyReportDetail = WeeklyReport & {
+  jobStatus: JobCardStatus;
+  jobVersion: number;
+  dueDate: string | null;
+  assignedTo: string;
+  liveSourceWork: SourceWorkSnapshotItem[];
+  submissionSummaries: WeeklyReportSubmissionSummary[];
+};
+
 export type WeeklyReport = {
   id: string;
   organizationId: string;

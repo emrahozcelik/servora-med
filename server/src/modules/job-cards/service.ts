@@ -112,6 +112,22 @@ import {
 } from './create-input.js';
 import { addCalendarDaysToDateKey } from './local-calendar.js';
 import type { ManagerQuestion } from '../weekly-reports/types.js';
+import type {
+  WeeklyReportDetail,
+  WeeklyReportSubmission,
+} from '../weekly-reports/types.js';
+import {
+  mapReport,
+  mapSubmission,
+} from '../weekly-reports/repository.js';
+import {
+  mapSourceWorkRow,
+  weekInstants,
+} from '../weekly-reports/source-work.js';
+import {
+  validateDraftAnswers,
+  validateDraftBody,
+} from '../weekly-reports/validation.js';
 import {
   weeklyReportAlreadyExists,
   weeklyReportCreateRequestHash,
@@ -1091,8 +1107,105 @@ export class JobCardService {
     return result.response;
   }
 
-  async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {
-    const title = input.title.trim();
+  /**
+   * Weekly report read context: owning JobCard plus its report row. Same
+   * visibility as the generic detail — cross-tenant and non-owner STAFF
+   * reads are concealed as not-found; managers read their organization.
+   */
+  private async loadWeeklyReportContext(actor: JobCardActor, jobCardId: string) {
+    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    if (!job || job.type !== 'WEEKLY_REPORT'
+      || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    const row = await this.repository.getWeeklyReportByJobId(actor.organizationId, jobCardId);
+    if (!row) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    return { job, report: mapReport(row) };
+  }
+
+  async getWeeklyReport(actor: JobCardActor, jobCardId: string): Promise<WeeklyReportDetail> {
+    const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    const submissionRows = await this.repository.listWeeklyReportSubmissionRows(
+      actor.organizationId, report.id,
+    );
+    let liveSourceWork: WeeklyReportDetail['liveSourceWork'] = [];
+    if (job.status === 'ACCEPTED' || job.status === 'IN_PROGRESS') {
+      const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
+      const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+      const rows = await this.repository.listWeeklySourceWorkSnapshot({
+        organizationId: actor.organizationId,
+        staffUserId: report.staffUserId,
+        weekStart,
+        weekEnd,
+      });
+      liveSourceWork = rows.map(mapSourceWorkRow);
+    }
+    return {
+      ...report,
+      jobStatus: job.status,
+      jobVersion: job.version,
+      dueDate: job.dueDate,
+      assignedTo: job.assignedTo,
+      liveSourceWork,
+      submissionSummaries: submissionRows.map((row) => ({
+        seqNo: row.seq_no,
+        submittedAt: row.submitted_at.toISOString(),
+        submittedBy: row.submitted_by,
+      })),
+    };
+  }
+
+  /**
+   * Weekly draft write: owner STAFF only (managers read but never author),
+   * editable in ACCEPTED/IN_PROGRESS, locked once awaiting approval or
+   * beyond. Complete replacement semantics — the validated draft body
+   * replaces all sections atomically, never sparse-merged.
+   */
+  async updateWeeklyReportDraft(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: { expectedVersion: number; draft: unknown; answers: unknown },
+  ): Promise<WeeklyReportDetail> {
+    const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    if (actor.role !== 'STAFF' || actor.id !== report.staffUserId) {
+      throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+    }
+    if (job.status !== 'ACCEPTED' && job.status !== 'IN_PROGRESS') {
+      throw new AppError(
+        'WEEKLY_REPORT_DRAFT_LOCKED',
+        409,
+        'Rapor taslağı bu aşamada düzenlenemez.',
+      );
+    }
+    const draft = validateDraftBody(input.draft);
+    const answers = validateDraftAnswers(report.questions, input.answers);
+    const updated = await this.repository.updateWeeklyReportDraftRow({
+      organizationId: actor.organizationId,
+      reportId: report.id,
+      expectedVersion: input.expectedVersion,
+      draft,
+      answers,
+    });
+    if (!updated) {
+      throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+    }
+    return this.getWeeklyReport(actor, jobCardId);
+  }
+
+  async listWeeklyReportSubmissions(
+    actor: JobCardActor,
+    jobCardId: string,
+  ): Promise<WeeklyReportSubmission[]> {
+    const { report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    const rows = await this.repository.listWeeklyReportSubmissionRows(
+      actor.organizationId, report.id,
+    );
+    return rows.map(mapSubmission);
+  }
+
+  async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {    const title = input.title.trim();
     if (input.type !== 'PRODUCT_DELIVERY'
       || !input.clientActionId.trim() || !title || !input.customerId
       || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(input.priority)) {
