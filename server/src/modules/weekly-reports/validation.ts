@@ -3,6 +3,7 @@ import {
   addCalendarDaysToDateKey,
   weekdayOfDateKey,
 } from '../job-cards/local-calendar.js';
+import { JOB_CARD_TYPES } from '../job-cards/types.js';
 import {
   codePointLength,
   isoDate,
@@ -204,14 +205,14 @@ function requiredBodySection(value: string | null, field: string): string {
 }
 
 /**
- * Submission body: summary, blockers and next-week plan are required;
- * the remaining sections stay optional. Bounds already enforced by
- * `validateDraftBody`.
+ * Submission body (V1 Slice 2 form rules): summary and next-week plan are
+ * required; blockers and the remaining sections stay optional. A week with
+ * no blockers is legitimate. Bounds already enforced by `validateDraftBody`.
  */
 export function validateSubmissionBody(draft: WeeklyReportDraftBody): WeeklyReportSubmittedBody {
   return {
     summary: requiredBodySection(draft.summary, 'draft.summary'),
-    blockers: requiredBodySection(draft.blockers, 'draft.blockers'),
+    blockers: draft.blockers,
     nextWeekPlan: requiredBodySection(draft.nextWeekPlan, 'draft.nextWeekPlan'),
     highlights: draft.highlights,
     fieldObservations: draft.fieldObservations,
@@ -234,7 +235,10 @@ export function validateSourceWorkSnapshot(value: unknown): SourceWorkSnapshotIt
     if (typeof record.jobCardId !== 'string' || record.jobCardId.trim().length === 0) {
       throw validation('sourceWork.jobCardId');
     }
-    if (typeof record.type !== 'string' || record.type.trim().length === 0
+    // Snapshot sources are productive work only: unknown literals and the
+    // weekly report itself can never appear, even from direct callers.
+    if (typeof record.type !== 'string'
+      || !(JOB_CARD_TYPES as readonly string[]).includes(record.type)
       || record.type === 'WEEKLY_REPORT') {
       throw validation('sourceWork.type');
     }

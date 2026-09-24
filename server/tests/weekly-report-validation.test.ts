@@ -128,24 +128,23 @@ describe('draft and submission body validation', () => {
     validationError(() => validateDraftBody({ summary: 'x'.repeat(4001) }));
   });
 
-  it('requires summary, blockers and next-week plan at submission', () => {
+  it('requires summary and next-week plan at submission; blockers stay optional', () => {
     const draft = validateDraftBody({
       summary: 'Özet.',
-      blockers: 'Engel.',
       nextWeekPlan: 'Plan.',
       highlights: 'Kazanım.',
     });
     expect(validateSubmissionBody(draft)).toEqual({
       summary: 'Özet.',
-      blockers: 'Engel.',
+      blockers: null,
       nextWeekPlan: 'Plan.',
       highlights: 'Kazanım.',
       fieldObservations: null,
       supportNeeded: null,
     });
     validationError(() => validateSubmissionBody(validateDraftBody({ blockers: 'E.', nextWeekPlan: 'P.' })));
-    validationError(() => validateSubmissionBody(validateDraftBody({ summary: 'S.', nextWeekPlan: 'P.' })));
     validationError(() => validateSubmissionBody(validateDraftBody({ summary: 'S.', blockers: 'E.' })));
+    validationError(() => validateSubmissionBody(validateDraftBody({ summary: 'S.' })));
   });
 });
 

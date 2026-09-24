@@ -493,8 +493,7 @@ export type PersistedFollowUpListItem = PersistedJobCardListItem & {
 };
 
 export interface SubmissionReader {
-  getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
-  getSubmissionCustomer(
+  getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;  getSubmissionCustomer(
     organizationId: string,
     customerId: string,
   ): Promise<SubmissionCustomer | null>;
@@ -506,6 +505,7 @@ export interface SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<SubmissionDeliveryItem[]>;
+  getOrganizationTimezone(organizationId: string): Promise<string>;
   /**
    * Weekly Report backing row for a JobCard submission check, or null when
    * the job has no report. Implemented by the request transaction so the

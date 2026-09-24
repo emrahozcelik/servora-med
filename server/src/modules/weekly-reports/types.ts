@@ -31,10 +31,10 @@ export type WeeklyReportDraftBody = {
   supportNeeded: string | null;
 };
 
-/** Frozen submission body: every required section resolved to text. */
+/** Frozen submission body: required sections resolved to text, rest optional. */
 export type WeeklyReportSubmittedBody = {
   summary: string;
-  blockers: string;
+  blockers: string | null;
   nextWeekPlan: string;
   highlights: string | null;
   fieldObservations: string | null;
