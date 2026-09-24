@@ -67,6 +67,96 @@ export function parseWeeklyReportCreateInput(value: unknown): WeeklyReportCreate
   };
 }
 
+export const MAX_BULK_TARGETS = 50;
+
+const BULK_REQUEST_FIELDS = [
+  'clientActionId', 'staffUserIds', 'periodStart', 'dueDate', 'questions', 'instructions',
+] as const;
+
+/**
+ * Manager/ADMIN bulk request intent: the SAME report dimensions applied
+ * independently to every selected staff member. It is one logical command
+ * that may produce N independent WeeklyReport JobCards — never a shared
+ * multi-assignee report, so no shared report-level field exists here.
+ */
+export type WeeklyReportBulkRequestInput = {
+  clientActionId: string;
+  /**
+   * Canonical lowercase target ids in request order. Unique by contract:
+   * repeated ids are rejected as malformed instead of silently de-duplicated,
+   * so the caller's intent is never reinterpreted.
+   */
+  staffUserIds: string[];
+  /** Canonical Monday; periodEnd derives +6 and the default due date +7. */
+  periodStart: string;
+  periodEnd: string;
+  /** Null = default (Monday after period_end); otherwise explicit ISO date. */
+  dueDate: string | null;
+  /** Raw question definitions; copied independently into each report row. */
+  questions: unknown;
+  /** Optional manager request instructions → each target JobCard description. */
+  instructions: string | null;
+};
+
+/**
+ * Target ids are lowercased so their text order equals the PostgreSQL `uuid`
+ * byte order. `lockUsersInOrder` sorts ids as text before locking, so this
+ * normalization is what makes the deterministic lock order match
+ * `ORDER BY id` for every possible client encoding of the same uuid.
+ */
+function parseStaffUserIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) throw validation('staffUserIds');
+  if (value.length > MAX_BULK_TARGETS) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      400,
+      `Tek işlemde en fazla ${MAX_BULK_TARGETS} personel için rapor istenebilir.`,
+      { fieldErrors: { staffUserIds: `En fazla ${MAX_BULK_TARGETS} personel.` } },
+    );
+  }
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    const staffUserId = uuidString(entry, 'staffUserIds').toLowerCase();
+    if (seen.has(staffUserId)) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Aynı personel bu istekte birden fazla kez yer alamaz.',
+        { fieldErrors: { staffUserIds: 'Tekrarlanan personel kimliği.' } },
+      );
+    }
+    seen.add(staffUserId);
+    return staffUserId;
+  });
+}
+
+export function parseWeeklyReportBulkRequestInput(value: unknown): WeeklyReportBulkRequestInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !(BULK_REQUEST_FIELDS as readonly string[]).includes(key))) {
+    throw validation('body');
+  }
+  const clientActionId = requireActionId(record.clientActionId);
+  const staffUserIds = parseStaffUserIds(record.staffUserIds);
+  if (typeof record.periodStart !== 'string') throw validation('periodStart');
+  const { periodStart, periodEnd } = parsePeriodStart(record.periodStart);
+  const dueDate = record.dueDate === undefined || record.dueDate === null
+    ? null
+    : isoDate(record.dueDate, 'dueDate');
+  const instructions = optionalBoundedString(
+    record.instructions, 'instructions', MAX_REQUEST_INSTRUCTIONS_LENGTH,
+  );
+  return {
+    clientActionId,
+    staffUserIds,
+    periodStart,
+    periodEnd,
+    dueDate,
+    questions: record.questions,
+    instructions,
+  };
+}
+
 /** Deterministic neutral title: ISO dates only, no locale month names. */
 export function weeklyReportTitle(periodStart: string, periodEnd: string): string {
   return `Haftalık Rapor (${periodStart} – ${periodEnd})`;
@@ -114,6 +204,31 @@ export function weeklyReportCreateRequestHash(input: {
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
     assignedTo: input.assignedTo,
+    dueDate: input.dueDate,
+    questions: input.questions,
+    instructions: input.instructions,
+  });
+}
+
+/**
+ * Normalized bulk-request intent. Target ORDER is not semantic — the same
+ * set of staff requested in a different order is the same logical command —
+ * so the ids are sorted before hashing. The derived `periodEnd` is included
+ * so the receipt is bound to the canonical period, not just its start.
+ */
+export function weeklyReportBulkRequestHash(input: {
+  staffUserIds: readonly string[];
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  questions: unknown;
+  instructions: string | null;
+}): string {
+  return hashRequestIdentity({
+    operation: 'WEEKLY_REPORT_BULK_REQUEST:v1',
+    staffUserIds: [...input.staffUserIds].sort(),
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
     dueDate: input.dueDate,
     questions: input.questions,
     instructions: input.instructions,

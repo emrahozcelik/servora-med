@@ -137,8 +137,10 @@ import {
 } from '../weekly-reports/validation.js';
 import {
   weeklyReportAlreadyExists,
+  weeklyReportBulkRequestHash,
   weeklyReportCreateRequestHash,
   weeklyReportTitle,
+  type WeeklyReportBulkRequestInput,
   type WeeklyReportCreateInput,
 } from '../weekly-reports/create-input.js';
 import { validateManagerQuestions } from '../weekly-reports/validation.js';
@@ -475,6 +477,38 @@ export type WeeklyReportCreateResult = {
   periodEnd: string;
   status: JobCardStatus;
   dueDate: string | null;
+};
+
+/**
+ * Internal result of the shared creation core. `existing` means an already
+ * canonical report for that staff/week won the identity; the JobCard and
+ * report ids point at that winner and no new row was written.
+ */
+type WeeklyReportCreationOutcome =
+  | {
+      outcome: 'created';
+      jobCardId: string;
+      reportId: string;
+      jobStatus: JobCardStatus;
+      realtimeEvents: readonly RealtimeEventRecord[];
+    }
+  | { outcome: 'existing'; jobCardId: string; reportId: string };
+
+/**
+ * Bulk request result. One item per normalized requested staff id, in request
+ * order; `existing` items carry the already-canonical report so the client can
+ * navigate to it instead of treating the duplicate as an error.
+ */
+export type WeeklyReportBulkRequestResult = {
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  items: Array<{
+    staffUserId: string;
+    jobCardId: string;
+    reportId: string;
+    outcome: 'created' | 'existing';
+  }>;
 };
 
 export class JobCardService {
@@ -1016,7 +1050,6 @@ export class JobCardService {
         : validateManagerQuestions(input.questions);
     }
     const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
-    const title = weeklyReportTitle(input.periodStart, input.periodEnd);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
       {
@@ -1040,87 +1073,259 @@ export class JobCardService {
         const assignee = this.requiredLockedAssignee(lockedAssignees, staffUserId);
         assertCreateAssignmentRequest(actor, staffUserId);
         assertCanCreateForAssignee(actor, assignee);
-        const duplicate = await transaction.getWeeklyReportByStaffWeek(
-          actor.organizationId, staffUserId, input.periodStart,
-        );
-        if (duplicate) {
-          throw weeklyReportAlreadyExists(duplicate.id, duplicate.job_card_id, input.periodStart);
-        }
-        const job = await transaction.createJobCard({
-          organizationId: actor.organizationId, type: 'WEEKLY_REPORT',
-          status: selfCreate ? 'ACCEPTED' : 'NEW',
-          title,
-          description: input.instructions, customerId: null,
-          contactId: null,
-          assignedTo: staffUserId, createdBy: actor.id, priority: 'normal',
+        const outcome = await this.createOrResolveWeeklyReportForStaff(transaction, actor, {
+          staffUserId,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
           dueDate,
-          scheduledAt: null,
-          scheduledEndsAt: null,
-          engagementKind: null,
-          acceptedAt: selfCreate ? requestTime : null,
-          acceptedBy: selfCreate ? actor.id : null,
-          sourceJobCardId: null,
-          followUpInstructions: null,
-          historySource: 'CREATE',
-          historyRecordedAt: requestTime,
+          questions,
+          instructions: input.instructions,
+          selfCreate,
+          clientActionId: input.clientActionId,
+          requestTime,
         });
-        let reportId: string;
-        try {
-          const report = await transaction.insertWeeklyReportRow({
-            organizationId: actor.organizationId,
-            jobCardId: job.id,
-            staffUserId,
-            periodStart: input.periodStart,
-            periodEnd: input.periodEnd,
-            questions,
-          });
-          reportId = report.id;
-        } catch (error) {
-          // Lost the staff/week race after the pre-check: the UNIQUE
-          // constraint is authoritative. Re-read for navigation metadata.
-          if ((error as { code?: unknown })?.code === '23505') {
-            const winner = await transaction.getWeeklyReportByStaffWeek(
-              actor.organizationId, staffUserId, input.periodStart,
-            );
-            if (winner) {
-              throw weeklyReportAlreadyExists(winner.id, winner.job_card_id, input.periodStart);
-            }
-          }
-          throw error;
+        // Single-create semantics are preserved: an existing canonical report
+        // is a deterministic conflict with navigation metadata, never a
+        // silent convergence (bulk owns the `existing` outcome).
+        if (outcome.outcome === 'existing') {
+          throw weeklyReportAlreadyExists(
+            outcome.reportId, outcome.jobCardId, input.periodStart,
+          );
         }
-        const createdValue: Record<string, unknown> = {
-          status: job.status, assignedTo: job.assignedTo, version: job.version,
-        };
-        if (selfCreate) {
-          createdValue.acceptedAt = requestTime.toISOString();
-          createdValue.acceptedBy = actor.id;
-        }
-        const activity = await transaction.appendActivity({
-          organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
-          event: 'JOB_CREATED', clientActionId: input.clientActionId,
-          newValue: createdValue,
-          metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
-        });
-        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
-          activity,
-          organizationId: actor.organizationId,
-          jobCardId: job.id,
-          actorUserId: actor.id,
-          event: 'JOB_CREATED',
-          beforeAssigneeId: null,
-          afterAssigneeId: job.assignedTo,
-          calendarAffected: false,
-          customerId: null,
-        });
         return {
           response: {
-            jobCardId: job.id,
-            reportId,
+            jobCardId: outcome.jobCardId,
+            reportId: outcome.reportId,
             staffUserId,
             periodStart: input.periodStart,
             periodEnd: input.periodEnd,
-            status: job.status,
+            status: outcome.jobStatus,
             dueDate,
+          },
+          realtimeEvents: outcome.realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
+    }
+    return result.response;
+  }
+
+  /**
+   * Transaction-level WeeklyReport creation core shared by single create and
+   * bulk request. One call produces the JobCard AND its WeeklyReport row
+   * atomically — never one without the other.
+   *
+   * Preconditions owned by the caller (identical for every command that uses
+   * this primitive): the target user lock is already held via
+   * `lockUsersInOrder` and assignability has been asserted. Under that lock
+   * the staff/week pre-check is authoritative, because every writer of
+   * `weekly_reports` acquires the same user row first. A hit therefore
+   * returns `existing` WITHOUT creating a JobCard, so a losing create can
+   * never leave an orphaned JobCard behind.
+   *
+   * The report insert defers duplicate identity to the database unique
+   * constraint (`DO NOTHING`), so no raw 23505 ever escapes and the caller
+   * decides the meaning of a lost identity race.
+   */
+  private async createOrResolveWeeklyReportForStaff(
+    transaction: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      staffUserId: string;
+      periodStart: string;
+      periodEnd: string;
+      dueDate: string;
+      questions: ManagerQuestion[];
+      instructions: string | null;
+      selfCreate: boolean;
+      clientActionId: string;
+      requestTime: Date;
+    },
+  ): Promise<WeeklyReportCreationOutcome> {
+    const existing = await transaction.getWeeklyReportByStaffWeek(
+      actor.organizationId, input.staffUserId, input.periodStart,
+    );
+    if (existing) {
+      return {
+        outcome: 'existing',
+        jobCardId: existing.job_card_id,
+        reportId: existing.id,
+      };
+    }
+    const job = await transaction.createJobCard({
+      organizationId: actor.organizationId, type: 'WEEKLY_REPORT',
+      status: input.selfCreate ? 'ACCEPTED' : 'NEW',
+      title: weeklyReportTitle(input.periodStart, input.periodEnd),
+      description: input.instructions, customerId: null,
+      contactId: null,
+      assignedTo: input.staffUserId, createdBy: actor.id, priority: 'normal',
+      dueDate: input.dueDate,
+      scheduledAt: null,
+      scheduledEndsAt: null,
+      engagementKind: null,
+      acceptedAt: input.selfCreate ? input.requestTime : null,
+      acceptedBy: input.selfCreate ? actor.id : null,
+      sourceJobCardId: null,
+      followUpInstructions: null,
+      historySource: 'CREATE',
+      historyRecordedAt: input.requestTime,
+    });
+    const report = await transaction.insertWeeklyReportRow({
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      staffUserId: input.staffUserId,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      questions: input.questions,
+    });
+    if (!report) {
+      // The staff/week identity was taken after the locked pre-check. Every
+      // production writer takes the same user lock first, so this is
+      // unreachable; fail closed as a domain conflict so the whole
+      // transaction rolls back (no partial commit, no orphaned JobCard, no
+      // raw constraint name in the response).
+      const winner = await transaction.getWeeklyReportByStaffWeek(
+        actor.organizationId, input.staffUserId, input.periodStart,
+      );
+      if (winner) {
+        throw weeklyReportAlreadyExists(winner.id, winner.job_card_id, input.periodStart);
+      }
+      throw new AppError(
+        'WEEKLY_REPORT_CREATION_CONFLICT',
+        409,
+        'Haftalık rapor oluşturulamadı; eşzamanlı bir işlem aynı raporu oluşturdu.',
+      );
+    }
+    const createdValue: Record<string, unknown> = {
+      status: job.status, assignedTo: job.assignedTo, version: job.version,
+    };
+    if (input.selfCreate) {
+      createdValue.acceptedAt = input.requestTime.toISOString();
+      createdValue.acceptedBy = actor.id;
+    }
+    const activity = await transaction.appendActivity({
+      organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+      event: 'JOB_CREATED', clientActionId: input.clientActionId,
+      newValue: createdValue,
+      metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
+    });
+    const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+      activity,
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      actorUserId: actor.id,
+      event: 'JOB_CREATED',
+      beforeAssigneeId: null,
+      afterAssigneeId: job.assignedTo,
+      calendarAffected: false,
+      customerId: null,
+    });
+    return {
+      outcome: 'created',
+      jobCardId: job.id,
+      reportId: report.id,
+      jobStatus: job.status,
+      realtimeEvents,
+    };
+  }
+
+  /**
+   * Manager/ADMIN bulk request (V1 Slice 3): the same reporting week requested
+   * for many staff in ONE logical command, producing N INDEPENDENT WeeklyReport
+   * JobCards — never a shared multi-assignee report. Each report therefore has
+   * its own JobCard id, report id, lifecycle, acceptance, due date, overdue
+   * accountability, draft, submissions, revision history and approval.
+   *
+   * Atomicity: one transaction and one receipt. For valid targets the command
+   * is all-or-nothing — a real validation, authorization or infrastructure
+   * failure rolls back every JobCard and report created so far, so no partial
+   * result can commit.
+   *
+   * Duplicate convergence is NOT a command failure: an already canonical
+   * report for (staff, period) is reported as `existing` with its own ids, and
+   * the remaining targets still commit.
+   */
+  async bulkRequestWeeklyReports(
+    actor: JobCardActor,
+    input: WeeklyReportBulkRequestInput,
+  ): Promise<WeeklyReportBulkRequestResult> {
+    // STAFF has no bulk surface at all: there is no self-create path on this
+    // endpoint, so the guard is a role check, not a target filter.
+    if (actor.role === 'STAFF') {
+      throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+    }
+    const staffUserIds = input.staffUserIds;
+    const questions = input.questions === undefined || input.questions === null
+      ? []
+      : validateManagerQuestions(input.questions);
+    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    const requestTime = this.now();
+    const result = await this.repository.executeCriticalAction<WeeklyReportBulkRequestResult>(
+      {
+        organizationId: actor.organizationId, userId: actor.id,
+        clientActionId: input.clientActionId, operationKey: 'WEEKLY_REPORT_BULK_REQUEST',
+        requestHash: weeklyReportBulkRequestHash({
+          staffUserIds,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          dueDate,
+          questions,
+          instructions: input.instructions,
+        }),
+      },
+      async (transaction) => {
+        // 1. Lock EVERY target in one deterministic order (`lockUsersInOrder`
+        //    sorts, and the parser lowercased the ids so text order equals
+        //    uuid byte order). Concurrent bulks, single creates and staff
+        //    self-creates all serialize here, so exactly one canonical report
+        //    per staff/week can ever be created.
+        const lockedAssignees = await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          staffUserIds,
+        );
+        // 2. Validate ALL targets before creating ANY: an invalid target 40
+        //    must be reported without target 1 having been written.
+        for (const staffUserId of staffUserIds) {
+          const assignee = this.requiredLockedAssignee(lockedAssignees, staffUserId);
+          assertCreateAssignmentRequest(actor, staffUserId);
+          assertCanCreateForAssignee(actor, assignee);
+        }
+        // 3. Resolve-or-create in request order. A target whose report already
+        //    exists converges to `existing` without emitting a fake creation.
+        const items: WeeklyReportBulkRequestResult['items'] = [];
+        const realtimeEvents: RealtimeEventRecord[] = [];
+        for (const staffUserId of staffUserIds) {
+          const outcome = await this.createOrResolveWeeklyReportForStaff(transaction, actor, {
+            staffUserId,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            dueDate,
+            questions,
+            instructions: input.instructions,
+            selfCreate: false,
+            clientActionId: input.clientActionId,
+            requestTime,
+          });
+          items.push({
+            staffUserId,
+            jobCardId: outcome.jobCardId,
+            reportId: outcome.reportId,
+            outcome: outcome.outcome,
+          });
+          if (outcome.outcome === 'created') realtimeEvents.push(...outcome.realtimeEvents);
+        }
+        return {
+          response: {
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            dueDate,
+            items,
           },
           realtimeEvents,
         };

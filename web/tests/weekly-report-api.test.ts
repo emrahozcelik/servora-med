@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  MAX_BULK_TARGETS,
+  parseWeeklyReportBulkResult,
   parseWeeklyReportCreateResult,
   parseWeeklyReportDetail,
   parseWeeklyReportReference,
@@ -88,5 +90,38 @@ describe('weekly report api parsers', () => {
       status: 'ACCEPTED', dueDate: '2026-08-10',
     };
     expect(parseWeeklyReportCreateResult(created)).toEqual(created);
+  });
+
+  it('parses the bulk result exactly, including mixed outcomes', () => {
+    const bulk = {
+      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      items: [
+        { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
+        { staffUserId: 'staff-2', jobCardId: 'job-2', reportId: 'report-2', outcome: 'existing' },
+      ],
+    };
+    expect(parseWeeklyReportBulkResult(bulk)).toEqual(bulk);
+    expect(parseWeeklyReportBulkResult({ ...bulk, items: [] }).items).toEqual([]);
+  });
+
+  it('rejects unknown bulk keys, unknown outcomes and malformed items', () => {
+    const bulk = {
+      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      items: [
+        { staffUserId: 'staff-1', jobCardId: 'job-1', reportId: 'report-1', outcome: 'created' },
+      ],
+    };
+    expect(() => parseWeeklyReportBulkResult({ ...bulk, bogus: 1 })).toThrow();
+    expect(() => parseWeeklyReportBulkResult({
+      ...bulk, items: [{ ...bulk.items[0], outcome: 'maybe' }],
+    })).toThrow();
+    expect(() => parseWeeklyReportBulkResult({
+      ...bulk, items: [{ ...bulk.items[0], extra: true }],
+    })).toThrow();
+    expect(() => parseWeeklyReportBulkResult({ ...bulk, dueDate: 'nope' })).toThrow();
+  });
+
+  it('mirrors the server bulk ceiling for the multi-select guard', () => {
+    expect(MAX_BULK_TARGETS).toBe(50);
   });
 });

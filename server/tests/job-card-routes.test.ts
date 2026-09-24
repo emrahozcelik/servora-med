@@ -19,6 +19,13 @@ function serviceDouble() {
       periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED',
       dueDate: '2026-08-10',
     }),
+    bulkRequestWeeklyReports: vi.fn().mockResolvedValue({
+      periodStart: '2026-08-03', periodEnd: '2026-08-09', dueDate: '2026-08-10',
+      items: [{
+        staffUserId: '11111111-1111-4111-8111-111111111111',
+        jobCardId: 'job-1', reportId: 'report-1', outcome: 'created',
+      }],
+    }),
     availableSlots: vi.fn().mockResolvedValue({ slots: [{ startsAt: '2026-07-17T11:00:00.000Z', endsAt: '2026-07-17T12:00:00.000Z' }] }),
     createFollowUp: vi.fn().mockResolvedValue(result),
     listFollowUps: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
@@ -665,6 +672,33 @@ describe('JobCard routes', () => {
       expect.objectContaining({ id: 'staff-1' }),
       expect.objectContaining({ clientActionId: 'wr1', periodStart: '2026-08-03' }),
     );
+  });
+
+  it('dispatches the weekly report bulk request with the authenticated actor', async () => {
+    const { app, service } = await createApp();
+    const staffUserId = '11111111-1111-4111-8111-111111111111';
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/weekly-reports/bulk-request',
+      payload: {
+        clientActionId: 'wrbulk1', periodStart: '2026-08-03', staffUserIds: [staffUserId],
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(service.bulkRequestWeeklyReports).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      expect.objectContaining({
+        clientActionId: 'wrbulk1', periodStart: '2026-08-03', staffUserIds: [staffUserId],
+      }),
+    );
+    // A malformed target list is rejected at the boundary, never dispatched.
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/weekly-reports/bulk-request',
+      payload: { clientActionId: 'wrbulk2', periodStart: '2026-08-03', staffUserIds: [] },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(service.bulkRequestWeeklyReports).toHaveBeenCalledTimes(1);
   });
 
   it('dispatches weekly report read, draft patch and history with the job id', async () => {    const { app, service } = await createApp();
