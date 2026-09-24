@@ -34,15 +34,18 @@ export const FOLLOW_UP_ERROR_MESSAGES: Record<string, string> = {
   FOLLOW_UP_OVERRIDE_REASON_REQUIRED: 'Bu işlem için ek bilgi gerekiyor. Lütfen gerekli alanı doldurun.',
 };
 
-const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, JobCardType> = {
+const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, 'SALES_MEETING' | 'GENERAL_TASK'> = {
   SALES_MEETING: 'SALES_MEETING',
   PRODUCT_DELIVERY: 'SALES_MEETING',
   GENERAL_TASK: 'GENERAL_TASK',
+  // Mirrors the server neutral default: weekly reports never parent a
+  // follow-up; the map stays total without granting follow-up semantics.
+  WEEKLY_REPORT: 'GENERAL_TASK',
 };
 
 /** Canonical follow-up child type for a completed source, mirroring the server
  *  `defaultFollowUpType` contract (no server round-trip needed). */
-export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
+export function defaultFollowUpType(sourceType: JobCardType): 'SALES_MEETING' | 'GENERAL_TASK' {
   return FOLLOW_UP_TYPE_DEFAULTS[sourceType];
 }
 

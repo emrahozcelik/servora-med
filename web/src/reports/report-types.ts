@@ -4,6 +4,7 @@ import type {
   JobCardType,
   MeetingOutcome,
   PersistedJobCardListItem,
+  ProductiveJobCardType,
 } from '../jobs/jobs-api';
 
 export type RequestedReportRange = { from: string; to: string } | null;
@@ -53,7 +54,7 @@ export type StaffOnTimeMetrics = {
 };
 
 export type CompletionWorkType = {
-  type: JobCardType;
+  type: ProductiveJobCardType;
   count: number;
 };
 
@@ -63,7 +64,7 @@ export type ActiveStatusDistributionItem = {
 };
 
 export type CreatedWorkTypeDistributionItem = {
-  type: JobCardType;
+  type: ProductiveJobCardType;
   count: number;
 };
 
@@ -201,7 +202,7 @@ export type CustomerReportSnapshot = {
 
 export type CustomerReportPeriod = {
   created: number;
-  createdWorkTypes: Record<JobCardType, number>;
+  createdWorkTypes: Record<ProductiveJobCardType, number>;
   managerApproved: number;
   followUpChildren: number;
 };
@@ -245,7 +246,7 @@ export type SalesFollowUpStatusDistributionItem = {
 };
 
 export type SalesFollowUpTypeDistributionItem = {
-  type: JobCardType;
+  type: ProductiveJobCardType;
   count: number;
 };
 

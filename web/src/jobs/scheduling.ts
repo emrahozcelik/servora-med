@@ -4,6 +4,7 @@
  */
 
 import { plannedIntervalShape } from './job-schedule-integrity';
+import type { JobCardType } from './jobs-api';
 
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
@@ -168,7 +169,7 @@ function formatLocalTime(value: string): string {
  * Labels stay scheduling facts — never lifecycle status language.
  */
 export function cardScheduleFact(job: {
-  type: 'PRODUCT_DELIVERY' | 'SALES_MEETING' | 'GENERAL_TASK';
+  type: JobCardType;
   scheduledAt: string | null;
   scheduledEndsAt?: string | null;
   dueDate: string | null;

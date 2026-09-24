@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { JOB_CARD_TYPES } from '../jobs/jobs-api';
+import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
 import { jobTypeLabels } from '../jobs/job-labels';
 import {
   activeWorkflowPresentation,
@@ -108,7 +108,7 @@ export function ReportsDashboardView({
       ? 'warning' as const
       : status === 'REVISION_REQUESTED' ? 'danger' as const : 'primary' as const,
   }));
-  const createdWorkTypeItems = JOB_CARD_TYPES.map((type) => ({
+  const createdWorkTypeItems = PRODUCTIVE_JOB_CARD_TYPES.map((type) => ({
     key: type,
     label: jobTypeLabels[type],
     value: report.createdWorkTypeDistribution.find((item) => item.type === type)?.count ?? 0,

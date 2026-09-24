@@ -11,9 +11,11 @@ import {
   ACTIVE_JOB_CARD_STATUSES,
   DELIVERY_PURPOSES,
   JOB_CARD_TYPES,
+  PRODUCTIVE_JOB_CARD_TYPES,
   MEETING_OUTCOMES,
   parsePersistedJobCardListItem,
   type JobCardType,
+  type ProductiveJobCardType,
 } from '../jobs/jobs-api';
 import {
   CUSTOMER_STATUSES,
@@ -296,11 +298,11 @@ function parseStaffOnTime(value: unknown): StaffOnTimeMetrics {
 
 function parseCanonicalWorkTypeBuckets(value: unknown, field: string): CompletionWorkType[] {
   const values = array(value, field);
-  if (values.length !== JOB_CARD_TYPES.length) invalid(field);
+  if (values.length !== PRODUCTIVE_JOB_CARD_TYPES.length) invalid(field);
   return values.map((entry, index) => {
     const row = exactObject(entry, field, ['type', 'count']);
-    const type = oneOf(row.type, `${field}.type`, JOB_CARD_TYPES);
-    if (type !== JOB_CARD_TYPES[index]) invalid(field);
+    const type = oneOf(row.type, `${field}.type`, PRODUCTIVE_JOB_CARD_TYPES);
+    if (type !== PRODUCTIVE_JOB_CARD_TYPES[index]) invalid(field);
     return { type, count: nonNegativeInteger(row.count, `${field}.count`) };
   });
 }
@@ -340,11 +342,11 @@ function parseActiveStatusDistribution(value: unknown): ActiveStatusDistribution
 
 function parseCreatedWorkTypeDistribution(value: unknown): CreatedWorkTypeDistributionItem[] {
   const values = array(value, 'createdWorkTypeDistribution');
-  if (values.length !== JOB_CARD_TYPES.length) invalid('createdWorkTypeDistribution');
+  if (values.length !== PRODUCTIVE_JOB_CARD_TYPES.length) invalid('createdWorkTypeDistribution');
   return values.map((entry, index) => {
     const row = exactObject(entry, 'createdWorkTypeDistribution', ['type', 'count']);
-    const type = oneOf(row.type, 'createdWorkTypeDistribution.type', JOB_CARD_TYPES);
-    if (type !== JOB_CARD_TYPES[index]) invalid('createdWorkTypeDistribution');
+    const type = oneOf(row.type, 'createdWorkTypeDistribution.type', PRODUCTIVE_JOB_CARD_TYPES);
+    if (type !== PRODUCTIVE_JOB_CARD_TYPES[index]) invalid('createdWorkTypeDistribution');
     return {
       type,
       count: nonNegativeInteger(row.count, 'createdWorkTypeDistribution.count'),
@@ -554,13 +556,13 @@ function parseCustomerSnapshot(value: unknown): CustomerReportSnapshot {
 
 function parseCustomerPeriod(value: unknown): CustomerReportPeriod {
   const row = exactObject(value, 'period', CUSTOMER_PERIOD_KEYS);
-  const workTypes = exactObject(row.createdWorkTypes, 'createdWorkTypes', JOB_CARD_TYPES);
+  const workTypes = exactObject(row.createdWorkTypes, 'createdWorkTypes', PRODUCTIVE_JOB_CARD_TYPES);
   return {
     created: nonNegativeInteger(row.created, 'period.created'),
-    createdWorkTypes: Object.fromEntries(JOB_CARD_TYPES.map((type) => [
+    createdWorkTypes: Object.fromEntries(PRODUCTIVE_JOB_CARD_TYPES.map((type) => [
       type,
       nonNegativeInteger(workTypes[type], `createdWorkTypes.${type}`),
-    ])) as Record<JobCardType, number>,
+    ])) as Record<ProductiveJobCardType, number>,
     managerApproved: nonNegativeInteger(row.managerApproved, 'period.managerApproved'),
     followUpChildren: nonNegativeInteger(row.followUpChildren, 'period.followUpChildren'),
   };
@@ -611,11 +613,11 @@ function parseSalesFollowUpStatusDistribution(value: unknown, field: string) {
 
 function parseSalesFollowUpTypeDistribution(value: unknown, field: string) {
   const values = array(value, field);
-  if (values.length !== JOB_CARD_TYPES.length) invalid(field);
+  if (values.length !== PRODUCTIVE_JOB_CARD_TYPES.length) invalid(field);
   return values.map((entry, index) => {
     const row = exactObject(entry, field, ['type', 'count']);
-    const type = oneOf(row.type, `${field}.type`, JOB_CARD_TYPES);
-    if (type !== JOB_CARD_TYPES[index]) invalid(field);
+    const type = oneOf(row.type, `${field}.type`, PRODUCTIVE_JOB_CARD_TYPES);
+    if (type !== PRODUCTIVE_JOB_CARD_TYPES[index]) invalid(field);
     return { type, count: nonNegativeInteger(row.count, `${field}.count`) };
   });
 }
