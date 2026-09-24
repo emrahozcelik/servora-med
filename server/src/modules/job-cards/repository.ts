@@ -698,6 +698,12 @@ export interface JobCardTransaction extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<WeeklyReportRow | null>;
+  /** Best-effort duplicate pre-check; the UNIQUE constraint stays authoritative. */
+  getWeeklyReportByStaffWeek(
+    organizationId: string,
+    staffUserId: string,
+    periodStart: string,
+  ): Promise<WeeklyReportRow | null>;
   /** Insert the WeeklyReport row as part of an atomic job+report creation. */
   insertWeeklyReportRow(input: {
     organizationId: string;
@@ -1740,7 +1746,7 @@ function mapHistoryItem(row: HistoryRow): JobHistoryItem {
   };
 }
 
-class PostgresJobCardTransaction implements JobCardTransaction {
+export class PostgresJobCardTransaction implements JobCardTransaction {
   private readonly realtime: PostgresRealtimeEventTransaction;
   private readonly notifications: PostgresNotificationTransaction;
   private readonly webPush: PostgresWebPushTransaction;
@@ -2765,6 +2771,19 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   async getWeeklyReportByJobForUpdate(organizationId: string, jobCardId: string) {
     return selectWeeklyReportByJob(this.client, organizationId, jobCardId, true);
+  }
+
+  async getWeeklyReportByStaffWeek(
+    organizationId: string,
+    staffUserId: string,
+    periodStart: string,
+  ) {
+    const result = await this.client.query<WeeklyReportRow>(
+      `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
+       WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3`,
+      [organizationId, staffUserId, periodStart],
+    );
+    return result.rows[0] ?? null;
   }
 
   async insertWeeklyReportRow(input: {

@@ -11,6 +11,7 @@ import {
   parseProductDeliveryCreateInput,
 } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
+import { parseWeeklyReportCreateInput } from '../weekly-reports/create-input.js';
 import {
   isoInstant,
   operationalNoteCursorTimestamp,
@@ -111,6 +112,11 @@ export function createJobCardHandlers(service: JobCardService) {
       reply.code(201).send(await service.createProductDelivery(
         actor(request),
         parseProductDeliveryCreateInput(request.body),
+      )),
+    createWeeklyReport: async (request: FastifyRequest, reply: FastifyReply) =>
+      reply.code(201).send(await service.createWeeklyReport(
+        actor(request),
+        parseWeeklyReportCreateInput(request.body),
       )),
     createFollowUp: async (
       request: FastifyRequest<{ Params: Params }>,

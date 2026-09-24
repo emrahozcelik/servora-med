@@ -110,6 +110,15 @@ import {
   normalizeFollowUpDueDate,
   priority as normalizePriority,
 } from './create-input.js';
+import { addCalendarDaysToDateKey } from './local-calendar.js';
+import type { ManagerQuestion } from '../weekly-reports/types.js';
+import {
+  weeklyReportAlreadyExists,
+  weeklyReportCreateRequestHash,
+  weeklyReportTitle,
+  type WeeklyReportCreateInput,
+} from '../weekly-reports/create-input.js';
+import { validateManagerQuestions } from '../weekly-reports/validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -434,6 +443,16 @@ function lifecycleReason(value: unknown, field: 'revisionReason' | 'cancelReason
   }
   return requireLifecycleReason(value, field);
 }
+
+export type WeeklyReportCreateResult = {
+  jobCardId: string;
+  reportId: string;
+  staffUserId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: JobCardStatus;
+  dueDate: string | null;
+};
 
 export class JobCardService {
   private readonly notesService: JobCardNotesService;
@@ -913,6 +932,163 @@ export class JobCardService {
       this.publishRealtime(result.realtimeEvents);
     }
     return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
+  }
+
+  /**
+   * Single-target Weekly Report creation (V1 Slice 2). One transaction
+   * atomically produces the JobCard and its WeeklyReport row — never one
+   * without the other. STAFF self-creates (ACCEPTED with canonical accepted
+   * evidence, mirroring generic self-create); MANAGER/ADMIN requests for
+   * exactly one active STAFF (NEW). Idempotent via processed_actions with a
+   * normalized-intent request hash.
+   */
+  async createWeeklyReport(
+    actor: JobCardActor,
+    input: WeeklyReportCreateInput,
+  ): Promise<WeeklyReportCreateResult> {
+    const selfCreate = actor.role === 'STAFF';
+    let staffUserId: string;
+    let questions: ManagerQuestion[];
+    if (selfCreate) {
+      if (input.assignedTo !== null && input.assignedTo !== actor.id) {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      if (input.questions !== undefined && input.questions !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR', 400, 'Yönetici soruları personel kaydında yer alamaz.',
+        );
+      }
+      staffUserId = actor.id;
+      questions = [];
+    } else {
+      if (input.assignedTo === null) {
+        throw new AppError(
+          'VALIDATION_ERROR', 400, 'Haftalık rapor için sorumlu personel zorunludur.',
+        );
+      }
+      staffUserId = input.assignedTo;
+      questions = input.questions === undefined || input.questions === null
+        ? []
+        : validateManagerQuestions(input.questions);
+    }
+    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    const title = weeklyReportTitle(input.periodStart, input.periodEnd);
+    const requestTime = this.now();
+    const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
+      {
+        organizationId: actor.organizationId, userId: actor.id,
+        clientActionId: input.clientActionId, operationKey: 'WEEKLY_REPORT_CREATE',
+        requestHash: weeklyReportCreateRequestHash({
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          assignedTo: staffUserId,
+          dueDate,
+          questions,
+          instructions: input.instructions,
+        }),
+      },
+      async (transaction) => {
+        const lockedAssignees = await this.lockUsersInOrder(
+          transaction,
+          actor.organizationId,
+          [staffUserId],
+        );
+        const assignee = this.requiredLockedAssignee(lockedAssignees, staffUserId);
+        assertCreateAssignmentRequest(actor, staffUserId);
+        assertCanCreateForAssignee(actor, assignee);
+        const duplicate = await transaction.getWeeklyReportByStaffWeek(
+          actor.organizationId, staffUserId, input.periodStart,
+        );
+        if (duplicate) {
+          throw weeklyReportAlreadyExists(duplicate.id, duplicate.job_card_id, input.periodStart);
+        }
+        const job = await transaction.createJobCard({
+          organizationId: actor.organizationId, type: 'WEEKLY_REPORT',
+          status: selfCreate ? 'ACCEPTED' : 'NEW',
+          title,
+          description: input.instructions, customerId: null,
+          contactId: null,
+          assignedTo: staffUserId, createdBy: actor.id, priority: 'normal',
+          dueDate,
+          scheduledAt: null,
+          scheduledEndsAt: null,
+          engagementKind: null,
+          acceptedAt: selfCreate ? requestTime : null,
+          acceptedBy: selfCreate ? actor.id : null,
+          sourceJobCardId: null,
+          followUpInstructions: null,
+          historySource: 'CREATE',
+          historyRecordedAt: requestTime,
+        });
+        let reportId: string;
+        try {
+          const report = await transaction.insertWeeklyReportRow({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+            staffUserId,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            questions,
+          });
+          reportId = report.id;
+        } catch (error) {
+          // Lost the staff/week race after the pre-check: the UNIQUE
+          // constraint is authoritative. Re-read for navigation metadata.
+          if ((error as { code?: unknown })?.code === '23505') {
+            const winner = await transaction.getWeeklyReportByStaffWeek(
+              actor.organizationId, staffUserId, input.periodStart,
+            );
+            if (winner) {
+              throw weeklyReportAlreadyExists(winner.id, winner.job_card_id, input.periodStart);
+            }
+          }
+          throw error;
+        }
+        const createdValue: Record<string, unknown> = {
+          status: job.status, assignedTo: job.assignedTo, version: job.version,
+        };
+        if (selfCreate) {
+          createdValue.acceptedAt = requestTime.toISOString();
+          createdValue.acceptedBy = actor.id;
+        }
+        const activity = await transaction.appendActivity({
+          organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+          event: 'JOB_CREATED', clientActionId: input.clientActionId,
+          newValue: createdValue,
+          metadata: { periodStart: input.periodStart, periodEnd: input.periodEnd },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId: job.id,
+          actorUserId: actor.id,
+          event: 'JOB_CREATED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+          calendarAffected: false,
+          customerId: null,
+        });
+        return {
+          response: {
+            jobCardId: job.id,
+            reportId,
+            staffUserId,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            status: job.status,
+            dueDate,
+          },
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
+    }
+    return result.response;
   }
 
   async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {

@@ -14,6 +14,11 @@ function serviceDouble() {
   return {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
     createProductDelivery: vi.fn().mockResolvedValue({ jobCardId: 'job-1', version: 4 }),
+    createWeeklyReport: vi.fn().mockResolvedValue({
+      jobCardId: 'job-1', reportId: 'report-1', staffUserId: 'staff-1',
+      periodStart: '2026-08-03', periodEnd: '2026-08-09', status: 'ACCEPTED',
+      dueDate: '2026-08-10',
+    }),
     availableSlots: vi.fn().mockResolvedValue({ slots: [{ startsAt: '2026-07-17T11:00:00.000Z', endsAt: '2026-07-17T12:00:00.000Z' }] }),
     createFollowUp: vi.fn().mockResolvedValue(result),
     listFollowUps: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
@@ -642,5 +647,16 @@ describe('JobCard routes', () => {
     const { app } = await createApp();
     expect((await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1/notes/note-1', payload: { note: 'X' } })).statusCode).toBe(404);
     expect((await app.inject({ method: 'DELETE', url: '/api/job-cards/job-1/notes/note-1' })).statusCode).toBe(404);
+  });
+
+  it('dispatches weekly report creation with the authenticated actor', async () => {
+    const { app, service } = await createApp();
+    const payload = { clientActionId: 'wr1', periodStart: '2026-08-03' };
+    const response = await app.inject({ method: 'POST', url: '/api/job-cards/weekly-reports', payload });
+    expect(response.statusCode).toBe(201);
+    expect(service.createWeeklyReport).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      expect.objectContaining({ clientActionId: 'wr1', periodStart: '2026-08-03' }),
+    );
   });
 });
