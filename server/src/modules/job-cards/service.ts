@@ -127,6 +127,9 @@ import {
 import {
   validateDraftAnswers,
   validateDraftBody,
+  validateSubmissionAnswers,
+  validateSubmissionBody,
+  validateSourceWorkSnapshot,
 } from '../weekly-reports/validation.js';
 import {
   weeklyReportAlreadyExists,
@@ -1203,6 +1206,62 @@ export class JobCardService {
       actor.organizationId, report.id,
     );
     return rows.map(mapSubmission);
+  }
+
+  /**
+   * Freeze the persisted draft into an immutable submission row inside the
+   * caller's SUBMIT_FOR_APPROVAL transaction. The caller holds the JobCard
+   * lock and just appended the canonical submit activity; this method locks
+   * the report row, re-validates the frozen payload, snapshots live
+   * source-work and links the row to that exact activity id (F2: the id
+   * comes from our own transition result — clients never supply it).
+   * submittedAt is the shared request clock (F4), identical to the
+   * staff_completed_at evidence written by the same transition.
+   */
+  private async appendWeeklyReportSubmission(
+    tx: JobCardTransaction,
+    input: {
+      actor: JobCardActor;
+      job: JobCard;
+      activityId: string;
+      occurredAt: Date;
+      jobVersion: number;
+    },
+  ): Promise<void> {
+    const { actor, job, activityId, occurredAt, jobVersion } = input;
+    const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, job.id);
+    if (!row || row.staff_user_id !== actor.id) {
+      throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    }
+    const report = mapReport(row);
+    const body = validateSubmissionBody(report.draft);
+    const answers = validateSubmissionAnswers(report.questions, report.answers);
+    const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    const { weekStart, weekEnd } = weekInstants(report.periodStart, timezone);
+    const sourceRows = await tx.listWeeklySourceWorkSnapshot({
+      organizationId: actor.organizationId,
+      staffUserId: actor.id,
+      weekStart,
+      weekEnd,
+    });
+    const sourceWork = validateSourceWorkSnapshot(sourceRows.map(mapSourceWorkRow));
+    const seqNo = await tx.getNextWeeklyReportSubmissionSeqNo(actor.organizationId, report.id);
+    await tx.insertWeeklyReportSubmissionRow({
+      organizationId: actor.organizationId,
+      weeklyReportId: report.id,
+      jobCardId: job.id,
+      seqNo,
+      submittedBy: actor.id,
+      submittedAt: occurredAt,
+      periodStart: report.periodStart,
+      periodEnd: report.periodEnd,
+      body,
+      questions: report.questions,
+      answers,
+      sourceWork,
+      jobVersion,
+      sourceActivityId: activityId,
+    });
   }
 
   async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {    const title = input.title.trim();
@@ -2871,6 +2930,21 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata,
         });
+
+        // Weekly Report atomic submit (V1 Slice 2): the immutable submission
+        // snapshot is appended in this SAME transaction, linked to the exact
+        // JOB_SUBMITTED_FOR_APPROVAL activity created above. Any failure
+        // rolls back the transition, the activity and the submission
+        // together — no partial state is committable.
+        if (definition.command === 'SUBMIT_FOR_APPROVAL' && job.type === 'WEEKLY_REPORT') {
+          await this.appendWeeklyReportSubmission(tx, {
+            actor,
+            job,
+            activityId: activity.id,
+            occurredAt,
+            jobVersion: updated.version,
+          });
+        }
 
         if (noteId && definition.noteContext && transitionNoteBody
           && authorNameSnapshot && authorRoleSnapshot) {

@@ -663,8 +663,7 @@ describe('JobCard routes', () => {
     );
   });
 
-  it('dispatches weekly report read, draft patch and history with the job id', async () => {
-    const { app, service } = await createApp();
+  it('dispatches weekly report read, draft patch and history with the job id', async () => {    const { app, service } = await createApp();
     expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/weekly-report' })).statusCode).toBe(200);
     expect((await app.inject({
       method: 'PATCH', url: '/api/job-cards/job-1/weekly-report',
@@ -676,5 +675,19 @@ describe('JobCard routes', () => {
       expectedVersion: 1, draft: {}, answers: [],
     });
     expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1');
+  });
+
+  it('rejects client-supplied submission authority fields on submit', async () => {
+    const { app, service } = await createApp();
+    // No sourceActivityId / submittedAt input exists: unknown keys fail closed
+    // before reaching the service, so linkage and clock stay server-owned.
+    for (const payload of [
+      { clientActionId: 's1', expectedVersion: 2, note: 'Not', sourceActivityId: 'x' },
+      { clientActionId: 's1', expectedVersion: 2, note: 'Not', submittedAt: '2026-08-05T12:00:00.000Z' },
+    ]) {
+      const response = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/submit-for-approval', payload });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(service.submitForApproval).not.toHaveBeenCalled();
   });
 });

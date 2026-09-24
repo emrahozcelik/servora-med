@@ -709,6 +709,14 @@ export interface JobCardTransaction extends SubmissionReader {
     staffUserId: string,
     periodStart: string,
   ): Promise<WeeklyReportRow | null>;
+  /**
+   * Next submission seq, serialized under the caller's report-row lock
+   * (getWeeklyReportByJobForUpdate first).
+   */
+  getNextWeeklyReportSubmissionSeqNo(
+    organizationId: string,
+    weeklyReportId: string,
+  ): Promise<number>;
   /** Insert the WeeklyReport row as part of an atomic job+report creation. */
   insertWeeklyReportRow(input: {
     organizationId: string;
@@ -2801,6 +2809,15 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       [organizationId, staffUserId, periodStart],
     );
     return result.rows[0] ?? null;
+  }
+
+  async getNextWeeklyReportSubmissionSeqNo(organizationId: string, weeklyReportId: string) {
+    const result = await this.client.query<{ seq_no: number }>(
+      `SELECT COALESCE(MAX(seq_no), 0) + 1 AS seq_no FROM weekly_report_submissions
+       WHERE organization_id = $1 AND weekly_report_id = $2`,
+      [organizationId, weeklyReportId],
+    );
+    return result.rows[0]!.seq_no;
   }
 
   async insertWeeklyReportRow(input: {
