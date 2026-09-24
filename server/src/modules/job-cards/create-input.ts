@@ -2,7 +2,6 @@ import {
   DELIVERY_PURPOSES,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
-  JOB_CARD_TYPES,
   type CustomerSchedulePreviewInput,
   type AvailableSlotsInput,
   type FollowUpCreateInput,
@@ -318,6 +317,13 @@ export type { JobCardCreateInput };
 
 const PREVIEW_FIELDS = ['engagementKind', 'type', 'customerId', 'scheduledAt', 'jobCardId'] as const;
 
+/**
+ * Types eligible for customer-schedule preview. WEEKLY_REPORT is deliberately
+ * absent: it has no customer-schedule semantics and its public creation path
+ * stays closed until the Weekly Report creation slice.
+ */
+const PREVIEWABLE_JOB_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+
 /** Parse the generic customer-schedule preview body. jobCardId is optional (edit preview). */
 export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSchedulePreviewInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
@@ -325,7 +331,9 @@ export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSched
   if (Object.keys(record).some((key) => !PREVIEW_FIELDS.includes(key as never))) {
     throw validation('body');
   }
-  if (!JOB_CARD_TYPES.includes(record.type as JobCardType)) throw validation('type');
+  if (!PREVIEWABLE_JOB_TYPES.includes(record.type as (typeof PREVIEWABLE_JOB_TYPES)[number])) {
+    throw validation('type');
+  }
   return {
     type: record.type as JobCardType,
     engagementKind: record.engagementKind == null ? null : parseEngagementKind(record.engagementKind),

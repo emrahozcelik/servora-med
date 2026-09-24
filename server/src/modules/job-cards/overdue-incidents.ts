@@ -227,7 +227,7 @@ export function effectiveSubmissionDeadlineSql(refs: {
   return `COALESCE(
     ${refs.scheduledEndsAt},
     CASE WHEN ${refs.type} = 'SALES_MEETING' THEN NULL ELSE ${refs.scheduledAt} END,
-    ${overdueSinceSql({ dueDate: refs.dueDate, timezone: refs.timezone, requestTime: refs.requestTime })})`;
+    ${overdueSinceSql({ dueDate: refs.dueDate, timezone: refs.timezone })})`;
 }
 
 /** SQL `timestamptz` expression for the first-late submission instant (+1 ms). */

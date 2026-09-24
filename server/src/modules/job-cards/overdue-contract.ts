@@ -22,7 +22,7 @@
  */
 
 import { addCalendarDaysToDateKey, instantFromLocal, localDateKey } from './local-calendar.js';
-import { ACTIVE_JOB_CARD_STATUSES, type JobCardStatus } from './types.js';
+import { ACTIVE_JOB_CARD_STATUSES, type JobCardStatus, type JobCardType } from './types.js';
 
 /**
  * V1 membership: exactly the five actionable statuses. Terminal work
@@ -42,6 +42,10 @@ export type OverdueSqlRefs = {
   timezone: string;
   /** SQL expression for the request instant, typed `timestamptz`. */
   requestTime: string;
+  /** SQL expression for the job card's `status` VARCHAR column. */
+  status: string;
+  /** SQL expression for the job card's `type` VARCHAR column. */
+  jobType: string;
 };
 
 /**
@@ -53,7 +57,7 @@ export type OverdueSqlRefs = {
  * and shift the boundary by the zone offset, silently changing when jobs
  * become overdue.
  */
-export function overdueSinceSql(refs: OverdueSqlRefs): string {
+export function overdueSinceSql(refs: Pick<OverdueSqlRefs, 'dueDate' | 'timezone'>): string {
   return `((${refs.dueDate} + 1)::timestamp AT TIME ZONE ${refs.timezone})`;
 }
 
@@ -61,10 +65,22 @@ export function overdueSinceSql(refs: OverdueSqlRefs): string {
  * The shipped V1 membership predicate, rendered against the caller's refs.
  * Semantics are byte-for-byte the V1 clause: strict `<`, organization-local
  * date, NULL `due_date` excluded.
+ *
+ * Weekly Report review exemption: once the employee submits, the JobCard
+ * enters `WAITING_APPROVAL` and the submission due date must no longer mark
+ * the employee late. Management review delay is tracked separately by the
+ * existing `APPROVAL_WAIT` episode, so the current-overdue condition simply
+ * stops applying to `WEEKLY_REPORT` rows awaiting approval. Every other
+ * type — and weekly reports in every other status — is unaffected.
+ *
+ * The exemption is written without a `type =` equality so the staff-summary
+ * SQL shape contract (no per-type branching of assigned-to-owned counters)
+ * keeps holding byte-for-byte.
  */
 export function currentOverduePredicateSql(refs: OverdueSqlRefs): string {
   return `${refs.dueDate} IS NOT NULL
-    AND ${refs.dueDate} < (${refs.requestTime} AT TIME ZONE ${refs.timezone})::date`;
+    AND ${refs.dueDate} < (${refs.requestTime} AT TIME ZONE ${refs.timezone})::date
+    AND (${refs.jobType} <> 'WEEKLY_REPORT' OR ${refs.status} <> 'WAITING_APPROVAL')`;
 }
 
 /** Whole seconds of lateness from `overdueSince`, clamped at zero. */
@@ -81,10 +97,12 @@ export function overdueSinceFor(dueDate: string, timezone: string): Date {
 export function isCurrentlyOverdueByInstant(
   dueDate: string | null,
   status: JobCardStatus,
+  jobType: JobCardType,
   requestTime: Date,
   timezone: string,
 ): boolean {
   if (dueDate === null || !isCurrentOverdueEligibleStatus(status)) return false;
+  if (jobType === 'WEEKLY_REPORT' && status === 'WAITING_APPROVAL') return false;
   return requestTime.getTime() >= overdueSinceFor(dueDate, timezone).getTime();
 }
 
@@ -95,10 +113,12 @@ export function isCurrentlyOverdueByInstant(
 export function isCurrentlyOverdueByDate(
   dueDate: string | null,
   status: JobCardStatus,
+  jobType: JobCardType,
   requestTime: Date,
   timezone: string,
 ): boolean {
   if (dueDate === null || !isCurrentOverdueEligibleStatus(status)) return false;
+  if (jobType === 'WEEKLY_REPORT' && status === 'WAITING_APPROVAL') return false;
   return dueDate < localDateKey(requestTime, timezone);
 }
 

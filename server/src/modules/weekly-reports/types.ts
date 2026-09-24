@@ -1,0 +1,89 @@
+import type { JobCardStatus, JobCardType } from '../job-cards/types.js';
+
+/** Canonical Monday-Sunday reporting week, both bounds as local `YYYY-MM-DD`. */
+export type WeeklyReportPeriod = {
+  periodStart: string;
+  periodEnd: string;
+};
+
+/**
+ * Manager-defined question. Definitions are frozen at report creation;
+ * managers use notes for later clarification (no question-definition edits).
+ */
+export type ManagerQuestion = {
+  key: string;
+  prompt: string;
+};
+
+/** Staff answer referencing its question by stable key. */
+export type ManagerAnswer = {
+  questionKey: string;
+  answer: string;
+};
+
+/** Editable draft body. Null = not written yet (draft in progress). */
+export type WeeklyReportDraftBody = {
+  summary: string | null;
+  blockers: string | null;
+  nextWeekPlan: string | null;
+  highlights: string | null;
+  fieldObservations: string | null;
+  supportNeeded: string | null;
+};
+
+/** Frozen submission body: every required section resolved to text. */
+export type WeeklyReportSubmittedBody = {
+  summary: string;
+  blockers: string;
+  nextWeekPlan: string;
+  highlights: string | null;
+  fieldObservations: string | null;
+  supportNeeded: string | null;
+};
+
+/**
+ * Minimum frozen source-work item for historical integrity. Display names
+ * (not live joins) so later renames cannot rewrite a submitted report.
+ */
+export type SourceWorkSnapshotItem = {
+  jobCardId: string;
+  type: JobCardType;
+  title: string;
+  customerName: string | null;
+  staffCompletedAt: string;
+  statusAtSnapshot: Extract<JobCardStatus, 'WAITING_APPROVAL' | 'COMPLETED'>;
+};
+
+export type WeeklyReport = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  staffUserId: string;
+  periodStart: string;
+  periodEnd: string;
+  draft: WeeklyReportDraftBody;
+  questions: ManagerQuestion[];
+  answers: ManagerAnswer[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WeeklyReportSubmission = {
+  id: string;
+  organizationId: string;
+  weeklyReportId: string;
+  jobCardId: string;
+  seqNo: number;
+  submittedBy: string;
+  submittedAt: string;
+  periodStart: string;
+  periodEnd: string;
+  body: WeeklyReportSubmittedBody;
+  questions: ManagerQuestion[];
+  answers: ManagerAnswer[];
+  sourceWork: SourceWorkSnapshotItem[];
+  jobVersion: number;
+  sourceActivityId: string;
+  createdAt: string;
+};

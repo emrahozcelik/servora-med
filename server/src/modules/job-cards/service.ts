@@ -3199,7 +3199,10 @@ export class JobCardService {
         scheduledAt,
       });
     }
-    if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
+    // WEEKLY_REPORT stays closed: no public creation path exists yet, so it
+    // must never be proposed (or built) as a follow-up child.
+    if (input.type === 'WEEKLY_REPORT'
+      || !(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
     }
     if (context.followUpRequired && input.type !== 'SALES_MEETING') {

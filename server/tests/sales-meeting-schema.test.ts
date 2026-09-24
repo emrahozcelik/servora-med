@@ -23,6 +23,7 @@ const EXPECTED_JOB_CARD_TYPES = [
   'PRODUCT_DELIVERY',
   'GENERAL_TASK',
   'SALES_MEETING',
+  'WEEKLY_REPORT',
 ] as const;
 const EXPECTED_ACTIVITY_EVENTS = [
   'JOB_CREATED',
@@ -151,15 +152,15 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(50);
-      expect(firstRun.appliedVersions.at(-1)).toBe('050_overdue_incident_scanner_source');
+      expect(firstRun.appliedVersions).toHaveLength(51);
+      expect(firstRun.appliedVersions.at(-1)).toBe('051_weekly_report_foundation');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
         pool,
         'job_card_activity_logs_event_type_check',
       );
-      expect(jobCardTypes).toHaveLength(3);
+      expect(jobCardTypes).toHaveLength(4);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
       expect(activityEvents).toHaveLength(18);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
@@ -241,6 +242,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '048_overdue_episode_activation_legacy_first',
           '049_job_card_lifecycle_intents',
           '050_overdue_incident_scanner_source',
+          '051_weekly_report_foundation',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -259,7 +261,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '047_job_card_overdue_incidents.sql'
           && file !== '048_overdue_episode_activation_legacy_first.sql'
           && file !== '049_job_card_lifecycle_intents.sql'
-          && file !== '050_overdue_incident_scanner_source.sql')
+          && file !== '050_overdue_incident_scanner_source.sql'
+          && file !== '051_weekly_report_foundation.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -293,6 +296,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '048_overdue_episode_activation_legacy_first',
           '049_job_card_lifecycle_intents',
           '050_overdue_incident_scanner_source',
+          '051_weekly_report_foundation',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

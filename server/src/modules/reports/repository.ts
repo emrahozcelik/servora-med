@@ -3,7 +3,6 @@ import type { Pool } from 'pg';
 import type { SqlExecutor } from '../../db/executor.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
-  JOB_CARD_TYPES,
   type FollowUpProposalOrigin,
   type JobCardStatus,
   type JobCardType,
@@ -265,15 +264,31 @@ const OVERDUE_JOB_CARD_CLAUSE = currentOverduePredicateSql({
   dueDate: 'jc.due_date',
   timezone: 'organization_range.timezone',
   requestTime: '$4::timestamptz',
+  status: 'jc.status',
+  jobType: 'jc.type',
 });
 
 const ACTIVE_STATUS_LIST_SQL = ACTIVE_JOB_CARD_STATUSES.map((status) => `'${status}'`).join(', ');
 const ACTIVE_STATUS_BUCKETS_SQL = ACTIVE_JOB_CARD_STATUSES
   .map((status, index) => `('${status}', ${index + 1})`)
   .join(',\n    ');
-const WORK_TYPE_BUCKETS_SQL = JOB_CARD_TYPES
+/**
+ * Productive work-type buckets. `WEEKLY_REPORT` is an administrative reporting
+ * artifact, not customer/service work: it must never appear as an ordinary
+ * productive-work category, so buckets derive from this explicit list rather
+ * than the full `JOB_CARD_TYPES` union.
+ */
+const PRODUCTIVE_WORK_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+const WORK_TYPE_BUCKETS_SQL = PRODUCTIVE_WORK_TYPES
   .map((type, index) => `('${type}', ${index + 1})`)
   .join(',\n    ');
+/**
+ * Productive-work aggregate guard. Completion/execution/performance measures
+ * must not count weekly reports as performed service work. Status counters
+ * (open/waiting/revision) intentionally still include them: an outstanding
+ * weekly report is outstanding assigned work.
+ */
+const productiveWorkOnly = (alias: string) => `${alias}.type <> 'WEEKLY_REPORT'`;
 
 const STAFF_SUMMARY_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
@@ -307,6 +322,7 @@ SELECT requested.staff_user_id,
     WHERE completed_job.organization_id = $1
       AND completed_job.staff_completed_by = requested.staff_user_id
       AND completed_job.status = 'COMPLETED'
+      AND ${productiveWorkOnly('completed_job')}
       AND completed_job.manager_approved_at >=
         (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
       AND completed_job.manager_approved_at <
@@ -362,6 +378,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
     )::int AS revision_requested,
     COUNT(jc.id) FILTER (
       WHERE jc.status = 'COMPLETED'
+        AND ${productiveWorkOnly('jc')}
         AND jc.manager_approved_at >=
           (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
         AND jc.manager_approved_at <
@@ -393,6 +410,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   FROM days
   CROSS JOIN organization_range
   LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND ${productiveWorkOnly('jc')}
     AND jc.manager_approved_at >=
       (days.day::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.manager_approved_at <
@@ -530,6 +548,7 @@ const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, reques
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
+    AND ${productiveWorkOnly('jc')}
     AND jc.manager_approved_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.manager_approved_at <
@@ -578,6 +597,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
+    AND ${productiveWorkOnly('jc')}
     AND jc.staff_completed_at IS NOT NULL
     AND jc.staff_completed_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
@@ -590,6 +610,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
+    AND ${productiveWorkOnly('jc')}
     AND jc.staff_completed_at IS NULL
     AND jc.manager_approved_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
@@ -606,6 +627,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
     AND jc.staff_completed_at IS NOT NULL
     AND jc.staff_completed_by IS NOT NULL
     AND jc.status <> 'INVALIDATED'
+    AND ${productiveWorkOnly('jc')}
     AND jc.staff_completed_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.staff_completed_at <
@@ -658,6 +680,7 @@ const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
+    AND ${productiveWorkOnly('jc')}
     AND jc.manager_approved_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.manager_approved_at <
@@ -750,6 +773,7 @@ CROSS JOIN organization_range
 LEFT JOIN job_cards jc ON jc.organization_id = $1
   AND jc.staff_completed_by = $2
   AND jc.status = 'COMPLETED'
+  AND ${productiveWorkOnly('jc')}
   AND jc.manager_approved_at >=
     (days.day::timestamp AT TIME ZONE organization_range.timezone)
   AND jc.manager_approved_at <
@@ -1142,6 +1166,8 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
     dueDate: 'children.due_date',
     timezone: 'organization_range.timezone',
     requestTime: '$4::timestamptz',
+    status: 'children.status',
+    jobType: 'children.type',
   })}
 ), divergence AS (
   SELECT COUNT(children.id)::int AS count

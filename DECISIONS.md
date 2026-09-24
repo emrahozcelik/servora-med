@@ -969,3 +969,45 @@ the releases they describe, but they no longer describe the current state.
 - Rollback was not required. Evidence, per-incident classification and residual
   follow-ups are recorded in
   [2026-09-21-ovr3-scanner-second-activation.md](./docs/operations/2026-09-21-ovr3-scanner-second-activation.md).
+
+## Weekly Report V1 Slice 1 server foundation — 2026-09-23
+
+Accepted persistence foundation for `WEEKLY_REPORT — Haftalık Rapor`. This
+entry records domain ownership and deliberately closed scope; it does not ship
+a user-facing workflow.
+
+- **Ownership:** `JobCard` keeps assignment, lifecycle, due date, authority,
+  audit and overdue. `WeeklyReport` owns report identity (Monday–Sunday
+  period), draft content and immutable submission history. No second lifecycle
+  engine is introduced.
+- **Period:** Monday → Sunday in organization timezone SSOT;
+  `period_start DATE` + `period_end DATE` with
+  `period_end = period_start + 6` and ISO-Monday start, DB-enforced
+  (migration 051). Default due date for future commands: the Monday after
+  `period_end`; DATE-only due semantics unchanged.
+- **One canonical report:** exactly one `weekly_reports` row per
+  `organization_id + staff_user_id + period_start` (ordinary UNIQUE, no
+  lifecycle predicate). Cancelled/invalidated replacement semantics are out
+  of V1.
+- **Authorship:** only the assigned STAFF user edits the draft body and
+  submits. MANAGER/ADMIN request, review, request revision, approve and may
+  cancel/invalidate per existing policy; they never author or submit on the
+  employee's behalf.
+- **Manager questions:** at most 5, prompt ≤ 500 chars, frozen at creation;
+  every present question requires an answer (≤ 4000 chars) at submission.
+  No generic dynamic-form engine.
+- **Activity clock:** automatic weekly activity uses `staff_completed_at`
+  (the employee's completion act), never `manager_approved_at` (management
+  review timing). Sources: same org, assigned to the report staff,
+  `type != WEEKLY_REPORT`, completion instant inside the org-local week,
+  current status `WAITING_APPROVAL` or `COMPLETED`.
+- **Submission lateness:** a `WEEKLY_REPORT` in `WAITING_APPROVAL` is no
+  longer employee-submission-overdue; review delay stays on the existing
+  24h `APPROVAL_WAIT` episode. No scanner/worker architecture change.
+- **Reporting semantics:** weekly reports are administrative artifacts, not
+  productive work — excluded from completion/performance/type-bucket
+  aggregates; outstanding-assignment status counters still include them.
+- **History:** no migration, reinterpretation or backfill of historical
+  GENERAL_TASK records. Public `WEEKLY_REPORT` creation stays closed until
+  Slice 2; recurrence and PDF are deferred (PDF remains a V1 requirement,
+  not redefined as browser-print).
