@@ -7,9 +7,12 @@ import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import type { CurrentUser } from './services/api';
 import { createRequestGate } from './services/request-gate';
 import {
-  getOwnStaffProfile, getStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
-  updateStaffProfile, type JobHistoryItem, type ManagedUser, type StaffProfile,
+  getOwnStaffProfile, getStaffProfile, listOwnStaffJobs, listOwnWeeklyReports, listStaff,
+  listStaffJobs, listStaffWeeklyReports, listUsers, updateStaffProfile,
+  type JobHistoryItem, type ManagedUser, type StaffProfile, type WeeklyReportHistoryItem,
 } from './services/people-api';
+import { downloadWeeklyReportSubmissionPdf } from './jobs/weekly-report-api';
+import { saveBlobAs } from './services/file-download';
 import type { Paginated } from './services/crm-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
 import { StaffConfidentialNotesSection } from './StaffConfidentialNotes';
@@ -82,7 +85,98 @@ export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile;
     <ProfileFacts profile={profile} /><section aria-labelledby="counter-title"><h2 id="counter-title">Operasyon özeti</h2><dl className="counter-grid">
       {(Object.keys(counterLabels) as Array<keyof typeof counterLabels>).map((key) => <div key={key}><dt>{counterLabels[key]}</dt><dd>{profile.counters[key]}</dd></div>)}</dl></section>
     <StaffOperationalReportScreen embedded />{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
+    {actor && <StaffWeeklyReportHistory actor={actor} staffUserId={profile.user.id} />}
   </main>;
+}
+
+/**
+ * Formats a server-provided calendar date (`YYYY-MM-DD`) as `DD.MM.YYYY`.
+ * Deliberately textual: the value is never re-parsed into a `Date`, so no
+ * timezone can shift the day the server reported.
+ */
+function formatCalendarDay(value: string): string {
+  const [year, month, day] = value.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+/**
+ * Personnel-profile Weekly Report history. A read model over canonical
+ * WeeklyReports: every canonical lifecycle status is shown, a report with zero
+ * submissions is a valid row (no PDF action), and the PDF action always targets
+ * the latest immutable submission seq.
+ *
+ * `dueDate` is the server's calendar date and is formatted textually. A null
+ * `dueDate` means no deadline was ever set on the report's JobCard, so the row
+ * simply omits the label rather than inventing a placeholder. `completedAt` is
+ * a real instant (the report JobCard's approval time) and is rendered as
+ * `Tamamlandı <date>` only when the report actually reached that state.
+ */
+export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: CurrentUser; staffUserId: string }) {
+  const [page, setPage] = useState<Paginated<WeeklyReportHistoryItem> | null>(null);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState('');
+  const requestGate = useRef(createRequestGate());
+  const load = async (offset = 0) => {
+    const generation = requestGate.current.next();
+    setLoading(true); setError('');
+    try {
+      const result = actor.role === 'STAFF'
+        ? await listOwnWeeklyReports({ limit: 20, offset })
+        : await listStaffWeeklyReports(staffUserId, { limit: 20, offset });
+      if (!requestGate.current.isCurrent(generation)) return;
+      setPage(result);
+    } catch (caught) {
+      if (requestGate.current.isCurrent(generation)) {
+        setError(caught instanceof Error ? caught.message : 'Haftalık rapor geçmişi yüklenemedi.');
+      }
+    } finally {
+      if (requestGate.current.isCurrent(generation)) setLoading(false);
+    }
+  };
+  useEffect(() => {
+    void load(0);
+    return () => { requestGate.current.next(); };
+  }, [actor.role, staffUserId]);
+  useRealtimeInvalidation([`staff-profile:${staffUserId}`], () => { void load(page?.offset ?? 0); });
+  async function download(item: WeeklyReportHistoryItem) {
+    const seqNo = item.latestSubmissionSeqNo;
+    if (seqNo === null || downloadingId !== null) return;
+    setDownloadingId(item.reportId); setDownloadError('');
+    try {
+      const { blob, fileName } = await downloadWeeklyReportSubmissionPdf(item.jobCardId, seqNo);
+      saveBlobAs(blob, fileName);
+    } catch (caught) {
+      setDownloadError(caught instanceof Error ? caught.message : 'PDF indirilemedi.');
+    } finally { setDownloadingId(null); }
+  }
+  const items = page?.items ?? [];
+  const hasNext = page ? page.offset + page.items.length < page.total : false;
+  const hasPrevious = (page?.offset ?? 0) > 0;
+  return <section className="record-section staff-weekly-reports" aria-labelledby="staff-weekly-reports-title">
+    <div className="section-heading"><h2 id="staff-weekly-reports-title">Haftalık Raporlar</h2><span>{page?.total ?? '…'} kayıt</span></div>
+    {loading && <p className="muted-copy" aria-busy="true">Haftalık raporlar yükleniyor…</p>}
+    {!loading && error && <p className="form-error" role="alert">{error}</p>}
+    {downloadError && <p className="form-error" role="alert">{downloadError}</p>}
+    {!loading && !error && items.length === 0 && <p className="muted-copy">Görüntüleyebileceğiniz haftalık rapor bulunmuyor.</p>}
+    {!loading && !error && items.length > 0 && <ul className="job-history-list">{items.map((item) => <li key={item.reportId} className="job-history-row">
+      <div>
+        <Link to={paths.job(item.jobCardId)}>{`${item.periodStart} – ${item.periodEnd}`}</Link>
+        <p>{jobCardStatusLabel(item.status)} · {item.submissionCount === 0 ? 'Gönderim yok' : `${item.submissionCount} gönderim`}
+          {item.latestSubmittedAt ? ` · Son gönderim ${new Date(item.latestSubmittedAt).toLocaleDateString('tr-TR')}` : ''}
+          {item.dueDate ? ` · Termin ${formatCalendarDay(item.dueDate)}` : ''}
+          {item.completedAt ? ` · Tamamlandı ${new Date(item.completedAt).toLocaleDateString('tr-TR')}` : ''}</p>
+      </div>
+      {item.latestSubmissionSeqNo === null
+        ? <span className="muted-copy">PDF yok</span>
+        : <button type="button" className="secondary-button" disabled={downloadingId !== null}
+            onClick={() => void download(item)}>{downloadingId === item.reportId ? 'PDF hazırlanıyor…' : 'PDF indir'}</button>}
+    </li>)}</ul>}
+    {(hasPrevious || hasNext) && <div className="pagination-actions">
+      <button type="button" className="secondary-button" disabled={!hasPrevious || loading} onClick={() => void load(Math.max(0, (page?.offset ?? 0) - (page?.limit ?? 20)))}>Önceki</button>
+      <button type="button" className="secondary-button" disabled={!hasNext || loading} onClick={() => void load((page?.offset ?? 0) + (page?.limit ?? 20))}>Daha fazla göster</button>
+    </div>}
+  </section>;
 }
 
 function openCardIfEmpty(
@@ -129,7 +223,8 @@ export function StaffProfileEditView({ profile: initial, actor, managers, onBack
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button>
       <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></div></form>
     {actor && actor.role !== 'STAFF' && <StaffConfidentialNotesSection staffUserId={profile.user.id} actor={actor} />}
-    {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}</main>;
+    {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
+    {actor && <StaffWeeklyReportHistory actor={actor} staffUserId={profile.user.id} />}</main>;
 }
 
 export function StaffProfileEditRoute(props: {

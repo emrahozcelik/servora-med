@@ -8,6 +8,11 @@ import type {
   PaginatedJobHistory,
   StaffJobHistoryQuery,
 } from '../job-cards/history-port.js';
+import type {
+  PaginatedWeeklyReportHistory,
+  StaffWeeklyReportHistoryQuery,
+  WeeklyReportHistoryReadPort,
+} from '../weekly-reports/history-port.js';
 import type { PeopleRepository, PeopleTransaction } from './repository.js';
 import type {
   AppendAuditInput,
@@ -29,6 +34,11 @@ import type {
 export type StaffJobHistoryInput = Pick<
   StaffJobHistoryQuery,
   'status' | 'type' | 'limit' | 'offset'
+>;
+
+export type StaffWeeklyReportHistoryInput = Pick<
+  StaffWeeklyReportHistoryQuery,
+  'limit' | 'offset'
 >;
 
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
@@ -124,6 +134,7 @@ function withCounters(
 
 export class PeopleService {
   private readonly jobHistoryReadPort?: JobHistoryReadPort;
+  private readonly weeklyReportHistoryReadPort?: WeeklyReportHistoryReadPort;
   private readonly now: () => Date;
 
   constructor(
@@ -131,6 +142,7 @@ export class PeopleService {
     private readonly credentials: CredentialPreparation,
     private readonly staffSummaries: StaffOperationalSummaryPort,
     historyOrNow?: JobHistoryReadPort | (() => Date),
+    weeklyReportHistoryReadPort?: WeeklyReportHistoryReadPort,
     now?: () => Date,
   ) {
     if (typeof historyOrNow === 'function') {
@@ -140,6 +152,7 @@ export class PeopleService {
       this.jobHistoryReadPort = historyOrNow;
       this.now = now ?? (() => new Date());
     }
+    this.weeklyReportHistoryReadPort = weeklyReportHistoryReadPort;
   }
 
   async listUsers(actor: SafeUser) {
@@ -397,6 +410,51 @@ export class PeopleService {
     }
     if (!await this.repository.getStaffProfile(actor.organizationId, userId)) throw profileNotFound();
     return this.jobHistoryReadPort.listStaffJobHistory({
+      organizationId: actor.organizationId,
+      targetUserId: userId,
+      actor: { id: actor.id, organizationId: actor.organizationId, role: actor.role },
+      ...input,
+    });
+  }
+
+  /**
+   * Own Weekly Report history. Only a STAFF user owns weekly reports, so the
+   * self endpoint is STAFF-scoped (mirrors `getOwnStaffProfile`). The actor id
+   * is the target; no client-supplied id is ever trusted here.
+   */
+  async listOwnStaffWeeklyReports(
+    actor: SafeUser,
+    input: StaffWeeklyReportHistoryInput,
+  ): Promise<PaginatedWeeklyReportHistory> {
+    if (actor.role !== 'STAFF') throw forbidden();
+    if (!this.weeklyReportHistoryReadPort) {
+      throw new AppError('WEEKLY_REPORT_HISTORY_UNAVAILABLE', 404, 'Haftalık rapor geçmişi kullanılamıyor.');
+    }
+    return this.weeklyReportHistoryReadPort.listForStaff({
+      organizationId: actor.organizationId,
+      targetUserId: actor.id,
+      actor: { id: actor.id, organizationId: actor.organizationId, role: actor.role },
+      ...input,
+    });
+  }
+
+  /**
+   * Another staff member's Weekly Report history for ADMIN/MANAGER. A STAFF
+   * caller is concealed as not-found (same rule as the job history read), and
+   * the target must be a real staff profile in the actor's organization.
+   */
+  async listStaffWeeklyReports(
+    actor: SafeUser,
+    userId: string,
+    input: StaffWeeklyReportHistoryInput,
+  ): Promise<PaginatedWeeklyReportHistory> {
+    if (actor.role === 'STAFF') throw profileNotFound();
+    requireAdminOrManager(actor);
+    if (!this.weeklyReportHistoryReadPort) {
+      throw new AppError('WEEKLY_REPORT_HISTORY_UNAVAILABLE', 404, 'Haftalık rapor geçmişi kullanılamıyor.');
+    }
+    if (!await this.repository.getStaffProfile(actor.organizationId, userId)) throw profileNotFound();
+    return this.weeklyReportHistoryReadPort.listForStaff({
       organizationId: actor.organizationId,
       targetUserId: userId,
       actor: { id: actor.id, organizationId: actor.organizationId, role: actor.role },

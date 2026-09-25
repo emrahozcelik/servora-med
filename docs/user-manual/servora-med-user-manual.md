@@ -209,6 +209,61 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 - **Profilim** (`/staff`): kendi açık / onay bekleyen / tamamlanan iş özetiniz.
 - Yöneticiniz `/staff/:id/reports` raporunu sizin için açabilir.
 
+### 7.6 Haftalık Rapor geçmişi ve PDF indirme
+
+**Nerede görürüm?**
+
+- **Personel (STAFF):** **Profilim** (`/staff`) sayfasındaki **Haftalık Raporlar** bölümü
+  yalnız kendi haftalık raporlarınızı listeler. Bu bölüm kendi raporlarınıza kilitlidir;
+  başka bir personelin raporları burada görünmez.
+- **Yönetici / Sistem yöneticisi (MANAGER / ADMIN):** **Personel** menüsünden bir personelin
+  profilini açtığınızda aynı **Haftalık Raporlar** bölümünü o personel için görürsünüz.
+  Bölüm her zaman seçili personelle sınırlıdır ve başka organizasyonun kayıtlarını içermez.
+
+**Satır ne gösterir?**
+
+Her satır bir haftalık rapor (hafta) demektir: dönem (`başlangıç – bitiş`), raporun iş durumu,
+gönderim sayısı, son gönderim zamanı, **Termin** (raporun son tarihi) ve rapor tamamlandıysa
+**Tamamlandı** tarihi. Hiç gönderilmemiş bir hafta da geçerli bir satırdır: `Gönderim yok`
+yazar ve indirilecek bir sürüm olmadığı için PDF düğmesi yerine `PDF yok` görünür.
+
+**PDF nasıl indirilir?**
+
+1. İlgili satırdaki **PDF indir** düğmesine basın. Bu düğme her zaman o raporun **en son
+   gönderilmiş sürümünü** indirir.
+2. İndirme sırasında düğme `PDF hazırlanıyor…` olur ve kilitlenir; aynı anda ikinci bir
+   indirme başlatılamaz. İndirme başarısız olursa hata mesajı görünür ve düğme eski hâline döner.
+
+**Eski (önceki) gönderim sürümlerini indirme**
+
+Raporun detay sayfasında **Gönderim geçmişi** bölümü vardır. Burada gönderim sürümlerini
+(`#1`, `#2`, …) seçebilir ve **PDF indir** ile seçtiğiniz sürümün PDF'ini indirebilirsiniz.
+Böylece bir düzeltme sonrası eski sürüm kaybolmaz; her sürüm ayrı ayrı indirilebilir.
+
+**PDF hangi içeriği taşır?**
+
+PDF, seçtiğiniz gönderim anında dondurulmuş içeriktir: rapor bölümleri, yönetici sorularının
+yanıtları ve **gönderim anında dondurulan çalışma listesi**. Bu liste, her işin gönderim
+anındaki durumunu (**Durum** sütunu) ve gönderim anındaki müşteri/başlık bilgisini taşır.
+Sonradan yapılan iş güncellemeleri, yeniden adlandırmalar veya durum değişiklikleri geçmiş bir
+gönderimin PDF'ini değiştirmez. PDF üzerindeki **Gönderen kimliği** alanı, gönderimi yapan
+kişinin değişmeyen kimliğidir; **Personel** alanındaki görünen ad ise sunum bilgisidir ve kişi
+adını değiştirirse güncellenebilir.
+
+**Önemli ayrım: gönderilmiş sürüm ≠ onaylanmış sürüm**
+
+- **Düzeltme istendi** durumundaki bir raporun PDF'i, **gönderilmiş** bir sürümdür; onaylanmış
+  olduğu anlamına gelmez. Yönetici düzeltme istemiş olabilir.
+- Bir rapor **Tamamlandı** olduğunda, en son gönderilen sürüm **nihai onaylanmış sürüm**dür.
+- Bu nedenle bir PDF'i arşiv amaçlı kullanacaksanız, indirdiğiniz sürümün numarasını ve raporun
+  o anki durumunu birlikte değerlendirin.
+
+**Otomatik oluşturma yoktur**
+
+Haftalık raporlar **otomatik oluşturulmaz**. Her hafta için rapor, personelin kendisi
+(`/jobs/new-weekly-report`) veya bir yöneticinin isteğiyle açılır. Tekrarlayan (recurring)
+otomatik rapor üretimi bu sürümde yoktur.
+
 ---
 
 ## 8. Yönetici (Manager) kılavuzu — ilk pilot günü
@@ -271,6 +326,10 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 1. **Personel** (`/staff`) listesinden bir kişiyi açın.
 2. Açık işler ve özet sayaçları görün.
 3. `/staff/:id/reports` ile personelin dönemsel özetine gidin.
+4. Profildeki **Haftalık Raporlar** bölümü o personelin haftalık raporlarını gösterir
+   (dönem, durum, gönderim sayısı, termin, tamamlanma). Bir satırdaki **PDF indir** o raporun
+   en son gönderilmiş sürümünü indirir; eski sürümler için raporun detayındaki **Gönderim
+   geçmişi** bölümünü kullanın. Ayrıntılar için bkz. §7.6.
 
 ### 8.7 Raporlar
 

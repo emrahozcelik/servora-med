@@ -120,6 +120,9 @@ import {
   mapReport,
   mapSubmission,
 } from '../weekly-reports/repository.js';
+import { buildWeeklyReportPdfDocumentModel } from '../weekly-reports/pdf/document-model.js';
+import { weeklyReportPdfFileName } from '../weekly-reports/pdf/file-name.js';
+import { renderWeeklyReportPdf } from '../weekly-reports/pdf/renderer.js';
 import {
   currentWeeklyReportPeriod,
   type WeeklyReportReference,
@@ -1437,6 +1440,43 @@ export class JobCardService {
       actor.organizationId, report.id,
     );
     return rows.map(mapSubmission);
+  }
+
+  /**
+   * Downloadable PDF for one immutable submission, selected by its explicit
+   * frozen `seqNo`.
+   *
+   * The projection is built from that `weekly_report_submissions` row alone —
+   * never the live draft, the live source-work list, the current JobCard body
+   * or the current answers — so a later edit cannot change an already
+   * downloaded version. The read is strictly read-only: no activity is
+   * appended, the report version does not move, and no download record or
+   * idempotency receipt is written.
+   */
+  async weeklyReportSubmissionPdf(
+    actor: JobCardActor,
+    jobCardId: string,
+    seqNo: number,
+  ): Promise<{ fileName: string; buffer: Buffer }> {
+    const { report } = await this.loadWeeklyReportContext(actor, jobCardId);
+    const row = await this.repository.getWeeklyReportSubmissionBySeq(
+      actor.organizationId, report.id, seqNo,
+    );
+    if (!row) {
+      throw new AppError('WEEKLY_REPORT_SUBMISSION_NOT_FOUND', 404, 'Gönderim bulunamadı.');
+    }
+    const submission = mapSubmission(row);
+    // The display name is presentation metadata, resolved live on purpose: it
+    // is not frozen report content and must not force a schema change.
+    const staffName = await this.repository.getUserDisplayName(
+      actor.organizationId, submission.submittedBy,
+    );
+    const model = buildWeeklyReportPdfDocumentModel({
+      submission,
+      staffName: staffName ?? submission.submittedBy,
+    });
+    const buffer = await renderWeeklyReportPdf(model);
+    return { fileName: weeklyReportPdfFileName(model.periodStart, model.seqNo), buffer };
   }
 
   /**

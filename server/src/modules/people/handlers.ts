@@ -164,6 +164,37 @@ function historyQuery(request: FastifyRequest) {
   };
 }
 
+/**
+ * Weekly Report history page query. Only `limit`/`offset` are accepted;
+ * unknown keys fail closed. Default 20, hard maximum 50.
+ */
+function weeklyReportsQuery(request: FastifyRequest) {
+  const value = request.query;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Geçerli sorgu parametreleri gönderin.');
+  }
+  const record = value as Record<string, unknown>;
+  const unknown = Object.keys(record).find((key) => !['limit', 'offset'].includes(key));
+  if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
+  const integer = (raw: unknown, field: string, fallback: number, max?: number) => {
+    if (raw === undefined) return fallback;
+    if (typeof raw !== 'string' || !/^\d+$/.test(raw)) {
+      throw new AppError('VALIDATION_ERROR', 400, `${field} geçersizdir.`);
+    }
+    const parsed = Number(raw);
+    // A digit string can still overflow int8, which Postgres rejects as
+    // `bigint out of range` (a 500). Refuse it here so the endpoint stays
+    // fail-closed on hostile input.
+    if (!Number.isSafeInteger(parsed) || parsed < 0 || (max !== undefined && parsed > max)) {
+      throw new AppError('VALIDATION_ERROR', 400, `${field} geçersizdir.`);
+    }
+    return parsed;
+  };
+  const limit = integer(record.limit, 'limit', 20, 50);
+  if (limit === 0) throw new AppError('VALIDATION_ERROR', 400, 'limit geçersizdir.');
+  return { limit, offset: integer(record.offset, 'offset', 0) };
+}
+
 function staffProfile(value: unknown): StaffProfileInput | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -186,6 +217,12 @@ export function createPeopleHandlers(service: PeopleService, offboardingService?
     ),
     listStaffJobHistory: (request: FastifyRequest) => service.listStaffJobHistory(
       request.currentUser!, userId(request), historyQuery(request),
+    ),
+    listOwnStaffWeeklyReports: (request: FastifyRequest) => service.listOwnStaffWeeklyReports(
+      request.currentUser!, weeklyReportsQuery(request),
+    ),
+    listStaffWeeklyReports: (request: FastifyRequest) => service.listStaffWeeklyReports(
+      request.currentUser!, userId(request), weeklyReportsQuery(request),
     ),
     listUsers: (request: FastifyRequest) => service.listUsers(request.currentUser!),
     getUser: (request: FastifyRequest) => service.getUser(request.currentUser!, userId(request)),

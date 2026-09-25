@@ -1,5 +1,5 @@
 import {
-  ApiError, json, nullableString, object, request, string,
+  ApiError, json, nullableString, object, request, requestBinary, string,
 } from '../services/api';
 import {
   JOB_CARD_STATUSES,
@@ -372,3 +372,23 @@ export const listWeeklyReportSubmissions = async (jobCardId: string) =>
   array(await request(`${weeklyPath(jobCardId)}/submissions`), 'submissions').map(
     parseWeeklyReportSubmission,
   );
+
+/**
+ * Download the PDF for one immutable submission version. Uses the binary
+ * transport (never the JSON parser) and never mutates server state: the server
+ * renders from the frozen submission row selected by `seqNo`.
+ */
+export const downloadWeeklyReportSubmissionPdf = async (
+  jobCardId: string,
+  seqNo: number,
+): Promise<{ blob: Blob; fileName: string }> => {
+  const response = await requestBinary(
+    `${weeklyPath(jobCardId)}/submissions/${encodeURIComponent(String(seqNo))}/pdf`,
+  );
+  return {
+    blob: response.blob,
+    // The server owns the canonical filename (it is the naming authority and
+    // ships it in Content-Disposition); this is only a last-resort fallback.
+    fileName: response.fileName ?? `haftalik-rapor-seq-${seqNo}.pdf`,
+  };
+};

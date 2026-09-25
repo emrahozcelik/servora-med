@@ -85,24 +85,63 @@ export async function request(path: string, init: RequestInit = {}) {
   let response: Response;
   try { response = await fetch(path, { ...init, credentials: 'include' }); }
   catch { throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', true); }
-  if (!response.ok) {
-    let error = 'İşlem tamamlanamadı. Lütfen tekrar deneyin.'; let code = 'REQUEST_FAILED';
-    let details: Record<string, unknown> | null = null;
-    try {
-      const body = object(await response.json());
-      if (typeof body.error === 'string') error = body.error;
-      if (typeof body.code === 'string') code = body.code;
-      if (body.details && typeof body.details === 'object' && !Array.isArray(body.details)) {
-        details = body.details as Record<string, unknown>;
-      }
-    } catch { /* use safe fallback */ }
-    throw new ApiError(response.status, code, error, response.status >= 500, details);
-  }
+  if (!response.ok) throw await failureFrom(response);
   if (response.status === 204) return null;
   try { return await response.json() as unknown; }
   catch { throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.'); }
 }
 export const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+/**
+ * Shared decoding of a failed response, so the JSON and binary transports
+ * cannot drift in how they report `error`/`code`/`details`.
+ */
+async function failureFrom(response: Response): Promise<ApiError> {
+  let error = 'İşlem tamamlanamadı. Lütfen tekrar deneyin.'; let code = 'REQUEST_FAILED';
+  let details: Record<string, unknown> | null = null;
+  try {
+    const body = object(await response.json());
+    if (typeof body.error === 'string') error = body.error;
+    if (typeof body.code === 'string') code = body.code;
+    if (body.details && typeof body.details === 'object' && !Array.isArray(body.details)) {
+      details = body.details as Record<string, unknown>;
+    }
+  } catch { /* use safe fallback */ }
+  return new ApiError(response.status, code, error, response.status >= 500, details);
+}
+
+export type BinaryResponse = { blob: Blob; fileName: string | null };
+
+/**
+ * Attachment filename from `Content-Disposition`. Only a plain ASCII basename
+ * is accepted: a server-supplied path must not be able to steer where the
+ * browser writes the file.
+ */
+function fileNameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const quoted = /filename\s*=\s*"([^"]*)"/i.exec(header);
+  const bare = quoted ?? /filename\s*=\s*([^;]+)/i.exec(header);
+  const raw = bare?.[1]?.trim();
+  if (!raw) return null;
+  const base = raw.split(/[\\/]/).pop() ?? '';
+  if (!base || base === '.' || base === '..') return null;
+  return /^[\x20-\x7E]+$/.test(base) ? base : null;
+}
+
+/**
+ * Binary download transport. Deliberately separate from `request`: a PDF must
+ * never be pushed through the JSON parser.
+ */
+export async function requestBinary(path: string): Promise<BinaryResponse> {
+  let response: Response;
+  try { response = await fetch(path, { credentials: 'include' }); }
+  catch { throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', true); }
+  if (!response.ok) throw await failureFrom(response);
+  return {
+    blob: await response.blob(),
+    fileName: fileNameFromDisposition(response.headers.get('content-disposition')),
+  };
+}
 
 function parseCurrentUser(value: unknown): CurrentUser {
   const user = object(value);

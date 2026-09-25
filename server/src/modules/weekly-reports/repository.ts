@@ -312,6 +312,31 @@ export type AppendWeeklyReportSubmissionInput = {
 export class PostgresWeeklyReportRepository {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * Standalone report creation.
+   *
+   * PRECONDITION — NOT WIRED INTO ANY PRODUCTION COMMAND. Do not wire it
+   * without first adding the ordered user lock.
+   *
+   * Every production writer of `weekly_reports`
+   * (`JobCardService.createWeeklyReport` and `bulkRequestWeeklyReports`) goes
+   * through `createOrResolveWeeklyReportForStaff`, which takes
+   * `lockUsersInOrder` → `getAssigneeForUpdate` before inserting, so two
+   * concurrent creates for the same staff/week serialize on the `users` row.
+   * This method instead issues a bare `INSERT … RETURNING *` with no such
+   * lock: on a lost race it depends entirely on the `weekly_reports` unique
+   * constraint and maps the resulting 23505 to `WEEKLY_REPORT_ALREADY_EXISTS`
+   * / `WEEKLY_REPORT_JOB_ATTACHED` via `duplicateReportFor`. It therefore
+   * *reports a conflict* rather than converging to the winning report, and a
+   * caller that wraps it in a transaction will observe that transaction abort.
+   *
+   * Today it is reachable only from its own contract test
+   * (`tests/weekly-report-repository-postgres.test.ts`); `app.ts` wires the
+   * JobCard path only. Before any production wiring, either route the caller
+   * through `createOrResolveWeeklyReportForStaff` or take the same ordered user
+   * lock here. Left in place (not deleted, not refactored) to keep the change
+   * surgical.
+   */
   async createReport(input: CreateWeeklyReportInput): Promise<WeeklyReport> {
     const { periodStart, periodEnd } = parsePeriodStart(input.periodStart);
     const questions = validateManagerQuestions(input.questions);

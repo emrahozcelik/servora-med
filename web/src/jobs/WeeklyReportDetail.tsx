@@ -36,6 +36,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { StatusChip } from '../ui/StatusChip';
 import { ResultState } from '../ui/antd/ResultState';
 import {
+  downloadWeeklyReportSubmissionPdf,
   getWeeklyReport,
   listWeeklyReportSubmissions,
   patchWeeklyReportDraft,
@@ -44,6 +45,7 @@ import {
   type WeeklyReportDraft,
   type WeeklyReportSubmission,
 } from './weekly-report-api';
+import { saveBlobAs } from '../services/file-download';
 
 type LoadState =
   | { kind: 'loading' }
@@ -162,6 +164,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [pdfPending, setPdfPending] = useState(false);
+  const [pdfError, setPdfError] = useState('');
   const [ambiguous, setAmbiguous] = useState(false);
   const [pending, setPending] = useState(false);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
@@ -315,6 +319,21 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         setSaveError(caught instanceof Error ? caught.message : 'Taslak kaydedilemedi. Tekrar deneyin.');
       }
     } finally { setSaving(false); }
+  }
+
+  /**
+   * Read-only download of one frozen submission version. The seq is explicit,
+   * so what the user sees selected is exactly what is downloaded.
+   */
+  async function downloadPdf(seqNo: number) {
+    if (pdfPending) return;
+    setPdfPending(true); setPdfError('');
+    try {
+      const { blob, fileName } = await downloadWeeklyReportSubmissionPdf(jobCardId, seqNo);
+      saveBlobAs(blob, fileName);
+    } catch (caught) {
+      setPdfError(caught instanceof Error ? caught.message : 'PDF indirilemedi. Tekrar deneyin.');
+    } finally { setPdfPending(false); }
   }
 
   async function dispatchCommand(command: LifecycleCommand, input: LifecycleAttempt['input']) {
@@ -604,6 +623,17 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                 ))}
               </select>
             </div>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={pdfPending || selected === null}
+                onClick={() => { if (selected) void downloadPdf(selected.seqNo); }}
+              >
+                {pdfPending ? 'PDF hazırlanıyor…' : 'PDF indir'}
+              </button>
+            </div>
+            {pdfError && <p className="form-error" role="alert">{pdfError}</p>}
             {selected && (
               <dl className="identity-grid">
                 <div><dt>Gönderen</dt><dd>{selected.submittedBy}</dd></div>

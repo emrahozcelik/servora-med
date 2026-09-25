@@ -125,6 +125,7 @@ async function main() {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
       jobHistoryReadPort: jobCards,
+      weeklyReportHistoryReadPort: jobCards,
       peopleRepository: new PostgresPeopleRepository(
         database.pool, credentials, sessions, customerAssignments,
       ),
