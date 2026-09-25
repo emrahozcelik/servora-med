@@ -1338,9 +1338,29 @@ slice; no merge performed here.
 - **Occurrence creation + schedule advance is ONE transaction.** Revalidated
   ACTIVE state, staff lock, eligibility, canonical resolve/create, JOB_CREATED
   projection, `last_processed_period_start`/`last_outcome`, `+7` advance and
-  lease release commit atomically. A pause that lands between claim and commit
-  voids the claim: no report is created and the rule stays paused. Realtime is
-  published only after commit; the database remains authoritative on crash.
+  lease release commit atomically. Realtime is published only after commit;
+  the database remains authoritative on crash.
+- **Pause/resume are scheduling epochs; stale claims cannot execute.** A
+  committed pause atomically clears the worker lease (`lease_token` and
+  `lease_until`), so a claim issued before it is void: no report is created and
+  the rule stays paused. A committed resume likewise clears any inherited
+  lease — a resumed schedule never inherits a claim issued under an earlier
+  scheduling state, including a lease written between pause and resume — so a
+  stale pre-pause claim cannot execute after a resume and cannot create a
+  future resumed week early. Defense in depth: inside the occurrence
+  transaction, after the staff lock and the recurrence row lock and before the
+  report resolve/create, the worker re-reads the organization timezone in
+  PostgreSQL and verifies the LOCKED rule's `next_period_start` is not later
+  than the organization-local calendar date; a locked-but-not-due rule is
+  released and skipped with no report, no period advance and no failure count.
+  Lease invalidation is therefore not the only protection against stale or
+  future claims: the organization-local DATE remains the period authority.
+- **Transaction-internal reads use the transaction client.** Recurrence
+  configuration commands (bulk create, resume) run inside `runCriticalAction`'s
+  `PoolClient`; their organization-timezone lookups execute on that same client
+  instead of `pool.query()`, so a `max=1` pool — or a saturated pool where every
+  client is busy — cannot self-deadlock. Dedicated `max=1` and saturated-pool
+  tests pin the behaviour.
 - **Attribution without re-authorization.** The rule retains a real
   `requested_by_user_id` (last manager/admin authorization) used as the
   creator/actor for generated JobCards and activities. The worker never
@@ -1365,7 +1385,13 @@ slice; no merge performed here.
   full replacement affecting future reports only. All four commands (bulk
   create, template, pause, resume) are idempotent through `processed_actions`
   with `CLIENT_ACTION_REUSED` on changed intent, and ambiguous UI attempts are
-  retried verbatim with the frozen `clientActionId`.
+  retried verbatim with the frozen `clientActionId`. A NEW pause command
+  carrying a stale `expectedVersion` on an already-paused rule returns
+  `VERSION_CONFLICT` (resume parity) instead of silently succeeding; a
+  same-version pause no-op still returns the idempotent response. Exact
+  lost-response replays are served from `processed_actions` before this
+  business validation, so ambiguous retries are unaffected by the stricter
+  check.
 - **Reporting/overdue/profile/PDF contracts preserved.** Generated reports are
   ordinary manager-requested WEEKLY_REPORT JobCards (`NEW`, customerless), so
   productive-metric exclusion, employee overdue semantics, profile history and
@@ -1382,3 +1408,22 @@ slice; no merge performed here.
   1 red · M7 three-week jump → 7 red · M8 resume LEAST → 2 red · M9 no
   auto-pause → 3 red · M10 template rewrites history → 1 red · M11 fresh action
   id on web retry → 4 red · M12 partial commit → 2 red.
+- **Adversarial-review remediation (2026-09-25, same head series).** The review
+  reproduced a stale pre-pause claim surviving pause+resume (F-1), a
+  critical-action pool self-deadlock on the timezone read (F-2) and a stale
+  pause `expectedVersion` accepted as success (F-3). Fixes: pause/resume clear
+  the lease, the occurrence re-validates due-ness under the row lock, the
+  timezone read uses the transaction `PoolClient`, and pause mirrors resume's
+  version check. This entry and the pause/occurrence/transaction bullets above
+  were updated with the fixes; the user manual needed no change because no
+  user-visible behaviour changed (the fix enforces what the manual already
+  documented).
+  Original discriminators re-run on the grown suite: M1 → 12 red · M2 → 17 red ·
+  M3 → 1 red (×2 runs) · M4 → 2 red (plus a lease-predicate-only submutation →
+  1 red) · M5 → 2 red · M6 → 1 red · M7 → 9 red · M8 → 2 red · M9 → 3 red ·
+  M10 → 1 red · M11 → 3 red (management surface; the author-recorded fourth
+  covers the create screen) · M12 → 2 red. New discriminators: M13 pause does
+  not clear the lease → 1 red · M14 resume retains the old lease → 1 red ·
+  M15 occurrence due revalidation removed → 1 red · M16 timezone read back to
+  `pool.query()` → 3 red (`max=1`/saturated-pool tests) · M17 pause version
+  comparison removed → 1 red. All reverted; tree verified clean after each.

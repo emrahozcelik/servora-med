@@ -698,5 +698,63 @@ describe.skipIf(!databaseUrl)('weekly report recurrence configuration (PostgreSQ
         expect((await ruleRow(pool, id)).requested_by_user_id).toBe(managerA);
       });
     });
+    it('rejects a NEW pause command with a stale expectedVersion on an already-paused rule', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const { service } = buildHarness(pool);
+        const manager = actor(organizationId, managerId, 'MANAGER');
+        const created = await service.bulkCreate(
+          manager, parseWeeklyReportRecurrenceBulkCreateInput(bulkBody({ staffUserIds: [staffId] })),
+        );
+        const id = created.items[0]!.recurrenceId;
+        await service.pause(manager, id,
+          parseWeeklyReportRecurrencePauseInput({ clientActionId: randomUUID(), expectedVersion: 1 }));
+        // Two template revisions move the paused rule to version 4.
+        await service.updateTemplate(manager, id,
+          parseWeeklyReportRecurrenceTemplateUpdateInput({
+            clientActionId: randomUUID(), expectedVersion: 2, questions: QUESTIONS, instructions: null,
+          }));
+        await service.updateTemplate(manager, id,
+          parseWeeklyReportRecurrenceTemplateUpdateInput({
+            clientActionId: randomUUID(), expectedVersion: 3, questions: [], instructions: null,
+          }));
+        expect((await ruleRow(pool, id)).version).toBe(4);
+        // A NEW command with a stale version conflicts (resume parity) instead
+        // of silently succeeding.
+        await expect(service.pause(manager, id,
+          parseWeeklyReportRecurrencePauseInput({ clientActionId: randomUUID(), expectedVersion: 1 })
+        )).rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+        const row = await ruleRow(pool, id);
+        expect(row.enabled).toBe(false);
+        expect(row.version).toBe(4);
+      });
+    });
+
+    it('accepts a same-version pause on an already-paused rule as an idempotent no-op', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const { service } = buildHarness(pool);
+        const manager = actor(organizationId, managerId, 'MANAGER');
+        const created = await service.bulkCreate(
+          manager, parseWeeklyReportRecurrenceBulkCreateInput(bulkBody({ staffUserIds: [staffId] })),
+        );
+        const id = created.items[0]!.recurrenceId;
+        await service.pause(manager, id,
+          parseWeeklyReportRecurrencePauseInput({ clientActionId: randomUUID(), expectedVersion: 1 }));
+        await service.updateTemplate(manager, id,
+          parseWeeklyReportRecurrenceTemplateUpdateInput({
+            clientActionId: randomUUID(), expectedVersion: 2, questions: QUESTIONS, instructions: null,
+          }));
+        // Same version, new action id: documented idempotent no-op, no bump.
+        const noop = await service.pause(manager, id,
+          parseWeeklyReportRecurrencePauseInput({ clientActionId: randomUUID(), expectedVersion: 3 }));
+        expect(noop).toMatchObject({ recurrenceId: id, enabled: false, version: 3 });
+        expect((await ruleRow(pool, id)).version).toBe(3);
+      });
+    });
   });
 });

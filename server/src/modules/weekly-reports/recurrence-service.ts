@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import { lockAssigneesInOrder } from '../job-cards/assignee-lock.js';
@@ -80,9 +80,14 @@ export class WeeklyReportRecurrenceService {
     if (actor.role === 'STAFF') throw forbidden();
   }
 
-  /** Organization-local "current week" — the SSOT for start/resume checks. */
-  private async currentPeriod(organizationId: string): Promise<string> {
-    const timezone = await this.repository.getOrganizationTimezone(organizationId);
+  /**
+   * Organization-local "current week" — the SSOT for start/resume checks.
+   * Runs on the caller's transaction client: commands inside
+   * `runCriticalAction` already own a PoolClient, and a nested `pool.query()`
+   * here would self-deadlock the pool under contention.
+   */
+  private async currentPeriod(client: PoolClient, organizationId: string): Promise<string> {
+    const timezone = await this.repository.getOrganizationTimezone(client, organizationId);
     return currentWeeklyReportPeriod(this.now(), timezone).periodStart;
   }
 
@@ -136,7 +141,7 @@ export class WeeklyReportRecurrenceService {
         );
         // 2. The start week must be the current or a future organization-local
         //    week — never a backfill.
-        const currentWeek = await this.currentPeriod(actor.organizationId);
+        const currentWeek = await this.currentPeriod(client, actor.organizationId);
         if (input.startPeriodStart < currentWeek) throw startPeriodInPast();
         // 3. Validate ALL targets before writing ANY.
         for (const staffUserId of input.staffUserIds) {
@@ -272,8 +277,14 @@ export class WeeklyReportRecurrenceService {
           recurrenceId,
         );
         if (!current) throw recurrenceNotFound();
-        // Already paused at the expected version → idempotent no-op.
+        // An enabled rule with a moved version is a genuine conflict.
         if (current.enabled) throw recurrenceVersionConflict();
+        // Already paused: only the same version is an idempotent no-op (resume
+        // parity). A NEW command carrying a stale expectedVersion conflicts,
+        // so a stale UI cannot silently "succeed" past intervening changes.
+        // Exact lost-response replays never reach this branch: `processed_actions`
+        // replays the stored response before business validation.
+        if (current.version !== input.expectedVersion) throw recurrenceVersionConflict();
         return { response: pauseResult(current), realtimeEvents: [] };
       },
     );
@@ -318,7 +329,7 @@ export class WeeklyReportRecurrenceService {
           current.staff_user_id,
         );
         if (!assignee || !assignee.isActive || assignee.role !== 'STAFF') throw assigneeNotFound();
-        const currentWeek = await this.currentPeriod(actor.organizationId);
+        const currentWeek = await this.currentPeriod(client, actor.organizationId);
         const requested = input.periodStart ?? currentWeek;
         if (requested < currentWeek) throw resumePeriodInPast();
         const resumed = await this.repository.resume(client, {

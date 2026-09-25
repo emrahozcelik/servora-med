@@ -598,6 +598,247 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
     });
   });
 
+  describe('pause/resume scheduling epoch', () => {
+    it('T1 voids a pre-pause claim: stale process is skipped with paused state preserved', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: WEEK_A,
+        });
+        const harness = buildHarness(pool);
+        const claimedAt = new Date(NOW);
+        const claims = await harness.repository.claimDue(
+          claimedAt, randomUUID(), new Date(claimedAt.valueOf() + 120_000), 10,
+        );
+        expect(claims).toHaveLength(1);
+        const paused = await harness.service.pause(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 1 },
+        );
+        expect(paused.version).toBe(2);
+        // The committed pause must have invalidated the in-flight lease.
+        expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+        const outcome = await harness.repository.processOccurrence(
+          claims[0]!, claimedAt, harness.service.createOccurrence,
+        );
+        expect(outcome.result.outcome).toBe('skipped');
+        expect(outcome.result.processedPeriodStart).toBeNull();
+        expect(await countRows(pool, 'weekly_reports')).toBe(0);
+        const row = await ruleRow(pool, ruleId);
+        expect(row.enabled).toBe(false);
+        expect(row.disabled_reason).toBe('MANUAL');
+        expect(row.next_period_start).toBe(WEEK_A);
+        expect(row.lease_token).toBeNull();
+        expect(row.last_processed_period_start).toBeNull();
+        expect(row.last_outcome).toBeNull();
+        expect(row.version).toBe(2);
+      });
+    });
+
+    it('T2 never executes a future resumed week early for a stale pre-pause claim', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: WEEK_A,
+        });
+        // Current week is 2026-10-26; the rule is three weeks overdue.
+        const weekNow = '2026-10-26T09:00:00.000Z';
+        const futureWeek = '2026-11-02';
+        const harness = buildHarness(pool, [], weekNow);
+        const claimedAt = new Date(weekNow);
+        const claims = await harness.repository.claimDue(
+          claimedAt, randomUUID(), new Date(claimedAt.valueOf() + 120_000), 10,
+        );
+        expect(claims).toHaveLength(1);
+        await harness.service.pause(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 1 },
+        );
+        const resumed = await harness.service.resume(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 2, periodStart: futureWeek },
+        );
+        expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: futureWeek, version: 3 });
+        // The committed resume must not inherit the pre-pause lease.
+        expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+
+        // The stale pre-pause claim now processes: it must skip.
+        const outcome = await harness.repository.processOccurrence(
+          claims[0]!, claimedAt, harness.service.createOccurrence,
+        );
+        expect(outcome.result.outcome).toBe('skipped');
+        expect(await countRows(pool, 'weekly_reports')).toBe(0);
+        const row = await ruleRow(pool, ruleId);
+        expect(row.enabled).toBe(true);
+        expect(row.next_period_start).toBe(futureWeek);
+        expect(row.lease_token).toBeNull();
+        expect(row.last_processed_period_start).toBeNull();
+        expect(row.last_outcome).toBeNull();
+        expect(row.version).toBe(3);
+
+        // When the resumed week actually arrives, exactly one report is made.
+        const dueHarness = buildHarness(pool, [], `${futureWeek}T09:00:00.000Z`);
+        expect(await buildWorker(dueHarness, `${futureWeek}T09:00:00.000Z`).runOnce()).toBe(1);
+        const reports = await reportRows(pool);
+        expect(reports).toHaveLength(1);
+        expect(reports[0]!.period_start).toBe(futureWeek);
+        const advanced = await ruleRow(pool, ruleId);
+        expect(advanced.next_period_start).toBe('2026-11-09');
+        expect(advanced.last_processed_period_start).toBe(futureWeek);
+      });
+    });
+
+    it('T3 invalidates the old claim on current-week resume but lets a new claim proceed', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: WEEK_A,
+        });
+        const weekNow = '2026-10-26T09:00:00.000Z';
+        const currentWeek = '2026-10-26';
+        const harness = buildHarness(pool, [], weekNow);
+        const claimedAt = new Date(weekNow);
+        const claims = await harness.repository.claimDue(
+          claimedAt, randomUUID(), new Date(claimedAt.valueOf() + 120_000), 10,
+        );
+        expect(claims).toHaveLength(1);
+        await harness.service.pause(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 1 },
+        );
+        const resumed = await harness.service.resume(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 2, periodStart: currentWeek },
+        );
+        expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: currentWeek });
+
+        // Old claim: skipped, creates nothing.
+        const stale = await harness.repository.processOccurrence(
+          claims[0]!, claimedAt, harness.service.createOccurrence,
+        );
+        expect(stale.result.outcome).toBe('skipped');
+        expect(await countRows(pool, 'weekly_reports')).toBe(0);
+
+        // New claim for the resumed current week: processes exactly once.
+        const fresh = await harness.repository.claimDue(
+          claimedAt, randomUUID(), new Date(claimedAt.valueOf() + 120_000), 10,
+        );
+        expect(fresh).toHaveLength(1);
+        const created = await harness.repository.processOccurrence(
+          fresh[0]!, claimedAt, harness.service.createOccurrence,
+        );
+        expect(created.result.outcome).toBe('created');
+        expect(created.result.processedPeriodStart).toBe(currentWeek);
+        const reports = await reportRows(pool);
+        expect(reports).toHaveLength(1);
+        expect(reports[0]!.period_start).toBe(currentWeek);
+        expect((await ruleRow(pool, ruleId)).next_period_start).toBe('2026-11-02');
+      });
+    });
+
+    it('T4 refuses a leased claim on a future period by revalidating due-ness', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const futureWeek = '2026-11-02';
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: futureWeek,
+        });
+        const weekNow = '2026-10-26T09:00:00.000Z';
+        const harness = buildHarness(pool, [], weekNow);
+        // Artificially establish a valid-looking lease on the future period.
+        // This proves safety does not depend solely on pause clearing leases.
+        const leaseToken = randomUUID();
+        await pool.query(
+          `UPDATE weekly_report_recurrences
+              SET lease_token = $2, lease_until = $3 WHERE id = $1`,
+          [ruleId, leaseToken, new Date(new Date(weekNow).valueOf() + 600_000)],
+        );
+        const outcome = await harness.repository.processOccurrence(
+          {
+            id: ruleId, organizationId, staffUserId: staffId,
+            requestedByUserId: managerId, nextPeriodStart: futureWeek,
+            managerQuestions: [], instructions: null, failureCount: 0,
+            leaseToken,
+          },
+          new Date(weekNow),
+          harness.service.createOccurrence,
+        );
+        expect(outcome.result.outcome).toBe('skipped');
+        expect(await countRows(pool, 'weekly_reports')).toBe(0);
+        const row = await ruleRow(pool, ruleId);
+        expect(row.enabled).toBe(true);
+        expect(row.next_period_start).toBe(futureWeek);
+        expect(row.lease_token).toBeNull();
+        expect(row.failure_count).toBe(0);
+        expect(row.last_outcome).toBeNull();
+      });
+    });
+    it('resume starts a new epoch: a post-pause lease is cleared and cannot execute', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: WEEK_A,
+        });
+        const weekNow = '2026-10-26T09:00:00.000Z';
+        const currentWeek = '2026-10-26';
+        const harness = buildHarness(pool, [], weekNow);
+        const claimedAt = new Date(weekNow);
+        const claims = await harness.repository.claimDue(
+          claimedAt, randomUUID(), new Date(claimedAt.valueOf() + 120_000), 10,
+        );
+        expect(claims).toHaveLength(1);
+        await harness.service.pause(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 1 },
+        );
+        expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+        // A lease established after the pause under the old scheduling state
+        // (crashed worker, manual intervention, future bug) must not survive
+        // the resume: the resumed schedule is a new epoch.
+        await pool.query(
+          `UPDATE weekly_report_recurrences
+              SET lease_token = $2, lease_until = $3 WHERE id = $1`,
+          [ruleId, claims[0]!.leaseToken, new Date(claimedAt.valueOf() + 600_000)],
+        );
+        const resumed = await harness.service.resume(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          ruleId,
+          { clientActionId: randomUUID(), expectedVersion: 2, periodStart: currentWeek },
+        );
+        expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: currentWeek });
+        expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+
+        const stale = await harness.repository.processOccurrence(
+          claims[0]!, claimedAt, harness.service.createOccurrence,
+        );
+        expect(stale.result.outcome).toBe('skipped');
+        expect(await countRows(pool, 'weekly_reports')).toBe(0);
+        expect((await ruleRow(pool, ruleId)).next_period_start).toBe(currentWeek);
+      });
+    });
+  });
+
   describe('question and instruction freezing', () => {
     it('never rewrites an already-created report when the template changes', async () => {
       await withSchema(async (pool) => {

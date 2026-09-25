@@ -238,6 +238,9 @@ export class PostgresWeeklyReportRecurrenceRepository {
    * Pause. An already-paused rule is left untouched (no version bump, no
    * reason rewrite) so a retry or a double-click cannot corrupt the reason a
    * previous pause recorded.
+   *
+   * A committed pause atomically clears any active worker lease: the pause is
+   * a new scheduling epoch, so a claim issued before it must never execute.
    */
   async pause(
     client: PoolClient,
@@ -246,6 +249,7 @@ export class PostgresWeeklyReportRecurrenceRepository {
     const result = await client.query<RecurrenceRow>(
       `UPDATE weekly_report_recurrences
           SET enabled = FALSE, disabled_reason = 'MANUAL',
+              lease_token = NULL, lease_until = NULL,
               version = version + 1, updated_at = NOW()
         WHERE organization_id = $1 AND id = $2 AND version = $3 AND enabled = TRUE
         RETURNING ${RECURRENCE_COLUMNS}`,
@@ -259,6 +263,10 @@ export class PostgresWeeklyReportRecurrenceRepository {
    * never backfills weeks that were deliberately skipped while paused, and
    * never rewinds a rule that had already advanced past the requested week.
    * Only a paused rule is transitioned; an already-enabled rule is a no-op.
+   *
+   * A committed resume starts a new scheduling epoch: any lease inherited
+   * from an earlier scheduling state is cleared, so a stale worker claim can
+   * never execute against the resumed schedule.
    */
   async resume(
     client: PoolClient,
@@ -275,6 +283,7 @@ export class PostgresWeeklyReportRecurrenceRepository {
           SET enabled = TRUE, disabled_reason = NULL,
               next_period_start = GREATEST(next_period_start, $3::date),
               requested_by_user_id = $4,
+              lease_token = NULL, lease_until = NULL,
               failure_count = 0, last_error_code = NULL, next_attempt_at = NOW(),
               version = version + 1, updated_at = NOW()
         WHERE organization_id = $1 AND id = $2 AND version = $5 AND enabled = FALSE
@@ -290,9 +299,13 @@ export class PostgresWeeklyReportRecurrenceRepository {
     return result.rows[0] ? mapRow(result.rows[0]) : null;
   }
 
-  /** Current organization timezone (resume default period + start-week checks). */
-  async getOrganizationTimezone(organizationId: string): Promise<string> {
-    const result = await this.pool.query<{ timezone: string }>(
+  /**
+   * Current organization timezone (resume default period + start-week checks).
+   * Takes the caller's client so commands running inside a critical-action
+   * transaction never self-deadlock the pool with a nested `pool.query()`.
+   */
+  async getOrganizationTimezone(client: PoolClient, organizationId: string): Promise<string> {
+    const result = await client.query<{ timezone: string }>(
       `SELECT timezone FROM organizations WHERE id = $1`,
       [organizationId],
     );
@@ -435,6 +448,38 @@ export class PostgresWeeklyReportRecurrenceRepository {
         await client.query('COMMIT');
         return {
           result: { outcome: 'autoPaused', recurrenceId: claim.id, processedPeriodStart: null },
+          realtimeEvents: [],
+        };
+      }
+
+      // Scheduling-epoch guard: even a correctly leased, enabled rule must
+      // actually be DUE at `now` in the ORGANIZATION's timezone. The rule row
+      // is already locked above and the organization row is read without a
+      // lock, so the canonical lock order (user → recurrence → report) is
+      // preserved. A stale claim — pause/resume epoch change, future
+      // reschedule, or a future lease bug — must never execute early: no
+      // report, no period advance, no failure count. Just drop the claim.
+      const dueState = await client.query<{
+        next_period_start: string; today: string;
+      }>(
+        `SELECT r.next_period_start::text AS next_period_start,
+                (($1::timestamptz AT TIME ZONE o.timezone)::date)::text AS today
+           FROM weekly_report_recurrences r
+           JOIN organizations o ON o.id = r.organization_id
+          WHERE r.organization_id = $2 AND r.id = $3`,
+        [now, claim.organizationId, claim.id],
+      );
+      const due = dueState.rows[0];
+      if (!due || due.next_period_start > due.today) {
+        await client.query(
+          `UPDATE weekly_report_recurrences
+              SET lease_token = NULL, lease_until = NULL, updated_at = $3
+            WHERE id = $1 AND lease_token = $2`,
+          [claim.id, claim.leaseToken, now],
+        );
+        await client.query('COMMIT');
+        return {
+          result: { outcome: 'skipped', recurrenceId: claim.id, processedPeriodStart: null },
           realtimeEvents: [],
         };
       }
