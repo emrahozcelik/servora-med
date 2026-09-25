@@ -242,6 +242,14 @@ class PostgresPeopleTransaction implements PeopleTransaction {
           OR EXISTS (SELECT 1 FROM backup_runs backup_run WHERE backup_run.created_by = u.id)
           OR EXISTS (SELECT 1 FROM backup_policy backup_policy WHERE backup_policy.updated_by = u.id)
           OR EXISTS (
+            -- A recurrence requester is an accountability identity, exactly
+            -- like a JobCard creator: the rule keeps working under that durable
+            -- authorization, so the authorizing manager retains history.
+            SELECT 1 FROM weekly_report_recurrences recurrence
+            WHERE recurrence.organization_id = u.organization_id
+              AND recurrence.requested_by_user_id = u.id
+          )
+          OR EXISTS (
             SELECT 1 FROM audit_events audit_event
             WHERE audit_event.organization_id = u.organization_id
               AND audit_event.actor_user_id = u.id
@@ -280,6 +288,15 @@ class PostgresPeopleTransaction implements PeopleTransaction {
             WHERE reminder.organization_id = u.organization_id
               AND reminder.recipient_user_id = u.id
               AND reminder.state IN ('PENDING', 'CLAIMED')
+          )
+          OR EXISTS (
+            -- An ENABLED recurrence will generate work for this staff member,
+            -- exactly like an assigned NEW job or a PENDING reminder. Pause the
+            -- rule first; paused rules are cleaned below once the target is gone.
+            SELECT 1 FROM weekly_report_recurrences recurrence
+            WHERE recurrence.organization_id = u.organization_id
+              AND recurrence.staff_user_id = u.id
+              AND recurrence.enabled
           )
           OR EXISTS (
             SELECT 1 FROM demo_datasets dataset
@@ -460,6 +477,15 @@ class PostgresPeopleTransaction implements PeopleTransaction {
     await this.client.query(
       `DELETE FROM calendar_reminders
        WHERE organization_id = $1 AND recipient_user_id = $2`,
+      [organizationId, userId],
+    );
+    // Disabled recurrence rules for the deleted staff member are configuration
+    // whose target no longer exists. Enabled rules block deletion above, so
+    // only paused or auto-paused rules can reach here; their generated reports
+    // (ordinary WeeklyReport rows) are history and are NOT touched.
+    await this.client.query(
+      `DELETE FROM weekly_report_recurrences
+        WHERE organization_id = $1 AND staff_user_id = $2`,
       [organizationId, userId],
     );
 

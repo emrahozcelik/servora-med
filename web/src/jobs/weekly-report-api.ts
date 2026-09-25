@@ -41,6 +41,11 @@ function positiveCount(value: unknown, field: string): number {
   return value;
 }
 
+function booleanValue(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') invalid(field);
+  return value;
+}
+
 export type WeeklyReportQuestion = { key: string; prompt: string };
 export type WeeklyReportAnswer = { questionKey: string; answer: string };
 export type WeeklyReportDraft = {
@@ -392,3 +397,258 @@ export const downloadWeeklyReportSubmissionPdf = async (
     fileName: response.fileName ?? `haftalik-rapor-seq-${seqNo}.pdf`,
   };
 };
+
+// ---------------------------------------------------------------------------
+// Recurring weekly requests (V1 Slice 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-authoritative ceiling for one bulk recurrence command. Mirrored here
+ * only so the multi-select can refuse an oversized selection before the
+ * request; the backend remains the enforcing owner.
+ */
+export const MAX_RECURRENCE_TARGETS = 50;
+
+/** Public lifecycle state. Lease/retry state is an operational internal. */
+export const RECURRENCE_DISABLED_REASONS = ['MANUAL', 'STAFF_INELIGIBLE'] as const;
+export type RecurrenceDisabledReason = (typeof RECURRENCE_DISABLED_REASONS)[number];
+
+export const RECURRENCE_OUTCOMES = ['created', 'existing'] as const;
+export type RecurrenceOutcome = (typeof RECURRENCE_OUTCOMES)[number];
+
+/**
+ * One durable recurrence rule as returned by the list endpoint. `nextPeriodStart`
+ * is the organization-local Monday of the next report the rule will request;
+ * `lastProcessedPeriodStart` / `lastOutcome` describe the most recent worker
+ * occurrence. Lease and retry internals are deliberately absent — the parser
+ * below fails closed if the server ever leaks one.
+ */
+export type WeeklyReportRecurrence = {
+  id: string;
+  staffUserId: string;
+  staffName: string;
+  enabled: boolean;
+  disabledReason: RecurrenceDisabledReason | null;
+  nextPeriodStart: string;
+  questions: WeeklyReportQuestion[];
+  instructions: string | null;
+  version: number;
+  lastProcessedPeriodStart: string | null;
+  lastOutcome: RecurrenceOutcome | null;
+  lastErrorCode: string | null;
+  updatedAt: string;
+};
+
+export type WeeklyReportRecurrenceList = { items: WeeklyReportRecurrence[] };
+
+export type WeeklyReportRecurrenceBulkCreateInput = {
+  clientActionId: string;
+  staffUserIds: string[];
+  /** Canonical organization-local Monday; the first week the rule requests. */
+  startPeriodStart: string;
+  questions?: { key: string; prompt: string }[];
+  instructions?: string | null;
+};
+
+export type WeeklyReportRecurrenceBulkItem = {
+  recurrenceId: string;
+  staffUserId: string;
+  outcome: RecurrenceOutcome;
+  enabled: boolean;
+  nextPeriodStart: string;
+  version: number;
+};
+
+export type WeeklyReportRecurrenceBulkCreateResult = {
+  startPeriodStart: string;
+  items: WeeklyReportRecurrenceBulkItem[];
+};
+
+/** Full template replacement: both fields are always sent, never a sparse merge. */
+export type WeeklyReportRecurrenceTemplateUpdateInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  questions: { key: string; prompt: string }[];
+  instructions: string | null;
+};
+
+export type WeeklyReportRecurrenceTemplateResult = {
+  recurrenceId: string;
+  version: number;
+  questions: WeeklyReportQuestion[];
+  instructions: string | null;
+  nextPeriodStart: string;
+};
+
+export type WeeklyReportRecurrencePauseInput = {
+  clientActionId: string;
+  expectedVersion: number;
+};
+
+export type WeeklyReportRecurrencePauseResult = {
+  recurrenceId: string;
+  enabled: false;
+  disabledReason: RecurrenceDisabledReason;
+  nextPeriodStart: string;
+  version: number;
+};
+
+export type WeeklyReportRecurrenceResumeInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  /** Omitted/null = resume from the current organization-local week. */
+  periodStart?: string | null;
+};
+
+export type WeeklyReportRecurrenceResumeResult = {
+  recurrenceId: string;
+  enabled: true;
+  nextPeriodStart: string;
+  version: number;
+};
+
+function parseRecurrence(value: unknown): WeeklyReportRecurrence {
+  // Exact key set: lease/retry internals (leaseToken, leaseUntil, nextAttemptAt,
+  // failureCount, …) are NOT part of the client contract, so a server that ever
+  // exposes one fails closed here instead of leaking it into the UI.
+  const root = exactObject(value, 'recurrence', [
+    'id', 'staffUserId', 'staffName', 'enabled', 'disabledReason', 'nextPeriodStart',
+    'questions', 'instructions', 'version', 'lastProcessedPeriodStart', 'lastOutcome',
+    'lastErrorCode', 'updatedAt',
+  ]);
+  return {
+    id: string(root.id, 'recurrence.id'),
+    staffUserId: string(root.staffUserId, 'recurrence.staffUserId'),
+    staffName: string(root.staffName, 'recurrence.staffName'),
+    enabled: booleanValue(root.enabled, 'recurrence.enabled'),
+    disabledReason: root.disabledReason === null
+      ? null
+      : oneOf(root.disabledReason, 'recurrence.disabledReason', RECURRENCE_DISABLED_REASONS),
+    nextPeriodStart: dateKey(root.nextPeriodStart, 'recurrence.nextPeriodStart'),
+    questions: array(root.questions, 'recurrence.questions').map(parseQuestion),
+    instructions: root.instructions === null ? null : string(root.instructions, 'recurrence.instructions'),
+    version: positiveCount(root.version, 'recurrence.version'),
+    lastProcessedPeriodStart: root.lastProcessedPeriodStart === null
+      ? null
+      : dateKey(root.lastProcessedPeriodStart, 'recurrence.lastProcessedPeriodStart'),
+    lastOutcome: root.lastOutcome === null
+      ? null
+      : oneOf(root.lastOutcome, 'recurrence.lastOutcome', RECURRENCE_OUTCOMES),
+    lastErrorCode: root.lastErrorCode === null ? null : string(root.lastErrorCode, 'recurrence.lastErrorCode'),
+    updatedAt: string(root.updatedAt, 'recurrence.updatedAt'),
+  };
+}
+
+function parseRecurrenceBulkItem(value: unknown): WeeklyReportRecurrenceBulkItem {
+  const entry = exactObject(value, 'recurrenceBulkItem', [
+    'recurrenceId', 'staffUserId', 'outcome', 'enabled', 'nextPeriodStart', 'version',
+  ]);
+  return {
+    recurrenceId: string(entry.recurrenceId, 'recurrenceBulkItem.recurrenceId'),
+    staffUserId: string(entry.staffUserId, 'recurrenceBulkItem.staffUserId'),
+    outcome: oneOf(entry.outcome, 'recurrenceBulkItem.outcome', RECURRENCE_OUTCOMES),
+    enabled: booleanValue(entry.enabled, 'recurrenceBulkItem.enabled'),
+    nextPeriodStart: dateKey(entry.nextPeriodStart, 'recurrenceBulkItem.nextPeriodStart'),
+    version: positiveCount(entry.version, 'recurrenceBulkItem.version'),
+  };
+}
+
+export function parseWeeklyReportRecurrenceList(value: unknown): WeeklyReportRecurrenceList {
+  const root = exactObject(value, 'recurrenceList', ['items']);
+  return { items: array(root.items, 'items').map(parseRecurrence) };
+}
+
+export function parseWeeklyReportRecurrenceBulkResult(
+  value: unknown,
+): WeeklyReportRecurrenceBulkCreateResult {
+  const root = exactObject(value, 'recurrenceBulk', ['startPeriodStart', 'items']);
+  return {
+    startPeriodStart: dateKey(root.startPeriodStart, 'startPeriodStart'),
+    items: array(root.items, 'items').map(parseRecurrenceBulkItem),
+  };
+}
+
+export function parseWeeklyReportRecurrenceTemplateResult(
+  value: unknown,
+): WeeklyReportRecurrenceTemplateResult {
+  const root = exactObject(value, 'recurrenceTemplate', [
+    'recurrenceId', 'version', 'questions', 'instructions', 'nextPeriodStart',
+  ]);
+  return {
+    recurrenceId: string(root.recurrenceId, 'recurrenceId'),
+    version: positiveCount(root.version, 'version'),
+    questions: array(root.questions, 'questions').map(parseQuestion),
+    instructions: root.instructions === null ? null : string(root.instructions, 'instructions'),
+    nextPeriodStart: dateKey(root.nextPeriodStart, 'nextPeriodStart'),
+  };
+}
+
+export function parseWeeklyReportRecurrencePauseResult(
+  value: unknown,
+): WeeklyReportRecurrencePauseResult {
+  const root = exactObject(value, 'recurrencePause', [
+    'recurrenceId', 'enabled', 'disabledReason', 'nextPeriodStart', 'version',
+  ]);
+  if (root.enabled !== false) invalid('enabled');
+  return {
+    recurrenceId: string(root.recurrenceId, 'recurrenceId'),
+    enabled: false,
+    disabledReason: oneOf(root.disabledReason, 'disabledReason', RECURRENCE_DISABLED_REASONS),
+    nextPeriodStart: dateKey(root.nextPeriodStart, 'nextPeriodStart'),
+    version: positiveCount(root.version, 'version'),
+  };
+}
+
+export function parseWeeklyReportRecurrenceResumeResult(
+  value: unknown,
+): WeeklyReportRecurrenceResumeResult {
+  const root = exactObject(value, 'recurrenceResume', [
+    'recurrenceId', 'enabled', 'nextPeriodStart', 'version',
+  ]);
+  if (root.enabled !== true) invalid('enabled');
+  return {
+    recurrenceId: string(root.recurrenceId, 'recurrenceId'),
+    enabled: true,
+    nextPeriodStart: dateKey(root.nextPeriodStart, 'nextPeriodStart'),
+    version: positiveCount(root.version, 'version'),
+  };
+}
+
+const recurrencePath = (id: string) =>
+  `/api/job-cards/weekly-reports/recurrences/${encodeURIComponent(id)}`;
+
+/**
+ * Manager/ADMIN bulk recurrence creation. One command, N independent rules —
+ * the client never loops a single-target endpoint per staff member.
+ */
+export const bulkCreateWeeklyReportRecurrences = async (
+  input: WeeklyReportRecurrenceBulkCreateInput,
+) => parseWeeklyReportRecurrenceBulkResult(await request(
+  '/api/job-cards/weekly-reports/recurrences/bulk', json('POST', input),
+));
+
+export const listWeeklyReportRecurrences = async () =>
+  parseWeeklyReportRecurrenceList(
+    await request('/api/job-cards/weekly-reports/recurrences'),
+  );
+
+export const updateWeeklyReportRecurrenceTemplate = async (
+  id: string,
+  input: WeeklyReportRecurrenceTemplateUpdateInput,
+) => parseWeeklyReportRecurrenceTemplateResult(await request(
+  `${recurrencePath(id)}/template`, json('PUT', input),
+));
+
+export const pauseWeeklyReportRecurrence = async (
+  id: string,
+  input: WeeklyReportRecurrencePauseInput,
+) => parseWeeklyReportRecurrencePauseResult(await request(
+  `${recurrencePath(id)}/pause`, json('POST', input),
+));
+
+export const resumeWeeklyReportRecurrence = async (
+  id: string,
+  input: WeeklyReportRecurrenceResumeInput,
+) => parseWeeklyReportRecurrenceResumeResult(await request(
+  `${recurrencePath(id)}/resume`, json('POST', input),
+));

@@ -795,6 +795,77 @@ function assertCriticalActionRequestHash(
   }
 }
 
+/**
+ * The `processed_actions` idempotency contract as a standalone function: claim
+ * a `(organization, user, clientActionId, operationKey)` action, run the work
+ * in ONE transaction, persist the response, and replay the stored response on
+ * an exact re-submission (a changed intent is `CLIENT_ACTION_REUSED`).
+ *
+ * Extracted verbatim from `PostgresJobCardRepository.executeCriticalAction`
+ * so that a command whose writes do not belong to the JobCard transaction
+ * family (the WeeklyReport recurrence configuration) reuses the SAME
+ * receipt mechanism instead of re-implementing it. The `work` callback gets
+ * the raw `PoolClient`; JobCard-backed commands wrap it in a
+ * `PostgresJobCardTransaction` themselves.
+ */
+export async function runCriticalAction<T>(
+  pool: Pool,
+  claim: CriticalActionClaim,
+  work: (client: PoolClient) => Promise<CriticalActionWorkResult<T>>,
+): Promise<CriticalActionResult<T>> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const claimed = await client.query<{ id: string }>(
+      `INSERT INTO processed_actions
+         (organization_id, user_id, client_action_id, operation_key, request_hash, status)
+       VALUES ($1, $2, $3, $4, $5, 'processing')
+       ON CONFLICT (organization_id, user_id, client_action_id, operation_key) DO NOTHING
+       RETURNING id`,
+      [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey, claim.requestHash ?? null],
+    );
+
+    if (claimed.rowCount === 0) {
+      const existing = await client.query<{
+        status: string;
+        response_body: T | null;
+        request_hash: string | null;
+      }>(
+        `SELECT status, response_body, request_hash FROM processed_actions
+         WHERE organization_id = $1 AND user_id = $2
+           AND client_action_id = $3 AND operation_key = $4`,
+        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+      );
+      const action = existing.rows[0];
+      assertCriticalActionRequestHash(claim.requestHash, action?.request_hash);
+      await client.query('COMMIT');
+      if (action?.status === 'completed' && action.response_body !== null) {
+        return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
+      }
+      return { kind: 'processing' };
+    }
+
+    const workResult = await work(client);
+    await client.query(
+      `UPDATE processed_actions
+       SET status = 'completed', status_code = 200, response_body = $2, completed_at = NOW()
+       WHERE id = $1`,
+      [claimed.rows[0]!.id, workResult.response],
+    );
+    await client.query('COMMIT');
+    return {
+      kind: 'completed',
+      response: workResult.response,
+      realtimeEvents: workResult.realtimeEvents,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export interface JobCardRepository extends SubmissionReader {
   getCurrentScheduleRevision(
     organizationId: string,
@@ -3024,57 +3095,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       transaction: JobCardTransaction,
     ) => Promise<CriticalActionWorkResult<T>>,
   ): Promise<CriticalActionResult<T>> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const claimed = await client.query<{ id: string }>(
-        `INSERT INTO processed_actions
-           (organization_id, user_id, client_action_id, operation_key, request_hash, status)
-         VALUES ($1, $2, $3, $4, $5, 'processing')
-         ON CONFLICT (organization_id, user_id, client_action_id, operation_key) DO NOTHING
-         RETURNING id`,
-        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey, claim.requestHash ?? null],
-      );
-
-      if (claimed.rowCount === 0) {
-        const existing = await client.query<{
-          status: string;
-          response_body: T | null;
-          request_hash: string | null;
-        }>(
-          `SELECT status, response_body, request_hash FROM processed_actions
-           WHERE organization_id = $1 AND user_id = $2
-             AND client_action_id = $3 AND operation_key = $4`,
-          [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
-        );
-        const action = existing.rows[0];
-        assertCriticalActionRequestHash(claim.requestHash, action?.request_hash);
-        await client.query('COMMIT');
-        if (action?.status === 'completed' && action.response_body !== null) {
-          return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
-        }
-        return { kind: 'processing' };
-      }
-
-      const workResult = await work(new PostgresJobCardTransaction(client));
-      await client.query(
-        `UPDATE processed_actions
-         SET status = 'completed', status_code = 200, response_body = $2, completed_at = NOW()
-         WHERE id = $1`,
-        [claimed.rows[0]!.id, workResult.response],
-      );
-      await client.query('COMMIT');
-      return {
-        kind: 'completed',
-        response: workResult.response,
-        realtimeEvents: workResult.realtimeEvents,
-      };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    return runCriticalAction(this.pool, claim, (client) =>
+      work(new PostgresJobCardTransaction(client)));
   }
 
   /** Completed receipts retain the existing processed_actions authority. */

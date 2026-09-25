@@ -152,8 +152,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(51);
-      expect(firstRun.appliedVersions.at(-1)).toBe('051_weekly_report_foundation');
+      expect(firstRun.appliedVersions).toHaveLength(52);
+      expect(firstRun.appliedVersions.at(-1)).toBe('052_weekly_report_recurrence');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -243,6 +243,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '049_job_card_lifecycle_intents',
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
+          '052_weekly_report_recurrence',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -262,7 +263,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '048_overdue_episode_activation_legacy_first.sql'
           && file !== '049_job_card_lifecycle_intents.sql'
           && file !== '050_overdue_incident_scanner_source.sql'
-          && file !== '051_weekly_report_foundation.sql')
+          && file !== '051_weekly_report_foundation.sql'
+          && file !== '052_weekly_report_recurrence.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -297,6 +299,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '049_job_card_lifecycle_intents',
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
+          '052_weekly_report_recurrence',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

@@ -111,9 +111,10 @@ describe('runMigrations', () => {
       '049_job_card_lifecycle_intents.sql',
       '050_overdue_incident_scanner_source.sql',
       '051_weekly_report_foundation.sql',
+      '052_weekly_report_recurrence.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('051_weekly_report_foundation.sql');
-    expect(expectedSchemaVersion).toBe(51);
+    expect(migrations.at(-1)?.name).toBe('052_weekly_report_recurrence.sql');
+    expect(expectedSchemaVersion).toBe(52);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

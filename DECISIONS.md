@@ -1273,3 +1273,112 @@ migration (051 schema proved sufficient again).
   `/staff/:id/jobs` paging helper in `people/handlers.ts` still lacks the
   safe-integer guard its Weekly Report sibling has. That is a separate fix and
   was deliberately not widened into this slice.
+
+## Weekly Report V1 Slice 5 recurring weekly requests — 2026-09-25
+
+Final feature slice of Weekly Report V1. No production deployment in this
+slice; no merge performed here.
+
+- **One rule per staff, fixed WEEKLY frequency.** A recurrence is a durable
+  manager authorization ("for this STAFF member, request a new Weekly Report
+  every week using this template"), keyed `(organization_id, staff_user_id)`.
+  No multi-assignee recurrence row exists; bulk creation produces N independent
+  rules. No cron expressions, no daily/monthly frequency, no other JobCard
+  types, no per-rule due-date override in V1.
+- **Organization-local Monday identity.** `next_period_start` is a DATE
+  representing an organization-local Monday (CHECK `ISODOW = 1`); it is never a
+  "Monday midnight UTC" instant. Due discovery compares the stored Monday
+  against the current calendar date **in the organization's timezone** inside
+  PostgreSQL (`AT TIME ZONE o.timezone`), reusing the canonical
+  `currentWeeklyReportPeriod` semantics for start/resume validation.
+- **Canonical next-Monday due date.** Every generated report uses the existing
+  default deadline (period Monday→Sunday, due the following Monday). No
+  repeating absolute due date is persisted and no weekday/due-offset
+  configuration was introduced.
+- **Start week is current or future.** `startPeriodStart` must be the current
+  organization-local reporting week or a future canonical Monday; a past week
+  is rejected so bulk configuration cannot accidentally backfill history.
+  Creating the rule never synchronously creates the report; the worker produces
+  the current week on its next iteration, and the UI must not also send a
+  one-time bulk request for the same week.
+- **Enabled downtime catches up; deliberate pause skips.** An ENABLED rule
+  processes each missed `next_period_start` sequentially (exactly one period
+  per claim, `+7 days` per committed occurrence) until caught up — never a
+  silent jump to the current week. A PAUSED rule skips: resume sets
+  `next_period_start = max(stored, requested/default current week)`, so paused
+  weeks are never backfilled. Both behaviours are proven by dedicated tests.
+- **Manual existing report converges.** If a canonical report already exists
+  for `(organization, staff, periodStart)` — STAFF self-created, manually
+  requested, or won by a racing worker — the occurrence succeeds as `existing`:
+  no second JobCard, no rewritten questions, no fake `JOB_CREATED` activity,
+  and the schedule still advances one week.
+- **Canonical creation primitive is reused, not reimplemented.** The worker
+  drives `JobCardService.createOrResolveWeeklyReportForStaff`, a minimal
+  exposure of the same core the single create and bulk request use (Slice 3
+  extraction: `createOrResolveWeeklyReportForStaffCore`). Slice 2/3 behaviour
+  is unchanged — their suites pass unmodified. The standalone
+  `runCriticalAction` receipt helper and `lockAssigneesInOrder` were likewise
+  extracted verbatim (no behaviour change) so recurrence commands reuse the
+  same `processed_actions` idempotency and the same staff-user lock contract.
+- **Universal staff-user lock.** Bulk create locks every target in sorted
+  order; the worker locks its staff target with `FOR NO KEY UPDATE` before
+  touching the recurrence row; resume locks the target before the rule. Lock
+  order (users first, then recurrence rows) is deadlock-free by construction.
+  Real concurrent-PostgreSQL race tests cover recurrence-vs-recurrence,
+  vs-single, vs-bulk, vs-self-create and claim-vs-pause.
+- **Worker: claim/lease/SKIP LOCKED, no external cron.** A dedicated
+  `weekly-reports/recurrence-worker.ts` (not Calendar, not OVR) polls bounded
+  batches (`next_period_start, id` order), claims with `FOR UPDATE SKIP
+  LOCKED`, holds a lease token with expiry recovery, retries transient
+  failures on the SAME period with capped backoff (never abandons an enabled
+  week), contains iteration errors, never overlaps a local run, and stops
+  gracefully on `onClose`. It starts on `onReady` only when the schema
+  compatibility gate passes; an empty table is a safe no-op and no feature
+  flag was added.
+- **Occurrence creation + schedule advance is ONE transaction.** Revalidated
+  ACTIVE state, staff lock, eligibility, canonical resolve/create, JOB_CREATED
+  projection, `last_processed_period_start`/`last_outcome`, `+7` advance and
+  lease release commit atomically. A pause that lands between claim and commit
+  voids the claim: no report is created and the rule stays paused. Realtime is
+  published only after commit; the database remains authoritative on crash.
+- **Attribution without re-authorization.** The rule retains a real
+  `requested_by_user_id` (last manager/admin authorization) used as the
+  creator/actor for generated JobCards and activities. The worker never
+  re-runs HTTP role checks per tick, so a later role change of the authorizing
+  manager cannot corrupt the rule; template/pause/resume record the acting
+  manager as the new authorizing identity.
+- **Target ineligibility auto-pauses.** A target that is no longer an
+  active STAFF member disables the rule with `STAFF_INELIGIBLE` (version
+  bumped, surfaced in the management list) instead of retrying forever. No
+  report is created and the schedule does not advance. Re-enable requires an
+  explicit resume against an active STAFF target. Staff offboarding itself is
+  untouched (no cross-module coupling): offboarding a staff member with an
+  active rule succeeds, and the worker converges to auto-pause on its next run.
+- **Deletion policy integration.** An ENABLED rule targeting the user blocks
+  permanent delete as `HAS_ACTIVE_RESPONSIBILITIES` (pause first — same
+  precedent as PENDING calendar reminders); the requester identity blocks as
+  `HAS_BUSINESS_HISTORY` (same precedent as JobCard creators). Once blockers
+  pass, disabled rules of a deleted staff target are removed as technical
+  dependencies (their generated reports remain untouched history). No
+  `ON DELETE CASCADE` was added to business configuration.
+- **No delete in V1.** Pause is the reversible lifecycle; template update is a
+  full replacement affecting future reports only. All four commands (bulk
+  create, template, pause, resume) are idempotent through `processed_actions`
+  with `CLIENT_ACTION_REUSED` on changed intent, and ambiguous UI attempts are
+  retried verbatim with the frozen `clientActionId`.
+- **Reporting/overdue/profile/PDF contracts preserved.** Generated reports are
+  ordinary manager-requested WEEKLY_REPORT JobCards (`NEW`, customerless), so
+  productive-metric exclusion, employee overdue semantics, profile history and
+  PDF export apply unchanged with no new event types or PDF fields.
+- **Migration 052 only; 051 byte-identical.** `052_weekly_report_recurrence`
+  is additive (one table + one partial due index, no backfill, no existing row
+  altered). A sha256 tripwire test proves 051 unchanged. Pre-existing suites
+  that pinned head 051 now pin 052 (mechanical rollover, no weakened
+  assertions); synthetic `052_future` fixtures moved to `053_future`.
+- **Mutation discrimination (all reverted, tree verified clean).** M1 fake
+  created → 10 red · M2 advance outside the transaction → 10 red · M3 no staff
+  row lock → 1 red in the worker-vs-self-create race (3/3 runs) · M4 no
+  lease/SKIP LOCKED → 2 red · M5 paused rule claimable → 2 red · M6 UTC date →
+  1 red · M7 three-week jump → 7 red · M8 resume LEAST → 2 red · M9 no
+  auto-pause → 3 red · M10 template rewrites history → 1 red · M11 fresh action
+  id on web retry → 4 red · M12 partial commit → 2 red.

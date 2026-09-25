@@ -8,14 +8,19 @@ import { ServoraSelect } from './ui/antd';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
 import {
   MAX_BULK_TARGETS,
+  MAX_RECURRENCE_TARGETS,
+  bulkCreateWeeklyReportRecurrences,
   bulkRequestWeeklyReports,
   createWeeklyReport,
   getWeeklyReportReference,
   type WeeklyReportBulkRequestInput,
   type WeeklyReportBulkResult,
   type WeeklyReportCreateInput,
+  type WeeklyReportRecurrenceBulkCreateInput,
+  type WeeklyReportRecurrenceBulkCreateResult,
   type WeeklyReportReference,
 } from './jobs/weekly-report-api';
+import { WeeklyReportRecurrenceManager } from './WeeklyReportRecurrences';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 type FieldErrors = {
@@ -23,12 +28,17 @@ type FieldErrors = {
 };
 /**
  * A frozen attempt. `single` is the STAFF self-create command; `bulk` is the
- * MANAGER/ADMIN multi-target command. Both retain the exact request that was
- * sent so an ambiguous outcome can only ever be retried verbatim.
+ * MANAGER/ADMIN multi-target one-time command; `recurring` is the
+ * MANAGER/ADMIN automatic-rule command. All three retain the exact request that
+ * was sent so an ambiguous outcome can only ever be retried verbatim.
  */
 type CreateAttempt =
   | { kind: 'single'; input: WeeklyReportCreateInput }
-  | { kind: 'bulk'; input: WeeklyReportBulkRequestInput };
+  | { kind: 'bulk'; input: WeeklyReportBulkRequestInput }
+  | { kind: 'recurring'; input: WeeklyReportRecurrenceBulkCreateInput };
+
+/** Manager-only create mode. STAFF has no mode switch and never sees it. */
+type CreateMode = 'single' | 'recurring';
 
 const MONDAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -51,6 +61,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   onCreated: (jobCardId: string) => void;
 }) {
   const isStaff = user.role === 'STAFF';
+  const [mode, setMode] = useState<CreateMode>('single');
   const [periodStart, setPeriodStart] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
@@ -66,6 +77,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [ambiguous, setAmbiguous] = useState(false);
   const [bulkResult, setBulkResult] = useState<WeeklyReportBulkResult | null>(null);
+  const [recurrenceResult, setRecurrenceResult] = useState<WeeklyReportRecurrenceBulkCreateResult | null>(null);
   const attemptRef = useRef<CreateAttempt | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const gate = useRef(createRequestGate());
@@ -121,6 +133,12 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   // chosen Monday; the server derives the identical value for STAFF self-create.
   const derivedDueDate = addDays(periodStart, 7) ?? '';
 
+  // Recurring mode is a manager-only create mode; STAFF never enters it. The
+  // server owns both ceilings — these mirrors only prevent an oversized command
+  // from leaving the browser.
+  const isRecurring = !isStaff && mode === 'recurring';
+  const targetCap = isRecurring ? MAX_RECURRENCE_TARGETS : MAX_BULK_TARGETS;
+
   function setQuestion(index: number, prompt: string) {
     setQuestions((current) => current.map((entry, position) => (position === index ? prompt : entry)));
   }
@@ -140,11 +158,11 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
    * were not added.
    */
   function selectStaff(next: string[]) {
-    if (next.length > MAX_BULK_TARGETS) {
-      setSelectedStaffIds(next.slice(0, MAX_BULK_TARGETS));
+    if (next.length > targetCap) {
+      setSelectedStaffIds(next.slice(0, targetCap));
       setFieldErrors((current) => ({
         ...current,
-        staffUserIds: `Tek işlemde en fazla ${MAX_BULK_TARGETS} personel seçilebilir; fazlası eklenmedi.`,
+        staffUserIds: `Tek işlemde en fazla ${targetCap} personel seçilebilir; fazlası eklenmedi.`,
       }));
       return;
     }
@@ -159,12 +177,19 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   function collectFieldErrors(): FieldErrors {
     const nextErrors: FieldErrors = {};
     if (!MONDAY_PATTERN.test(periodStart)) nextErrors.periodStart = 'Rapor haftası (Pazartesi) seçin.';
+    // Recurring rules may start in the current or a future week only. The
+    // comparison uses the canonical organization-local current week supplied by
+    // the server — never the device clock — so it matches the server's rule.
+    if (isRecurring && reference && MONDAY_PATTERN.test(periodStart)
+      && periodStart < reference.periodStart) {
+      nextErrors.periodStart = 'Başlangıç haftası geçmişte olamaz.';
+    }
     // selectedStaffIds can never exceed the ceiling (selectStaff caps it), so
     // the only remaining rule is the lower bound.
     if (!isStaff && selectedStaffIds.length === 0) {
       nextErrors.staffUserIds = 'Aktif bir sorumlu personel seçin.';
     }
-    if (!isStaff && dueDate && !MONDAY_PATTERN.test(dueDate)) {
+    if (!isStaff && !isRecurring && dueDate && !MONDAY_PATTERN.test(dueDate)) {
       nextErrors.dueDate = 'Termin YYYY-AA-GG biçiminde olmalıdır.';
     }
     const trimmedQuestions = trimmedQuestionList();
@@ -190,6 +215,15 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
         const created = await createWeeklyReport(attempt.input);
         attemptRef.current = null; setAmbiguous(false);
         onCreated(created.jobCardId);
+        return;
+      }
+      // Recurring mode NEVER sends a one-time request: the rule is the only
+      // writer, so choosing the current week cannot create two competing
+      // reports. The worker produces the current week's report on its next run.
+      if (attempt.kind === 'recurring') {
+        const created = await bulkCreateWeeklyReportRecurrences(attempt.input);
+        attemptRef.current = null; setAmbiguous(false);
+        setRecurrenceResult(created);
         return;
       }
       const result = await bulkRequestWeeklyReports(attempt.input);
@@ -223,23 +257,81 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
       setError('Raporu oluşturmadan önce işaretli alanları düzeltin.');
       return;
     }
-    const shared = {
-      clientActionId: crypto.randomUUID(),
-      periodStart,
-      // STAFF deadline authority: the server derives the canonical due date and
-      // rejects any client-supplied value, so a self-create never carries one.
-      ...(!isStaff && dueDate ? { dueDate } : {}),
-      ...(!isStaff ? managerQuestionPayload() : {}),
-      ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
-    };
+    const trimmedInstructions = instructions.trim();
+    const questionPayload = isStaff ? {} : managerQuestionPayload();
+    const instructionPayload = trimmedInstructions ? { instructions: trimmedInstructions } : {};
+    // Three distinct commands, three distinct payload shapes. Recurring mode
+    // sends `startPeriodStart` (a rule's first week) and NEVER a due date or a
+    // one-time request, so the browser is not a second writer for the week.
     const attempt: CreateAttempt = isStaff
-      ? { kind: 'single', input: shared }
-      : { kind: 'bulk', input: { ...shared, staffUserIds: [...selectedStaffIds] } };
+      ? { kind: 'single', input: {
+          // STAFF deadline authority: the server derives the canonical due date
+          // and rejects any client-supplied value, so a self-create never
+          // carries one (and never carries questions).
+          clientActionId: crypto.randomUUID(), periodStart, ...questionPayload, ...instructionPayload,
+        } }
+      : isRecurring
+        ? { kind: 'recurring', input: {
+            clientActionId: crypto.randomUUID(),
+            staffUserIds: [...selectedStaffIds],
+            startPeriodStart: periodStart,
+            ...questionPayload,
+            ...instructionPayload,
+          } }
+        : { kind: 'bulk', input: {
+            clientActionId: crypto.randomUUID(),
+            periodStart,
+            ...(dueDate ? { dueDate } : {}),
+            ...questionPayload,
+            ...instructionPayload,
+            staffUserIds: [...selectedStaffIds],
+          } };
     attemptRef.current = attempt;
     await sendAttempt(attempt);
   }
 
   const staffUnavailable = !isStaff && staffState !== 'ready';
+
+  if (recurrenceResult) {
+    const nameById = new Map(staff.map((profile) => [profile.user.id, profile.user.name]));
+    const created = recurrenceResult.items.filter((item) => item.outcome === 'created').length;
+    const existing = recurrenceResult.items.length - created;
+    return <main className="task-create">
+      <PageHeader eyebrow="Sonuç" description="Otomatik haftalık rapor" fallbackTitle="Yeni iş" />
+      <section className="task-form" aria-labelledby="weekly-recurrence-result-title">
+        <h2 id="weekly-recurrence-result-title">
+          {recurrenceResult.items.length} otomatik kural işlendi
+        </h2>
+        <p className="field-status" role="status">
+          <span id="weekly-recurrence-created">{created} oluşturuldu</span>
+          {' · '}
+          <span id="weekly-recurrence-existing">{existing} zaten mevcuttu</span>
+        </p>
+        <p className="form-help">
+          Her personel için her hafta otomatik rapor oluşturulur. Başlangıç haftası:{' '}
+          {recurrenceResult.startPeriodStart}. Termin, dönemi izleyen Pazartesi&apos;dir.
+        </p>
+        <ul className="activity-list" id="weekly-recurrence-result-items">
+          {recurrenceResult.items.map((item) => (
+            <li key={item.recurrenceId}>
+              <span className="recurrence-result-name">
+                {nameById.get(item.staffUserId) ?? item.staffUserId}
+              </span>
+              <span className="recurrence-result-outcome">
+                {item.outcome === 'created' ? 'Oluşturuldu' : 'Zaten mevcut'}
+              </span>
+              <span className="recurrence-result-next">
+                Sonraki rapor haftası: {item.nextPeriodStart}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="form-actions">
+          <button className="primary-button" type="button" onClick={onCancel}>Kapat</button>
+        </div>
+      </section>
+    </main>;
+  }
 
   if (bulkResult) {
     const nameById = new Map(staff.map((profile) => [profile.user.id, profile.user.name]));
@@ -283,7 +375,22 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
     <PageHeader eyebrow="Yeni kayıt" description="Haftalık rapor" fallbackTitle="Yeni iş" />
     <p className="form-intro">{isStaff
       ? 'Kendi haftalık raporunuz için bir istek oluşturun. Rapor haftası Pazartesi başlar.'
-      : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi başlar.`}</p>
+      : isRecurring
+        ? `Seçilen her personel için her hafta otomatik haftalık rapor oluşturulur (en fazla ${MAX_RECURRENCE_TARGETS} personel). Rapor haftası Pazartesi başlar.`
+        : `Seçilen her personel için ayrı bir haftalık rapor isteği oluşturun (en fazla ${MAX_BULK_TARGETS} personel). Rapor haftası Pazartesi başlar.`}</p>
+    {!isStaff && <div className="field-group" role="radiogroup" aria-label="Rapor türü" id="weekly-mode">
+      <span className="field-label">Rapor türü</span>
+      <div className="mode-switch">
+        <button type="button" role="radio" id="weekly-mode-single" aria-checked={mode === 'single'}
+          className={mode === 'single' ? 'primary-button' : 'secondary-button'}
+          disabled={pending || ambiguous}
+          onClick={() => setMode('single')}>Tek seferlik</button>
+        <button type="button" role="radio" id="weekly-mode-recurring" aria-checked={mode === 'recurring'}
+          className={mode === 'recurring' ? 'primary-button' : 'secondary-button'}
+          disabled={pending || ambiguous}
+          onClick={() => setMode('recurring')}>Her hafta otomatik</button>
+      </div>
+    </div>}
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>
       {error}
       {existingJobId && <>{' '}<a href={`/jobs/${encodeURIComponent(existingJobId)}`}>Mevcut rapora git</a></>}
@@ -291,7 +398,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
     <form className="task-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending || ambiguous}>
         <div className="field-group">
-          <label htmlFor="weekly-period">Rapor haftası (Pazartesi)</label>
+          <label htmlFor="weekly-period">{isRecurring
+            ? 'Başlangıç haftası (Pazartesi)'
+            : 'Rapor haftası (Pazartesi)'}</label>
           <input id="weekly-period" name="periodStart" type="date" required value={periodStart}
             aria-invalid={fieldErrors.periodStart ? true : undefined}
             onChange={(event) => setPeriodStart(event.target.value)} />
@@ -304,6 +413,11 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
             <button className="inline-action" type="button" onClick={() => void loadReference()}>Tekrar dene</button>
           </span>}
           {fieldErrors.periodStart && <span className="field-error">{fieldErrors.periodStart}</span>}
+          {isRecurring && reference && periodStart === reference.periodStart
+            && <p className="field-status" role="status" id="weekly-recurring-current-week">
+              Bu hafta başlangıç olarak seçildi: bu haftanın raporu otomatik olarak oluşturulacak.
+              Ayrıca tek seferlik istek gönderilmez.
+            </p>}
         </div>
         {isStaff
           ? <div className="field-group"><span className="field-label">Sorumlu personel</span>
@@ -340,16 +454,29 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
               <p className="fixed-field-value" id="weekly-due-derived">{derivedDueDate || 'Hafta seçilince belirlenir'}</p>
               <span className="form-help">Termin yönetici tarafından belirlenir; personel kendi teslim tarihini değiştiremez.</span>
             </div>
-          : <div className="field-group">
-              <label htmlFor="weekly-due">Termin (isteğe bağlı, varsayılan: dönemi izleyen Pazartesi{derivedDueDate ? ` ${derivedDueDate}` : ''})</label>
-              <input id="weekly-due" name="dueDate" type="date" value={dueDate}
-                aria-invalid={fieldErrors.dueDate ? true : undefined}
-                onChange={(event) => setDueDate(event.target.value)} />
-              {fieldErrors.dueDate && <span className="field-error">{fieldErrors.dueDate}</span>}
-            </div>}
+          : isRecurring
+            ? <div className="field-group">
+                <span className="field-label">Termin</span>
+                <p className="fixed-field-value" id="weekly-recurring-due">
+                  Her hafta dönemi izleyen Pazartesi
+                </p>
+                <span className="form-help">
+                  Otomatik kurallarda termin her zaman dönemi izleyen Pazartesi&apos;dir;
+                  serbest bir termin tarihi girilemez.
+                </span>
+              </div>
+            : <div className="field-group">
+                <label htmlFor="weekly-due">Termin (isteğe bağlı, varsayılan: dönemi izleyen Pazartesi{derivedDueDate ? ` ${derivedDueDate}` : ''})</label>
+                <input id="weekly-due" name="dueDate" type="date" value={dueDate}
+                  aria-invalid={fieldErrors.dueDate ? true : undefined}
+                  onChange={(event) => setDueDate(event.target.value)} />
+                {fieldErrors.dueDate && <span className="field-error">{fieldErrors.dueDate}</span>}
+              </div>}
         {!isStaff && <div className="field-group">
           <span className="field-label">Yönetici soruları (isteğe bağlı, en fazla 5)</span>
-          <span className="form-help">Sorular her personel için ayrı ayrı dondurulur.</span>
+          <span className="form-help">{isRecurring
+            ? 'Sorular her personel için ayrı ayrı saklanır ve yalnızca bundan sonra oluşturulacak raporlarda kullanılır.'
+            : 'Sorular her personel için ayrı ayrı dondurulur.'}</span>
           {questions.map((prompt, index) => (
             <div className="field-row" key={`question-${index}`}>
               <label htmlFor={`weekly-question-${index}`}>{index + 1}. soru</label>
@@ -373,10 +500,13 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
           onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>}
         <button className="primary-button" type="submit" disabled={pending || ambiguous || staffUnavailable}>
           {pending
-            ? 'Rapor isteği gönderiliyor…'
-            : isStaff ? 'Raporu oluştur' : 'Rapor isteklerini oluştur'}
+            ? (isRecurring ? 'Otomatik kurallar oluşturuluyor…' : 'Rapor isteği gönderiliyor…')
+            : isStaff ? 'Raporu oluştur'
+              : isRecurring ? 'Otomatik kuralları oluştur'
+                : 'Rapor isteklerini oluştur'}
         </button>
       </div>
     </form>
+    {isRecurring && <WeeklyReportRecurrenceManager user={user} />}
   </main>;
 }

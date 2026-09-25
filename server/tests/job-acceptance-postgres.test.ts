@@ -195,6 +195,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '049_job_card_lifecycle_intents',
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
+          '052_weekly_report_recurrence',
         ],
       });
 
