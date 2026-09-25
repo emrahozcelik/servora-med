@@ -36,6 +36,12 @@ export type WeeklyReportHistoryItem = {
 
 export type PaginatedWeeklyReportHistory = {
   items: WeeklyReportHistoryItem[];
+  /**
+   * Total canonical reports for the owner, from a separate bounded count
+   * statement. See {@link WeeklyReportHistoryReadPort.listForStaff}: `total` and
+   * `items` are not snapshot-consistent with each other under concurrent report
+   * creation, which is acceptable for this informational read model.
+   */
   total: number;
   limit: number;
   offset: number;

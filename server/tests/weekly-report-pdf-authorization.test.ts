@@ -10,6 +10,8 @@ import type {
   WeeklyReportSubmissionRow,
 } from '../src/modules/weekly-reports/repository.js';
 
+import { pdfDecodedText } from './support/pdf-text.js';
+
 /** Local-time DATE construction matches how node-pg materializes DATE columns. */
 const DATE_ROW = { periodStart: new Date(2026, 8, 21), periodEnd: new Date(2026, 8, 27) };
 
@@ -155,6 +157,34 @@ describe('Weekly Report submission PDF — authorization matrix', () => {
     const repository = repositoryDouble({ staffName: null });
     const result = await serviceWith(repository).weeklyReportSubmissionPdf(managerActor, 'job-1', 2);
     expect(result.buffer.length).toBeGreaterThan(0);
+  });
+
+  it('projects the frozen source-work status end to end, never the live job status', async () => {
+    // The live job below is WAITING_APPROVAL. The persisted row carries one
+    // COMPLETED and one WAITING_APPROVAL item, so a projection that read the
+    // live job (or collapsed the field) cannot draw both labels.
+    const repository = repositoryDouble({
+      submission: submissionRow({
+        frozen_source_work: [
+          {
+            jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Klinik ziyareti',
+            customerName: 'Klinik', staffCompletedAt: '2026-09-24T09:00:00.000Z',
+            statusAtSnapshot: 'COMPLETED',
+          },
+          {
+            jobCardId: 'job-10', type: 'PRODUCT_DELIVERY', title: 'Teslimat',
+            customerName: null, staffCompletedAt: '2026-09-25T09:00:00.000Z',
+            statusAtSnapshot: 'WAITING_APPROVAL',
+          },
+        ],
+      }),
+    });
+    const result = await serviceWith(repository).weeklyReportSubmissionPdf(managerActor, 'job-1', 2);
+    const text = pdfDecodedText(result.buffer);
+    expect(text).toContain('Tamamlandı');
+    expect(text).toContain('Onay bekliyor');
+    expect(text).not.toContain('COMPLETED');
+    expect(text).not.toContain('WAITING_APPROVAL');
   });
 });
 

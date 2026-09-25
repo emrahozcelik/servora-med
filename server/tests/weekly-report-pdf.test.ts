@@ -1,5 +1,3 @@
-import { inflateSync } from 'node:zlib';
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -16,6 +14,8 @@ import type {
 } from '../src/modules/weekly-reports/repository.js';
 import type { WeeklyReportSubmission } from '../src/modules/weekly-reports/types.js';
 
+import { pdfCMapText, pdfDecodedText, pdfObjectText } from './support/pdf-text.js';
+
 const PERIOD_START = new Date(2026, 8, 21);
 const PERIOD_END = new Date(2026, 8, 27);
 
@@ -30,49 +30,24 @@ function submission(overrides: Partial<WeeklyReportSubmission> = {}): WeeklyRepo
     },
     questions: [{ key: 'q1', prompt: 'Soru?' }],
     answers: [{ questionKey: 'q1', answer: 'Dondurulmuş yanıt' }],
-    sourceWork: [{
-      jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Klinik ziyareti',
-      customerName: 'Klinik', staffCompletedAt: '2026-09-24T09:00:00.000Z',
-      statusAtSnapshot: 'COMPLETED',
-    }],
+    // Two frozen items carrying DIFFERENT recorded statuses. The pair is what
+    // makes the status projection discriminating: a projection that collapses
+    // both to one value (or drops the column) cannot satisfy both assertions.
+    sourceWork: [
+      {
+        jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Klinik ziyareti',
+        customerName: 'Klinik', staffCompletedAt: '2026-09-24T09:00:00.000Z',
+        statusAtSnapshot: 'COMPLETED',
+      },
+      {
+        jobCardId: 'job-10', type: 'PRODUCT_DELIVERY', title: 'Teslimat',
+        customerName: null, staffCompletedAt: '2026-09-25T09:00:00.000Z',
+        statusAtSnapshot: 'WAITING_APPROVAL',
+      },
+    ],
     jobVersion: 4, sourceActivityId: 'act-1', createdAt: '2026-09-25T06:15:00.000Z',
     ...overrides,
   };
-}
-
-/**
- * The font ToUnicode CMap streams, inflated and concatenated. This is the only
- * place the rendered Unicode code points are recoverable as text, and it is
- * derived exclusively from the glyphs actually used — so a code point that is
- * absent from the CMap was not rendered.
- */
-function pdfCMapText(buffer: Buffer): string {
-  const raw = buffer.toString('latin1');
-  let out = '';
-  for (const part of raw.split('endstream')) {
-    const objectIndex = part.lastIndexOf(' obj');
-    if (objectIndex === -1) continue;
-    const streamIndex = part.indexOf('stream', objectIndex);
-    if (streamIndex === -1) continue;
-    let start = streamIndex + 'stream'.length;
-    while (part[start] === '\r' || part[start] === '\n') start += 1;
-    try {
-      const inflated = inflateSync(Buffer.from(part.slice(start), 'latin1')).toString('latin1');
-      if (inflated.includes('beginbf')) out += inflated;
-    } catch { /* not a flate stream */ }
-  }
-  return out;
-}
-
-/** The PDF object dictionaries with every stream body removed. */
-function pdfObjectText(buffer: Buffer): string {
-  return buffer.toString('latin1')
-    .split('endstream')
-    .map((part) => {
-      const streamIndex = part.indexOf('stream');
-      return streamIndex === -1 ? part : part.slice(0, streamIndex);
-    })
-    .join('\n');
 }
 
 const TURKISH_CODE_POINTS: Record<string, number> = {
@@ -110,10 +85,33 @@ describe('Weekly Report PDF — document model', () => {
     expect(model.sections[0]!.value).toBe('Dondurulmuş özet');
     expect(model.sections[1]!.value).toBeNull();
     expect(model.answers).toEqual([{ prompt: 'Soru?', answer: 'Dondurulmuş yanıt' }]);
-    expect(model.sourceWork).toEqual([{
-      title: 'Klinik ziyareti', type: 'GENERAL_TASK', customerName: 'Klinik',
-      staffCompletedAt: '2026-09-24T09:00:00.000Z',
-    }]);
+    // Both frozen items survive the projection, and each keeps the status that
+    // was recorded at submission time. A projection that drops or collapses the
+    // field cannot satisfy this shape.
+    expect(model.sourceWork).toEqual([
+      {
+        title: 'Klinik ziyareti', type: 'GENERAL_TASK', customerName: 'Klinik',
+        staffCompletedAt: '2026-09-24T09:00:00.000Z',
+        statusAtSnapshot: 'COMPLETED',
+      },
+      {
+        title: 'Teslimat', type: 'PRODUCT_DELIVERY', customerName: null,
+        staffCompletedAt: '2026-09-25T09:00:00.000Z',
+        statusAtSnapshot: 'WAITING_APPROVAL',
+      },
+    ]);
+    expect(model.submittedBy).toBe('staff-1');
+  });
+
+  it('preserves two DIFFERENT frozen statuses instead of one live/constant value', () => {
+    const model = buildWeeklyReportPdfDocumentModel({ submission: submission(), staffName: 'Ayşe' });
+    expect(model.sourceWork.map((item) => item.statusAtSnapshot)).toEqual([
+      'COMPLETED',
+      'WAITING_APPROVAL',
+    ]);
+    // The two statuses must be genuinely distinct values, not a single constant.
+    const [first, second] = model.sourceWork;
+    expect(first!.statusAtSnapshot).not.toBe(second!.statusAtSnapshot);
   });
 
   it('treats an empty optional section as absent and a question key as its own label', () => {
@@ -212,6 +210,19 @@ describe('Weekly Report PDF — rendering', () => {
     // Roboto is embedded from the package, so the PDF carries its own font.
     expect(buffer.toString('latin1')).toContain('/FontFile2');
   });
+
+  it('draws the frozen status of every source-work item as a localized label', async () => {
+    // The fixture carries one COMPLETED and one WAITING_APPROVAL item, so a
+    // mapping that collapses both to one constant cannot draw both labels.
+    const model = buildWeeklyReportPdfDocumentModel({ submission: submission(), staffName: 'Ayşe' });
+    const text = pdfDecodedText(await renderWeeklyReportPdf(model));
+    expect(text).toContain('Durum');
+    expect(text).toContain('Tamamlandı');
+    expect(text).toContain('Onay bekliyor');
+    // The raw enum codes are internal and must never surface in the document.
+    expect(text).not.toContain('COMPLETED');
+    expect(text).not.toContain('WAITING_APPROVAL');
+  });
 });
 
 describe('Weekly Report PDF — immutability', () => {
@@ -306,6 +317,32 @@ describe('Weekly Report PDF — immutability', () => {
     });
     const second = await service(mutated).weeklyReportSubmissionPdf(actor, 'job-1', 1);
     expect(pdfCMapText(second.buffer)).toBe(pdfCMapText(first.buffer));
+  });
+
+  it('keeps the immutable submitter identity stable across a display-name rename', async () => {
+    // The display name is resolved live from `users.name` and is presentation
+    // metadata: a rename legitimately changes it. The frozen `submitted_by`
+    // value is the stable traceability identity and must survive the rename.
+    // This is deliberately NOT a byte-for-byte reproducibility claim.
+    const build = (name: string) => ({
+      findJobCard: vi.fn().mockResolvedValue(jobCard()),
+      getWeeklyReportByJobId: vi.fn().mockResolvedValue(reportRow()),
+      getWeeklyReportSubmissionBySeq: vi.fn().mockResolvedValue(submissionRow()),
+      getUserDisplayName: vi.fn().mockResolvedValue(name),
+    });
+    const before = pdfDecodedText(
+      (await service(build('Ayşe Personel')).weeklyReportSubmissionPdf(actor, 'job-1', 1)).buffer,
+    );
+    const after = pdfDecodedText(
+      (await service(build('Ayşe Yeni Soyad')).weeklyReportSubmissionPdf(actor, 'job-1', 1)).buffer,
+    );
+
+    expect(before).toContain('Gönderen kimliği');
+    expect(before).toContain('Ayşe Personel');
+    expect(after).toContain('Ayşe Yeni Soyad');
+    // The stable identity is unchanged by the rename.
+    expect(before).toContain('staff-1');
+    expect(after).toContain('staff-1');
   });
 });
 

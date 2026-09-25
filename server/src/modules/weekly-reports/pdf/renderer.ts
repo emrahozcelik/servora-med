@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path';
 
 import pdfMake from 'pdfmake';
 
-import type { WeeklyReportPdfDocumentModel } from './document-model.js';
+import type {
+  WeeklyReportPdfDocumentModel,
+  WeeklyReportSourceWorkStatus,
+} from './document-model.js';
 
 const require = createRequire(import.meta.url);
 
@@ -66,22 +69,39 @@ function sectionBlock(label: string, value: string | null): unknown[] {
   ];
 }
 
+/**
+ * Turkish wording for the frozen source-work status.
+ *
+ * `Record` over the union derived from the submission SSOT is deliberate: it is
+ * what makes the mapping exhaustive at compile time. If
+ * `SourceWorkSnapshotItem['statusAtSnapshot']` ever gains a member, this map
+ * stops compiling instead of silently rendering an undefined cell in an
+ * archival document.
+ */
+const SOURCE_WORK_STATUS_LABELS: Record<WeeklyReportSourceWorkStatus, string> = {
+  WAITING_APPROVAL: 'Onay bekliyor',
+  COMPLETED: 'Tamamlandı',
+};
+
 function sourceWorkTable(model: WeeklyReportPdfDocumentModel): unknown {
   if (model.sourceWork.length === 0) {
     return { text: 'Bu gönderimde dondurulmuş çalışma listesi boş.', italics: true, margin: [0, 4, 0, 0] };
   }
-  const header = ['Başlık', 'Tür', 'Müşteri', 'Tamamlanma'].map((text) => ({ text, bold: true }));
+  const header = ['Başlık', 'Tür', 'Müşteri', 'Durum', 'Tamamlanma']
+    .map((text) => ({ text, bold: true }));
   const rows = model.sourceWork.map((item) => [
     { text: item.title },
     { text: item.type },
     { text: item.customerName ?? '—' },
+    // The status recorded when the report was frozen, never the live one.
+    { text: SOURCE_WORK_STATUS_LABELS[item.statusAtSnapshot] },
     { text: item.staffCompletedAt },
   ]);
   return {
     margin: [0, 4, 0, 0],
     table: {
       headerRows: 1,
-      widths: ['*', 'auto', 'auto', 'auto'],
+      widths: ['*', 'auto', 'auto', 'auto', 'auto'],
       body: [header, ...rows],
     },
     layout: 'lightHorizontalLines',
@@ -97,7 +117,12 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
       color: '#555555',
       margin: [0, 2, 0, 10],
     },
+    // Two different guarantees, deliberately both shown: `staffName` is the
+    // current display name (presentation metadata, changes on rename) while
+    // `submittedBy` is the immutable identity captured by the submission and
+    // never changes for a given version.
     metadataRow('Personel', model.staffName),
+    metadataRow('Gönderen kimliği', model.submittedBy),
     metadataRow('Rapor dönemi', `${model.periodStart} – ${model.periodEnd}`),
     metadataRow('Gönderim sırası', `#${model.seqNo}`),
     metadataRow('Gönderim zamanı', model.submittedAt),

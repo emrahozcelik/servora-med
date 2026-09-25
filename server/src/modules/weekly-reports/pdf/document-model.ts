@@ -1,4 +1,4 @@
-import type { WeeklyReportSubmission } from '../types.js';
+import type { SourceWorkSnapshotItem, WeeklyReportSubmission } from '../types.js';
 
 /** One frozen report section, already resolved to plain text. */
 export type WeeklyReportPdfSection = {
@@ -12,11 +12,25 @@ export type WeeklyReportPdfAnswer = {
   answer: string;
 };
 
+/**
+ * Frozen source-work lifecycle status, derived from the submission SSOT so the
+ * PDF projection cannot drift from the persisted union. If
+ * {@link SourceWorkSnapshotItem} ever widens, this type widens with it and the
+ * exhaustive label map in the renderer stops compiling.
+ */
+export type WeeklyReportSourceWorkStatus = SourceWorkSnapshotItem['statusAtSnapshot'];
+
 export type WeeklyReportPdfSourceWorkItem = {
   title: string;
   type: string;
   customerName: string | null;
   staffCompletedAt: string;
+  /**
+   * Copied verbatim from the frozen submission. It is never re-derived from the
+   * live source JobCard: a later lifecycle transition must not rewrite what an
+   * already submitted report recorded.
+   */
+  statusAtSnapshot: WeeklyReportSourceWorkStatus;
 };
 
 /**
@@ -34,11 +48,16 @@ export type WeeklyReportPdfDocumentModel = {
   periodStart: string;
   periodEnd: string;
   submittedAt: string;
+  /**
+   * Immutable submitter identity, frozen with the submission and never
+   * rewritten. Rendered in the document as the stable traceability identifier.
+   */
   submittedBy: string;
   /**
-   * Presentation-only metadata (the staff display name). Deliberately not part
-   * of the frozen content: a later rename must not rewrite a submitted report,
-   * and the name is not report content.
+   * Presentation-only metadata (the current staff display name). Deliberately
+   * not part of the frozen content: it is resolved live and may change on
+   * rename, so it is never the report's identity. The stable identity is
+   * {@link submittedBy}.
    */
   staffName: string;
   sections: WeeklyReportPdfSection[];
@@ -106,6 +125,8 @@ export function buildWeeklyReportPdfDocumentModel(input: {
       type: item.type,
       customerName: item.customerName === null ? null : sanitizePdfText(item.customerName),
       staffCompletedAt: item.staffCompletedAt,
+      // Straight from the frozen item. No lookup, no join, no live status.
+      statusAtSnapshot: item.statusAtSnapshot,
     })),
   };
 }

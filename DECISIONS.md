@@ -1203,3 +1203,73 @@ migration (051 schema proved sufficient again).
   transaction pattern" to audit. No such pattern exists in this repository
   (`bulk` has zero matches under `server/src`); the reused primitives are
   `lockUsersInOrder` and `executeCriticalAction`.
+
+## Weekly Report V1 Slice 4 profile history and PDF export — 2026-09-25
+
+- **Two surfaces, two different natures.** The profile Weekly Report list is a
+  bounded **read model** over canonical data; the PDF is an **on-demand
+  projection** of one already-frozen submission. Neither is a new source of
+  truth and neither writes anything.
+- **Profile history is a read model, not a second reporting system.** One row
+  per canonical `weekly_reports` record, enriched with the backing JobCard's
+  lifecycle status (the lifecycle authority) and a submission aggregate derived
+  from the immutable `weekly_report_submissions` rows. It deliberately carries
+  no report content — no draft body, no frozen body, no frozen source work — so
+  the profile list cannot become an alternate content surface. Content stays
+  behind the report detail and submission endpoints.
+- **Read port.** `WeeklyReportHistoryReadPort.listForStaff` is the explicit
+  boundary, modelled on `JobHistoryReadPort`, so the profile read path never
+  depends on the whole lifecycle implementation. Authorization is enforced in
+  the service (STAFF self only; MANAGER/ADMIN same-organization, active STAFF
+  target) **and** re-scoped in SQL: a STAFF actor is pinned to its own
+  `staff_user_id` even if a caller resolves a different target, and the tenant
+  predicate is always applied. Isolation is proven against real PostgreSQL
+  (`weekly-report-history-postgres.test.ts`), not only with a port double.
+- **Bounded cost.** One count statement plus one page statement, independent of
+  the number of reports; the submission aggregate is folded in with a LATERAL
+  subquery rather than a query per report. The two statements are intentionally
+  not transactional, so `total` and `items` may be momentarily non-snapshot
+  consistent under concurrent report creation. Accepted for this informational
+  read model; no transaction or repeatable-read wrapper is to be added.
+- **PDF is a projection, never a stored artifact.** A PDF is rendered on demand
+  from **exactly one** immutable `weekly_report_submissions` row selected by an
+  explicit `seq_no`. There is no PDF persistence, no PDF audit trail, no stored
+  file and no generated-document table: the immutable submission already is the
+  archival record, and the PDF is a view of it. Regenerating a PDF for the same
+  seq re-reads the same frozen row.
+- **Explicit seq, never "latest".** The download route always carries the seq
+  the caller selected, so an older submitted version remains retrievable after a
+  revision. The server conceals unknown seqs and foreign jobs as domain
+  not-found errors rather than raw failures.
+- **Frozen content only.** The document model is built from the submission
+  snapshot. It must never read the live draft, the live answers or the live
+  source JobCard. In particular each frozen source-work item's recorded
+  `statusAtSnapshot` is projected **verbatim** and rendered as a localized
+  `Durum` label; it is never re-derived from the JobCard's current status, so a
+  later lifecycle transition cannot rewrite what a submitted report recorded.
+  The status→label map is exhaustive over the union derived from
+  `SourceWorkSnapshotItem['statusAtSnapshot']`, so widening that union fails the
+  build instead of silently falling through.
+- **Submitter identity vs display name.** `submittedBy` is the immutable
+  submitter identity frozen with the submission and is rendered as the stable
+  traceability identifier (`Gönderen kimliği`). The staff **display name** is
+  resolved live from `users.name` and is presentation metadata only: it may
+  legitimately change on rename, and the document is not claimed to be
+  byte-for-byte reproducible across a rename. No name snapshot column was added.
+- **Profile presentation.** The history row renders the server-provided calendar
+  `dueDate` textually as `DD.MM.YYYY` (never re-parsed into a `Date`, so no
+  timezone can shift the reported day) and renders `completedAt`, the JobCard
+  approval instant, as `Tamamlandı <date>` only once the report actually reached
+  that state. A null `dueDate` omits the label rather than inventing a value.
+- **Runtime.** PDF rendering is server-side and pure JavaScript via
+  `pdfmake`, pinned to an exact version. Fonts (Roboto) come from the package
+  itself, so there is no host-font dependency, no font discovery, no network
+  access and no Chromium/Puppeteer/wkhtmltopdf/LibreOffice requirement. The web
+  bundle does not contain any PDF library; the browser only receives bytes.
+- **Recurrence is NOT implemented.** Slice 4 adds no scheduler, no automatic
+  Monday report creation and no recurrence engine. Weekly reports are still
+  created explicitly by STAFF self-create or a MANAGER/ADMIN request.
+- **Out of scope, recorded as follow-up.** The pre-existing generic
+  `/staff/:id/jobs` paging helper in `people/handlers.ts` still lacks the
+  safe-integer guard its Weekly Report sibling has. That is a separate fix and
+  was deliberately not widened into this slice.

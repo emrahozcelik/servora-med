@@ -292,4 +292,35 @@ describe('StaffWeeklyReportHistory (profile read model)', () => {
     await act(async () => { click(previous!); await flush(); });
     expect(calls).toEqual([OWN_URL, PAGE_2_URL, OWN_URL]);
   });
+
+  // 13
+  it('renders the server-provided due date as a calendar day', async () => {
+    handlers[OWN_URL] = () => json(page([item()]));
+    await render(staffUser, 'staff-1');
+    expect(host.textContent).toContain('Termin 28.09.2026');
+  });
+
+  // 14
+  it('omits the deadline label when the report has no due date', async () => {
+    handlers[OWN_URL] = () => json(page([item({ dueDate: null })]));
+    await render(staffUser, 'staff-1');
+    expect(host.textContent).not.toContain('Termin');
+  });
+
+  // 15
+  it('renders the completion date once the report has been approved', async () => {
+    const approvedAt = '2026-09-29T10:00:00.000Z';
+    handlers[OWN_URL] = () => json(page([item({ status: 'COMPLETED', completedAt: approvedAt })]));
+    await render(staffUser, 'staff-1');
+    // Same formatting expression as the component: this proves the `completedAt`
+    // field is rendered, not that the browser can format a date.
+    expect(host.textContent).toContain(`Tamamlandı ${new Date(approvedAt).toLocaleDateString('tr-TR')}`);
+  });
+
+  // 16
+  it('omits the completion date while the report is still open', async () => {
+    handlers[OWN_URL] = () => json(page([item()]));
+    await render(staffUser, 'staff-1');
+    expect(host.textContent).not.toContain('Tamamlandı ');
+  });
 });

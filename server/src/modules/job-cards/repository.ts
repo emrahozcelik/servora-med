@@ -3815,6 +3815,16 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   /**
    * Profile history read model (WeeklyReportHistoryReadPort). Bounded: a count
    * statement plus one page statement, independent of the number of reports.
+   *
+   * The two statements are deliberately NOT wrapped in a transaction. They are
+   * therefore not snapshot-consistent with each other: if a report is created
+   * between them, `total` and the rows in `items` can disagree for a moment (and
+   * `offset + items.length < total` can be true on the last page). That is
+   * acceptable here because this is an informational, low-stakes read model that
+   * is refreshed by realtime invalidation and re-read by the user; it is not a
+   * lifecycle authority and nothing is written from it. Do not add a transaction
+   * or a repeatable-read wrapper to close this window — it would hold a
+   * connection open for a list view without changing any user-visible guarantee.
    */
   async listForStaff(
     input: StaffWeeklyReportHistoryQuery,

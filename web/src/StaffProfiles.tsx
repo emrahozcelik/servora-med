@@ -90,10 +90,26 @@ export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile;
 }
 
 /**
+ * Formats a server-provided calendar date (`YYYY-MM-DD`) as `DD.MM.YYYY`.
+ * Deliberately textual: the value is never re-parsed into a `Date`, so no
+ * timezone can shift the day the server reported.
+ */
+function formatCalendarDay(value: string): string {
+  const [year, month, day] = value.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+/**
  * Personnel-profile Weekly Report history. A read model over canonical
  * WeeklyReports: every canonical lifecycle status is shown, a report with zero
  * submissions is a valid row (no PDF action), and the PDF action always targets
  * the latest immutable submission seq.
+ *
+ * `dueDate` is the server's calendar date and is formatted textually. A null
+ * `dueDate` means no deadline was ever set on the report's JobCard, so the row
+ * simply omits the label rather than inventing a placeholder. `completedAt` is
+ * a real instant (the report JobCard's approval time) and is rendered as
+ * `Tamamlandı <date>` only when the report actually reached that state.
  */
 export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: CurrentUser; staffUserId: string }) {
   const [page, setPage] = useState<Paginated<WeeklyReportHistoryItem> | null>(null);
@@ -147,7 +163,9 @@ export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: Curren
       <div>
         <Link to={paths.job(item.jobCardId)}>{`${item.periodStart} – ${item.periodEnd}`}</Link>
         <p>{jobCardStatusLabel(item.status)} · {item.submissionCount === 0 ? 'Gönderim yok' : `${item.submissionCount} gönderim`}
-          {item.latestSubmittedAt ? ` · Son gönderim ${new Date(item.latestSubmittedAt).toLocaleDateString('tr-TR')}` : ''}</p>
+          {item.latestSubmittedAt ? ` · Son gönderim ${new Date(item.latestSubmittedAt).toLocaleDateString('tr-TR')}` : ''}
+          {item.dueDate ? ` · Termin ${formatCalendarDay(item.dueDate)}` : ''}
+          {item.completedAt ? ` · Tamamlandı ${new Date(item.completedAt).toLocaleDateString('tr-TR')}` : ''}</p>
       </div>
       {item.latestSubmissionSeqNo === null
         ? <span className="muted-copy">PDF yok</span>
