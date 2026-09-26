@@ -1442,8 +1442,9 @@ slice; no merge performed here.
   visibly instead of pretending or picking a subset); the manual `Termin`
   input was removed from one-time and recurring creation for every role —
   deadline displays use `Teslim son tarihi`. **Weekly Report teslim son
-  tarihi kullanıcı girdisi değildir; server tarafından rapor dönemini izleyen
-  Pazartesi olarak türetilir** (authority fix, below).
+  tarihi oluşturma sırasında veya sonradan kullanıcı tarafından
+  değiştirilemez; rapor dönemini izleyen Pazartesi olarak server tarafından
+  belirlenir** (authority + immutability fixes, below).
   (3) **Manager questions reworked:** five preset questions (stable semantic
   keys `preset_week_highlights`, `preset_incomplete_work`,
   `preset_field_feedback`, `preset_next_week_priorities`,
@@ -1503,3 +1504,26 @@ slice; no merge performed here.
   zero mutation), plus mutations M1 (create acceptlist re-admits dueDate →
   3 red), M2 (bulk acceptlist re-admits dueDate → 1 red), M3 (derivation
   shifted to periodEnd + 2 → 6 red); all reverted, tree restored.
+- **Deadline immutability on patch (2026-09-26, product-authority audit
+  follow-up).** The create-time fix left one documented authority gap: the
+  generic JobCard patch still accepted `dueDate` for a `WEEKLY_REPORT` when
+  the actor was MANAGER/ADMIN (only STAFF was blocked by the ownership
+  rule), so the canonical deadline could still be moved after creation —
+  contradicting the product rule and the create-path comment. The generic
+  patch now enforces a WEEKLY_REPORT-specific invariant on the locked row:
+  a `dueDate` field whose value differs from the persisted canonical
+  deadline is rejected with `VALIDATION_ERROR`
+  (`Haftalık raporun teslim son tarihi değiştirilemez.`) for every role,
+  while a same-value patch stays an accepted no-op under the existing
+  change-scoped machinery. The guard lives inside the existing
+  `job.type === 'WEEKLY_REPORT'` block (customerless/unscheduled + staff
+  ownership rules unchanged; STAFF keeps its stricter `FORBIDDEN`), the
+  global patch schema is untouched for other types, and no period is
+  recomputed from titles. Proven by P1 (manager changed value → rejected,
+  dueDate and version untouched), P2 (admin), P3 (staff keeps `FORBIDDEN`),
+  P4 (GENERAL_TASK manager dueDate patch still succeeds — type-scoped), P5
+  (recurrence-worker-created report rejected identically for manager and
+  admin — no alternate authority path) and mutations M1 (guard disabled →
+  P1/P2/P5 red), M2 (guard applied globally → P4 red), M3 (NEW-status
+  exemption, exactly what a recurrence worker produces → P5 red); all
+  reverted, tree restored.

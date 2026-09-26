@@ -170,7 +170,7 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
     });
   });
 
-  it('derives the canonical deadline on manager create and keeps patch reschedule authority', async () => {
+  it('derives the canonical deadline on manager create; a same-value dueDate patch is a no-op', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -186,18 +186,18 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
         }),
       );
       expect(created.dueDate).toBe(WEEK_A_DUE);
-      // Rescheduling an EXISTING JobCard via the generic patch remains a
-      // manager authority: only the request authority changed, not JobCard
-      // due-date semantics.
+      // The deadline is immutable for every actor, but the patch guard is
+      // change-scoped like the rest of the machinery: re-sending the persisted
+      // canonical value stays an accepted no-op (P1 covers CHANGED values).
       const detail = await service.detail(managerActor(organizationId, managerId), created.jobCardId);
       await service.patch(managerActor(organizationId, managerId), created.jobCardId, {
-        expectedVersion: detail.version, dueDate: '2026-08-14',
+        expectedVersion: detail.version, dueDate: WEEK_A_DUE,
       });
       const row = (await pool.query(
         `SELECT due_date::text AS due_date FROM job_cards WHERE id = $1`,
         [created.jobCardId],
       )).rows[0];
-      expect(row.due_date).toBe('2026-08-14');
+      expect(row.due_date).toBe(WEEK_A_DUE);
     });
   });
 
@@ -284,6 +284,89 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
         [created.jobCardId],
       )).rows[0];
       expect(row.due_date).toBe(WEEK_A_DUE);
+    });
+  });
+
+  it('P1: rejects a MANAGER due-date patch on a Weekly Report without mutation', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      const created = await service.createWeeklyReport(
+        managerActor(organizationId, managerId),
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffId,
+        }),
+      );
+      expect(created.dueDate).toBe(WEEK_A_DUE);
+      const detail = await service.detail(managerActor(organizationId, managerId), created.jobCardId);
+      await expect(service.patch(managerActor(organizationId, managerId), created.jobCardId, {
+        expectedVersion: detail.version, dueDate: '2026-08-11',
+      })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        statusCode: 400,
+        details: { fieldErrors: { dueDate: 'Haftalık raporun teslim son tarihi değiştirilemez.' } },
+      });
+      const row = (await pool.query<{ due_date: string; version: number }>(
+        `SELECT due_date::text AS due_date, version FROM job_cards WHERE id = $1`,
+        [created.jobCardId],
+      )).rows[0];
+      // The canonical deadline and the row version are untouched.
+      expect(row.due_date).toBe(WEEK_A_DUE);
+      expect(row.version).toBe(detail.version);
+    });
+  });
+
+  it('P2: rejects an ADMIN due-date patch on a Weekly Report without mutation', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const adminId = await insertUser(pool, organizationId, 'ADMIN');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      const created = await service.createWeeklyReport(
+        { id: adminId, organizationId, role: 'ADMIN' },
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffId,
+        }),
+      );
+      expect(created.dueDate).toBe(WEEK_A_DUE);
+      const detail = await service.detail({ id: adminId, organizationId, role: 'ADMIN' }, created.jobCardId);
+      await expect(service.patch({ id: adminId, organizationId, role: 'ADMIN' }, created.jobCardId, {
+        expectedVersion: detail.version, dueDate: '2026-08-11',
+      })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+      const row = (await pool.query<{ due_date: string; version: number }>(
+        `SELECT due_date::text AS due_date, version FROM job_cards WHERE id = $1`,
+        [created.jobCardId],
+      )).rows[0];
+      expect(row.due_date).toBe(WEEK_A_DUE);
+      expect(row.version).toBe(detail.version);
+    });
+  });
+
+  it('P4: keeps the generic due-date patch legal for ordinary JobCard types', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      // The immutability guard is type-scoped: a GENERAL_TASK keeps the
+      // established manager reschedule authority.
+      const task = await service.create(
+        managerActor(organizationId, managerId),
+        parseJobCardCreateInput({
+          clientActionId: randomUUID(), type: 'GENERAL_TASK',
+          title: 'Doktoru ara', assignedTo: staffId,
+        }),
+      );
+      await service.patch(managerActor(organizationId, managerId), task.id, {
+        expectedVersion: task.version, dueDate: '2026-08-20',
+      });
+      const row = (await pool.query<{ due_date: string }>(
+        `SELECT due_date::text AS due_date FROM job_cards WHERE id = $1`,
+        [task.id],
+      )).rows[0];
+      expect(row.due_date).toBe('2026-08-20');
     });
   });
 });

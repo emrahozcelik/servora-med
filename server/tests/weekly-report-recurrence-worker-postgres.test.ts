@@ -884,4 +884,48 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
       });
     });
   });
+
+  describe('deadline immutability', () => {
+    it('P5: rejects manager/admin due-date patches on a recurrence-created report', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const adminId = await insertUser(pool, organizationId, 'ADMIN');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const ruleId = await insertRule(pool, {
+          organizationId, staffUserId: staffId, requestedByUserId: managerId,
+          nextPeriodStart: WEEK_A,
+        });
+        const harness = buildHarness(pool);
+        // The report exists ONLY through the recurrence worker path.
+        expect(await buildWorker(harness, NOW).runOnce()).toBe(1);
+        const job = (await jobRows(pool))[0]!;
+        expect(job.due_date).toBe(WEEK_B);
+        const detail = await harness.jobCardService.detail(
+          { id: managerId, organizationId, role: 'MANAGER' } as JobCardActor,
+          job.id,
+        );
+        // No alternate authority path: same rejection as a manually
+        // requested report, for both MANAGER and ADMIN.
+        for (const actor of [
+          { id: managerId, organizationId, role: 'MANAGER' },
+          { id: adminId, organizationId, role: 'ADMIN' },
+        ] as JobCardActor[]) {
+          await expect(harness.jobCardService.patch(actor, job.id, {
+            expectedVersion: detail.version, dueDate: '2026-10-13',
+          })).rejects.toMatchObject({
+            code: 'VALIDATION_ERROR',
+            statusCode: 400,
+            details: { fieldErrors: { dueDate: 'Haftalık raporun teslim son tarihi değiştirilemez.' } },
+          });
+        }
+        const after = (await pool.query<{ due_date: string; version: number }>(
+          `SELECT due_date::text AS due_date, version FROM job_cards WHERE id = $1`,
+          [job.id],
+        )).rows[0];
+        expect(after.due_date).toBe(WEEK_B);
+        expect(after.version).toBe(detail.version);
+      });
+    });
+  });
 });

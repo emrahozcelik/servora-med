@@ -2320,6 +2320,23 @@ export class JobCardService {
             );
           }
         }
+        // Deadline immutability (field-test product authority, extended to
+        // every actor): the submission deadline is server-canonical
+        // (periodEnd + 1) at creation AND stays tied to the immutable report
+        // period afterwards — a MANAGER/ADMIN can no longer reschedule it
+        // through the generic patch either. Same-value patches fall through
+        // to the ordinary change-scoped machinery (a no-op); a CHANGED
+        // dueDate is rejected for every role (STAFF already hit the stricter
+        // ownership check above).
+        if (fields.dueDate !== undefined
+          && fields.dueDate !== (job.dueDate ?? null)) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Haftalık raporun teslim son tarihi değiştirilemez.',
+            { fieldErrors: { dueDate: 'Haftalık raporun teslim son tarihi değiştirilemez.' } },
+          );
+        }
       }
 
       const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
