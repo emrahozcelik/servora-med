@@ -12,6 +12,14 @@ import {
   type WeeklyReportRecurrenceResumeInput,
   type WeeklyReportRecurrenceTemplateUpdateInput,
 } from './jobs/weekly-report-api';
+import {
+  WEEKLY_REPORT_PRESET_QUESTIONS,
+  WeeklyReportQuestionEditor,
+  collectManagerQuestions,
+  promptCodePoints,
+  type CustomQuestionDraft,
+  type ManagerQuestionPayload,
+} from './jobs/WeeklyReportQuestionEditor';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -35,9 +43,14 @@ const OUTCOME_LABELS: Record<string, string> = {
   existing: 'zaten mevcuttu',
 };
 
-const MAX_EDIT_QUESTIONS = 5;
+const MAX_QUESTIONS = 50;
 const MAX_EDIT_QUESTION_LENGTH = 500;
 const MAX_EDIT_INSTRUCTIONS_LENGTH = 2000;
+
+/** Stable semantic keys of the canonical presets, for round-trip editing. */
+const PRESET_KEYS: ReadonlySet<string> = new Set(
+  WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => preset.key),
+);
 
 /**
  * Recurrence management surface (V1 Slice 5).
@@ -61,7 +74,9 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
   const [pending, setPending] = useState(false);
   const [ambiguous, setAmbiguous] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editQuestions, setEditQuestions] = useState<string[]>([]);
+  const [editPresetKeys, setEditPresetKeys] = useState<ReadonlySet<string>>(new Set());
+  const [editCustomQuestions, setEditCustomQuestions] = useState<CustomQuestionDraft[]>([]);
+  const [editCustomIdCounter, setEditCustomIdCounter] = useState(1);
   const [editInstructions, setEditInstructions] = useState('');
   const [editError, setEditError] = useState('');
   const operationRef = useRef<RecurrenceOperation | null>(null);
@@ -130,9 +145,51 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
     if (operation) void sendOperation(operation);
   }
 
+  function toggleEditPreset(key: string, checked: boolean) {
+    setEditPresetKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
+
+  function addEditCustomQuestion() {
+    // The id is minted once at add-time and never renumbered, so a frozen
+    // attempt replays the exact same question keys on an ambiguous retry.
+    setEditCustomIdCounter((counter) => {
+      setEditCustomQuestions((current) => [...current, { id: counter, prompt: '' }]);
+      return counter + 1;
+    });
+  }
+
+  function changeEditCustomPrompt(id: number, prompt: string) {
+    setEditCustomQuestions((current) => current.map((question) => (
+      question.id === id ? { ...question, prompt } : question
+    )));
+  }
+
+  function removeEditCustomQuestion(id: number) {
+    setEditCustomQuestions((current) => current.filter((question) => question.id !== id));
+  }
+
+  /**
+   * Start editing from the rule's frozen question list. A persisted question
+   * whose key matches a preset stays that preset's checkbox (so wording stays
+   * canonical); anything else is a custom question. Editing affects FUTURE
+   * reports only — existing reports and immutable submissions never change.
+   */
   function startEditing(rule: WeeklyReportRecurrence) {
     setEditingId(rule.id);
-    setEditQuestions(rule.questions.map((question) => question.prompt));
+    const presetKeys = new Set<string>();
+    const custom: CustomQuestionDraft[] = [];
+    rule.questions.forEach((question, index) => {
+      const isPreset = PRESET_KEYS.has(question.key);
+      if (isPreset) presetKeys.add(question.key);
+      else custom.push({ id: index + 1, prompt: question.prompt });
+    });
+    setEditPresetKeys(presetKeys);
+    setEditCustomQuestions(custom);
+    setEditCustomIdCounter(custom.length + 1);
     setEditInstructions(rule.instructions ?? '');
     setEditError('');
   }
@@ -141,29 +198,23 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
     setEditingId(null); setEditError('');
   }
 
-  function setEditQuestion(index: number, prompt: string) {
-    setEditQuestions((current) => current.map((entry, position) => (position === index ? prompt : entry)));
-  }
-
-  function addEditQuestion() {
-    setEditQuestions((current) => (current.length >= MAX_EDIT_QUESTIONS ? current : [...current, '']));
-  }
-
-  function removeEditQuestion(index: number) {
-    setEditQuestions((current) => current.filter((_, position) => position !== index));
+  function editQuestionsPayload(): ManagerQuestionPayload[] {
+    return collectManagerQuestions(editPresetKeys, editCustomQuestions);
   }
 
   function saveTemplate(rule: WeeklyReportRecurrence) {
     if (locked) return;
-    const prompts = editQuestions.map((prompt) => prompt.trim());
-    if (prompts.length > MAX_EDIT_QUESTIONS) {
-      setEditError(`En fazla ${MAX_EDIT_QUESTIONS} yönetici sorusu eklenebilir.`); return;
+    const questions = editQuestionsPayload();
+    if (questions.length > MAX_QUESTIONS) {
+      setEditError(`En fazla ${MAX_QUESTIONS} yönetici sorusu eklenebilir.`); return;
     }
-    const blankIndex = prompts.findIndex((prompt) => prompt.length === 0);
-    if (blankIndex >= 0) { setEditError(`${blankIndex + 1}. soru boş olamaz.`); return; }
-    const tooLongIndex = prompts.findIndex((prompt) => Array.from(prompt).length > MAX_EDIT_QUESTION_LENGTH);
-    if (tooLongIndex >= 0) {
-      setEditError(`${tooLongIndex + 1}. soru en fazla ${MAX_EDIT_QUESTION_LENGTH} karakter olabilir.`); return;
+    const blankCustom = editCustomQuestions.find((question) => question.prompt.trim().length === 0);
+    if (blankCustom) { setEditError('Özel soru boş olamaz; boş satırı kaldırın.'); return; }
+    const tooLong = editCustomQuestions.find(
+      (question) => promptCodePoints(question.prompt.trim()) > MAX_EDIT_QUESTION_LENGTH,
+    );
+    if (tooLong) {
+      setEditError(`Özel soru en fazla ${MAX_EDIT_QUESTION_LENGTH} karakter olabilir.`); return;
     }
     setEditError('');
     // Full replacement: both fields are always sent, never a sparse merge.
@@ -174,7 +225,7 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
       input: {
         clientActionId: crypto.randomUUID(),
         expectedVersion: rule.version,
-        questions: prompts.map((prompt, index) => ({ key: `q${index + 1}`, prompt })),
+        questions,
         instructions: instructions.length > 0 ? instructions : null,
       },
     });
@@ -202,8 +253,9 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
     aria-labelledby="recurrence-manager-title">
     <h2 id="recurrence-manager-title">Otomatik haftalık raporlar</h2>
     <p className="form-help">
-      Kural aktif olduğu sürece her hafta otomatik rapor oluşturulur; termin dönemi
-      izleyen Pazartesi&apos;dir. Şablon değişikliği yalnızca bundan sonraki raporları etkiler.
+      Kural aktif olduğu sürece her hafta otomatik rapor oluşturulur; teslim son
+      tarihi dönemi izleyen Pazartesi&apos;dir. Şablon değişikliği yalnızca bundan
+      sonraki raporları etkiler.
     </p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {ambiguous && <div className="form-actions">
@@ -242,25 +294,22 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
               onClick={() => startEditing(rule)}>Şablonu düzenle</button>
             {rule.enabled
               ? <button className="inline-action" type="button" disabled={locked}
-                  onClick={() => pauseRule(rule)}>Duraklat</button>
+                  onClick={() => pauseRule(rule)}>Otomatiği durdur</button>
               : <button className="inline-action" type="button" disabled={locked}
                   onClick={() => resumeRule(rule)}>Devam ettir</button>}
           </div>
           {editing && <div className="recurrence-edit" id={`recurrence-edit-${rule.id}`}>
-            <span className="field-label">Yönetici soruları (en fazla {MAX_EDIT_QUESTIONS})</span>
             <span className="form-help">Bu değişiklik yalnızca bundan sonra oluşturulacak raporları etkiler.</span>
-            {editQuestions.map((prompt, index) => (
-              <div className="field-row" key={`edit-question-${index}`}>
-                <label htmlFor={`recurrence-edit-question-${rule.id}-${index}`}>{index + 1}. soru</label>
-                <input id={`recurrence-edit-question-${rule.id}-${index}`} value={prompt}
-                  maxLength={MAX_EDIT_QUESTION_LENGTH} disabled={locked}
-                  onChange={(event) => setEditQuestion(index, event.target.value)} />
-                <button className="inline-action" type="button" disabled={locked}
-                  onClick={() => removeEditQuestion(index)}>Kaldır</button>
-              </div>
-            ))}
-            {editQuestions.length < MAX_EDIT_QUESTIONS && <button className="secondary-button" type="button"
-              disabled={locked} onClick={addEditQuestion}>Soru ekle</button>}
+            <WeeklyReportQuestionEditor
+              idPrefix={`recurrence-edit-${rule.id}`}
+              locked={locked}
+              selectedPresetKeys={editPresetKeys}
+              onTogglePreset={toggleEditPreset}
+              customQuestions={editCustomQuestions}
+              onChangeCustomPrompt={changeEditCustomPrompt}
+              onAddCustom={addEditCustomQuestion}
+              onRemoveCustom={removeEditCustomQuestion}
+            />
             <div className="field-group">
               <label htmlFor={`recurrence-edit-instructions-${rule.id}`}>Talep notu (isteğe bağlı)</label>
               <textarea id={`recurrence-edit-instructions-${rule.id}`} rows={3} disabled={locked}

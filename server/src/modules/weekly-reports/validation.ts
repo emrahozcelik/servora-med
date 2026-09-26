@@ -18,7 +18,14 @@ import type {
   WeeklyReportSubmittedBody,
 } from './types.js';
 
-export const MAX_MANAGER_QUESTIONS = 5;
+/**
+ * Defensive technical ceiling for one report's manager questions. Product
+ * intent: five canonical presets plus as many custom questions as reasonably
+ * needed, so the bound is generous (50), not the historical "five total".
+ * JSONB storage has no schema-level count constraint; this bound exists for
+ * API/PDF resource safety only.
+ */
+export const MAX_MANAGER_QUESTIONS = 50;
 export const MAX_QUESTION_PROMPT_LENGTH = 500;
 export const MAX_REPORT_TEXT_LENGTH = 4000;
 
@@ -58,9 +65,10 @@ export function parsePeriodStart(value: unknown): WeeklyReportPeriod {
 const QUESTION_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * Strongly validated manager-question definitions: at most 5, each with a
- * stable unique key and a prompt of 1..500 code points. Deliberately not a
- * generic dynamic-form engine: fixed shape, fixed bounds, no nesting.
+ * Strongly validated manager-question definitions: at most
+ * {@link MAX_MANAGER_QUESTIONS}, each with a stable unique key and a prompt
+ * of 1..500 code points. Deliberately not a generic dynamic-form engine:
+ * fixed shape, fixed bounds, no nesting.
  */
 export function validateManagerQuestions(value: unknown): ManagerQuestion[] {
   if (!Array.isArray(value)) throw validation('managerQuestions');

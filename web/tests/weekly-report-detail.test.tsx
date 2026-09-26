@@ -89,7 +89,7 @@ function makeJob(overrides: Partial<JobCard> = {}): JobCard {
 
 function makeDetail(overrides: Partial<WeeklyReportDetailDto> = {}): WeeklyReportDetailDto {
   return {
-    id: 'report-1', staffUserId: 'staff-1', jobCardId: 'job-1',
+    id: 'report-1', organizationId: 'org-1', staffUserId: 'staff-1', jobCardId: 'job-1',
     periodStart: WEEK.periodStart, periodEnd: WEEK.periodEnd,
     draft: {
       summary: 'Özet.', blockers: null, nextWeekPlan: 'Plan.',
@@ -100,13 +100,14 @@ function makeDetail(overrides: Partial<WeeklyReportDetailDto> = {}): WeeklyRepor
     version: 2, jobStatus: 'IN_PROGRESS', jobVersion: 3,
     dueDate: '2026-08-10', assignedTo: 'staff-1', instructions: null,
     liveSourceWork: [], submissionSummaries: [],
+    createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-04T10:00:00.000Z',
     ...overrides,
   };
 }
 
 function makeSubmission(overrides: Partial<WeeklyReportSubmission> = {}): WeeklyReportSubmission {
   return {
-    id: 'sub-1', weeklyReportId: 'report-1', jobCardId: 'job-1', seqNo: 1,
+    id: 'sub-1', organizationId: 'org-1', weeklyReportId: 'report-1', jobCardId: 'job-1', seqNo: 1,
     submittedBy: 'staff-1', submittedAt: '2026-08-07T12:00:00.000Z',
     periodStart: WEEK.periodStart, periodEnd: WEEK.periodEnd,
     body: {
@@ -121,6 +122,7 @@ function makeSubmission(overrides: Partial<WeeklyReportSubmission> = {}): Weekly
       statusAtSnapshot: 'COMPLETED',
     }],
     jobVersion: 4, sourceActivityId: 'act-1',
+    createdAt: '2026-08-07T12:00:00.000Z',
     ...overrides,
   };
 }

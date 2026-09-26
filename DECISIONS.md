@@ -1427,3 +1427,41 @@ slice; no merge performed here.
   M15 occurrence due revalidation removed → 1 red · M16 timezone read back to
   `pool.query()` → 3 red (`max=1`/saturated-pool tests) · M17 pause version
   comparison removed → 1 red. All reverted; tree verified clean after each.
+- **Field-test remediation (2026-09-26, pre-merge manager/STAFF field test on
+  PR #333 head aae1c50).** A real local manager/STAFF walkthrough surfaced one
+  blocker and several UX findings; the prior approval was invalidated and PR
+  #333 was updated in place (no merge, no deploy). (1) **Detail/submission
+  contract closed:** the web exact-object parsers rejected the intentional
+  server DTO (`Rapor yüklenemedi / Yanıtta weeklyReport alanı geçersiz`);
+  `parseWeeklyReportDetail` now accepts the server's `organizationId`,
+  `createdAt`, `updatedAt` and `parseWeeklyReportSubmission` its
+  `organizationId`, `createdAt` — added deliberately, no permissive fallback,
+  regression-tested against the full server-shaped payloads.
+  (2) **Create screen reworked:** `Tümünü seç`/`Seçimi temizle` for active
+  STAFF (server per-command cap preserved; over-cap select-all refuses
+  visibly instead of pretending or picking a subset); the manual `Termin`
+  input was removed from one-time and recurring creation for every role —
+  `dueDate` stays server-derived next-Monday and create payloads no longer
+  send it; deadline displays use `Teslim son tarihi`.
+  (3) **Manager questions reworked:** five preset questions (stable semantic
+  keys `preset_week_highlights`, `preset_incomplete_work`,
+  `preset_field_feedback`, `preset_next_week_priorities`,
+  `preset_management_support`) plus free custom questions
+  (`custom_<id>`, id minted once per add so ambiguous retries replay identical
+  keys); order is presets in canonical order then customs in UI order;
+  `MAX_MANAGER_QUESTIONS` raised 5 → 50 as a defensive API/PDF ceiling
+  (questions are JSONB — no schema migration, 051/052 untouched);
+  prompt ≤ 500 code points, answer-at-submission and frozen per-report copies
+  unchanged. A shared `WeeklyReportQuestionEditor` serves both the create
+  screen and recurrence template editing (future-only template semantics and
+  one-rule-per-staff lifecycle untouched); the recurrence manager stays
+  visible for managers in every create mode and one-time requests never
+  touch existing rules.
+  (4) **Verification:** focused web/server suites, `web` full suite (185
+  files / 2326 tests), `web` build + bundle check and `server` build green.
+  The full server suite reports 12 pre-existing local-environment failures
+  (web-push `DATABASE_URL is required` ×4; production-recovery/deploy-automation
+  `HOST_BOOTSTRAP_REQUIRED_psql` ×7; db-auth-contract wrong-password accepted
+  under the host's `trust` pg_hba ×1) proven identical on the clean aae1c50
+  base by stashing this work — none touch weekly reports and CI runs with the
+  canonical environment.

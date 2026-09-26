@@ -220,14 +220,29 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
           clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: foreignStaff,
         }),
       )).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND' });
-      // Sixth question rejected.
+      // One question past the technical ceiling (50) rejected.
       await expect(service.createWeeklyReport(
         managerActor(organizationId, managerId),
         parseWeeklyReportCreateInput({
           clientActionId: randomUUID(), periodStart: '2026-08-10', assignedTo: staffA,
-          questions: [1, 2, 3, 4, 5, 6].map((n) => ({ key: `q${n}`, prompt: 'Soru?' })),
+          questions: Array.from({ length: 51 }, (_, n) => ({ key: `q${n + 1}`, prompt: 'Soru?' })),
         }),
       )).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+      // Far more than five questions are accepted (presets + custom questions).
+      const manyQuestions = await service.createWeeklyReport(
+        managerActor(organizationId, managerId),
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(), periodStart: '2026-08-10', assignedTo: staffA,
+          questions: Array.from({ length: 12 }, (_, n) => ({
+            key: n < 5 ? `preset_${n + 1}` : `custom_${n + 1}`, prompt: `Soru ${n + 1}?`,
+          })),
+        }),
+      );
+      const manyReport = (await pool.query(
+        `SELECT manager_questions FROM weekly_reports WHERE id = $1`,
+        [manyQuestions.reportId],
+      )).rows[0];
+      expect(manyReport.manager_questions).toHaveLength(12);
     });
   });
 

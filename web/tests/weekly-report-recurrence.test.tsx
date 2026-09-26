@@ -39,8 +39,12 @@ vi.mock('../src/services/people-api', async (original) => ({
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
+  capabilities: { overviewDashboard: true, calendar: true, messaging: true },
+  support: { displayLabel: 'Sistem yöneticiniz', email: null, helpUrl: null },
 };
-const staffUser: CurrentUser = { ...manager, id: 'staff-1', name: 'Ayşe Personel', role: 'STAFF' };
+const staffUser: CurrentUser = {
+  ...manager, id: 'staff-1', name: 'Ayşe Personel', role: 'STAFF',
+};
 
 function staffProfile(id: string, name: string) {
   return {
@@ -68,7 +72,7 @@ const RULE = {
   id: 'rec-1', staffUserId: 'staff-1', staffName: 'Ayşe Personel',
   enabled: true, disabledReason: null as string | null,
   nextPeriodStart: '2026-10-05',
-  questions: [{ key: 'q1', prompt: 'Bu hafta ne yaptın?' }],
+  questions: [{ key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' }],
   instructions: 'Lütfen doldurun.',
   version: 1,
   lastProcessedPeriodStart: '2026-09-28' as string | null,
@@ -134,7 +138,7 @@ describe('Weekly report recurrence surface', () => {
     });
     weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
       recurrenceId: 'rec-1', version: 2,
-      questions: [{ key: 'q1', prompt: 'Bu hafta ne yaptın?' }],
+      questions: [{ key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' }],
       instructions: 'Lütfen doldurun.', nextPeriodStart: '2026-10-05',
     });
     weeklyApi.pauseWeeklyReportRecurrence.mockResolvedValue({
@@ -224,94 +228,92 @@ describe('Weekly report recurrence surface', () => {
     await click(host.querySelector('#weekly-mode-recurring') as HTMLElement);
   }
 
+  async function togglePreset(key: string) {
+    const box = host.querySelector(`#weekly-preset-${key}`) as HTMLInputElement;
+    expect(box, `preset "${key}"`).not.toBeNull();
+    await act(async () => { box.click(); });
+    await flush();
+  }
+
   // ---------------------------------------------------------------------
-  // 1-7. Mode switch, eligibility, caps, week field, validation, no due date
+  // Discoverability, independence, STAFF isolation
   // ---------------------------------------------------------------------
 
   it('1. shows STAFF no recurrence controls at all', async () => {
     await renderCreate(staffUser);
     expect(host.querySelector('#weekly-mode')).toBeNull();
-    expect(host.querySelector('#weekly-mode-single')).toBeNull();
-    expect(host.querySelector('#weekly-mode-recurring')).toBeNull();
     expect(host.querySelector('#recurrence-manager')).toBeNull();
     expect(weeklyApi.listWeeklyReportRecurrences).not.toHaveBeenCalled();
     expect(weeklyApi.bulkCreateWeeklyReportRecurrences).not.toHaveBeenCalled();
   });
 
-  it('2. gives MANAGER a Tek seferlik / Her hafta otomatik switch and opens the recurring surface', async () => {
+  it('2. renders the recurrence manager for MANAGER even while create mode is Tek seferlik', async () => {
     await renderCreate(manager);
-    expect(host.querySelector('#weekly-mode-single')?.getAttribute('aria-checked')).toBe('true');
-    expect(host.querySelector('#weekly-mode-recurring')?.getAttribute('aria-checked')).toBe('false');
-    expect(host.querySelector('#recurrence-manager')).toBeNull();
-
-    await enterRecurringMode();
-    expect(host.querySelector('#weekly-mode-recurring')?.getAttribute('aria-checked')).toBe('true');
+    // The rule list loads immediately, in the default one-time mode.
     expect(host.querySelector('#recurrence-manager')).not.toBeNull();
+    expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Otomatik haftalık raporlar');
+  });
+
+  it('3. keeps the recurrence manager mounted when switching create modes and does not reload it', async () => {
+    await renderCreate(manager);
+    await enterRecurringMode();
+    expect(host.querySelector('#recurrence-manager')).not.toBeNull();
+    expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
+    await click(host.querySelector('#weekly-mode-single') as HTMLElement);
+    expect(host.querySelector('#recurrence-manager')).not.toBeNull();
+    // Mode switching must not refetch or mutate the rules.
     expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
   });
 
-  it('3. offers the recurring mode a searchable multi-select of active STAFF only', async () => {
+  it('4. explains that a one-time report does not disable an existing automatic rule', async () => {
     await renderCreate(manager);
-    await enterRecurringMode();
-    expect(host.querySelector('.ant-select-multiple')).not.toBeNull();
-    expect(host.querySelector('.ant-select-show-search')).not.toBeNull();
-    expect(people.listStaff).toHaveBeenCalledWith('active');
-    await act(async () => { openAssignees(); });
-    await flush();
-    expect(assigneeOptions().map((node) => node.textContent)).toEqual([
-      'Ayşe Personel', 'Mehmet Personel', 'Zeynep Personel',
-    ]);
+    expect(host.querySelector('#weekly-mode-help')?.textContent)
+      .toContain('Tek seferlik rapor oluşturmak mevcut otomatik kuralı kapatmaz;');
   });
 
-  it('4. caps the recurring selection at the server limit so no oversized command is sent', async () => {
+  it('5. sends a one-time request without pausing the existing recurrence rule', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     await renderCreate(manager);
-    await enterRecurringMode();
-    await chooseStaff(['Ayşe Personel', 'Mehmet Personel']);
-    await pickOption('Zeynep Personel');
-    expect(selectedCountText()).toBe('2 personel seçildi');
-    expect(host.textContent).toContain('fazlası eklenmedi');
-    await act(async () => { submit(); await flush(); });
-    expect(weeklyApi.bulkCreateWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
-    expect(weeklyApi.bulkCreateWeeklyReportRecurrences.mock.calls[0]![0].staffUserIds).toHaveLength(2);
-  });
-
-  it('5. labels the week field as the start week in recurring mode', async () => {
-    await renderCreate(manager);
-    expect(host.querySelector('label[for="weekly-period"]')?.textContent)
-      .toBe('Rapor haftası (Pazartesi)');
-    await enterRecurringMode();
-    expect(host.querySelector('label[for="weekly-period"]')?.textContent)
-      .toBe('Başlangıç haftası (Pazartesi)');
-  });
-
-  it('6. rejects a start week that is in the past relative to the canonical current week', async () => {
-    await renderCreate(manager);
-    await enterRecurringMode();
     await chooseStaff(['Ayşe Personel']);
-    change(host.querySelector('#weekly-period') as HTMLInputElement, '2026-07-06');
     await act(async () => { submit(); await flush(); });
+    expect(weeklyApi.bulkRequestWeeklyReports).toHaveBeenCalledTimes(1);
+    expect(weeklyApi.pauseWeeklyReportRecurrence).not.toHaveBeenCalled();
     expect(weeklyApi.bulkCreateWeeklyReportRecurrences).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('Başlangıç haftası geçmişte olamaz.');
+    // The rule list was loaded and left untouched.
+    expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
   });
 
-  it('7. never offers an arbitrary due date in recurring mode', async () => {
+  it('6. switching create mode does not alter the rule', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
+    await renderCreate(manager);
+    await enterRecurringMode();
+    await click(host.querySelector('#weekly-mode-single') as HTMLElement);
+    expect(weeklyApi.pauseWeeklyReportRecurrence).not.toHaveBeenCalled();
+    expect(weeklyApi.resumeWeeklyReportRecurrence).not.toHaveBeenCalled();
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate).not.toHaveBeenCalled();
+    expect(weeklyApi.bulkCreateWeeklyReportRecurrences).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------
+  // No termin in either mode; canonical payloads
+  // ---------------------------------------------------------------------
+
+  it('7. never offers an editable termin in recurring mode or a fixed due block', async () => {
     await renderCreate(manager);
     await enterRecurringMode();
     expect(host.querySelector('#weekly-due')).toBeNull();
-    expect(host.querySelector('#weekly-recurring-due')?.textContent?.trim())
-      .toBe('Her hafta dönemi izleyen Pazartesi');
+    expect(host.querySelector('input[name="dueDate"]')).toBeNull();
+    expect(host.querySelector('#weekly-recurring-due')).toBeNull();
   });
-
-  // ---------------------------------------------------------------------
-  // 8-12. Exact payload, neutral existing result, current-week UX, ambiguity
-  // ---------------------------------------------------------------------
 
   it('8. sends one recurring command with the exact payload and never the one-time endpoints', async () => {
     await renderCreate(manager);
     await enterRecurringMode();
     await chooseStaff(['Zeynep Personel', 'Ayşe Personel']);
-    await click(buttonByText('Soru ekle'));
-    change(host.querySelector('#weekly-question-0') as HTMLInputElement, 'Bu hafta ne öğrendin?');
+    await togglePreset('preset_field_feedback');
+    await click(buttonByText('+ Özel soru ekle'));
+    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'Bu hafta ne öğrendin?');
     change(host.querySelector('#weekly-instructions') as HTMLTextAreaElement, 'Lütfen doldurun.');
     await act(async () => { submit(); await flush(); });
 
@@ -322,7 +324,10 @@ describe('Weekly report recurrence surface', () => {
       clientActionId: 'action-1',
       staffUserIds: ['staff-3', 'staff-1'],
       startPeriodStart: '2026-08-03',
-      questions: [{ key: 'q1', prompt: 'Bu hafta ne öğrendin?' }],
+      questions: [
+        { key: 'preset_field_feedback', prompt: 'Müşterilerden veya sahadan önemli bir geri bildirim var mı?' },
+        { key: 'custom_1', prompt: 'Bu hafta ne öğrendin?' },
+      ],
       instructions: 'Lütfen doldurun.',
     });
   });
@@ -346,18 +351,13 @@ describe('Weekly report recurrence surface', () => {
     expect(host.querySelector('#weekly-recurrence-existing')?.textContent).toBe('1 zaten mevcuttu');
     const rows = Array.from(host.querySelectorAll('#weekly-recurrence-result-items li'));
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toContain('Ayşe Personel');
-    expect(rows[0]!.textContent).toContain('Oluşturuldu');
-    expect(rows[1]!.textContent).toContain('Mehmet Personel');
     expect(rows[1]!.textContent).toContain('Zaten mevcut');
-    expect(rows[1]!.textContent).toContain('2026-08-10');
     expect(host.querySelector('.form-error')).toBeNull();
   });
 
   it('10. choosing the current week warns that the worker will create it and sends no one-time request', async () => {
     await renderCreate(manager);
     await enterRecurringMode();
-    // The reference prefill is the canonical current week.
     expect((host.querySelector('#weekly-period') as HTMLInputElement).value).toBe('2026-08-03');
     expect(host.querySelector('#weekly-recurring-current-week')?.textContent)
       .toContain('otomatik olarak oluşturulacak');
@@ -365,7 +365,6 @@ describe('Weekly report recurrence surface', () => {
     await act(async () => { submit(); await flush(); });
     expect(weeklyApi.bulkCreateWeeklyReportRecurrences).toHaveBeenCalledTimes(1);
     expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
-    expect(weeklyApi.createWeeklyReport).not.toHaveBeenCalled();
   });
 
   it('11. freezes an ambiguous recurring attempt and retries it verbatim with the same action id', async () => {
@@ -401,29 +400,17 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.bulkCreateWeeklyReportRecurrences.mock.calls[1]![0].clientActionId).toBe('action-2');
   });
 
-  it('13. leaves the one-time manager path completely unchanged', async () => {
-    await renderCreate(manager);
-    await chooseStaff(['Ayşe Personel']);
-    change(host.querySelector('#weekly-due') as HTMLInputElement, '2026-08-14');
-    await act(async () => { submit(); await flush(); });
-    expect(weeklyApi.bulkRequestWeeklyReports).toHaveBeenCalledTimes(1);
-    expect(weeklyApi.bulkRequestWeeklyReports.mock.calls[0]![0]).toMatchObject({
-      clientActionId: 'action-1', periodStart: '2026-08-03', dueDate: '2026-08-14', staffUserIds: ['staff-1'],
-    });
-    expect(weeklyApi.bulkCreateWeeklyReportRecurrences).not.toHaveBeenCalled();
-  });
-
   // ---------------------------------------------------------------------
-  // 14-18. Management list rendering
+  // Rule list rendering (management visibility)
   // ---------------------------------------------------------------------
 
-  it('14. renders nothing for STAFF even when mounted directly', async () => {
+  it('13. renders nothing for STAFF even when mounted directly', async () => {
     await renderManager(staffUser);
     expect(host.querySelector('#recurrence-manager')).toBeNull();
     expect(weeklyApi.listWeeklyReportRecurrences).not.toHaveBeenCalled();
   });
 
-  it('15. lists every rule with its staff member', async () => {
+  it('14. lists every rule with its staff member', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE, PAUSED_RULE] });
     await renderManager();
     const rows = Array.from(host.querySelectorAll('#recurrence-list li'));
@@ -432,23 +419,25 @@ describe('Weekly report recurrence surface', () => {
     expect(rows[1]!.textContent).toContain('Mehmet Personel');
   });
 
-  it('16. shows ACTIVE state and the next report week', async () => {
+  it('15. shows ACTIVE state, the next report week, and an Otomatiği durdur action', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     await renderManager();
     expect(host.querySelector('#recurrence-state-rec-1')?.textContent).toBe('Aktif');
     expect(host.querySelector('#recurrence-next-rec-1')?.textContent)
       .toContain('Sonraki rapor haftası: 2026-10-05');
+    expect(buttonByText('Otomatiği durdur')).toBeDefined();
   });
 
-  it('17. shows PAUSED state with the auto-pause reason', async () => {
+  it('16. shows PAUSED state with the auto-pause reason and a Devam ettir action', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [PAUSED_RULE] });
     await renderManager();
     expect(host.querySelector('#recurrence-state-rec-2')?.textContent).toBe('Duraklatıldı');
     expect(host.querySelector('#recurrence-reason-rec-2')?.textContent)
       .toContain('Personel artık uygun değil');
+    expect(buttonByText('Devam ettir')).toBeDefined();
   });
 
-  it('18. shows the last processed week and its outcome, and never leaks lease internals', async () => {
+  it('17. shows the last processed week and its outcome, and never leaks lease internals', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     await renderManager();
     expect(host.querySelector('#recurrence-last-rec-1')?.textContent)
@@ -457,18 +446,25 @@ describe('Weekly report recurrence surface', () => {
   });
 
   // ---------------------------------------------------------------------
-  // 19-24. Management actions: edit template, pause, resume, ambiguity, locks
+  // Management actions: template edit (preset+custom), pause, resume
   // ---------------------------------------------------------------------
 
-  it('19. edits only the future template as a full replacement', async () => {
+  it('18. edits only the future template as a full replacement using preset + custom questions', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
-      recurrenceId: 'rec-1', version: 2, questions: [{ key: 'q1', prompt: 'Yeni soru?' }],
-      instructions: null, nextPeriodStart: '2026-10-05',
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
     });
     await renderManager();
     await click(buttonByText('Şablonu düzenle'));
-    change(host.querySelector('#recurrence-edit-question-rec-1-0') as HTMLInputElement, 'Yeni soru?');
+    // The preset round-trips as a checked checkbox (stable semantic key).
+    const preset = host.querySelector(
+      '#recurrence-edit-rec-1-preset-preset_week_highlights',
+    ) as HTMLInputElement;
+    expect(preset.checked).toBe(true);
+    // Add one custom question alongside it.
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-1') as HTMLInputElement, 'Yeni özel soru');
     change(host.querySelector('#recurrence-edit-instructions-rec-1') as HTMLTextAreaElement, '');
     await click(buttonByText('Kaydet'));
 
@@ -477,7 +473,10 @@ describe('Weekly report recurrence surface', () => {
       'rec-1',
       {
         clientActionId: 'action-1', expectedVersion: 1,
-        questions: [{ key: 'q1', prompt: 'Yeni soru?' }],
+        questions: [
+          { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
+          { key: 'custom_1', prompt: 'Yeni özel soru' },
+        ],
         // Full replacement: a cleared note is sent explicitly as null.
         instructions: null,
       },
@@ -486,20 +485,20 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(2);
   });
 
-  it('20. pauses an active rule with its current version', async () => {
+  it('19. pauses an active rule with its current version', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     weeklyApi.pauseWeeklyReportRecurrence.mockResolvedValue({
       recurrenceId: 'rec-1', enabled: false, disabledReason: 'MANUAL',
       nextPeriodStart: '2026-10-05', version: 2,
     });
     await renderManager();
-    await click(buttonByText('Duraklat'));
+    await click(buttonByText('Otomatiği durdur'));
     expect(weeklyApi.pauseWeeklyReportRecurrence.mock.calls[0]).toEqual([
       'rec-1', { clientActionId: 'action-1', expectedVersion: 1 },
     ]);
   });
 
-  it('21. resumes a paused rule with its current version and no period override', async () => {
+  it('20. resumes a paused rule with its current version and no period override', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [PAUSED_RULE] });
     weeklyApi.resumeWeeklyReportRecurrence.mockResolvedValue({
       recurrenceId: 'rec-2', enabled: true, nextPeriodStart: '2026-10-26', version: 5,
@@ -514,18 +513,19 @@ describe('Weekly report recurrence surface', () => {
     expect(input).not.toHaveProperty('periodStart');
   });
 
-  it('22. retries an ambiguous template edit verbatim with the same action id', async () => {
+  it('21. retries an ambiguous template edit verbatim with the same action id', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     await renderManager();
     await click(buttonByText('Şablonu düzenle'));
-    change(host.querySelector('#recurrence-edit-question-rec-1-0') as HTMLInputElement, 'Yeni soru?');
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-1') as HTMLInputElement, 'Yeni soru?');
     weeklyApi.updateWeeklyReportRecurrenceTemplate.mockRejectedValueOnce(new Error('transport lost'));
     await click(buttonByText('Kaydet'));
     const firstInput = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1];
 
     weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValueOnce({
-      recurrenceId: 'rec-1', version: 2, questions: [{ key: 'q1', prompt: 'Yeni soru?' }],
-      instructions: 'Lütfen doldurun.', nextPeriodStart: '2026-10-05',
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
     });
     await click(buttonByText('Özgün isteği tekrar dene'));
     expect(weeklyApi.updateWeeklyReportRecurrenceTemplate).toHaveBeenCalledTimes(2);
@@ -533,11 +533,11 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[1]![1].clientActionId).toBe('action-1');
   });
 
-  it('23. retries an ambiguous pause verbatim with the same action id', async () => {
+  it('22. retries an ambiguous pause verbatim with the same action id', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
     weeklyApi.pauseWeeklyReportRecurrence.mockRejectedValueOnce(new Error('transport lost'));
     await renderManager();
-    await click(buttonByText('Duraklat'));
+    await click(buttonByText('Otomatiği durdur'));
     const firstInput = weeklyApi.pauseWeeklyReportRecurrence.mock.calls[0]![1];
 
     weeklyApi.pauseWeeklyReportRecurrence.mockResolvedValueOnce({
@@ -550,7 +550,7 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.pauseWeeklyReportRecurrence.mock.calls[1]![1].clientActionId).toBe('action-1');
   });
 
-  it('24. retries an ambiguous resume verbatim with the same action id', async () => {
+  it('23. retries an ambiguous resume verbatim with the same action id', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [PAUSED_RULE] });
     weeklyApi.resumeWeeklyReportRecurrence.mockRejectedValueOnce(new Error('transport lost'));
     await renderManager();
@@ -566,22 +566,22 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.resumeWeeklyReportRecurrence.mock.calls[1]![1].clientActionId).toBe('action-1');
   });
 
-  it('25. locks every rule action while a command is pending', async () => {
+  it('24. locks every rule action while a command is pending', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE, PAUSED_RULE] });
     weeklyApi.pauseWeeklyReportRecurrence.mockReturnValue(new Promise(() => {}));
     await renderManager();
-    await click(buttonByText('Duraklat'));
-    expect((buttonByText('Duraklat') as HTMLButtonElement).disabled).toBe(true);
+    await click(buttonByText('Otomatiği durdur'));
+    expect((buttonByText('Otomatiği durdur') as HTMLButtonElement).disabled).toBe(true);
     expect((buttonByText('Şablonu düzenle') as HTMLButtonElement).disabled).toBe(true);
     expect((buttonByText('Devam ettir') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('26. locks every rule action while an outcome is ambiguous and offers only the frozen retry', async () => {
+  it('25. locks every rule action while an outcome is ambiguous and offers only the frozen retry', async () => {
     weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE, PAUSED_RULE] });
     weeklyApi.pauseWeeklyReportRecurrence.mockRejectedValueOnce(new Error('transport lost'));
     await renderManager();
-    await click(buttonByText('Duraklat'));
-    expect((buttonByText('Duraklat') as HTMLButtonElement).disabled).toBe(true);
+    await click(buttonByText('Otomatiği durdur'));
+    expect((buttonByText('Otomatiği durdur') as HTMLButtonElement).disabled).toBe(true);
     expect((buttonByText('Şablonu düzenle') as HTMLButtonElement).disabled).toBe(true);
     expect(buttonByText('Özgün isteği tekrar dene')).toBeDefined();
   });

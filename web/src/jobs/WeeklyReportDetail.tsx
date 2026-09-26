@@ -468,7 +468,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       <dl className="identity-grid">
         <div><dt>Personel</dt><dd>{loadedJob.assignee.name}</dd></div>
         <div><dt>Rapor haftası</dt><dd>{loadedReport.periodStart} – {loadedReport.periodEnd}</dd></div>
-        <div><dt>Termin</dt><dd>{loadedReport.dueDate ?? 'Belirtilmedi'}</dd></div>
+        <div><dt>Teslim son tarihi</dt><dd>{loadedReport.dueDate ?? 'Belirtilmedi'}</dd></div>
         <div><dt>Rapor sürümü</dt><dd>v{loadedReport.version}</dd></div>
       </dl>
     </div>

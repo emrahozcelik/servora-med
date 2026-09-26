@@ -71,6 +71,7 @@ export type WeeklyReportSubmissionSummary = {
 };
 export type WeeklyReportDetail = {
   id: string;
+  organizationId: string;
   staffUserId: string;
   jobCardId: string;
   periodStart: string;
@@ -87,6 +88,8 @@ export type WeeklyReportDetail = {
   instructions: string | null;
   liveSourceWork: WeeklySourceWorkItem[];
   submissionSummaries: WeeklyReportSubmissionSummary[];
+  createdAt: string;
+  updatedAt: string;
 };
 /**
  * Canonical create-screen reference. The organization timezone owns what
@@ -101,6 +104,7 @@ export type WeeklyReportReference = {
 };
 export type WeeklyReportSubmission = {
   id: string;
+  organizationId: string;
   weeklyReportId: string;
   jobCardId: string;
   seqNo: number;
@@ -121,6 +125,7 @@ export type WeeklyReportSubmission = {
   sourceWork: WeeklySourceWorkItem[];
   jobVersion: number;
   sourceActivityId: string;
+  createdAt: string;
 };
 export type WeeklyReportCreateResult = {
   jobCardId: string;
@@ -224,13 +229,19 @@ function parseSummary(value: unknown): WeeklyReportSubmissionSummary {
 }
 
 export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
+  // Exact key set mirrors the intentional server DTO (WeeklyReport & job
+  // reference): the report row identity (organizationId) and row timestamps
+  // (createdAt/updatedAt) are part of the response, so omitting one here
+  // fails a valid response closed — the observed field-test blocker.
   const root = exactObject(value, 'weeklyReport', [
-    'id', 'staffUserId', 'jobCardId', 'periodStart', 'periodEnd', 'draft',
+    'id', 'organizationId', 'staffUserId', 'jobCardId', 'periodStart', 'periodEnd', 'draft',
     'questions', 'answers', 'version', 'jobStatus', 'jobVersion', 'dueDate',
     'assignedTo', 'instructions', 'liveSourceWork', 'submissionSummaries',
+    'createdAt', 'updatedAt',
   ]);
   return {
     id: string(root.id, 'id'),
+    organizationId: string(root.organizationId, 'organizationId'),
     staffUserId: string(root.staffUserId, 'staffUserId'),
     jobCardId: string(root.jobCardId, 'jobCardId'),
     periodStart: dateKey(root.periodStart, 'periodStart'),
@@ -246,6 +257,8 @@ export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
     instructions: root.instructions === null ? null : string(root.instructions, 'instructions'),
     liveSourceWork: array(root.liveSourceWork, 'liveSourceWork').map(parseSourceWorkItem),
     submissionSummaries: array(root.submissionSummaries, 'submissionSummaries').map(parseSummary),
+    createdAt: string(root.createdAt, 'createdAt'),
+    updatedAt: string(root.updatedAt, 'updatedAt'),
   };
 }
 
@@ -262,16 +275,19 @@ export function parseWeeklyReportReference(value: unknown): WeeklyReportReferenc
 }
 
 export function parseWeeklyReportSubmission(value: unknown): WeeklyReportSubmission {
+  // Exact key set mirrors the frozen server submission row DTO, including the
+  // row identity (organizationId) and the submission timestamp createdAt.
   const root = exactObject(value, 'submission', [
-    'id', 'weeklyReportId', 'jobCardId', 'seqNo', 'submittedBy', 'submittedAt',
+    'id', 'organizationId', 'weeklyReportId', 'jobCardId', 'seqNo', 'submittedBy', 'submittedAt',
     'periodStart', 'periodEnd', 'body', 'questions', 'answers', 'sourceWork',
-    'jobVersion', 'sourceActivityId',
+    'jobVersion', 'sourceActivityId', 'createdAt',
   ]);
   const body = exactObject(root.body, 'submission.body', [
     'summary', 'blockers', 'nextWeekPlan', 'highlights', 'fieldObservations', 'supportNeeded',
   ]);
   return {
     id: string(root.id, 'id'),
+    organizationId: string(root.organizationId, 'organizationId'),
     weeklyReportId: string(root.weeklyReportId, 'weeklyReportId'),
     jobCardId: string(root.jobCardId, 'jobCardId'),
     seqNo: positiveCount(root.seqNo, 'seqNo'),
@@ -294,6 +310,7 @@ export function parseWeeklyReportSubmission(value: unknown): WeeklyReportSubmiss
     sourceWork: array(root.sourceWork, 'sourceWork').map(parseSourceWorkItem),
     jobVersion: positiveCount(root.jobVersion, 'jobVersion'),
     sourceActivityId: string(root.sourceActivityId, 'sourceActivityId'),
+    createdAt: string(root.createdAt, 'createdAt'),
   };
 }
 
