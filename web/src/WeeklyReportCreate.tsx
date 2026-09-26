@@ -21,8 +21,10 @@ import {
   type WeeklyReportReference,
 } from './jobs/weekly-report-api';
 import {
+  WEEKLY_REPORT_PRESET_QUESTIONS,
   WeeklyReportQuestionEditor,
   collectManagerQuestions,
+  nextCustomQuestionKey,
   promptCodePoints,
   type CustomQuestionDraft,
 } from './jobs/WeeklyReportQuestionEditor';
@@ -59,7 +61,6 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [selectedPresetKeys, setSelectedPresetKeys] = useState<ReadonlySet<string>>(new Set());
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>([]);
-  const [customIdCounter, setCustomIdCounter] = useState(1);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [instructions, setInstructions] = useState('');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
@@ -142,22 +143,27 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
   }
 
   function addCustomQuestion() {
-    // The id is minted once at add-time and never renumbered, so a frozen
-    // attempt replays the exact same question keys on an ambiguous retry.
-    setCustomIdCounter((counter) => {
-      setCustomQuestions((current) => [...current, { id: counter, prompt: '' }]);
-      return counter + 1;
+    // The key is minted once at add-time against the keys already owned by
+    // this screen (preset semantics + existing rows) and never renumbered, so
+    // a frozen attempt replays the exact same question keys on an ambiguous
+    // retry.
+    setCustomQuestions((current) => {
+      const key = nextCustomQuestionKey([
+        ...WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => preset.key),
+        ...current.map((question) => question.key),
+      ]);
+      return [...current, { key, prompt: '' }];
     });
   }
 
-  function changeCustomPrompt(id: number, prompt: string) {
+  function changeCustomPrompt(key: string, prompt: string) {
     setCustomQuestions((current) => current.map((question) => (
-      question.id === id ? { ...question, prompt } : question
+      question.key === key ? { ...question, prompt } : question
     )));
   }
 
-  function removeCustomQuestion(id: number) {
-    setCustomQuestions((current) => current.filter((question) => question.id !== id));
+  function removeCustomQuestion(key: string) {
+    setCustomQuestions((current) => current.filter((question) => question.key !== key));
   }
 
   /**

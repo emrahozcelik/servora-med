@@ -16,6 +16,7 @@ import {
   WEEKLY_REPORT_PRESET_QUESTIONS,
   WeeklyReportQuestionEditor,
   collectManagerQuestions,
+  nextCustomQuestionKey,
   promptCodePoints,
   type CustomQuestionDraft,
   type ManagerQuestionPayload,
@@ -76,7 +77,6 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPresetKeys, setEditPresetKeys] = useState<ReadonlySet<string>>(new Set());
   const [editCustomQuestions, setEditCustomQuestions] = useState<CustomQuestionDraft[]>([]);
-  const [editCustomIdCounter, setEditCustomIdCounter] = useState(1);
   const [editInstructions, setEditInstructions] = useState('');
   const [editError, setEditError] = useState('');
   const operationRef = useRef<RecurrenceOperation | null>(null);
@@ -154,42 +154,50 @@ export function WeeklyReportRecurrenceManager({ user }: { user: CurrentUser }) {
   }
 
   function addEditCustomQuestion() {
-    // The id is minted once at add-time and never renumbered, so a frozen
-    // attempt replays the exact same question keys on an ambiguous retry.
-    setEditCustomIdCounter((counter) => {
-      setEditCustomQuestions((current) => [...current, { id: counter, prompt: '' }]);
-      return counter + 1;
+    // The key is minted once at add-time against every key already owned by
+    // this edit (preset semantics, persisted custom keys — including legacy
+    // ones — and rows added in this session) and never renumbered, so a
+    // frozen attempt replays the exact same question keys on an ambiguous
+    // retry.
+    setEditCustomQuestions((current) => {
+      const key = nextCustomQuestionKey([
+        ...WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => preset.key),
+        ...current.map((question) => question.key),
+      ]);
+      return [...current, { key, prompt: '' }];
     });
   }
 
-  function changeEditCustomPrompt(id: number, prompt: string) {
+  function changeEditCustomPrompt(key: string, prompt: string) {
     setEditCustomQuestions((current) => current.map((question) => (
-      question.id === id ? { ...question, prompt } : question
+      question.key === key ? { ...question, prompt } : question
     )));
   }
 
-  function removeEditCustomQuestion(id: number) {
-    setEditCustomQuestions((current) => current.filter((question) => question.id !== id));
+  function removeEditCustomQuestion(key: string) {
+    setEditCustomQuestions((current) => current.filter((question) => question.key !== key));
   }
 
   /**
    * Start editing from the rule's frozen question list. A persisted question
    * whose key matches a preset stays that preset's checkbox (so wording stays
-   * canonical); anything else is a custom question. Editing affects FUTURE
-   * reports only — existing reports and immutable submissions never change.
+   * canonical); anything else is a custom question that KEEPS ITS PERSISTED
+   * KEY verbatim — legacy keys such as `q1` included. Keys are identifiers,
+   * never positions, so opening and saving without changes cannot rewrite a
+   * persisted key, and a new custom key is minted only when a row is added.
+   * Editing affects FUTURE reports only — existing reports and immutable
+   * submissions never change.
    */
   function startEditing(rule: WeeklyReportRecurrence) {
     setEditingId(rule.id);
     const presetKeys = new Set<string>();
     const custom: CustomQuestionDraft[] = [];
-    rule.questions.forEach((question, index) => {
-      const isPreset = PRESET_KEYS.has(question.key);
-      if (isPreset) presetKeys.add(question.key);
-      else custom.push({ id: index + 1, prompt: question.prompt });
+    rule.questions.forEach((question) => {
+      if (PRESET_KEYS.has(question.key)) presetKeys.add(question.key);
+      else custom.push({ key: question.key, prompt: question.prompt });
     });
     setEditPresetKeys(presetKeys);
     setEditCustomQuestions(custom);
-    setEditCustomIdCounter(custom.length + 1);
     setEditInstructions(rule.instructions ?? '');
     setEditError('');
   }

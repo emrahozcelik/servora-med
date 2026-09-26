@@ -508,8 +508,8 @@ describe('Weekly report create screen', () => {
     await chooseStaff(['Ayşe Personel']);
     await clickButton('+ Özel soru ekle');
     await clickButton('+ Özel soru ekle');
-    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'Özel birinci soru');
-    change(host.querySelector('#weekly-custom-question-2') as HTMLInputElement, 'Özel ikinci soru');
+    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Özel birinci soru');
+    change(host.querySelector('#weekly-custom-question-custom_2') as HTMLInputElement, 'Özel ikinci soru');
     await act(async () => { submit(); await flush(); });
     expect(bulkInput().questions).toEqual([
       { key: 'custom_1', prompt: 'Özel birinci soru' },
@@ -528,7 +528,7 @@ describe('Weekly report create screen', () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
     await clickButton('+ Özel soru ekle');
-    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'Özel soru');
+    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Özel soru');
     const priorities = host.querySelector('#weekly-preset-preset_next_week_priorities') as HTMLInputElement;
     const highlights = host.querySelector('#weekly-preset-preset_week_highlights') as HTMLInputElement;
     // Toggling priorities first proves canonical preset order wins over click order.
@@ -549,7 +549,7 @@ describe('Weekly report create screen', () => {
     const highlights = host.querySelector('#weekly-preset-preset_week_highlights') as HTMLInputElement;
     await toggleCheckbox(highlights);
     await clickButton('+ Özel soru ekle');
-    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'Özel soru');
+    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Özel soru');
     weeklyApi.bulkRequestWeeklyReports.mockRejectedValueOnce(new Error('transport lost'));
     await act(async () => { submit(); await flush(); });
     const firstInput = bulkInput();
@@ -575,7 +575,7 @@ describe('Weekly report create screen', () => {
     await render(manager);
     await chooseStaff(['Ayşe Personel']);
     await clickButton('+ Özel soru ekle');
-    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'x'.repeat(501));
+    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'x'.repeat(501));
     await act(async () => { submit(); await flush(); });
     expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
     expect(host.textContent).toContain('en fazla 500 karakter');
@@ -592,7 +592,7 @@ describe('Weekly report create screen', () => {
     await flush();
     for (let index = 1; index <= 8; index += 1) {
       await clickButton('+ Özel soru ekle');
-      change(host.querySelector(`#weekly-custom-question-${index}`) as HTMLInputElement, `Soru ${index}`);
+      change(host.querySelector(`#weekly-custom-question-custom_${index}`) as HTMLInputElement, `Soru ${index}`);
     }
     await act(async () => { submit(); await flush(); });
     const questions = bulkInput().questions;

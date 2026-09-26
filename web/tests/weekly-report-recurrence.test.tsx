@@ -313,7 +313,7 @@ describe('Weekly report recurrence surface', () => {
     await chooseStaff(['Zeynep Personel', 'Ayşe Personel']);
     await togglePreset('preset_field_feedback');
     await click(buttonByText('+ Özel soru ekle'));
-    change(host.querySelector('#weekly-custom-question-1') as HTMLInputElement, 'Bu hafta ne öğrendin?');
+    change(host.querySelector('#weekly-custom-question-custom_1') as HTMLInputElement, 'Bu hafta ne öğrendin?');
     change(host.querySelector('#weekly-instructions') as HTMLTextAreaElement, 'Lütfen doldurun.');
     await act(async () => { submit(); await flush(); });
 
@@ -464,7 +464,7 @@ describe('Weekly report recurrence surface', () => {
     expect(preset.checked).toBe(true);
     // Add one custom question alongside it.
     await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
-    change(host.querySelector('#recurrence-edit-rec-1-custom-question-1') as HTMLInputElement, 'Yeni özel soru');
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_1') as HTMLInputElement, 'Yeni özel soru');
     change(host.querySelector('#recurrence-edit-instructions-rec-1') as HTMLTextAreaElement, '');
     await click(buttonByText('Kaydet'));
 
@@ -483,6 +483,174 @@ describe('Weekly report recurrence surface', () => {
     ]);
     // The list is refreshed so the new version is visible.
     expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(2);
+  });
+
+  // ---------------------------------------------------------------------
+  // Question-key stability (field-test review defect): keys are identifiers
+  // owned by the question, never positions. Presets keep semantic keys,
+  // persisted custom keys round-trip verbatim, new keys are minted once
+  // against every owned key and never collide or renumber.
+  // ---------------------------------------------------------------------
+
+  function ruleWithQuestions(questions: Array<{ key: string; prompt: string }>) {
+    return { ...RULE, questions, instructions: null, lastProcessedPeriodStart: null, lastOutcome: null };
+  }
+
+  it('T1. round-trips preset + persisted custom keys verbatim with no renumbering', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([
+        { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
+        { key: 'custom_1', prompt: 'Kalıcı özel soru' },
+      ]),
+    ] });
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    await click(buttonByText('Kaydet'));
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate).toHaveBeenCalledTimes(1);
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].questions).toEqual([
+      { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
+      { key: 'custom_1', prompt: 'Kalıcı özel soru' },
+    ]);
+  });
+
+  it('T2. mints a fresh key for an added custom that does not collide with the persisted one', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([
+        { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
+        { key: 'custom_1', prompt: 'Kalıcı özel soru' },
+      ]),
+    ] });
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_2') as HTMLInputElement, 'Yeni soru');
+    await click(buttonByText('Kaydet'));
+    const outgoing = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].questions;
+    expect(outgoing.map((question: { key: string }) => question.key))
+      .toEqual(['preset_week_highlights', 'custom_1', 'custom_2']);
+    const keys = outgoing.map((question: { key: string }) => question.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].expectedVersion).toBe(1);
+  });
+
+  it('T3. mints a collision-free key when several presets precede the custom', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([
+        { key: 'preset_week_highlights', prompt: 'Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?' },
+        { key: 'preset_field_feedback', prompt: 'Müşterilerden veya sahadan önemli bir geri bildirim var mı?' },
+        { key: 'custom_1', prompt: 'Kalıcı özel soru' },
+      ]),
+    ] });
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_2') as HTMLInputElement, 'Yeni soru');
+    await click(buttonByText('Kaydet'));
+    const keys = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].questions
+      .map((question: { key: string }) => question.key);
+    expect(keys).toEqual([
+      'preset_week_highlights', 'preset_field_feedback', 'custom_1', 'custom_2',
+    ]);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('T4. preserves a legacy non-preset key verbatim and mints a non-colliding new key', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([{ key: 'q1', prompt: 'Eski soru' }]),
+    ] });
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    // The legacy row is a custom question addressed by its persisted key.
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-q1') as HTMLInputElement, 'Eski soru (düzenlendi)');
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_1') as HTMLInputElement, 'Yeni soru');
+    await click(buttonByText('Kaydet'));
+    const outgoing = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].questions;
+    expect(outgoing).toEqual([
+      { key: 'q1', prompt: 'Eski soru (düzenlendi)' },
+      { key: 'custom_1', prompt: 'Yeni soru' },
+    ]);
+  });
+
+  it('T5. keeps remaining keys stable after a removal and mints a unique new key afterwards', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([
+        { key: 'custom_1', prompt: 'Birinci' },
+        { key: 'custom_2', prompt: 'İkinci' },
+        { key: 'custom_3', prompt: 'Üçüncü' },
+      ]),
+    ] });
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValue({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    // Remove custom_2 (the second row) by its own remove button.
+    const row = host.querySelector('#recurrence-edit-rec-1-custom-question-custom_2')
+      ?.closest('.field-row') as HTMLElement;
+    await click(row.querySelector('button') as HTMLElement);
+    // Add a new question: whatever key it mints must be unique among the
+    // remaining rows (no duplicate custom_2/custom_3 in one payload).
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    const customInputs = Array.from(
+      host.querySelectorAll('input[id^="recurrence-edit-rec-1-custom-question-"]'),
+    ) as HTMLInputElement[];
+    change(customInputs[customInputs.length - 1]!, 'Yeni soru');
+    await click(buttonByText('Kaydet'));
+    const outgoing = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1].questions;
+    // Remaining keys were NOT renumbered, and the new key does not collide.
+    expect(outgoing[0]).toEqual({ key: 'custom_1', prompt: 'Birinci' });
+    expect(outgoing[1]).toEqual({ key: 'custom_3', prompt: 'Üçüncü' });
+    expect(outgoing[2]).toEqual({ key: outgoing[2].key, prompt: 'Yeni soru' });
+    const keys = outgoing.map((question: { key: string }) => question.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('T6. retries an ambiguous template update with the exact original keys, prompts and order', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [
+      ruleWithQuestions([
+        { key: 'preset_incomplete_work', prompt: 'Planlanıp tamamlanamayan işler oldu mu? Neden?' },
+        { key: 'q1', prompt: 'Eski soru' },
+      ]),
+    ] });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+    await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_1') as HTMLInputElement, 'Yeni soru');
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockRejectedValueOnce(new Error('transport lost'));
+    await click(buttonByText('Kaydet'));
+    const firstInput = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1];
+
+    weeklyApi.updateWeeklyReportRecurrenceTemplate.mockResolvedValueOnce({
+      recurrenceId: 'rec-1', version: 2, questions: [], instructions: null,
+      nextPeriodStart: '2026-10-05',
+    });
+    await click(buttonByText('Özgün isteği tekrar dene'));
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate).toHaveBeenCalledTimes(2);
+    expect(weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[1]![1]).toEqual(firstInput);
+    expect(firstInput.clientActionId).toBe('action-1');
+    expect(firstInput.questions).toEqual([
+      { key: 'preset_incomplete_work', prompt: 'Planlanıp tamamlanamayan işler oldu mu? Neden?' },
+      { key: 'q1', prompt: 'Eski soru' },
+      { key: 'custom_1', prompt: 'Yeni soru' },
+    ]);
   });
 
   it('19. pauses an active rule with its current version', async () => {
@@ -518,7 +686,7 @@ describe('Weekly report recurrence surface', () => {
     await renderManager();
     await click(buttonByText('Şablonu düzenle'));
     await click(host.querySelector('#recurrence-edit-rec-1-add-custom-question') as HTMLElement);
-    change(host.querySelector('#recurrence-edit-rec-1-custom-question-1') as HTMLInputElement, 'Yeni soru?');
+    change(host.querySelector('#recurrence-edit-rec-1-custom-question-custom_1') as HTMLInputElement, 'Yeni soru?');
     weeklyApi.updateWeeklyReportRecurrenceTemplate.mockRejectedValueOnce(new Error('transport lost'));
     await click(buttonByText('Kaydet'));
     const firstInput = weeklyApi.updateWeeklyReportRecurrenceTemplate.mock.calls[0]![1];

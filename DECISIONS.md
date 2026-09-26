@@ -1465,3 +1465,19 @@ slice; no merge performed here.
   under the host's `trust` pg_hba ×1) proven identical on the clean aae1c50
   base by stashing this work — none touch weekly reports and CI runs with the
   canonical environment.
+- **Question-key stability fix (2026-09-26, post-remediation review).** The
+  review found that recurrence template editing derived custom draft identity
+  from array position (`id: index + 1`, counter seeded `custom.length + 1`),
+  so a `preset + custom_1` template minted a colliding second `custom_2` on
+  the next added row and a bare save could silently rewrite a persisted key.
+  Custom drafts now own an explicit stable key: drafts are `{ key, prompt }`,
+  `collectManagerQuestions` emits each draft's stored key (never
+  `custom_<position>`), template editing preserves every persisted non-preset
+  key verbatim (legacy keys such as `q1` included), and a new
+  `nextCustomQuestionKey(ownedKeys)` helper mints the first `custom_N` not
+  owned by preset keys, persisted custom keys and rows added this session —
+  minted once at add-time, never renumbered. Proven by T1–T6 regression tests
+  (round-trip, add-without-collision, multi-preset, legacy key, removal
+  stability, verbatim ambiguous retry) and mutations A (index mapping → 5
+  red), B (minting ignores owned keys → 5 red), C (renumber after delete → 1
+  red); all reverted, tree restored.
