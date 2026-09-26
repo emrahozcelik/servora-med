@@ -47,6 +47,10 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post<{ Params: { id: string } }>('/:id/invalidate', secured, h.invalidate);
   app.get<{ Params: { id: string } }>('/:id/activity', secured, h.activity);
   app.get<{ Params: { id: string } }>('/:id/overdue-incidents', secured, h.listOverdueIncidents);
+  // OVR-4: the current LATE_SUBMISSION delay signal (any actor who can reach
+  // the job) and the management-only manual reminder action.
+  app.get<{ Params: { id: string } }>('/:id/submission-delay', secured, h.getSubmissionDelay);
+  app.post<{ Params: { id: string } }>('/:id/submission-reminder', secured, h.remindSubmission);
   app.get<{ Params: { id: string } }>('/:id/notes', secured, h.listNotes);
   app.post<{ Params: { id: string } }>('/:id/notes', secured, h.addNote);
 };

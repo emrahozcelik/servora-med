@@ -38,9 +38,9 @@ const lifecycleCases = [
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
-  it('keeps the canonical activity vocabulary at exactly 18 unique events', () => {
-    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(18);
-    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(18);
+  it('keeps the canonical activity vocabulary at exactly 19 unique events', () => {
+    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(19);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(19);
     expect(new Set(JOB_CARD_ACTIVITY_EVENTS)).toEqual(new Set([
       'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
@@ -49,6 +49,8 @@ describe('safe JobCard activity presenter', () => {
       'NOTE_ADDED', 'MEETING_DETAILS_UPDATED',
       'JOB_APPROVAL_WITHDRAWN',
       'JOB_INVALIDATED',
+      // OVR-4 manager-issued submission reminder audit fact.
+      'JOB_SUBMISSION_REMINDER_SENT',
     ]));
   });
 

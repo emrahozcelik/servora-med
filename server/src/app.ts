@@ -71,6 +71,7 @@ import { CalendarService } from './modules/calendar/service.js';
 import { calendarRoutes } from './modules/calendar/routes.js';
 import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.js';
 import type { OverdueBreachScanner } from './modules/job-cards/overdue-breach-scanner.js';
+import type { OverdueReminderWorker } from './modules/job-cards/overdue-reminder-worker.js';
 import { MessagingService } from './modules/messaging/service.js';
 import { PostgresMessagingRepository } from './modules/messaging/repository.js';
 import { messagingRoutes } from './modules/messaging/routes.js';
@@ -165,6 +166,12 @@ export type AppDependencies = {
    * a background incident writer implicitly.
    */
   overdueBreachScanner?: OverdueBreachScanner;
+  /**
+   * OVR-4 LATE_SUBMISSION reminder/escalation worker. Optional: present only
+   * when `OVERDUE_REMINDER_ENABLED=true` was configured, so the process never
+   * starts a background notifier implicitly.
+   */
+  overdueReminderWorker?: OverdueReminderWorker;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
   demoDatasetRepository?: DemoDatasetRepository;
@@ -388,6 +395,17 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           await dependencies.overdueBreachScanner!.stop();
         });
       }
+    }
+    // OVR-4: the reminder worker is independent of the calendar capability and
+    // of the scanner — it projects notifications for whatever incidents exist.
+    // Shutdown waits for the active iteration instead of cutting a transaction.
+    if (dependencies.overdueReminderWorker) {
+      app.addHook('onReady', () => {
+        dependencies.overdueReminderWorker!.start();
+      });
+      app.addHook('onClose', async () => {
+        await dependencies.overdueReminderWorker!.stop();
+      });
     }
     if (dependencies.crmRepository) {
       await app.register(crmRoutes, {

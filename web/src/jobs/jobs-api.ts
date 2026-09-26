@@ -50,6 +50,20 @@ export const UNSUCCESSFUL_VISIT_REASON_CODES = [
   'REQUESTED_LATER',
   'OTHER',
 ] as const;
+/**
+ * OVR-2/OVR-4 vocabulary. Mirrors `server/src/modules/job-cards/overdue-incidents.ts`
+ * so a new delay type can never appear on the client without an explicit
+ * change here first. This is presentation vocabulary only: the server remains
+ * the sole authority for whether a breach exists.
+ */
+export const OVERDUE_INCIDENT_DELAY_TYPES = [
+  'LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT',
+] as const;
+export const OVERDUE_ACCOUNTABLE_ROLES = ['STAFF', 'MANAGEMENT'] as const;
+export const OVERDUE_ACCOUNTABLE_SOURCES = [
+  'ASSIGNMENT_AT_BREACH', 'ROLE_POLICY', 'UNKNOWN',
+] as const;
+export const OVERDUE_INCIDENT_SOURCES = ['TRANSITION', 'MUTATION', 'SCANNER'] as const;
 export const MEETING_DETAIL_FIELDS = [
   'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
 ] as const;
@@ -252,6 +266,61 @@ export type ProductDeliveryCreateInput = {
   deliveryNote?: string | null;
   items: Array<{ productId: string; quantity: number }>;
 };
+export type OverdueIncidentDelayType = (typeof OVERDUE_INCIDENT_DELAY_TYPES)[number];
+export type OverdueAccountableRole = (typeof OVERDUE_ACCOUNTABLE_ROLES)[number];
+export type OverdueAccountableSource = (typeof OVERDUE_ACCOUNTABLE_SOURCES)[number];
+export type OverdueIncidentSource = (typeof OVERDUE_INCIDENT_SOURCES)[number];
+/** A user reference whose display name may be absent for a legacy actor. */
+export type NamedUser = { id: string; name: string | null };
+/**
+ * OVR-4 current-delay signal. This is the live obligation, not immutable
+ * history: it carries only the open episode and the server-measured elapsed
+ * seconds. `elapsedSeconds` is computed from the server request clock, so the
+ * client never derives a duration from its own clock.
+ */
+export type SubmissionDelaySignal = {
+  delayType: 'LATE_SUBMISSION';
+  episodeNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  elapsedSeconds: number;
+  accountableStaff: NamedUser | null;
+};
+export type OverdueIncidentManagerReminder = {
+  sentAt: string;
+  actor: NamedUser | null;
+  target: NamedUser | null;
+};
+/**
+ * OVR-2/OVR-4 management history. Every measurement is nullable because an
+ * open incident has no total yet and a pre-OVR-4 incident never had a manual
+ * reminder. A null is "not measurable", never "zero" and never backfilled.
+ */
+export type OverdueIncidentHistoryItem = {
+  id: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  accountableRole: OverdueAccountableRole;
+  accountableSource: OverdueAccountableSource;
+  accountableUser: NamedUser | null;
+  source: OverdueIncidentSource;
+  recordedAt: string;
+  recoveredAt: string | null;
+  recoveryActor: NamedUser | null;
+  totalDelaySeconds: number | null;
+  managerReminder: OverdueIncidentManagerReminder | null;
+  postReminderDelaySeconds: number | null;
+};
+export type SubmissionReminderReceipt = {
+  jobCardId: string;
+  incidentId: string;
+  reminderId: string;
+  sentAt: string;
+  targetUserId: string;
+};
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
@@ -268,6 +337,14 @@ export type PersistedJobCardListItem = {
    */
   overdueSince?: string | null;
   latenessSeconds?: number | null;
+  /**
+   * OVR-4 derived current LATE_SUBMISSION delay snapshot. Like the overdue
+   * snapshot above it is present ONLY on the list surface that resolves it; a
+   * missing value means "this view does not evaluate submission delays", never
+   * "not late". It is orthogonal to `latenessSeconds` (due-date clock) and
+   * never replaces it.
+   */
+  submissionDelay?: { breachedAt: string; elapsedSeconds: number } | null;
 };
 export type JobCardListItem = PersistedJobCardListItem & {
   allowedCommands: LifecycleCommand[];
@@ -468,6 +545,17 @@ function related(value: unknown, field: string): RelatedName {
 }
 function nullableRelated(value: unknown, field: string) {
   return value === null ? null : related(value, field);
+}
+/**
+ * Overdue actors carry a nullable display name (a legacy/offboarded user may
+ * have no name snapshot), so they use their own reader instead of `related`.
+ */
+function namedUser(value: unknown, field: string): NamedUser {
+  const v = object(value);
+  return { id: string(v.id, `${field}.id`), name: nullableString(v.name, `${field}.name`) };
+}
+function nullableNamedUser(value: unknown, field: string) {
+  return value === null ? null : namedUser(value, field);
 }
 function canonicalInstant(value: unknown, field: string) {
   const parsed = string(value, field);
@@ -757,6 +845,17 @@ export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardL
     ...(v.latenessSeconds === undefined ? {} : {
       latenessSeconds: nullableCount(v.latenessSeconds, 'latenessSeconds'),
     }),
+    ...(v.submissionDelay === undefined ? {} : {
+      submissionDelay: v.submissionDelay === null
+        ? null
+        : (() => {
+            const d = object(v.submissionDelay);
+            return {
+              breachedAt: canonicalInstant(d.breachedAt, 'submissionDelay.breachedAt'),
+              elapsedSeconds: count(d.elapsedSeconds, 'submissionDelay.elapsedSeconds'),
+            };
+          })(),
+    }),
   };
 }
 export function parseJobCardListItem(value: unknown): JobCardListItem {
@@ -778,6 +877,65 @@ export function parseFollowUpListItem(value: unknown): FollowUpListItem {
     followUp: followUp === null
       ? null
       : { sourceJobCardId: string(followUp.sourceJobCardId, 'sourceJobCardId') },
+  };
+}
+/**
+ * `GET /:id/submission-delay` envelope. The delay type is pinned to
+ * LATE_SUBMISSION: this endpoint describes exactly one obligation, so any other
+ * value is a contract violation rather than a new case to render.
+ */
+function parseSubmissionDelaySignal(value: unknown): SubmissionDelaySignal | null {
+  if (value === null) return null;
+  const v = object(value);
+  return {
+    delayType: oneOf(v.delayType, 'delayType', ['LATE_SUBMISSION'] as const),
+    episodeNo: positiveCount(v.episodeNo, 'episodeNo'),
+    deadlineAt: canonicalInstant(v.deadlineAt, 'deadlineAt'),
+    breachedAt: canonicalInstant(v.breachedAt, 'breachedAt'),
+    elapsedSeconds: count(v.elapsedSeconds, 'elapsedSeconds'),
+    accountableStaff: nullableNamedUser(v.accountableStaff, 'accountableStaff'),
+  };
+}
+function parseManagerReminder(value: unknown): OverdueIncidentManagerReminder | null {
+  if (value === null) return null;
+  const v = object(value);
+  return {
+    sentAt: canonicalInstant(v.sentAt, 'managerReminder.sentAt'),
+    actor: nullableNamedUser(v.actor, 'managerReminder.actor'),
+    target: nullableNamedUser(v.target, 'managerReminder.target'),
+  };
+}
+export function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistoryItem {
+  const v = object(value);
+  return {
+    id: string(v.id, 'id'),
+    delayType: oneOf(v.delayType, 'delayType', OVERDUE_INCIDENT_DELAY_TYPES),
+    episodeNo: positiveCount(v.episodeNo, 'episodeNo'),
+    scheduleRevisionNo: positiveCount(v.scheduleRevisionNo, 'scheduleRevisionNo'),
+    deadlineAt: canonicalInstant(v.deadlineAt, 'deadlineAt'),
+    breachedAt: canonicalInstant(v.breachedAt, 'breachedAt'),
+    accountableRole: oneOf(v.accountableRole, 'accountableRole', OVERDUE_ACCOUNTABLE_ROLES),
+    accountableSource: oneOf(v.accountableSource, 'accountableSource', OVERDUE_ACCOUNTABLE_SOURCES),
+    accountableUser: nullableNamedUser(v.accountableUser, 'accountableUser'),
+    source: oneOf(v.source, 'source', OVERDUE_INCIDENT_SOURCES),
+    recordedAt: canonicalInstant(v.recordedAt, 'recordedAt'),
+    recoveredAt: nullableCanonicalInstant(v.recoveredAt, 'recoveredAt'),
+    recoveryActor: nullableNamedUser(v.recoveryActor, 'recoveryActor'),
+    totalDelaySeconds: nullableCount(v.totalDelaySeconds, 'totalDelaySeconds'),
+    managerReminder: parseManagerReminder(v.managerReminder),
+    postReminderDelaySeconds: nullableCount(v.postReminderDelaySeconds, 'postReminderDelaySeconds'),
+  };
+}
+function parseSubmissionReminderReceipt(value: unknown): SubmissionReminderReceipt {
+  const v = exactObject(value, 'submissionReminder', [
+    'jobCardId', 'incidentId', 'reminderId', 'sentAt', 'targetUserId',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    incidentId: string(v.incidentId, 'incidentId'),
+    reminderId: string(v.reminderId, 'reminderId'),
+    sentAt: canonicalInstant(v.sentAt, 'sentAt'),
+    targetUserId: string(v.targetUserId, 'targetUserId'),
   };
 }
 function parsePage<T>(value: unknown, parser: (entry: unknown) => T): Paginated<T> {
@@ -1025,6 +1183,36 @@ export const addJobCardNote = async (id: string, input: {
 export const listActivity = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
   parsePage(await request(`${jobPath(id)}/activity${query(page)}`), parseActivity);
 export const listJobCardActivity = listActivity;
+
+/**
+ * OVR-4 live submission delay. Readable by anyone who can already reach the
+ * job (STAFF included), because it describes the delay the employee has to act
+ * on. Returns null when there is no open delay.
+ */
+export const fetchSubmissionDelay = async (id: string): Promise<SubmissionDelaySignal | null> => {
+  const v = exactObject(await request(`${jobPath(id)}/submission-delay`), 'submissionDelay', ['open']);
+  return parseSubmissionDelaySignal(v.open);
+};
+/**
+ * OVR-2 management-only breach history. A STAFF caller gets 403 from the
+ * server; the client does not pre-empt that decision.
+ */
+export const fetchOverdueIncidents = async (
+  id: string,
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`${jobPath(id)}/overdue-incidents${query(page)}`),
+  parseOverdueIncidentHistoryItem,
+);
+/**
+ * OVR-4 manual management reminder. `clientActionId` makes a double-click
+ * idempotent end to end: the same id returns the same durable fact instead of
+ * appending a second one.
+ */
+export const sendSubmissionReminder = async (id: string, clientActionId: string) =>
+  parseSubmissionReminderReceipt(
+    await request(`${jobPath(id)}/submission-reminder`, json('POST', { clientActionId })),
+  );
 
 export const listDeliveryItems = async (id: string) =>
   items(await request(`${jobPath(id)}/delivery-items`)).map(parseDelivery);

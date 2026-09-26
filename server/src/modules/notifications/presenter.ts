@@ -19,6 +19,18 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
   'job.cancelled': { title: 'İş iptal edildi', body: 'İşiniz iptal edildi.' },
   'job.invalidated': { title: 'İş geçersiz kılındı', body: 'Bir iş kaydı geçersiz kılındı.' },
   'job.note_added': { title: 'Operasyon notu', body: 'Operasyon notu eklendi.' },
+  // OVR-4 automatic LATE_SUBMISSION projections. The copy states the meaning
+  // without hard-coding a threshold: the escalation threshold is configurable,
+  // so a fixed "1 saat" would start lying the moment an operator changes it.
+  // The exact elapsed duration is server-computed and shown on the JobCard.
+  'job.submission_reminder': {
+    title: 'Onaya gönderme gecikti',
+    body: 'Bu işin onaya gönderme süresi geçti. Lütfen işi tamamlayıp yönetici onayına gönderin.',
+  },
+  'job.submission_escalation': {
+    title: 'Onaya gönderilmeyen iş',
+    body: 'Personelin başlattığı iş uzun süredir yönetici onayına gönderilmedi. Lütfen personelden işi onaya göndermesini isteyin.',
+  },
   'calendar.assigned': {
     title: 'Yeni takvim planı',
     body: 'Takviminize yeni bir plan eklendi.',

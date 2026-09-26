@@ -154,6 +154,16 @@ export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
   if (actor.role === 'STAFF') forbidden();
 }
 
+/**
+ * OVR-4: reminding an employee to submit is a management action. It is the
+ * counterpart of the read guard above — STAFF may see its own current delay
+ * signal, but only management may act on somebody's delay, and never on its
+ * own behalf (a manager has no submission obligation to remind about).
+ */
+export function assertCanRemindSubmission(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
 export function assertFollowUpSourceEligible(job: Pick<JobCard, 'status'>) {
   if (job.status !== 'COMPLETED') {
     throw new AppError(

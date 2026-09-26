@@ -74,10 +74,10 @@ function createMockLogger() {
 }
 
 describe('SD2 catalog source', () => {
-  it('derives expected head from catalog as 052', async () => {
+  it('derives expected head from catalog as 053', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    expect(catalog.head?.version).toBe('052_weekly_report_recurrence');
-    expect(catalog.count).toBe(52);
+    expect(catalog.head?.version).toBe('053_overdue_submission_reminders');
+    expect(catalog.count).toBe(53);
     expect(catalog.entries[0]?.version).toBe('001_auth_foundation');
   });
 
@@ -86,7 +86,7 @@ describe('SD2 catalog source', () => {
     // In worktree src context, it should be src/db/migrations
     expect(dir).toMatch(/\/db\/migrations$/);
     const catalog = await loadMigrationCatalog(dir);
-    expect(catalog.count).toBe(52);
+    expect(catalog.count).toBe(53);
   });
 
   it('dist migrations are copied and resolvable', async () => {
@@ -94,8 +94,8 @@ describe('SD2 catalog source', () => {
     const { existsSync } = await import('node:fs');
     if (!existsSync(distMigrationsDirectory)) return;
     const catalog = await loadMigrationCatalog(distMigrationsDirectory);
-    expect(catalog.head?.version).toBe('052_weekly_report_recurrence');
-    expect(catalog.count).toBe(52);
+    expect(catalog.head?.version).toBe('053_overdue_submission_reminders');
+    expect(catalog.count).toBe(53);
   });
 });
 
@@ -104,11 +104,11 @@ describe('SD2 HEALTH_SCHEMA_VERSION assertion', () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(getHealthSchemaVersionMismatchError(catalog, null)).toBeNull();
   });
-  it('052 matches head', async () => {
+  it('053 matches head', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
     expect(getHealthSchemaVersionMismatchError(
       catalog,
-      '052_weekly_report_recurrence',
+      '053_overdue_submission_reminders',
     )).toBeNull();
   });
   it('036 mismatches', async () => {
@@ -133,7 +133,7 @@ describe('SD2 startup fail-fast', () => {
     const { logger, logs } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/incompatibility: BEHIND/);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
-      expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence']);
+      expect(logs[0]?.fields.pendingVersions).toEqual(['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders']);
   });
   it('BEHIND many (029 incident) refused with 10 pending', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
@@ -166,6 +166,7 @@ describe('SD2 startup fail-fast', () => {
       '050_overdue_incident_scanner_source',
       '051_weekly_report_foundation',
       '052_weekly_report_recurrence',
+      '053_overdue_submission_reminders',
     ]);
     expect(logs[0]?.msg).toMatch(/Run npm run migrate/);
     expect(JSON.stringify(logs)).not.toMatch(/postgres/i);
@@ -176,9 +177,9 @@ describe('SD2 startup fail-fast', () => {
     const { logger } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/EMPTY/);
   });
-  it('AHEAD with 053_future refused', async () => {
+  it('AHEAD with 054_future refused', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const pool = mockPool([...catalog.entries.map((e) => e.version), '053_future']);
+    const pool = mockPool([...catalog.entries.map((e) => e.version), '054_future']);
     const { logger, logs } = createMockLogger();
     await expect(assertStartupSchemaCompatible({ pool, catalog, logger })).rejects.toThrow(/AHEAD/);
     expect(logs[0]?.msg).toMatch(/newer than this application release/);
@@ -392,12 +393,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('SD2 disposable postgres accepta
     });
   });
 
-  it('E: AHEAD synthetic 053_future refused', async () => {
+  it('E: AHEAD synthetic 054_future refused', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(migrationsDirectory);
       const store = new PostgresMigrationStore(pool);
       await runMigrations({ migrationsDirectory, store });
-      await pool.query("INSERT INTO schema_migrations (version) VALUES ('053_future')");
+      await pool.query("INSERT INTO schema_migrations (version) VALUES ('054_future')");
       await expect(assertStartupSchemaCompatible({ pool, catalog })).rejects.toThrow(/AHEAD/);
       const readiness = createPostgresReadiness(pool as never, catalog as never);
       await expect(readiness.check()).resolves.toBe('unavailable');

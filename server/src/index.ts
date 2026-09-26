@@ -44,6 +44,11 @@ import {
   PostgresOverdueBreachScannerRepository,
   createOverdueBreachScanner,
 } from './modules/job-cards/overdue-breach-scanner.js';
+import {
+  PostgresOverdueReminderWorkerRepository,
+  createOverdueReminderWorker,
+} from './modules/job-cards/overdue-reminder-worker.js';
+import { createOverdueReminderPolicy } from './modules/job-cards/overdue-reminder-policy.js';
 
 /**
  * Selects exactly one backup observability provider (DECISIONS.md -> OPS-004
@@ -177,6 +182,33 @@ async function main() {
                 },
                 onError: (error) => {
                   console.error('Overdue breach scanner iteration failed', error);
+                },
+              },
+            ),
+          }
+        : {}),
+      // OVR-4: the LATE_SUBMISSION reminder/escalation worker. Also opt-in, for
+      // the same reason: it is a background writer, so a default deployment
+      // never starts it implicitly. It only projects notifications for
+      // incidents the scanner or the lifecycle already materialized.
+      ...(config.overdueReminders?.enabled === true
+        ? {
+            overdueReminderWorker: createOverdueReminderWorker(
+              new PostgresOverdueReminderWorkerRepository(database.pool),
+              createOverdueReminderPolicy({
+                staffReminderMinutes: config.overdueReminders.staffReminderMinutes,
+                managementEscalationMinutes: config.overdueReminders.managementEscalationMinutes,
+              }),
+              {
+                publisher: realtimeBus,
+                webPushEnabled: config.webPush.enabled,
+                pollIntervalMs: config.overdueReminders.pollIntervalMs,
+                batchSize: config.overdueReminders.batchSize,
+                onReport: (report) => {
+                  app?.log.debug({ overdueReminders: report }, 'Overdue reminder iteration');
+                },
+                onError: (error) => {
+                  console.error('Overdue reminder worker iteration failed', error);
                 },
               },
             ),

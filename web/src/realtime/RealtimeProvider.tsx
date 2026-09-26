@@ -38,6 +38,11 @@ const CHANGE_TYPES = new Set([
   'job.revision_requested',
   'job.cancelled',
   'job.updated',
+  // OVR-4 automatic LATE_SUBMISSION reminder/escalation projections
+  // (server/src/modules/realtime/types.ts). System-produced, so they carry no
+  // activity row; the web only uses them to invalidate.
+  'job.submission_reminder_due',
+  'job.submission_escalation_due',
   'calendar.created',
   'calendar.updated',
   'calendar.cancelled',

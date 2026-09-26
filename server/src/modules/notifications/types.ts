@@ -12,6 +12,8 @@ export const NOTIFICATION_KINDS = [
   'job.cancelled',
   'job.invalidated',
   'job.note_added',
+  'job.submission_reminder',
+  'job.submission_escalation',
   'calendar.assigned',
   'calendar.rescheduled',
   'calendar.cancelled',
