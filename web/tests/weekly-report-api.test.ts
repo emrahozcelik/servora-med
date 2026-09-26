@@ -7,12 +7,24 @@ import {
   parseWeeklyReportDetail,
   parseWeeklyReportReference,
   parseWeeklyReportSubmission,
+  type WeeklyReportBulkRequestInput,
+  type WeeklyReportCreateInput,
 } from '../src/jobs/weekly-report-api';
 
-const detail = {
+/**
+ * The ACTUAL server response shape, transcribed from the server DTO chain:
+ * `WeeklyReportDetail = WeeklyReport & { job reference fields }` where
+ * `WeeklyReport` is the mapped `weekly_reports` row. The field-test blocker
+ * was the client allowlist omitting `organizationId`, `createdAt` and
+ * `updatedAt`, which made the server's valid response fail closed with
+ * `Yanıtta weeklyReport alanı geçersiz.`
+ */
+const serverDetail = {
+  // WeeklyReport (mapped weekly_reports row)
   id: 'report-1',
-  staffUserId: 'staff-1',
+  organizationId: 'org-1',
   jobCardId: 'job-1',
+  staffUserId: 'staff-1',
   periodStart: '2026-08-03',
   periodEnd: '2026-08-09',
   draft: {
@@ -22,6 +34,9 @@ const detail = {
   questions: [{ key: 'q1', prompt: 'Soru?' }],
   answers: [{ questionKey: 'q1', answer: 'Yanıt.' }],
   version: 2,
+  createdAt: '2026-08-03T09:00:00.000Z',
+  updatedAt: '2026-08-04T10:00:00.000Z',
+  // JobCard lifecycle reference added by JobCardService.getWeeklyReport
   jobStatus: 'IN_PROGRESS',
   jobVersion: 2,
   dueDate: '2026-08-10',
@@ -36,16 +51,20 @@ const detail = {
 };
 
 describe('weekly report api parsers', () => {
-  it('parses the report detail exactly', () => {
-    expect(parseWeeklyReportDetail(detail)).toEqual(detail);
+  it('accepts the ACTUAL server-shaped detail (organizationId/createdAt/updatedAt present)', () => {
+    const parsed = parseWeeklyReportDetail(serverDetail);
+    expect(parsed).toEqual(serverDetail);
+    // The remediation fields are explicitly asserted, not incidental.
+    expect(parsed.organizationId).toBe('org-1');
+    expect(parsed.createdAt).toBe('2026-08-03T09:00:00.000Z');
+    expect(parsed.updatedAt).toBe('2026-08-04T10:00:00.000Z');
   });
 
-  it('rejects unknown detail keys and bad periods', () => {
-    expect(() => parseWeeklyReportDetail({ ...detail, bogus: 1 })).toThrow();
-    expect(() => parseWeeklyReportDetail({ ...detail, periodStart: '2026-08-04' })).not.toThrow();
-    expect(() => parseWeeklyReportDetail({ ...detail, periodStart: 'not-a-date' })).toThrow();
-    expect(() => parseWeeklyReportDetail({ ...detail, jobStatus: 'BOGUS' })).toThrow();
-    expect(() => parseWeeklyReportDetail({ ...detail, instructions: 7 })).toThrow();
+  it('rejects unknown detail keys and bad periods (fail-closed contract)', () => {
+    expect(() => parseWeeklyReportDetail({ ...serverDetail, bogus: 1 })).toThrow();
+    expect(() => parseWeeklyReportDetail({ ...serverDetail, periodStart: 'not-a-date' })).toThrow();
+    expect(() => parseWeeklyReportDetail({ ...serverDetail, jobStatus: 'BOGUS' })).toThrow();
+    expect(() => parseWeeklyReportDetail({ ...serverDetail, instructions: 7 })).toThrow();
   });
 
   it('parses the canonical organization reporting-week reference exactly', () => {
@@ -61,11 +80,17 @@ describe('weekly report api parsers', () => {
     expect(() => parseWeeklyReportReference({ ...reference, timezone: 3 })).toThrow();
   });
 
-  it('parses a frozen submission exactly', () => {
-    const submission = {
-      id: 'sub-1', weeklyReportId: 'report-1', jobCardId: 'job-1', seqNo: 1,
-      submittedBy: 'staff-1', submittedAt: '2026-08-05T12:00:00.000Z',
-      periodStart: '2026-08-03', periodEnd: '2026-08-09',
+  it('accepts the ACTUAL server-shaped immutable submission (organizationId/createdAt present)', () => {
+    const serverSubmission = {
+      id: 'sub-1',
+      organizationId: 'org-1',
+      weeklyReportId: 'report-1',
+      jobCardId: 'job-1',
+      seqNo: 1,
+      submittedBy: 'staff-1',
+      submittedAt: '2026-08-05T12:00:00.000Z',
+      periodStart: '2026-08-03',
+      periodEnd: '2026-08-09',
       body: {
         summary: 'Özet.', blockers: null, nextWeekPlan: 'Plan.',
         highlights: null, fieldObservations: null, supportNeeded: null,
@@ -75,12 +100,12 @@ describe('weekly report api parsers', () => {
       sourceWork: [],
       jobVersion: 3,
       sourceActivityId: 'act-1',
+      createdAt: '2026-08-05T12:00:00.000Z',
     };
-    expect(parseWeeklyReportSubmission(submission)).toEqual(submission);
-    expect(() => parseWeeklyReportSubmission({ ...submission, sourceWork: [{
-      jobCardId: 'x', type: 'GENERAL_TASK', title: 'T', customerName: null,
-      staffCompletedAt: '2026-08-05T09:00:00.000Z', statusAtSnapshot: 'NEW',
-    }] })).toThrow();
+    const parsed = parseWeeklyReportSubmission(serverSubmission);
+    expect(parsed).toEqual(serverSubmission);
+    expect(parsed.organizationId).toBe('org-1');
+    expect(parsed.createdAt).toBe('2026-08-05T12:00:00.000Z');
   });
 
   it('parses the create result exactly', () => {
@@ -123,5 +148,20 @@ describe('weekly report api parsers', () => {
 
   it('mirrors the server bulk ceiling for the multi-select guard', () => {
     expect(MAX_BULK_TARGETS).toBe(50);
+  });
+
+  it('advertises no dueDate dimension on public request inputs (deadline is server-canonical)', () => {
+    // The deadline is derived server-side (periodEnd + 1): the request shapes
+    // carry no dueDate field, so the removed Termin capability cannot be
+    // resurrected as an undocumented API parameter. (An object literal with a
+    // dueDate key fails to compile against these annotated types.)
+    const single: WeeklyReportCreateInput = {
+      clientActionId: 'action-1', periodStart: '2026-08-03',
+    };
+    const bulk: WeeklyReportBulkRequestInput = {
+      clientActionId: 'action-1', staffUserIds: ['staff-1'], periodStart: '2026-08-03',
+    };
+    expect(single).not.toHaveProperty('dueDate');
+    expect(bulk).not.toHaveProperty('dueDate');
   });
 });

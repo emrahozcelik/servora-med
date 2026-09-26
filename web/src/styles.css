@@ -2018,6 +2018,20 @@ html a:focus-visible {
 .record-commands:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
 .delivery-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .task-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
+/* Weekly report create mode switch and recurrence management surface. */
+.mode-switch { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.recurrence-manager { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.recurrence-manager .activity-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.recurrence-manager .recurrence-staff { font-weight: 600; }
+.recurrence-manager .recurrence-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+.recurrence-manager .recurrence-edit { flex-basis: 100%; margin-top: 0.5rem; }
 .follow-up-create { min-width: 0; }
 .follow-up-source-summary { margin-bottom: 1.25rem; }
 

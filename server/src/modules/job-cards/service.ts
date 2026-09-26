@@ -202,6 +202,7 @@ import type {
   RealtimeEventRecord,
 } from '../realtime/types.js';
 import type { AppendedActivity } from './repository.js';
+import { lockAssigneesInOrder } from './assignee-lock.js';
 import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
 import type { ReverseGeocoder } from './reverse-geocoder.js';
 import {
@@ -486,8 +487,11 @@ export type WeeklyReportCreateResult = {
  * Internal result of the shared creation core. `existing` means an already
  * canonical report for that staff/week won the identity; the JobCard and
  * report ids point at that winner and no new row was written.
+ *
+ * Exported for the Slice 5 recurrence worker, which drives the same core
+ * through {@link JobCardService.createOrResolveWeeklyReportForStaff} below.
  */
-type WeeklyReportCreationOutcome =
+export type WeeklyReportCreationOutcome =
   | {
       outcome: 'created';
       jobCardId: string;
@@ -564,15 +568,7 @@ export class JobCardService {
     organizationId: string,
     userIds: readonly (string | null | undefined)[],
   ) {
-    const assignees = new Map<string, JobCardAssignee>();
-    const orderedIds = [...new Set(userIds.filter(
-      (userId): userId is string => typeof userId === 'string' && userId.length > 0,
-    ))].sort();
-    for (const userId of orderedIds) {
-      const assignee = await transaction.getAssigneeForUpdate(organizationId, userId);
-      if (assignee) assignees.set(userId, assignee);
-    }
-    return assignees;
+    return lockAssigneesInOrder(transaction, organizationId, userIds);
   }
 
   private requiredLockedAssignee(
@@ -1029,16 +1025,6 @@ export class JobCardService {
           'VALIDATION_ERROR', 400, 'Yönetici soruları personel kaydında yer alamaz.',
         );
       }
-      // Deadline authority: staff cannot move their own submission deadline.
-      // The canonical default (Monday after the period) is derived below.
-      if (input.dueDate !== null) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          400,
-          'Personel kendi haftalık raporu için termin belirleyemez.',
-          { fieldErrors: { dueDate: 'Termin yönetici tarafından belirlenir.' } },
-        );
-      }
       staffUserId = actor.id;
       questions = [];
     } else {
@@ -1052,7 +1038,13 @@ export class JobCardService {
         ? []
         : validateManagerQuestions(input.questions);
     }
-    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Deadline authority is SERVER-ONLY (field-test product decision): the
+    // submission deadline is always the day after the report period ends — the
+    // Monday following the Monday–Sunday period — via calendar-day arithmetic.
+    // The public request shape carries no dueDate field at all (the parser
+    // rejects one as an unknown field), so no caller, staff or manager, can
+    // move their own or anyone's accountability deadline.
+    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
       {
@@ -1062,7 +1054,6 @@ export class JobCardService {
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
           assignedTo: staffUserId,
-          dueDate,
           questions,
           instructions: input.instructions,
         }),
@@ -1076,7 +1067,7 @@ export class JobCardService {
         const assignee = this.requiredLockedAssignee(lockedAssignees, staffUserId);
         assertCreateAssignmentRequest(actor, staffUserId);
         assertCanCreateForAssignee(actor, assignee);
-        const outcome = await this.createOrResolveWeeklyReportForStaff(transaction, actor, {
+        const outcome = await this.createOrResolveWeeklyReportForStaffCore(transaction, actor, {
           staffUserId,
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
@@ -1135,7 +1126,7 @@ export class JobCardService {
    * constraint (`DO NOTHING`), so no raw 23505 ever escapes and the caller
    * decides the meaning of a lost identity race.
    */
-  private async createOrResolveWeeklyReportForStaff(
+  private async createOrResolveWeeklyReportForStaffCore(
     transaction: JobCardTransaction,
     actor: JobCardActor,
     input: {
@@ -1238,6 +1229,42 @@ export class JobCardService {
   }
 
   /**
+   * Slice 5 recurrence occurrence creation. This is a deliberate, minimal
+   * exposure of the canonical primitive above — NOT a second implementation.
+   *
+   * The recurrence worker owns its own transaction (the recurrence row, the
+   * staff lock, the report and the schedule advance must commit together), so
+   * it supplies the transaction and the already-held staff lock exactly like
+   * the single-create and bulk-request callers do. Behaviour is identical:
+   * a locked pre-check hit returns `existing` without creating a JobCard, the
+   * report insert defers duplicate identity to the database unique constraint,
+   * and a newly created report is a manager-requested JobCard (`NEW`,
+   * `createdBy` = the supplied actor id, JOB_CREATED activity + realtime).
+   *
+   * `selfCreate` is always false: a recurrence is a manager-authorized request,
+   * so the generated report must never be pre-accepted on the staff's behalf.
+   */
+  async createOrResolveWeeklyReportForStaff(
+    transaction: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      staffUserId: string;
+      periodStart: string;
+      periodEnd: string;
+      dueDate: string;
+      questions: ManagerQuestion[];
+      instructions: string | null;
+      clientActionId: string;
+      requestTime: Date;
+    },
+  ): Promise<WeeklyReportCreationOutcome> {
+    return this.createOrResolveWeeklyReportForStaffCore(transaction, actor, {
+      ...input,
+      selfCreate: false,
+    });
+  }
+
+  /**
    * Manager/ADMIN bulk request (V1 Slice 3): the same reporting week requested
    * for many staff in ONE logical command, producing N INDEPENDENT WeeklyReport
    * JobCards — never a shared multi-assignee report. Each report therefore has
@@ -1266,7 +1293,9 @@ export class JobCardService {
     const questions = input.questions === undefined || input.questions === null
       ? []
       : validateManagerQuestions(input.questions);
-    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Same server-only deadline authority as the single create: the canonical
+    // Monday after the period, derived from calendar-day arithmetic.
+    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<WeeklyReportBulkRequestResult>(
       {
@@ -1276,7 +1305,6 @@ export class JobCardService {
           staffUserIds,
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
-          dueDate,
           questions,
           instructions: input.instructions,
         }),
@@ -1304,7 +1332,7 @@ export class JobCardService {
         const items: WeeklyReportBulkRequestResult['items'] = [];
         const realtimeEvents: RealtimeEventRecord[] = [];
         for (const staffUserId of staffUserIds) {
-          const outcome = await this.createOrResolveWeeklyReportForStaff(transaction, actor, {
+          const outcome = await this.createOrResolveWeeklyReportForStaffCore(transaction, actor, {
             staffUserId,
             periodStart: input.periodStart,
             periodEnd: input.periodEnd,
@@ -2291,6 +2319,23 @@ export class JobCardService {
               'Haftalık raporun talep alanları personel tarafından düzenlenemez.',
             );
           }
+        }
+        // Deadline immutability (field-test product authority, extended to
+        // every actor): the submission deadline is server-canonical
+        // (periodEnd + 1) at creation AND stays tied to the immutable report
+        // period afterwards — a MANAGER/ADMIN can no longer reschedule it
+        // through the generic patch either. Same-value patches fall through
+        // to the ordinary change-scoped machinery (a no-op); a CHANGED
+        // dueDate is rejected for every role (STAFF already hit the stricter
+        // ownership check above).
+        if (fields.dueDate !== undefined
+          && fields.dueDate !== (job.dueDate ?? null)) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Haftalık raporun teslim son tarihi değiştirilemez.',
+            { fieldErrors: { dueDate: 'Haftalık raporun teslim son tarihi değiştirilemez.' } },
+          );
         }
       }
 

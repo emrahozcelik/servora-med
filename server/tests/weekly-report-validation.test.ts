@@ -52,21 +52,33 @@ describe('weekly report period validation', () => {
 });
 
 describe('manager question validation', () => {
-  it('accepts zero to five questions', () => {
+  it('accepts zero to the technical ceiling of questions', () => {
     expect(validateManagerQuestions([])).toEqual([]);
-    const five = Array.from({ length: MAX_MANAGER_QUESTIONS }, (_, index) => ({
+    const ceiling = Array.from({ length: MAX_MANAGER_QUESTIONS }, (_, index) => ({
       key: `q${index + 1}`,
       prompt: `Soru ${index + 1}?`,
     }));
-    expect(validateManagerQuestions(five)).toHaveLength(5);
+    expect(validateManagerQuestions(ceiling)).toHaveLength(MAX_MANAGER_QUESTIONS);
   });
 
-  it('rejects a sixth question', () => {
-    const six = Array.from({ length: 6 }, (_, index) => ({
+  it('accepts more than five questions (the five presets are not the total limit)', () => {
+    const eight = Array.from({ length: 8 }, (_, index) => ({
       key: `q${index + 1}`,
       prompt: `Soru ${index + 1}?`,
     }));
-    const error = validationError(() => validateManagerQuestions(six));
+    expect(validateManagerQuestions(eight)).toHaveLength(8);
+  });
+
+  it('enforces the generous technical ceiling (50), not the historical five', () => {
+    expect(MAX_MANAGER_QUESTIONS).toBe(50);
+  });
+
+  it('rejects one question past the technical ceiling', () => {
+    const over = Array.from({ length: MAX_MANAGER_QUESTIONS + 1 }, (_, index) => ({
+      key: `q${index + 1}`,
+      prompt: `Soru ${index + 1}?`,
+    }));
+    const error = validationError(() => validateManagerQuestions(over));
     expect(error.code).toBe('VALIDATION_ERROR');
   });
 

@@ -1273,3 +1273,257 @@ migration (051 schema proved sufficient again).
   `/staff/:id/jobs` paging helper in `people/handlers.ts` still lacks the
   safe-integer guard its Weekly Report sibling has. That is a separate fix and
   was deliberately not widened into this slice.
+
+## Weekly Report V1 Slice 5 recurring weekly requests — 2026-09-25
+
+Final feature slice of Weekly Report V1. No production deployment in this
+slice; no merge performed here.
+
+- **One rule per staff, fixed WEEKLY frequency.** A recurrence is a durable
+  manager authorization ("for this STAFF member, request a new Weekly Report
+  every week using this template"), keyed `(organization_id, staff_user_id)`.
+  No multi-assignee recurrence row exists; bulk creation produces N independent
+  rules. No cron expressions, no daily/monthly frequency, no other JobCard
+  types, no per-rule due-date override in V1.
+- **Organization-local Monday identity.** `next_period_start` is a DATE
+  representing an organization-local Monday (CHECK `ISODOW = 1`); it is never a
+  "Monday midnight UTC" instant. Due discovery compares the stored Monday
+  against the current calendar date **in the organization's timezone** inside
+  PostgreSQL (`AT TIME ZONE o.timezone`), reusing the canonical
+  `currentWeeklyReportPeriod` semantics for start/resume validation.
+- **Canonical next-Monday due date.** Every generated report uses the existing
+  default deadline (period Monday→Sunday, due the following Monday). No
+  repeating absolute due date is persisted and no weekday/due-offset
+  configuration was introduced.
+- **Start week is current or future.** `startPeriodStart` must be the current
+  organization-local reporting week or a future canonical Monday; a past week
+  is rejected so bulk configuration cannot accidentally backfill history.
+  Creating the rule never synchronously creates the report; the worker produces
+  the current week on its next iteration, and the UI must not also send a
+  one-time bulk request for the same week.
+- **Enabled downtime catches up; deliberate pause skips.** An ENABLED rule
+  processes each missed `next_period_start` sequentially (exactly one period
+  per claim, `+7 days` per committed occurrence) until caught up — never a
+  silent jump to the current week. A PAUSED rule skips: resume sets
+  `next_period_start = max(stored, requested/default current week)`, so paused
+  weeks are never backfilled. Both behaviours are proven by dedicated tests.
+- **Manual existing report converges.** If a canonical report already exists
+  for `(organization, staff, periodStart)` — STAFF self-created, manually
+  requested, or won by a racing worker — the occurrence succeeds as `existing`:
+  no second JobCard, no rewritten questions, no fake `JOB_CREATED` activity,
+  and the schedule still advances one week.
+- **Canonical creation primitive is reused, not reimplemented.** The worker
+  drives `JobCardService.createOrResolveWeeklyReportForStaff`, a minimal
+  exposure of the same core the single create and bulk request use (Slice 3
+  extraction: `createOrResolveWeeklyReportForStaffCore`). Slice 2/3 behaviour
+  is unchanged — their suites pass unmodified. The standalone
+  `runCriticalAction` receipt helper and `lockAssigneesInOrder` were likewise
+  extracted verbatim (no behaviour change) so recurrence commands reuse the
+  same `processed_actions` idempotency and the same staff-user lock contract.
+- **Universal staff-user lock.** Bulk create locks every target in sorted
+  order; the worker locks its staff target with `FOR NO KEY UPDATE` before
+  touching the recurrence row; resume locks the target before the rule. Lock
+  order (users first, then recurrence rows) is deadlock-free by construction.
+  Real concurrent-PostgreSQL race tests cover recurrence-vs-recurrence,
+  vs-single, vs-bulk, vs-self-create and claim-vs-pause.
+- **Worker: claim/lease/SKIP LOCKED, no external cron.** A dedicated
+  `weekly-reports/recurrence-worker.ts` (not Calendar, not OVR) polls bounded
+  batches (`next_period_start, id` order), claims with `FOR UPDATE SKIP
+  LOCKED`, holds a lease token with expiry recovery, retries transient
+  failures on the SAME period with capped backoff (never abandons an enabled
+  week), contains iteration errors, never overlaps a local run, and stops
+  gracefully on `onClose`. It starts on `onReady` only when the schema
+  compatibility gate passes; an empty table is a safe no-op and no feature
+  flag was added.
+- **Occurrence creation + schedule advance is ONE transaction.** Revalidated
+  ACTIVE state, staff lock, eligibility, canonical resolve/create, JOB_CREATED
+  projection, `last_processed_period_start`/`last_outcome`, `+7` advance and
+  lease release commit atomically. Realtime is published only after commit;
+  the database remains authoritative on crash.
+- **Pause/resume are scheduling epochs; stale claims cannot execute.** A
+  committed pause atomically clears the worker lease (`lease_token` and
+  `lease_until`), so a claim issued before it is void: no report is created and
+  the rule stays paused. A committed resume likewise clears any inherited
+  lease — a resumed schedule never inherits a claim issued under an earlier
+  scheduling state, including a lease written between pause and resume — so a
+  stale pre-pause claim cannot execute after a resume and cannot create a
+  future resumed week early. Defense in depth: inside the occurrence
+  transaction, after the staff lock and the recurrence row lock and before the
+  report resolve/create, the worker re-reads the organization timezone in
+  PostgreSQL and verifies the LOCKED rule's `next_period_start` is not later
+  than the organization-local calendar date; a locked-but-not-due rule is
+  released and skipped with no report, no period advance and no failure count.
+  Lease invalidation is therefore not the only protection against stale or
+  future claims: the organization-local DATE remains the period authority.
+- **Transaction-internal reads use the transaction client.** Recurrence
+  configuration commands (bulk create, resume) run inside `runCriticalAction`'s
+  `PoolClient`; their organization-timezone lookups execute on that same client
+  instead of `pool.query()`, so a `max=1` pool — or a saturated pool where every
+  client is busy — cannot self-deadlock. Dedicated `max=1` and saturated-pool
+  tests pin the behaviour.
+- **Attribution without re-authorization.** The rule retains a real
+  `requested_by_user_id` (last manager/admin authorization) used as the
+  creator/actor for generated JobCards and activities. The worker never
+  re-runs HTTP role checks per tick, so a later role change of the authorizing
+  manager cannot corrupt the rule; template/pause/resume record the acting
+  manager as the new authorizing identity.
+- **Target ineligibility auto-pauses.** A target that is no longer an
+  active STAFF member disables the rule with `STAFF_INELIGIBLE` (version
+  bumped, surfaced in the management list) instead of retrying forever. No
+  report is created and the schedule does not advance. Re-enable requires an
+  explicit resume against an active STAFF target. Staff offboarding itself is
+  untouched (no cross-module coupling): offboarding a staff member with an
+  active rule succeeds, and the worker converges to auto-pause on its next run.
+- **Deletion policy integration.** An ENABLED rule targeting the user blocks
+  permanent delete as `HAS_ACTIVE_RESPONSIBILITIES` (pause first — same
+  precedent as PENDING calendar reminders); the requester identity blocks as
+  `HAS_BUSINESS_HISTORY` (same precedent as JobCard creators). Once blockers
+  pass, disabled rules of a deleted staff target are removed as technical
+  dependencies (their generated reports remain untouched history). No
+  `ON DELETE CASCADE` was added to business configuration.
+- **No delete in V1.** Pause is the reversible lifecycle; template update is a
+  full replacement affecting future reports only. All four commands (bulk
+  create, template, pause, resume) are idempotent through `processed_actions`
+  with `CLIENT_ACTION_REUSED` on changed intent, and ambiguous UI attempts are
+  retried verbatim with the frozen `clientActionId`. A NEW pause command
+  carrying a stale `expectedVersion` on an already-paused rule returns
+  `VERSION_CONFLICT` (resume parity) instead of silently succeeding; a
+  same-version pause no-op still returns the idempotent response. Exact
+  lost-response replays are served from `processed_actions` before this
+  business validation, so ambiguous retries are unaffected by the stricter
+  check.
+- **Reporting/overdue/profile/PDF contracts preserved.** Generated reports are
+  ordinary manager-requested WEEKLY_REPORT JobCards (`NEW`, customerless), so
+  productive-metric exclusion, employee overdue semantics, profile history and
+  PDF export apply unchanged with no new event types or PDF fields.
+- **Migration 052 only; 051 byte-identical.** `052_weekly_report_recurrence`
+  is additive (one table + one partial due index, no backfill, no existing row
+  altered). A sha256 tripwire test proves 051 unchanged. Pre-existing suites
+  that pinned head 051 now pin 052 (mechanical rollover, no weakened
+  assertions); synthetic `052_future` fixtures moved to `053_future`.
+- **Mutation discrimination (all reverted, tree verified clean).** M1 fake
+  created → 10 red · M2 advance outside the transaction → 10 red · M3 no staff
+  row lock → 1 red in the worker-vs-self-create race (3/3 runs) · M4 no
+  lease/SKIP LOCKED → 2 red · M5 paused rule claimable → 2 red · M6 UTC date →
+  1 red · M7 three-week jump → 7 red · M8 resume LEAST → 2 red · M9 no
+  auto-pause → 3 red · M10 template rewrites history → 1 red · M11 fresh action
+  id on web retry → 4 red · M12 partial commit → 2 red.
+- **Adversarial-review remediation (2026-09-25, same head series).** The review
+  reproduced a stale pre-pause claim surviving pause+resume (F-1), a
+  critical-action pool self-deadlock on the timezone read (F-2) and a stale
+  pause `expectedVersion` accepted as success (F-3). Fixes: pause/resume clear
+  the lease, the occurrence re-validates due-ness under the row lock, the
+  timezone read uses the transaction `PoolClient`, and pause mirrors resume's
+  version check. This entry and the pause/occurrence/transaction bullets above
+  were updated with the fixes; the user manual needed no change because no
+  user-visible behaviour changed (the fix enforces what the manual already
+  documented).
+  Original discriminators re-run on the grown suite: M1 → 12 red · M2 → 17 red ·
+  M3 → 1 red (×2 runs) · M4 → 2 red (plus a lease-predicate-only submutation →
+  1 red) · M5 → 2 red · M6 → 1 red · M7 → 9 red · M8 → 2 red · M9 → 3 red ·
+  M10 → 1 red · M11 → 3 red (management surface; the author-recorded fourth
+  covers the create screen) · M12 → 2 red. New discriminators: M13 pause does
+  not clear the lease → 1 red · M14 resume retains the old lease → 1 red ·
+  M15 occurrence due revalidation removed → 1 red · M16 timezone read back to
+  `pool.query()` → 3 red (`max=1`/saturated-pool tests) · M17 pause version
+  comparison removed → 1 red. All reverted; tree verified clean after each.
+- **Field-test remediation (2026-09-26, pre-merge manager/STAFF field test on
+  PR #333 head aae1c50).** A real local manager/STAFF walkthrough surfaced one
+  blocker and several UX findings; the prior approval was invalidated and PR
+  #333 was updated in place (no merge, no deploy). (1) **Detail/submission
+  contract closed:** the web exact-object parsers rejected the intentional
+  server DTO (`Rapor yüklenemedi / Yanıtta weeklyReport alanı geçersiz`);
+  `parseWeeklyReportDetail` now accepts the server's `organizationId`,
+  `createdAt`, `updatedAt` and `parseWeeklyReportSubmission` its
+  `organizationId`, `createdAt` — added deliberately, no permissive fallback,
+  regression-tested against the full server-shaped payloads.
+  (2) **Create screen reworked:** `Tümünü seç`/`Seçimi temizle` for active
+  STAFF (server per-command cap preserved; over-cap select-all refuses
+  visibly instead of pretending or picking a subset); the manual `Termin`
+  input was removed from one-time and recurring creation for every role —
+  deadline displays use `Teslim son tarihi`. **Weekly Report teslim son
+  tarihi oluşturma sırasında veya sonradan kullanıcı tarafından
+  değiştirilemez; rapor dönemini izleyen Pazartesi olarak server tarafından
+  belirlenir** (authority + immutability fixes, below).
+  (3) **Manager questions reworked:** five preset questions (stable semantic
+  keys `preset_week_highlights`, `preset_incomplete_work`,
+  `preset_field_feedback`, `preset_next_week_priorities`,
+  `preset_management_support`) plus free custom questions
+  (`custom_<id>`, id minted once per add so ambiguous retries replay identical
+  keys); order is presets in canonical order then customs in UI order;
+  `MAX_MANAGER_QUESTIONS` raised 5 → 50 as a defensive API/PDF ceiling
+  (questions are JSONB — no schema migration, 051/052 untouched);
+  prompt ≤ 500 code points, answer-at-submission and frozen per-report copies
+  unchanged. A shared `WeeklyReportQuestionEditor` serves both the create
+  screen and recurrence template editing (future-only template semantics and
+  one-rule-per-staff lifecycle untouched); the recurrence manager stays
+  visible for managers in every create mode and one-time requests never
+  touch existing rules.
+  (4) **Verification:** focused web/server suites, `web` full suite (185
+  files / 2326 tests), `web` build + bundle check and `server` build green.
+  The full server suite reports 12 pre-existing local-environment failures
+  (web-push `DATABASE_URL is required` ×4; production-recovery/deploy-automation
+  `HOST_BOOTSTRAP_REQUIRED_psql` ×7; db-auth-contract wrong-password accepted
+  under the host's `trust` pg_hba ×1) proven identical on the clean aae1c50
+  base by stashing this work — none touch weekly reports and CI runs with the
+  canonical environment.
+- **Question-key stability fix (2026-09-26, post-remediation review).** The
+  review found that recurrence template editing derived custom draft identity
+  from array position (`id: index + 1`, counter seeded `custom.length + 1`),
+  so a `preset + custom_1` template minted a colliding second `custom_2` on
+  the next added row and a bare save could silently rewrite a persisted key.
+  Custom drafts now own an explicit stable key: drafts are `{ key, prompt }`,
+  `collectManagerQuestions` emits each draft's stored key (never
+  `custom_<position>`), template editing preserves every persisted non-preset
+  key verbatim (legacy keys such as `q1` included), and a new
+  `nextCustomQuestionKey(ownedKeys)` helper mints the first `custom_N` not
+  owned by preset keys, persisted custom keys and rows added this session —
+  minted once at add-time, never renumbered. Proven by T1–T6 regression tests
+  (round-trip, add-without-collision, multi-preset, legacy key, removal
+  stability, verbatim ambiguous retry) and mutations A (index mapping → 5
+  red), B (minting ignores owned keys → 5 red), C (renumber after delete → 1
+  red); all reverted, tree restored.
+- **Server-only deadline authority (2026-09-26, final product-authority
+  audit).** The removed UI `Termin` capability still existed as an
+  undocumented API parameter: the public create/bulk parsers accepted a
+  caller `dueDate` and the services used `input.dueDate ?? canonical`, so a
+  manager/admin could bypass the field-test product decision with a direct
+  request. The public request shape no longer carries `dueDate` at all —
+  exact parsing now rejects it with `VALIDATION_ERROR` (never silently
+  ignored, so a caller cannot believe a deadline was accepted), the single
+  and bulk request identities hash no dueDate dimension, and the services
+  derive `dueDate = addCalendarDaysToDateKey(periodEnd, 1)` unconditionally
+  for STAFF self-create, MANAGER/ADMIN single create and bulk alike —
+  one-time and recurring reports now share the same server-canonical
+  next-Monday authority. Response contracts are unchanged (create result,
+  bulk result, detail, history, overdue logic still carry the canonical
+  dueDate). Proven by S1–S4 (canonical deadlines for omitted dueDate;
+  direct `dueDate` on staff and manager single create → 400 with zero
+  JobCard/WeeklyReport/processed_actions mutation) and B1/B2 (identical
+  canonical deadline on every bulk target; direct `dueDate` → 400 atomic
+  zero mutation), plus mutations M1 (create acceptlist re-admits dueDate →
+  3 red), M2 (bulk acceptlist re-admits dueDate → 1 red), M3 (derivation
+  shifted to periodEnd + 2 → 6 red); all reverted, tree restored.
+- **Deadline immutability on patch (2026-09-26, product-authority audit
+  follow-up).** The create-time fix left one documented authority gap: the
+  generic JobCard patch still accepted `dueDate` for a `WEEKLY_REPORT` when
+  the actor was MANAGER/ADMIN (only STAFF was blocked by the ownership
+  rule), so the canonical deadline could still be moved after creation —
+  contradicting the product rule and the create-path comment. The generic
+  patch now enforces a WEEKLY_REPORT-specific invariant on the locked row:
+  a `dueDate` field whose value differs from the persisted canonical
+  deadline is rejected with `VALIDATION_ERROR`
+  (`Haftalık raporun teslim son tarihi değiştirilemez.`) for every role,
+  while a same-value patch stays an accepted no-op under the existing
+  change-scoped machinery. The guard lives inside the existing
+  `job.type === 'WEEKLY_REPORT'` block (customerless/unscheduled + staff
+  ownership rules unchanged; STAFF keeps its stricter `FORBIDDEN`), the
+  global patch schema is untouched for other types, and no period is
+  recomputed from titles. Proven by P1 (manager changed value → rejected,
+  dueDate and version untouched), P2 (admin), P3 (staff keeps `FORBIDDEN`),
+  P4 (GENERAL_TASK manager dueDate patch still succeeds — type-scoped), P5
+  (recurrence-worker-created report rejected identically for manager and
+  admin — no alternate authority path) and mutations M1 (guard disabled →
+  P1/P2/P5 red), M2 (guard applied globally → P4 red), M3 (NEW-status
+  exemption, exactly what a recurrence worker produces → P5 red); all
+  reverted, tree restored.

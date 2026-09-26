@@ -265,7 +265,49 @@ describe.skipIf(!databaseUrl)('weekly report bulk request (PostgreSQL)', () => {
       })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
     });
 
-    it('rejects a non-Monday period and more than five questions', async () => {
+    it('gives every target the identical canonical next-Monday deadline (B1)', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const targets = [
+          await insertUser(pool, organizationId, 'STAFF'),
+          await insertUser(pool, organizationId, 'STAFF'),
+          await insertUser(pool, organizationId, 'STAFF'),
+        ];
+        const service = buildService(pool);
+        const result = await service.bulkRequestWeeklyReports(
+          managerActor(organizationId, managerId),
+          parseWeeklyReportBulkRequestInput(
+            bulkBody({ staffUserIds: targets }),
+          ),
+        );
+        // One canonical receipt deadline: the Monday after the period.
+        expect(result.dueDate).toBe(WEEK_A_DUE);
+        const jobs = await pool.query<{ id: string; due_date: string }>(
+          `SELECT id, due_date::text AS due_date FROM job_cards WHERE type = 'WEEKLY_REPORT' ORDER BY id`,
+        );
+        expect(jobs.rows).toHaveLength(3);
+        expect(jobs.rows.every((job) => job.due_date === WEEK_A_DUE)).toBe(true);
+      });
+    });
+
+    it('rejects a caller-supplied dueDate with atomic zero mutation (B2)', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const otherStaffId = await insertUser(pool, organizationId, 'STAFF');
+        const service = buildService(pool);
+        // The public bulk shape has no dueDate field: exact parsing rejects it
+        // as an unknown field instead of silently ignoring the deadline.
+        expect(() => parseWeeklyReportBulkRequestInput(bulkBody({
+          staffUserIds: [staffId, otherStaffId], dueDate: '2026-08-12',
+        }))).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }));
+        expect(await census(pool)).toEqual({ jobs: 0, reports: 0, receipts: 0 });
+      });
+    });
+
+    it('rejects a non-Monday period and more than the technical question ceiling', async () => {
       await withSchema(async (pool) => {
         const organizationId = await insertOrg(pool);
         const managerId = await insertUser(pool, organizationId, 'MANAGER');
@@ -274,17 +316,34 @@ describe.skipIf(!databaseUrl)('weekly report bulk request (PostgreSQL)', () => {
         expect(() => parseWeeklyReportBulkRequestInput(
           bulkBody({ staffUserIds: [staffId], periodStart: '2026-08-04' }),
         )).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+        // One question past the technical ceiling (50) rejected.
         const error = await service.bulkRequestWeeklyReports(
           managerActor(organizationId, managerId),
           parseWeeklyReportBulkRequestInput(bulkBody({
             staffUserIds: [staffId],
-            questions: Array.from({ length: 6 }, (_, index) => ({
+            questions: Array.from({ length: 51 }, (_, index) => ({
               key: `q${index}`, prompt: `Soru ${index}`,
             })),
           })),
         ).catch((caught: unknown) => caught);
         expect(error).toMatchObject({ code: 'VALIDATION_ERROR' });
         expect(await census(pool)).toEqual({ jobs: 0, reports: 0, receipts: 0 });
+        // Far more than five questions are accepted (presets + custom questions).
+        await service.bulkRequestWeeklyReports(
+          managerActor(organizationId, managerId),
+          parseWeeklyReportBulkRequestInput(bulkBody({
+            staffUserIds: [staffId],
+            questions: Array.from({ length: 12 }, (_, index) => ({
+              key: index < 5 ? `preset_${index + 1}` : `custom_${index + 1}`,
+              prompt: `Soru ${index + 1}?`,
+            })),
+          })),
+        );
+        const rows = await pool.query<{ manager_questions: unknown }>(
+          `SELECT manager_questions FROM weekly_reports`,
+        );
+        expect(rows.rows).toHaveLength(1);
+        expect(rows.rows[0].manager_questions).toHaveLength(12);
       });
     });
   });

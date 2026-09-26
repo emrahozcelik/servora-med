@@ -19,6 +19,11 @@ import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
 import type { JobHistoryReadPort } from './modules/job-cards/history-port.js';
 import type { WeeklyReportHistoryReadPort } from './modules/weekly-reports/history-port.js';
+import { WeeklyReportRecurrenceService } from './modules/weekly-reports/recurrence-service.js';
+import { weeklyReportRecurrenceRoutes } from './modules/weekly-reports/recurrence-routes.js';
+import type { PostgresWeeklyReportRecurrenceRepository } from './modules/weekly-reports/recurrence-repository.js';
+import { createWeeklyReportRecurrenceWorker } from './modules/weekly-reports/recurrence-worker.js';
+import type { WeeklyReportRecurrenceWorker } from './modules/weekly-reports/recurrence-worker.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
@@ -129,6 +134,14 @@ export type AppDependencies = {
   jobCardRepository?: JobCardRepository;
   jobHistoryReadPort?: JobHistoryReadPort;
   weeklyReportHistoryReadPort?: WeeklyReportHistoryReadPort;
+  /**
+   * Slice 5 recurrence configuration surface + system producer. Both are
+   * optional: a deployment without a recurrence service simply has no
+   * recurrence routes, and no background writer is ever started implicitly.
+   */
+  weeklyReportRecurrenceService?: WeeklyReportRecurrenceService;
+  weeklyReportRecurrenceWorker?: WeeklyReportRecurrenceWorker;
+  weeklyReportRecurrenceRepository?: PostgresWeeklyReportRecurrenceRepository;
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
   productRepository?: ProductRepository;
@@ -252,8 +265,52 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: jobCardService,
         authenticate: authenticateDomain,
       });
-    }
-    if (dependencies.peopleRepository && dependencies.reportsRepository) {
+      // Slice 5 recurrence: production injects the repository and lets the app
+      // build the service from the SAME `jobCardService` (so the worker reuses
+      // the canonical WeeklyReport creation primitive and its web-push config);
+      // tests may inject the service/worker directly.
+      const recurrenceService = dependencies.weeklyReportRecurrenceService
+        ?? (dependencies.weeklyReportRecurrenceRepository && dependencies.pool
+          ? new WeeklyReportRecurrenceService(
+              dependencies.weeklyReportRecurrenceRepository,
+              dependencies.pool,
+              jobCardService,
+            )
+          : undefined);
+      if (recurrenceService) {
+        await app.register(weeklyReportRecurrenceRoutes, {
+          prefix: '/api/job-cards',
+          service: recurrenceService,
+          authenticate: authenticateDomain,
+        });
+        // The recurrence worker is a system producer. It shares the process
+        // lifecycle so shutdown waits for an active occurrence instead of
+        // cutting a transaction mid-write. It is never started implicitly: an
+        // empty recurrence table is a safe no-op, and production safety comes
+        // from the migration gate plus explicit manager rules.
+        const recurrenceWorker = dependencies.weeklyReportRecurrenceWorker
+          ?? (dependencies.weeklyReportRecurrenceRepository
+            ? createWeeklyReportRecurrenceWorker(
+                dependencies.weeklyReportRecurrenceRepository,
+                recurrenceService.createOccurrence,
+                {
+                  publisher: dependencies.realtimePublisher,
+                  onError: (error) => {
+                    console.error('Weekly report recurrence worker iteration failed', error);
+                  },
+                },
+              )
+            : undefined);
+        if (recurrenceWorker) {
+          app.addHook('onReady', () => {
+            recurrenceWorker.start();
+          });
+          app.addHook('onClose', async () => {
+            await recurrenceWorker.stop();
+          });
+        }
+      }
+    }    if (dependencies.peopleRepository && dependencies.reportsRepository) {
       await app.register(peopleRoutes, {
         prefix: '/api',
         service: new PeopleService(

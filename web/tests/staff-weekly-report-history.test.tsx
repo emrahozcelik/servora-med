@@ -297,7 +297,7 @@ describe('StaffWeeklyReportHistory (profile read model)', () => {
   it('renders the server-provided due date as a calendar day', async () => {
     handlers[OWN_URL] = () => json(page([item()]));
     await render(staffUser, 'staff-1');
-    expect(host.textContent).toContain('Termin 28.09.2026');
+    expect(host.textContent).toContain('Teslim son tarihi 28.09.2026');
   });
 
   // 14

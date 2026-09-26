@@ -258,11 +258,41 @@ adını değiştirirse güncellenebilir.
 - Bu nedenle bir PDF'i arşiv amaçlı kullanacaksanız, indirdiğiniz sürümün numarasını ve raporun
   o anki durumunu birlikte değerlendirin.
 
-**Otomatik oluşturma yoktur**
+**Otomatik oluşturma (yönetici / sistem yöneticisi)**
 
-Haftalık raporlar **otomatik oluşturulmaz**. Her hafta için rapor, personelin kendisi
-(`/jobs/new-weekly-report`) veya bir yöneticinin isteğiyle açılır. Tekrarlayan (recurring)
-otomatik rapor üretimi bu sürümde yoktur.
+Haftalık raporlar, bir yönetici kural tanımlarsa **otomatik oluşturulur**.
+Her personel için en fazla bir otomatik kural olur.
+
+- **Nerede?** **Yeni → Haftalık Rapor** ekranında **Rapor türü** seçimi vardır:
+  **Tek seferlik** (bir kerelik istek) veya **Her hafta otomatik** (tekrarlayan kural).
+  Bu seçim ve aşağıdaki yönetim bölümü yalnız yönetici/sistem yöneticisine görünür;
+  personel bu kontrolleri görmez.
+- **Her hafta otomatik** modunda: aktif personellerden en fazla 50'sini seçin,
+  **Başlangıç haftası (Pazartesi)** olarak içinde bulunulan veya gelecek bir haftayı
+  seçin, yönetici sorularını (en fazla 5) ve isteğe bağlı talep notunu yazın.
+  Serbest bir termin tarihi girilmez: termin her hafta için otomatik olarak
+  dönemi izleyen Pazartesi olur.
+- Başlangıç haftası olarak içinde bulunulan haftayı seçerseniz, o haftanın raporu
+  sistem tarafından otomatik oluşturulur; ayrıca tek seferlik istek göndermeyin
+  (iki ayrı kayıt oluşmasını önlemek için sistem bunu böyle ister).
+- **Otomatik haftalık raporlar** yönetim bölümünde her kural listelenir: personel,
+  **Aktif** / **Duraklatıldı** durumu, **Sonraki rapor haftası**, son işlenen hafta ve
+  sonucu, gerekçe (ör. personel artık uygun değilse otomatik duraklatma açıklaması).
+- Bir kuralda **Şablonu düzenle** (sorular + not), **Duraklat** ve **Devam ettir**
+  işlemleri vardır; silme yoktur. Şablon değişikliği yalnızca bundan sonra
+  oluşturulacak raporları etkiler; daha önce açılmış raporların soruları, notu ve
+  gönderilmiş içerikleri değişmez.
+- **Duraklat** seçilen kuralı durdurur; duraklatılan haftalar sonradan üretilmez.
+  **Devam ettir** kuralı içinde bulunulan haftadan başlatır; geçmişte kalan bir
+  haftayı seçemezsiniz.
+- Belirsiz kalan (yanıtı alınamayan) bir işlemde ekrandaki **Özgün isteği tekrar
+  dene** düğmesi aynı isteği aynen tekrar gönderir; form kilitliyken yeni işlem
+  başlatılamaz.
+
+**Personel için not:** Otomatik kuralla açılan rapor, yöneticinin tek seferlik
+isteğiyle açılan raporla aynıdır: önce kabul edip başlatmanız, doldurup kontrole
+göndermeniz gerekir. Otomatik raporlar da profilinizdeki **Haftalık Raporlar**
+bölümünde ve PDF indirmede aynı şekilde görünür.
 
 ---
 
@@ -286,7 +316,12 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
    aç/kapat adımı yoktur). Durum komutları kart üzerindeki ayrı düğmelerdir.
 6. **Yeni → Haftalık Rapor** ile bir personele haftalık rapor isteyin (tek personel,
    rapor haftası, en fazla 5 yönetici sorusu). Personel kabul edip doldurur; içeriği
-   siz düzenleyemez veya onun adına gönderemezsiniz.
+   siz düzenleyemez veya onun adına gönderemezsiniz. Her hafta otomatik istek için
+   aynı ekrandaki **Her hafta otomatik** modunu kullanın (en fazla 50 personel,
+   başlangıç haftası, termin her zaman dönemi izleyen Pazartesi). Otomatik kuralları
+   aynı ekrandaki **Otomatik haftalık raporlar** bölümünden düzenlersiniz: şablon
+   değişikliği yalnız sonraki raporları etkiler, **Duraklat** seçili haftaları atlar,
+   **Devam ettir** içinde bulunulan haftadan başlatır. Ayrıntılar için bkz. §7.6.
 
 ### 8.3 Yönetici kontrol kuyruğu (en sık iş)
 
@@ -370,6 +405,12 @@ Admin, Manager’ın tüm operasyonlarını yapabilir; ek olarak kullanıcı yö
   sorumlulukları açıkça çözülür; oturumlar iptal edilir, yeni atama
   yapılamaz, iş/mesaj/rapor/audit geçmişindeki personel ilişkisi korunur.
   Manager sorumlulukları da kalıcı silmeyi engelleyebilir.
+- Otomatik haftalık rapor kuralı olan personel kalıcı silinemez: önce kuralı
+  **Duraklat**ın (silinen personelin duraklatılmış kuralı temizlenir, üretilmiş
+  raporlar korunur). Bir kuralı onaylayan yönetici, kural durdukça iş geçmişi
+  sayıldığı için kalıcı silinemez. Personel işten ayrıldığında offboarding
+  normal şekilde yapılır; kural, personel artık uygun olmadığı için sistem
+  tarafından otomatik duraklatılır ve yeni rapor üretilmez.
 - Yalnızca teknik giriş veya oturum geçmişinin bulunması, başka anlamlı
   iş/operasyon geçmişi yoksa, tek başına kalıcı silme engeli değildir.
 - Demo kullanıcıları normal Kullanıcılar ekranından silinmez; yalnızca Demo
