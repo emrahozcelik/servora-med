@@ -265,6 +265,48 @@ describe.skipIf(!databaseUrl)('weekly report bulk request (PostgreSQL)', () => {
       })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
     });
 
+    it('gives every target the identical canonical next-Monday deadline (B1)', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const targets = [
+          await insertUser(pool, organizationId, 'STAFF'),
+          await insertUser(pool, organizationId, 'STAFF'),
+          await insertUser(pool, organizationId, 'STAFF'),
+        ];
+        const service = buildService(pool);
+        const result = await service.bulkRequestWeeklyReports(
+          managerActor(organizationId, managerId),
+          parseWeeklyReportBulkRequestInput(
+            bulkBody({ staffUserIds: targets }),
+          ),
+        );
+        // One canonical receipt deadline: the Monday after the period.
+        expect(result.dueDate).toBe(WEEK_A_DUE);
+        const jobs = await pool.query<{ id: string; due_date: string }>(
+          `SELECT id, due_date::text AS due_date FROM job_cards WHERE type = 'WEEKLY_REPORT' ORDER BY id`,
+        );
+        expect(jobs.rows).toHaveLength(3);
+        expect(jobs.rows.every((job) => job.due_date === WEEK_A_DUE)).toBe(true);
+      });
+    });
+
+    it('rejects a caller-supplied dueDate with atomic zero mutation (B2)', async () => {
+      await withSchema(async (pool) => {
+        const organizationId = await insertOrg(pool);
+        const managerId = await insertUser(pool, organizationId, 'MANAGER');
+        const staffId = await insertUser(pool, organizationId, 'STAFF');
+        const otherStaffId = await insertUser(pool, organizationId, 'STAFF');
+        const service = buildService(pool);
+        // The public bulk shape has no dueDate field: exact parsing rejects it
+        // as an unknown field instead of silently ignoring the deadline.
+        expect(() => parseWeeklyReportBulkRequestInput(bulkBody({
+          staffUserIds: [staffId, otherStaffId], dueDate: '2026-08-12',
+        }))).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }));
+        expect(await census(pool)).toEqual({ jobs: 0, reports: 0, receipts: 0 });
+      });
+    });
+
     it('rejects a non-Monday period and more than the technical question ceiling', async () => {
       await withSchema(async (pool) => {
         const organizationId = await insertOrg(pool);

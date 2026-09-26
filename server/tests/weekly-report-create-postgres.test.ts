@@ -171,10 +171,12 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
         managerActor(organizationId, managerId),
         parseWeeklyReportCreateInput({
           clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffA,
-          questions: QUESTIONS, dueDate: '2026-08-12',
+          questions: QUESTIONS,
         }),
       );
-      expect(requested).toMatchObject({ staffUserId: staffA, status: 'NEW', dueDate: '2026-08-12' });
+      // Deadline authority is server-canonical: the Monday after the period,
+      // regardless of who requests the report.
+      expect(requested).toMatchObject({ staffUserId: staffA, status: 'NEW', dueDate: WEEK_A_DUE });
       const job = (await pool.query(
         `SELECT status, accepted_at, accepted_by FROM job_cards WHERE id = $1`,
         [requested.jobCardId],
@@ -364,6 +366,70 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
     });
   });
 
+  it('derives the canonical next-Monday deadline for a manager single create (S2)', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      const created = await service.createWeeklyReport(
+        managerActor(organizationId, managerId),
+        parseWeeklyReportCreateInput({
+          clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffId,
+        }),
+      );
+      expect(created.dueDate).toBe(WEEK_A_DUE);
+      const job = (await pool.query<{ due_date: string }>(
+        `SELECT due_date::text AS due_date FROM job_cards WHERE id = $1`,
+        [created.jobCardId],
+      )).rows[0];
+      expect(job.due_date).toBe(WEEK_A_DUE);
+    });
+  });
+
+  it('rejects a caller-supplied dueDate for STAFF self-create with zero mutation (S3)', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      // The public request shape has no dueDate field: exact parsing rejects
+      // it instead of silently ignoring a deadline the caller might believe
+      // was accepted. Nothing is written, no idempotency receipt is created.
+      expect(() => parseWeeklyReportCreateInput({
+        clientActionId: randomUUID(), periodStart: WEEK_A, dueDate: '2026-08-12',
+      })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }));
+      const jobs = await pool.query(`SELECT COUNT(*)::int AS n FROM job_cards`);
+      const reports = await pool.query(`SELECT COUNT(*)::int AS n FROM weekly_reports`);
+      const actions = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM processed_actions WHERE operation_key = 'WEEKLY_REPORT_CREATE'`,
+      );
+      expect(jobs.rows[0].n).toBe(0);
+      expect(reports.rows[0].n).toBe(0);
+      expect(actions.rows[0].n).toBe(0);
+    });
+  });
+
+  it('rejects a caller-supplied dueDate for manager single create with zero mutation (S4)', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool);
+      const managerId = await insertUser(pool, organizationId, 'MANAGER');
+      const staffId = await insertUser(pool, organizationId, 'STAFF');
+      const service = buildService(pool);
+      expect(() => parseWeeklyReportCreateInput({
+        clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffId,
+        dueDate: '2026-08-12',
+      })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }));
+      const jobs = await pool.query(`SELECT COUNT(*)::int AS n FROM job_cards`);
+      const reports = await pool.query(`SELECT COUNT(*)::int AS n FROM weekly_reports`);
+      const actions = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM processed_actions WHERE operation_key = 'WEEKLY_REPORT_CREATE'`,
+      );
+      expect(jobs.rows[0].n).toBe(0);
+      expect(reports.rows[0].n).toBe(0);
+      expect(actions.rows[0].n).toBe(0);
+    });
+  });
+
   it('rejects malformed periods and past claims stay untouched', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
@@ -375,8 +441,10 @@ describe.skipIf(!databaseUrl)('weekly report creation (PostgreSQL)', () => {
       expect(() => parseWeeklyReportCreateInput({
         clientActionId: randomUUID(), periodStart: WEEK_A, bogus: 1,
       })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+      // dueDate is not part of the public request shape: even a well-formed
+      // date is an unknown field and must be rejected, never ignored.
       expect(() => parseWeeklyReportCreateInput({
-        clientActionId: randomUUID(), periodStart: WEEK_A, dueDate: 'not-a-date',
+        clientActionId: randomUUID(), periodStart: WEEK_A, dueDate: '2026-08-12',
       })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
     });
   });

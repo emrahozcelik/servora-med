@@ -7,6 +7,8 @@ import {
   parseWeeklyReportDetail,
   parseWeeklyReportReference,
   parseWeeklyReportSubmission,
+  type WeeklyReportBulkRequestInput,
+  type WeeklyReportCreateInput,
 } from '../src/jobs/weekly-report-api';
 
 /**
@@ -146,5 +148,20 @@ describe('weekly report api parsers', () => {
 
   it('mirrors the server bulk ceiling for the multi-select guard', () => {
     expect(MAX_BULK_TARGETS).toBe(50);
+  });
+
+  it('advertises no dueDate dimension on public request inputs (deadline is server-canonical)', () => {
+    // The deadline is derived server-side (periodEnd + 1): the request shapes
+    // carry no dueDate field, so the removed Termin capability cannot be
+    // resurrected as an undocumented API parameter. (An object literal with a
+    // dueDate key fails to compile against these annotated types.)
+    const single: WeeklyReportCreateInput = {
+      clientActionId: 'action-1', periodStart: '2026-08-03',
+    };
+    const bulk: WeeklyReportBulkRequestInput = {
+      clientActionId: 'action-1', staffUserIds: ['staff-1'], periodStart: '2026-08-03',
+    };
+    expect(single).not.toHaveProperty('dueDate');
+    expect(bulk).not.toHaveProperty('dueDate');
   });
 });

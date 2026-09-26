@@ -12,7 +12,7 @@ import { parsePeriodStart } from './validation.js';
 export const MAX_REQUEST_INSTRUCTIONS_LENGTH = 2000;
 
 const CREATE_FIELDS = [
-  'clientActionId', 'periodStart', 'assignedTo', 'dueDate', 'questions', 'instructions',
+  'clientActionId', 'periodStart', 'assignedTo', 'questions', 'instructions',
 ] as const;
 
 /**
@@ -22,13 +22,11 @@ const CREATE_FIELDS = [
  */
 export type WeeklyReportCreateInput = {
   clientActionId: string;
-  /** Canonical Monday; service derives periodEnd +6 and default due date. */
+  /** Canonical Monday; service derives periodEnd +6 and the canonical deadline. */
   periodStart: string;
   periodEnd: string;
   /** Null = self (STAFF path); uuid = single target (MANAGER/ADMIN path). */
   assignedTo: string | null;
-  /** Null = default (Monday after period_end); otherwise explicit ISO date. */
-  dueDate: string | null;
   /** Raw question definitions; role rules enforced by the service. */
   questions: unknown;
   /** Optional manager request instructions → JobCard description. */
@@ -50,9 +48,6 @@ export function parseWeeklyReportCreateInput(value: unknown): WeeklyReportCreate
   if (typeof record.periodStart !== 'string') throw validation('periodStart');
   const { periodStart, periodEnd } = parsePeriodStart(record.periodStart);
   const assignedTo = optionalAssignedTo(record.assignedTo);
-  const dueDate = record.dueDate === undefined || record.dueDate === null
-    ? null
-    : isoDate(record.dueDate, 'dueDate');
   const instructions = optionalBoundedString(
     record.instructions, 'instructions', MAX_REQUEST_INSTRUCTIONS_LENGTH,
   );
@@ -61,7 +56,6 @@ export function parseWeeklyReportCreateInput(value: unknown): WeeklyReportCreate
     periodStart,
     periodEnd,
     assignedTo,
-    dueDate,
     questions: record.questions,
     instructions,
   };
@@ -70,7 +64,7 @@ export function parseWeeklyReportCreateInput(value: unknown): WeeklyReportCreate
 export const MAX_BULK_TARGETS = 50;
 
 const BULK_REQUEST_FIELDS = [
-  'clientActionId', 'staffUserIds', 'periodStart', 'dueDate', 'questions', 'instructions',
+  'clientActionId', 'staffUserIds', 'periodStart', 'questions', 'instructions',
 ] as const;
 
 /**
@@ -87,11 +81,9 @@ export type WeeklyReportBulkRequestInput = {
    * so the caller's intent is never reinterpreted.
    */
   staffUserIds: string[];
-  /** Canonical Monday; periodEnd derives +6 and the default due date +7. */
+  /** Canonical Monday; periodEnd derives +6 and the canonical deadline +1. */
   periodStart: string;
   periodEnd: string;
-  /** Null = default (Monday after period_end); otherwise explicit ISO date. */
-  dueDate: string | null;
   /** Raw question definitions; copied independently into each report row. */
   questions: unknown;
   /** Optional manager request instructions → each target JobCard description. */
@@ -140,9 +132,6 @@ export function parseWeeklyReportBulkRequestInput(value: unknown): WeeklyReportB
   const staffUserIds = parseStaffUserIds(record.staffUserIds);
   if (typeof record.periodStart !== 'string') throw validation('periodStart');
   const { periodStart, periodEnd } = parsePeriodStart(record.periodStart);
-  const dueDate = record.dueDate === undefined || record.dueDate === null
-    ? null
-    : isoDate(record.dueDate, 'dueDate');
   const instructions = optionalBoundedString(
     record.instructions, 'instructions', MAX_REQUEST_INSTRUCTIONS_LENGTH,
   );
@@ -151,7 +140,6 @@ export function parseWeeklyReportBulkRequestInput(value: unknown): WeeklyReportB
     staffUserIds,
     periodStart,
     periodEnd,
-    dueDate,
     questions: record.questions,
     instructions,
   };
@@ -192,19 +180,19 @@ export function weeklyReportCreateRequestHash(input: {
   periodStart: string;
   periodEnd: string;
   assignedTo: string | null;
-  dueDate: string | null;
   questions: unknown;
   instructions: string | null;
 }): string {
   // Same critical-action hashing contract as generic creates: normalized
   // intent only (clientActionId/requestTime/generated ids never hashed).
-  // Callers pass validated canonical questions, never raw input.
+  // Callers pass validated canonical questions, never raw input. The deadline
+  // is deliberately NOT part of the identity: it is server-canonical
+  // (periodEnd + 1) so there is no caller-provided dueDate dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_CREATE:v1',
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
     assignedTo: input.assignedTo,
-    dueDate: input.dueDate,
     questions: input.questions,
     instructions: input.instructions,
   });
@@ -220,16 +208,17 @@ export function weeklyReportBulkRequestHash(input: {
   staffUserIds: readonly string[];
   periodStart: string;
   periodEnd: string;
-  dueDate: string;
   questions: unknown;
   instructions: string | null;
 }): string {
+  // The deadline is server-canonical (periodEnd + 1), so — exactly like the
+  // single create — the request identity carries no caller-provided dueDate
+  // dimension.
   return hashRequestIdentity({
     operation: 'WEEKLY_REPORT_BULK_REQUEST:v1',
     staffUserIds: [...input.staffUserIds].sort(),
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
-    dueDate: input.dueDate,
     questions: input.questions,
     instructions: input.instructions,
   });

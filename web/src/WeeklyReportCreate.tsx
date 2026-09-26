@@ -307,9 +307,9 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
     // first week) and never a one-time request.
     const attempt: CreateAttempt = isStaff
       ? { kind: 'single', input: {
-          // STAFF self-create: the server derives the canonical due date and
-          // rejects any client-supplied value, so a self-create never carries
-          // one (and never carries questions).
+          // STAFF self-create: no command carries a dueDate — the deadline is
+          // server-canonical (periodEnd + 1) and the request shapes do not
+          // even accept one (also: never questions on a self-create).
           clientActionId: crypto.randomUUID(), periodStart, ...questionPayload, ...instructionPayload,
         } }
       : isRecurring

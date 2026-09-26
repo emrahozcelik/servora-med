@@ -92,20 +92,17 @@ const DRAFT = {
 };
 
 describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
-  it('rejects a STAFF self-create that supplies its own due date', async () => {
+  it('rejects a caller-supplied dueDate at parsing with zero mutation', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const service = buildService(pool);
-      await expect(service.createWeeklyReport(
-        staffActor(organizationId, staffId),
-        parseWeeklyReportCreateInput({
-          clientActionId: randomUUID(), periodStart: WEEK_A, dueDate: '2026-09-01',
-        }),
-      )).rejects.toMatchObject({
-        code: 'VALIDATION_ERROR',
-        details: { fieldErrors: { dueDate: expect.any(String) } },
-      });
+      // The deadline is server-canonical (periodEnd + 1): the public request
+      // shape has no dueDate field, so the exact parser rejects it before any
+      // service logic or idempotency state is touched — for every role.
+      expect(() => parseWeeklyReportCreateInput({
+        clientActionId: randomUUID(), periodStart: WEEK_A, dueDate: '2026-09-01',
+      })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }));
       const jobs = await pool.query(`SELECT COUNT(*)::int AS n FROM job_cards`);
       expect(jobs.rows[0].n).toBe(0);
     });
@@ -173,20 +170,25 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
     });
   });
 
-  it('keeps the MANAGER due-date override authority', async () => {
+  it('derives the canonical deadline on manager create and keeps patch reschedule authority', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const managerId = await insertUser(pool, organizationId, 'MANAGER');
       const staffId = await insertUser(pool, organizationId, 'STAFF');
       const service = buildService(pool);
+      // CREATION deadline is server-canonical (periodEnd + 1): no caller
+      // override exists at request time any more.
       const created = await service.createWeeklyReport(
         managerActor(organizationId, managerId),
         parseWeeklyReportCreateInput({
           clientActionId: randomUUID(), periodStart: WEEK_A, assignedTo: staffId,
-          questions: QUESTIONS, dueDate: '2026-08-12',
+          questions: QUESTIONS,
         }),
       );
-      expect(created.dueDate).toBe('2026-08-12');
+      expect(created.dueDate).toBe(WEEK_A_DUE);
+      // Rescheduling an EXISTING JobCard via the generic patch remains a
+      // manager authority: only the request authority changed, not JobCard
+      // due-date semantics.
       const detail = await service.detail(managerActor(organizationId, managerId), created.jobCardId);
       await service.patch(managerActor(organizationId, managerId), created.jobCardId, {
         expectedVersion: detail.version, dueDate: '2026-08-14',

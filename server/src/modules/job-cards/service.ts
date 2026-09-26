@@ -1025,16 +1025,6 @@ export class JobCardService {
           'VALIDATION_ERROR', 400, 'Yönetici soruları personel kaydında yer alamaz.',
         );
       }
-      // Deadline authority: staff cannot move their own submission deadline.
-      // The canonical default (Monday after the period) is derived below.
-      if (input.dueDate !== null) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          400,
-          'Personel kendi haftalık raporu için termin belirleyemez.',
-          { fieldErrors: { dueDate: 'Termin yönetici tarafından belirlenir.' } },
-        );
-      }
       staffUserId = actor.id;
       questions = [];
     } else {
@@ -1048,7 +1038,13 @@ export class JobCardService {
         ? []
         : validateManagerQuestions(input.questions);
     }
-    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Deadline authority is SERVER-ONLY (field-test product decision): the
+    // submission deadline is always the day after the report period ends — the
+    // Monday following the Monday–Sunday period — via calendar-day arithmetic.
+    // The public request shape carries no dueDate field at all (the parser
+    // rejects one as an unknown field), so no caller, staff or manager, can
+    // move their own or anyone's accountability deadline.
+    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<WeeklyReportCreateResult>(
       {
@@ -1058,7 +1054,6 @@ export class JobCardService {
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
           assignedTo: staffUserId,
-          dueDate,
           questions,
           instructions: input.instructions,
         }),
@@ -1298,7 +1293,9 @@ export class JobCardService {
     const questions = input.questions === undefined || input.questions === null
       ? []
       : validateManagerQuestions(input.questions);
-    const dueDate = input.dueDate ?? addCalendarDaysToDateKey(input.periodEnd, 1);
+    // Same server-only deadline authority as the single create: the canonical
+    // Monday after the period, derived from calendar-day arithmetic.
+    const dueDate = addCalendarDaysToDateKey(input.periodEnd, 1);
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<WeeklyReportBulkRequestResult>(
       {
@@ -1308,7 +1305,6 @@ export class JobCardService {
           staffUserIds,
           periodStart: input.periodStart,
           periodEnd: input.periodEnd,
-          dueDate,
           questions,
           instructions: input.instructions,
         }),

@@ -1441,8 +1441,9 @@ slice; no merge performed here.
   STAFF (server per-command cap preserved; over-cap select-all refuses
   visibly instead of pretending or picking a subset); the manual `Termin`
   input was removed from one-time and recurring creation for every role —
-  `dueDate` stays server-derived next-Monday and create payloads no longer
-  send it; deadline displays use `Teslim son tarihi`.
+  deadline displays use `Teslim son tarihi`. **Weekly Report teslim son
+  tarihi kullanıcı girdisi değildir; server tarafından rapor dönemini izleyen
+  Pazartesi olarak türetilir** (authority fix, below).
   (3) **Manager questions reworked:** five preset questions (stable semantic
   keys `preset_week_highlights`, `preset_incomplete_work`,
   `preset_field_feedback`, `preset_next_week_priorities`,
@@ -1481,3 +1482,24 @@ slice; no merge performed here.
   stability, verbatim ambiguous retry) and mutations A (index mapping → 5
   red), B (minting ignores owned keys → 5 red), C (renumber after delete → 1
   red); all reverted, tree restored.
+- **Server-only deadline authority (2026-09-26, final product-authority
+  audit).** The removed UI `Termin` capability still existed as an
+  undocumented API parameter: the public create/bulk parsers accepted a
+  caller `dueDate` and the services used `input.dueDate ?? canonical`, so a
+  manager/admin could bypass the field-test product decision with a direct
+  request. The public request shape no longer carries `dueDate` at all —
+  exact parsing now rejects it with `VALIDATION_ERROR` (never silently
+  ignored, so a caller cannot believe a deadline was accepted), the single
+  and bulk request identities hash no dueDate dimension, and the services
+  derive `dueDate = addCalendarDaysToDateKey(periodEnd, 1)` unconditionally
+  for STAFF self-create, MANAGER/ADMIN single create and bulk alike —
+  one-time and recurring reports now share the same server-canonical
+  next-Monday authority. Response contracts are unchanged (create result,
+  bulk result, detail, history, overdue logic still carry the canonical
+  dueDate). Proven by S1–S4 (canonical deadlines for omitted dueDate;
+  direct `dueDate` on staff and manager single create → 400 with zero
+  JobCard/WeeklyReport/processed_actions mutation) and B1/B2 (identical
+  canonical deadline on every bulk target; direct `dueDate` → 400 atomic
+  zero mutation), plus mutations M1 (create acceptlist re-admits dueDate →
+  3 red), M2 (bulk acceptlist re-admits dueDate → 1 red), M3 (derivation
+  shifted to periodEnd + 2 → 6 red); all reverted, tree restored.

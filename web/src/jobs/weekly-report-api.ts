@@ -169,7 +169,6 @@ export type WeeklyReportBulkRequestInput = {
   clientActionId: string;
   staffUserIds: string[];
   periodStart: string;
-  dueDate?: string | null;
   questions?: { key: string; prompt: string }[];
   instructions?: string | null;
 };
@@ -333,7 +332,6 @@ export type WeeklyReportCreateInput = {
   clientActionId: string;
   periodStart: string;
   assignedTo?: string | null;
-  dueDate?: string | null;
   questions?: { key: string; prompt: string }[];
   instructions?: string | null;
 };
