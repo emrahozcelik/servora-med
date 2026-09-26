@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
@@ -106,6 +107,7 @@ export function OverviewPage({
       </div>
 
       <div className="overview-main-grid">
+        {!isStaff && <OpenSubmissionLateSection />}
         {!isStaff && (
           <section className="overview-section" aria-labelledby="completion-trend-title">
             <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>

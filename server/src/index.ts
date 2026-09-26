@@ -44,6 +44,10 @@ import {
   PostgresOverdueBreachScannerRepository,
   createOverdueBreachScanner,
 } from './modules/job-cards/overdue-breach-scanner.js';
+import {
+  PostgresOverdueReminderWorkerRepository,
+  createOverdueReminderWorker,
+} from './modules/job-cards/overdue-reminder-worker.js';
 
 /**
  * Selects exactly one backup observability provider (DECISIONS.md -> OPS-004
@@ -177,6 +181,38 @@ async function main() {
                 },
                 onError: (error) => {
                   console.error('Overdue breach scanner iteration failed', error);
+                },
+              },
+            ),
+          }
+        : {}),
+      // OVR-4: automatic reminder / escalation side effects for open
+      // LATE_SUBMISSION incidents. Same opt-in discipline as the OVR-3
+      // scanner: breach truth stays with the scanner, this worker only
+      // notifies on already-materialized incidents.
+      ...(config.overdueReminder?.enabled === true
+        ? {
+            overdueReminderWorker: createOverdueReminderWorker(
+              new PostgresOverdueReminderWorkerRepository(
+                jobCards,
+                config.webPush.enabled,
+              ),
+              {
+                publisher: realtimeBus,
+                timing: {
+                  staffReminderDelayMs: config.overdueReminder.staffReminderDelayMs,
+                  escalationDelayMs: config.overdueReminder.escalationDelayMs,
+                },
+                pollIntervalMs: config.overdueReminder.pollIntervalMs,
+                batchSize: config.overdueReminder.batchSize,
+                onReport: (report) => {
+                  app?.log.debug(
+                    { overdueReminder: report },
+                    'Overdue reminder iteration',
+                  );
+                },
+                onError: (error) => {
+                  console.error('Overdue reminder iteration failed', error);
                 },
               },
             ),

@@ -47,6 +47,10 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post<{ Params: { id: string } }>('/:id/invalidate', secured, h.invalidate);
   app.get<{ Params: { id: string } }>('/:id/activity', secured, h.activity);
   app.get<{ Params: { id: string } }>('/:id/overdue-incidents', secured, h.listOverdueIncidents);
+  // OVR-4 operational closure (two-segment paths never collide with '/:id').
+  app.get('/submission-late/open', secured, h.listOpenSubmissionLate);
+  app.get<{ Params: { id: string } }>('/:id/submission-lateness', secured, h.submissionLateness);
+  app.post<{ Params: { id: string } }>('/:id/submission-reminder', secured, h.sendSubmissionReminder);
   app.get<{ Params: { id: string } }>('/:id/notes', secured, h.listNotes);
   app.post<{ Params: { id: string } }>('/:id/notes', secured, h.addNote);
 };

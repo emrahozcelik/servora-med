@@ -42,19 +42,19 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => {
-  it('catalog head is 052 with 52 migrations', async () => {
+  it('catalog head is 053 with 53 migrations', async () => {
     const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-    expect(catalog.head?.version).toBe('052_weekly_report_recurrence');
-    expect(catalog.count).toBe(52);
+    expect(catalog.head?.version).toBe('053_overdue_submission_reminders');
+    expect(catalog.count).toBe(53);
   });
 
-  it('applies 001 -> 052 on an empty schema with an empty intent table', async () => {
+  it('applies 001 -> 053 on an empty schema with an empty intent table', async () => {
     await withSchema(async (pool) => {
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
-      expect(applied.rows.map((row) => row.version).at(-1)).toBe('052_weekly_report_recurrence');
-      expect(applied.rows).toHaveLength(52);
+      expect(applied.rows.map((row) => row.version).at(-1)).toBe('053_overdue_submission_reminders');
+      expect(applied.rows).toHaveLength(53);
       const count = await pool.query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents',
       );
@@ -62,7 +62,7 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
     });
   });
 
-  it('applies 049 -> 052 as the upgrade tail', async () => {
+  it('applies 049 -> 053 as the upgrade tail', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `lcint_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -79,7 +79,8 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
             && file !== '049_job_card_lifecycle_intents.sql'
             && file !== '050_overdue_incident_scanner_source.sql'
             && file !== '051_weekly_report_foundation.sql'
-            && file !== '052_weekly_report_recurrence.sql',
+            && file !== '052_weekly_report_recurrence.sql'
+            && file !== '053_overdue_submission_reminders.sql',
         )
         .sort();
       expect(files).toHaveLength(48);
@@ -97,12 +98,13 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
           '052_weekly_report_recurrence',
+          '053_overdue_submission_reminders',
         ],
       });
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]!.version).toBe('052_weekly_report_recurrence');
+      expect(head.rows[0]!.version).toBe('053_overdue_submission_reminders');
     } finally {
       await pool?.end();
       if (subsetDir) await rm(subsetDir, { recursive: true, force: true });

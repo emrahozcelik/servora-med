@@ -154,6 +154,25 @@ export function assertCanReadOverdueIncidentHistory(actor: JobCardActor) {
   if (actor.role === 'STAFF') forbidden();
 }
 
+/**
+ * OVR-4: manual submission reminders are a management-only action. STAFF
+ * callers are rejected with 403 before any lookup; cross-org jobs stay
+ * concealed as 404 by the service lookup, exactly like the history surface.
+ */
+export function assertCanSendSubmissionReminder(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+/**
+ * OVR-4: the open-submission-late operational list is management-only for
+ * the same reason as the incident history: it exposes cross-staff
+ * accountability. STAFF visibility stays limited to its own jobs through
+ * the per-job lateness snapshot.
+ */
+export function assertCanListOpenSubmissionLate(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
 export function assertFollowUpSourceEligible(job: Pick<JobCard, 'status'>) {
   if (job.status !== 'COMPLETED') {
     throw new AppError(
