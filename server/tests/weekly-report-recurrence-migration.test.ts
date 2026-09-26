@@ -89,10 +89,13 @@ describe('052 weekly report recurrence migration', () => {
     expect(sql).not.toMatch(/DROP\s+(TABLE|COLUMN|CONSTRAINT)/i);
   });
 
-  it('adds exactly one migration after 051', async () => {
+  it('lists every migration after 051 in order', async () => {
     const files = (await readdir(MIGRATIONS_DIRECTORY)).filter((name) => name.endsWith('.sql')).sort();
     const after051 = files.filter((name) => Number(name.slice(0, 3)) > 51);
-    expect(after051).toEqual(['052_weekly_report_recurrence.sql']);
+    expect(after051).toEqual([
+      '052_weekly_report_recurrence.sql',
+      '053_overdue_submission_reminders.sql',
+    ]);
     expect(files).not.toContain('053_weekly_report_recurrence_due.sql');
   });
 });
@@ -106,7 +109,7 @@ describe.skipIf(!databaseUrl)('052 schema behaviour (PostgreSQL)', () => {
       const versions = applied.rows.map((row) => row.version);
       expect(versions).toContain('051_weekly_report_foundation');
       expect(versions).toContain('052_weekly_report_recurrence');
-      expect(versions[versions.length - 1]).toBe('052_weekly_report_recurrence');
+      expect(versions[versions.length - 1]).toBe('053_overdue_submission_reminders');
       const columns = await pool.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema = current_schema() AND table_name = 'weekly_report_recurrences'

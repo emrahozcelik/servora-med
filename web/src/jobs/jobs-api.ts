@@ -1026,6 +1026,184 @@ export const listActivity = async (id: string, page: Partial<{ limit: number; of
   parsePage(await request(`${jobPath(id)}/activity${query(page)}`), parseActivity);
 export const listJobCardActivity = listActivity;
 
+/**
+ * OVR-4 server-owned open LATE_SUBMISSION snapshot. `elapsedSeconds` is a
+ * server-computed request-clock value: the client renders it verbatim and
+ * never derives domain time from its own clock.
+ */
+export type SubmissionLatenessSnapshot = {
+  open: null | {
+    incidentId: string;
+    delayType: 'LATE_SUBMISSION';
+    episodeNo: number;
+    scheduleRevisionNo: number;
+    deadlineAt: string;
+    breachedAt: string;
+    elapsedSeconds: number;
+    accountableUser: RelatedName | null;
+    accountableRole: 'STAFF' | 'MANAGEMENT';
+    staffReminderSentAt: string | null;
+    escalationSentAt: string | null;
+    manualReminderSentAt: string | null;
+    manualReminderCount: number;
+  };
+};
+
+function parseSubmissionLateness(value: unknown): SubmissionLatenessSnapshot {
+  const v = exactObject(value, 'submissionLateness', ['open']);
+  if (v.open === null) return { open: null };
+  const item = exactObject(v.open, 'open', [
+    'incidentId', 'delayType', 'episodeNo', 'scheduleRevisionNo', 'deadlineAt',
+    'breachedAt', 'elapsedSeconds', 'accountableUser', 'accountableRole',
+    'staffReminderSentAt', 'escalationSentAt', 'manualReminderSentAt',
+    'manualReminderCount',
+  ]);
+  return {
+    open: {
+      incidentId: string(item.incidentId, 'open.incidentId'),
+      delayType: oneOf(item.delayType, 'open.delayType', ['LATE_SUBMISSION'] as const),
+      episodeNo: positiveCount(item.episodeNo, 'open.episodeNo'),
+      scheduleRevisionNo: positiveCount(item.scheduleRevisionNo, 'open.scheduleRevisionNo'),
+      deadlineAt: canonicalInstant(item.deadlineAt, 'open.deadlineAt'),
+      breachedAt: canonicalInstant(item.breachedAt, 'open.breachedAt'),
+      elapsedSeconds: count(item.elapsedSeconds, 'open.elapsedSeconds'),
+      accountableUser: nullableRelated(item.accountableUser, 'open.accountableUser'),
+      accountableRole: oneOf(item.accountableRole, 'open.accountableRole', ['STAFF', 'MANAGEMENT'] as const),
+      staffReminderSentAt: nullableCanonicalInstant(item.staffReminderSentAt, 'open.staffReminderSentAt'),
+      escalationSentAt: nullableCanonicalInstant(item.escalationSentAt, 'open.escalationSentAt'),
+      manualReminderSentAt: nullableCanonicalInstant(item.manualReminderSentAt, 'open.manualReminderSentAt'),
+      manualReminderCount: count(item.manualReminderCount, 'open.manualReminderCount'),
+    },
+  };
+}
+
+export const getSubmissionLateness = async (id: string) =>
+  parseSubmissionLateness(await request(`${jobPath(id)}/submission-lateness`));
+
+export type SubmissionReminderReceipt = {
+  jobCardId: string;
+  reminderId: string;
+  sentAt: string;
+};
+
+export const sendSubmissionReminder = async (
+  id: string,
+  input: { clientActionId: string; expectedVersion: number },
+) => {
+  const v = exactObject(
+    await request(`${jobPath(id)}/submission-reminder`, json('POST', input)),
+    'reminder',
+    ['jobCardId', 'reminderId', 'sentAt'],
+  );
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    reminderId: string(v.reminderId, 'reminderId'),
+    sentAt: canonicalInstant(v.sentAt, 'sentAt'),
+  } satisfies SubmissionReminderReceipt;
+};
+
+export type OpenSubmissionLateItem = {
+  jobCardId: string;
+  jobTitle: string;
+  episodeNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  elapsedSeconds: number;
+  staff: RelatedName;
+  customer: RelatedName | null;
+  jobPath: string;
+};
+
+function parseOpenSubmissionLateItem(value: unknown): OpenSubmissionLateItem {
+  const v = exactObject(value, 'item', [
+    'jobCardId', 'jobTitle', 'episodeNo', 'deadlineAt', 'breachedAt',
+    'elapsedSeconds', 'staff', 'customer', 'jobPath',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    jobTitle: string(v.jobTitle, 'jobTitle'),
+    episodeNo: positiveCount(v.episodeNo, 'episodeNo'),
+    deadlineAt: canonicalInstant(v.deadlineAt, 'deadlineAt'),
+    breachedAt: canonicalInstant(v.breachedAt, 'breachedAt'),
+    elapsedSeconds: count(v.elapsedSeconds, 'elapsedSeconds'),
+    staff: related(v.staff, 'staff'),
+    customer: nullableRelated(v.customer, 'customer'),
+    jobPath: string(v.jobPath, 'jobPath'),
+  };
+}
+
+export const listOpenSubmissionLate = async (
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`/api/job-cards/submission-late/open${query(page)}`),
+  parseOpenSubmissionLateItem,
+);
+
+/**
+ * OVR-2 history item with the OVR-4 measurement appendix. Reminder fields
+ * are proven domain facts; legacy episodes without reminders keep nulls.
+ */
+export type OverdueIncidentHistoryItem = {
+  id: string;
+  delayType: 'LATE_START' | 'LATE_SUBMISSION' | 'APPROVAL_WAIT';
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  accountableRole: 'STAFF' | 'MANAGEMENT';
+  accountableSource: 'ASSIGNMENT_AT_BREACH' | 'ROLE_POLICY' | 'UNKNOWN';
+  accountableUser: RelatedName | null;
+  source: 'TRANSITION' | 'MUTATION' | 'SCANNER';
+  recordedAt: string;
+  recoveredAt: string | null;
+  recoveryActor: RelatedName | null;
+  totalDelaySeconds: number | null;
+  manualReminderSentAt: string | null;
+  manualReminderCount: number;
+  postReminderDelaySeconds: number | null;
+};
+
+function parseOverdueIncidentHistoryItem(value: unknown): OverdueIncidentHistoryItem {
+  const v = exactObject(value, 'incident', [
+    'id', 'delayType', 'episodeNo', 'scheduleRevisionNo', 'deadlineAt',
+    'breachedAt', 'accountableRole', 'accountableSource', 'accountableUser',
+    'source', 'recordedAt', 'recoveredAt', 'recoveryActor',
+    'totalDelaySeconds', 'manualReminderSentAt', 'manualReminderCount',
+    'postReminderDelaySeconds',
+  ]);
+  return {
+    id: string(v.id, 'id'),
+    delayType: oneOf(v.delayType, 'delayType', ['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT'] as const),
+    episodeNo: positiveCount(v.episodeNo, 'episodeNo'),
+    scheduleRevisionNo: positiveCount(v.scheduleRevisionNo, 'scheduleRevisionNo'),
+    deadlineAt: canonicalInstant(v.deadlineAt, 'deadlineAt'),
+    breachedAt: canonicalInstant(v.breachedAt, 'breachedAt'),
+    accountableRole: oneOf(v.accountableRole, 'accountableRole', ['STAFF', 'MANAGEMENT'] as const),
+    accountableSource: oneOf(
+      v.accountableSource,
+      'accountableSource',
+      ['ASSIGNMENT_AT_BREACH', 'ROLE_POLICY', 'UNKNOWN'] as const,
+    ),
+    accountableUser: nullableRelated(v.accountableUser, 'accountableUser'),
+    source: oneOf(v.source, 'source', ['TRANSITION', 'MUTATION', 'SCANNER'] as const),
+    recordedAt: canonicalInstant(v.recordedAt, 'recordedAt'),
+    recoveredAt: nullableCanonicalInstant(v.recoveredAt, 'recoveredAt'),
+    recoveryActor: nullableRelated(v.recoveryActor, 'recoveryActor'),
+    totalDelaySeconds: nullableCount(v.totalDelaySeconds, 'totalDelaySeconds'),
+    manualReminderSentAt: nullableCanonicalInstant(v.manualReminderSentAt, 'manualReminderSentAt'),
+    manualReminderCount: count(v.manualReminderCount, 'manualReminderCount'),
+    postReminderDelaySeconds: nullableCount(v.postReminderDelaySeconds, 'postReminderDelaySeconds'),
+  };
+}
+
+export const listOverdueIncidents = async (
+  id: string,
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`${jobPath(id)}/overdue-incidents${query(page)}`),
+  parseOverdueIncidentHistoryItem,
+);
+
 export const listDeliveryItems = async (id: string) =>
   items(await request(`${jobPath(id)}/delivery-items`)).map(parseDelivery);
 export const addDeliveryItem = async (id: string, input: DeliveryInput & { clientActionId: string }) =>

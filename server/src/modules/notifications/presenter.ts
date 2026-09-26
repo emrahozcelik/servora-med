@@ -19,6 +19,18 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
   'job.cancelled': { title: 'İş iptal edildi', body: 'İşiniz iptal edildi.' },
   'job.invalidated': { title: 'İş geçersiz kılındı', body: 'Bir iş kaydı geçersiz kılındı.' },
   'job.note_added': { title: 'Operasyon notu', body: 'Operasyon notu eklendi.' },
+  'job.submission_reminder': {
+    title: 'Onaya gönderme hatırlatması',
+    body: 'Yöneticiniz işi onaya göndermenizi bekliyor. Lütfen işi tamamlayıp yönetici onayına gönderin.',
+  },
+  'job.submission_auto_reminder': {
+    title: 'Onaya gönderme süresi geçti',
+    body: 'Bu işin onaya gönderme süresi geçti. Lütfen işi tamamlayıp yönetici onayına gönderin.',
+  },
+  'job.submission_auto_escalation': {
+    title: 'Onaya gönderilmeyen iş',
+    body: 'Personelin başlattığı iş yönetici onayına gönderilmedi. Lütfen takip edin.',
+  },
   'calendar.assigned': {
     title: 'Yeni takvim planı',
     body: 'Takviminize yeni bir plan eklendi.',

@@ -34,6 +34,12 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_APPROVAL_WITHDRAWN: 'job.updated',
   NOTE_ADDED: 'job.updated',
   MEETING_DETAILS_UPDATED: 'job.updated',
+  // OVR-4 reminder facts are not lifecycle transitions: they invalidate the
+  // job views through the established 'job.updated' transport while the
+  // notification kinds carry the reminder semantics.
+  JOB_SUBMISSION_REMINDER_SENT: 'job.updated',
+  JOB_SUBMISSION_AUTO_REMINDER_SENT: 'job.updated',
+  JOB_SUBMISSION_AUTO_ESCALATION_SENT: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

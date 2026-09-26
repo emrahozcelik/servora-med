@@ -62,6 +62,10 @@ import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import {
+  OverdueIncidentHistorySection,
+  SubmissionLatenessSection,
+} from './jobs/SubmissionLateness';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
@@ -459,7 +463,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, onCreateFollowUp, existingChildrenCount, messagingAction,
+  pendingLabel, continuity, submissionLateness, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
@@ -487,6 +491,7 @@ export function JobDetailPanel({
   timeline?: ReactNode;
   children?: ReactNode;
   continuity?: ReactNode;
+  submissionLateness?: ReactNode;
   onCreateFollowUp?: () => void;
   existingChildrenCount?: number | null;
   messagingAction?: ReactNode;
@@ -637,6 +642,7 @@ export function JobDetailPanel({
       )}
       {realtimeStaleNotice}
       {continuity}
+      {submissionLateness}
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
       )}
@@ -2143,6 +2149,21 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
     continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
+    submissionLateness={
+      detail.job.status === 'IN_PROGRESS' || detail.job.status === 'REVISION_REQUESTED' || isManagementUser(user)
+        ? (
+          <>
+            <SubmissionLatenessSection
+              jobId={jobId}
+              jobVersion={detail.job.version}
+              user={user}
+              onReminded={() => setTimelineKey((value) => value + 1)}
+            />
+            {isManagementUser(user) && <OverdueIncidentHistorySection jobId={jobId} />}
+          </>
+        )
+        : undefined
+    }
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
     onRecordEdit={(action, trigger) => {

@@ -63,6 +63,8 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN',
+  'JOB_SUBMISSION_REMINDER_SENT', 'JOB_SUBMISSION_AUTO_REMINDER_SENT',
+  'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -463,6 +465,15 @@ export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
 /**
  * OVR-2 management history item: immutable breach/accountability facts plus
  * the one-way recovery pair. Identity fields never change after creation.
+ *
+ * OVR-4 measurement appendix (server-computed, never client-derived):
+ * - `totalDelaySeconds` = recoveredAt - breachedAt for recovered incidents,
+ *   null while open;
+ * - `manualReminderSentAt` = latest manual manager reminder for the episode
+ *   at or before recovery (or the latest overall while open), null when the
+ *   episode was never manually nudged — never guessed for legacy history;
+ * - `postReminderDelaySeconds` = recoveredAt - manualReminderSentAt, null
+ *   unless both endpoints are proven.
  */
 export type OverdueIncidentHistoryItem = {
   id: string;
@@ -478,6 +489,55 @@ export type OverdueIncidentHistoryItem = {
   recordedAt: string;
   recoveredAt: string | null;
   recoveryActor: { id: string; name: string | null } | null;
+  totalDelaySeconds: number | null;
+  manualReminderSentAt: string | null;
+  manualReminderCount: number;
+  postReminderDelaySeconds: number | null;
+};
+
+/**
+ * OVR-4 server-owned open LATE_SUBMISSION snapshot for one job.
+ *
+ * `open` is null when no submission episode is currently late; otherwise it
+ * carries the canonical operational signal derived from the immutable
+ * incident contract (earliest open breach of the current episode) with the
+ * request-clock elapsed duration. Clients render this snapshot verbatim and
+ * never recompute domain time from their own clock.
+ */
+export type SubmissionLatenessSnapshot = {
+  open: null | {
+    incidentId: string;
+    delayType: 'LATE_SUBMISSION';
+    episodeNo: number;
+    scheduleRevisionNo: number;
+    deadlineAt: string;
+    breachedAt: string;
+    /** Whole seconds from breachedAt to the request clock, clamped at zero. */
+    elapsedSeconds: number;
+    accountableUser: { id: string; name: string | null } | null;
+    accountableRole: OverdueAccountableRole;
+    staffReminderSentAt: string | null;
+    escalationSentAt: string | null;
+    manualReminderSentAt: string | null;
+    manualReminderCount: number;
+  };
+};
+
+/**
+ * OVR-4 manager open-submission-late list item: one row per currently open
+ * LATE_SUBMISSION episode with the navigation and accountability context an
+ * escalation needs. Bounded, longest-waiting first.
+ */
+export type OpenSubmissionLateItem = {
+  jobCardId: string;
+  jobTitle: string;
+  episodeNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  elapsedSeconds: number;
+  staff: { id: string; name: string | null };
+  customer: { id: string; name: string } | null;
+  jobPath: string;
 };
 
 export type PaginatedOverdueIncidentHistory = Paginated<OverdueIncidentHistoryItem>;

@@ -6,7 +6,9 @@ import {
   assertCanCreateFollowUp,
   assertCanListFollowUps,
   assertCanInvalidate,
+  assertCanListOpenSubmissionLate,
   assertCanReadOverdueIncidentHistory,
+  assertCanSendSubmissionReminder,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -77,6 +79,8 @@ import {
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
   type PaginatedOverdueIncidentHistory,
+  type SubmissionLatenessSnapshot,
+  type OpenSubmissionLateItem,
   LIFECYCLE_INTENT_TTL_MS_DEFAULT,
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
@@ -2903,30 +2907,332 @@ export class JobCardService {
     const result = await this.repository.listOverdueIncidents(
       actor.organizationId, jobCardId, page,
     );
+    // OVR-4 metrics: one rollup read per job (not per row), joined in memory.
+    // Manual timestamps are proven domain facts; legacy episodes without any
+    // reminder keep nulls instead of guesses.
+    const stats = await this.repository.listSubmissionReminderStats(
+      actor.organizationId, jobCardId,
+    );
+    const statsByEpisode = new Map(stats.map((entry) => [entry.episodeNo, entry]));
     return {
-      items: result.items.map((item) => ({
-        id: item.id,
-        delayType: item.delayType,
-        episodeNo: item.episodeNo,
-        scheduleRevisionNo: item.scheduleRevisionNo,
-        deadlineAt: item.deadlineAt.toISOString(),
-        breachedAt: item.breachedAt.toISOString(),
-        accountableRole: item.accountableRole,
-        accountableSource: item.accountableSource,
-        accountableUser: item.accountableUserId === null
+      items: result.items.map((item) => {
+        const episodeStats = statsByEpisode.get(item.episodeNo) ?? null;
+        // Only reminders sent at or before recovery measure the nudge effect;
+        // a reminder sent after recovery belongs to a later episode (or is
+        // impossible under the fail-closed manual path, which requires an
+        // open incident). Stats carry the latest overall instant, so clamp:
+        // a latest instant after recovery means this recovered incident has
+        // no proven pre-recovery reminder.
+        const recoveredAtMs = item.recoveredAt === null ? null : item.recoveredAt.getTime();
+        const reminderBeforeRecovery = episodeStats !== null
+          && (recoveredAtMs === null || episodeStats.latestSentAt.getTime() <= recoveredAtMs)
+          ? episodeStats
+          : null;
+        const totalDelaySeconds = recoveredAtMs === null
           ? null
-          : { id: item.accountableUserId, name: item.accountableUserName },
-        source: item.source,
-        recordedAt: item.recordedAt.toISOString(),
-        recoveredAt: item.recoveredAt === null ? null : item.recoveredAt.toISOString(),
-        recoveryActor: item.recoveryActorUserId === null
-          ? null
-          : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
-      })),
+          : Math.max(0, Math.floor((recoveredAtMs - item.breachedAt.getTime()) / 1000));
+        const postReminderDelaySeconds = reminderBeforeRecovery !== null && recoveredAtMs !== null
+          ? Math.max(
+            0,
+            Math.floor(
+              (recoveredAtMs - reminderBeforeRecovery.latestSentAt.getTime()) / 1000,
+            ),
+          )
+          : null;
+        return {
+          id: item.id,
+          delayType: item.delayType,
+          episodeNo: item.episodeNo,
+          scheduleRevisionNo: item.scheduleRevisionNo,
+          deadlineAt: item.deadlineAt.toISOString(),
+          breachedAt: item.breachedAt.toISOString(),
+          accountableRole: item.accountableRole,
+          accountableSource: item.accountableSource,
+          accountableUser: item.accountableUserId === null
+            ? null
+            : { id: item.accountableUserId, name: item.accountableUserName },
+          source: item.source,
+          recordedAt: item.recordedAt.toISOString(),
+          recoveredAt: item.recoveredAt === null ? null : item.recoveredAt.toISOString(),
+          recoveryActor: item.recoveryActorUserId === null
+            ? null
+            : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
+          totalDelaySeconds,
+          manualReminderSentAt: reminderBeforeRecovery === null
+            ? null
+            : reminderBeforeRecovery.latestSentAt.toISOString(),
+          manualReminderCount: episodeStats?.count ?? 0,
+          postReminderDelaySeconds,
+        };
+      }),
       total: result.total,
       limit: result.limit,
       offset: result.offset,
     };
+  }
+
+  /**
+   * OVR-4 server-owned open LATE_SUBMISSION snapshot for one job.
+   *
+   * Visibility follows the existing detail contract: STAFF reads its own
+   * jobs, MANAGEMENT reads every job; cross-org stays 404. The elapsed
+   * duration is computed from the injected request clock against the
+   * canonical (earliest open) breach — clients render it verbatim and never
+   * recompute domain time. The due-date `Geciken` contract is untouched.
+   */
+  async getSubmissionLateness(
+    actor: JobCardActor,
+    jobCardId: string,
+  ): Promise<SubmissionLatenessSnapshot> {
+    await this.detail(actor, jobCardId);
+    const requestTime = this.now();
+    const open = await this.repository.getOpenLateSubmissionIncidents(
+      actor.organizationId, jobCardId,
+    );
+    if (open.length === 0) return { open: null };
+    // Canonical operational signal: the earliest open breach of the current
+    // episode. Revision-bound duplicates never move the visible clock.
+    const byEpisode = new Map<number, Array<(typeof open)[number]>>();
+    for (const incident of open) {
+      const group = byEpisode.get(incident.episodeNo);
+      if (group) group.push(incident);
+      else byEpisode.set(incident.episodeNo, [incident]);
+    }
+    const current = [...byEpisode.values()]
+      .map((rows) => rows[0]!)
+      .sort((left, right) => left.breachedAt.getTime() - right.breachedAt.getTime())[0]!;
+    const staffDelivery = await this.repository.getOverdueNotificationDelivery({
+      organizationId: actor.organizationId,
+      jobCardId,
+      delayType: 'LATE_SUBMISSION',
+      episodeNo: current.episodeNo,
+      kind: 'STAFF_REMINDER',
+    });
+    const escalationDelivery = await this.repository.getOverdueNotificationDelivery({
+      organizationId: actor.organizationId,
+      jobCardId,
+      delayType: 'LATE_SUBMISSION',
+      episodeNo: current.episodeNo,
+      kind: 'MANAGEMENT_ESCALATION',
+    });
+    const reminders = await this.repository.listSubmissionRemindersForEpisode(
+      actor.organizationId, jobCardId, current.episodeNo,
+    );
+    return {
+      open: {
+        incidentId: current.id,
+        delayType: 'LATE_SUBMISSION',
+        episodeNo: current.episodeNo,
+        scheduleRevisionNo: current.scheduleRevisionNo,
+        deadlineAt: current.deadlineAt.toISOString(),
+        breachedAt: current.breachedAt.toISOString(),
+        elapsedSeconds: Math.max(
+          0,
+          Math.floor((requestTime.getTime() - current.breachedAt.getTime()) / 1000),
+        ),
+        accountableUser: current.accountableUserId === null
+          ? null
+          : { id: current.accountableUserId, name: current.accountableUserName },
+        accountableRole: current.accountableRole,
+        staffReminderSentAt: staffDelivery?.sentAt.toISOString() ?? null,
+        escalationSentAt: escalationDelivery?.sentAt.toISOString() ?? null,
+        manualReminderSentAt: reminders[0]?.sentAt.toISOString() ?? null,
+        manualReminderCount: reminders.length,
+      },
+    };
+  }
+
+  /**
+   * OVR-4 manager operational list: currently open LATE_SUBMISSION episodes,
+   * longest-waiting first, with the navigation context an escalation needs.
+   * Management-only; STAFF keeps its per-job snapshot.
+   */
+  async listOpenSubmissionLate(
+    actor: JobCardActor,
+    page: PageQuery,
+  ): Promise<{ items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }> {
+    assertCanListOpenSubmissionLate(actor);
+    const requestTime = this.now();
+    const result = await this.repository.listOpenSubmissionLate({
+      organizationId: actor.organizationId,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    return {
+      items: result.items.map((item) => ({
+        jobCardId: item.jobCardId,
+        jobTitle: item.jobTitle,
+        episodeNo: item.episodeNo,
+        deadlineAt: item.deadlineAt.toISOString(),
+        breachedAt: item.breachedAt.toISOString(),
+        elapsedSeconds: Math.max(
+          0,
+          Math.floor((requestTime.getTime() - item.breachedAt.getTime()) / 1000),
+        ),
+        staff: { id: item.staffId, name: item.staffName },
+        customer: item.customerId === null
+          ? null
+          : { id: item.customerId, name: item.customerName ?? 'Belirtilmedi' },
+        jobPath: `/jobs/${item.jobCardId}`,
+      })),
+      total: result.total,
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
+  /**
+   * OVR-4 manual manager reminder for an open LATE_SUBMISSION episode.
+   *
+   * Fail-closed: STAFF is rejected with 403 before any lookup; unknown or
+   * cross-org jobs stay 404; stale versions, non-submittable statuses and
+   * recovered (or never-late) episodes stay 409 without side effects.
+   * Idempotency is two-layered: `processed_actions` replays the stored
+   * response for the same clientActionId, and the UNIQUE manager-action
+   * identity absorbs any residual duplicate before it can duplicate facts,
+   * activities or notifications.
+   */
+  async sendSubmissionReminder(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: { clientActionId: string; expectedVersion: number },
+  ): Promise<{ jobCardId: string; reminderId: string; sentAt: string }> {
+    assertCanSendSubmissionReminder(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    const requestTime = this.now();
+    const operationKey = `JOB_SUBMISSION_REMINDER:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+      },
+      async (tx) => {
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (job.version !== input.expectedVersion) {
+          throw new AppError(
+            'VERSION_CONFLICT',
+            409,
+            'JobCard başka bir işlem tarafından güncellendi.',
+          );
+        }
+        if (job.status !== 'IN_PROGRESS' && job.status !== 'REVISION_REQUESTED') {
+          throw new AppError(
+            'SUBMISSION_REMINDER_NOT_APPLICABLE',
+            409,
+            'Bu iş şu anda onaya gönderme aşamasında değil.',
+          );
+        }
+        const open = await tx.listOpenLateSubmissionIncidents(
+          actor.organizationId, jobCardId,
+        );
+        if (open.length === 0) {
+          throw new AppError(
+            'SUBMISSION_NOT_LATE',
+            409,
+            'Bu işin açık bir onaya gönderme gecikmesi bulunmuyor.',
+          );
+        }
+        const canonical = open[0]!;
+        const target = await tx.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
+        if (target === null || !target.isActive || target.role !== 'STAFF') {
+          throw new AppError(
+            'SUBMISSION_REMINDER_TARGET_UNPROVABLE',
+            409,
+            'Hatırlatma gönderilecek aktif personel bulunamadı.',
+          );
+        }
+        const reminder = await tx.insertSubmissionReminder({
+          organizationId: actor.organizationId,
+          jobCardId,
+          incidentId: canonical.id,
+          episodeNo: canonical.episodeNo,
+          scheduleRevisionNo: canonical.scheduleRevisionNo,
+          managerUserId: actor.id,
+          targetStaffUserId: target.id,
+          sentAt: requestTime,
+          clientActionId,
+          operationKey,
+        });
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_SUBMISSION_REMINDER_SENT',
+          clientActionId,
+          metadata: {
+            incidentId: canonical.id,
+            delayType: 'LATE_SUBMISSION',
+            episodeNo: canonical.episodeNo,
+            scheduleRevisionNo: canonical.scheduleRevisionNo,
+            breachedAt: canonical.breachedAt.toISOString(),
+            deadlineAt: canonical.deadlineAt.toISOString(),
+            sentAt: requestTime.toISOString(),
+            targetStaffUserId: target.id,
+          },
+        });
+        const mapped = mapJobCardActivityToRealtime({
+          activityId: activity.id,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_SUBMISSION_REMINDER_SENT',
+          occurredAt: requestTime,
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+        });
+        if (!mapped) {
+          return {
+            response: {
+              jobCardId,
+              reminderId: reminder.id,
+              sentAt: requestTime.toISOString(),
+            },
+            realtimeEvents: [],
+          };
+        }
+        const realtimeEvent = await tx.appendRealtimeEvent({
+          ...mapped,
+          resourceKeys: [...new Set([...mapped.resourceKeys, 'notifications'])].sort(),
+        });
+        const notifications = await tx.appendNotifications({
+          organizationId: actor.organizationId,
+          sourceRealtimeEventId: realtimeEvent.id,
+          createdAt: requestTime,
+          drafts: [{
+            recipientUserId: target.id,
+            kind: 'job.submission_reminder',
+            entityType: 'job-card',
+            entityId: jobCardId,
+          }],
+        });
+        if (this.webPush.enabled && notifications.length > 0) {
+          await tx.appendWebPushDeliveries({
+            organizationId: actor.organizationId,
+            notificationIds: notifications.map((notification) => notification.id),
+            at: requestTime,
+          });
+        }
+        return {
+          response: {
+            jobCardId,
+            reminderId: reminder.id,
+            sentAt: requestTime.toISOString(),
+          },
+          realtimeEvents: [realtimeEvent],
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
   }
 
   async listReferenceCustomers(actor: JobCardActor) {
