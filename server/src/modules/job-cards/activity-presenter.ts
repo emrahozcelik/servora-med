@@ -229,6 +229,11 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     }
     case 'MEETING_DETAILS_UPDATED':
       return meetingDetails(record.metadata);
+    // OVR-4: the reminder's measurable facts (incident, target, sentAt) are
+    // presented by the overdue delay surface, which owns their contract. The
+    // timeline entry itself is a plain named event.
+    case 'JOB_SUBMISSION_REMINDER_SENT':
+      return { kind: 'NONE' };
   }
 }
 

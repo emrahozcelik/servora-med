@@ -34,6 +34,11 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_APPROVAL_WITHDRAWN: 'job.updated',
   NOTE_ADDED: 'job.updated',
   MEETING_DETAILS_UPDATED: 'job.updated',
+  // OVR-4: a manager's manual "remind to submit" is a job-card activity, so it
+  // projects as a plain job update. The automatic reminder/escalation events
+  // are produced by the reminder worker, not by an activity, and carry their
+  // own event types.
+  JOB_SUBMISSION_REMINDER_SENT: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([

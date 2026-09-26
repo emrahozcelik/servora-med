@@ -48,6 +48,14 @@ export function createJobCardNotificationDrafts(
       .map((recipientUserId) => draft(recipientUserId, kind, input.jobCardId));
   }
 
+  // OVR-4: a manager explicitly asked the accountable employee to submit. The
+  // recipient is the post-assignee the caller resolved (the incident's
+  // accountable user), never a broadcast.
+  if (input.event === 'JOB_SUBMISSION_REMINDER_SENT') {
+    return excludingActor([input.afterAssigneeId], input.actorUserId)
+      .map((recipientUserId) => draft(recipientUserId, 'job.submission_reminder', input.jobCardId));
+  }
+
   if (input.event !== 'JOB_SUBMITTED_FOR_APPROVAL') return [];
   return excludingActor(
     input.managementRecipients.filter((recipient) => recipient.isActive).map((recipient) => recipient.id),

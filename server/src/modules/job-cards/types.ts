@@ -63,6 +63,10 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN',
+  // OVR-4: a manager explicitly asked an employee to submit. Append-only audit
+  // fact; it is the durable, measurable counterpart of the automatic
+  // reminder projection (which owns no activity row).
+  'JOB_SUBMISSION_REMINDER_SENT',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -439,6 +443,21 @@ export type PersistedJobCardListItem = {
    */
   overdueSince?: string | null;
   latenessSeconds?: number | null;
+  /**
+   * OVR-4 derived *current* LATE_SUBMISSION delay snapshot. Present ONLY on the
+   * job list surface, the single list that resolves it; absent everywhere else
+   * (the same absent-vs-null contract as the overdue snapshot above).
+   *
+   * It is deliberately orthogonal to `latenessSeconds`: that field measures the
+   * due-date clock, this one measures an open submission obligation. Neither
+   * replaces the other, so the meaning of the existing `Geciken` view is
+   * unchanged.
+   *
+   * `elapsedSeconds` is computed server-side from the request clock against the
+   * incident's immutable `breached_at`; the client never derives the duration
+   * from its own clock.
+   */
+  submissionDelay?: { breachedAt: string; elapsedSeconds: number } | null;
 };
 
 export type JobCardListItem = PersistedJobCardListItem & {
@@ -464,6 +483,12 @@ export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
  * OVR-2 management history item: immutable breach/accountability facts plus
  * the one-way recovery pair. Identity fields never change after creation.
  */
+export type OverdueIncidentManagerReminder = {
+  sentAt: string;
+  actor: { id: string; name: string | null } | null;
+  target: { id: string; name: string | null } | null;
+};
+
 export type OverdueIncidentHistoryItem = {
   id: string;
   delayType: OverdueIncidentDelayType;
@@ -478,9 +503,52 @@ export type OverdueIncidentHistoryItem = {
   recordedAt: string;
   recoveredAt: string | null;
   recoveryActor: { id: string; name: string | null } | null;
+  /**
+   * OVR-4 measurement. Server-computed whole seconds, never derived from the
+   * client clock and never backfilled:
+   * - `totalDelaySeconds` = recoveredAt - breachedAt; null while the incident
+   *   is still open (an ongoing delay has no total yet).
+   * - `managerReminder` = the LATEST manual management reminder bound to this
+   *   incident, or null when no manager ever reminded. Pre-OVR-4 history has
+   *   none, so it stays null instead of being guessed.
+   * - `postReminderDelaySeconds` = recoveredAt - managerReminder.sentAt; null
+   *   when either side is absent.
+   */
+  totalDelaySeconds: number | null;
+  managerReminder: OverdueIncidentManagerReminder | null;
+  postReminderDelaySeconds: number | null;
 };
 
 export type PaginatedOverdueIncidentHistory = Paginated<OverdueIncidentHistoryItem>;
+
+/**
+ * OVR-4 current-delay signal. This is NOT the immutable history contract: it
+ * carries only the delay that is happening right now, for the person who has to
+ * act on it. It is readable by anyone who can already reach the JobCard (STAFF
+ * included, self-scoped), while the breach/accountability history above stays
+ * management-only.
+ */
+export type JobCardSubmissionDelaySignal = {
+  delayType: 'LATE_SUBMISSION';
+  episodeNo: number;
+  deadlineAt: string;
+  breachedAt: string;
+  /** Whole seconds since `breachedAt`, measured from the request clock. */
+  elapsedSeconds: number;
+  accountableStaff: { id: string; name: string | null } | null;
+};
+
+export type JobCardSubmissionReminderInput = {
+  clientActionId: string;
+};
+
+export type JobCardSubmissionReminderReceipt = {
+  jobCardId: string;
+  incidentId: string;
+  reminderId: string;
+  sentAt: string;
+  targetUserId: string;
+};
 
 export type JobCardMutationReceipt = {
   jobCardId: string;

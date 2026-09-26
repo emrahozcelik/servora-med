@@ -243,6 +243,17 @@ export function createJobCardHandlers(service: JobCardService) {
         uuidString(request.params.id, 'jobCardId'),
         page(request.query, 25),
       ),
+    getSubmissionDelay: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.getSubmissionDelay(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+      ),
+    remindSubmission: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.remindSubmission(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        body(request, ['clientActionId']) as never,
+      ),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),
     addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>

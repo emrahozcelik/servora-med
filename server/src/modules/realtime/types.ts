@@ -20,6 +20,11 @@ export const REALTIME_EVENT_TYPES = [
   'conversation.participants_changed',
   'confidential-note.created',
   'notification.state_changed',
+  // OVR-4 automatic LATE_SUBMISSION reminder/escalation projections. They are
+  // system-produced (no actor, no activity row) and are sourced by the reminder
+  // delivery row itself.
+  'job.submission_reminder_due',
+  'job.submission_escalation_due',
 ] as const;
 
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number];

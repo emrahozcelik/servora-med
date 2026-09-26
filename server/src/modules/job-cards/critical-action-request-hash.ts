@@ -40,6 +40,7 @@ export const MEETING_DETAILS_UPDATE_REQUEST_VERSION = 'MEETING_DETAILS_UPDATE:v1
 export const DELIVERY_ITEM_CREATE_REQUEST_VERSION = 'DELIVERY_ITEM_CREATE:v1';
 export const JOB_NOTE_ADD_REQUEST_VERSION = 'JOB_NOTE_ADD:v1';
 export const JOB_CARD_LIFECYCLE_REQUEST_VERSION = 'JOB_CARD_LIFECYCLE:v1';
+export const JOB_SUBMISSION_REMINDER_REQUEST_VERSION = 'JOB_SUBMISSION_REMINDER:v1';
 
 /** Deterministic one-way digest of an explicitly ordered identity object. */
 export function hashRequestIdentity(identity: Readonly<Record<string, unknown>>): string {
@@ -145,6 +146,19 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
     followUpProposal: normalizedProposalIntent(identity.followUpProposal),
     approveFollowUp: normalizedApproveIntent(identity.approveFollowUp),
     location: normalizedLocationIntent(identity.locationCapture),
+  });
+}
+
+/**
+ * OVR-4 manual submission reminder. The intent is fully described by the job:
+ * there is no free text, so the hash pins only the target job and the operation
+ * version. A reused clientActionId aimed at a different job therefore hashes
+ * differently and is rejected instead of replaying the other job's reminder.
+ */
+export function jobSubmissionReminderRequestHash(jobCardId: string): string {
+  return hashRequestIdentity({
+    operation: JOB_SUBMISSION_REMINDER_REQUEST_VERSION,
+    jobCardId,
   });
 }
 

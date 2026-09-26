@@ -403,6 +403,48 @@ export type PersistedOverdueIncident = {
   recoveredAt: Date | null;
   recoveryActorUserId: string | null;
   recoveryActorUserName: string | null;
+  /** OVR-4 measurement: recoveredAt - breachedAt, whole seconds, SQL-derived. */
+  totalDelaySeconds: number | null;
+  /** OVR-4: latest manual management reminder bound to this incident's episode. */
+  managerReminder: {
+    sentAt: Date;
+    actorUserId: string | null;
+    actorName: string | null;
+    targetUserId: string | null;
+    targetName: string | null;
+  } | null;
+  /** OVR-4: recoveredAt - managerReminder.sentAt, whole seconds. */
+  postReminderDelaySeconds: number | null;
+};
+
+/**
+ * OVR-4: the LATE_SUBMISSION delay that is happening right now for one job.
+ * Deliberately narrower than `PersistedOverdueIncident`: it carries no
+ * revision, recovery or accountability-history detail, so it can be exposed to
+ * the employee who has to act on it without widening the management-only
+ * breach history surface.
+ */
+export type OpenSubmissionDelay = {
+  incidentId: string;
+  episodeNo: number;
+  deadlineAt: Date;
+  breachedAt: Date;
+  elapsedSeconds: number;
+  accountableUserId: string | null;
+  accountableUserName: string | null;
+};
+
+/** OVR-4 immutable manual-reminder write model. Append-only, no update path. */
+export type InsertSubmissionReminderInput = {
+  organizationId: string;
+  jobCardId: string;
+  incidentId: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  actorUserId: string;
+  targetUserId: string;
+  sentAt: Date;
+  clientActionId: string;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -469,6 +511,29 @@ export type ActiveManagementRecipient = {
   role: 'ADMIN' | 'MANAGER';
   isActive: boolean;
 };
+
+/**
+ * Who counts as "management" for a notification fan-out: every active
+ * ADMIN/MANAGER in the organization, ordered deterministically.
+ *
+ * Single owner: the job-card notification projection and the OVR-4 reminder
+ * worker must never disagree about the escalation audience, so both call this.
+ */
+export async function listActiveManagementRecipients(
+  client: Pick<PoolClient, 'query'>,
+  organizationId: string,
+): Promise<ActiveManagementRecipient[]> {
+  const result = await client.query<ActiveManagementRecipient>(
+    `SELECT id, role, is_active AS "isActive"
+       FROM users
+      WHERE organization_id = $1
+        AND is_active = TRUE
+        AND role IN ('ADMIN', 'MANAGER')
+      ORDER BY id ASC`,
+    [organizationId],
+  );
+  return result.rows;
+}
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
@@ -631,6 +696,23 @@ export interface JobCardTransaction extends SubmissionReader {
    * absorbs replays and competing request paths; no generic update path.
    */
   insertOverdueIncident(input: InsertOverdueIncidentInput): Promise<{ id: string; created: boolean }>;
+  /**
+   * OVR-4: the open LATE_SUBMISSION incident that is currently delaying this
+   * job (latest `breached_at`), or null when nothing is open. Read under the
+   * caller's JobCard lock so the manager's manual reminder cannot race a
+   * concurrent submission.
+   */
+  findOpenSubmissionIncident(
+    organizationId: string,
+    jobCardId: string,
+    requestTime: Date,
+  ): Promise<OpenSubmissionDelay | null>;
+  /**
+   * OVR-4: append the immutable manual-reminder fact. The
+   * (organization, actor, clientActionId) UNIQUE makes a double-click a no-op;
+   * a collision on a *different* operation is reported, never silently merged.
+   */
+  insertSubmissionReminder(input: InsertSubmissionReminderInput): Promise<{ id: string }>;
   /**
    * OVR-2: recover every open revision-bound incident for one real delay
    * episode. A schedule revision may have created more than one immutable
@@ -1003,6 +1085,17 @@ export interface JobCardRepository extends SubmissionReader {
     page: PageQuery,
   ): Promise<Paginated<PersistedOverdueIncident>>;
   /**
+   * OVR-4: the current open LATE_SUBMISSION delay for one job, or null. Narrow
+   * by design — it carries no revision or breach-history detail — so the
+   * employee who must act on the delay can read it without the
+   * management-only history surface being widened.
+   */
+  getOpenSubmissionDelay(
+    organizationId: string,
+    jobCardId: string,
+    requestTime: Date,
+  ): Promise<OpenSubmissionDelay | null>;
+  /**
    * OVR-3 bounded candidate discovery per delay type. Prefilter only: the
    * clock-only scanner re-evaluates eligibility transactionally through the
    * shared breach producer under the JobCard lock.
@@ -1098,6 +1191,9 @@ type JobCardListRow = {
   /** Selected only by the overdue list projection (see `listJobCards`). */
   overdue_since?: Date | null;
   lateness_seconds?: number | null;
+  /** Selected only by the OVR-4 submission-delay projection (see `listJobCards`). */
+  submission_delay_breached_at?: Date | null;
+  submission_delay_seconds?: number | null;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -1667,6 +1763,34 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
   };
 }
 
+/**
+ * OVR-4 job-list signal: the open LATE_SUBMISSION incident of the row, if any.
+ *
+ * A LEFT JOIN LATERAL, so a job without an open delay keeps exactly the row
+ * shape it had before this slice. At most one indexed lookup per returned row,
+ * bounded by the page limit — never an N+1 from the application layer.
+ */
+const OPEN_SUBMISSION_DELAY_JOIN = `LEFT JOIN LATERAL (
+  SELECT i.breached_at
+    FROM job_card_overdue_incidents i
+   WHERE i.organization_id = j.organization_id AND i.job_card_id = j.id
+     AND i.delay_type = 'LATE_SUBMISSION' AND i.recovered_at IS NULL
+   ORDER BY i.breached_at DESC, i.id DESC
+   LIMIT 1) submission_delay ON TRUE`;
+
+/**
+ * The derived OVR-4 columns for that join. `requestPosition` is the bind
+ * parameter holding the request instant, so the elapsed duration is measured
+ * from the server clock — the client never computes it.
+ */
+function openSubmissionDelayColumns(requestPosition: number): string {
+  return `submission_delay.breached_at AS submission_delay_breached_at,
+  CASE WHEN submission_delay.breached_at IS NULL THEN NULL
+       ELSE GREATEST(FLOOR(EXTRACT(EPOCH FROM ($${requestPosition}::timestamptz
+            - submission_delay.breached_at)))::int, 0)
+  END AS submission_delay_seconds`;
+}
+
 function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
   return {
     id: row.id,
@@ -1690,6 +1814,15 @@ function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
       : { id: row.contact_id, name: row.contact_name! },
     assignee: { id: row.assignee_id, name: row.assignee_name },
     deliveryItemCount: Number(row.delivery_item_count),
+    // Present ONLY where `listJobCards` joins the OVR-4 signal (see
+    // `OPEN_SUBMISSION_DELAY_JOIN`); absent — not null — on every other surface
+    // that reuses this mapper, exactly like the overdue snapshot below.
+    ...(row.submission_delay_breached_at === undefined ? {} : {
+      submissionDelay: row.submission_delay_breached_at === null ? null : {
+        breachedAt: row.submission_delay_breached_at.toISOString(),
+        elapsedSeconds: Number(row.submission_delay_seconds ?? 0),
+      },
+    }),
   };
 }
 
@@ -2142,17 +2275,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return this.realtime.append(input);
   }
 
-  async listActiveManagementRecipients(organizationId: string) {
-    const result = await this.client.query<ActiveManagementRecipient>(
-      `SELECT id, role, is_active AS "isActive"
-         FROM users
-        WHERE organization_id = $1
-          AND is_active = TRUE
-          AND role IN ('ADMIN', 'MANAGER')
-        ORDER BY id ASC`,
-      [organizationId],
-    );
-    return result.rows;
+  listActiveManagementRecipients(organizationId: string) {
+    return listActiveManagementRecipients(this.client, organizationId);
   }
 
   appendNotifications(input: NotificationAppendInput) {
@@ -2621,6 +2745,66 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
           AND episode_no = $4 AND recovered_at IS NULL`,
       [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
         input.recoveredAt, input.recoveryActorUserId],
+    );
+  }
+
+  async findOpenSubmissionIncident(
+    organizationId: string,
+    jobCardId: string,
+    requestTime: Date,
+  ): Promise<OpenSubmissionDelay | null> {
+    const result = await this.client.query<{
+      id: string; episode_no: number; deadline_at: Date; breached_at: Date;
+      elapsed_seconds: number; accountable_user_id: string | null;
+      accountable_user_name: string | null;
+    }>(
+      `SELECT i.id, i.episode_no, i.deadline_at, i.breached_at,
+              GREATEST(FLOOR(EXTRACT(EPOCH FROM ($3::timestamptz - i.breached_at)))::int, 0)
+                AS elapsed_seconds,
+              i.accountable_user_id, au.name AS accountable_user_name
+         FROM job_card_overdue_incidents i
+         LEFT JOIN users au
+           ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
+        WHERE i.organization_id = $1 AND i.job_card_id = $2
+          AND i.delay_type = 'LATE_SUBMISSION' AND i.recovered_at IS NULL
+        ORDER BY i.breached_at DESC, i.id DESC
+        LIMIT 1`,
+      [organizationId, jobCardId, requestTime],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : {
+      incidentId: row.id,
+      episodeNo: Number(row.episode_no),
+      deadlineAt: row.deadline_at,
+      breachedAt: row.breached_at,
+      elapsedSeconds: Number(row.elapsed_seconds),
+      accountableUserId: row.accountable_user_id,
+      accountableUserName: row.accountable_user_name,
+    };
+  }
+
+  async insertSubmissionReminder(input: InsertSubmissionReminderInput) {
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_submission_reminders
+         (organization_id, job_card_id, incident_id, delay_type, episode_no,
+          actor_user_id, target_user_id, sent_at, client_action_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (organization_id, actor_user_id, client_action_id) DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.incidentId, input.delayType,
+        input.episodeNo, input.actorUserId, input.targetUserId, input.sentAt,
+        input.clientActionId],
+    );
+    const row = inserted.rows[0];
+    if (row) return { id: row.id };
+    // The (org, actor, clientActionId) identity already exists. An exact replay
+    // never reaches here — the critical-action receipt replays first — so this
+    // is a clientActionId reused for a different action. Fail loudly instead of
+    // returning somebody else's fact.
+    throw new AppError(
+      'CLIENT_ACTION_REUSED',
+      409,
+      'clientActionId farklı bir işlem içeriğiyle yeniden kullanılamaz.',
     );
   }
 
@@ -3326,10 +3510,16 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery, requestTime: Date) {
     const filter = workspaceWhere(scope, query);
     let countJoins = WORKSPACE_JOINS;
-    let itemJoins = WORKSPACE_ITEM_JOINS;
+    let itemJoins = `${WORKSPACE_ITEM_JOINS}
+  ${OPEN_SUBMISSION_DELAY_JOIN}`;
     let clause = filter.clause;
+    // `values` binds the count query; `itemValues` additionally carries the
+    // request instant the items-only OVR-4 signal needs, so the count query is
+    // never handed a parameter it does not reference.
     let values = filter.values;
-    let itemColumns = JOB_CARD_LIST_COLUMNS;
+    let itemValues = values;
+    let itemColumns = `${JOB_CARD_LIST_COLUMNS},
+  ${openSubmissionDelayColumns(values.length + 1)}`;
     let order = query.status === 'WAITING_APPROVAL'
       ? 'j.staff_completed_at ASC, j.id ASC'
       : 'j.updated_at DESC, j.id DESC';
@@ -3337,9 +3527,11 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       countJoins = `${WORKSPACE_JOINS}
   JOIN organizations o ON o.id = j.organization_id`;
       itemJoins = `${WORKSPACE_ITEM_JOINS}
-  JOIN organizations o ON o.id = j.organization_id`;
+  JOIN organizations o ON o.id = j.organization_id
+  ${OPEN_SUBMISSION_DELAY_JOIN}`;
       const datePosition = values.length + 1;
       values = [...values, requestTime];
+      itemValues = values;
       const refs = {
         dueDate: 'j.due_date',
         timezone: 'o.timezone',
@@ -3353,12 +3545,16 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     AND ${currentOverduePredicateSql(refs)}`;
       // The overdue view is the only list surface that evaluates current
       // lateness, so the derived columns are selected here and nowhere else.
+      // The OVR-4 signal is orthogonal to that clock and is added alongside it.
       itemColumns = `${JOB_CARD_LIST_COLUMNS},
   ${overdueSinceSql(refs)} AS overdue_since,
-  ${latenessSecondsSql(refs)} AS lateness_seconds`;
+  ${latenessSecondsSql(refs)} AS lateness_seconds,
+  ${openSubmissionDelayColumns(datePosition)}`;
       // Every row in the view is late and shares one request instant, so the
       // earliest `overdue_since` is also the largest lateness.
       order = 'overdue_since ASC, j.id ASC';
+    } else {
+      itemValues = [...values, requestTime];
     }
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
@@ -3366,15 +3562,15 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
        WHERE ${clause}`,
       values,
     );
-    const limitPosition = values.length + 1;
-    const offsetPosition = values.length + 2;
+    const limitPosition = itemValues.length + 1;
+    const offsetPosition = itemValues.length + 2;
     const items = await this.pool.query<JobCardListRow>(
       `SELECT ${itemColumns}
        ${itemJoins}
        WHERE ${clause}
        ORDER BY ${order}
        LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
-      [...values, query.limit, query.offset],
+      [...itemValues, query.limit, query.offset],
     );
     return {
       items: query.overdue
@@ -3969,16 +4165,49 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       source: OverdueIncidentSource; recorded_at: Date;
       recovered_at: Date | null; recovery_actor_user_id: string | null;
       recovery_actor_user_name: string | null;
+      total_delay_seconds: number | null;
+      reminder_sent_at: Date | null; reminder_actor_user_id: string | null;
+      reminder_actor_name: string | null; reminder_target_user_id: string | null;
+      reminder_target_name: string | null;
+      post_reminder_delay_seconds: number | null;
     }>(`SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
               i.schedule_revision_no, i.deadline_at, i.breached_at,
               i.accountable_user_id, au.name AS accountable_user_name,
               i.accountable_role, i.accountable_source, i.source, i.recorded_at,
-              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name
+              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name,
+              CASE WHEN i.recovered_at IS NULL THEN NULL
+                   ELSE FLOOR(EXTRACT(EPOCH FROM (i.recovered_at - i.breached_at)))::int
+              END AS total_delay_seconds,
+              mr.sent_at AS reminder_sent_at,
+              mr.actor_user_id AS reminder_actor_user_id,
+              mr.actor_name AS reminder_actor_name,
+              mr.target_user_id AS reminder_target_user_id,
+              mr.target_name AS reminder_target_name,
+              CASE WHEN i.recovered_at IS NULL OR mr.sent_at IS NULL THEN NULL
+                   ELSE FLOOR(EXTRACT(EPOCH FROM (i.recovered_at - mr.sent_at)))::int
+              END AS post_reminder_delay_seconds
          FROM job_card_overdue_incidents i
          LEFT JOIN users au
            ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
          LEFT JOIN users ru
            ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+         -- OVR-4: the LATEST manual reminder for the same submission episode.
+         -- Matched on the episode, not the incident id: a retroactive revision
+         -- can put the reminder on a sibling incident of the same episode.
+         LEFT JOIN LATERAL (
+           SELECT r.sent_at, r.actor_user_id, r.target_user_id,
+                  mau.name AS actor_name, mtu.name AS target_name
+             FROM job_card_submission_reminders r
+             LEFT JOIN users mau
+               ON mau.organization_id = r.organization_id AND mau.id = r.actor_user_id
+             LEFT JOIN users mtu
+               ON mtu.organization_id = r.organization_id AND mtu.id = r.target_user_id
+            WHERE r.organization_id = i.organization_id
+              AND r.job_card_id = i.job_card_id
+              AND r.delay_type = i.delay_type
+              AND r.episode_no = i.episode_no
+            ORDER BY r.sent_at DESC, r.id DESC
+            LIMIT 1) mr ON TRUE
         WHERE i.organization_id=$1 AND i.job_card_id=$2
         ORDER BY i.breached_at DESC, i.id DESC
         LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
@@ -4001,10 +4230,58 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
         recoveredAt: row.recovered_at,
         recoveryActorUserId: row.recovery_actor_user_id,
         recoveryActorUserName: row.recovery_actor_user_name,
+        totalDelaySeconds: row.total_delay_seconds === null
+          ? null
+          : Number(row.total_delay_seconds),
+        managerReminder: row.reminder_sent_at === null ? null : {
+          sentAt: row.reminder_sent_at,
+          actorUserId: row.reminder_actor_user_id,
+          actorName: row.reminder_actor_name,
+          targetUserId: row.reminder_target_user_id,
+          targetName: row.reminder_target_name,
+        },
+        postReminderDelaySeconds: row.post_reminder_delay_seconds === null
+          ? null
+          : Number(row.post_reminder_delay_seconds),
       })),
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,
       offset: page.offset,
+    };
+  }
+
+  async getOpenSubmissionDelay(
+    organizationId: string,
+    jobCardId: string,
+    requestTime: Date,
+  ): Promise<OpenSubmissionDelay | null> {
+    const result = await this.pool.query<{
+      id: string; episode_no: number; deadline_at: Date; breached_at: Date;
+      elapsed_seconds: number; accountable_user_id: string | null;
+      accountable_user_name: string | null;
+    }>(
+      `SELECT i.id, i.episode_no, i.deadline_at, i.breached_at,
+              GREATEST(FLOOR(EXTRACT(EPOCH FROM ($3::timestamptz - i.breached_at)))::int, 0)
+                AS elapsed_seconds,
+              i.accountable_user_id, au.name AS accountable_user_name
+         FROM job_card_overdue_incidents i
+         LEFT JOIN users au
+           ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
+        WHERE i.organization_id = $1 AND i.job_card_id = $2
+          AND i.delay_type = 'LATE_SUBMISSION' AND i.recovered_at IS NULL
+        ORDER BY i.breached_at DESC, i.id DESC
+        LIMIT 1`,
+      [organizationId, jobCardId, requestTime],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : {
+      incidentId: row.id,
+      episodeNo: Number(row.episode_no),
+      deadlineAt: row.deadline_at,
+      breachedAt: row.breached_at,
+      elapsedSeconds: Number(row.elapsed_seconds),
+      accountableUserId: row.accountable_user_id,
+      accountableUserName: row.accountable_user_name,
     };
   }
 

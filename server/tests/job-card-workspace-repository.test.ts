@@ -80,7 +80,12 @@ describe('PostgresJobCardRepository workspace list', () => {
       ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
       String.raw`%50\%\_\\implant%`,
     ]);
-    expect(calls[1]!.values).toEqual([...calls[0]!.values, 10, 20]);
+    // OVR-4: the items query additionally binds the request instant the
+    // items-only open-submission-delay signal measures from, so the count
+    // query is never handed a parameter it does not reference.
+    expect(calls[1]!.values).toEqual([
+      ...calls[0]!.values, new Date('2026-07-14T12:00:00.000Z'), 10, 20,
+    ]);
   });
 
   it.each([
@@ -410,6 +415,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(calls[1]!.values).toEqual([
       'org-1',
       ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+      new Date('2026-07-14T12:00:00.000Z'),
       25,
       0,
     ]);

@@ -4,7 +4,7 @@ import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { StatusChip } from '../ui/StatusChip';
-import { formatOverdueLateness } from '../ui/duration';
+import { formatDurationSeconds, formatOverdueLateness } from '../ui/duration';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
 import { jobEngagementLabel, jobTypeLabels } from './job-labels';
@@ -104,6 +104,15 @@ export function JobRow({ job, user, onCommand }: {
   const overdueSignal = latenessSeconds !== null && latenessSeconds > 0
     ? formatOverdueLateness(latenessSeconds)
     : null;
+  // OVR-4: an open LATE_SUBMISSION obligation. The server sends this only when
+  // an immutable breach exists and has not been recovered, so its mere presence
+  // is the signal; the duration is the server-measured elapsed, never derived
+  // from the browser clock. It is additive and orthogonal to the due-date
+  // lateness above.
+  const submissionDelay = job.submissionDelay ?? null;
+  const submissionDelaySignal = submissionDelay !== null
+    ? `Onaya gönderme gecikti · ${formatDurationSeconds(submissionDelay.elapsedSeconds)}`
+    : null;
 
   return (
     <article
@@ -135,6 +144,11 @@ export function JobRow({ job, user, onCommand }: {
           {overdueSignal && (
             <span className="job-overdue-signal" data-job-overdue-signal="true">
               {overdueSignal}
+            </span>
+          )}
+          {submissionDelaySignal && (
+            <span className="job-submission-delay-signal" data-job-submission-delay-signal="true">
+              {submissionDelaySignal}
             </span>
           )}
         </div>

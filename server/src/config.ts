@@ -81,6 +81,23 @@ export type OverdueScannerConfig = {
   batchSize: number;
 };
 
+/**
+ * OVR-4 LATE_SUBMISSION reminder/escalation configuration. Optional by the same
+ * rule as the scanner: `OVERDUE_REMINDER_ENABLED` must be set explicitly, so a
+ * deployment never starts a background notifier it did not ask for.
+ *
+ * The two thresholds are operational policy, not code: they live here (and in
+ * one policy object) so they never scatter into the worker, the service or the
+ * web client.
+ */
+export type OverdueReminderConfig = {
+  enabled: boolean;
+  pollIntervalMs: number;
+  batchSize: number;
+  staffReminderMinutes: number;
+  managementEscalationMinutes: number;
+};
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -130,6 +147,8 @@ export type AppConfig = {
   backupProvider?: BackupProviderConfig;
   /** Optional: present only when OVERDUE_SCANNER_* is configured. */
   overdueScanner?: OverdueScannerConfig;
+  /** Optional: present only when OVERDUE_REMINDER_* is configured. */
+  overdueReminders?: OverdueReminderConfig;
   demoDataCreationEnabled: boolean;
 };
 
@@ -302,6 +321,52 @@ function readOverdueScannerConfig(env: NodeJS.ProcessEnv): OverdueScannerConfig 
       1,
       500,
     ),
+  };
+}
+
+/**
+ * OVR-4 reminder thresholds. Validated here, next to the other numeric limits,
+ * so an inverted or non-positive configuration fails at startup instead of
+ * producing an escalation that fires before its own staff reminder.
+ */
+function readOverdueReminderConfig(env: NodeJS.ProcessEnv): OverdueReminderConfig {
+  const staffReminderMinutes = readIntegerInRange(
+    env.OVERDUE_REMINDER_STAFF_MINUTES,
+    15,
+    'OVERDUE_REMINDER_STAFF_MINUTES',
+    1,
+    10_080,
+  );
+  const managementEscalationMinutes = readIntegerInRange(
+    env.OVERDUE_REMINDER_MANAGEMENT_MINUTES,
+    60,
+    'OVERDUE_REMINDER_MANAGEMENT_MINUTES',
+    1,
+    10_080,
+  );
+  if (managementEscalationMinutes < staffReminderMinutes) {
+    throw new Error(
+      'OVERDUE_REMINDER_MANAGEMENT_MINUTES must be greater than or equal to OVERDUE_REMINDER_STAFF_MINUTES',
+    );
+  }
+  return {
+    enabled: readBoolean(env.OVERDUE_REMINDER_ENABLED, 'OVERDUE_REMINDER_ENABLED'),
+    pollIntervalMs: readIntegerInRange(
+      env.OVERDUE_REMINDER_POLL_INTERVAL_MS,
+      60_000,
+      'OVERDUE_REMINDER_POLL_INTERVAL_MS',
+      1_000,
+      3_600_000,
+    ),
+    batchSize: readIntegerInRange(
+      env.OVERDUE_REMINDER_BATCH_SIZE,
+      20,
+      'OVERDUE_REMINDER_BATCH_SIZE',
+      1,
+      500,
+    ),
+    staffReminderMinutes,
+    managementEscalationMinutes,
   };
 }
 
@@ -651,6 +716,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const geocoding = readGeocodingConfig(env, actionScopedGeolocationEnabled);
   const hasBackupWorkerConfig = Object.keys(env).some((key) => key.startsWith('BACKUP_WORKER_'));
   const hasOverdueScannerConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_SCANNER_'));
+  const hasOverdueReminderConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_REMINDER_'));
 
   return {
     nodeEnv: typedNodeEnv,
@@ -726,6 +792,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     backupProvider: readBackupProviderConfig(env),
     ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
     ...(hasOverdueScannerConfig ? { overdueScanner: readOverdueScannerConfig(env) } : {}),
+    ...(hasOverdueReminderConfig ? { overdueReminders: readOverdueReminderConfig(env) } : {}),
   };
 }
 

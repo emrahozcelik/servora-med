@@ -62,6 +62,7 @@ import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { SubmissionDelayPanel } from './jobs/SubmissionDelayPanel';
 import { WeeklyReportDetail } from './jobs/WeeklyReportDetail';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
@@ -461,6 +462,7 @@ export function JobDetailPanel({
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
   pendingLabel, continuity, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
+  onSubmissionReminderSent,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -493,6 +495,8 @@ export function JobDetailPanel({
   messagingActionVisible?: boolean;
   invalidationAction?: ReactNode;
   mutationLocked?: boolean;
+  /** Fired after a manager-issued submission reminder is durably recorded. */
+  onSubmissionReminderSent?: () => void;
 }) {
   const presentation = deriveJobWorkflowPresentation({
     job,
@@ -615,7 +619,7 @@ export function JobDetailPanel({
 
   return (
     <main className="job-detail" data-job-detail="true">
-      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions → notes → timeline */}
+      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → submission-delay → facts → type content → management-review → actions → notes → timeline */}
       <div data-job-detail-section="heading">
         <PageHeader eyebrow={typeLabel} fallbackTitle={job.title} />
         <div className="detail-heading-meta" data-job-detail-meta="true">
@@ -640,7 +644,7 @@ export function JobDetailPanel({
       {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
         <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
       )}
-      {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
+      {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → submission-delay → facts → type content → management review → actions → notes → timeline */}
       <div data-job-detail-section="lifecycle">
         <WorkflowSteps
           items={presentation.phaseItems.map((item) => ({
@@ -681,6 +685,20 @@ export function JobDetailPanel({
           <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
         </div>
       )}
+      {/* OVR-4: rendered for every status so a recovered episode's measured
+          history stays visible after the job is completed or cancelled. The
+          panel renders nothing when there is neither an open delay nor
+          management-visible history. */}
+      <div data-job-detail-section="submission-delay">
+        <SubmissionDelayPanel
+          jobId={job.id}
+          user={user}
+          organizationTimezone={job.organizationTimezone ?? null}
+          jobTitle={job.title}
+          customerName={job.customer?.name ?? null}
+          onReminderSent={onSubmissionReminderSent}
+        />
+      </div>
       <div className={hasRail ? 'job-detail-content job-detail-content--rail' : 'job-detail-content'}>
         <div className="job-detail-main">
           <section
@@ -2193,6 +2211,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         }}
       />
     ) : undefined}
+    onSubmissionReminderSent={() => {
+      // The reminder appended an immutable activity row, so the timeline must
+      // re-read it; the delay panel refreshes itself.
+      setTimelineKey((value) => value + 1);
+      onChanged();
+    }}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
     {uncertain && !dialog && <div className="detail-feedback" role="status">

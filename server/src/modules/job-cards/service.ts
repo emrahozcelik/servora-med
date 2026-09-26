@@ -7,6 +7,7 @@ import {
   assertCanListFollowUps,
   assertCanInvalidate,
   assertCanReadOverdueIncidentHistory,
+  assertCanRemindSubmission,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -39,6 +40,7 @@ import {
   deliveryItemCreateRequestHash,
   followUpCreateRequestHash,
   jobCardCreateRequestHash,
+  jobSubmissionReminderRequestHash,
   lifecycleRequestHash,
   meetingDetailsUpdateRequestHash,
   productDeliveryCreateRequestHash,
@@ -77,6 +79,9 @@ import {
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
   type PaginatedOverdueIncidentHistory,
+  type JobCardSubmissionDelaySignal,
+  type JobCardSubmissionReminderInput,
+  type JobCardSubmissionReminderReceipt,
   LIFECYCLE_INTENT_TTL_MS_DEFAULT,
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
@@ -2922,11 +2927,186 @@ export class JobCardService {
         recoveryActor: item.recoveryActorUserId === null
           ? null
           : { id: item.recoveryActorUserId, name: item.recoveryActorUserName },
+        // OVR-4 measurement. Server-computed seconds only; a null means "not
+        // measurable" (still open, or no manual reminder ever existed) and is
+        // never replaced by an estimate.
+        totalDelaySeconds: item.totalDelaySeconds,
+        managerReminder: item.managerReminder === null ? null : {
+          sentAt: item.managerReminder.sentAt.toISOString(),
+          actor: item.managerReminder.actorUserId === null
+            ? null
+            : { id: item.managerReminder.actorUserId, name: item.managerReminder.actorName },
+          target: item.managerReminder.targetUserId === null
+            ? null
+            : { id: item.managerReminder.targetUserId, name: item.managerReminder.targetName },
+        },
+        postReminderDelaySeconds: item.postReminderDelaySeconds,
       })),
       total: result.total,
       limit: result.limit,
       offset: result.offset,
     };
+  }
+
+  /**
+   * OVR-4 current-delay signal for one JobCard.
+   *
+   * Readable by anyone who can already reach the job (STAFF included, and
+   * self-scoped by `detail`), because it describes the delay the employee has
+   * to act on right now. It deliberately exposes no revision, recovery or
+   * accountability history — that remains behind
+   * `assertCanReadOverdueIncidentHistory`.
+   */
+  async getSubmissionDelay(
+    actor: JobCardActor,
+    jobCardId: string,
+  ): Promise<{ open: JobCardSubmissionDelaySignal | null }> {
+    const requestTime = this.now();
+    await this.detailAt(actor, jobCardId, requestTime);
+    const open = await this.repository.getOpenSubmissionDelay(
+      actor.organizationId, jobCardId, requestTime,
+    );
+    return {
+      open: open === null ? null : {
+        delayType: 'LATE_SUBMISSION',
+        episodeNo: open.episodeNo,
+        deadlineAt: open.deadlineAt.toISOString(),
+        breachedAt: open.breachedAt.toISOString(),
+        elapsedSeconds: open.elapsedSeconds,
+        accountableStaff: open.accountableUserId === null
+          ? null
+          : { id: open.accountableUserId, name: open.accountableUserName },
+      },
+    };
+  }
+
+  /**
+   * OVR-4 manual management reminder: "please submit this job for approval".
+   *
+   * Fail-closed contract:
+   * - management-only (STAFF gets 403 before any lookup);
+   * - requires an OPEN LATE_SUBMISSION incident on a job still in the
+   *   submission phase, so a stale job or an already-recovered delay is
+   *   refused instead of producing a meaningless reminder;
+   * - requires provable accountability (an incident with a real accountable
+   *   user that is still active) — a reminder is never addressed to a guess;
+   * - `clientActionId` is idempotent through the shared critical-action
+   *   receipt, and the durable fact additionally carries a
+   *   (organization, actor, clientActionId) UNIQUE so a double-click cannot
+   *   append two facts even if the receipt is bypassed.
+   *
+   * The `sent_at` stored here is the injected request clock, which is what
+   * makes `postReminderDelay` measurable later without trusting `updated_at`,
+   * a chat message or a reconstruction.
+   */
+  async remindSubmission(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: JobCardSubmissionReminderInput,
+  ): Promise<JobCardSubmissionReminderReceipt> {
+    assertCanRemindSubmission(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    const requestTime = this.now();
+    const operationKey = `JOB_SUBMISSION_REMINDER:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction<JobCardSubmissionReminderReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: jobSubmissionReminderRequestHash(jobCardId),
+      },
+      async (tx) => {
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        // The job must still be in the phase where the employee owes a
+        // submission. WAITING_APPROVAL / terminal means the obligation is gone
+        // (the incident should already be recovered): fail closed.
+        if (job.status !== 'IN_PROGRESS' && job.status !== 'REVISION_REQUESTED') {
+          throw new AppError(
+            'NO_OPEN_SUBMISSION_DELAY',
+            409,
+            'Bu iş için açık bir onaya gönderme gecikmesi bulunmuyor.',
+          );
+        }
+        const incident = await tx.findOpenSubmissionIncident(
+          actor.organizationId, jobCardId, requestTime,
+        );
+        if (!incident) {
+          throw new AppError(
+            'NO_OPEN_SUBMISSION_DELAY',
+            409,
+            'Bu iş için açık bir onaya gönderme gecikmesi bulunmuyor.',
+          );
+        }
+        if (incident.accountableUserId === null) {
+          throw new AppError(
+            'SUBMISSION_DELAY_NOT_ATTRIBUTABLE',
+            409,
+            'Gecikmeden sorumlu personel kanıtlanamadığı için hatırlatma gönderilemez.',
+          );
+        }
+        const target = await tx.getNoteAuthorSnapshot(
+          actor.organizationId, incident.accountableUserId,
+        );
+        if (!target?.isActive) {
+          throw new AppError(
+            'SUBMISSION_REMINDER_TARGET_UNAVAILABLE',
+            409,
+            'Hatırlatma gönderilecek personel aktif değil.',
+          );
+        }
+        const reminder = await tx.insertSubmissionReminder({
+          organizationId: actor.organizationId,
+          jobCardId,
+          incidentId: incident.incidentId,
+          delayType: 'LATE_SUBMISSION',
+          episodeNo: incident.episodeNo,
+          actorUserId: actor.id,
+          targetUserId: incident.accountableUserId,
+          sentAt: requestTime,
+          clientActionId,
+        });
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_SUBMISSION_REMINDER_SENT',
+          clientActionId,
+          metadata: {
+            reminderId: reminder.id,
+            incidentId: incident.incidentId,
+            delayType: 'LATE_SUBMISSION',
+            episodeNo: incident.episodeNo,
+            targetUserId: incident.accountableUserId,
+          },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_SUBMISSION_REMINDER_SENT',
+          beforeAssigneeId: null,
+          afterAssigneeId: incident.accountableUserId,
+        });
+        const response: JobCardSubmissionReminderReceipt = {
+          jobCardId,
+          incidentId: incident.incidentId,
+          reminderId: reminder.id,
+          sentAt: requestTime.toISOString(),
+          targetUserId: incident.accountableUserId,
+        };
+        return { response, realtimeEvents };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    // A replayed submission carries no new realtime events, so publishing the
+    // (empty) list is a no-op rather than a duplicate invalidation.
+    this.publishRealtime(result.realtimeEvents);
+    return result.response;
   }
 
   async listReferenceCustomers(actor: JobCardActor) {
