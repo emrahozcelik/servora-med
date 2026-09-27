@@ -14,6 +14,26 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   WEEKLY_REPORT: 'Haftalık Rapor',
 };
 
+/** Neutral label for a job type this client does not recognise. */
+export const UNKNOWN_JOB_TYPE_LABEL = 'Diğer';
+
+/**
+ * The type labels above, viewed as a plain code -> label lookup so an
+ * unvalidated string can be resolved without casting it to `JobCardType`.
+ */
+const JOB_TYPE_LABELS_BY_CODE: Readonly<Record<string, string>> = jobTypeLabels;
+
+/**
+ * Fail-soft label for a job type that arrives as an unvalidated string.
+ *
+ * `WeeklySourceWorkItem.type` is a tolerant `string`: a frozen submission
+ * snapshot may carry values this client does not know. Unknown values degrade
+ * to a neutral label instead of crashing or leaking the raw enum to the user.
+ */
+export function jobTypeLabel(type: string): string {
+  return JOB_TYPE_LABELS_BY_CODE[type] ?? UNKNOWN_JOB_TYPE_LABEL;
+}
+
 export const JOB_CARD_ENGAGEMENT_LABELS = {
   SALES_MEETING: 'Satış görüşmesi',
   CUSTOMER_VISIT: 'Müşteri / kurum ziyareti',

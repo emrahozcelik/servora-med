@@ -15,7 +15,7 @@ import {
   type JobCardStatus,
   type LifecycleCommand,
 } from './jobs-api';
-import { jobTypeLabels } from './job-labels';
+import { jobTypeLabel, jobTypeLabels } from './job-labels';
 import {
   deriveJobWorkflowPresentation,
   type JobWorkflowPresentation,
@@ -79,6 +79,20 @@ const SUBMISSION_BODY_FIELDS: { key: keyof WeeklyReportSubmission['body']; label
 const DIRTY_SUBMIT_MESSAGE = 'Raporu göndermeden önce değişiklikleri kaydedin.';
 const CONFLICT_MESSAGE = 'Rapor sunucuda değişti. Kaydedilmemiş değişiklikleriniz korunuyor. '
   + 'Kaydetmeden önce güncel sürümü gözden geçirin.';
+
+/**
+ * Human-readable presentation for a server-owned instant.
+ *
+ * This only *formats* the instant the server sent; it performs no timezone or
+ * calendar arithmetic, so the screen never invents a device-local authority over
+ * the value. Unparseable input degrades to a dash instead of "Invalid Date".
+ */
+function formatInstant(value: string): string {
+  const instant = new Date(value);
+  return Number.isNaN(instant.valueOf()) ? '—' : new Intl.DateTimeFormat('tr-TR', {
+    dateStyle: 'medium', timeStyle: 'short',
+  }).format(instant);
+}
 
 /**
  * Last successfully loaded/saved server truth. Dirty state is *derived* from a
@@ -529,7 +543,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
 
   const historyFacts: RecordDescriptionItem[] = selected === null ? [] : [
     { key: 'submitted-by', label: 'Gönderen', content: selected.submittedBy },
-    { key: 'submitted-at', label: 'Zaman', content: selected.submittedAt },
+    { key: 'submitted-at', label: 'Zaman', content: formatInstant(selected.submittedAt) },
     { key: 'summary', label: 'Özet', content: selected.body.summary },
     { key: 'blockers', label: 'Sorunlar', content: selected.body.blockers ?? '—' },
     { key: 'next-week', label: 'Gelecek hafta', content: selected.body.nextWeekPlan },
@@ -639,10 +653,10 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   <li key={item.jobCardId} className="weekly-activity-row">
                     <span className="weekly-activity-row-title">{item.title}</span>
                     <span className="weekly-activity-row-meta">
-                      {item.type}{item.customerName ? ` · ${item.customerName}` : ''}
+                      {jobTypeLabel(item.type)}{item.customerName ? ` · ${item.customerName}` : ''}
                     </span>
                     <time className="weekly-activity-row-time" dateTime={item.staffCompletedAt}>
-                      {item.staffCompletedAt}
+                      {formatInstant(item.staffCompletedAt)}
                     </time>
                   </li>
                 ))}
@@ -657,7 +671,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           >
             <h2 id="weekly-frozen-title">Gönderilen rapor</h2>
             <p className="form-help">
-              {`Gönderim #${latestSubmission.seqNo} · ${latestSubmission.submittedAt} · ${latestSubmission.submittedBy}`}
+              {`Gönderim #${latestSubmission.seqNo} · ${formatInstant(latestSubmission.submittedAt)} · ${latestSubmission.submittedBy}`}
             </p>
             <RecordDescriptions
               ariaLabel="Gönderilen rapor içeriği"
@@ -806,7 +820,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   >
                     {history.map((entry) => (
                       <option key={entry.seqNo} value={entry.seqNo}>
-                        #{entry.seqNo} · {entry.submittedAt}
+                        #{entry.seqNo} · {formatInstant(entry.submittedAt)}
                       </option>
                     ))}
                   </select>

@@ -131,6 +131,19 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+/** Intl may emit NBSP / narrow NBSP between date and time; compare normalized. */
+const normalize = (value: string | null | undefined) =>
+  (value ?? '').replace(/[\s\u00a0\u202f]+/gu, ' ').trim();
+
+/**
+ * The repository's canonical tr-TR instant presentation. Computed with the same
+ * Intl options so the expectation is timezone-independent (both sides render in
+ * the runner's zone) while still pinning the presentation contract.
+ */
+const trInstant = (value: string) => normalize(new Intl.DateTimeFormat('tr-TR', {
+  dateStyle: 'medium', timeStyle: 'short',
+}).format(new Date(value)));
+
 describe('WeeklyReportDetail', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -1064,5 +1077,113 @@ describe('WeeklyReportDetail', () => {
     expect(host.querySelectorAll('textarea').length).toBe(0);
     expect(host.querySelector('.weekly-report-locked-notice')?.textContent)
       .toContain('İş iptal edildi; rapor düzenlenemez.');
+  });
+
+  // 37
+  it('renders the canonical job type label and a readable instant for live source work', async () => {
+    const completedAt = '2026-08-05T09:00:00.000Z';
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [{
+        jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Klinik ziyareti',
+        customerName: 'Dünya Dental', staffCompletedAt: completedAt,
+        statusAtSnapshot: 'COMPLETED',
+      }],
+    }));
+    await render();
+
+    const row = host.querySelector('.weekly-activity-row') as HTMLElement;
+    expect(row).not.toBeNull();
+
+    // The shared SSOT label, never the raw enum; the customer suffix is kept.
+    expect(normalize(row.querySelector('.weekly-activity-row-meta')?.textContent))
+      .toBe('Genel görev · Dünya Dental');
+    expect(row.textContent).not.toContain('GENERAL_TASK');
+
+    // The instant is presented for humans while the element keeps the canonical
+    // machine-readable server instant.
+    const time = row.querySelector('time.weekly-activity-row-time') as HTMLTimeElement;
+    expect(time.getAttribute('dateTime')).toBe(completedAt);
+    expect(normalize(time.textContent)).toBe(trInstant(completedAt));
+    expect(normalize(time.textContent)).toMatch(/^\d{1,2} \S+ \d{4} \d{2}:\d{2}$/u);
+    expect(row.textContent).not.toContain(completedAt);
+  });
+
+  // 38
+  it('presents frozen source work and submission instants without raw ISO anywhere', async () => {
+    const completedAt = '2026-08-05T09:00:00.000Z';
+    const submittedAt = '2026-08-07T12:00:00.000Z';
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'COMPLETED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          startedAt: '2026-08-03T09:00:00.000Z',
+          submittedAt,
+          approvedAt: '2026-08-08T09:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED', version: 6 }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 3 })]);
+    await render(managerUser);
+
+    const block = mainColumn()
+      .querySelector('[data-job-detail-block="weekly-activity"]') as HTMLElement;
+    expect(block.textContent).toContain('Gönderimde dondurulan çalışma listesi');
+    expect(block.textContent).toContain('Genel görev');
+    expect(block.textContent).not.toContain('GENERAL_TASK');
+    expect(block.textContent).not.toContain(completedAt);
+
+    // The frozen caption, the version selector and the history facts each show
+    // the presented instant instead of the raw server string.
+    expect(normalize(host.textContent)).toContain(trInstant(submittedAt));
+    expect(host.textContent).not.toContain(submittedAt);
+  });
+
+  // 39
+  it('degrades an unrecognised source work type to a neutral label without crashing', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [{
+        jobCardId: 'job-9', type: 'LEGACY_TASK_TYPE', title: 'Eski kayıt',
+        customerName: null, staffCompletedAt: '2026-08-05T09:00:00.000Z',
+        statusAtSnapshot: 'COMPLETED',
+      }],
+    }));
+    await render();
+
+    const row = host.querySelector('.weekly-activity-row') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(normalize(row.querySelector('.weekly-activity-row-meta')?.textContent)).toBe('Diğer');
+    expect(row.textContent).not.toContain('LEGACY_TASK_TYPE');
+  });
+
+  // 40
+  it('resolves every known job type through the shared label map', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [
+        {
+          jobCardId: 'job-1', type: 'PRODUCT_DELIVERY', title: 'Membran teslimi',
+          customerName: null, staffCompletedAt: '2026-08-05T09:00:00.000Z',
+          statusAtSnapshot: 'COMPLETED',
+        },
+        {
+          jobCardId: 'job-2', type: 'SALES_MEETING', title: 'Klinik görüşmesi',
+          customerName: null, staffCompletedAt: '2026-08-06T09:00:00.000Z',
+          statusAtSnapshot: 'COMPLETED',
+        },
+      ],
+    }));
+    await render();
+
+    const labels = Array.from(host.querySelectorAll('.weekly-activity-row-meta'))
+      .map((element) => normalize(element.textContent));
+    expect(labels).toEqual(['Ürün teslimi', 'Satış görüşmesi']);
+    expect(host.textContent).not.toContain('PRODUCT_DELIVERY');
+    expect(host.textContent).not.toContain('SALES_MEETING');
   });
 });
