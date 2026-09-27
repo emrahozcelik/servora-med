@@ -57,6 +57,16 @@ export function openSubmissionLatenessMs(breachedAt: Date, requestTime: Date): n
   return Math.max(0, requestTime.getTime() - breachedAt.getTime());
 }
 
+/**
+ * Latest breach instant that is due for a delay at `requestTime`. This is the
+ * set-builder form of the age comparison above: `age >= delay` is equivalent
+ * to `breachedAt <= cutoff`. Candidate discovery uses the cutoff; the worker
+ * still rechecks the age predicate under the JobCard lock.
+ */
+export function overdueReminderDueCutoff(requestTime: Date, delayMs: number): Date {
+  return new Date(requestTime.getTime() - delayMs);
+}
+
 /** Whether the staff auto-reminder threshold has been reached. */
 export function isStaffReminderDue(
   breachedAt: Date,

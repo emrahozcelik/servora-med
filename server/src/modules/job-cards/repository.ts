@@ -103,7 +103,11 @@ import type {
   OverdueIncidentIdentity,
   OverdueIncidentSource,
 } from './overdue-incidents.js';
-import type { OverdueReminderKind } from './overdue-reminder-policy.js';
+import {
+  overdueReminderDueCutoff,
+  type OverdueReminderKind,
+  type ResolvedOverdueReminderTiming,
+} from './overdue-reminder-policy.js';
 import {
   APPROVAL_WAIT_BREACH_HOURS,
   approvalWaitBoundarySql,
@@ -1176,13 +1180,16 @@ export interface JobCardRepository extends SubmissionReader {
     limit: number;
   }): Promise<readonly OverdueScanCandidate[]>;
   /**
-   * OVR-4 worker discovery prefilter: open LATE_SUBMISSION episodes with
-   * their canonical (earliest open) breach, oldest first. Prefilter only;
-   * due-ness per kind and delivery existence are re-evaluated under the
-   * JobCard lock inside the candidate transaction.
+   * OVR-4 bounded candidate discovery: jobs with at least one open
+   * LATE_SUBMISSION episode that is due for an automatic kind without durable
+   * delivery state, oldest actionable breach first. Eligibility is a
+   * scheduling prefilter only; due-ness per kind, recipient provability and
+   * delivery existence are re-evaluated under the JobCard lock inside the
+   * candidate transaction.
    */
   listDueOpenSubmissionLateEpisodes(input: {
     scanTime: Date;
+    timing: ResolvedOverdueReminderTiming;
     limit: number;
   }): Promise<readonly OverdueScanCandidate[]>;
   /**
@@ -4577,38 +4584,70 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   }
 
   /**
-   * OVR-4 worker discovery prefilter: jobs with an open LATE_SUBMISSION
-   * incident in a submittable status, oldest canonical breach first.
-   * Prefilter only: due-ness per kind and delivery existence are re-evaluated
-   * under the JobCard lock inside the candidate transaction.
+   * OVR-4 bounded candidate discovery: jobs with at least one open
+   * LATE_SUBMISSION episode that is due for an automatic kind without durable
+   * delivery state. A staff-only episode also needs a currently provable STAFF
+   * recipient, so a permanently unprovable assignee cannot occupy every
+   * bounded batch while other jobs wait. Completed, not-yet-due and recovered
+   * episodes never consume a batch slot. This is a scheduling prefilter only:
+   * the worker rechecks due-ness, recipient provability and delivery state
+   * under the JobCard lock before sending anything.
    */
   async listDueOpenSubmissionLateEpisodes(input: {
     scanTime: Date;
+    timing: ResolvedOverdueReminderTiming;
     limit: number;
   }): Promise<readonly OverdueScanCandidate[]> {
-    // Oldest canonical breach first so the most overdue episodes win the
-    // bounded batch; due-ness per kind is decided under the JobCard lock.
+    // Cutoffs are derived from the resolved domain timing by the policy-owned
+    // helper. SQL receives instants, not another copy of the delays.
+    const staffDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.staffReminderDelayMs);
+    const escalationDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.escalationDelayMs);
     const ordered = await this.pool.query<{ organization_id: string; job_card_id: string }>(
-      `SELECT j.organization_id, j.id AS job_card_id
-         FROM job_cards j
-        WHERE (j.organization_id, j.id) IN (
-          SELECT i.organization_id, i.job_card_id
-            FROM job_card_overdue_incidents i
-           WHERE i.delay_type = 'LATE_SUBMISSION'
-             AND i.recovered_at IS NULL
-             AND i.breached_at <= $2
-        )
-          AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
-        ORDER BY (
-          SELECT MIN(i.breached_at)
-            FROM job_card_overdue_incidents i
-           WHERE i.organization_id = j.organization_id
-             AND i.job_card_id = j.id
-             AND i.delay_type = 'LATE_SUBMISSION'
-             AND i.recovered_at IS NULL
-        ) ASC, j.id ASC
+      `WITH actionable_episodes AS (
+         SELECT i.organization_id, i.job_card_id, i.breached_at
+           FROM job_card_overdue_incidents i
+           JOIN job_cards j
+             ON j.organization_id = i.organization_id
+            AND j.id = i.job_card_id
+           LEFT JOIN job_card_overdue_notification_deliveries staff_delivery
+             ON staff_delivery.organization_id = i.organization_id
+            AND staff_delivery.job_card_id = i.job_card_id
+            AND staff_delivery.delay_type = i.delay_type
+            AND staff_delivery.episode_no = i.episode_no
+            AND staff_delivery.kind = 'STAFF_REMINDER'
+           LEFT JOIN job_card_overdue_notification_deliveries escalation_delivery
+             ON escalation_delivery.organization_id = i.organization_id
+            AND escalation_delivery.job_card_id = i.job_card_id
+            AND escalation_delivery.delay_type = i.delay_type
+            AND escalation_delivery.episode_no = i.episode_no
+            AND escalation_delivery.kind = 'MANAGEMENT_ESCALATION'
+          WHERE i.delay_type = 'LATE_SUBMISSION'
+            AND i.recovered_at IS NULL
+            AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+            AND (
+              (
+                i.breached_at <= $2
+                AND staff_delivery.id IS NULL
+                AND EXISTS (
+                  SELECT 1
+                    FROM users assignee
+                   WHERE assignee.organization_id = j.organization_id
+                     AND assignee.id = j.assigned_to
+                     AND assignee.is_active
+                     AND assignee.role = 'STAFF'
+                )
+              ) OR (
+                i.breached_at <= $3
+                AND escalation_delivery.id IS NULL
+              )
+            )
+       )
+       SELECT organization_id, job_card_id
+         FROM actionable_episodes
+        GROUP BY organization_id, job_card_id
+        ORDER BY MIN(breached_at) ASC, organization_id ASC, job_card_id ASC
         LIMIT $1`,
-      [input.limit, input.scanTime],
+      [input.limit, staffDueAt, escalationDueAt],
     );
     return ordered.rows.map((row) => ({
       organizationId: row.organization_id,

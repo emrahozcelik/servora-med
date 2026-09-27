@@ -239,6 +239,51 @@ function reminderWorker(pool: Pool, published: RealtimeEventRecord[]) {
   );
 }
 
+function boundedReminderWorker(
+  pool: Pool,
+  published: RealtimeEventRecord[],
+  timing: { staffReminderDelayMs?: number; escalationDelayMs?: number } = {},
+  batchSize = 2,
+) {
+  const repository = new PostgresJobCardRepository(pool);
+  return createOverdueReminderWorker(
+    new PostgresOverdueReminderWorkerRepository(repository, false),
+    {
+      publisher: { publish: (event) => published.push(event) },
+      timing,
+      batchSize,
+    },
+  );
+}
+
+async function createOpenLateJob(
+  service: JobCardService,
+  staff: JobCardActor,
+  title: string,
+  dueDate: string,
+): Promise<JobCard> {
+  const created = await createTask(service, staff, { title, dueDate });
+  return startJob(service, staff, created);
+}
+
+async function latestBreachAt(
+  pool: Pool,
+  organizationId: string,
+  jobIds: readonly string[],
+): Promise<Date> {
+  const breachedAtValues = await Promise.all(jobIds.map(async (jobId) => {
+    const incidents = await selectIncidents(pool, organizationId, jobId);
+    if (incidents.length === 0) throw new Error(`missing LATE_SUBMISSION incident for ${jobId}`);
+    return incidents[0]!.breached_at.getTime();
+  }));
+  return new Date(Math.max(...breachedAtValues));
+}
+
+async function staffDeliveryCount(pool: Pool, organizationId: string, jobId: string): Promise<number> {
+  return (await selectDeliveries(pool, organizationId, jobId))
+    .filter((delivery) => delivery.kind === 'STAFF_REMINDER').length;
+}
+
 describe('OVR-4 LATE_SUBMISSION operational closure', () => {
   it('1: on-time START + SUBMIT produces no incident, reminder or escalation', async () => {
     await withSchema(async (pool) => {
@@ -338,8 +383,9 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       const worker = reminderWorker(pool, published);
 
       const early = await worker.runOnce(shiftMs(breachedAt, 14 * 60_000));
+      expect(early.candidates).toBe(0);
       expect(early.sent).toBe(0);
-      expect(early.skippedNotDue).toBe(1);
+      expect(early.skippedNotDue).toBe(0);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(0);
 
       const due = await worker.runOnce(shiftMs(breachedAt, 15 * 60_000));
@@ -360,10 +406,14 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       );
 
       // Repeat scan with the same worker and a fresh worker (restart) converge.
+      // Durable delivery state keeps the episode out of later bounded batches
+      // while escalation is not yet due, so neither scan consumes a slot.
       const repeat = await worker.runOnce(shiftMs(breachedAt, 16 * 60_000));
+      expect(repeat.candidates).toBe(0);
       expect(repeat.sent).toBe(0);
-      expect(repeat.converged).toBe(1);
+      expect(repeat.converged).toBe(0);
       const restarted = await reminderWorker(pool, []).runOnce(shiftMs(breachedAt, 30 * 60_000));
+      expect(restarted.candidates).toBe(0);
       expect(restarted.sent).toBe(0);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(1);
     });
@@ -873,6 +923,210 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
     });
   });
 
+  it('18: bounded staff-reminder batches reach every due episode', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const jobs = await Promise.all([
+        'Birinci geciken görev',
+        'İkinci geciken görev',
+        'Üçüncü geciken görev',
+        'Dördüncü geciken görev',
+      ].map((title) => createOpenLateJob(service, staffA, title, dueDate)));
+      await scanOnce(pool, await dbBaseline(pool));
+      const dueAt = shiftMs(
+        await latestBreachAt(pool, organizationId, jobs.map((job) => job.id)),
+        15 * 60_000,
+      );
+
+      // Two bounded ticks must be enough for four due episodes. A discovery
+      // query that keeps returning the same delivered jobs starves the rest.
+      const worker = boundedReminderWorker(pool, [], {}, 2);
+      const first = await worker.runOnce(dueAt);
+      expect(first.sent).toBe(2);
+      const second = await worker.runOnce(dueAt);
+      expect(second.sent).toBe(2);
+      expect(second.byKind).toMatchObject({ STAFF_REMINDER: 2, MANAGEMENT_ESCALATION: 0 });
+
+      for (const job of jobs) {
+        expect(await staffDeliveryCount(pool, organizationId, job.id)).toBe(1);
+      }
+    });
+  });
+
+  it('19: staff-delivered episodes do not occupy later staff batches', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const jobs = await Promise.all([
+        'Birinci hatırlatmalı görev',
+        'İkinci hatırlatmalı görev',
+        'Üçüncü hatırlatmalı görev',
+      ].map((title) => createOpenLateJob(service, staffA, title, dueDate)));
+      await scanOnce(pool, await dbBaseline(pool));
+      const staffDueAt = shiftMs(
+        await latestBreachAt(pool, organizationId, jobs.map((job) => job.id)),
+        15 * 60_000,
+      );
+
+      const worker = boundedReminderWorker(pool, [], {}, 2);
+      const first = await worker.runOnce(staffDueAt);
+      expect(first.sent).toBe(2);
+
+      // Escalation is still far away. The next bounded batch must contain the
+      // remaining due episode rather than the two already reminded jobs.
+      const later = shiftMs(staffDueAt, 15 * 60_000);
+      const second = await worker.runOnce(later);
+      expect(second.sent).toBe(1);
+      expect(second.byKind).toMatchObject({ STAFF_REMINDER: 1, MANAGEMENT_ESCALATION: 0 });
+      for (const job of jobs) {
+        expect(await staffDeliveryCount(pool, organizationId, job.id)).toBe(1);
+      }
+    });
+  });
+
+  it('20: fully delivered open episodes do not occupy later batches', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const jobs = await Promise.all([
+        'Birinci tamamlanan görev',
+        'İkinci tamamlanan görev',
+        'Üçüncü tamamlanan görev',
+      ].map((title) => createOpenLateJob(service, staffA, title, dueDate)));
+      await scanOnce(pool, await dbBaseline(pool));
+      const escalationDueAt = shiftMs(
+        await latestBreachAt(pool, organizationId, jobs.map((job) => job.id)),
+        60 * 60_000,
+      );
+
+      const worker = boundedReminderWorker(pool, [], {}, 2);
+      const first = await worker.runOnce(escalationDueAt);
+      expect(first.sent).toBe(2);
+      expect(first.byKind).toMatchObject({ STAFF_REMINDER: 2, MANAGEMENT_ESCALATION: 2 });
+
+      // Both kinds are durable for the first two open episodes. The next
+      // bounded batch must reach the remaining episode instead of converging
+      // on completed delivery state.
+      const second = await worker.runOnce(escalationDueAt);
+      expect(second.sent).toBe(1);
+      expect(second.byKind).toMatchObject({ STAFF_REMINDER: 1, MANAGEMENT_ESCALATION: 1 });
+      for (const job of jobs) {
+        const deliveries = await selectDeliveries(pool, organizationId, job.id);
+        expect(deliveries.filter((delivery) => delivery.kind === 'STAFF_REMINDER')).toHaveLength(1);
+        expect(deliveries.filter((delivery) => delivery.kind === 'MANAGEMENT_ESCALATION')).toHaveLength(1);
+      }
+    });
+  });
+
+  it('21: an unprovable staff recipient does not block other jobs in a bounded batch', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const staffCId = await insertUser(pool, organizationId, 'STAFF', 'Zeynep');
+      const staffC = { id: staffCId, organizationId, role: 'STAFF' } as JobCardActor;
+      const { staffA, staffB } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const jobsWithStaff = [
+        { job: await createOpenLateJob(service, staffA, 'Engellenen görev', dueDate), staffId: staffAId },
+        { job: await createOpenLateJob(service, staffB, 'İkinci açık görev', dueDate), staffId: staffBId },
+        { job: await createOpenLateJob(service, staffC, 'Üçüncü açık görev', dueDate), staffId: staffCId },
+      ];
+      await scanOnce(pool, await dbBaseline(pool));
+      const dueAt = shiftMs(
+        await latestBreachAt(
+          pool,
+          organizationId,
+          jobsWithStaff.map(({ job }) => job.id),
+        ),
+        30 * 60_000,
+      );
+
+      const repository = new PostgresJobCardRepository(pool);
+      const selected = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      expect(selected.map((candidate) => candidate.jobCardId)).toHaveLength(2);
+      const blocked = jobsWithStaff.find(({ job }) => job.id === selected[0]!.jobCardId)!;
+      const unblocked = jobsWithStaff.filter(({ job }) => job.id !== blocked.job.id);
+      expect(unblocked).toHaveLength(2);
+      await pool.query(
+        'UPDATE users SET is_active = FALSE WHERE organization_id = $1 AND id = $2',
+        [organizationId, blocked.staffId],
+      );
+
+      const next = await repository.listDueOpenSubmissionLateEpisodes({ scanTime: dueAt, timing: TIMING, limit: 2 });
+      expect(next.map((candidate) => candidate.jobCardId).sort()).toEqual(
+        unblocked.map(({ job }) => job.id).sort(),
+      );
+
+      const report = await boundedReminderWorker(pool, [], {}, 2).runOnce(dueAt);
+      expect(report.sent).toBe(2);
+      for (const { job } of unblocked) {
+        expect(await staffDeliveryCount(pool, organizationId, job.id)).toBe(1);
+      }
+      expect(await staffDeliveryCount(pool, organizationId, blocked.job.id)).toBe(0);
+      expect(await selectIncidents(pool, organizationId, blocked.job.id)).toHaveLength(1);
+    });
+  });
+
+  it('22: candidate discovery and worker re-check use the same configured thresholds', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await insertOrg(pool, 'OVR4 Org');
+      const managerId = await insertUser(pool, organizationId, 'MANAGER', 'Müdür');
+      const staffAId = await insertUser(pool, organizationId, 'STAFF', 'Ayşe');
+      const staffBId = await insertUser(pool, organizationId, 'STAFF', 'Mehmet');
+      const { staffA } = actors(organizationId, managerId, staffAId, staffBId);
+      const clock = { now: await dbBaseline(pool) };
+      const { service } = buildService(pool, clock);
+      const dueDate = shiftMs(clock.now, -3 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+      const job = await createOpenLateJob(service, staffA, 'Yapılandırılabilir görev', dueDate);
+      await scanOnce(pool, await dbBaseline(pool));
+      const breachedAt = (await selectIncidents(pool, organizationId, job.id))[0]!.breached_at;
+      const timing = { staffReminderDelayMs: 5 * 60_000, escalationDelayMs: 10 * 60_000 };
+      const worker = boundedReminderWorker(pool, [], timing, 1);
+
+      const beforeStaff = await worker.runOnce(shiftMs(breachedAt, 4 * 60_000));
+      expect(beforeStaff.candidates).toBe(0);
+      const staff = await worker.runOnce(shiftMs(breachedAt, 5 * 60_000));
+      expect(staff.sent).toBe(1);
+      expect(staff.byKind).toMatchObject({ STAFF_REMINDER: 1, MANAGEMENT_ESCALATION: 0 });
+
+      // The reminded episode has no due unsent effect at +9m, so discovery
+      // must leave the single batch slot empty rather than return it.
+      const between = await worker.runOnce(shiftMs(breachedAt, 9 * 60_000));
+      expect(between.candidates).toBe(0);
+      const escalation = await worker.runOnce(shiftMs(breachedAt, 10 * 60_000));
+      expect(escalation.sent).toBe(1);
+      expect(escalation.byKind).toMatchObject({ STAFF_REMINDER: 0, MANAGEMENT_ESCALATION: 1 });
+    });
+  });
+
   it('16: notification transport failure never corrupts lifecycle truth', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool, 'OVR4 Org');
@@ -909,7 +1163,8 @@ describe('OVR-4 LATE_SUBMISSION operational closure', () => {
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(1);
 
       const retry = await worker.runOnce(shiftMs(breachedAt, 16 * 60_000));
-      expect(retry.converged).toBe(1);
+      expect(retry.candidates).toBe(0);
+      expect(retry.converged).toBe(0);
       expect(await selectNotifications(pool, organizationId, job.id)).toHaveLength(1);
 
       // Lifecycle recovery commits with the same publisher contract as every

@@ -71,6 +71,7 @@ export type OverdueReminderIterationReport = {
 export interface OverdueReminderWorkerRepository {
   listCandidates(input: {
     scanTime: Date;
+    timing: ResolvedOverdueReminderTiming;
     limit: number;
   }): Promise<readonly OverdueScanCandidate[]>;
   processCandidate(input: {
@@ -99,7 +100,7 @@ implements OverdueReminderWorkerRepository {
     private readonly webPushEnabled: boolean = false,
   ) {}
 
-  listCandidates(input: { scanTime: Date; limit: number }) {
+  listCandidates(input: { scanTime: Date; timing: ResolvedOverdueReminderTiming; limit: number }) {
     return this.repository.listDueOpenSubmissionLateEpisodes(input);
   }
 
@@ -365,7 +366,7 @@ export function createOverdueReminderWorker(
       skippedRecipientUnprovable: 0,
       failed: 0,
     };
-    const candidates = await repository.listCandidates({ scanTime, limit: batchSize });
+    const candidates = await repository.listCandidates({ scanTime, timing, limit: batchSize });
     for (const candidate of candidates) {
       counts.candidates += 1;
       try {
