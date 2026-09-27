@@ -131,6 +131,19 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+/** Intl may emit NBSP / narrow NBSP between date and time; compare normalized. */
+const normalize = (value: string | null | undefined) =>
+  (value ?? '').replace(/[\s\u00a0\u202f]+/gu, ' ').trim();
+
+/**
+ * The repository's canonical tr-TR instant presentation. Computed with the same
+ * Intl options so the expectation is timezone-independent (both sides render in
+ * the runner's zone) while still pinning the presentation contract.
+ */
+const trInstant = (value: string) => normalize(new Intl.DateTimeFormat('tr-TR', {
+  dateStyle: 'medium', timeStyle: 'short',
+}).format(new Date(value)));
+
 describe('WeeklyReportDetail', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -770,5 +783,407 @@ describe('WeeklyReportDetail', () => {
 
     expect(downloads.saveBlobAs).toHaveBeenCalledTimes(1);
     expect(downloads.saveBlobAs).toHaveBeenCalledWith(payload.blob, payload.fileName);
+  });
+
+  // --- JobCard detail information architecture -------------------------------
+  //
+  // The weekly report is a JobCard content type, not a standalone form screen.
+  // These tests pin the composition: the shared lifecycle shell, the two-column
+  // main/work-rail split, the timeline slot, and the rule that the editable
+  // form is never the page's primary content when the viewer cannot edit it.
+
+  /** Direct children of <main>, in DOM order — the page skeleton. */
+  function skeleton(): string[] {
+    const main = host.querySelector('main.job-detail');
+    expect(main, 'main.job-detail').not.toBeNull();
+    return Array.from(main!.children).map((element) => element.getAttribute('data-job-detail-section')
+      ?? (element.classList.contains('job-detail-content') ? 'content'
+        : element.classList.contains('job-detail-timeline') ? 'timeline' : 'other'));
+  }
+
+  function rail(): HTMLElement {
+    const found = host.querySelector('.job-detail-work-rail');
+    expect(found, '.job-detail-work-rail').not.toBeNull();
+    return found as HTMLElement;
+  }
+
+  function mainColumn(): HTMLElement {
+    const found = host.querySelector('.job-detail-main');
+    expect(found, '.job-detail-main').not.toBeNull();
+    return found as HTMLElement;
+  }
+
+  // 28
+  it('renders the shared JobCard lifecycle shell in the JobDetail order', async () => {
+    await render();
+    expect(skeleton()).toEqual(['heading', 'lifecycle', 'responsibility', 'content', 'timeline']);
+    expect(host.querySelector('.job-detail-content')!.className).toContain('job-detail-content--rail');
+    expect(host.querySelector('.detail-heading-meta')).not.toBeNull();
+    // The dead identity markup is gone: the facts live in the shared
+    // RecordDescriptions block inside the main column.
+    expect(host.querySelector('.job-identity')).toBeNull();
+    expect(host.querySelector('.identity-grid')).toBeNull();
+    expect(mainColumn().querySelector('[data-job-detail-block="record-facts"]')).not.toBeNull();
+  });
+
+  // 29
+  it('drives the phase strip from the shared workflow presentation model', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          acceptedAt: '2026-08-03T08:30:00.000Z',
+          startedAt: '2026-08-03T09:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    await render();
+    const lifecycle = host.querySelector('[data-job-detail-section="lifecycle"]');
+    expect(lifecycle).not.toBeNull();
+    expect(lifecycle!.querySelector('.servora-workflow-steps')).not.toBeNull();
+
+    // The screen-reader list is the deterministic projection of phaseItems.
+    const list = lifecycle!.querySelector('ol[aria-label="İş süreci"]');
+    expect(list).not.toBeNull();
+    const items = Array.from(list!.querySelectorAll('li'));
+    expect(items.map((item) => item.textContent?.split(':')[0])).toEqual([
+      'Atandı', 'Kabul edildi', 'Uygulanıyor', 'Yönetici kontrolü', 'Tamamlandı',
+    ]);
+    // IN_PROGRESS → EXECUTION is the current phase, and only that one.
+    expect(items[2]!.getAttribute('aria-current')).toBe('step');
+    expect(items.filter((item) => item.getAttribute('aria-current') === 'step')).toHaveLength(1);
+    expect(items[0]!.textContent).toContain('Tamamlandı');
+    expect(items[4]!.textContent).toContain('Sırada');
+
+    // No weekly-report-specific lifecycle vocabulary is introduced.
+    expect(lifecycle!.textContent).not.toContain('Hazırlanıyor');
+  });
+
+  // 29b
+  it('lets the shared model — not the screen — decide a phase label', async () => {
+    // makeJob()'s default lifecycle has startedAt set but acceptedAt null, so
+    // the model reports the acceptance gap. A hardcoded weekly strip would
+    // still say "Kabul edildi".
+    await render();
+    const items = Array.from(host.querySelectorAll(
+      '[data-job-detail-section="lifecycle"] ol[aria-label="İş süreci"] li',
+    ));
+    expect(items[1]!.textContent).toContain('Kabul bilgisi kaydedilmemiş');
+    expect(items[1]!.textContent).toContain('Atlandı');
+  });
+
+  // 30
+  it('keeps the editable report in the main column and the actions in the rail', async () => {
+    await render();
+    const main = mainColumn();
+    expect(main.querySelector('textarea#weekly-summary')).not.toBeNull();
+    expect(main.querySelector('#weekly-content-heading')?.textContent).toBe('Rapor içeriği');
+    expect(main.querySelector('#weekly-questions-heading')?.textContent).toBe('Yönetici soruları');
+    expect(main.querySelector('[data-job-detail-block="weekly-activity"]')).not.toBeNull();
+    expect(main.querySelector('[data-job-detail-block="weekly-report-editor"]')).not.toBeNull();
+    // The editable form is never duplicated into the rail.
+    expect(rail().querySelector('form')).toBeNull();
+
+    const decision = rail().querySelector('[data-job-decision-panel]');
+    expect(decision).not.toBeNull();
+    expect(decision!.textContent).toContain('Kontrole gönder');
+    expect(rail().querySelector('.job-detail-rail-heading')?.textContent).toBe('İşlemler');
+
+    const timeline = host.querySelector('.job-detail-timeline');
+    expect(timeline).not.toBeNull();
+    expect(timeline!.querySelector('#weekly-history-title')).not.toBeNull();
+  });
+
+  // 31
+  it('makes the NEW state about accepting the job, not about a disabled form', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'NEW',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: null },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'NEW' }));
+    await render();
+
+    // Lifecycle + responsibility are present...
+    expect(host.querySelector('[data-job-detail-section="lifecycle"] .servora-workflow-steps')).not.toBeNull();
+    expect(host.querySelector('[data-job-workflow-panel="responsibility"]')).not.toBeNull();
+    // ...and the primary action is in the rail, not below a wall of inputs.
+    expect(rail().querySelector('button')?.textContent).toBe('İşi kabul et');
+
+    // The six disabled textareas are gone.
+    expect(host.querySelectorAll('textarea').length).toBe(0);
+    expect(host.querySelectorAll('form').length).toBe(0);
+    expect(mainColumn().querySelector('[data-job-detail-block="weekly-report-editor"]')).toBeNull();
+    expect(mainColumn().querySelector('.weekly-report-locked-notice')?.textContent)
+      .toContain('Raporu hazırlamaya başlamak için önce atanan işi kabul edin.');
+  });
+
+  // 32
+  it('keeps the ACCEPTED contract: start action plus a usable owner editor', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'ACCEPTED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          acceptedAt: '2026-08-03T08:00:00.000Z',
+          startedAt: null,
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'ACCEPTED' }));
+    await render();
+
+    expect(rail().querySelector('button')?.textContent).toBe('İşi başlat');
+    expect(summaryField()).not.toBeNull();
+    expect(summaryField().disabled).toBe(false);
+    expect(hasButton('Taslağı kaydet')).toBe(true);
+    expect(host.querySelector('.weekly-report-locked-notice')).toBeNull();
+  });
+
+  // 33
+  it('shows the revision context and the resume action instead of the editor', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'REVISION_REQUESTED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['RESUME', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          startedAt: '2026-08-03T09:00:00.000Z',
+          submittedAt: '2026-08-05T10:00:00.000Z',
+          revisionRequestedAt: '2026-08-06T10:00:00.000Z',
+          revisionReason: 'Özet yetersiz.',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'REVISION_REQUESTED' }));
+    await render();
+
+    expect(host.querySelector('[data-job-detail-section="revision"]')).not.toBeNull();
+    expect(host.textContent).toContain('Özet yetersiz.');
+    expect(rail().querySelector('button')?.textContent).toBe('Düzeltmeye başla');
+    expect(host.querySelectorAll('textarea#weekly-summary').length).toBe(0);
+    expect(host.querySelector('.weekly-report-locked-notice')?.textContent)
+      .toContain('Düzeltmeye başladıktan sonra raporu yeniden düzenleyebilirsiniz.');
+  });
+
+  // 34
+  it('gives the manager the review panel and the frozen report in the JobCard slots', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'WAITING_APPROVAL',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          startedAt: '2026-08-03T09:00:00.000Z',
+          submittedAt: '2026-08-07T12:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      jobStatus: 'WAITING_APPROVAL', version: 5,
+    }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 2 })]);
+    await render(managerUser);
+
+    expect(rail().querySelector('[data-job-detail-section="management-review"]')).not.toBeNull();
+    expect(rail().textContent).toContain('Kontrolü tamamla ve işi kapat');
+    expect(rail().textContent).toContain('Düzeltme için personele geri gönder');
+    // Destructive stays a destructive control, never the primary button.
+    expect(rail().querySelector('.primary-button')?.textContent).toBe('Kontrolü tamamla ve işi kapat');
+
+    expect(mainColumn().querySelector('[data-job-detail-block="weekly-frozen-report"]')).not.toBeNull();
+    expect(mainColumn().querySelector('[data-job-detail-block="weekly-report-editor"]')).toBeNull();
+    expect(host.querySelectorAll('textarea').length).toBe(0);
+  });
+
+  // 35
+  it('uses the terminal slot and never offers an editor for a COMPLETED job', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'COMPLETED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          startedAt: '2026-08-03T09:00:00.000Z',
+          submittedAt: '2026-08-07T12:00:00.000Z',
+          approvedAt: '2026-08-08T09:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED', version: 6 }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 3 })]);
+    await render(managerUser);
+
+    expect(host.querySelector('[data-job-detail-section="terminal"]')).not.toBeNull();
+    expect(host.querySelector('[data-terminal-state="COMPLETED"]')).not.toBeNull();
+    expect(host.querySelector('[data-job-detail-section="responsibility"]')).toBeNull();
+    expect(host.querySelectorAll('textarea').length).toBe(0);
+    expect(host.querySelector('[data-job-detail-rail="true"]')).toBeNull();
+    expect(mainColumn().querySelector('[data-job-detail-block="weekly-frozen-report"]')).not.toBeNull();
+  });
+
+  // 36
+  it('shows only the terminal presentation for a CANCELLED job', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'CANCELLED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          cancelledAt: '2026-08-06T10:00:00.000Z',
+          cancelledFromStatus: 'IN_PROGRESS',
+          cancelReason: 'Müşteri iptal etti.',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'CANCELLED' }));
+    await render();
+
+    expect(host.querySelector('[data-terminal-state="CANCELLED"]')).not.toBeNull();
+    expect(host.querySelector('[data-job-detail-section="responsibility"]')).toBeNull();
+    expect(host.querySelector('[data-job-detail-rail="true"]')).toBeNull();
+    expect(host.querySelectorAll('textarea').length).toBe(0);
+    expect(host.querySelector('.weekly-report-locked-notice')?.textContent)
+      .toContain('İş iptal edildi; rapor düzenlenemez.');
+  });
+
+  // 37
+  it('renders the canonical job type label and a readable instant for live source work', async () => {
+    const completedAt = '2026-08-05T09:00:00.000Z';
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [{
+        jobCardId: 'job-9', type: 'GENERAL_TASK', title: 'Klinik ziyareti',
+        customerName: 'Dünya Dental', staffCompletedAt: completedAt,
+        statusAtSnapshot: 'COMPLETED',
+      }],
+    }));
+    await render();
+
+    const row = host.querySelector('.weekly-activity-row') as HTMLElement;
+    expect(row).not.toBeNull();
+
+    // The shared SSOT label, never the raw enum; the customer suffix is kept.
+    expect(normalize(row.querySelector('.weekly-activity-row-meta')?.textContent))
+      .toBe('Genel görev · Dünya Dental');
+    expect(row.textContent).not.toContain('GENERAL_TASK');
+
+    // The instant is presented for humans while the element keeps the canonical
+    // machine-readable server instant.
+    const time = row.querySelector('time.weekly-activity-row-time') as HTMLTimeElement;
+    expect(time.getAttribute('dateTime')).toBe(completedAt);
+    expect(normalize(time.textContent)).toBe(trInstant(completedAt));
+    expect(normalize(time.textContent)).toMatch(/^\d{1,2} \S+ \d{4} \d{2}:\d{2}$/u);
+    expect(row.textContent).not.toContain(completedAt);
+  });
+
+  // 38
+  it('presents frozen source work and submission instants without raw ISO anywhere', async () => {
+    const completedAt = '2026-08-05T09:00:00.000Z';
+    const submittedAt = '2026-08-07T12:00:00.000Z';
+    jobsApi.getJobCard.mockResolvedValue(makeJob({
+      status: 'COMPLETED',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        startLocationCaptureEnabled: false,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          startedAt: '2026-08-03T09:00:00.000Z',
+          submittedAt,
+          approvedAt: '2026-08-08T09:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED', version: 6 }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission({ seqNo: 3 })]);
+    await render(managerUser);
+
+    const block = mainColumn()
+      .querySelector('[data-job-detail-block="weekly-activity"]') as HTMLElement;
+    expect(block.textContent).toContain('Gönderimde dondurulan çalışma listesi');
+    expect(block.textContent).toContain('Genel görev');
+    expect(block.textContent).not.toContain('GENERAL_TASK');
+    expect(block.textContent).not.toContain(completedAt);
+
+    // The frozen caption, the version selector and the history facts each show
+    // the presented instant instead of the raw server string.
+    expect(normalize(host.textContent)).toContain(trInstant(submittedAt));
+    expect(host.textContent).not.toContain(submittedAt);
+  });
+
+  // 39
+  it('degrades an unrecognised source work type to a neutral label without crashing', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [{
+        jobCardId: 'job-9', type: 'LEGACY_TASK_TYPE', title: 'Eski kayıt',
+        customerName: null, staffCompletedAt: '2026-08-05T09:00:00.000Z',
+        statusAtSnapshot: 'COMPLETED',
+      }],
+    }));
+    await render();
+
+    const row = host.querySelector('.weekly-activity-row') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(normalize(row.querySelector('.weekly-activity-row-meta')?.textContent)).toBe('Diğer');
+    expect(row.textContent).not.toContain('LEGACY_TASK_TYPE');
+  });
+
+  // 40
+  it('resolves every known job type through the shared label map', async () => {
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({
+      liveSourceWork: [
+        {
+          jobCardId: 'job-1', type: 'PRODUCT_DELIVERY', title: 'Membran teslimi',
+          customerName: null, staffCompletedAt: '2026-08-05T09:00:00.000Z',
+          statusAtSnapshot: 'COMPLETED',
+        },
+        {
+          jobCardId: 'job-2', type: 'SALES_MEETING', title: 'Klinik görüşmesi',
+          customerName: null, staffCompletedAt: '2026-08-06T09:00:00.000Z',
+          statusAtSnapshot: 'COMPLETED',
+        },
+      ],
+    }));
+    await render();
+
+    const labels = Array.from(host.querySelectorAll('.weekly-activity-row-meta'))
+      .map((element) => normalize(element.textContent));
+    expect(labels).toEqual(['Ürün teslimi', 'Satış görüşmesi']);
+    expect(host.textContent).not.toContain('PRODUCT_DELIVERY');
+    expect(host.textContent).not.toContain('SALES_MEETING');
   });
 });
