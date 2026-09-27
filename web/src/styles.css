@@ -2032,6 +2032,56 @@ html a:focus-visible {
 .recurrence-manager .recurrence-staff { font-weight: 600; }
 .recurrence-manager .recurrence-actions { display: flex; gap: 0.5rem; margin-left: auto; }
 .recurrence-manager .recurrence-edit { flex-basis: 100%; margin-top: 0.5rem; }
+/* Weekly report manager-question editor.
+   The preset rows are AntD checkboxes, not text controls, but the editor root
+   is a .field-group (it owns the label/help/error rhythm). Two global rules
+   would otherwise reach AntD's visually hidden checkbox input: the generic
+   `.field-group input` full-width control box, and `input { min-height }`.
+   Both are scoped out below, so the checkbox keeps its own AntD geometry and
+   sits immediately left of its prompt instead of becoming a tall, misplaced
+   hit area. The text gap is AntD's own control gap
+   (.servora-ant-checkbox + span). */
+.weekly-question-presets {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.weekly-question-preset {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.weekly-question-preset .servora-ant-checkbox-wrapper {
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.weekly-question-preset .servora-ant-checkbox-wrapper .servora-ant-checkbox-input {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+/* "+ Özel soru ekle" is a content-width action, not a stretched grid item. */
+.weekly-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+/* Weekly report staff selection: two buttons plus the live selection count. */
+.weekly-staff-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+.weekly-staff-bulk-actions .field-status { margin-top: 0; }
 .follow-up-create { min-width: 0; }
 .follow-up-source-summary { margin-bottom: 1.25rem; }
 
