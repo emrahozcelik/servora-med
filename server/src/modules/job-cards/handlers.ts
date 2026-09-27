@@ -104,6 +104,7 @@ function notePage(raw: unknown, defaultLimit: number) {
   };
 }
 
+const SUBMISSION_REMINDER_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
@@ -242,6 +243,19 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         uuidString(request.params.id, 'jobCardId'),
         page(request.query, 25),
+      ),
+    submissionLateness: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.getSubmissionLateness(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+      ),
+    listOpenSubmissionLate: async (request: FastifyRequest) =>
+      service.listOpenSubmissionLate(actor(request), page(request.query, 25)),
+    sendSubmissionReminder: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.sendSubmissionReminder(
+        actor(request),
+        uuidString(request.params.id, 'jobCardId'),
+        body(request, SUBMISSION_REMINDER_FIELDS) as never,
       ),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),

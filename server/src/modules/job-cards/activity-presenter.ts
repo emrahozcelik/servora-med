@@ -197,6 +197,12 @@ function meetingDetails(metadata: unknown): JobCardActivityDetails {
 function details(record: ActivityRecord): JobCardActivityDetails {
   switch (record.eventType) {
     case 'JOB_CREATED': return { kind: 'NONE' };
+    // OVR-4 reminder facts carry their semantics in metadata (incident,
+    // episode, target, sentAt); the timeline renders them as plain facts.
+    case 'JOB_SUBMISSION_REMINDER_SENT':
+    case 'JOB_SUBMISSION_AUTO_REMINDER_SENT':
+    case 'JOB_SUBMISSION_AUTO_ESCALATION_SENT':
+      return { kind: 'NONE' };
     case 'JOB_ASSIGNED':
     case 'JOB_FIELDS_UPDATED':
       return fieldDetails(record.eventType, record.oldValue, record.newValue);

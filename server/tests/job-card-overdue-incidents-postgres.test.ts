@@ -191,10 +191,10 @@ async function rewindSubmissionTo(
 }
 
 describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
-  it('migration 052 is the schema head with 050 present', async () => {
+  it('migration 053 is the schema head with 050 present', async () => {
     await withSchema(async (pool) => {
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.head?.version).toBe('052_weekly_report_recurrence');
+      expect(catalog.head?.version).toBe('053_overdue_submission_reminders');
       // The 049 lifecycle-intent prerequisite stays applied beneath OVR-3.
       expect(catalog.entries.map((entry) => entry.version))
         .toContain('049_job_card_lifecycle_intents');
@@ -202,7 +202,7 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         'SELECT version FROM schema_migrations ORDER BY version',
       );
       expect(applied.rows.map((row) => row.version).at(-1))
-        .toBe('052_weekly_report_recurrence');
+        .toBe('053_overdue_submission_reminders');
     });
   });
 
@@ -588,6 +588,13 @@ describe.skipIf(!databaseUrl)('OVR-2 overdue accountability incidents', () => {
         recordedAt: expect.any(String),
         recoveredAt: reservedStart.toISOString(),
         recoveryActor: { id: staffAId, name: 'Ayşe Personel' },
+        // OVR-4 measurement appendix: recovered with no manual reminder.
+        totalDelaySeconds: Math.floor(
+          (reservedStart.getTime() - new Date('2026-08-03T07:30:00.000Z').getTime()) / 1000,
+        ),
+        manualReminderSentAt: null,
+        manualReminderCount: 0,
+        postReminderDelaySeconds: null,
       });
       const empty = await service.listOverdueIncidents(manager, job.id, { limit: 1, offset: 1 });
       expect(empty).toMatchObject({ items: [], total: 1, limit: 1, offset: 1 });

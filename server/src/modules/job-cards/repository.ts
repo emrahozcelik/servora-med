@@ -104,6 +104,11 @@ import type {
   OverdueIncidentSource,
 } from './overdue-incidents.js';
 import {
+  overdueReminderDueCutoff,
+  type OverdueReminderKind,
+  type ResolvedOverdueReminderTiming,
+} from './overdue-reminder-policy.js';
+import {
   APPROVAL_WAIT_BREACH_HOURS,
   approvalWaitBoundarySql,
   effectiveSubmissionDeadlineSql,
@@ -219,7 +224,12 @@ export type TransitionInput = {
 export type ActivityInput = {
   organizationId: string;
   jobCardId: string;
-  actorId: string;
+  /**
+   * OVR-4: null marks a system-authored fact (automatic reminder /
+   * escalation). The DB column has always been nullable; human lifecycle
+   * paths keep passing their actor id.
+   */
+  actorId: string | null;
   event: JobCardActivityEvent;
   clientActionId?: string;
   oldValue?: unknown;
@@ -384,6 +394,94 @@ export type LatestSubmittedFact = {
   seqNo: number;
   occurredAt: Date;
   scheduleRevisionNo: number;
+};
+
+/**
+ * OVR-4: durable once-per-episode automatic delivery state. `sentAt` is the
+ * injected domain clock (never DB NOW()); `incidentId` is the canonical
+ * (earliest open) incident the delivery was anchored to.
+ */
+export type OverdueNotificationDelivery = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  kind: OverdueReminderKind;
+  incidentId: string;
+  sentAt: Date;
+  recipientUserId: string | null;
+};
+
+export type InsertOverdueNotificationDeliveryInput = {
+  organizationId: string;
+  jobCardId: string;
+  delayType: OverdueIncidentDelayType;
+  episodeNo: number;
+  kind: OverdueReminderKind;
+  incidentId: string;
+  sentAt: Date;
+  recipientUserId: string | null;
+};
+
+/**
+ * OVR-4: immutable manual manager-reminder fact. `sentAt` is the injected
+ * request clock so the post-reminder delay is measurable without guessing
+ * from activity `created_at` (DB clock) or mutable `updated_at`.
+ */
+export type SubmissionReminderRecord = {
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  incidentId: string;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  managerUserId: string;
+  targetStaffUserId: string;
+  sentAt: Date;
+  clientActionId: string;
+  operationKey: string;
+};
+
+export type InsertSubmissionReminderInput = {
+  organizationId: string;
+  jobCardId: string;
+  incidentId: string;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  managerUserId: string;
+  targetStaffUserId: string;
+  sentAt: Date;
+  clientActionId: string;
+  operationKey: string;
+};
+
+/** OVR-4: per-episode manual-reminder rollup for one job (history metrics). */
+export type SubmissionReminderEpisodeStats = {
+  episodeNo: number;
+  count: number;
+  latestSentAt: Date;
+};
+
+/**
+ * OVR-4: one currently open LATE_SUBMISSION episode for the manager list.
+ * The incident columns describe the canonical (earliest open) breach of the
+ * episode; the job/customer/staff columns are read at the query instant for
+ * navigation context (they never rewrite incident history).
+ */
+export type OpenSubmissionLateRow = {
+  organizationId: string;
+  jobCardId: string;
+  jobTitle: string;
+  episodeNo: number;
+  scheduleRevisionNo: number;
+  incidentId: string;
+  deadlineAt: Date;
+  breachedAt: Date;
+  staffId: string;
+  staffName: string | null;
+  customerId: string | null;
+  customerName: string | null;
 };
 export type PersistedOverdueIncident = {
   id: string;
@@ -689,6 +787,49 @@ export interface JobCardTransaction extends SubmissionReader {
     jobCardId: string,
     input: { reservedBefore: Date; atTime: Date },
   ): Promise<readonly LiveLifecycleIntent[]>;
+  /**
+   * OVR-4: currently open LATE_SUBMISSION incidents of one job, earliest
+   * breach first. Callers hold the JobCard row lock; the first row is the
+   * canonical operational signal for the episode.
+   */
+  listOpenLateSubmissionIncidents(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly PersistedOverdueIncident[]>;
+  /**
+   * OVR-4: idempotent automatic-delivery insert. The UNIQUE episode identity
+   * absorbs replays and concurrent workers; losers report created=false.
+   */
+  insertOverdueNotificationDelivery(
+    input: InsertOverdueNotificationDeliveryInput,
+  ): Promise<{ id: string; created: boolean }>;
+  /** OVR-4: one automatic delivery by its episode identity, or null. */
+  getOverdueNotificationDelivery(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    kind: OverdueReminderKind;
+  }): Promise<OverdueNotificationDelivery | null>;
+  /**
+   * OVR-4: idempotent manual-reminder insert. The UNIQUE manager action
+   * identity absorbs double-click replays; losers report created=false with
+   * the winner id.
+   */
+  insertSubmissionReminder(
+    input: InsertSubmissionReminderInput,
+  ): Promise<{ id: string; created: boolean }>;
+  /** OVR-4: manual reminder rows of one episode, latest first. */
+  listSubmissionRemindersForEpisode(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<readonly SubmissionReminderRecord[]>;
+  /** OVR-4: per-episode manual-reminder rollup for one job. */
+  listSubmissionReminderStats(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly SubmissionReminderEpisodeStats[]>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
@@ -1003,6 +1144,32 @@ export interface JobCardRepository extends SubmissionReader {
     page: PageQuery,
   ): Promise<Paginated<PersistedOverdueIncident>>;
   /**
+   * OVR-4 lock-free reads for the visibility path (job detail snapshots and
+   * history metrics). Same SELECTs as the locked transaction variants, run
+   * without a JobCard row lock so staff detail reads never contend with
+   * lifecycle writes.
+   */
+  getOpenLateSubmissionIncidents(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly PersistedOverdueIncident[]>;
+  getOverdueNotificationDelivery(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    kind: OverdueReminderKind;
+  }): Promise<OverdueNotificationDelivery | null>;
+  listSubmissionRemindersForEpisode(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<readonly SubmissionReminderRecord[]>;
+  listSubmissionReminderStats(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly SubmissionReminderEpisodeStats[]>;
+  /**
    * OVR-3 bounded candidate discovery per delay type. Prefilter only: the
    * clock-only scanner re-evaluates eligibility transactionally through the
    * shared breach producer under the JobCard lock.
@@ -1012,6 +1179,28 @@ export interface JobCardRepository extends SubmissionReader {
     scanTime: Date;
     limit: number;
   }): Promise<readonly OverdueScanCandidate[]>;
+  /**
+   * OVR-4 bounded candidate discovery: jobs with at least one open
+   * LATE_SUBMISSION episode that is due for an automatic kind without durable
+   * delivery state, oldest actionable breach first. Eligibility is a
+   * scheduling prefilter only; due-ness per kind, recipient provability and
+   * delivery existence are re-evaluated under the JobCard lock inside the
+   * candidate transaction.
+   */
+  listDueOpenSubmissionLateEpisodes(input: {
+    scanTime: Date;
+    timing: ResolvedOverdueReminderTiming;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]>;
+  /**
+   * OVR-4 manager operational list: one row per currently open
+   * LATE_SUBMISSION episode, longest-waiting first. Bounded; tenant-scoped.
+   */
+  listOpenSubmissionLate(input: {
+    organizationId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly OpenSubmissionLateRow[]; total: number }>;
   listNotes(
     organizationId: string,
     jobCardId: string,
@@ -2730,6 +2919,208 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     }));
   }
 
+  async listOpenLateSubmissionIncidents(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly PersistedOverdueIncident[]> {
+    // Callers hold the JobCard row lock. Open LATE_SUBMISSION rows of every
+    // revision share one episode; earliest breach first so the first row is
+    // the canonical operational signal.
+    const result = await this.client.query<{
+      id: string; organization_id: string; job_card_id: string;
+      delay_type: OverdueIncidentDelayType; episode_no: number; schedule_revision_no: number;
+      deadline_at: Date; breached_at: Date;
+      accountable_user_id: string | null; accountable_user_name: string | null;
+      accountable_role: OverdueAccountableRole; accountable_source: OverdueAccountableSource;
+      source: OverdueIncidentSource; recorded_at: Date;
+      recovered_at: Date | null; recovery_actor_user_id: string | null;
+      recovery_actor_user_name: string | null;
+    }>(
+      `SELECT i.id, i.organization_id, i.job_card_id, i.delay_type, i.episode_no,
+              i.schedule_revision_no, i.deadline_at, i.breached_at,
+              i.accountable_user_id, au.name AS accountable_user_name,
+              i.accountable_role, i.accountable_source, i.source, i.recorded_at,
+              i.recovered_at, i.recovery_actor_user_id, ru.name AS recovery_actor_user_name
+         FROM job_card_overdue_incidents i
+         LEFT JOIN users au
+           ON au.organization_id = i.organization_id AND au.id = i.accountable_user_id
+         LEFT JOIN users ru
+           ON ru.organization_id = i.organization_id AND ru.id = i.recovery_actor_user_id
+        WHERE i.organization_id = $1 AND i.job_card_id = $2
+          AND i.delay_type = 'LATE_SUBMISSION'
+          AND i.recovered_at IS NULL
+        ORDER BY i.breached_at ASC, i.id ASC`,
+      [organizationId, jobCardId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      delayType: row.delay_type,
+      episodeNo: Number(row.episode_no),
+      scheduleRevisionNo: Number(row.schedule_revision_no),
+      deadlineAt: row.deadline_at,
+      breachedAt: row.breached_at,
+      accountableUserId: row.accountable_user_id,
+      accountableUserName: row.accountable_user_name,
+      accountableRole: row.accountable_role,
+      accountableSource: row.accountable_source,
+      source: row.source,
+      recordedAt: row.recorded_at,
+      recoveredAt: row.recovered_at,
+      recoveryActorUserId: row.recovery_actor_user_id,
+      recoveryActorUserName: row.recovery_actor_user_name,
+    }));
+  }
+
+  async insertOverdueNotificationDelivery(
+    input: InsertOverdueNotificationDeliveryInput,
+  ): Promise<{ id: string; created: boolean }> {
+    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE episode
+    // identity additionally absorbs replays and concurrent workers, so the
+    // same breach episode can never produce duplicate delivery state.
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_overdue_notification_deliveries
+         (organization_id, job_card_id, delay_type, episode_no, kind,
+          incident_id, sent_at, recipient_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (organization_id, job_card_id, delay_type, episode_no, kind)
+       DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.delayType, input.episodeNo,
+        input.kind, input.incidentId, input.sentAt, input.recipientUserId],
+    );
+    if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+    const existing = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_card_overdue_notification_deliveries
+        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
+          AND episode_no = $4 AND kind = $5`,
+      [input.organizationId, input.jobCardId, input.delayType,
+        input.episodeNo, input.kind],
+    );
+    return { id: existing.rows[0]!.id, created: false };
+  }
+
+  async getOverdueNotificationDelivery(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    kind: OverdueReminderKind;
+  }): Promise<OverdueNotificationDelivery | null> {
+    const result = await this.client.query<{
+      id: string; organization_id: string; job_card_id: string;
+      delay_type: OverdueIncidentDelayType; episode_no: number;
+      kind: OverdueReminderKind; incident_id: string;
+      sent_at: Date; recipient_user_id: string | null;
+    }>(
+      `SELECT id, organization_id, job_card_id, delay_type, episode_no, kind,
+              incident_id, sent_at, recipient_user_id
+         FROM job_card_overdue_notification_deliveries
+        WHERE organization_id = $1 AND job_card_id = $2 AND delay_type = $3
+          AND episode_no = $4 AND kind = $5`,
+      [input.organizationId, input.jobCardId, input.delayType,
+        input.episodeNo, input.kind],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      delayType: row.delay_type,
+      episodeNo: Number(row.episode_no),
+      kind: row.kind,
+      incidentId: row.incident_id,
+      sentAt: row.sent_at,
+      recipientUserId: row.recipient_user_id,
+    };
+  }
+
+  async insertSubmissionReminder(
+    input: InsertSubmissionReminderInput,
+  ): Promise<{ id: string; created: boolean }> {
+    // Callers hold the JobCard row lock (FOR UPDATE); the UNIQUE manager
+    // action identity additionally absorbs double-click replays, so the same
+    // client action can never duplicate facts, activities or notifications.
+    const inserted = await this.client.query<{ id: string }>(
+      `INSERT INTO job_card_submission_reminders
+         (organization_id, job_card_id, incident_id, episode_no,
+          schedule_revision_no, manager_user_id, target_staff_user_id,
+          sent_at, client_action_id, operation_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (organization_id, manager_user_id, client_action_id, operation_key)
+       DO NOTHING
+       RETURNING id`,
+      [input.organizationId, input.jobCardId, input.incidentId, input.episodeNo,
+        input.scheduleRevisionNo, input.managerUserId, input.targetStaffUserId,
+        input.sentAt, input.clientActionId, input.operationKey],
+    );
+    if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+    const existing = await this.client.query<{ id: string }>(
+      `SELECT id FROM job_card_submission_reminders
+        WHERE organization_id = $1 AND manager_user_id = $2
+          AND client_action_id = $3 AND operation_key = $4`,
+      [input.organizationId, input.managerUserId,
+        input.clientActionId, input.operationKey],
+    );
+    return { id: existing.rows[0]!.id, created: false };
+  }
+
+  async listSubmissionRemindersForEpisode(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<readonly SubmissionReminderRecord[]> {
+    const result = await this.client.query<{
+      id: string; organization_id: string; job_card_id: string;
+      incident_id: string; episode_no: number; schedule_revision_no: number;
+      manager_user_id: string; target_staff_user_id: string;
+      sent_at: Date; client_action_id: string; operation_key: string;
+    }>(
+      `SELECT id, organization_id, job_card_id, incident_id, episode_no,
+              schedule_revision_no, manager_user_id, target_staff_user_id,
+              sent_at, client_action_id, operation_key
+         FROM job_card_submission_reminders
+        WHERE organization_id = $1 AND job_card_id = $2 AND episode_no = $3
+        ORDER BY sent_at DESC, id DESC`,
+      [organizationId, jobCardId, episodeNo],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+      incidentId: row.incident_id,
+      episodeNo: Number(row.episode_no),
+      scheduleRevisionNo: Number(row.schedule_revision_no),
+      managerUserId: row.manager_user_id,
+      targetStaffUserId: row.target_staff_user_id,
+      sentAt: row.sent_at,
+      clientActionId: row.client_action_id,
+      operationKey: row.operation_key,
+    }));
+  }
+
+  async listSubmissionReminderStats(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly SubmissionReminderEpisodeStats[]> {
+    const result = await this.client.query<{
+      episode_no: number; count: string; latest_sent_at: Date;
+    }>(
+      `SELECT episode_no, COUNT(*)::text AS count, MAX(sent_at) AS latest_sent_at
+         FROM job_card_submission_reminders
+        WHERE organization_id = $1 AND job_card_id = $2
+        GROUP BY episode_no`,
+      [organizationId, jobCardId],
+    );
+    return result.rows.map((row) => ({
+      episodeNo: Number(row.episode_no),
+      count: Number(row.count),
+      latestSentAt: row.latest_sent_at,
+    }));
+  }
+
   async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
     await this.client.query(
       `INSERT INTO job_card_meeting_details (organization_id, job_card_id)
@@ -4009,6 +4400,62 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   }
 
   /**
+   * OVR-4 lock-free reads delegate to the same SELECTs as the locked
+   * transaction variants (short-lived pooled connection, no row lock), so
+   * staff detail reads never contend with lifecycle writes and the two paths
+   * cannot drift apart.
+   */
+  private async withTransactionRead<T>(
+    read: (transaction: PostgresJobCardTransaction) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      return await read(new PostgresJobCardTransaction(client));
+    } finally {
+      client.release();
+    }
+  }
+
+  async getOpenLateSubmissionIncidents(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly PersistedOverdueIncident[]> {
+    return this.withTransactionRead((tx) =>
+      tx.listOpenLateSubmissionIncidents(organizationId, jobCardId));
+  }
+
+  async getOverdueNotificationDelivery(input: {
+    organizationId: string;
+    jobCardId: string;
+    delayType: OverdueIncidentDelayType;
+    episodeNo: number;
+    kind: OverdueReminderKind;
+  }): Promise<OverdueNotificationDelivery | null> {
+    return this.withTransactionRead((tx) => tx.getOverdueNotificationDelivery(input));
+  }
+
+  async listSubmissionRemindersForEpisode(
+    organizationId: string,
+    jobCardId: string,
+    episodeNo: number,
+  ): Promise<readonly SubmissionReminderRecord[]> {
+    return this.withTransactionRead((tx) =>
+      tx.listSubmissionRemindersForEpisode(organizationId, jobCardId, episodeNo));
+  }
+
+  async listSubmissionReminderStats(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<readonly SubmissionReminderEpisodeStats[]> {
+    return this.withTransactionRead((tx) =>
+      tx.listSubmissionReminderStats(organizationId, jobCardId));
+  }
+
+  // OVR-4: the locked transaction already implements the write-side
+  // variants; the pool-level write entry point is executeTransaction, so no
+  // pool-level insert methods are needed here.
+
+  /**
    * OVR-3 candidate discovery prefilter for one delay type.
    *
    * This is deliberately *only* a prefilter. It returns bounded,
@@ -4134,6 +4581,156 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       organizationId: row.organization_id,
       jobCardId: row.job_card_id,
     }));
+  }
+
+  /**
+   * OVR-4 bounded candidate discovery: jobs with at least one open
+   * LATE_SUBMISSION episode that is due for an automatic kind without durable
+   * delivery state. A staff-only episode also needs a currently provable STAFF
+   * recipient, so a permanently unprovable assignee cannot occupy every
+   * bounded batch while other jobs wait. Completed, not-yet-due and recovered
+   * episodes never consume a batch slot. This is a scheduling prefilter only:
+   * the worker rechecks due-ness, recipient provability and delivery state
+   * under the JobCard lock before sending anything.
+   */
+  async listDueOpenSubmissionLateEpisodes(input: {
+    scanTime: Date;
+    timing: ResolvedOverdueReminderTiming;
+    limit: number;
+  }): Promise<readonly OverdueScanCandidate[]> {
+    // Cutoffs are derived from the resolved domain timing by the policy-owned
+    // helper. SQL receives instants, not another copy of the delays.
+    const staffDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.staffReminderDelayMs);
+    const escalationDueAt = overdueReminderDueCutoff(input.scanTime, input.timing.escalationDelayMs);
+    const ordered = await this.pool.query<{ organization_id: string; job_card_id: string }>(
+      `WITH actionable_episodes AS (
+         SELECT i.organization_id, i.job_card_id, i.breached_at
+           FROM job_card_overdue_incidents i
+           JOIN job_cards j
+             ON j.organization_id = i.organization_id
+            AND j.id = i.job_card_id
+           LEFT JOIN job_card_overdue_notification_deliveries staff_delivery
+             ON staff_delivery.organization_id = i.organization_id
+            AND staff_delivery.job_card_id = i.job_card_id
+            AND staff_delivery.delay_type = i.delay_type
+            AND staff_delivery.episode_no = i.episode_no
+            AND staff_delivery.kind = 'STAFF_REMINDER'
+           LEFT JOIN job_card_overdue_notification_deliveries escalation_delivery
+             ON escalation_delivery.organization_id = i.organization_id
+            AND escalation_delivery.job_card_id = i.job_card_id
+            AND escalation_delivery.delay_type = i.delay_type
+            AND escalation_delivery.episode_no = i.episode_no
+            AND escalation_delivery.kind = 'MANAGEMENT_ESCALATION'
+          WHERE i.delay_type = 'LATE_SUBMISSION'
+            AND i.recovered_at IS NULL
+            AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+            AND (
+              (
+                i.breached_at <= $2
+                AND staff_delivery.id IS NULL
+                AND EXISTS (
+                  SELECT 1
+                    FROM users assignee
+                   WHERE assignee.organization_id = j.organization_id
+                     AND assignee.id = j.assigned_to
+                     AND assignee.is_active
+                     AND assignee.role = 'STAFF'
+                )
+              ) OR (
+                i.breached_at <= $3
+                AND escalation_delivery.id IS NULL
+              )
+            )
+       )
+       SELECT organization_id, job_card_id
+         FROM actionable_episodes
+        GROUP BY organization_id, job_card_id
+        ORDER BY MIN(breached_at) ASC, organization_id ASC, job_card_id ASC
+        LIMIT $1`,
+      [input.limit, staffDueAt, escalationDueAt],
+    );
+    return ordered.rows.map((row) => ({
+      organizationId: row.organization_id,
+      jobCardId: row.job_card_id,
+    }));
+  }
+
+  /**
+   * OVR-4 manager operational list: one row per open LATE_SUBMISSION
+   * episode with navigation context. The incident columns describe the
+   * canonical (earliest open) breach; job/customer/staff columns are read at
+   * the query instant and never rewrite history.
+   */
+  async listOpenSubmissionLate(input: {
+    organizationId: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: readonly OpenSubmissionLateRow[]; total: number }> {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM (
+         SELECT DISTINCT j.id
+           FROM job_cards j
+           JOIN job_card_overdue_incidents i
+             ON i.organization_id = j.organization_id
+            AND i.job_card_id = j.id
+            AND i.delay_type = 'LATE_SUBMISSION'
+            AND i.recovered_at IS NULL
+          WHERE j.organization_id = $1
+            AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+       ) open_jobs`,
+      [input.organizationId],
+    );
+    const result = await this.pool.query<{
+      organization_id: string; job_card_id: string; job_title: string;
+      episode_no: number; schedule_revision_no: number; incident_id: string;
+      deadline_at: Date; breached_at: Date;
+      staff_id: string; staff_name: string | null;
+      customer_id: string | null; customer_name: string | null;
+    }>(
+      `SELECT j.organization_id, j.id AS job_card_id, j.title AS job_title,
+              open_ep.episode_no, open_ep.schedule_revision_no,
+              open_ep.incident_id, open_ep.deadline_at, open_ep.breached_at,
+              j.assigned_to AS staff_id, u.name AS staff_name,
+              j.customer_id AS customer_id, c.name AS customer_name
+         FROM job_cards j
+         JOIN LATERAL (
+           SELECT i.episode_no, i.schedule_revision_no, i.id AS incident_id,
+                  i.deadline_at, i.breached_at
+             FROM job_card_overdue_incidents i
+            WHERE i.organization_id = j.organization_id
+              AND i.job_card_id = j.id
+              AND i.delay_type = 'LATE_SUBMISSION'
+              AND i.recovered_at IS NULL
+            ORDER BY i.breached_at ASC, i.id ASC
+            LIMIT 1
+         ) open_ep ON TRUE
+         LEFT JOIN users u
+           ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+         LEFT JOIN customers c
+           ON c.organization_id = j.organization_id AND c.id = j.customer_id
+        WHERE j.organization_id = $1
+          AND j.status IN ('IN_PROGRESS', 'REVISION_REQUESTED')
+        ORDER BY open_ep.breached_at ASC, j.id ASC
+        LIMIT $2 OFFSET $3`,
+      [input.organizationId, input.limit, input.offset],
+    );
+    return {
+      items: result.rows.map((row) => ({
+        organizationId: row.organization_id,
+        jobCardId: row.job_card_id,
+        jobTitle: row.job_title,
+        episodeNo: Number(row.episode_no),
+        scheduleRevisionNo: Number(row.schedule_revision_no),
+        incidentId: row.incident_id,
+        deadlineAt: row.deadline_at,
+        breachedAt: row.breached_at,
+        staffId: row.staff_id,
+        staffName: row.staff_name,
+        customerId: row.customer_id,
+        customerName: row.customer_name,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+    };
   }
 
   async listNotes(organizationId: string, jobCardId: string, page: NotePageQuery) {

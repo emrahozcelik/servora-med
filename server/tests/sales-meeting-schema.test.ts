@@ -44,6 +44,9 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'MEETING_DETAILS_UPDATED',
   'JOB_APPROVAL_WITHDRAWN',
   'JOB_INVALIDATED',
+  'JOB_SUBMISSION_REMINDER_SENT',
+  'JOB_SUBMISSION_AUTO_REMINDER_SENT',
+  'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
 ] as const;
 const EXPECTED_UNSUCCESSFUL_REASON_CODES = [
   'CONTACT_NOT_AVAILABLE', 'CONTACT_BUSY', 'CUSTOMER_UNREACHABLE', 'REQUESTED_LATER', 'OTHER',
@@ -152,8 +155,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(52);
-      expect(firstRun.appliedVersions.at(-1)).toBe('052_weekly_report_recurrence');
+      expect(firstRun.appliedVersions).toHaveLength(53);
+      expect(firstRun.appliedVersions.at(-1)).toBe('053_overdue_submission_reminders');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -162,7 +165,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       );
       expect(jobCardTypes).toHaveLength(4);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(18);
+      expect(activityEvents).toHaveLength(21);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
       const reasonColumn = await pool.query<{ is_nullable: string }>(
         `SELECT is_nullable
@@ -244,6 +247,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
           '052_weekly_report_recurrence',
+          '053_overdue_submission_reminders',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -264,7 +268,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '049_job_card_lifecycle_intents.sql'
           && file !== '050_overdue_incident_scanner_source.sql'
           && file !== '051_weekly_report_foundation.sql'
-          && file !== '052_weekly_report_recurrence.sql')
+          && file !== '052_weekly_report_recurrence.sql'
+          && file !== '053_overdue_submission_reminders.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -300,6 +305,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '050_overdue_incident_scanner_source',
           '051_weekly_report_foundation',
           '052_weekly_report_recurrence',
+          '053_overdue_submission_reminders',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(
