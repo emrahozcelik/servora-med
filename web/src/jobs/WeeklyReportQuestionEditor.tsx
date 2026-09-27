@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { ServoraCheckbox } from '../ui/antd';
+
 /**
  * Canonical preset manager questions (V1 field-test remediation). The five
  * texts are product wording, not user-typed data: each carries a stable
@@ -104,16 +106,16 @@ export function WeeklyReportQuestionEditor({
     <div className="weekly-question-presets" role="group" aria-label="Hazır yönetici soruları"
       id={`${idPrefix}-preset-questions`}>
       {WEEKLY_REPORT_PRESET_QUESTIONS.map((preset) => (
-        <label className="weekly-question-preset" key={preset.key}>
-          <input
-            type="checkbox"
+        <div className="weekly-question-preset" key={preset.key}>
+          <ServoraCheckbox
             id={`${idPrefix}-preset-${preset.key}`}
             checked={selectedPresetKeys.has(preset.key)}
             disabled={locked}
-            onChange={(event) => onTogglePreset(preset.key, event.target.checked)}
-          />
-          <span>{preset.prompt}</span>
-        </label>
+            onChange={(checked) => onTogglePreset(preset.key, checked)}
+          >
+            {preset.prompt}
+          </ServoraCheckbox>
+        </div>
       ))}
     </div>
     {customQuestions.map((question, index) => (
@@ -131,8 +133,10 @@ export function WeeklyReportQuestionEditor({
           onClick={() => onRemoveCustom(question.key)}>Kaldır</button>
       </div>
     ))}
-    <button className="secondary-button" type="button" id={`${idPrefix}-add-custom-question`}
-      disabled={locked} onClick={onAddCustom}>+ Özel soru ekle</button>
+    <div className="weekly-question-actions">
+      <button className="secondary-button" type="button" id={`${idPrefix}-add-custom-question`}
+        disabled={locked} onClick={onAddCustom}>+ Özel soru ekle</button>
+    </div>
     {error && <span className="field-error" role="alert">{error}</span>}
   </div>;
 }

@@ -485,6 +485,39 @@ describe('Weekly report recurrence surface', () => {
     expect(weeklyApi.listWeeklyReportRecurrences).toHaveBeenCalledTimes(2);
   });
 
+  it('18b. renders the recurrence template editor with the same owned AntD preset rows', async () => {
+    weeklyApi.listWeeklyReportRecurrences.mockResolvedValue({ items: [RULE] });
+    await renderManager();
+    await click(buttonByText('Şablonu düzenle'));
+
+    // Same shared editor, same owned checkbox rows, same scoped layout hooks.
+    const rows = Array.from(
+      host.querySelectorAll('#recurrence-edit-rec-1-preset-questions > .weekly-question-preset'),
+    );
+    expect(rows).toHaveLength(5);
+    const preset = host.querySelector<HTMLInputElement>(
+      '#recurrence-edit-rec-1-preset-preset_week_highlights',
+    );
+    expect(preset).not.toBeNull();
+    expect(preset!.matches('[class*="-checkbox-input"]')).toBe(true);
+    expect(preset!.closest('[class*="-checkbox-wrapper"]')).not.toBeNull();
+    expect(preset!.closest('label')?.textContent?.trim())
+      .toBe('Bu hafta öne çıkan çalışmaların ve sonuçların nelerdi?');
+
+    const add = host.querySelector<HTMLButtonElement>('#recurrence-edit-rec-1-add-custom-question');
+    expect(add).not.toBeNull();
+    expect(add!.parentElement?.classList.contains('weekly-question-actions')).toBe(true);
+
+    // The shared editor still toggles a preset through the AntD checkbox.
+    const fieldFeedback = host.querySelector<HTMLInputElement>(
+      '#recurrence-edit-rec-1-preset-preset_field_feedback',
+    )!;
+    expect(fieldFeedback.checked).toBe(false);
+    await act(async () => { fieldFeedback.click(); });
+    await flush();
+    expect(fieldFeedback.checked).toBe(true);
+  });
+
   // ---------------------------------------------------------------------
   // Question-key stability (field-test review defect): keys are identifiers
   // owned by the question, never positions. Presets keep semantic keys,

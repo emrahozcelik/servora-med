@@ -5,6 +5,7 @@ import { ConfigProvider } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WeeklyReportCreateScreen } from '../src/WeeklyReportCreate';
+import { WEEKLY_REPORT_PRESET_QUESTIONS } from '../src/jobs/WeeklyReportQuestionEditor';
 import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -484,6 +485,39 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).toContain('Gelecek hafta öncelikli çalışmaların neler?');
     expect(host.textContent).toContain('Yönetimden ihtiyaç duyduğun destek veya karar var mı?');
     expect(host.querySelector('#weekly-add-custom-question')).not.toBeNull();
+  });
+
+  it('renders each preset as an owned AntD checkbox row with its prompt as the accessible name', async () => {
+    await render(manager);
+    const rows = Array.from(host.querySelectorAll('#weekly-preset-questions > .weekly-question-preset'));
+    expect(rows).toHaveLength(5);
+    expect(host.querySelectorAll('#weekly-preset-questions > .weekly-question-preset input'))
+      .toHaveLength(5);
+    for (const preset of WEEKLY_REPORT_PRESET_QUESTIONS) {
+      const input = host.querySelector<HTMLInputElement>(`#weekly-preset-${preset.key}`);
+      expect(input, `preset "${preset.key}"`).not.toBeNull();
+      // A bare native input restyled by `.field-group input` was the
+      // regression; the owned AntD checkbox is the contract now. The selector
+      // is prefix-agnostic (production renders `servora-ant-*`).
+      expect(input!.matches('[class*="-checkbox-input"]')).toBe(true);
+      expect(input!.closest('.weekly-question-preset')).not.toBeNull();
+      expect(input!.closest('[class*="-checkbox-wrapper"]')).not.toBeNull();
+      expect(input!.closest('label')?.textContent?.trim()).toBe(preset.prompt);
+    }
+  });
+
+  it('disables the preset checkboxes while a create command is in flight', async () => {
+    await render(manager);
+    await chooseStaff(['Ayşe Personel']);
+    weeklyApi.bulkRequestWeeklyReports.mockReturnValue(new Promise(() => {}));
+    await act(async () => { submit(); await flush(); });
+    const presets = Array.from(
+      host.querySelectorAll<HTMLInputElement>('#weekly-preset-questions input[type="checkbox"]'),
+    );
+    expect(presets).toHaveLength(5);
+    // The locked surface disables the real control, not just its styling.
+    expect(presets.every((box) => box.matches(':disabled'))).toBe(true);
+    expect((host.querySelector('#weekly-add-custom-question') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('sends selected presets with their stable semantic keys and excludes unselected ones', async () => {

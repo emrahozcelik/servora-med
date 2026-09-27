@@ -485,7 +485,7 @@ export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
                 }))}
                 onChange={(next: string[]) => selectStaff(next)}
               />
-              <div className="field-row" id="weekly-staff-bulk-actions">
+              <div className="weekly-staff-bulk-actions" id="weekly-staff-bulk-actions">
                 <button className="secondary-button" type="button" id="weekly-select-all-staff"
                   disabled={pending || ambiguous || staffState !== 'ready' || activeStaffCount === 0}
                   onClick={selectAllStaff}>Tümünü seç</button>

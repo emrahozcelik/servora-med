@@ -6,6 +6,7 @@ export type ServoraCheckboxProps = {
   id?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
   children: ReactNode;
 };
 
@@ -13,12 +14,19 @@ export type ServoraCheckboxProps = {
  * Owned antd Checkbox adapter. Feature code must not import 'antd' directly
  * (see tests/antd-boundary.test.ts); this adapter forwards Checkbox behavior
  * with the controlled checked/onChange contract used by Servora filters.
+ *
+ * `disabled` is forwarded so a locked surface (for example a weekly report
+ * command that is pending or ambiguous) keeps the native checkbox disabled
+ * semantics instead of relying on visual styling alone.
  */
-export function ServoraCheckbox({ id, checked, onChange, children }: ServoraCheckboxProps): ReactNode {
+export function ServoraCheckbox({
+  id, checked, onChange, disabled, children,
+}: ServoraCheckboxProps): ReactNode {
   return (
     <Checkbox
       id={id}
       checked={checked}
+      disabled={disabled}
       onChange={(event: CheckboxChangeEvent) => onChange(event.target.checked)}
     >
       {children}
