@@ -12,6 +12,7 @@ import {
   submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type JobCard,
+  type JobCardStatus,
   type LifecycleCommand,
 } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
@@ -35,6 +36,11 @@ import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { PageHeader } from '../ui/PageHeader';
 import { StatusChip } from '../ui/StatusChip';
 import { ResultState } from '../ui/antd/ResultState';
+import {
+  RecordDescriptions,
+  WorkflowSteps,
+  type RecordDescriptionItem,
+} from '../ui/antd';
 import {
   downloadWeeklyReportSubmissionPdf,
   getWeeklyReport,
@@ -152,6 +158,31 @@ function commandOf(dialog: JobWorkflowDialogKind): LifecycleCommand | null {
   if (dialog.kind === 'approve') return 'APPROVE';
   if (dialog.kind === 'revision') return 'REQUEST_REVISION';
   return 'CANCEL';
+}
+
+/**
+ * Copy for the report section when the viewer may not edit it. Presentation
+ * only: the lifecycle authority is unchanged — `editable` still decides whether
+ * a form is offered at all, so this never grants or revokes access.
+ */
+function lockedReportNotice(status: JobCardStatus, owner: boolean): string {
+  if (!owner) return 'Raporu yalnızca atanan personel düzenleyebilir.';
+  switch (status) {
+    case 'NEW':
+      return 'Raporu hazırlamaya başlamak için önce atanan işi kabul edin.';
+    case 'REVISION_REQUESTED':
+      return 'Düzeltmeye başladıktan sonra raporu yeniden düzenleyebilirsiniz.';
+    case 'WAITING_APPROVAL':
+      return 'Rapor yönetici kontrolünde; kontrol tamamlanana kadar düzenlenemez.';
+    case 'COMPLETED':
+      return 'Rapor tamamlandı; içerik gönderim anında donduruldu.';
+    case 'CANCELLED':
+      return 'İş iptal edildi; rapor düzenlenemez.';
+    case 'INVALIDATED':
+      return 'İş geçersiz kılındı; rapor düzenlenemez.';
+    default:
+      return 'Rapor şu an düzenlenemiyor.';
+  }
 }
 
 export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; user: CurrentUser }) {
@@ -457,202 +488,347 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     ? latestSubmission.sourceWork
     : loadedReport.liveSourceWork;
 
+  const showRequirements = !managementReview
+    && presentation.terminalState === null
+    && presentation.requirements.length > 0;
+  const hasDecision = Boolean(
+    presentation.primaryTransition || presentation.secondaryTransitions.length > 0,
+  );
+  const hasWorkflowMain = Boolean(showRequirements || hasDecision);
+  const hasRail = Boolean(managementReview || hasWorkflowMain);
+  const showFrozenReport = frozenPrimary && latestSubmission !== null;
+
+  const reportFacts: RecordDescriptionItem[] = [
+    { key: 'assignee', label: 'Personel', content: loadedJob.assignee.name },
+    {
+      key: 'period',
+      label: 'Rapor haftası',
+      content: `${loadedReport.periodStart} – ${loadedReport.periodEnd}`,
+    },
+    {
+      key: 'due-date',
+      label: 'Teslim son tarihi',
+      content: loadedReport.dueDate ?? 'Belirtilmedi',
+    },
+    { key: 'version', label: 'Rapor sürümü', content: `v${loadedReport.version}` },
+  ];
+
+  const frozenReportFacts: RecordDescriptionItem[] = latestSubmission === null ? [] : [
+    ...SUBMISSION_BODY_FIELDS.map((field) => ({
+      key: field.key,
+      label: field.label,
+      content: latestSubmission.body[field.key] ?? '—',
+    })),
+    ...latestSubmission.answers.map((answer) => ({
+      key: answer.questionKey,
+      label: latestSubmission.questions.find((question) => question.key === answer.questionKey)?.prompt
+        ?? answer.questionKey,
+      content: answer.answer,
+    })),
+  ];
+
+  const historyFacts: RecordDescriptionItem[] = selected === null ? [] : [
+    { key: 'submitted-by', label: 'Gönderen', content: selected.submittedBy },
+    { key: 'submitted-at', label: 'Zaman', content: selected.submittedAt },
+    { key: 'summary', label: 'Özet', content: selected.body.summary },
+    { key: 'blockers', label: 'Sorunlar', content: selected.body.blockers ?? '—' },
+    { key: 'next-week', label: 'Gelecek hafta', content: selected.body.nextWeekPlan },
+    ...selected.answers.map((answer) => ({
+      key: answer.questionKey,
+      label: selected.questions.find((question) => question.key === answer.questionKey)?.prompt
+        ?? answer.questionKey,
+      content: answer.answer,
+    })),
+    {
+      key: 'source-work',
+      label: `Otomatik liste (${selected.sourceWork.length})`,
+      content: selected.sourceWork.map((item) => item.title).join(' · ') || '—',
+      wide: true,
+    },
+  ];
+
+  // DOM/keyboard order mirrors JobDetail: heading → feedback → lifecycle →
+  // revision|terminal|responsibility → facts → content → management review →
+  // actions → timeline.
   return <main className="job-detail" data-weekly-report-detail="true">
-    <PageHeader
-      eyebrow={jobTypeLabels[loadedJob.type]}
-      description={`${loadedReport.periodStart} – ${loadedReport.periodEnd}`}
-      fallbackTitle={loadedJob.title}
-    />
-    <div className="job-identity">
-      <StatusChip status={loadedJob.status} />
-      <dl className="identity-grid">
-        <div><dt>Personel</dt><dd>{loadedJob.assignee.name}</dd></div>
-        <div><dt>Rapor haftası</dt><dd>{loadedReport.periodStart} – {loadedReport.periodEnd}</dd></div>
-        <div><dt>Teslim son tarihi</dt><dd>{loadedReport.dueDate ?? 'Belirtilmedi'}</dd></div>
-        <div><dt>Rapor sürümü</dt><dd>v{loadedReport.version}</dd></div>
-      </dl>
+    <div data-job-detail-section="heading">
+      <PageHeader
+        eyebrow={jobTypeLabels[loadedJob.type]}
+        description={`${loadedReport.periodStart} – ${loadedReport.periodEnd}`}
+        fallbackTitle={loadedJob.title}
+      />
+      <div className="detail-heading-meta" data-job-detail-meta="true">
+        <StatusChip status={loadedJob.status} />
+      </div>
     </div>
-    {actionError && <div className="form-error" role="alert">
+    {actionError && <div
+      className="detail-feedback detail-feedback-error"
+      role="alert"
+      data-job-detail-section="feedback"
+    >
       {actionError}
       {ambiguous && <>{' '}<button className="secondary-button" type="button" disabled={pending}
         onClick={retryAttempt}>Özgün işlemi tekrar dene</button></>}
     </div>}
-    <CurrentResponsibilityPanel presentation={presentation} assigneeName={loadedJob.assignee.name} />
-    {managementReview && (
-      <JobApprovalReviewPanel
-        job={loadedJob}
-        lifecycle={loadedJob.workflowContext.lifecycle}
-        requirements={presentation.requirements}
+    <div data-job-detail-section="lifecycle">
+      <WorkflowSteps
+        items={presentation.phaseItems.map((item) => ({
+          key: item.phase, label: item.label, state: item.state,
+        }))}
+        currentKey={presentation.currentPhase}
       />
+    </div>
+    {presentation.revisionLoop && (
+      <div data-job-detail-section="revision">
+        <RevisionLoopPanel loop={presentation.revisionLoop} />
+      </div>
     )}
-    {!managementReview && presentation.terminalState === null && presentation.requirements.length > 0 && (
-      <RequirementsChecklist requirements={presentation.requirements} />
+    {presentation.terminalDetails && (
+      <div data-job-detail-section="terminal">
+        <TerminalJobBanner details={presentation.terminalDetails} />
+      </div>
     )}
-    {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
-    {presentation.terminalDetails && <TerminalJobBanner details={presentation.terminalDetails} />}
-
-    {loadedReport.instructions && (
-      <section className="surface weekly-instructions" aria-labelledby="weekly-instructions-title">
-        <h2 id="weekly-instructions-title">Yönetici talimatı</h2>
-        <p className="form-help">Talep sahibi tarafından yazıldı; düzenlenemez.</p>
-        <p className="weekly-instructions-text">{loadedReport.instructions}</p>
-      </section>
-    )}
-
-    <section className="surface" aria-labelledby="weekly-activity-title">
-      <h2 id="weekly-activity-title">
-        {frozenReview ? 'Gönderimde dondurulan çalışma listesi' : 'Otomatik çalışma listesi'}
-      </h2>
-      <p className="form-help">{frozenReview
-        ? 'Gönderim anında donduruldu; sonradan değişmez.'
-        : 'Sistem tarafından üretildi; personelin o hafta tamamladığı işler. Düzenlenemez.'}</p>
-      {sourceWork.length === 0
-        ? <p className="empty-state">{frozenReview
-          ? 'Gönderimde dondurulan çalışma listesi boş.'
-          : 'Bu hafta için uygun iş bulunamadı.'}</p>
-        : <ul className="activity-list">
-            {sourceWork.map((item) => (
-              <li key={item.jobCardId} className="activity-item">
-                <strong>{item.title}</strong>
-                <span>{item.type}{item.customerName ? ` · ${item.customerName}` : ''}</span>
-                <time>{item.staffCompletedAt}</time>
-              </li>
-            ))}
-          </ul>}
-    </section>
-
-    {frozenPrimary && latestSubmission && (
-      <section className="surface weekly-frozen-report" aria-labelledby="weekly-frozen-title">
-        <h2 id="weekly-frozen-title">Gönderilen rapor</h2>
-        <p className="form-help">
-          {`Gönderim #${latestSubmission.seqNo} · ${latestSubmission.submittedAt} · ${latestSubmission.submittedBy}`}
-        </p>
-        <dl className="identity-grid">
-          {SUBMISSION_BODY_FIELDS.map((field) => (
-            <div key={field.key}><dt>{field.label}</dt><dd>{latestSubmission.body[field.key] ?? '—'}</dd></div>
-          ))}
-          {latestSubmission.answers.map((answer) => (
-            <div key={answer.questionKey}>
-              <dt>{latestSubmission.questions.find((question) => question.key === answer.questionKey)?.prompt
-                ?? answer.questionKey}</dt>
-              <dd>{answer.answer}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+    {presentation.terminalState === null && (
+      <div data-job-detail-section="responsibility">
+        <CurrentResponsibilityPanel
+          presentation={presentation}
+          assigneeName={loadedJob.assignee.name}
+        />
+      </div>
     )}
 
-    {!frozenPrimary && (
-      <section className="surface" aria-labelledby="weekly-report-title">
-        <h2 id="weekly-report-title">Haftalık rapor</h2>
-        <form onSubmit={saveDraft}>
-          <fieldset disabled={!editable || saving}>
-            {DRAFT_FIELDS.map((field) => (
-              <div className="field-group" key={field.key}>
-                <label htmlFor={`weekly-${field.key}`}>
-                  {field.label}{field.required ? ' *' : ''}
-                </label>
-                <textarea
-                  id={`weekly-${field.key}`}
-                  rows={3}
-                  value={loadedForm.draft[field.key] ?? ''}
-                  onChange={(event) => setDraftField(field.key, event.target.value)}
-                />
+    <div className={hasRail ? 'job-detail-content job-detail-content--rail' : 'job-detail-content'}>
+      <div className="job-detail-main">
+        <section
+          className="detail-summary surface-flat"
+          data-job-detail-section="facts"
+          data-job-detail-block="record-facts"
+        >
+          <RecordDescriptions
+            ariaLabel="Haftalık rapor kayıt bilgileri"
+            items={reportFacts}
+            maxColumns={hasRail ? 1 : 2}
+          />
+        </section>
+
+        {loadedReport.instructions && (
+          <section className="surface weekly-instructions" aria-labelledby="weekly-instructions-title">
+            <h2 id="weekly-instructions-title">Yönetici talimatı</h2>
+            <p className="form-help">Talep sahibi tarafından yazıldı; düzenlenemez.</p>
+            <p className="weekly-instructions-text">{loadedReport.instructions}</p>
+          </section>
+        )}
+
+        <section
+          className="surface weekly-activity"
+          aria-labelledby="weekly-activity-title"
+          data-job-detail-block="weekly-activity"
+        >
+          <h2 id="weekly-activity-title">
+            {frozenReview ? 'Gönderimde dondurulan çalışma listesi' : 'Otomatik çalışma listesi'}
+          </h2>
+          <p className="form-help">{frozenReview
+            ? 'Gönderim anında donduruldu; sonradan değişmez.'
+            : 'Sistem tarafından üretildi; personelin o hafta tamamladığı işler. Düzenlenemez.'}</p>
+          {sourceWork.length === 0
+            ? <p className="weekly-activity-empty">{frozenReview
+              ? 'Gönderimde dondurulan çalışma listesi boş.'
+              : 'Bu hafta için uygun iş bulunamadı.'}</p>
+            : <ul className="weekly-activity-list">
+                {sourceWork.map((item) => (
+                  <li key={item.jobCardId} className="weekly-activity-row">
+                    <span className="weekly-activity-row-title">{item.title}</span>
+                    <span className="weekly-activity-row-meta">
+                      {item.type}{item.customerName ? ` · ${item.customerName}` : ''}
+                    </span>
+                    <time className="weekly-activity-row-time" dateTime={item.staffCompletedAt}>
+                      {item.staffCompletedAt}
+                    </time>
+                  </li>
+                ))}
+              </ul>}
+        </section>
+
+        {showFrozenReport && (
+          <section
+            className="surface weekly-frozen-report"
+            aria-labelledby="weekly-frozen-title"
+            data-job-detail-block="weekly-frozen-report"
+          >
+            <h2 id="weekly-frozen-title">Gönderilen rapor</h2>
+            <p className="form-help">
+              {`Gönderim #${latestSubmission.seqNo} · ${latestSubmission.submittedAt} · ${latestSubmission.submittedBy}`}
+            </p>
+            <RecordDescriptions
+              ariaLabel="Gönderilen rapor içeriği"
+              items={frozenReportFacts}
+              maxColumns={hasRail ? 1 : 2}
+            />
+          </section>
+        )}
+
+        {!showFrozenReport && editable && (
+          <section
+            className="surface weekly-report-editor"
+            aria-labelledby="weekly-report-title"
+            data-job-detail-block="weekly-report-editor"
+          >
+            <h2 id="weekly-report-title">Haftalık rapor</h2>
+            <form onSubmit={saveDraft}>
+              <fieldset disabled={saving}>
+                <section className="weekly-report-section" aria-labelledby="weekly-content-heading">
+                  <h3 id="weekly-content-heading" className="weekly-section-heading">Rapor içeriği</h3>
+                  {DRAFT_FIELDS.map((field) => (
+                    <div className="field-group" key={field.key}>
+                      <label htmlFor={`weekly-${field.key}`}>
+                        {field.label}{field.required ? ' *' : ''}
+                      </label>
+                      <textarea
+                        id={`weekly-${field.key}`}
+                        rows={3}
+                        value={loadedForm.draft[field.key] ?? ''}
+                        onChange={(event) => setDraftField(field.key, event.target.value)}
+                      />
+                    </div>
+                  ))}
+                </section>
+                {loadedReport.questions.length > 0 && (
+                  <section className="weekly-report-section" aria-labelledby="weekly-questions-heading">
+                    <h3 id="weekly-questions-heading" className="weekly-section-heading">
+                      Yönetici soruları
+                    </h3>
+                    {loadedReport.questions.map((question) => (
+                      <div className="field-group" key={question.key}>
+                        <label htmlFor={`weekly-answer-${question.key}`}>{question.prompt} *</label>
+                        <textarea
+                          id={`weekly-answer-${question.key}`}
+                          rows={3}
+                          value={loadedForm.answers.find((entry) => entry.questionKey === question.key)?.answer ?? ''}
+                          onChange={(event) => setAnswer(question.key, event.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </section>
+                )}
+              </fieldset>
+              {conflict && <div className="form-error weekly-conflict" role="alert">
+                {CONFLICT_MESSAGE}
+                {' '}
+                <button className="secondary-button" type="button" disabled={saving}
+                  onClick={() => { setSaveError(''); void refresh({ hydrateForm: true }); }}>Sunucudaki sürümü yükle</button>
+              </div>}
+              {saveError && <div className="form-error" role="alert">{saveError}</div>}
+              <div className="form-actions">
+                <button className="primary-button" type="submit" disabled={saving}>
+                  {saving ? 'Kaydediliyor…' : 'Taslağı kaydet'}
+                </button>
               </div>
-            ))}
-            {loadedReport.questions.length > 0 && <h3>Yönetici soruları</h3>}
-            {loadedReport.questions.map((question) => (
-              <div className="field-group" key={question.key}>
-                <label htmlFor={`weekly-answer-${question.key}`}>{question.prompt} *</label>
-                <textarea
-                  id={`weekly-answer-${question.key}`}
-                  rows={3}
-                  value={loadedForm.answers.find((entry) => entry.questionKey === question.key)?.answer ?? ''}
-                  onChange={(event) => setAnswer(question.key, event.target.value)}
-                />
-              </div>
-            ))}
-          </fieldset>
-          {conflict && <div className="form-error weekly-conflict" role="alert">
-            {CONFLICT_MESSAGE}
-            {' '}
-            <button className="secondary-button" type="button" disabled={saving}
-              onClick={() => { setSaveError(''); void refresh({ hydrateForm: true }); }}>Sunucudaki sürümü yükle</button>
-          </div>}
-          {saveError && <div className="form-error" role="alert">{saveError}</div>}
-          {editable && (
-            <div className="form-actions">
-              <button className="primary-button" type="submit" disabled={saving}>
-                {saving ? 'Kaydediliyor…' : 'Taslağı kaydet'}
-              </button>
+            </form>
+          </section>
+        )}
+
+        {!showFrozenReport && !editable && (
+          <section
+            className="surface weekly-report-locked"
+            aria-labelledby="weekly-report-title"
+            data-job-detail-block="weekly-report-locked"
+          >
+            <h2 id="weekly-report-title">Haftalık rapor</h2>
+            <p className="weekly-report-locked-notice">
+              {lockedReportNotice(loadedJob.status, isOwner)}
+            </p>
+          </section>
+        )}
+      </div>
+
+      {hasRail && (
+        <aside className="job-detail-work-rail" data-job-detail-rail="true">
+          {managementReview && (
+            <div
+              className="job-detail-management-review"
+              data-job-detail-section="management-review"
+            >
+              <JobApprovalReviewPanel
+                job={loadedJob}
+                lifecycle={loadedJob.workflowContext.lifecycle}
+                requirements={presentation.requirements}
+              />
             </div>
           )}
-        </form>
+
+          {hasWorkflowMain && (
+            <div className="job-detail-workflow-layout" data-job-detail-section="actions">
+              <div className="job-detail-workflow-main">
+                <h2 className="job-detail-rail-heading">İşlemler</h2>
+                {showRequirements && <RequirementsChecklist requirements={presentation.requirements} />}
+                {submitBlockedReason && (
+                  <p
+                    className="form-help weekly-submit-notice"
+                    role="status"
+                    data-weekly-submit-notice="true"
+                  >
+                    {submitBlockedReason}
+                  </p>
+                )}
+                {hasDecision && <JobDecisionPanel
+                  primary={presentation.primaryTransition}
+                  secondary={presentation.secondaryTransitions}
+                  recordEditAction={null}
+                  pending={pending}
+                  startLocationCaptureEnabled={startLocationCaptureEnabled}
+                  disabledCommands={[...blockedCommands]}
+                  onCommand={onCommand}
+                />}
+              </div>
+            </div>
+          )}
+        </aside>
+      )}
+    </div>
+
+    <div className="job-detail-timeline" data-job-detail-section="timeline">
+      <section
+        className="surface weekly-history"
+        aria-labelledby="weekly-history-title"
+        data-job-detail-block="weekly-history"
+      >
+        <h2 id="weekly-history-title">Gönderim geçmişi</h2>
+        {history.length === 0
+          ? <p className="weekly-history-empty">Henüz gönderim yok.</p>
+          : <>
+              <div className="weekly-history-controls">
+                <div className="field-group">
+                  <label htmlFor="weekly-history-select">Sürüm</label>
+                  <select
+                    id="weekly-history-select"
+                    value={selectedSeq ?? history[history.length - 1]!.seqNo}
+                    onChange={(event) => setSelectedSeq(Number(event.target.value))}
+                  >
+                    {history.map((entry) => (
+                      <option key={entry.seqNo} value={entry.seqNo}>
+                        #{entry.seqNo} · {entry.submittedAt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={pdfPending || selected === null}
+                  onClick={() => { if (selected) void downloadPdf(selected.seqNo); }}
+                >
+                  {pdfPending ? 'PDF hazırlanıyor…' : 'PDF indir'}
+                </button>
+              </div>
+              {pdfError && <p className="form-error" role="alert">{pdfError}</p>}
+              {selected && <RecordDescriptions
+                ariaLabel="Seçilen gönderim ayrıntısı"
+                items={historyFacts}
+                maxColumns={2}
+              />}
+            </>}
       </section>
-    )}
-
-    {submitBlockedReason && (
-      <p className="form-help weekly-submit-notice" role="status">{submitBlockedReason}</p>
-    )}
-    <JobDecisionPanel
-      primary={presentation.primaryTransition}
-      secondary={presentation.secondaryTransitions}
-      recordEditAction={null}
-      pending={pending}
-      startLocationCaptureEnabled={startLocationCaptureEnabled}
-      disabledCommands={[...blockedCommands]}
-      onCommand={onCommand}
-    />
-
-    <section className="surface" aria-labelledby="weekly-history-title">
-      <h2 id="weekly-history-title">Gönderim geçmişi</h2>
-      {history.length === 0
-        ? <p className="empty-state">Henüz gönderim yok.</p>
-        : <>
-            <div className="field-group">
-              <label htmlFor="weekly-history-select">Sürüm</label>
-              <select
-                id="weekly-history-select"
-                value={selectedSeq ?? history[history.length - 1]!.seqNo}
-                onChange={(event) => setSelectedSeq(Number(event.target.value))}
-              >
-                {history.map((entry) => (
-                  <option key={entry.seqNo} value={entry.seqNo}>
-                    #{entry.seqNo} · {entry.submittedAt}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={pdfPending || selected === null}
-                onClick={() => { if (selected) void downloadPdf(selected.seqNo); }}
-              >
-                {pdfPending ? 'PDF hazırlanıyor…' : 'PDF indir'}
-              </button>
-            </div>
-            {pdfError && <p className="form-error" role="alert">{pdfError}</p>}
-            {selected && (
-              <dl className="identity-grid">
-                <div><dt>Gönderen</dt><dd>{selected.submittedBy}</dd></div>
-                <div><dt>Zaman</dt><dd>{selected.submittedAt}</dd></div>
-                <div><dt>Özet</dt><dd>{selected.body.summary}</dd></div>
-                <div><dt>Sorunlar</dt><dd>{selected.body.blockers ?? '—'}</dd></div>
-                <div><dt>Gelecek hafta</dt><dd>{selected.body.nextWeekPlan}</dd></div>
-                {selected.answers.map((answer) => (
-                  <div key={answer.questionKey}>
-                    <dt>{selected.questions.find((q) => q.key === answer.questionKey)?.prompt ?? answer.questionKey}</dt>
-                    <dd>{answer.answer}</dd>
-                  </div>
-                ))}
-                <div><dt>Otomatik liste ({selected.sourceWork.length})</dt>
-                  <dd>{selected.sourceWork.map((item) => item.title).join(' · ') || '—'}</dd></div>
-              </dl>
-            )}
-          </>}
-    </section>
+    </div>
 
     {dialog && dialog.kind !== 'withdraw-edit' && (
       <JobWorkflowDialog

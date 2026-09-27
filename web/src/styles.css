@@ -2082,6 +2082,93 @@ html a:focus-visible {
   min-width: 0;
 }
 .weekly-staff-bulk-actions .field-status { margin-top: 0; }
+/* Weekly report DETAIL content blocks. The two-column shell, the work rail and
+   the timeline come from the shared Job Detail rules (.job-detail-content--rail,
+   .job-detail-main, .job-detail-work-rail, .job-detail-timeline); only the
+   weekly-report-specific content is styled here. */
+.weekly-activity-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.weekly-activity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.15rem 0.75rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.weekly-activity-row-title {
+  min-width: 0;
+  font-weight: 620;
+  overflow-wrap: break-word;
+}
+.weekly-activity-row-meta {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: break-word;
+}
+.weekly-activity-row-time {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  /* The ISO instant must stay on one line at normal sizes but must never push
+     the row past the column when the user zooms to 200%. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.weekly-activity-empty,
+.weekly-history-empty {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--muted);
+}
+.weekly-report-section { display: grid; gap: 0.85rem; min-width: 0; }
+.weekly-report-section + .weekly-report-section { margin-top: 1.35rem; }
+.weekly-report-section .field-group { margin-top: 0; }
+.weekly-section-heading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.weekly-report-locked-notice {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  color: var(--ink);
+  line-height: 1.55;
+}
+.weekly-instructions-text {
+  margin: 0.5rem 0 0;
+  overflow-wrap: break-word;
+  line-height: 1.55;
+}
+.weekly-history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 0.9rem;
+  min-width: 0;
+  margin-bottom: 1rem;
+}
+.weekly-history-controls .field-group { flex: 1 1 14rem; margin-top: 0; min-width: 0; }
+.weekly-history-controls .secondary-button { margin-top: 0; }
 .follow-up-create { min-width: 0; }
 .follow-up-source-summary { margin-bottom: 1.25rem; }
 
