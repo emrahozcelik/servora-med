@@ -108,7 +108,7 @@ describe('CRM service policy', () => {
     const { service } = fixture();
     const createCustomerInput = {
       name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: null,
-      phone: null, email: null, city: null, district: null, address: null,
+      phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     } as const;
     const updateCustomerInput = { ...createCustomerInput, expectedVersion: 1 };
@@ -151,7 +151,7 @@ describe('CRM service policy', () => {
     for (const name of names) {
       await expect(service.createCustomer(manager, {
         name, customerType: 'clinic', status: 'prospect', taxNumber: null,
-        phone: null, email: null, city: null, district: null, address: null,
+        phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
         assignedStaffUserId: null,
       })).resolves.toMatchObject({ name });
     }
@@ -161,13 +161,13 @@ describe('CRM service policy', () => {
     const { service, audits } = fixture();
     await expect(service.createCustomer(manager, {
       name: 'Klinik', customerType: 'clinic', status: 'inactive', taxNumber: null,
-      phone: null, email: null, city: null, district: null, address: null,
+      phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
 
     const created = await service.createCustomer(manager, {
       name: ' Klinik ', customerType: 'clinic', status: 'active', taxNumber: ' ab-12 ',
-      phone: null, email: null, city: null, district: null, address: null,
+      phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
       assignedStaffUserId: 'staff-1',
     });
     expect(created.assignedStaffUserId).toBe('staff-1');
@@ -235,14 +235,14 @@ describe('CRM service policy', () => {
     const { service } = fixture({ uniqueTaxFailure: true });
     await expect(service.createCustomer(manager, {
       name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: '123',
-      phone: null, email: null, city: null, district: null, address: null,
+      phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     })).rejects.toMatchObject({ code: 'CUSTOMER_TAX_NUMBER_EXISTS' });
 
     const other = fixture({ uniqueConstraint: 'another_unique_constraint' });
     await expect(other.service.createCustomer(manager, {
       name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: '123',
-      phone: null, email: null, city: null, district: null, address: null,
+      phone: '0532 123 45 67', email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     })).rejects.toMatchObject({ code: '23505', constraint: 'another_unique_constraint' });
   });

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GeneralTaskCreateScreen } from '../src/GeneralTaskCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { setCustomerPhone } from './helpers/customer-phone';
 import {
   clearCustomerSelection,
   customerOptionTitles,
@@ -378,6 +379,7 @@ describe('General Task quick create', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -436,6 +438,7 @@ describe('General Task quick create', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Hatalı Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -459,6 +462,7 @@ describe('General Task quick create', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -486,6 +490,7 @@ describe('General Task quick create', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
     initial.reject(new Error('İlk müşteri listesi başarısız'));
@@ -522,6 +527,7 @@ describe('General Task quick create', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
 
     await act(async () => {

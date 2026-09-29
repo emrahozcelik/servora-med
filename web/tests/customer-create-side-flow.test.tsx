@@ -8,6 +8,7 @@ import { CustomerCreateSideFlow } from '../src/CustomerCreateSideFlow';
 import { CustomerCreateForm } from '../src/CustomerList';
 import { ResponsiveFormDrawer } from '../src/ui/antd/ResponsiveFormDrawer';
 import type { CurrentUser } from '../src/services/api';
+import { setCustomerPhone } from './helpers/customer-phone';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -53,6 +54,12 @@ function changeName(host: HTMLElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Customer creation requires a phone, so every submit fills the masked field first. */
+async function fillRequiredCustomerFields(host: HTMLElement, name: string) {
+  changeName(host, name);
+  await setCustomerPhone(host, '05321234567');
+}
+
 describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -88,7 +95,7 @@ describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
     crm.createCustomer.mockReturnValue(request.promise);
     const { onCancel, onCreated } = render(true);
     await settle();
-    changeName(host, 'Yeni Klinik');
+    await fillRequiredCustomerFields(host, 'Yeni Klinik');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
 
     const drawer = host.querySelector<HTMLElement>('[data-servora-form-drawer="true"]')!;
@@ -119,7 +126,7 @@ describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
 
     render(true, onCancel, onCreated);
     await settle();
-    changeName(host, 'Eski deneme');
+    await fillRequiredCustomerFields(host, 'Eski deneme');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     expect(crm.createCustomer).toHaveBeenCalledTimes(1);
 
@@ -134,7 +141,7 @@ describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
       open user={staff} onCancel={onCancel} onCreated={onCreated}
     /></MemoryRouter>));
     await settle();
-    changeName(host, 'Yeni deneme');
+    await fillRequiredCustomerFields(host, 'Yeni deneme');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -164,6 +171,23 @@ describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
     expect(host.textContent).not.toContain('Müşteri detayına git');
     await act(async () => action?.click());
     expect(onCreated).toHaveBeenCalledWith(createdCustomer.id);
+  });
+
+  it('enforces the same required phone rule in the inline JobCard drawer', async () => {
+    render(true);
+    await settle();
+    changeName(host, 'Telefonsuz Klinik');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+
+    expect(crm.createCustomer).not.toHaveBeenCalled();
+    const phone = host.querySelector('#customer-phone') as HTMLInputElement;
+    expect(phone.getAttribute('aria-invalid')).toBe('true');
+    expect(host.querySelector('#customer-phone-error')?.textContent)
+      .toContain('Geçerli bir telefon numarası girin.');
+
+    await setCustomerPhone(host, '05321234567');
+    await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
   });
 });
 

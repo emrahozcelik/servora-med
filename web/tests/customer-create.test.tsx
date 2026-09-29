@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CustomerCreateScreen } from '../src/CustomerList';
+import { setCustomerPhone } from './helpers/customer-phone';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -62,6 +63,7 @@ describe('CustomerCreateScreen redirect', () => {
     await act(async () => root.render(<CustomerCreateScreen user={staff} />));
     await settle();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Test Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
   }
@@ -161,6 +163,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
     expect(details).toBeDefined();
     expect((details as HTMLDetailsElement).open).toBe(false);
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Evaden Ağız ve Diş Sağlığı');
+    await setCustomerPhone(container, '05321234567');
     change(container.querySelector('#customer-contact-name') as HTMLInputElement, 'Ayşe Demir');
     change(container.querySelector('#customer-contact-title') as HTMLInputElement, 'Satın Alma');
     change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '555');
@@ -177,6 +180,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
   it('CUX-3 empty: creates the Customer only when the Contact section stays empty', async () => {
     await renderScreen(manager);
     change(container.querySelector('#customer-name') as HTMLInputElement, 'ABC Dental Polikliniği');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
@@ -189,6 +193,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
     expect(container.querySelector('details')).toBeNull();
     expect(container.querySelector('#customer-contact-name')).toBeNull();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Mehmet Yılmaz');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
@@ -200,6 +205,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
     crmApi.createContact.mockRejectedValue(new Error('Kişi eklenemedi'));
     await renderScreen(manager);
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Özel Dünya Ağız ve Diş Sağlığı Polikliniği');
+    await setCustomerPhone(container, '05321234567');
     change(container.querySelector('#customer-contact-name') as HTMLInputElement, 'Ayşe Demir');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
@@ -214,6 +220,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
   it('CUX-3D: rejects incomplete optional Contact before creating the Customer', async () => {
     await renderScreen(manager);
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Evaden');
+    await setCustomerPhone(container, '05321234567');
     change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '0555 123 45 67');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();
@@ -231,6 +238,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
   it('CUX-3D whitespace: treats whitespace-only Contact fields as empty', async () => {
     await renderScreen(manager);
     change(container.querySelector('#customer-name') as HTMLInputElement, 'ABC Dental');
+    await setCustomerPhone(container, '05321234567');
     change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '   ');
     change(container.querySelector('#customer-contact-email') as HTMLInputElement, '  ');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
