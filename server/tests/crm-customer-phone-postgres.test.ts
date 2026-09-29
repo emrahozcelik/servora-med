@@ -158,6 +158,8 @@ describe.skipIf(!databaseUrl)('customer phone create contract over HTTP + Postgr
         ['5321234567', '+905321234567'],
         ['03121234567', '+903121234567'],
         ['(0312) 123 45 67', '+903121234567'],
+        ['+903121234567', '+903121234567'],
+        ['08501234567', '+908501234567'],
       ];
       for (const [phone, canonical] of cases) {
         const response = await app.inject({
@@ -182,7 +184,8 @@ describe.skipIf(!databaseUrl)('customer phone create contract over HTTP + Postgr
       const before = await customerCount(pool, organizationId);
       const rejected: (string | undefined)[] = [
         undefined, '', '   ', '0', '0532', '0532123456', '053212345678', 'abc', '---',
-        '+1 202 555 0147', '+49 151 12345678', '+9005321234567',
+        '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
+        '+3572212345', '+15551234567', '+495551234567',
       ];
       for (const phone of rejected) {
         const payload: Record<string, unknown> = {

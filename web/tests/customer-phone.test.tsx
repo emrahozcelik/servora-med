@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CustomerCreateScreen } from '../src/CustomerList';
 import { ApiError, type CurrentUser } from '../src/services/api';
-import { setCustomerPhone } from './helpers/customer-phone';
+import { editCustomerPhone, setCustomerPhone } from './helpers/customer-phone';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -98,6 +98,31 @@ describe('Customer create phone contract', () => {
     await renderScreen();
     await setCustomerPhone(container, '+905321234567');
     expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('(0532) 123 45 67');
+  });
+
+  it('blocks a malformed +90 paste instead of repairing it into a valid number', async () => {
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Bozuk Prefix Klinik');
+    await setCustomerPhone(container, '+9005321234567');
+    // The extra trunk `0` after the explicit `+90` must survive so the server
+    // still sees an invalid value; dropping it would make the paste look valid.
+    expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('9005321234567');
+    await submit();
+    expect(crmApi.createCustomer).not.toHaveBeenCalled();
+    expect(container.querySelector('#customer-phone-error')?.textContent)
+      .toContain('Geçerli bir telefon numarası girin.');
+  });
+
+  it('re-masks and keeps the caret on the same digit when a separator is deleted', async () => {
+    await renderScreen();
+    await setCustomerPhone(container, '05321234567');
+    expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('(0532) 123 45 67');
+
+    // Deleting the space after `)` leaves the masked text unchanged, which is
+    // exactly the case a value-dependent React effect would miss.
+    const result = await editCustomerPhone(container, '(0532)123 45 67', 6);
+    expect(result.value).toBe('(0532) 123 45 67');
+    expect(result.caret).toBe(5);
   });
 
   it('blocks the request and shows an inline error when the phone is missing', async () => {

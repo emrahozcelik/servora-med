@@ -13,10 +13,17 @@
 export const TR_PHONE_MASK_LENGTH = 11;
 
 /**
- * Reduces typed or pasted text to the `0` + 10-digit national buffer. A `+90`
- * or `90` country prefix is dropped and a missing trunk `0` is added, so
- * pasting `+905321234567`, `905321234567` and `5321234567` all land on the same
- * buffer as typing `05321234567`.
+ * Reduces typed or pasted text to the `0` + 10-digit national buffer. A `90`
+ * country prefix is dropped only when it is followed by exactly 10 national
+ * digits, and a missing trunk `0` is added, so pasting `+905321234567`,
+ * `905321234567` and `5321234567` all land on the same buffer as typing
+ * `05321234567`.
+ *
+ * A longer run such as `+90 0532 123 45 67` (13 digits) is malformed and is
+ * deliberately left intact: dropping the extra trunk `0` would silently turn an
+ * invalid paste into a valid-looking national number, and the web layer must
+ * never widen what the server considers valid. Such a value stays over-long and
+ * is rejected.
  *
  * Counts above the mask length are returned untouched on purpose: an over-long
  * paste stays visible and is rejected by the server instead of being silently
@@ -24,8 +31,8 @@ export const TR_PHONE_MASK_LENGTH = 11;
  */
 export function trPhoneDigits(value: string): string {
   let digits = value.replace(/\D/g, '');
-  if (digits.startsWith('90') && digits.length > 10) digits = digits.slice(2);
-  if (digits && !digits.startsWith('0')) digits = `0${digits}`;
+  if (digits.startsWith('90') && digits.length === 12) digits = digits.slice(2);
+  if (digits && !digits.startsWith('0') && digits.length <= 10) digits = `0${digits}`;
   return digits;
 }
 
@@ -84,4 +91,30 @@ export function trPhoneCaret(masked: string, digitsBeforeCaret: number): number 
     }
   }
   return masked.length;
+}
+
+/**
+ * Applies the mask to a raw field value and computes the caret to restore.
+ *
+ * `raw` is whatever the browser put in the field after a keystroke, a paste or a
+ * deletion, and `caret` is where the caret sat inside it. The result is the text
+ * to write back plus the caret offset.
+ *
+ * This is pure and total, so the editing semantics (including deleting a single
+ * separator, which leaves the masked text unchanged) can be tested without a
+ * DOM and applied deterministically by the input.
+ */
+export function trPhoneEdit(raw: string, caret: number): { value: string; caret: number } {
+  const value = trPhoneMask(raw);
+  const rawDigits = raw.replace(/\D/g, '');
+  const digits = trPhoneDigits(raw);
+  const digitsBeforeCaret = raw.slice(0, Math.max(0, caret)).replace(/\D/g, '').length;
+  // Only a leading trunk `0` insertion (or no digit change at all) keeps the
+  // digit positions aligned; a pasted country prefix moves every digit, so the
+  // caret goes to the end there instead of pointing at the wrong place.
+  const aligned = digits === rawDigits || digits === `0${rawDigits}`;
+  return {
+    value,
+    caret: aligned ? trPhoneCaret(value, digitsBeforeCaret + (digits === rawDigits ? 0 : 1)) : value.length,
+  };
 }

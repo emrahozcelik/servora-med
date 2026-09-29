@@ -74,11 +74,34 @@ describe('normalizeTurkishPhone', () => {
     const rejected = [
       '', '   ', '0', '0532', '0532123456', '053212345678', '532123456', '53212345678',
       'abcdef', '0532 123 45 67 x', '---', '+', '(0532) 123 45', '0532-123-45-6',
-      '+1 202 555 0147', '+49 151 12345678', '+9005321234567',
+      '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
+      '+3572212345', '+15551234567', '+495551234567', '+1555123456', '+492212345678',
     ];
     for (const input of rejected) expect(normalizeTurkishPhone(input), input).toBeNull();
     expect(normalizeTurkishPhone(null)).toBeNull();
     expect(normalizeTurkishPhone(undefined)).toBeNull();
+  });
+
+  it('never reinterprets an explicit foreign + country code as Turkish', () => {
+    // The `+` is a country-code claim: only +90 may survive it. A 10-digit
+    // foreign national number must not fall through to the bare-national branch.
+    expect(normalizeTurkishPhone('+3572212345')).toBeNull();
+    expect(normalizeTurkishPhone('+1555123456')).toBeNull();
+    expect(normalizeTurkishPhone('+4955512345')).toBeNull();
+
+    // The same digit runs without a `+` are bare Turkish forms and stay valid.
+    expect(normalizeTurkishPhone('3572212345')).toBe('+903572212345');
+    expect(normalizeTurkishPhone('1555123456')).toBe('+901555123456');
+
+    // Explicit +90 keeps working for both mobile and landline.
+    expect(normalizeTurkishPhone('+905321234567')).toBe(CANONICAL_MOBILE);
+    expect(normalizeTurkishPhone('+903121234567')).toBe(CANONICAL_LANDLINE);
+    expect(normalizeTurkishPhone('+90 (532) 123 45 67')).toBe(CANONICAL_MOBILE);
+  });
+
+  it('accepts 0850 corporate numbers like any other national number', () => {
+    expect(normalizeTurkishPhone('08501234567')).toBe('+908501234567');
+    expect(normalizeTurkishPhone('+908501234567')).toBe('+908501234567');
   });
 
   it('round-trips without losing digits, duplicating the trunk zero or doubling +90', () => {
@@ -97,7 +120,8 @@ describe('normalizeTurkishPhone', () => {
 describe('customer create contract requires a normalized Turkish phone', () => {
   it('rejects a missing or malformed phone with fieldErrors before any write', async () => {
     const rejected = [null, '', '   ', '0532', '0532123456', '053212345678', 'abc',
-      '+1 202 555 0147', '---'];
+      '+1 202 555 0147', '---', '+3572212345', '+15551234567', '+495551234567',
+      '+9005321234567', '+9003121234567'];
     for (const phone of rejected) {
       const { service, created } = fixture();
       await expect(service.createCustomer(manager, { ...baseInput, phone })).rejects.toMatchObject({

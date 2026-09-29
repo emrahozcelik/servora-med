@@ -237,20 +237,34 @@ const TR_PHONE_SEPARATORS = /[\s\u00a0\u202f()\-.]/g;
  * `05321234567`, `(0532) 123 45 67`, `0532 123 45 67`, `+905321234567`,
  * `905321234567`, `5321234567` → `+905321234567`
  *
- * Returns `null` for anything that is not exactly 10 national digits, including
- * empty input, letters, stray punctuation, foreign country codes, a partial
- * mask, and a bare `0532123456` (10 digits whose trunk `0` leaves only 9
- * national digits). Nothing is truncated or guessed, so a malformed value never
- * silently becomes a different number. Callers decide whether `null` means
- * "reject" (customer create) or "no phone supplied" (customer edit).
+ * An explicit `+` prefix is a country-code claim, so it is only honoured when it
+ * really is `+90`. `+` is never stripped first and the remainder treated as
+ * national digits, because that would silently rewrite a foreign number:
+ * `+3572212345` must be `null`, not `+903572212345`. The same applies to
+ * malformed Turkish forms such as `+9005321234567` (13 digits).
+ *
+ * A bare digit run with no `+` is still interpreted as Turkish, so the trunk `0`
+ * (`0…`), the `90` country code (`90…`) and a bare 10-digit national number all
+ * resolve. Returns `null` for anything that is not exactly 10 national digits,
+ * including empty input, letters, stray punctuation, a partial mask, and a bare
+ * `0532123456` (10 digits whose trunk `0` leaves only 9 national digits).
+ * Nothing is truncated or guessed, so a malformed value never silently becomes a
+ * different number. Callers decide whether `null` means "reject" (customer
+ * create) or "no phone supplied" (customer edit).
  */
 export function normalizeTurkishPhone(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const body = trimmed.startsWith('+') ? trimmed.slice(1) : trimmed;
+  const hasCountryPrefix = trimmed.startsWith('+');
+  const body = hasCountryPrefix ? trimmed.slice(1) : trimmed;
   const digits = body.replace(TR_PHONE_SEPARATORS, '');
   if (!/^\d+$/.test(digits)) return null;
+  if (hasCountryPrefix) {
+    return digits.length === 12 && digits.startsWith('90')
+      ? `${TR_PHONE_COUNTRY_CODE}${digits.slice(2)}`
+      : null;
+  }
   const national = digits.length === 12 && digits.startsWith('90')
     ? digits.slice(2)
     : digits.length === 11 && digits.startsWith('0')

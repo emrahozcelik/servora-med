@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  formatTrPhone, isTrPhoneMaskComplete, trPhoneCaret, trPhoneDigits, trPhoneInitial, trPhoneMask,
+  formatTrPhone, isTrPhoneMaskComplete, trPhoneCaret, trPhoneDigits, trPhoneEdit, trPhoneInitial,
+  trPhoneMask,
 } from '../src/ui/phone';
 
 describe('trPhoneDigits', () => {
@@ -16,6 +17,21 @@ describe('trPhoneDigits', () => {
   it('keeps over-long input intact so it cannot be silently truncated', () => {
     expect(trPhoneDigits('053212345678')).toBe('053212345678');
     expect(isTrPhoneMaskComplete('053212345678')).toBe(false);
+  });
+
+  it('drops the 90 country code only for an exact 12-digit run', () => {
+    expect(trPhoneDigits('+905321234567')).toBe('05321234567');
+    expect(trPhoneDigits('905321234567')).toBe('05321234567');
+    // Malformed: 90 followed by a trunk 0 and 10 more digits. Dropping the `90`
+    // would silently repair it into a valid number.
+    expect(trPhoneDigits('+9005321234567')).toBe('9005321234567');
+    expect(trPhoneDigits('9005321234567')).toBe('9005321234567');
+  });
+
+  it('never presents a malformed +90 paste as a complete national number', () => {
+    expect(isTrPhoneMaskComplete('+9005321234567')).toBe(false);
+    expect(trPhoneMask('+9005321234567')).toBe('9005321234567');
+    expect(isTrPhoneMaskComplete('+90 0532 123 45 67')).toBe(false);
   });
 });
 
@@ -80,5 +96,48 @@ describe('trPhoneCaret', () => {
     expect(trPhoneCaret('(0532) 123 45 67', 5)).toBe(8);
     expect(trPhoneCaret('(0532) 123 45 67', 11)).toBe(16);
     expect(trPhoneCaret('(0532) 123 45 67', 99)).toBe(16);
+  });
+});
+
+describe('trPhoneEdit', () => {
+  const masked = '(0532) 123 45 67';
+
+  it('re-masks and keeps the caret on the same digit when only a separator is deleted', () => {
+    // Deleting the space after `)` leaves the masked text identical to before, so a
+    // value-dependent React effect would never run: the raw text would stay on
+    // screen and the caret would be left wherever the browser put it.
+    const raw = `${masked.slice(0, 6)}${masked.slice(7)}`;
+    expect(raw).toBe('(0532)123 45 67');
+    expect(trPhoneEdit(raw, 6)).toEqual({ value: masked, caret: 5 });
+  });
+
+  it('re-masks when the second grouping space is deleted', () => {
+    const raw = `${masked.slice(0, 10)}${masked.slice(11)}`;
+    expect(raw).toBe('(0532) 12345 67');
+    expect(trPhoneEdit(raw, 10)).toEqual({ value: masked, caret: 10 });
+  });
+
+  it('re-masks when the closing parenthesis is deleted', () => {
+    const raw = `${masked.slice(0, 5)}${masked.slice(6)}`;
+    expect(raw).toBe('(0532 123 45 67');
+    expect(trPhoneEdit(raw, 5)).toEqual({ value: masked, caret: 5 });
+  });
+
+  it('keeps the caret after a digit inserted in the middle', () => {
+    const start = '(0532) 123 45 6';
+    const raw = `${start.slice(0, 6)}7${start.slice(6)}`;
+    expect(raw).toBe('(0532)7 123 45 6');
+    expect(trPhoneEdit(raw, 7)).toEqual({ value: '(0532) 712 34 56', caret: 8 });
+  });
+
+  it('is idempotent for an already masked value with the caret at the end', () => {
+    expect(trPhoneEdit(masked, masked.length)).toEqual({ value: masked, caret: masked.length });
+  });
+
+  it('leaves a malformed +90 paste over-long instead of repairing it', () => {
+    const raw = '+90 0532 123 45 67';
+    const result = trPhoneEdit(raw, raw.length);
+    expect(result.value).toBe('9005321234567');
+    expect(isTrPhoneMaskComplete(result.value)).toBe(false);
   });
 });
