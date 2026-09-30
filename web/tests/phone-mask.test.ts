@@ -207,3 +207,125 @@ describe('explicit foreign country codes', () => {
     }
   });
 });
+
+describe('unsupported characters are never stripped', () => {
+  // The web follows the server's lexical grammar: an optional leading `+` plus
+  // digits grouped with whitespace, NBSP, narrow NBSP, parentheses, hyphen or
+  // dot. Anything else has to stay invalid, because deleting it would turn a
+  // malformed paste into a valid Turkish number.
+  const unsupported = ['0532x1234567', '90+5321234567', '05_321234567', '0532/1234567',
+    '0532 123 45 67 #'];
+
+  it('keeps the text verbatim and never marks it complete', () => {
+    for (const input of unsupported) {
+      expect(trPhoneMask(input), input).toBe(input);
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+    }
+  });
+
+  it('does not repair a letter or a misplaced + into a valid mask', () => {
+    // Broad `\D` stripping used to turn these into `(0532) 123 45 67`.
+    expect(trPhoneMask('0532x1234567')).toBe('0532x1234567');
+    expect(trPhoneDigits('0532x1234567')).not.toBe('05321234567');
+    // A `+` that is not leading is not a country-code claim, so it is not honoured.
+    expect(trPhoneMask('90+5321234567')).toBe('90+5321234567');
+    expect(isTrPhoneMaskComplete('90+5321234567')).toBe(false);
+  });
+
+  it('accepts every grouping character the server allows', () => {
+    for (const input of ['(0532) 123 45 67', '0532 123-45-67', '0532.123.45.67',
+      '0532 123 45 67', '0532\u00a0123\u202f45-67']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+      expect(trPhoneMask(input), input).toBe('(0532) 123 45 67');
+    }
+  });
+
+  it('leaves the caret alone while the text stays unsupported', () => {
+    expect(trPhoneEdit('0532x1234567', 13)).toEqual({ value: '0532x1234567', caret: 13 });
+  });
+});
+
+describe('explicit +90 rejects a repeated trunk zero', () => {
+  it('rejects +90 followed by a national body starting with 0', () => {
+    for (const input of ['+900532123456', '+900312123456', '+900850123456']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+      // The `+` survives so the value stays visibly an unresolved claim, and no
+      // `00…` national buffer is ever manufactured.
+      expect(trPhoneMask(input), input).toBe(input);
+      expect(trPhoneDigits(input), input).toBe(input.slice(1));
+    }
+  });
+
+  it('never turns a repeated trunk zero into a complete national buffer', () => {
+    // `+900532123456` used to resolve to `00532123456`, which satisfied the old
+    // "11 digits starting with 0" check and was submitted as a valid number.
+    expect(trPhoneDigits('+900532123456')).toBe('900532123456');
+    expect(isTrPhoneMaskComplete('+900532123456')).toBe(false);
+    // A bare `00…` run is equally not a Turkish number.
+    expect(isTrPhoneMaskComplete('00532123456')).toBe(false);
+    expect(isTrPhoneMaskComplete('005321234567')).toBe(false);
+  });
+
+  it('still accepts the three canonical +90 shapes', () => {
+    for (const input of ['+905321234567', '+903121234567', '+908501234567']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+    }
+  });
+});
+
+describe('formatTrPhone formats only canonical values', () => {
+  it('formats the canonical +90 shapes', () => {
+    expect(formatTrPhone('+905321234567')).toBe('(0532) 123 45 67');
+    expect(formatTrPhone('+903121234567')).toBe('(0312) 123 45 67');
+    expect(formatTrPhone('+908501234567')).toBe('(0850) 123 45 67');
+  });
+
+  it('returns a historical trunk-zero value unchanged instead of rewriting it', () => {
+    expect(formatTrPhone('+900532123456')).toBe('+900532123456');
+    expect(formatTrPhone('+900312123456')).toBe('+900312123456');
+    expect(formatTrPhone('+900850123456')).toBe('+900850123456');
+  });
+
+  it('returns free text and empty values unchanged', () => {
+    expect(formatTrPhone('santral 555')).toBe('santral 555');
+    expect(formatTrPhone('+495551234567')).toBe('+495551234567');
+    expect(formatTrPhone(null)).toBe('');
+    expect(formatTrPhone(undefined)).toBe('');
+    expect(formatTrPhone('')).toBe('');
+  });
+});
+
+describe('grammar agreement with the server', () => {
+  it('marks every server-accepted spelling complete', () => {
+    for (const input of ['05321234567', '5321234567', '905321234567', '+905321234567',
+      '03121234567', '+903121234567', '08501234567', '+908501234567']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+    }
+  });
+
+  it('marks the rejected spellings incomplete', () => {
+    for (const input of ['0532x1234567', '90+5321234567', '05_321234567',
+      '+15551234567', '+1 202 555 0147', '+3572212345', '+495551234567',
+      '+9005321234567', '+900532123456', '+900312123456', '+900850123456',
+      '0532', '0532123456', '053212345678', '0', '']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+    }
+  });
+
+  it('submits, for every complete value, text the server accepts unchanged', () => {
+    // What the mask puts on screen is exactly what the form submits. For every
+    // value the web calls complete, that text must itself be a spelling the
+    // server normalizes back to the same 10 national digits — no digit dropped,
+    // no trunk `0` invented, no country code reinterpreted.
+    for (const input of ['05321234567', '5321234567', '905321234567', '+905321234567',
+      '03121234567', '+903121234567', '08501234567', '+908501234567',
+      '(0532) 123-45-67', '0532.123.45.67']) {
+      const submitted = trPhoneMask(input);
+      expect(isTrPhoneMaskComplete(submitted), `${input} -> ${submitted}`).toBe(true);
+      const digits = submitted.replace(/\D/g, '');
+      expect(digits, input).toHaveLength(TR_PHONE_MASK_LENGTH);
+      expect(digits.startsWith('0'), input).toBe(true);
+      expect(digits[1], input).not.toBe('0');
+    }
+  });
+});

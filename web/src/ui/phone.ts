@@ -3,45 +3,92 @@
  *
  * The server owns what a phone number means: `normalizeTurkishPhone` in
  * `server/src/modules/crm/types.ts` is the single normalization source of
- * truth and it rejects anything that is not 10 national digits. This module
- * only decides what the user sees while typing — the field submits exactly the
- * masked text on screen and the server normalizes it. Nothing here rewrites a
- * value for storage, so there is still exactly one normalizer.
+ * truth. This module only decides what the user sees while typing — the field
+ * submits exactly the text on screen and the server normalizes it. Nothing here
+ * rewrites a value for storage, so there is still exactly one normalizer.
+ *
+ * The lexical policy is the server's, character for character: an optional
+ * leading `+` followed by digits grouped with whitespace, NBSP, narrow NBSP,
+ * parentheses, hyphen or dot. Anything else keeps the input invalid instead of
+ * being stripped away, so the web can never manufacture a valid Turkish number
+ * out of malformed text.
  */
 
 /** Trunk `0` plus the 10 national digits of a Turkish number. */
 export const TR_PHONE_MASK_LENGTH = 11;
 
 /**
+ * Grouping characters the server grammar allows between digits. Mirrors
+ * `TR_PHONE_SEPARATORS` in `server/src/modules/crm/types.ts`; anything outside
+ * this set — a letter, an underscore, a misplaced `+` — makes the value invalid
+ * rather than being silently dropped.
+ */
+const TR_PHONE_SEPARATORS = /[\s\u00a0\u202f()\-.]/g;
+
+/**
+ * The national-body invariant, shared with the server's `canonicalFromNational`:
+ * exactly 10 digits that do not start with the Turkish trunk `0`.
+ */
+function isCanonicalNational(national: string): boolean {
+  return national.length === 10 && !national.startsWith('0');
+}
+
+/**
  * The one shape a complete Turkish national buffer can have: exactly 11 digits
- * whose first digit is the trunk `0`, leaving the 10 digits of the national
- * number. A bare 11-digit count is not enough — `15551234567` is 11 digits too.
+ * whose first digit is the trunk `0`, followed by 10 national digits that are
+ * not themselves trunk-prefixed.
+ *
+ * A bare digit count is not enough — `15551234567` is 11 digits too — and
+ * `00532123456` is not a Turkish number, because a trunk `0` followed by
+ * another `0` is not the national body the server accepts.
  */
 function isCompleteTrPhoneBuffer(digits: string): boolean {
-  return digits.length === TR_PHONE_MASK_LENGTH && digits.startsWith('0');
+  return digits.length === TR_PHONE_MASK_LENGTH && digits.startsWith('0') && digits[1] !== '0';
+}
+
+/**
+ * The national body of a stored canonical `+90…` value, or `null` when the
+ * value is not canonical under the server invariant. This is what stops a
+ * historical `+900532123456` from being rendered as a valid-looking mask.
+ */
+function canonicalNational(value: string): string | null {
+  const match = /^\+90(\d{10})$/.exec(value);
+  if (!match) return null;
+  const national = match[1]!;
+  return isCanonicalNational(national) ? national : null;
 }
 
 type TrPhoneBuffer = {
-  /** The `0` + 10 national digits buffer, or the raw digit run when unresolved. */
+  /** The `0` + 10 national digits buffer, or the raw run when unresolved. */
   digits: string;
   /**
-   * True when the input carried an explicit `+` that is not a real `+90`
-   * country code. Such a value is a foreign (or malformed) claim: it must never
-   * be shown as a Turkish national buffer and it can never be complete.
+   * True when the text carried an explicit `+` that is not a real `+90` country
+   * code (foreign or malformed). Such a value must never be shown as a Turkish
+   * national buffer and it can never be complete.
    */
   explicitForeign: boolean;
+  /**
+   * True when the text contains a character outside the allowed grouping set.
+   * The input is then left exactly as typed — no character is dropped — so the
+   * value stays invalid instead of being repaired into a Turkish number.
+   */
+  unsupported: boolean;
 };
 
 /**
  * Resolves raw field text to the single buffer every helper works on.
  *
- * A leading `+` is a country-code claim, so it is honoured only when the digits
- * really are `90` followed by exactly 10 national digits. Every other `+` input
- * is returned as the bare digit run with `explicitForeign` set: the prefix is
- * never dropped, a Turkish trunk `0` is never added, the first foreign digit is
- * never discarded, and a malformed `+` paste is never repaired into a
- * valid-looking Turkish number. That is why `+15551234567`, `+1 202 555 0147`,
- * `+3572212345`, `+495551234567` and `+9005321234567` all stay unresolved.
+ * The text is read with the server's lexical grammar: an optional leading `+`
+ * plus digits grouped with the allowed separators. Anything else
+ * (`0532x1234567`, `90+5321234567`, `05_321234567`) marks the value
+ * `unsupported` and keeps it verbatim — the letter and the misplaced `+` are
+ * never stripped, because stripping them would turn an invalid paste into a
+ * valid Turkish number.
+ *
+ * An explicit `+` is a country-code claim honoured only when exactly 10 national
+ * digits follow and the trunk `0` was not repeated, so `+900532123456` is never
+ * read as the national buffer `00532123456`. Every other `+` input keeps its
+ * prefix and stays unresolved.
  *
  * A bare digit run with no `+` is still read as Turkish: the `90` country code
  * (only when it is followed by exactly 10 national digits) and a missing trunk
@@ -51,16 +98,21 @@ type TrPhoneBuffer = {
  * truncated into a different, valid-looking number.
  */
 function trPhoneBuffer(value: string): TrPhoneBuffer {
-  const digits = value.replace(/\D/g, '');
-  if (value.trimStart().startsWith('+')) {
-    return digits.length === 12 && digits.startsWith('90')
-      ? { digits: `0${digits.slice(2)}`, explicitForeign: false }
-      : { digits, explicitForeign: true };
+  const trimmed = value.trimStart();
+  const explicitCountry = trimmed.startsWith('+');
+  const body = explicitCountry ? trimmed.slice(1) : trimmed;
+  const digits = body.replace(TR_PHONE_SEPARATORS, '');
+  if (!/^\d*$/.test(digits)) return { digits, explicitForeign: false, unsupported: true };
+  if (explicitCountry) {
+    const national = digits.length === 12 && digits.startsWith('90') ? digits.slice(2) : null;
+    return national !== null && isCanonicalNational(national)
+      ? { digits: `0${national}`, explicitForeign: false, unsupported: false }
+      : { digits, explicitForeign: true, unsupported: false };
   }
   let national = digits;
   if (national.startsWith('90') && national.length === 12) national = national.slice(2);
   if (national && !national.startsWith('0') && national.length <= 10) national = `0${national}`;
-  return { digits: national, explicitForeign: false };
+  return { digits: national, explicitForeign: false, unsupported: false };
 }
 
 /** Digits of the resolved buffer, used by the caret logic. */
@@ -75,12 +127,15 @@ export function trPhoneDigits(value: string): string {
  * mask: there the leading `0` really is the trunk, so the remaining digits are
  * the national number. Anything else is returned verbatim — masking an
  * unresolved run would mean inventing a trunk `0` and dropping a real digit,
- * which would turn an invalid value into a valid-looking Turkish number. A
- * foreign `+` claim keeps its prefix so it stays visibly foreign and never
- * re-parses as a national buffer.
+ * which would turn an invalid value into a valid-looking Turkish number.
+ *
+ * Text with an unsupported character is returned exactly as typed, and a foreign
+ * `+` claim keeps its prefix, so both stay visibly invalid and never re-parse as
+ * a national buffer.
  */
 export function trPhoneMask(value: string): string {
-  const { digits, explicitForeign } = trPhoneBuffer(value);
+  const { digits, explicitForeign, unsupported } = trPhoneBuffer(value);
+  if (unsupported) return value;
   if (explicitForeign) return `+${digits}`;
   if (!digits) return '';
   if (digits.length > TR_PHONE_MASK_LENGTH || !digits.startsWith('0')) return digits;
@@ -97,27 +152,32 @@ export function trPhoneMask(value: string): string {
  * True once the field holds a complete Turkish national number.
  *
  * This is the structural invariant, not a digit count: the buffer must be
- * exactly 11 digits, its first digit must be the trunk `0`, and the input must
- * not have been an explicit foreign `+` claim. A bare 11-digit foreign run such
- * as `15551234567` therefore stays incomplete even though it has 11 digits.
+ * exactly 11 digits, its first digit must be the trunk `0`, the 10 national
+ * digits must not be trunk-prefixed, and the text must be neither an explicit
+ * foreign `+` claim nor contain an unsupported character. A bare 11-digit
+ * foreign run such as `15551234567` therefore stays incomplete even though it
+ * has 11 digits.
  */
 export function isTrPhoneMaskComplete(value: string): boolean {
-  const { digits, explicitForeign } = trPhoneBuffer(value);
-  return !explicitForeign && isCompleteTrPhoneBuffer(digits);
+  const { digits, explicitForeign, unsupported } = trPhoneBuffer(value);
+  return !unsupported && !explicitForeign && isCompleteTrPhoneBuffer(digits);
 }
 
 /**
  * Renders a stored customer phone as `(0XXX) XXX XX XX`, e.g.
- * `+905321234567` → `(0532) 123 45 67`. Values that are not canonical are
- * returned trimmed and unchanged so historical free-text rows display exactly
- * as stored instead of being silently rewritten.
+ * `+905321234567` → `(0532) 123 45 67`.
+ *
+ * Only a value that satisfies the same canonical invariant as the server is
+ * formatted: `+90` plus 10 national digits that do not start with the trunk `0`.
+ * Everything else — a historical `+900532123456`, `santral 555`, `+495551234567`
+ * — is returned trimmed and unchanged, so an unrelated edit can never silently
+ * rewrite a stored value.
  */
 export function formatTrPhone(value: string | null | undefined): string {
   const trimmed = (value ?? '').trim();
   if (!trimmed) return '';
-  const match = /^\+90(\d{10})$/.exec(trimmed);
-  if (!match) return trimmed;
-  const national = match[1]!;
+  const national = canonicalNational(trimmed);
+  if (national === null) return trimmed;
   return `(0${national.slice(0, 3)}) ${national.slice(3, 6)} ${national.slice(6, 8)} ${national.slice(8, 10)}`;
 }
 
@@ -151,12 +211,17 @@ export function trPhoneCaret(masked: string, digitsBeforeCaret: number): number 
  * deletion, and `caret` is where the caret sat inside it. The result is the text
  * to write back plus the caret offset.
  *
+ * When nothing was rewritten — unsupported text, an unresolved foreign claim, or
+ * an already-masked value — the field keeps the caret exactly where the browser
+ * put it, so typing an unsupported character does not fling the caret to the end.
+ *
  * This is pure and total, so the editing semantics (including deleting a single
  * separator, which leaves the masked text unchanged) can be tested without a
  * DOM and applied deterministically by the input.
  */
 export function trPhoneEdit(raw: string, caret: number): { value: string; caret: number } {
   const value = trPhoneMask(raw);
+  if (value === raw) return { value, caret: Math.max(0, caret) };
   const rawDigits = raw.replace(/\D/g, '');
   const digits = trPhoneDigits(raw);
   const digitsBeforeCaret = raw.slice(0, Math.max(0, caret)).replace(/\D/g, '').length;

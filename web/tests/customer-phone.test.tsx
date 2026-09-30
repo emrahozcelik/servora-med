@@ -214,4 +214,49 @@ describe('Customer create phone contract', () => {
     expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
     expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
   });
+
+  it('blocks an explicit +90 with a repeated trunk zero and creates nothing', async () => {
+    const cases = ['+900532123456', '+900312123456', '+900850123456'];
+    for (const input of cases) {
+      await act(async () => root.unmount());
+      container.remove();
+      container = document.createElement('div'); document.body.append(container);
+      root = createRoot(container);
+      await renderScreen();
+      change(container.querySelector('#customer-name') as HTMLInputElement, 'Trunk Sıfır Klinik');
+      await setCustomerPhone(container, input);
+
+      const field = container.querySelector('#customer-phone') as HTMLInputElement;
+      // `+900532123456` must not become `(0053) 212 34 56` / `00532123456`.
+      expect(field.value, input).toBe(input);
+      expect(isTrPhoneMaskComplete(field.value), input).toBe(false);
+
+      await submit();
+      expect(crmApi.createCustomer, input).not.toHaveBeenCalled();
+      expect(container.querySelector('#customer-phone-error')?.textContent, input)
+        .toContain('Geçerli bir telefon numarası girin.');
+    }
+  });
+
+  it('blocks text with an unsupported character instead of stripping it', async () => {
+    for (const input of ['0532x1234567', '90+5321234567', '05_321234567']) {
+      await act(async () => root.unmount());
+      container.remove();
+      container = document.createElement('div'); document.body.append(container);
+      root = createRoot(container);
+      await renderScreen();
+      change(container.querySelector('#customer-name') as HTMLInputElement, 'Desteklenmeyen Klinik');
+      await setCustomerPhone(container, input);
+
+      const field = container.querySelector('#customer-phone') as HTMLInputElement;
+      // Nothing is deleted: the letter / misplaced `+` / underscore stays on screen.
+      expect(field.value, input).toBe(input);
+      expect(isTrPhoneMaskComplete(field.value), input).toBe(false);
+
+      await submit();
+      expect(crmApi.createCustomer, input).not.toHaveBeenCalled();
+      expect(container.querySelector('#customer-phone-error')?.textContent, input)
+        .toContain('Geçerli bir telefon numarası girin.');
+    }
+  });
 });

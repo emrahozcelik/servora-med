@@ -112,4 +112,34 @@ describe('Customer detail phone editing', () => {
     await save();
     expect(customerFieldsFromFormData(saves.at(-1)!, customer.version).phone).toBeNull();
   });
+
+  it('shows a historical trunk-zero phone verbatim and preserves it through an unrelated edit', async () => {
+    const stored = '+900532123456';
+    const saves = await render({ ...customer, phone: stored });
+    // The server never accepted this value, so it must not be rendered as a mask.
+    expect(phoneField().value).toBe(stored);
+
+    // Change ONLY the customer name; the phone is never touched.
+    await act(async () => {
+      const name = container.querySelector('#detail-customer-name');
+      if (!(name instanceof HTMLInputElement)) throw new Error('#detail-customer-name bulunamadı.');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(name, 'Adı Değişen Klinik');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await save();
+    expect(saves.at(-1)?.get('phone')).toBe(stored);
+  });
+
+  it('keeps every other historical shape verbatim through an unrelated edit', async () => {
+    for (const stored of ['+900312123456', '+900850123456', '+495551234567', 'santral 555']) {
+      await act(async () => root.unmount());
+      container.remove();
+      container = document.createElement('div'); document.body.append(container);
+      root = createRoot(container);
+      const saves = await render({ ...customer, phone: stored });
+      expect(phoneField().value, stored).toBe(stored);
+      await save();
+      expect(saves.at(-1)?.get('phone'), stored).toBe(stored);
+    }
+  });
 });
