@@ -360,17 +360,22 @@ describe('progressive typing through the real edit path', () => {
   it('never rewrites the ambiguous 90… prefix into (09… while typing', () => {
     let value = '';
     let caret = 0;
-    const seen: string[] = [];
+    const seen: { value: string; complete: boolean; caret: number }[] = [];
     for (const char of '905321234567') {
       const raw = `${value.slice(0, caret)}${char}${value.slice(caret)}`;
       const next = trPhoneEdit(raw, caret + 1);
       value = next.value;
       caret = next.caret;
-      seen.push(value);
+      seen.push({ value, complete: isTrPhoneMaskComplete(value), caret });
     }
-    expect(seen).toEqual([
+    expect(seen.map(({ value }) => value)).toEqual([
       '9', '90', '905', '9053', '90532', '905321', '9053212', '90532123',
       '905321234', '9053212345', '90532123456', '(0532) 123 45 67',
+    ]);
+    expect(seen.slice(9)).toEqual([
+      { value: '9053212345', complete: true, caret: 10 },
+      { value: '90532123456', complete: false, caret: 11 },
+      { value: '(0532) 123 45 67', complete: true, caret: 16 },
     ]);
   });
 
@@ -400,8 +405,22 @@ describe('progressive typing through the real edit path', () => {
 });
 
 describe('bare 90 country-code candidates stay raw while ambiguous', () => {
-  it('leaves every incomplete 90… run exactly as typed', () => {
-    for (const input of ['9', '90', '905', '9053212345', '90532123456']) {
+  it('leaves ambiguous candidates raw and incomplete until they are valid bare nationals', () => {
+    for (const input of ['9', '90', '905', '901234567', '90123456789', '90532123456']) {
+      expect(trPhoneMask(input), input).toBe(input);
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+    }
+  });
+
+  it('accepts ten-digit 90… bare nationals while keeping them raw', () => {
+    for (const input of ['9012345678', '9053212345']) {
+      expect(trPhoneMask(input), input).toBe(input);
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+    }
+  });
+
+  it('does not treat explicit +90 ten-digit runs as complete national inputs', () => {
+    for (const input of ['+9012345678', '+9053212345']) {
       expect(trPhoneMask(input), input).toBe(input);
       expect(isTrPhoneMaskComplete(input), input).toBe(false);
     }

@@ -182,16 +182,19 @@ export function trPhoneMask(value: string): string {
 /**
  * True once the field holds a complete Turkish national number.
  *
- * This is the structural invariant, not a digit count: the buffer must be
- * exactly 11 digits, its first digit must be the trunk `0`, the 10 national
- * digits must not be trunk-prefixed, and the text must be neither an explicit
- * foreign `+` claim nor contain an unsupported character. A bare 11-digit
- * foreign run such as `15551234567` therefore stays incomplete even though it
- * has 11 digits.
+ * A resolved national buffer is complete at 11 digits: its first digit is the
+ * trunk `0`, and the 10 national digits are not trunk-prefixed. An ambiguous
+ * bare `90…` run is also complete at exactly 10 digits when it satisfies the
+ * server's national-body invariant; it stays raw so typing can continue to the
+ * 12-digit country-code form. Explicit foreign `+` claims and unsupported text
+ * are never complete, regardless of their digit count.
  */
 export function isTrPhoneMaskComplete(value: string): boolean {
   const { digits, explicitForeign, unsupported } = trPhoneBuffer(value);
-  return !unsupported && !explicitForeign && isCompleteTrPhoneBuffer(digits);
+  return !unsupported && !explicitForeign && (
+    isCompleteTrPhoneBuffer(digits)
+    || (isCountryCodeCandidate(digits) && isCanonicalNational(digits))
+  );
 }
 
 /**

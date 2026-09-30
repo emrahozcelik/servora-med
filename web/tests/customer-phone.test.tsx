@@ -105,21 +105,74 @@ describe('Customer create phone contract', () => {
     // `905321234567` was impossible to type from an empty field.
     let value = '';
     let caret = 0;
-    const seen: string[] = [];
+    const seen: { value: string; complete: boolean; caret: number }[] = [];
     for (const char of '905321234567') {
       const raw = `${value.slice(0, caret)}${char}${value.slice(caret)}`;
       const next = await editCustomerPhone(container, raw, caret + 1);
       value = next.value;
       caret = next.caret;
-      seen.push(value);
+      seen.push({ value, complete: isTrPhoneMaskComplete(value), caret });
     }
 
-    expect(seen).toEqual([
+    expect(seen.map(({ value }) => value)).toEqual([
       '9', '90', '905', '9053', '90532', '905321', '9053212', '90532123',
       '905321234', '9053212345', '90532123456', '(0532) 123 45 67',
     ]);
+    expect(seen.slice(9)).toEqual([
+      { value: '9053212345', complete: true, caret: 10 },
+      { value: '90532123456', complete: false, caret: 11 },
+      { value: '(0532) 123 45 67', complete: true, caret: 16 },
+    ]);
 
     await submit();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
+  });
+
+  it('submits a ten-digit bare 90 national number typed into the real field', async () => {
+    crmApi.createCustomer.mockResolvedValue({ ...createdCustomer, phone: '+909012345678' });
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'On Haneli Ulusal Klinik');
+
+    let value = '';
+    let caret = 0;
+    for (const char of '9012345678') {
+      const next = await editCustomerPhone(container, `${value.slice(0, caret)}${char}${value.slice(caret)}`, caret + 1);
+      value = next.value;
+      caret = next.caret;
+    }
+
+    expect(value).toBe('9012345678');
+    expect(isTrPhoneMaskComplete(value)).toBe(true);
+    await submit();
+
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '9012345678' });
+  });
+
+  it('keeps the same field editable after the 11-digit checkpoint blocks submission', async () => {
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'On Bir Haneli Ara Değer Klinik');
+
+    let value = '';
+    let caret = 0;
+    for (const char of '90532123456') {
+      const next = await editCustomerPhone(container, `${value.slice(0, caret)}${char}${value.slice(caret)}`, caret + 1);
+      value = next.value;
+      caret = next.caret;
+    }
+
+    expect(value).toBe('90532123456');
+    expect(isTrPhoneMaskComplete(value)).toBe(false);
+    await submit();
+    expect(crmApi.createCustomer).not.toHaveBeenCalled();
+
+    const next = await editCustomerPhone(container, `${value.slice(0, caret)}7${value.slice(caret)}`, caret + 1);
+    value = next.value;
+    expect(value).toBe('(0532) 123 45 67');
+    expect(isTrPhoneMaskComplete(value)).toBe(true);
+    await submit();
+
     expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
     expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
   });
