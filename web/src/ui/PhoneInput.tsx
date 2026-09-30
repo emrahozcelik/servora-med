@@ -1,11 +1,10 @@
 import { useRef } from 'react';
 
-import { trPhoneEdit, trPhoneInitial } from './phone';
+import { customerPhoneInputValue } from './phone';
 
 export type PhoneInputProps = {
   id: string;
   name: string;
-  /** Stored value; canonical `+90…` values are shown masked, anything else verbatim. */
   defaultValue?: string | null;
   disabled?: boolean;
   required?: boolean;
@@ -15,32 +14,28 @@ export type PhoneInputProps = {
 };
 
 /**
- * Masked Turkish phone input for NEW customer creation.
- *
- * The field is deliberately uncontrolled and re-masks itself imperatively on
- * every change. A React-controlled value would skip the re-render — and with it
- * any value-dependent effect — whenever deleting a single separator leaves the
- * masked text identical, so the raw text would stay on screen and the caret
- * would drift. Writing the masked text and the caret directly is deterministic:
- * React only rewrites the DOM when the rendered value differs, so the selection
- * survives.
- *
- * The masked text is submitted untouched — the server is the only place that
- * decides what a phone number means.
+ * Customer create input: one automatic trunk `0` followed by ten user digits.
+ * Non-digits and an eleventh user digit are rejected without changing the last
+ * accepted value. The resulting 11-digit national value is submitted directly.
  */
 export function PhoneInput({
   id, name, defaultValue = '', disabled, required, invalid, describedBy, onChange,
 }: PhoneInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const initialValue = customerPhoneInputValue(defaultValue ?? '', '0');
+  const lastAcceptedValue = useRef(initialValue);
 
-  return <input id={id} name={name} type="tel" inputMode="tel" autoComplete="tel"
-    ref={inputRef} defaultValue={trPhoneInitial(defaultValue)} disabled={disabled} required={required}
+  return <input id={id} name={name} type="tel" inputMode="numeric" autoComplete="tel-national"
+    defaultValue={initialValue} maxLength={11} pattern="0[1-9][0-9]{9}"
+    disabled={disabled} required={required}
     aria-invalid={invalid ? true : undefined} aria-describedby={describedBy}
     onChange={(event) => {
       const input = event.currentTarget;
-      const { value, caret } = trPhoneEdit(input.value, input.selectionStart ?? input.value.length);
-      if (input.value !== value) input.value = value;
-      input.setSelectionRange(caret, caret);
+      const value = customerPhoneInputValue(input.value, lastAcceptedValue.current);
+      if (input.value !== value) {
+        input.value = value;
+        input.setSelectionRange(value.length, value.length);
+      }
+      lastAcceptedValue.current = value;
       onChange?.();
     }} />;
 }
