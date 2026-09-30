@@ -87,7 +87,8 @@ organization row; PostgreSQL SSI covers the concurrent two-tab race.
 ## Fixture content
 
 - 3 demo users: 1 MANAGER, 2 STAFF (no demo ADMIN)
-- 5 demo customers
+- 5 demo customers with canonical Turkish sample phone values, validated by
+  the CRM phone normalizer in the PostgreSQL creation regression test
 - 5 demo products (`DEMO-...` SKUs)
 - 8 demo jobs: 2 NEW, 1 ACCEPTED, 1 IN_PROGRESS, 1 WAITING_APPROVAL,
   2 COMPLETED, 1 CANCELLED
@@ -97,6 +98,10 @@ organization row; PostgreSQL SSI covers the concurrent two-tab race.
 All demo rows are `data_class = DEMO` and `demo_dataset_id = <dataset>`.
 Demo jobs reference only same-dataset demo users/customers/products; no
 BUSINESS row is touched.
+
+Phones are populated when a new dataset is created. Replaying an existing
+dataset preserves its stored customer values, including legacy missing phones;
+no existing customers are backfilled.
 
 Demo user credentials are cryptographically random, hashed with the canonical
 password hashing helper, never returned, and never logged.
