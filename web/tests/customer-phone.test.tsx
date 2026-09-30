@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CustomerCreateScreen } from '../src/CustomerList';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { isTrPhoneMaskComplete } from '../src/ui/phone';
 import { editCustomerPhone, setCustomerPhone } from './helpers/customer-phone';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -104,9 +105,10 @@ describe('Customer create phone contract', () => {
     await renderScreen();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Bozuk Prefix Klinik');
     await setCustomerPhone(container, '+9005321234567');
-    // The extra trunk `0` after the explicit `+90` must survive so the server
-    // still sees an invalid value; dropping it would make the paste look valid.
-    expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('9005321234567');
+    // The explicit `+` must survive so the paste stays a visible country-code
+    // claim, and the extra trunk `0` must survive so it cannot be repaired into
+    // a valid Turkish number; the server then still sees an invalid value.
+    expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('+9005321234567');
     await submit();
     expect(crmApi.createCustomer).not.toHaveBeenCalled();
     expect(container.querySelector('#customer-phone-error')?.textContent)
@@ -170,5 +172,46 @@ describe('Customer create phone contract', () => {
     expect((container.querySelector('#customer-phone') as HTMLInputElement).getAttribute('aria-invalid'))
       .toBe('true');
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('blocks a foreign +country paste instead of rewriting it into a Turkish number', async () => {
+    const cases: [string, string][] = [
+      ['+15551234567', '+15551234567'],
+      ['+1 202 555 0147', '+12025550147'],
+      ['+3572212345', '+3572212345'],
+      ['+495551234567', '+495551234567'],
+      ['+9005321234567', '+9005321234567'],
+    ];
+    for (const [input, shown] of cases) {
+      await act(async () => root.unmount());
+      container.remove();
+      container = document.createElement('div'); document.body.append(container);
+      root = createRoot(container);
+      await renderScreen();
+      change(container.querySelector('#customer-name') as HTMLInputElement, 'Yabancı Telefon Klinik');
+      await setCustomerPhone(container, input);
+
+      const field = container.querySelector('#customer-phone') as HTMLInputElement;
+      // The prefix survives and the value is not a Turkish national buffer: no
+      // trunk `0` was added and no foreign digit was dropped.
+      expect(field.value, input).toBe(shown);
+      expect(isTrPhoneMaskComplete(field.value), input).toBe(false);
+
+      await submit();
+      expect(crmApi.createCustomer, input).not.toHaveBeenCalled();
+      expect(container.querySelector('#customer-phone-error')?.textContent, input)
+        .toContain('Geçerli bir telefon numarası girin.');
+    }
+  });
+
+  it('accepts bare national shorthand and submits the masked value', async () => {
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Kısa Yol Klinik');
+    await setCustomerPhone(container, '5321234567');
+    expect((container.querySelector('#customer-phone') as HTMLInputElement).value).toBe('(0532) 123 45 67');
+
+    await submit();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
   });
 });

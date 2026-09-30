@@ -76,6 +76,8 @@ describe('normalizeTurkishPhone', () => {
       'abcdef', '0532 123 45 67 x', '---', '+', '(0532) 123 45', '0532-123-45-6',
       '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
       '+3572212345', '+15551234567', '+495551234567', '+1555123456', '+492212345678',
+      // Trunk `0` after the country code, in the explicit and the bare form.
+      '+900532123456', '900532123456', '+900312123456', '900312123456', '+900850123456',
     ];
     for (const input of rejected) expect(normalizeTurkishPhone(input), input).toBeNull();
     expect(normalizeTurkishPhone(null)).toBeNull();
@@ -104,6 +106,28 @@ describe('normalizeTurkishPhone', () => {
     expect(normalizeTurkishPhone('+908501234567')).toBe('+908501234567');
   });
 
+  it('rejects a trunk 0 after the country code in both the +90 and bare 90 forms', () => {
+    // `+900532123456` and `900532123456` are the explicit and the bare spelling
+    // of a 12-digit run whose national body starts with the trunk `0`. They used
+    // to be accepted as `+900532123456` while the bare 11-digit `0532123456`
+    // they mirror was already rejected — the same invariant now covers both.
+    for (const input of ['+900532123456', '900532123456', '+900312123456', '900312123456',
+      '+900850123456']) {
+      expect(normalizeTurkishPhone(input), input).toBeNull();
+    }
+    expect(normalizeTurkishPhone('0532123456')).toBeNull();
+
+    // No carrier or operator prefix is special-cased: ordinary national bodies
+    // keep resolving, in the bare and the explicit form alike.
+    expect(normalizeTurkishPhone('+905321234567')).toBe(CANONICAL_MOBILE);
+    expect(normalizeTurkishPhone('+903121234567')).toBe(CANONICAL_LANDLINE);
+    expect(normalizeTurkishPhone('+908501234567')).toBe('+908501234567');
+    for (const input of ['03121234567', '02121234567', '02161234567', '05321234567',
+      '08501234567']) {
+      expect(normalizeTurkishPhone(input), input).not.toBeNull();
+    }
+  });
+
   it('round-trips without losing digits, duplicating the trunk zero or doubling +90', () => {
     const shapes = ['05321234567', '(0532) 123 45 67', '0532 123 45 67', '+905321234567',
       '905321234567', '5321234567'];
@@ -121,7 +145,8 @@ describe('customer create contract requires a normalized Turkish phone', () => {
   it('rejects a missing or malformed phone with fieldErrors before any write', async () => {
     const rejected = [null, '', '   ', '0532', '0532123456', '053212345678', 'abc',
       '+1 202 555 0147', '---', '+3572212345', '+15551234567', '+495551234567',
-      '+9005321234567', '+9003121234567'];
+      '+9005321234567', '+9003121234567',
+      '+900532123456', '900532123456', '+900312123456', '900312123456', '+900850123456'];
     for (const phone of rejected) {
       const { service, created } = fixture();
       await expect(service.createCustomer(manager, { ...baseInput, phone })).rejects.toMatchObject({

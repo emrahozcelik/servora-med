@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  formatTrPhone, isTrPhoneMaskComplete, trPhoneCaret, trPhoneDigits, trPhoneEdit, trPhoneInitial,
-  trPhoneMask,
+  formatTrPhone, isTrPhoneMaskComplete, TR_PHONE_MASK_LENGTH, trPhoneCaret, trPhoneDigits,
+  trPhoneEdit, trPhoneInitial, trPhoneMask,
 } from '../src/ui/phone';
 
 describe('trPhoneDigits', () => {
@@ -30,7 +30,9 @@ describe('trPhoneDigits', () => {
 
   it('never presents a malformed +90 paste as a complete national number', () => {
     expect(isTrPhoneMaskComplete('+9005321234567')).toBe(false);
-    expect(trPhoneMask('+9005321234567')).toBe('9005321234567');
+    // The `+` survives so the value stays visibly a country-code claim; dropping
+    // it would leave `9005321234567`, which no longer reads as one.
+    expect(trPhoneMask('+9005321234567')).toBe('+9005321234567');
     expect(isTrPhoneMaskComplete('+90 0532 123 45 67')).toBe(false);
   });
 });
@@ -137,7 +139,71 @@ describe('trPhoneEdit', () => {
   it('leaves a malformed +90 paste over-long instead of repairing it', () => {
     const raw = '+90 0532 123 45 67';
     const result = trPhoneEdit(raw, raw.length);
-    expect(result.value).toBe('9005321234567');
+    expect(result.value).toBe('+9005321234567');
     expect(isTrPhoneMaskComplete(result.value)).toBe(false);
+  });
+
+  it('keeps a foreign paste foreign and leaves it incomplete', () => {
+    for (const raw of ['+15551234567', '+3572212345']) {
+      const result = trPhoneEdit(raw, raw.length);
+      expect(result.value, raw).toBe(raw);
+      expect(isTrPhoneMaskComplete(result.value), raw).toBe(false);
+    }
+  });
+});
+
+describe('explicit foreign country codes', () => {
+  // `+` is a country-code claim. Only `+90` followed by exactly 10 national
+  // digits is Turkish; every other `+` value must stay visibly foreign and
+  // incomplete, however many digits it happens to carry.
+  const foreign: [string, string][] = [
+    ['+15551234567', '+15551234567'],
+    ['+1 202 555 0147', '+12025550147'],
+    ['+3572212345', '+3572212345'],
+    ['+495551234567', '+495551234567'],
+    ['+9005321234567', '+9005321234567'],
+    ['+9003121234567', '+9003121234567'],
+    // `+0` + 11 digits: an 11-digit run that a length-only check would call
+    // complete even though its first digit is not the Turkish trunk.
+    ['+05321234567', '+05321234567'],
+  ];
+
+  it('keeps the prefix, adds no trunk 0 and drops no digit', () => {
+    for (const [input, shown] of foreign) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+      expect(trPhoneMask(input), input).toBe(shown);
+      expect(trPhoneDigits(input), input).toBe(shown.slice(1));
+    }
+  });
+
+  it('does not let an 11-digit foreign run satisfy the structural invariant', () => {
+    // `15551234567` and `12025550147` are both exactly 11 digits long, which is
+    // why completeness cannot be a digit count: the first digit has to be the
+    // trunk `0`, and the input must not be an explicit foreign claim.
+    expect(trPhoneDigits('+15551234567')).toHaveLength(TR_PHONE_MASK_LENGTH);
+    expect(isTrPhoneMaskComplete('+15551234567')).toBe(false);
+    expect(isTrPhoneMaskComplete('15551234567')).toBe(false);
+    expect(trPhoneMask('15551234567')).toBe('15551234567');
+    expect(trPhoneMask('05321234567')).toBe('(0532) 123 45 67');
+  });
+
+  it('keeps the three accepted +90 shapes working', () => {
+    const accepted: [string, string][] = [
+      ['+905321234567', '(0532) 123 45 67'],
+      ['+903121234567', '(0312) 123 45 67'],
+      ['+908501234567', '(0850) 123 45 67'],
+    ];
+    for (const [input, masked] of accepted) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+      expect(trPhoneMask(input), input).toBe(masked);
+    }
+  });
+
+  it('keeps bare Turkish shorthand working', () => {
+    expect(trPhoneMask('5321234567')).toBe('(0532) 123 45 67');
+    expect(trPhoneMask('905321234567')).toBe('(0532) 123 45 67');
+    for (const input of ['5321234567', '05321234567', '905321234567']) {
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+    }
   });
 });

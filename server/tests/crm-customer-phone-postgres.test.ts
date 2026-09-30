@@ -186,6 +186,7 @@ describe.skipIf(!databaseUrl)('customer phone create contract over HTTP + Postgr
         undefined, '', '   ', '0', '0532', '0532123456', '053212345678', 'abc', '---',
         '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
         '+3572212345', '+15551234567', '+495551234567',
+        '+900532123456', '900532123456', '+900312123456', '900312123456', '+900850123456',
       ];
       for (const phone of rejected) {
         const payload: Record<string, unknown> = {
