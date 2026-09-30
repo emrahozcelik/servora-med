@@ -185,10 +185,10 @@ try {
   );
 
   await client.query(
-    `INSERT INTO customers (id, organization_id, name, customer_type, assigned_staff_user_id, status)
-     VALUES ($1, $2, 'F4 Synthetic Customer A', 'clinic', $3, 'active'),
-            ($4, $2, 'F4 Synthetic Customer B', 'hospital', $5, 'active'),
-            ($6, $7, 'F4 Cross Organization Customer', 'clinic', $8, 'active')`,
+    `INSERT INTO customers (id, organization_id, name, customer_type, phone, assigned_staff_user_id, status)
+     VALUES ($1, $2, 'F4 Synthetic Customer A', 'clinic', '+905321234501', $3, 'active'),
+            ($4, $2, 'F4 Synthetic Customer B', 'hospital', '+905321234502', $5, 'active'),
+            ($6, $7, 'F4 Cross Organization Customer', 'clinic', '+905321234503', $8, 'active')`,
     [ids.customerA, ids.org, ids.staffA, ids.customerB, ids.staffB, ids.crossCustomer, ids.otherOrg, ids.crossStaff],
   );
   await client.query(
