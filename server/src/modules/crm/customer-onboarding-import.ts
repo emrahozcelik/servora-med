@@ -418,7 +418,6 @@ function buildPlan(
     const source = normalizedPhone === null || normalizedPhone === manifestSource.phone
       ? manifestSource
       : { ...manifestSource, phone: normalizedPhone };
-    if (normalizedPhone === null) invalidCount += 1;
     const destinationStaffUserId = source.assignedSourceStaffUserId
       ? destinationStaff.get(source.assignedSourceStaffUserId) ?? null : null;
     if (source.taxNumber) {
@@ -438,6 +437,7 @@ function buildPlan(
     let conflict = false;
     if (candidates.length > 1 || (fingerprintMatches.length > 1)) conflict = true;
     const existing = candidates.length === 1 ? candidates[0]! : null;
+    if (normalizedPhone === null && !existing) invalidCount += 1;
     if (existing && !sameCustomer(source, existing, destinationStaffUserId)) conflict = true;
     if (!existing && fingerprintMatches.length > 0) conflict = true;
     const customerId = existing?.id ?? null;

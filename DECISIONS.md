@@ -1575,20 +1575,22 @@ no production change, no merge in this slice.
   The onboarding importer (`customer-onboarding-import.ts`,
   `customers:import:onboarding`) is a separate controlled create path. Its
   planning step uses the same phone normalizer, reports missing or invalid
-  customer phones in `invalidCount`, and blocks `--apply` before any write; it
+  phones for would-create customers in `invalidCount`, and blocks `--apply`
+  before any write. A fingerprint-matched historical row remains an idempotent
+  existing result even when it predates the phone requirement; the importer
   does not require a migration or backfill of historical rows.
 - **One web create form.** `DeliveryCreate`, `GeneralTaskCreate` and
   `SalesMeetingCreate` all open the JobCard inline drawer
   (`CustomerCreateSideFlow` → `CustomerCreateFlow` → `CustomerCreateForm`), so
   the single form change covers every creation path; there is no weaker second
   path. The Telefon field now sits immediately after the customer name, is
-  `required`, `inputMode="tel"` and live-masked. `web/src/ui/phone.ts` is
-  display-only (`(0XXX) XXX XX XX` mask, caret mapping, display formatter) and
-  submits the masked text untouched — the CRM create API remains the only
-  normalizer on this form path; the controlled importer reuses that same
-  function for its separate plan. Over-long input is
-  shown unmasked rather than truncated, so a typo cannot become a valid-looking
-  number. Server `fieldErrors.phone` are surfaced inline through the existing
+  `required` and `inputMode="numeric"`. The field starts with an automatic
+  trunk `0` and accepts exactly ten following user digits; non-digits and an
+  eleventh user digit leave the last accepted value unchanged. It submits the
+  resulting 11-digit national value untouched, and the CRM create API remains
+  the canonical storage normalizer. `web/src/ui/phone.ts` also keeps the small
+  canonical display formatter used by customer read views. Server
+  `fieldErrors.phone` are surfaced inline through the existing
   `ApiError.details` channel.
 - **Evidence.** Server unit: `crm-customer-phone.test.ts` (accepted/rejected
   matrix, round-trip idempotence, create rejection before any write, staff path,

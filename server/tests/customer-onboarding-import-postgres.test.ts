@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
@@ -158,6 +158,40 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
         taxNumber: null, phone: '+905321234567', email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null, contacts: [],
       }] });
+      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: false });
+      expect(dryRun).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: true });
+      const applied = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: true });
+      expect(applied).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: false });
+      expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
+    });
+  });
+
+  it('reapplies a legacy fingerprint match without requiring a new phone', async () => {
+    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
+      const sourceId = randomUUID();
+      const customerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id,name,customer_type,status,phone)
+         VALUES ($1,'Legacy imported customer','clinic','active',NULL) RETURNING id`, [organizationId],
+      )).rows[0]!.id;
+      const sourceFingerprint = createHash('sha256').update(JSON.stringify({
+        source: 'production-customer-onboarding', kind: 'customer', sourceId,
+      })).digest('hex');
+      await pool.query(
+        `INSERT INTO audit_events
+          (organization_id,actor_user_id,subject_type,subject_id,event_type,old_value,new_value,metadata)
+         VALUES ($1,$2,'CUSTOMER',$3,'CUSTOMER_CREATED',NULL,$4,$5)`,
+        [organizationId, adminId, customerId, {}, {
+          source: 'production-customer-onboarding', importVersion: 1, sourceFingerprint,
+        }],
+      );
+      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
+        sourceId, name: 'Legacy imported customer', customerType: 'clinic', status: 'active',
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+        assignedSourceStaffUserId: null, contacts: [],
+      }] });
+
       const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
         manifest, mappings: [], apply: false });
       expect(dryRun).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: true });
