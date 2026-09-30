@@ -329,3 +329,104 @@ describe('grammar agreement with the server', () => {
     }
   });
 });
+
+describe('progressive typing through the real edit path', () => {
+  /**
+   * Types `text` one character at a time, feeding the value and caret returned by
+   * `trPhoneEdit` straight back in, exactly as the input element does on each
+   * keystroke.
+   *
+   * Asserting the finished string alone missed the bug: `905321234567` masked
+   * correctly when it arrived whole, but could not be typed from an empty field,
+   * because the early `9` was rewritten to `(09…` and the `90` country-code
+   * candidate was consumed before it was complete.
+   */
+  function typeSequentially(text: string): string {
+    let value = '';
+    let caret = 0;
+    for (const char of text) {
+      const raw = `${value.slice(0, caret)}${char}${value.slice(caret)}`;
+      const next = trPhoneEdit(raw, caret + 1);
+      value = next.value;
+      caret = next.caret;
+    }
+    return value;
+  }
+
+  it('lets 905321234567 be typed one keystroke at a time', () => {
+    expect(typeSequentially('905321234567')).toBe('(0532) 123 45 67');
+  });
+
+  it('never rewrites the ambiguous 90… prefix into (09… while typing', () => {
+    let value = '';
+    let caret = 0;
+    const seen: string[] = [];
+    for (const char of '905321234567') {
+      const raw = `${value.slice(0, caret)}${char}${value.slice(caret)}`;
+      const next = trPhoneEdit(raw, caret + 1);
+      value = next.value;
+      caret = next.caret;
+      seen.push(value);
+    }
+    expect(seen).toEqual([
+      '9', '90', '905', '9053', '90532', '905321', '9053212', '90532123',
+      '905321234', '9053212345', '90532123456', '(0532) 123 45 67',
+    ]);
+  });
+
+  it('lets the landline and 0850 country-code forms be typed', () => {
+    expect(typeSequentially('903121234567')).toBe('(0312) 123 45 67');
+    expect(typeSequentially('908501234567')).toBe('(0850) 123 45 67');
+  });
+
+  it('lets an explicit +90 be typed one keystroke at a time', () => {
+    expect(typeSequentially('+905321234567')).toBe('(0532) 123 45 67');
+    expect(typeSequentially('+903121234567')).toBe('(0312) 123 45 67');
+  });
+
+  it('keeps ordinary national shorthand typing eagerly masked', () => {
+    expect(typeSequentially('5321234567')).toBe('(0532) 123 45 67');
+    expect(typeSequentially('3121234567')).toBe('(0312) 123 45 67');
+    expect(typeSequentially('8501234567')).toBe('(0850) 123 45 67');
+    expect(typeSequentially('05321234567')).toBe('(0532) 123 45 67');
+  });
+
+  it('does not corrupt a bare national that merely begins with 9', () => {
+    // `95…` is not a `90` country-code prefix, so the trunk `0` is inserted and
+    // the number masks like any other national shorthand.
+    expect(typeSequentially('9532123456')).toBe('(0953) 212 34 56');
+    expect(isTrPhoneMaskComplete('9532123456')).toBe(true);
+  });
+});
+
+describe('bare 90 country-code candidates stay raw while ambiguous', () => {
+  it('leaves every incomplete 90… run exactly as typed', () => {
+    for (const input of ['9', '90', '905', '9053212345', '90532123456']) {
+      expect(trPhoneMask(input), input).toBe(input);
+      expect(isTrPhoneMaskComplete(input), input).toBe(false);
+    }
+  });
+
+  it('resolves only at 90 plus 10 canonical national digits', () => {
+    const resolved: [string, string][] = [
+      ['905321234567', '(0532) 123 45 67'],
+      ['903121234567', '(0312) 123 45 67'],
+      ['908501234567', '(0850) 123 45 67'],
+    ];
+    for (const [input, masked] of resolved) {
+      expect(trPhoneMask(input), input).toBe(masked);
+      expect(isTrPhoneMaskComplete(input), input).toBe(true);
+    }
+  });
+
+  it('never reads a repeated trunk 0 as a country code', () => {
+    expect(trPhoneMask('900532123456')).toBe('900532123456');
+    expect(trPhoneDigits('900532123456')).toBe('900532123456');
+    expect(isTrPhoneMaskComplete('900532123456')).toBe(false);
+  });
+
+  it('keeps the over-long 90… run unmasked and incomplete', () => {
+    expect(trPhoneMask('9005321234567')).toBe('9005321234567');
+    expect(isTrPhoneMaskComplete('9005321234567')).toBe(false);
+  });
+});

@@ -47,6 +47,24 @@ function isCompleteTrPhoneBuffer(digits: string): boolean {
 }
 
 /**
+ * True while a bare digit run can still become the `90` country-code form:
+ * `9`, `90`, `905`, … up to the 11 digits that precede `90` + 10 national digits.
+ *
+ * The trunk `0` must not be inserted here. While the run is this short the `90`
+ * may still turn out to be the country code, and rewriting `90…` to `(09…` would
+ * consume it, so `905321234567` could never be typed from an empty field even
+ * though pasting the complete value works. The candidate stays raw until it is
+ * long enough to be decided by length alone.
+ *
+ * A run that is not a prefix of `90` (`95…`, `31…`, `532…`) is not a candidate,
+ * so ordinary national shorthand keeps its eager trunk `0`.
+ */
+function isCountryCodeCandidate(digits: string): boolean {
+  if (digits.length <= 2) return digits.length > 0 && '90'.startsWith(digits);
+  return digits.startsWith('90') && digits.length <= 12;
+}
+
+/**
  * The national body of a stored canonical `+90…` value, or `null` when the
  * value is not canonical under the server invariant. This is what stops a
  * historical `+900532123456` from being rendered as a valid-looking mask.
@@ -93,9 +111,12 @@ type TrPhoneBuffer = {
  * A bare digit run with no `+` is still read as Turkish: the `90` country code
  * (only when it is followed by exactly 10 national digits) and a missing trunk
  * `0` are resolved, so `905321234567` and `5321234567` land on the same buffer
- * as typing `05321234567`. A longer run is returned untouched on purpose: an
- * over-long paste stays visible and is rejected instead of being silently
- * truncated into a different, valid-looking number.
+ * as typing `05321234567`. An incomplete `90…` run is left exactly as typed
+ * instead, because it may still grow into that country-code form: the trunk `0`
+ * is inserted only once the run can no longer become one. A longer run is
+ * returned untouched on purpose: an over-long paste stays visible and is
+ * rejected instead of being silently truncated into a different, valid-looking
+ * number.
  */
 function trPhoneBuffer(value: string): TrPhoneBuffer {
   const trimmed = value.trimStart();
@@ -109,8 +130,18 @@ function trPhoneBuffer(value: string): TrPhoneBuffer {
       ? { digits: `0${national}`, explicitForeign: false, unsupported: false }
       : { digits, explicitForeign: true, unsupported: false };
   }
+  // An incomplete `90…` run is ambiguous, so it is kept exactly as typed: the
+  // `90` may still be the country code, and prefixing a trunk `0` now would eat
+  // it and make `905321234567` impossible to type. Only a 12-digit run with a
+  // canonical national body is decided, and it resolves to the same buffer as
+  // typing `05321234567`.
+  if (isCountryCodeCandidate(digits)) {
+    const national = digits.length === 12 ? digits.slice(2) : null;
+    return national !== null && isCanonicalNational(national)
+      ? { digits: `0${national}`, explicitForeign: false, unsupported: false }
+      : { digits, explicitForeign: false, unsupported: false };
+  }
   let national = digits;
-  if (national.startsWith('90') && national.length === 12) national = national.slice(2);
   if (national && !national.startsWith('0') && national.length <= 10) national = `0${national}`;
   return { digits: national, explicitForeign: false, unsupported: false };
 }

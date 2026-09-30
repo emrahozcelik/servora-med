@@ -95,6 +95,35 @@ describe('Customer create phone contract', () => {
     expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
   });
 
+  it('lets 905321234567 be typed digit by digit into the real field and submits it', async () => {
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Kademeli Klinik');
+
+    // Feed every keystroke back through the real input, exactly as the browser
+    // does. Asserting the pasted value alone missed the bug: the early `9` was
+    // rewritten to `(09…`, so the `90` country code could never be completed and
+    // `905321234567` was impossible to type from an empty field.
+    let value = '';
+    let caret = 0;
+    const seen: string[] = [];
+    for (const char of '905321234567') {
+      const raw = `${value.slice(0, caret)}${char}${value.slice(caret)}`;
+      const next = await editCustomerPhone(container, raw, caret + 1);
+      value = next.value;
+      caret = next.caret;
+      seen.push(value);
+    }
+
+    expect(seen).toEqual([
+      '9', '90', '905', '9053', '90532', '905321', '9053212', '90532123',
+      '905321234', '9053212345', '90532123456', '(0532) 123 45 67',
+    ]);
+
+    await submit();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: '(0532) 123 45 67' });
+  });
+
   it('accepts a pasted +90 number and renders it in the display format', async () => {
     await renderScreen();
     await setCustomerPhone(container, '+905321234567');
