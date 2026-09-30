@@ -17,6 +17,12 @@ The staff mapping is an array of `{ sourceUserId, productionUserId }` objects.
 Every source staff ID referenced by a customer must map to an active production
 `STAFF` user. Unresolved mappings block `--apply`.
 
+Customer phones are normalized with the CRM `normalizeTurkishPhone` contract
+while the import plan is built. Valid input is persisted in canonical `+90...`
+form. A missing or invalid customer phone is reported in the dry-run
+`invalidCount` and blocks `--apply` before any customer, contact, or audit row
+is written. Contact phone fields remain optional contact data.
+
 ## Matching and safety
 
 - Non-null normalized tax number is the strong identity key.

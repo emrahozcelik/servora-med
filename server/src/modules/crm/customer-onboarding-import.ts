@@ -7,6 +7,7 @@ import {
   CUSTOMER_STATUSES,
   CUSTOMER_TYPES,
   normalizeTaxNumber,
+  normalizeTurkishPhone,
   type CustomerStatus,
   type CustomerType,
 } from './types.js';
@@ -404,9 +405,15 @@ function buildPlan(
   }
   const seenSourceTax = new Set<string>();
   let taxConflicts = 0;
+  let invalidCount = 0;
   const plans: CustomerPlan[] = [];
   let conflictCount = mappingConflict;
-  for (const source of manifest.customers) {
+  for (const manifestSource of manifest.customers) {
+    const normalizedPhone = normalizeTurkishPhone(manifestSource.phone);
+    const source = normalizedPhone === null || normalizedPhone === manifestSource.phone
+      ? manifestSource
+      : { ...manifestSource, phone: normalizedPhone };
+    if (normalizedPhone === null) invalidCount += 1;
     const destinationStaffUserId = source.assignedSourceStaffUserId
       ? destinationStaff.get(source.assignedSourceStaffUserId) ?? null : null;
     if (source.taxNumber) {
@@ -458,11 +465,11 @@ function buildPlan(
     inputCustomers: manifest.customers.length,
     inputContacts: manifest.customers.reduce((count, customer) => count + customer.contacts.length, 0),
     createCount, existingCount, createContactCount, existingContactCount,
-    conflictCount, invalidCount: 0, staffMappingsResolved, staffMappingsUnresolved,
+    conflictCount, invalidCount, staffMappingsResolved, staffMappingsUnresolved,
     taxConflicts, dryRun: !apply,
   };
-  if (apply && (conflictCount > 0 || staffMappingsUnresolved > 0 || taxConflicts > 0)) {
-    throw importError('CUSTOMER_IMPORT_BLOCKED', 'Customer import has unresolved conflicts or staff mappings');
+  if (apply && (conflictCount > 0 || invalidCount > 0 || staffMappingsUnresolved > 0 || taxConflicts > 0)) {
+    throw importError('CUSTOMER_IMPORT_BLOCKED', 'Customer import has invalid phones, unresolved conflicts, or staff mappings');
   }
   return { customers: plans, result };
 }
