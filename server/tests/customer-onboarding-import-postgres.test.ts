@@ -147,6 +147,27 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
     });
   });
 
+  it('matches existing customer phones by canonical form', async () => {
+    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
+      await pool.query(
+        `INSERT INTO customers (organization_id,name,customer_type,status,phone)
+         VALUES ($1,'Canonical match customer','clinic','active','(0532) 123 45 67')`, [organizationId],
+      );
+      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
+        sourceId: randomUUID(), name: 'Canonical match customer', customerType: 'clinic', status: 'active',
+        taxNumber: null, phone: '+905321234567', email: null, city: null, district: null, address: null,
+        assignedSourceStaffUserId: null, contacts: [],
+      }] });
+      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: false });
+      expect(dryRun).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: true });
+      const applied = await importCustomers(pool, { organizationId, actorUserId: adminId,
+        manifest, mappings: [], apply: true });
+      expect(applied).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: false });
+      expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
+    });
+  });
+
   it('blocks unresolved staff mappings before any apply', async () => {
     await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
       const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
@@ -229,6 +250,14 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
 });
 
 describe('customer onboarding importer error boundary', () => {
+  it('names invalid customer phones in the blocked import message', () => {
+    expect(formatCustomerImportError({ code: 'CUSTOMER_IMPORT_BLOCKED' })).toEqual({
+      category: 'CONFLICT',
+      code: 'CUSTOMER_IMPORT_BLOCKED',
+      message: 'Import is blocked by invalid customer phones, a conflict, or unresolved staff mapping.',
+    });
+  });
+
   it('sanitizes PostgreSQL constraint details before operator output', () => {
     const raw = {
       code: '23505',

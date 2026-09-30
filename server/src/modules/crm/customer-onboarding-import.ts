@@ -150,7 +150,7 @@ export function formatCustomerImportError(error: unknown): SafeCustomerImportErr
     return { category: 'ACTOR_NOT_AUTHORIZED', code, message: 'Import actor is not authorized.' };
   }
   if (code === 'CUSTOMER_IMPORT_BLOCKED') {
-    return { category: 'CONFLICT', code, message: 'Import is blocked by a conflict or unresolved staff mapping.' };
+    return { category: 'CONFLICT', code, message: 'Import is blocked by invalid customer phones, a conflict, or unresolved staff mapping.' };
   }
   if (code === '23505' && value?.constraint === 'customers_organization_tax_number_unique') {
     return { category: 'TAX_NUMBER_CONFLICT', code, message: 'A customer tax-number identity conflict occurred.' };
@@ -295,6 +295,10 @@ function optionalKey(value: string | null) {
   return value?.trim().toLocaleLowerCase('tr-TR') ?? '';
 }
 
+function comparablePhone(value: string | null) {
+  return normalizeTurkishPhone(value) ?? optionalKey(value);
+}
+
 function customerFingerprint(source: CustomerOnboardingCustomer) {
   return createHash('sha256').update(JSON.stringify({ source: IMPORT_SOURCE, kind: 'customer', sourceId: source.sourceId })).digest('hex');
 }
@@ -308,7 +312,7 @@ function sameCustomer(source: CustomerOnboardingCustomer, existing: ExistingCust
     && source.customerType === existing.customerType
     && source.status === existing.status
     && source.taxNumber === existing.taxNumber
-    && source.phone === existing.phone
+    && comparablePhone(source.phone) === comparablePhone(existing.phone)
     && source.email === existing.email
     && source.city === existing.city
     && source.district === existing.district
@@ -324,11 +328,12 @@ function sameContact(source: CustomerOnboardingContact, existing: ExistingContac
 function noTaxCandidates(source: CustomerOnboardingCustomer, existing: ExistingCustomer[]) {
   const name = optionalKey(source.name);
   const withSecondary = source.email || source.phone || source.city || source.district || source.address;
+  const sourcePhone = comparablePhone(source.phone);
   return existing.filter((candidate) => {
     if (candidate.taxNumber !== null || optionalKey(candidate.name) !== name) return false;
     if (!withSecondary) return true;
     return (!source.email || optionalKey(candidate.email) === optionalKey(source.email))
-      && (!source.phone || optionalKey(candidate.phone) === optionalKey(source.phone))
+      && (!source.phone || comparablePhone(candidate.phone) === sourcePhone)
       && (!source.city || optionalKey(candidate.city) === optionalKey(source.city))
       && (!source.district || optionalKey(candidate.district) === optionalKey(source.district))
       && (!source.address || optionalKey(candidate.address) === optionalKey(source.address));

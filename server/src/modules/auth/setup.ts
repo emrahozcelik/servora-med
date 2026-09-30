@@ -15,7 +15,7 @@ export type SetupUser = {
 };
 
 export type SetupReferenceData = {
-  customer: { name: string; customerType: 'clinic'; status: 'active' };
+  customer: { name: string; customerType: 'clinic'; status: 'active'; phone: string };
   contact: { name: string; title: string; isPrimary: true };
   product: { sku: string; name: string; unit: string };
   jobCard: { type: 'PRODUCT_DELIVERY'; title: string; status: 'NEW'; priority: 'normal' };
@@ -97,7 +97,7 @@ export async function seedDevelopment(repository: SetupRepository, input: SeedIn
       title: 'Saha Personeli', phone: null, region: null, managerRole: 'MANAGER',
     },
     referenceData: {
-      customer: { name: 'Demo Dental Klinik', customerType: 'clinic', status: 'active' },
+      customer: { name: 'Demo Dental Klinik', customerType: 'clinic', status: 'active', phone: '+905321111111' },
       contact: { name: 'Dr. Ayşe Yılmaz', title: 'Doktor', isPrimary: true },
       product: { sku: 'DEMO-001', name: 'Demo İmplant Seti', unit: 'adet' },
       jobCard: { type: 'PRODUCT_DELIVERY', title: 'Demo ürün teslimi', status: 'NEW', priority: 'normal' },
@@ -184,10 +184,10 @@ export class PostgresSetupRepository implements SetupRepository {
           : null;
         const insertedCustomer = await client.query<{ id: string }>(
           `INSERT INTO customers
-             (organization_id, name, customer_type, assigned_staff_user_id, status, data_class, demo_dataset_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-          [organizationId, customer.name, customer.customerType, userIds.get('STAFF'), customer.status,
-            dataClass, demoDatasetId],
+             (organization_id, name, customer_type, phone, assigned_staff_user_id, status, data_class, demo_dataset_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+          [organizationId, customer.name, customer.customerType, customer.phone, userIds.get('STAFF'),
+            customer.status, dataClass, demoDatasetId],
         );
         const insertedContact = await client.query<{ id: string }>(
           `INSERT INTO contacts (organization_id, customer_id, name, title, is_primary)

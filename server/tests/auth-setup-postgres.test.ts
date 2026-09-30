@@ -46,6 +46,7 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       user_count: string;
       staff_profile_count: string;
       customer_count: string;
+      customer_phone: string | null;
       assigned_customer_count: string;
       primary_contact_count: string;
       product_count: string;
@@ -66,6 +67,7 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
         (SELECT COUNT(*) FROM users WHERE organization_id=o.id)::text AS user_count,
         (SELECT COUNT(*) FROM staff_profiles WHERE organization_id=o.id)::text AS staff_profile_count,
         (SELECT COUNT(*) FROM customers WHERE organization_id=o.id)::text AS customer_count,
+        (SELECT phone FROM customers WHERE organization_id=o.id LIMIT 1) AS customer_phone,
         (SELECT COUNT(*) FROM customers c
           JOIN users u ON u.id=c.assigned_staff_user_id
           WHERE c.organization_id=o.id AND u.role='STAFF' AND u.is_active=TRUE)::text AS assigned_customer_count,
@@ -104,6 +106,7 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       user_count: '3',
       staff_profile_count: '1',
       customer_count: '1',
+      customer_phone: '+905321111111',
       assigned_customer_count: '1',
       primary_contact_count: '1',
       product_count: '1',

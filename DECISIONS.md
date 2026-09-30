@@ -1573,8 +1573,10 @@ no production change, no merge in this slice.
   cannot be phone-less", which the server create contract expresses exactly;
   a `NOT NULL` would instead invalidate existing rows and require a backfill.
   The onboarding importer (`customer-onboarding-import.ts`,
-  `customers:import:onboarding`) writes customers through its own `INSERT` and
-  is out of scope and untouched.
+  `customers:import:onboarding`) is a separate controlled create path. Its
+  planning step uses the same phone normalizer, reports missing or invalid
+  customer phones in `invalidCount`, and blocks `--apply` before any write; it
+  does not require a migration or backfill of historical rows.
 - **One web create form.** `DeliveryCreate`, `GeneralTaskCreate` and
   `SalesMeetingCreate` all open the JobCard inline drawer
   (`CustomerCreateSideFlow` → `CustomerCreateFlow` → `CustomerCreateForm`), so
@@ -1582,8 +1584,9 @@ no production change, no merge in this slice.
   path. The Telefon field now sits immediately after the customer name, is
   `required`, `inputMode="tel"` and live-masked. `web/src/ui/phone.ts` is
   display-only (`(0XXX) XXX XX XX` mask, caret mapping, display formatter) and
-  submits the masked text untouched — the server remains the only normalizer,
-  so there is no second implementation of the storage rule. Over-long input is
+  submits the masked text untouched — the CRM create API remains the only
+  normalizer on this form path; the controlled importer reuses that same
+  function for its separate plan. Over-long input is
   shown unmasked rather than truncated, so a typo cannot become a valid-looking
   number. Server `fieldErrors.phone` are surfaced inline through the existing
   `ApiError.details` channel.
