@@ -10,6 +10,7 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 import type { CustomerSummary } from '../src/services/crm-api';
 import type { Product } from '../src/services/products-api';
 import type { StaffProfile } from '../src/services/people-api';
+import { setCustomerPhone } from './helpers/customer-phone';
 import {
   customerOptionTitles,
   openCustomerSearchDropdown,
@@ -355,6 +356,7 @@ describe('Delivery create CRM defaults', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -377,6 +379,7 @@ describe('Delivery create CRM defaults', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -399,6 +402,7 @@ describe('Delivery create CRM defaults', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 
@@ -416,6 +420,7 @@ describe('Delivery create CRM defaults', () => {
       (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     changeInput(container.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await setCustomerPhone(container, '05321234567');
     await act(async () => (container.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await settle();
 

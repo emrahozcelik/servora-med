@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type R
 import { ApiError } from '../services/api';
 import { getCustomer, listCustomers, type CustomerSummary } from '../services/crm-api';
 import { createRequestGate } from '../services/request-gate';
+import { formatTrPhone } from '../ui/phone';
 import { ServoraSelect } from '../ui/antd';
 
 /** Bounded remote page: the selector never loads the full customer catalog. */
@@ -41,7 +42,7 @@ export type CustomerSearchSelectProps = {
 };
 
 function optionMeta(customer: CustomerSummary) {
-  return [customer.city, customer.phone].filter((part) => part && part.trim()).join(' · ');
+  return [customer.city, formatTrPhone(customer.phone)].filter((part) => part && part.trim()).join(' · ');
 }
 
 function renderLabel(customer: CustomerSummary): ReactNode {

@@ -56,6 +56,25 @@ describe('Customer detail', () => {
     expect(managerHtml).not.toMatch(/name="status"/); expect(managerHtml).not.toMatch(/name="version"/);
   });
 
+  it('keeps historical phone values editable instead of forcing the create-time mask', () => {
+    const phoneValueOf = (html: string) => {
+      const tag = /<input[^>]*id="detail-customer-phone"[^>]*>/.exec(html)?.[0] ?? '';
+      return /value="([^"]*)"/.exec(tag)?.[1] ?? null;
+    };
+
+    // A canonical stored value shows the user-facing format; the server re-canonicalizes on save.
+    expect(phoneValueOf(render(manager, { ...customer, phone: '+905321234567' }))).toBe('(0532) 123 45 67');
+    expect(phoneValueOf(render(manager, { ...customer, phone: '+903121234567' }))).toBe('(0312) 123 45 67');
+    // Historical free text is preserved verbatim so it stays editable and savable.
+    expect(phoneValueOf(render(manager, { ...customer, phone: 'santral 555' }))).toBe('santral 555');
+    expect(phoneValueOf(render(manager, { ...customer, phone: '+49 151 12345678' }))).toBe('+49 151 12345678');
+    expect(phoneValueOf(render(manager, { ...customer, phone: '555' }))).toBe('555');
+    // A phone-less historical customer stays phone-less and editable.
+    expect(phoneValueOf(render(manager, { ...customer, phone: null }))).toBe('');
+    // Staff never gets the edit form.
+    expect(phoneValueOf(render(staff, { ...customer, phone: '+905321234567' }))).toBeNull();
+  });
+
   it('shows permanent Customer deletion only to an Admin for a pristine record', () => {
     expect(render(admin)).toContain('Kalıcı olarak sil');
     expect(render(manager)).not.toContain('Kalıcı olarak sil');

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { setCustomerPhone } from './helpers/customer-phone';
 import {
   customerOptionTitles,
   openCustomerSearchDropdown,
@@ -287,6 +288,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
 
@@ -326,6 +328,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Hatalı Klinik');
+    await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
 
@@ -345,6 +348,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
 
@@ -366,6 +370,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Yeni Klinik');
+    await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
     await flush();
 
@@ -395,6 +400,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       (Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Yeni müşteri ekle') as HTMLButtonElement).click();
     });
     change(host.querySelector('#customer-name') as HTMLInputElement, 'Snapshot Klinik');
+    await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
 
     await act(async () => {

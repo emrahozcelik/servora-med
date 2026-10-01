@@ -1527,3 +1527,35 @@ slice; no merge performed here.
   P1/P2/P5 red), M2 (guard applied globally → P4 red), M3 (NEW-status
   exemption, exactly what a recurrence worker produces → P5 red); all
   reverted, tree restored.
+## Customer phone required for interactive creation — 2026-10-01
+
+A user creating a new customer through the normal product UX must supply a name
+and a valid Turkish phone. The rule applies to `/customers/new`, STAFF-created
+prospects and the JobCard inline customer drawer; all use the shared
+`CustomerCreateFlow` and `CrmService.createCustomer`.
+
+- The server's `normalizeTurkishPhone` validates before any mutation and stores
+  accepted values as `+90XXXXXXXXXX`. Missing or malformed values return
+  `VALIDATION_ERROR` with `fieldErrors.phone`.
+- The create input progressively displays `(0XXX) XXX XX XX`. National,
+  formatted national, bare national, `90` and `+90` paste/autofill forms resolve
+  to the same presentation. Landline and 0850 numbers remain valid.
+- Foreign country claims, unsupported characters, a trunk zero after a country
+  code and overlong values remain invalid; formatting never silently repairs
+  them. Digit-based caret restoration also runs when deleting punctuation
+  produces the same masked text.
+- Existing customer edits remain permissive: null and historical free text are
+  preserved, while a supplied valid Turkish number is canonicalized. Only
+  canonical stored values are formatted for display.
+- `customers.phone` remains nullable. This is an interactive product create
+  contract, not a global database invariant or a JobCard approval requirement.
+  Production onboarding import, demo datasets, auth/bootstrap fixtures, F4 seeds
+  and direct test fixtures retain their separate contracts. They do not call
+  `CrmService.createCustomer` and this feature does not change them.
+- Dependency security maintenance, including the `jsdom → undici` lockfile
+  update, belongs in a separate maintenance PR. The audit gate stays enabled.
+
+Verification is covered by the focused server unit and real PostgreSQL phone
+suites, web mask/caret and create/edit suites, and the existing delivery,
+general-task and sales-meeting inline-create suites. No migration or backfill is
+required.

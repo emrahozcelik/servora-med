@@ -222,3 +222,76 @@ export function phoneDigitVariants(value: string) {
   if (digits.length === 11 && digits.startsWith('0')) variants.push(digits.slice(1));
   return Array.from(new Set(variants));
 }
+
+/** Country prefix of the canonical Turkish phone form stored in `customers.phone`. */
+export const TR_PHONE_COUNTRY_CODE = '+90';
+
+/** Characters users are allowed to type or paste as grouping; everything else must be a digit. */
+const TR_PHONE_SEPARATORS = /[\s\u00a0\u202f()\-.]/g;
+
+/**
+ * The single national-body invariant. A canonical value is `+90` followed by
+ * exactly 10 digits, and those 10 digits are the *national* number — so the
+ * Turkish trunk `0` must not be one of them.
+ *
+ * Expressing it once keeps the explicit `+90` branch and the bare `90…` branch
+ * from drifting apart: `+900532123456` and `900532123456` carry a trunk `0`
+ * after the country code, so they are rejected exactly like the bare 11-digit
+ * `0532123456` they mirror. No carrier or operator prefix is special-cased —
+ * `0312`, `0212`, `0216`, `05xx` and `0850` are all ordinary national bodies.
+ */
+function canonicalFromNational(national: string): string | null {
+  return national.length === 10 && !national.startsWith('0')
+    ? `${TR_PHONE_COUNTRY_CODE}${national}`
+    : null;
+}
+
+/**
+ * Canonical Turkish phone normalizer — the single source of truth for the
+ * `customers.phone` value. Accepts every shape users actually paste and
+ * resolves them to one canonical `+905XXXXXXXXX` string:
+ *
+ * `05321234567`, `(0532) 123 45 67`, `0532 123 45 67`, `+905321234567`,
+ * `905321234567`, `5321234567` → `+905321234567`
+ *
+ * An explicit `+` prefix is a country-code claim, so it is only honoured when it
+ * really is `+90`. `+` is never stripped first and the remainder treated as
+ * national digits, because that would silently rewrite a foreign number:
+ * `+3572212345` must be `null`, not `+903572212345`. The same applies to
+ * malformed Turkish forms such as `+9005321234567` (13 digits).
+ *
+ * A trunk `0` after the country code is not a national digit either:
+ * `+900532123456`, `+900312123456` and `900532123456` are rejected exactly like
+ * the bare `0532123456` they mirror, so the explicit and bare branches agree.
+ *
+ * A bare digit run with no `+` is still interpreted as Turkish, so the trunk `0`
+ * (`0…`), the `90` country code (`90…`) and a bare 10-digit national number all
+ * resolve. Returns `null` for anything that is not exactly 10 national digits,
+ * including empty input, letters, stray punctuation, a partial mask, and a bare
+ * `0532123456` (10 digits whose trunk `0` leaves only 9 national digits).
+ * Nothing is truncated or guessed, so a malformed value never silently becomes a
+ * different number. Callers decide whether `null` means "reject" (customer
+ * create) or "no phone supplied" (customer edit).
+ */
+export function normalizeTurkishPhone(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const hasCountryPrefix = trimmed.startsWith('+');
+  const body = hasCountryPrefix ? trimmed.slice(1) : trimmed;
+  const digits = body.replace(TR_PHONE_SEPARATORS, '');
+  if (!/^\d+$/.test(digits)) return null;
+  if (hasCountryPrefix) {
+    return digits.length === 12 && digits.startsWith('90')
+      ? canonicalFromNational(digits.slice(2))
+      : null;
+  }
+  const national = digits.length === 12 && digits.startsWith('90')
+    ? digits.slice(2)
+    : digits.length === 11 && digits.startsWith('0')
+      ? digits.slice(1)
+      : digits.length === 10 && !digits.startsWith('0')
+        ? digits
+        : null;
+  return national === null ? null : canonicalFromNational(national);
+}

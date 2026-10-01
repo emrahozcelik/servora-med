@@ -16,6 +16,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { PageHeader } from './ui/PageHeader';
+import { formatTrPhone } from './ui/phone';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { ResultState } from './ui/antd/ResultState';
@@ -43,7 +44,7 @@ export function mergeCustomerDetailUpdate(current: CustomerDetail, updated: Cust
 
 function CustomerFacts({ customer }: { customer: CustomerDetail }) {
   return <dl className="record-facts"><div><dt>Müşteri türü</dt><dd>{customerTypeLabels[customer.customerType]}</dd></div><div><dt>Vergi numarası</dt><dd>{customer.taxNumber ?? 'Belirtilmedi'}</dd></div>
-    <div><dt>Telefon</dt><dd>{customer.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{customer.email ?? 'Belirtilmedi'}</dd></div>
+    <div><dt>Telefon</dt><dd>{formatTrPhone(customer.phone) || 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{customer.email ?? 'Belirtilmedi'}</dd></div>
     <div><dt>Konum</dt><dd>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Belirtilmedi'}</dd></div><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
     <div className="record-fact-wide"><dt>Adres</dt><dd>{customer.address ?? 'Belirtilmedi'}</dd></div></dl>;
 }
@@ -159,7 +160,11 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
   return <form className="record-form" onSubmit={onSave}><label className="field-group" htmlFor="detail-customer-name">Müşteri adı<input id="detail-customer-name" name="name" defaultValue={customer.name} required disabled={pending} /></label>
     <label className="field-group" htmlFor="detail-customer-type">Müşteri türü<select id="detail-customer-type" name="customerType" defaultValue={customer.customerType} disabled={pending}>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <div className="customer-form-pair"><label className="field-group" htmlFor="detail-customer-tax">Vergi numarası<input id="detail-customer-tax" name="taxNumber" defaultValue={customer.taxNumber ?? ''} disabled={pending} /></label>
-      <label className="field-group" htmlFor="detail-customer-phone">Telefon<input id="detail-customer-phone" name="phone" type="tel" defaultValue={customer.phone ?? ''} disabled={pending} /></label></div>
+      {/* A plain field on purpose: the edit contract preserves historical free-text
+          phones verbatim, so forcing every value through the create-time mask here
+          would destroy values such as "santral 555". Canonical `+90…` values are
+          shown in the user-facing format and the server re-canonicalizes them. */}
+      <label className="field-group" htmlFor="detail-customer-phone">Telefon<input id="detail-customer-phone" name="phone" type="tel" defaultValue={formatTrPhone(customer.phone)} disabled={pending} /></label></div>
     <label className="field-group" htmlFor="detail-customer-email">E-posta<input id="detail-customer-email" name="email" type="email" defaultValue={customer.email ?? ''} disabled={pending} /></label>
     <div className="customer-form-pair"><label className="field-group" htmlFor="detail-customer-city">Şehir<input id="detail-customer-city" name="city" defaultValue={customer.city ?? ''} disabled={pending} /></label>
       <label className="field-group" htmlFor="detail-customer-district">İlçe<input id="detail-customer-district" name="district" defaultValue={customer.district ?? ''} disabled={pending} /></label></div>

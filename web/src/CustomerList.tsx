@@ -15,6 +15,8 @@ import {
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { PageHeader } from './ui/PageHeader';
+import { PhoneInput } from './ui/PhoneInput';
+import { isTrPhoneMaskComplete } from './ui/phone';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -280,7 +282,20 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   </main>;
 }
 
-export type CustomerFieldErrors = Partial<Record<'name' | 'customerType' | 'email' | 'contactName', string>>;
+export type CustomerFieldErrors = Partial<Record<
+  'name' | 'phone' | 'customerType' | 'email' | 'contactName', string
+>>;
+
+/** Server-side `fieldErrors` for the Customer create contract, defensively decoded. */
+export function customerServerFieldErrors(error: ApiError): CustomerFieldErrors {
+  const value = error.details?.fieldErrors;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const fields = value as Record<string, unknown>;
+  return {
+    ...(typeof fields.name === 'string' ? { name: fields.name } : {}),
+    ...(typeof fields.phone === 'string' ? { phone: fields.phone } : {}),
+  };
+}
 
 export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange, staffMode = false, currentUserName = '', contactNotice = '', contactNoticeCustomerId = '', onOpenCreatedCustomer = () => {}, embedded = false }: {
   staff: StaffProfile[];
@@ -313,13 +328,17 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
           aria-describedby={fieldErrors.name ? 'customer-name-error customer-name-help' : 'customer-name-help'} onChange={(event) => onNameChange?.(event.target.value)} />
         <p id="customer-name-help" className="form-help">Klinik, poliklinik, şirket veya kişi adı yazabilirsiniz.</p>
       </div>{fieldErrors.name && <p className="field-error" id="customer-name-error">{fieldErrors.name}</p>}
+      <div className="field-group"><label htmlFor="customer-phone">Telefon</label>
+        <PhoneInput id="customer-phone" name="phone" disabled={pending} required invalid={Boolean(fieldErrors.phone)}
+          describedBy={fieldErrors.phone ? 'customer-phone-error customer-phone-help' : 'customer-phone-help'} />
+        <p id="customer-phone-help" className="form-help">Örnek: (0532) 123 45 67. Yalnızca rakam yazın; parantez ve boşluklar otomatik eklenir.</p>
+      </div>{fieldErrors.phone && <p className="field-error" id="customer-phone-error">{fieldErrors.phone}</p>}
       <label className="field-group" htmlFor="create-customer-type">Müşteri türü
         <select id="create-customer-type" name="customerType" defaultValue="clinic" disabled={pending}>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       </label>
       <div className="customer-form-pair"><label className="field-group" htmlFor="customer-tax">Vergi numarası<input id="customer-tax" name="taxNumber" disabled={pending} /></label>
-        <label className="field-group" htmlFor="customer-phone">Telefon<input id="customer-phone" name="phone" type="tel" disabled={pending} /></label></div>
-      <label className="field-group" htmlFor="customer-email">E-posta<input id="customer-email" name="email" type="email" disabled={pending}
-        aria-invalid={fieldErrors.email ? true : undefined} aria-describedby={fieldErrors.email ? 'customer-email-error' : undefined} /></label>
+        <label className="field-group" htmlFor="customer-email">E-posta<input id="customer-email" name="email" type="email" disabled={pending}
+          aria-invalid={fieldErrors.email ? true : undefined} aria-describedby={fieldErrors.email ? 'customer-email-error' : undefined} /></label></div>
       {fieldErrors.email && <p className="field-error" id="customer-email-error">{fieldErrors.email}</p>}
       <div className="customer-form-pair"><label className="field-group" htmlFor="customer-create-city">Şehir<input id="customer-create-city" name="city" disabled={pending} /></label>
         <label className="field-group" htmlFor="customer-district">İlçe<input id="customer-district" name="district" disabled={pending} /></label></div>
@@ -529,13 +548,15 @@ export function CustomerCreateFlow({
     if (staffMode) input.assignedStaffUserId = null;
     const errors: CustomerFieldErrors = {};
     if (!name) errors.name = 'Müşteri adı zorunludur.';
+    if (!isTrPhoneMaskComplete(input.phone ?? '')) errors.phone = 'Geçerli bir telefon numarası girin.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Geçerli bir e-posta adresi yazın.';
     if (!staffMode && !contactInputFromFormData(data) && incompleteContactInput(data)) {
       errors.contactName = 'İletişim kişisi bilgileri girildiğinde ad soyad zorunludur.';
     }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      const firstErrorId = errors.name ? 'customer-name' : errors.email ? 'customer-email' : 'customer-contact-name';
+      const firstErrorId = errors.name ? 'customer-name' : errors.phone ? 'customer-phone'
+        : errors.email ? 'customer-email' : 'customer-contact-name';
       setTimeout(() => {
         const target = document.getElementById(firstErrorId);
         if (firstErrorId === 'customer-contact-name') target?.closest('details')?.setAttribute('open', '');
@@ -569,7 +590,11 @@ export function CustomerCreateFlow({
       }
       else { setSimilar(result.matches); setError('Kayıt isteğinin sonucu doğrulanamadı. Benzer kayıtları kontrol edip gerekirse yeniden deneyin.'); }
     } catch (caught) {
-      if (isCurrentAttempt()) setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.');
+      if (!isCurrentAttempt()) return;
+      // The server owns the create contract, so surface its field errors inline
+      // instead of only showing the top-level message.
+      if (caught instanceof ApiError) setFieldErrors(customerServerFieldErrors(caught));
+      setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.');
     } finally {
       if (isCurrentAttempt()) {
         setPending(false);

@@ -16,7 +16,7 @@ import type {
   CustomerStatus,
   CustomerType,
 } from './types.js';
-import { normalizeTaxNumber } from './types.js';
+import { normalizeTaxNumber, normalizeTurkishPhone } from './types.js';
 
 export type CreateCustomerInput = {
   name: string; customerType: CustomerType; status?: CustomerStatus;
@@ -38,6 +38,10 @@ export type CustomerJobHistoryInput = Pick<
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
 const customerNotFound = () => new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
 const contactNotFound = () => new AppError('CONTACT_NOT_FOUND', 404, 'İlgili kişi bulunamadı.');
+const phoneValidation = () => new AppError(
+  'VALIDATION_ERROR', 400, 'Geçerli bir telefon numarası girin.',
+  { fieldErrors: { phone: 'Geçerli bir telefon numarası girin.' } },
+);
 const versionConflict = (currentVersion?: number) => new AppError(
   'VERSION_CONFLICT', 409, 'Kayıt başka bir kullanıcı tarafından güncellendi.',
   currentVersion === undefined ? null : { currentVersion },
@@ -63,6 +67,26 @@ function required(value: string, label: string) {
 
 function optional(value: string | null) {
   return value?.trim() || null;
+}
+
+/**
+ * Interactive customer create contract: users must supply a Turkish phone.
+ * Operational import/demo/seed writers have separate contracts; the database
+ * remains nullable for those paths and historical rows.
+ */
+function requiredPhone(value: string | null) {
+  const phone = normalizeTurkishPhone(value);
+  if (phone === null) throw phoneValidation();
+  return phone;
+}
+
+/**
+ * Customer edit contract: a resolvable number is stored in canonical form,
+ * anything else is preserved verbatim (trimmed). Editing a historical customer
+ * that has no phone, or a free-text phone, must keep working.
+ */
+function editablePhone(value: string | null) {
+  return normalizeTurkishPhone(value) ?? optional(value);
 }
 
 function audit(
@@ -155,6 +179,7 @@ export class CrmService {
 
   async createCustomer(actor: CrmActor, input: CreateCustomerInput) {
     requireCustomerCreator(actor);
+    const phone = requiredPhone(input.phone);
     const staffCreated = actor.role === 'STAFF';
     const status = staffCreated ? 'prospect' : input.status ?? 'prospect';
     if (status !== 'prospect' && status !== 'active') {
@@ -167,7 +192,7 @@ export class CrmService {
         const created = await tx.createCustomer({
           organizationId: actor.organizationId, name: required(input.name, 'name'),
           customerType: input.customerType, taxNumber: normalizeTaxNumber(input.taxNumber),
-          phone: optional(input.phone), email: optional(input.email)?.toLowerCase() ?? null,
+          phone, email: optional(input.email)?.toLowerCase() ?? null,
           city: optional(input.city), district: optional(input.district), address: optional(input.address),
           assignedStaffUserId, status,
         });
@@ -194,7 +219,7 @@ export class CrmService {
         const updated = await tx.updateCustomer({
           organizationId: actor.organizationId, customerId, expectedVersion: input.expectedVersion,
           name: required(input.name, 'name'), customerType: input.customerType,
-          taxNumber: normalizeTaxNumber(input.taxNumber), phone: optional(input.phone),
+          taxNumber: normalizeTaxNumber(input.taxNumber), phone: editablePhone(input.phone),
           email: optional(input.email)?.toLowerCase() ?? null, city: optional(input.city),
           district: optional(input.district), address: optional(input.address),
           assignedStaffUserId: input.assignedStaffUserId,
