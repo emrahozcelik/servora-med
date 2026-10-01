@@ -267,12 +267,10 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         application_name: 'ovr49-ambig',
       });
       // pg_terminate_backend deliberately kills this pool's single connection.
-      // Register sinks on both the pool and every checked-out client: node-pg
-      // may surface the expected socket error on either event emitter.
+      // node-pg surfaces that socket error as a pool 'error' event; register an
+      // expected-event sink so the deliberate termination cannot escape as an
+      // unhandled error while the test still asserts the ambiguous outcome.
       terminating.on('error', () => undefined);
-      terminating.on('connect', (client) => {
-        client.on('error', () => undefined);
-      });
       try {
         const repository = new PostgresJobCardRepository(terminating);
         const claim = intentClaim(organizationId, userId, jobCardId, randomUUID());

@@ -70,10 +70,9 @@ function optional(value: string | null) {
 }
 
 /**
- * Customer create contract: a new customer must carry a resolvable Turkish
- * phone number. Enforced in the service — not in the handler and not as a
- * database constraint — so every create caller is covered while historical rows
- * and the edit contract stay untouched.
+ * Interactive customer create contract: users must supply a Turkish phone.
+ * Operational import/demo/seed writers have separate contracts; the database
+ * remains nullable for those paths and historical rows.
  */
 function requiredPhone(value: string | null) {
   const phone = normalizeTurkishPhone(value);

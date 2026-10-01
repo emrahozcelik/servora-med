@@ -1527,80 +1527,35 @@ slice; no merge performed here.
   P1/P2/P5 red), M2 (guard applied globally → P4 red), M3 (NEW-status
   exemption, exactly what a recurrence worker produces → P5 red); all
   reverted, tree restored.
+## Customer phone required for interactive creation — 2026-10-01
 
-## Customer phone required at creation — 2026-09-29
+A user creating a new customer through the normal product UX must supply a name
+and a valid Turkish phone. The rule applies to `/customers/new`, STAFF-created
+prospects and the JobCard inline customer drawer; all use the shared
+`CustomerCreateFlow` and `CrmService.createCustomer`.
 
-Product rule: a **newly created** Customer must carry a resolvable Turkish phone
-number, alongside its name. The invariant lives in the customer **create
-contract**. It is deliberately not a JobCard lifecycle rule, not a
-`SUBMIT_FOR_APPROVAL` prerequisite and not a database constraint. No backfill,
-no production change, no merge in this slice.
+- The server's `normalizeTurkishPhone` validates before any mutation and stores
+  accepted values as `+90XXXXXXXXXX`. Missing or malformed values return
+  `VALIDATION_ERROR` with `fieldErrors.phone`.
+- The create input progressively displays `(0XXX) XXX XX XX`. National,
+  formatted national, bare national, `90` and `+90` paste/autofill forms resolve
+  to the same presentation. Landline and 0850 numbers remain valid.
+- Foreign country claims, unsupported characters, a trunk zero after a country
+  code and overlong values remain invalid; formatting never silently repairs
+  them. Digit-based caret restoration also runs when deleting punctuation
+  produces the same masked text.
+- Existing customer edits remain permissive: null and historical free text are
+  preserved, while a supplied valid Turkish number is canonicalized. Only
+  canonical stored values are formatted for display.
+- `customers.phone` remains nullable. This is an interactive product create
+  contract, not a global database invariant or a JobCard approval requirement.
+  Production onboarding import, demo datasets, auth/bootstrap fixtures, F4 seeds
+  and direct test fixtures retain their separate contracts. They do not call
+  `CrmService.createCustomer` and this feature does not change them.
+- Dependency security maintenance, including the `jsdom → undici` lockfile
+  update, belongs in a separate maintenance PR. The audit gate stays enabled.
 
-- **One normalizer, one canonical form.** `normalizeTurkishPhone` in
-  `server/src/modules/crm/types.ts` is the single source of truth for the
-  `customers.phone` value; it sits next to the existing `normalizeTaxNumber`
-  precedent. Every accepted shape collapses to one canonical
-  `+905XXXXXXXXX` string: `05321234567`, `(0532) 123 45 67`,
-  `0532 123 45 67`, `+905321234567`, `905321234567`, `90 532 123 45 67`,
-  `5321234567`. Only grouping characters (whitespace, `(`, `)`, `-`, `.`) are
-  stripped; the remainder must be all digits, so letters and stray punctuation
-  are rejected rather than filtered out. The national part must then be exactly
-  10 digits, reached from either a `90` country prefix (12 digits) or a trunk
-  `0` (11 digits) or bare (10 digits) — so a bare `0532123456` is rejected
-  because its trunk `0` leaves only 9 national digits. Nothing is truncated or
-  guessed, which is what stops a malformed value from silently becoming a
-  different number. The first national digit is intentionally **not**
-  restricted, so `0850` corporate numbers and `0312`/`0212`/`0216` landlines are
-  accepted; the format is `(0XXX) XXX XX XX`, not a mobile-only `05xx` rule.
-- **Requirement enforced in the service, not the handler.** `createCustomer`
-  normalizes and rejects before opening its transaction
-  (`const phone = requiredPhone(input.phone)`), so validation precedes every
-  mutation and any future create caller inherits the rule. The rejection uses
-  the existing `VALIDATION_ERROR` contract with
-  `details.fieldErrors.phone = 'Geçerli bir telefon numarası girin.'` — no new
-  error architecture. `handlers.ts` was left untouched: its shared
-  `customerInput()` mapper is used by both create and update, and putting the
-  requirement there would have broken the PATCH contract.
-- **Create and edit are deliberately asymmetric.** A resolvable number is stored
-  canonically on both paths, but only create *requires* one. `updateCustomer`
-  uses `editablePhone`, which keeps an unresolvable supplied value verbatim
-  (trimmed) and still accepts `null`, so a historical customer with no phone, or
-  with free text such as `555`, keeps editing normally and does not have to
-  acquire a phone during an unrelated change. Canonicalization therefore happens
-  on an edit only when the operator actually supplies a resolvable number.
-- **No database migration.** `customers.phone` stays `character varying(50)`,
-  nullable, unconstrained. The product rule is "a customer created from now on
-  cannot be phone-less", which the server create contract expresses exactly;
-  a `NOT NULL` would instead invalidate existing rows and require a backfill.
-  The onboarding importer (`customer-onboarding-import.ts`,
-  `customers:import:onboarding`) is a separate controlled create path. Its
-  planning step uses the same phone normalizer, reports missing or invalid
-  phones for would-create customers in `invalidCount`, and blocks `--apply`
-  before any write. A fingerprint-matched historical row remains an idempotent
-  existing result even when it predates the phone requirement; the importer
-  does not require a migration or backfill of historical rows.
-- **One web create form.** `DeliveryCreate`, `GeneralTaskCreate` and
-  `SalesMeetingCreate` all open the JobCard inline drawer
-  (`CustomerCreateSideFlow` → `CustomerCreateFlow` → `CustomerCreateForm`), so
-  the single form change covers every creation path; there is no weaker second
-  path. The Telefon field now sits immediately after the customer name, is
-  `required` and `inputMode="numeric"`. The field starts with an automatic
-  trunk `0` and accepts exactly ten following user digits; non-digits and an
-  eleventh user digit leave the last accepted value unchanged. It submits the
-  resulting 11-digit national value untouched, and the CRM create API remains
-  the canonical storage normalizer. `web/src/ui/phone.ts` also keeps the small
-  canonical display formatter used by customer read views. Server
-  `fieldErrors.phone` are surfaced inline through the existing
-  `ApiError.details` channel.
-- **Evidence.** Server unit: `crm-customer-phone.test.ts` (accepted/rejected
-  matrix, round-trip idempotence, create rejection before any write, staff path,
-  edit permissiveness). Server HTTP + real PostgreSQL:
-  `crm-customer-phone-postgres.test.ts` (per-shape canonical storage verified in
-  the row, malformed create → 400 with `fieldErrors` and zero rows written,
-  phone-less and free-text historical customers still editable, canonical rows
-  still found by the existing phone search variants). Web:
-  `phone-mask.test.ts`, `customer-phone.test.tsx` and the new inline-drawer case
-  in `customer-create-side-flow.test.tsx`. Existing fixtures that encoded the
-  old contract (`crm-service.test.ts`, the four create-screen suites) were
-  updated to supply a phone; the contact phone is a different entity and was not
-  touched.
+Verification is covered by the focused server unit and real PostgreSQL phone
+suites, web mask/caret and create/edit suites, and the existing delivery,
+general-task and sales-meeting inline-create suites. No migration or backfill is
+required.

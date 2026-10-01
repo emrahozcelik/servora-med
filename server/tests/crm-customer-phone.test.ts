@@ -73,7 +73,8 @@ describe('normalizeTurkishPhone', () => {
   it('rejects empty, short, long, non-numeric and foreign values without guessing', () => {
     const rejected = [
       '', '   ', '0', '0532', '0532123456', '053212345678', '532123456', '53212345678',
-      'abcdef', '0532 123 45 67 x', '---', '+', '(0532) 123 45', '0532-123-45-6',
+      'abcdef', '0532 123 45 67 x', '0532x1234567', '90+5321234567',
+      '---', '+', '(0532) 123 45', '0532-123-45-6',
       '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
       '+3572212345', '+15551234567', '+495551234567', '+1555123456', '+492212345678',
       // Trunk `0` after the country code, in the explicit and the bare form.
@@ -144,7 +145,8 @@ describe('normalizeTurkishPhone', () => {
 describe('customer create contract requires a normalized Turkish phone', () => {
   it('rejects a missing or malformed phone with fieldErrors before any write', async () => {
     const rejected = [null, '', '   ', '0532', '0532123456', '053212345678', 'abc',
-      '+1 202 555 0147', '---', '+3572212345', '+15551234567', '+495551234567',
+      '+1 202 555 0147', '0532x1234567', '90+5321234567', '---',
+      '+3572212345', '+15551234567', '+495551234567',
       '+9005321234567', '+9003121234567',
       '+900532123456', '900532123456', '+900312123456', '900312123456', '+900850123456'];
     for (const phone of rejected) {

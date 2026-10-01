@@ -9,7 +9,6 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
-import { normalizeTurkishPhone } from '../src/modules/crm/types.js';
 import { PostgresDemoDatasetRepository } from '../src/modules/demo-data/repository.js';
 import { DemoDatasetService } from '../src/modules/demo-data/service.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
@@ -151,38 +150,6 @@ describe.skipIf(!databaseUrl)('D1 demo dataset -- managed backend creation', () 
         [fixture.organizationId],
       );
       expect(active.rows[0]!.n).toBe(1);
-    });
-  });
-
-  it('persists canonical phones for every demo customer and preserves them on replay', async () => {
-    await withIsolatedDatabase(async (fixture) => {
-      const clientActionId = randomUUID();
-      const created = await fixture.createService.create(fixture.admin, { clientActionId });
-      const readCustomers = () => fixture.pool.query<{ id: string; name: string; phone: string | null }>(
-        `SELECT id, name, phone FROM customers
-          WHERE organization_id = $1 AND demo_dataset_id = $2 AND data_class = 'DEMO'
-          ORDER BY id`,
-        [fixture.organizationId, created.dataset.id],
-      );
-
-      const customers = await readCustomers();
-      expect(customers.rows).toHaveLength(5);
-      for (const customer of customers.rows) {
-        const canonical = normalizeTurkishPhone(customer.phone);
-        expect(canonical, customer.name).not.toBeNull();
-        expect(customer.phone, customer.name).toBe(canonical);
-      }
-
-      const replay = await fixture.createService.create(fixture.admin, { clientActionId });
-      expect(replay.replayed).toBe(true);
-      expect(replay.dataset.id).toBe(created.dataset.id);
-      expect((await readCustomers()).rows).toEqual(customers.rows);
-
-      const business = await fixture.pool.query<{ phone: string | null }>(
-        "SELECT phone FROM customers WHERE organization_id = $1 AND data_class = 'BUSINESS'",
-        [fixture.organizationId],
-      );
-      expect(business.rows).toEqual([{ phone: null }]);
     });
   });
 

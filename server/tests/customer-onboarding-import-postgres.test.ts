@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
@@ -37,7 +37,7 @@ async function withDatabase(run: (pool: Pool, organizationId: string, sourceOrga
       `INSERT INTO users (organization_id,name,email,password_hash,role) VALUES ($1,'Staff','staff@example.test','unused','STAFF') RETURNING id`,
       [organizationId],
     )).rows[0]!.id;
-    await run(pool, organizationId, sourceOrganizationId, adminId, staffId);
+    await runPool(pool, organizationId, sourceOrganizationId, adminId, staffId);
   } finally {
     await pool?.end();
     await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
@@ -59,19 +59,19 @@ async function runPool(
     customers: [
       {
         sourceId: randomUUID(), name: 'Dental A', customerType: 'clinic', status: 'active',
-        taxNumber: '12 34', phone: '0532 123 45 67', email: 'A@Example.test', city: 'İstanbul', district: null,
+        taxNumber: '12 34', phone: '555', email: 'A@Example.test', city: 'İstanbul', district: null,
         address: null, assignedSourceStaffUserId: sourceStaffId,
         contacts: [{ sourceId: contactId, name: 'Dr. A', title: 'Satın Alma', phone: null,
           email: 'contact@example.test', isPrimary: true, isActive: true }],
       },
       {
         sourceId: randomUUID(), name: 'Dental B', customerType: 'hospital', status: 'prospect',
-        taxNumber: null, phone: '+90 212 000 00 02', email: null, city: null, district: null, address: null,
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null, contacts: [],
       },
       {
         sourceId: randomUUID(), name: 'Dental C', customerType: 'clinic', status: 'inactive',
-        taxNumber: '56 78', phone: '+90 312 000 00 03', email: null, city: null, district: null, address: null,
+        taxNumber: '56 78', phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null,
         contacts: [{ sourceId: randomUUID(), name: 'Dr. C', title: null, phone: null,
           email: null, isPrimary: true, isActive: true }],
@@ -116,97 +116,11 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
     });
   });
 
-  it('normalizes customer phones and blocks invalid phones before apply', async () => {
-    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
-      const validManifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
-        sourceId: randomUUID(), name: 'Canonical phone customer', customerType: 'clinic', status: 'active',
-        taxNumber: null, phone: '(0532) 123 45 67', email: null, city: null, district: null, address: null,
-        assignedSourceStaffUserId: null, contacts: [],
-      }] });
-      const applied = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest: validManifest, mappings: [], apply: true });
-      expect(applied).toMatchObject({ createCount: 1, invalidCount: 0, dryRun: false });
-      expect((await pool.query<{ phone: string }>(
-        `SELECT phone FROM customers WHERE organization_id=$1 AND name='Canonical phone customer'`, [organizationId],
-      )).rows[0]).toEqual({ phone: '+905321234567' });
-
-      const invalidManifest = parseCustomerOnboardingManifest({ version: 1, customers: [
-        { sourceId: randomUUID(), name: 'Missing phone customer', customerType: 'clinic', status: 'active',
-          taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
-          assignedSourceStaffUserId: null, contacts: [] },
-        { sourceId: randomUUID(), name: 'Malformed phone customer', customerType: 'clinic', status: 'active',
-          taxNumber: null, phone: '555', email: null, city: null, district: null, address: null,
-          assignedSourceStaffUserId: null, contacts: [] },
-      ] });
-      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest: invalidManifest, mappings: [], apply: false });
-      expect(dryRun).toMatchObject({ createCount: 2, invalidCount: 2, dryRun: true });
-      await expect(importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest: invalidManifest, mappings: [], apply: true })).rejects.toMatchObject({ code: 'CUSTOMER_IMPORT_BLOCKED' });
-      expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
-    });
-  });
-
-  it('matches existing customer phones by canonical form', async () => {
-    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
-      await pool.query(
-        `INSERT INTO customers (organization_id,name,customer_type,status,phone)
-         VALUES ($1,'Canonical match customer','clinic','active','(0532) 123 45 67')`, [organizationId],
-      );
-      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
-        sourceId: randomUUID(), name: 'Canonical match customer', customerType: 'clinic', status: 'active',
-        taxNumber: null, phone: '+905321234567', email: null, city: null, district: null, address: null,
-        assignedSourceStaffUserId: null, contacts: [],
-      }] });
-      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest, mappings: [], apply: false });
-      expect(dryRun).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: true });
-      const applied = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest, mappings: [], apply: true });
-      expect(applied).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: false });
-      expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
-    });
-  });
-
-  it('reapplies a legacy fingerprint match without requiring a new phone', async () => {
-    await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
-      const sourceId = randomUUID();
-      const customerId = (await pool.query<{ id: string }>(
-        `INSERT INTO customers (organization_id,name,customer_type,status,phone)
-         VALUES ($1,'Legacy imported customer','clinic','active',NULL) RETURNING id`, [organizationId],
-      )).rows[0]!.id;
-      const sourceFingerprint = createHash('sha256').update(JSON.stringify({
-        source: 'production-customer-onboarding', kind: 'customer', sourceId,
-      })).digest('hex');
-      await pool.query(
-        `INSERT INTO audit_events
-          (organization_id,actor_user_id,subject_type,subject_id,event_type,old_value,new_value,metadata)
-         VALUES ($1,$2,'CUSTOMER',$3,'CUSTOMER_CREATED',NULL,$4,$5)`,
-        [organizationId, adminId, customerId, {}, {
-          source: 'production-customer-onboarding', importVersion: 1, sourceFingerprint,
-        }],
-      );
-      const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
-        sourceId, name: 'Legacy imported customer', customerType: 'clinic', status: 'active',
-        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
-        assignedSourceStaffUserId: null, contacts: [],
-      }] });
-
-      const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest, mappings: [], apply: false });
-      expect(dryRun).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: true });
-      const applied = await importCustomers(pool, { organizationId, actorUserId: adminId,
-        manifest, mappings: [], apply: true });
-      expect(applied).toMatchObject({ createCount: 0, existingCount: 1, conflictCount: 0, invalidCount: 0, dryRun: false });
-      expect((await pool.query(`SELECT count(*)::int AS count FROM customers WHERE organization_id=$1`, [organizationId])).rows[0].count).toBe(1);
-    });
-  });
-
   it('blocks unresolved staff mappings before any apply', async () => {
     await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
       const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
         sourceId: randomUUID(), name: 'Needs staff', customerType: 'clinic', status: 'active',
-        taxNumber: null, phone: '0532 000 00 01', email: null, city: null, district: null, address: null,
+        taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: randomUUID(), contacts: [],
       }] });
       const result = await importCustomers(pool, { organizationId, actorUserId: adminId,
@@ -228,7 +142,7 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
       `);
       const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
         sourceId: randomUUID(), name: 'Atomic customer', customerType: 'clinic', status: 'active',
-        taxNumber: '999', phone: '0532 000 00 02', email: null, city: null, district: null, address: null,
+        taxNumber: '999', phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null,
         contacts: [{ sourceId: randomUUID(), name: 'Atomic contact', title: null, phone: null,
           email: null, isPrimary: true, isActive: true }],
@@ -245,10 +159,10 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
     await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
       const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [
         { sourceId: randomUUID(), name: 'Tax duplicate A', customerType: 'clinic', status: 'active',
-          taxNumber: 'DUP-1', phone: '0532 000 00 03', email: null, city: null, district: null, address: null,
+          taxNumber: 'DUP-1', phone: null, email: null, city: null, district: null, address: null,
           assignedSourceStaffUserId: null, contacts: [] },
         { sourceId: randomUUID(), name: 'Tax duplicate B', customerType: 'clinic', status: 'active',
-          taxNumber: 'DUP 1', phone: '0532 000 00 04', email: null, city: null, district: null, address: null,
+          taxNumber: 'DUP 1', phone: null, email: null, city: null, district: null, address: null,
           assignedSourceStaffUserId: null, contacts: [] },
       ] });
       const dryRun = await importCustomers(pool, { organizationId, actorUserId: adminId,
@@ -263,12 +177,12 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
   it('blocks adding a missing contact to an existing inactive customer', async () => {
     await withDatabase(async (pool, organizationId, _sourceOrganizationId, adminId, _staffId) => {
       const customerId = (await pool.query<{ id: string }>(
-        `INSERT INTO customers (organization_id,name,customer_type,status,tax_number,phone)
-         VALUES ($1,'Inactive target','clinic','inactive','INACTIVE1','+905320000005') RETURNING id`, [organizationId],
+        `INSERT INTO customers (organization_id,name,customer_type,status,tax_number)
+         VALUES ($1,'Inactive target','clinic','inactive','INACTIVE-1') RETURNING id`, [organizationId],
       )).rows[0]!.id;
       const manifest = parseCustomerOnboardingManifest({ version: 1, customers: [{
         sourceId: randomUUID(), name: 'Inactive target', customerType: 'clinic', status: 'inactive',
-        taxNumber: 'INACTIVE 1', phone: '0532 000 00 05', email: null, city: null, district: null, address: null,
+        taxNumber: 'INACTIVE 1', phone: null, email: null, city: null, district: null, address: null,
         assignedSourceStaffUserId: null,
         contacts: [{ sourceId: randomUUID(), name: 'New contact', title: null, phone: null,
           email: null, isPrimary: true, isActive: true }],
@@ -284,14 +198,6 @@ describe.skipIf(!databaseUrl)('customer onboarding importer PostgreSQL contract'
 });
 
 describe('customer onboarding importer error boundary', () => {
-  it('names invalid customer phones in the blocked import message', () => {
-    expect(formatCustomerImportError({ code: 'CUSTOMER_IMPORT_BLOCKED' })).toEqual({
-      category: 'CONFLICT',
-      code: 'CUSTOMER_IMPORT_BLOCKED',
-      message: 'Import is blocked by invalid customer phones, a conflict, or unresolved staff mapping.',
-    });
-  });
-
   it('sanitizes PostgreSQL constraint details before operator output', () => {
     const raw = {
       code: '23505',

@@ -1033,10 +1033,10 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
         const assigned = i < 2 ? demoStaff[0]!.id : i === 2 ? demoStaff[1]!.id : null;
         const row = await client.query<{ id: string }>(
           `INSERT INTO customers
-              (organization_id, name, customer_type, assigned_staff_user_id, phone, status, data_class, demo_dataset_id)
-            VALUES ($1, $2, $3, $4, $5, 'active', 'DEMO', $6)
+              (organization_id, name, customer_type, assigned_staff_user_id, status, data_class, demo_dataset_id)
+            VALUES ($1, $2, $3, $4, 'active', 'DEMO', $5)
             RETURNING id`,
-          [organizationId, customerNames[i], customerTypes[i], assigned, `+90212000000${i + 1}`, datasetId],
+          [organizationId, customerNames[i], customerTypes[i], assigned, datasetId],
         );
         demoCustomers.push(row.rows[0]!.id);
       }
