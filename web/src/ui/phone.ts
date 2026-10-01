@@ -263,8 +263,13 @@ export function trPhoneEdit(raw: string, caret: number): { value: string; caret:
   // digit positions aligned; a pasted country prefix moves every digit, so the
   // caret goes to the end there instead of pointing at the wrong place.
   const aligned = digits === rawDigits || digits === `0${rawDigits}`;
+  const restoredCaret = aligned
+    ? trPhoneCaret(value, digitsBeforeCaret + (digits === rawDigits ? 0 : 1))
+    : value.length;
   return {
     value,
-    caret: aligned ? trPhoneCaret(value, digitsBeforeCaret + (digits === rawDigits ? 0 : 1)) : value.length,
+    // Restoring an opening separator must also place edits after the automatic
+    // `(0` prefix; otherwise the next digit can be mistaken for a country code.
+    caret: Math.max(value.startsWith('(0') ? 2 : 0, restoredCaret),
   };
 }

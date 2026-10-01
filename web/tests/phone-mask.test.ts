@@ -104,6 +104,15 @@ describe('trPhoneCaret', () => {
 describe('trPhoneEdit', () => {
   const masked = '(0532) 123 45 67';
 
+  it('restores the opening prefix before the caret and retains the next typed digit', () => {
+    const restored = trPhoneEdit('0532) 123 45 67', 0);
+    expect(restored).toEqual({ value: masked, caret: 2 });
+    const raw = `${restored.value.slice(0, restored.caret)}9${restored.value.slice(restored.caret)}`;
+    const next = trPhoneEdit(raw, restored.caret + 1);
+    expect(next.value).toBe('095321234567');
+    expect(isTrPhoneMaskComplete(next.value)).toBe(false);
+  });
+
   it('re-masks and keeps the caret on the same digit when only a separator is deleted', () => {
     // Deleting the space after `)` leaves the masked text identical to before, so a
     // value-dependent React effect would never run: the raw text would stay on

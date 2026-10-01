@@ -209,6 +209,21 @@ describe('Customer create phone contract', () => {
     expect(result.caret).toBe(5);
   });
 
+  it('keeps edits after the restored opening prefix without consuming the next digit', async () => {
+    await renderScreen();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Prefix Edit Clinic');
+    await setCustomerPhone(container, '05321234567');
+    const restored = await editCustomerPhone(container, '0532) 123 45 67', 0);
+    expect(restored).toEqual({ value: '(0532) 123 45 67', caret: 2 });
+    const raw = `${restored.value.slice(0, restored.caret)}9${restored.value.slice(restored.caret)}`;
+    const next = await editCustomerPhone(container, raw, restored.caret + 1);
+    expect(next.value).toBe('095321234567');
+    await submit();
+    expect(crmApi.createCustomer).not.toHaveBeenCalled();
+    expect(container.querySelector('#customer-phone-error')?.textContent)
+      .toContain('Geçerli bir telefon numarası girin.');
+  });
+
   it('blocks the request and shows an inline error when the phone is missing', async () => {
     await renderScreen();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Telefonsuz Klinik');
