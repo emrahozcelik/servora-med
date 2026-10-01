@@ -150,4 +150,65 @@ describe('trusted proxy login rate limits', () => {
     expect((await spoofed('203.0.113.2')).statusCode).toBe(401);
     expect((await spoofed('203.0.113.3')).statusCode).toBe(429);
   });
+
+  // Regression coverage for GHSA-grpc-p53c-r64v (CVE-2026-15144), fixed in
+  // @fastify/rate-limit 11.2.0. Before that release the bucket key was the
+  // verbatim `request.ip` string, so an IPv6 client could reset its budget by
+  // rotating the interface identifier inside its own /64, or by rewriting the
+  // same address in a different textual form.
+  describe('IPv6 client identity normalization', () => {
+    const payload = { email: 'admin@example.com', password: 'wrong-password' };
+
+    const attempt = (app: Awaited<ReturnType<typeof buildApp>>, forwarded: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        remoteAddress: '127.0.0.1',
+        headers: {
+          origin: baseConfig.corsOrigin,
+          'x-forwarded-for': forwarded,
+        },
+        payload,
+      });
+
+    it('collapses address rotation within one /64 into a single bucket', async () => {
+      const app = await readyApp();
+
+      // Three distinct interface identifiers inside 2001:db8:1:2::/64.
+      expect((await attempt(app, '2001:db8:1:2::1')).statusCode).toBe(401);
+      expect((await attempt(app, '2001:db8:1:2::beef')).statusCode).toBe(401);
+      // Rotating the address must NOT buy a fresh bucket.
+      expect((await attempt(app, '2001:db8:1:2:aaaa:bbbb:cccc:dddd')).statusCode).toBe(429);
+    });
+
+    it('keeps distinct IPv6 /64 prefixes in independent buckets', async () => {
+      const app = await readyApp();
+
+      expect((await attempt(app, '2001:db8:1:2::1')).statusCode).toBe(401);
+      expect((await attempt(app, '2001:db8:1:2::2')).statusCode).toBe(401);
+      expect((await attempt(app, '2001:db8:1:2::3')).statusCode).toBe(429);
+
+      // A different /64 is a different client identity.
+      expect((await attempt(app, '2001:db8:1:3::1')).statusCode).toBe(401);
+    });
+
+    it('normalizes equivalent IPv6 textual forms to one identity', async () => {
+      const app = await readyApp();
+
+      // Expanded, zero-padded, upper-case form of 2001:db8:1:2::1.
+      expect((await attempt(app, '2001:DB8:0001:0002:0000:0000:0000:0001')).statusCode).toBe(401);
+      // Compressed lower-case form of the same address.
+      expect((await attempt(app, '2001:db8:1:2::1')).statusCode).toBe(401);
+      expect((await attempt(app, '2001:db8:1:2::2')).statusCode).toBe(429);
+    });
+
+    it('collapses IPv4-mapped IPv6 to the plain IPv4 identity', async () => {
+      const app = await readyApp();
+
+      expect((await attempt(app, '203.0.113.10')).statusCode).toBe(401);
+      // Same host, IPv4-mapped textual form — must share the IPv4 bucket.
+      expect((await attempt(app, '::ffff:203.0.113.10')).statusCode).toBe(401);
+      expect((await attempt(app, '::ffff:203.0.113.10')).statusCode).toBe(429);
+    });
+  });
 });

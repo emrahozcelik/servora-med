@@ -154,4 +154,74 @@ describe('auth HTTP routes', () => {
     await request(); await request();
     expect((await request()).statusCode).toBe(429);
   });
+
+  it('returns an identical generic body for an unknown email and a wrong password', async () => {
+    const unknown = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'nobody@example.com', password: 'wrong-password' } });
+    const wrong = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'wrong-password' } });
+
+    expect(unknown.statusCode).toBe(401);
+    expect(wrong.statusCode).toBe(401);
+    // No email-existence disclosure: byte-identical public error contract.
+    expect(unknown.body).toBe(wrong.body);
+    expect(unknown.json()).toMatchObject({ code: 'INVALID_CREDENTIALS' });
+  });
+
+  it('throttles repeated current-password guesses within one session', async () => {
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'correct-password' } });
+    const cookie = login.headers['set-cookie'] as string;
+    const guess = () => app.inject({ method: 'POST', url: '/api/auth/change-password',
+      headers: { cookie, origin: baseConfig.corsOrigin },
+      payload: { currentPassword: 'wrong-password', newPassword: 'new-secure-password' } });
+
+    // Deliberately tighter than the login budget (default 3 per window).
+    expect((await guess()).statusCode).toBe(400);
+    expect((await guess()).statusCode).toBe(400);
+    expect((await guess()).statusCode).toBe(400);
+    expect((await guess()).statusCode).toBe(429);
+  });
+
+  it('does not throttle unrelated authenticated routes once the change-password budget is spent', async () => {
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'correct-password' } });
+    const cookie = login.headers['set-cookie'] as string;
+    const guess = () => app.inject({ method: 'POST', url: '/api/auth/change-password',
+      headers: { cookie, origin: baseConfig.corsOrigin },
+      payload: { currentPassword: 'wrong-password', newPassword: 'new-secure-password' } });
+
+    await guess(); await guess(); await guess();
+    expect((await guess()).statusCode).toBe(429);
+
+    // The throttle is scoped to the route, not the authenticated surface.
+    const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+    expect(me.statusCode).toBe(200);
+  });
+
+  it('keeps successful password-change session semantics unchanged', async () => {
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'correct-password' } });
+    const cookie = login.headers['set-cookie'] as string;
+
+    const changed = await app.inject({ method: 'POST', url: '/api/auth/change-password',
+      headers: { cookie, origin: baseConfig.corsOrigin },
+      payload: { currentPassword: 'correct-password', newPassword: 'new-secure-password' } });
+    expect(changed.statusCode).toBe(204);
+    expect(changed.headers['set-cookie']).toMatch(/Max-Age=0/i);
+
+    // The presented session is revoked by the change...
+    const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+    expect(me.statusCode).toBe(401);
+    // ...and the new credential authenticates while the old one does not.
+    const relogin = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'new-secure-password' } });
+    expect(relogin.statusCode).toBe(200);
+  });
 });

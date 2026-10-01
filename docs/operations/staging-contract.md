@@ -119,6 +119,7 @@ No values or real credentials are recorded.
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; default `28800` |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts per limiter window; default `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | limiter window; default `60000` |
+| `CHANGE_PASSWORD_RATE_LIMIT_MAX` | no | authenticated `POST /api/auth/change-password` attempts per limiter window; default `3` |
 
 ### Readiness
 

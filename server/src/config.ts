@@ -110,6 +110,14 @@ export type AppConfig = {
   sessionTtlSeconds: number;
   loginRateLimitMax: number;
   rateLimitWindowMs: number;
+  /**
+   * Bounded authenticated-write budget for `POST /api/auth/change-password`.
+   * Deliberately tighter than `loginRateLimitMax`: the endpoint is an oracle
+   * for repeated current-password guessing, so a single signed-in session must
+   * not be able to probe it indefinitely. Optional so existing API-only config
+   * fixtures remain source-compatible; `loadConfig` always populates it.
+   */
+  changePasswordRateLimitMax?: number;
   trustedProxy: TrustedProxy;
   healthSchemaVersion: string | null;
   /**
@@ -165,6 +173,12 @@ const DEFAULT_REVERSE_GEOCODER_TIMEOUT_MS = 2_000;
 const DEFAULT_GEOCODING_USER_DAILY_LIMIT = 15;
 const DEFAULT_GEOCODING_ORG_DAILY_LIMIT = 250;
 const DEFAULT_GEOCODING_GLOBAL_MONTHLY_LIMIT = 8_000;
+
+/**
+ * Single source of truth for the change-password throttle. Tighter than the
+ * login budget because the route is an authenticated current-password oracle.
+ */
+export const CHANGE_PASSWORD_RATE_LIMIT_MAX_DEFAULT = 3;
 
 function readNonEmpty(value: string | undefined, fallback: string, name: string): string {
   const resolved = value?.trim() || fallback;
@@ -718,6 +732,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sessionTtlSeconds: readPositiveInteger(env.SESSION_TTL_SECONDS, 28_800, 'SESSION_TTL_SECONDS'),
     loginRateLimitMax: readPositiveInteger(env.LOGIN_RATE_LIMIT_MAX, 5, 'LOGIN_RATE_LIMIT_MAX'),
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
+    changePasswordRateLimitMax: readPositiveInteger(
+      env.CHANGE_PASSWORD_RATE_LIMIT_MAX,
+      CHANGE_PASSWORD_RATE_LIMIT_MAX_DEFAULT,
+      'CHANGE_PASSWORD_RATE_LIMIT_MAX',
+    ),
     trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
     healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
     releaseSha: readReleaseSha(env.SERVORA_RELEASE_SHA, typedNodeEnv),
