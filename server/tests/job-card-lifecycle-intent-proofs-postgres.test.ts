@@ -14,6 +14,7 @@ import {
   insertProofOrg,
   insertProofUser,
   readDbClock,
+  sabotageDispatchedStatements,
   waitFor,
   withIntentSchema,
 } from './support/lifecycle-intent-harness.js';
@@ -255,7 +256,7 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
     });
   });
 
-  it('ambiguous COMMIT never marks FAILED blindly and surfaces for retry', async () => {
+  it('COMMIT transport failure before dispatch never marks FAILED blindly and surfaces for retry', async () => {
     await withIntentSchema(databaseUrl, async (pool, schema) => {
       const schemaOptions = `-c search_path=${schema},public`;
       const organizationId = await insertProofOrg(pool, 'Ambig Org');
@@ -267,17 +268,19 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         max: 1,
         application_name: 'ovr49-ambig',
       });
-      // `pg_terminate_backend` deliberately kills this pool's single backend while
-      // the finalizer holds it checked out, in the ambiguity window after the
-      // COMPLETED update and before the COMMIT is acknowledged. node-postgres
-      // error ownership in that window: pg-pool removes its idle 'error' listener
-      // on checkout (`pg-pool/index.js` `_acquireClient`) and re-adds it only on
-      // release, so an error raised while the client is checked out is emitted on
-      // the PoolClient itself (`pg/lib/client.js` `_handleErrorEvent`). A
-      // pool-level listener never receives it, and Node aborts the process with
-      // "Unhandled 'error' event" -- the CI failure (run 36976432500, both
-      // attempts: 3690 passed, 0 failed, plus 1 unhandled pg 57P01) this sink
-      // removes.
+      // CASE A -- deterministic dead-before-dispatch transport failure (companion
+      // to the persisted-commit case below). `pg_terminate_backend` deliberately
+      // kills this pool's single backend while the finalizer holds it checked
+      // out with the exact COMMIT held pre-dispatch; the backend is confirmed
+      // gone before the gate releases, so the COMMIT provably never persists.
+      // node-postgres error ownership in that window: pg-pool removes its idle
+      // 'error' listener on checkout (`pg-pool/index.js` `_acquireClient`) and
+      // re-adds it only on release, so an error raised while the client is
+      // checked out is emitted on the PoolClient itself (`pg/lib/client.js`
+      // `_handleErrorEvent`). A pool-level listener never receives it, and Node
+      // aborts the process with "Unhandled 'error' event" -- the CI failure
+      // (run 36976432500, both attempts: 3690 passed, 0 failed, plus 1 unhandled
+      // pg 57P01) this sink removes.
       //
       // The induced shutdown reaches the finalizer through one of two orderings,
       // decided by whether the gated COMMIT is dispatched before the client
@@ -452,6 +455,111 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
             && EXPECTED_TERMINATION_MESSAGES.has(error.message)),
       )).toBe(true);
       expect(unexpectedTerminationErrors).toEqual([]);
+    });
+  });
+
+  it('persisted COMMIT with lost acknowledgement recovers the durable receipt as replay', async () => {
+    await withIntentSchema(databaseUrl, async (pool, schema) => {
+      const schemaOptions = `-c search_path=${schema},public`;
+      const organizationId = await insertProofOrg(pool, 'AckLost Org');
+      const userId = await insertProofUser(pool, organizationId, 'STAFF');
+      const jobCardId = await insertProofJob(pool, organizationId, userId);
+      // CASE B -- committed-but-unacknowledged recovery. A deterministic
+      // test-only seam dispatches the REAL exact COMMIT, awaits PostgreSQL
+      // success (durable business mutation + COMPLETED intent + completed
+      // receipt), and only then rejects to the repository caller with a
+      // distinctive transport-style error. This models "server committed but
+      // caller did not receive success" without relying on nondeterministic
+      // network timing and without faking any DB state. Production recovery
+      // behavior -- not the harness -- decides whether the durable receipt
+      // exists: the test goes through the real `findCompletedCriticalAction`
+      // path inside `finalizeLifecycleIntent`.
+      const plain = new Pool({
+        connectionString: databaseUrl,
+        options: schemaOptions,
+        max: 1,
+        application_name: 'ovr49-acklost',
+      });
+      try {
+        const reserveRepository = new PostgresJobCardRepository(plain);
+        const claim = intentClaim(organizationId, userId, jobCardId, randomUUID());
+        const reserved = await reserveRepository.reserveLifecycleIntent(claim, { jobCardId, ttlMs: 60_000 });
+        expect(reserved.kind).toBe('reserved');
+        if (reserved.kind !== 'reserved') return;
+        const ACK_LOST_CODE = 'TEST_COMMIT_ACK_LOST';
+        const sabotage = sabotageDispatchedStatements(plain, 'COMMIT', {
+          exact: true,
+          makeError: () => Object.assign(
+            new Error('test-only simulated lost COMMIT acknowledgement'),
+            { code: ACK_LOST_CODE },
+          ),
+        });
+        const gatedRepository = new PostgresJobCardRepository(sabotage.pool);
+        const finalized = await gatedRepository.finalizeLifecycleIntent<{ ok: boolean }>(
+          claim,
+          reserved.reservation,
+          async (tx) => {
+            await tx.transitionWithVersion({
+              organizationId,
+              jobCardId,
+              expectedVersion: 1,
+              command: 'START',
+              status: 'IN_PROGRESS',
+              occurredAt: reserved.reservation.reservedAt,
+              actorId: userId,
+              note: null,
+              revisionReason: null,
+              cancelReason: null,
+              followUpProposal: null,
+            });
+            return { response: { ok: true }, realtimeEvents: [] };
+          },
+          { jobCardId },
+        );
+        // The interception genuinely engaged (exact match: BEGIN passes), and
+        // production recovery returned the durable receipt instead of throwing
+        // the synthetic transport error.
+        expect(sabotage.arrivalCount()).toBeGreaterThanOrEqual(1);
+        expect(finalized.kind).toBe('replay');
+        if (finalized.kind !== 'replay') return;
+        expect(finalized.response).toEqual({ ok: true });
+        // Durable state: the business mutation persisted exactly once, the
+        // intent is COMPLETED, and the completed receipt carries the response.
+        const intent = (await pool.query(
+          'SELECT state FROM job_card_lifecycle_intents WHERE id = $1',
+          [reserved.reservation.intentId],
+        )).rows[0] as Record<string, unknown>;
+        expect(intent.state).toBe('COMPLETED');
+        const job = (await pool.query(
+          'SELECT status, version FROM job_cards WHERE id = $1',
+          [jobCardId],
+        )).rows[0] as Record<string, unknown>;
+        expect(job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+        const receipt = (await pool.query(
+          `SELECT status, response_body FROM processed_actions
+            WHERE organization_id = $1 AND user_id = $2
+              AND client_action_id = $3 AND operation_key = $4`,
+          [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+        )).rows[0] as Record<string, unknown>;
+        expect(receipt.status).toBe('completed');
+        expect(receipt.response_body).toEqual({ ok: true });
+        // Exactly one intent row for this identity and no FAILED state: the
+        // recovery replayed the receipt instead of duplicating the mutation.
+        const intentCount = (await pool.query(
+          'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents WHERE id = $1',
+          [reserved.reservation.intentId],
+        )).rows[0] as Record<string, unknown>;
+        expect(intentCount.count).toBe('1');
+        const failedCount = (await pool.query(
+          `SELECT COUNT(*) AS count FROM job_card_lifecycle_intents
+            WHERE job_card_id = $1 AND state = 'FAILED'`,
+          [jobCardId],
+        )).rows[0] as Record<string, unknown>;
+        expect(failedCount.count).toBe('0');
+        await expect(pool.query('SELECT 1')).resolves.toBeDefined();
+      } finally {
+        await plain.end();
+      }
     });
   });
 
