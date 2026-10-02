@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
+import type { PoolClient } from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
@@ -13,6 +14,7 @@ import {
   insertProofOrg,
   insertProofUser,
   readDbClock,
+  sabotageDispatchedStatements,
   waitFor,
   withIntentSchema,
 } from './support/lifecycle-intent-harness.js';
@@ -254,7 +256,7 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
     });
   });
 
-  it('ambiguous COMMIT never marks FAILED blindly and surfaces for retry', async () => {
+  it('COMMIT transport failure before dispatch never marks FAILED blindly and surfaces for retry', async () => {
     await withIntentSchema(databaseUrl, async (pool, schema) => {
       const schemaOptions = `-c search_path=${schema},public`;
       const organizationId = await insertProofOrg(pool, 'Ambig Org');
@@ -266,20 +268,98 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         max: 1,
         application_name: 'ovr49-ambig',
       });
-      // pg_terminate_backend deliberately kills this pool's single connection.
-      // node-pg surfaces that socket error as a pool 'error' event; register an
-      // expected-event sink so the deliberate termination cannot escape as an
-      // unhandled error while the test still asserts the ambiguous outcome.
-      terminating.on('error', () => undefined);
+      // CASE A -- deterministic dead-before-dispatch transport failure (companion
+      // to the persisted-commit case below). `pg_terminate_backend` deliberately
+      // kills this pool's single backend while the finalizer holds it checked
+      // out with the exact COMMIT held pre-dispatch; the backend is confirmed
+      // gone before the gate releases, so the COMMIT provably never persists.
+      // node-postgres error ownership in that window: pg-pool removes its idle
+      // 'error' listener on checkout (`pg-pool/index.js` `_acquireClient`) and
+      // re-adds it only on release, so an error raised while the client is
+      // checked out is emitted on the PoolClient itself (`pg/lib/client.js`
+      // `_handleErrorEvent`). A pool-level listener never receives it, and Node
+      // aborts the process with "Unhandled 'error' event" -- the CI failure
+      // (run 36976432500, both attempts: 3690 passed, 0 failed, plus 1 unhandled
+      // pg 57P01) this sink removes.
+      //
+      // The induced shutdown reaches the finalizer through one of two orderings,
+      // decided by whether the gated COMMIT is dispatched before the client
+      // observes the death:
+      //   A) COMMIT dispatched first -> the pending query rejects with 57P01
+      //      (backend errors route to the active query); the trailing socket
+      //      death is emitted as 'error' on the client -- unless `release(true)`
+      //      already ran `client.end()`, which swallows that trailing 'end' by
+      //      design, so an observed emission is NOT guaranteed.
+      //   B) death observed first    -> 57P01 is emitted as 'error' on the client
+      //      and the COMMIT dispatch rejects immediately with 'Client has
+      //      encountered a connection error and is not queryable' (pg 8.22.0
+      //      non-queryable fast path).
+      // Hence the deterministic signals are the finalization rejection (always one
+      // of the two outcomes above) and the business state -- never the optional
+      // trailing emission. Consume only the expected termination set; record and
+      // re-raise anything else so an unrelated pg error still fails the test
+      // loudly.
+      const EXPECTED_TERMINATION_CODES = new Set(['57P01']);
+      const EXPECTED_TERMINATION_MESSAGES = new Set([
+        'terminating connection due to administrator command',
+        'Connection terminated unexpectedly',
+      ]);
+      // Rejection of a COMMIT dispatched after the death was observed.
+      const NOT_QUERYABLE_MESSAGE = 'Client has encountered a connection error and is not queryable';
+      const isExpectedTerminationError = (error: unknown): boolean => {
+        const candidate = error as { code?: unknown; message?: unknown } | null;
+        if (typeof candidate?.code === 'string' && EXPECTED_TERMINATION_CODES.has(candidate.code)) {
+          return true;
+        }
+        return typeof candidate?.message === 'string'
+          && EXPECTED_TERMINATION_MESSAGES.has(candidate.message);
+      };
+      const terminatedClientErrors: { code?: string; message?: string }[] = [];
+      const unexpectedTerminationErrors: unknown[] = [];
+      const consumedTerminationErrors = new WeakSet<object>();
+      const consume = (error: unknown): void => {
+        if (isExpectedTerminationError(error)) {
+          // pg-pool's idle listener forwards the same object to the pool after
+          // mutating it (`err.client = client`), so de-duplicate by identity.
+          if (typeof error === 'object' && error !== null) {
+            if (consumedTerminationErrors.has(error)) return;
+            consumedTerminationErrors.add(error);
+          }
+          terminatedClientErrors.push(error as { code?: string; message?: string });
+          return;
+        }
+        unexpectedTerminationErrors.push(error);
+        throw error;
+      };
+      // Snapshot backend pids as plain numbers: the killed client's `processID`
+      // object may be mutated during shutdown, and the post-kill recovery query
+      // (`findCompletedCriticalAction` reconnects on the same pool) acquires a
+      // replacement backend, so last-acquired identity is NOT the killed one.
+      const acquiredPids: number[] = [];
+      const instrumentedPids: number[] = [];
+      const instrumented = new WeakSet<PoolClient>();
+      terminating.on('error', consume);
+      terminating.on('acquire', (client: PoolClient) => {
+        if (typeof client.processID === 'number') acquiredPids.push(client.processID);
+        if (instrumented.has(client)) return;
+        instrumented.add(client);
+        if (typeof client.processID === 'number') instrumentedPids.push(client.processID);
+        client.on('error', consume);
+      });
+      let terminatedPid: number | undefined;
+      let finalizationError: { code?: string; message?: string } | undefined;
       try {
         const repository = new PostgresJobCardRepository(terminating);
         const claim = intentClaim(organizationId, userId, jobCardId, randomUUID());
         const reserved = await repository.reserveLifecycleIntent(claim, { jobCardId, ttlMs: 60_000 });
         expect(reserved.kind).toBe('reserved');
         if (reserved.kind !== 'reserved') return;
-        // Kill the finalizer backend between the COMPLETED update and the
-        // COMMIT: the outcome is genuinely ambiguous.
-        const killer = gatePoolStatements(terminating, 'COMMIT');
+        // Hold the true COMMIT between the COMPLETED update and its
+        // acknowledgement: the outcome is genuinely ambiguous. Exact matching is
+        // required -- a substring gate on 'COMMIT' would trip at
+        // 'BEGIN ISOLATION LEVEL READ COMMITTED' and kill the backend before any
+        // business write, proving nothing about COMMIT ambiguity.
+        const killer = gatePoolStatements(terminating, 'COMMIT', { exact: true });
         const gatedRepository = new PostgresJobCardRepository(killer.pool);
         const finalizing = (async () => {
           const gate = killer;
@@ -303,18 +383,35 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
             },
             { jobCardId },
           );
+          // The exact COMMIT is now held: the COMPLETED update already ran on the
+          // checked-out backend, and nothing can commit until released.
           await gate.arrived;
           const pid = (await pool.query<{ pid: number }>(
             `SELECT pid FROM pg_stat_activity WHERE application_name = 'ovr49-ambig' AND pid <> pg_backend_pid()`,
           )).rows[0]?.pid;
           expect(pid).toBeDefined();
+          terminatedPid = pid;
           await pool.query('SELECT pg_terminate_backend($1)', [pid]);
+          // Confirm the backend is gone BEFORE releasing COMMIT: the dispatch
+          // then provably reaches a dead socket, so "did not survive" is
+          // deterministic rather than a second race. Bounded poll, never a sleep.
+          await waitFor(async () => (await pool.query<{ n: string }>(
+            `SELECT COUNT(*) AS n FROM pg_stat_activity
+              WHERE pid = $1 AND application_name = 'ovr49-ambig'`,
+            [pid],
+          )).rows[0]!.n === '0', 5_000, 'terminated backend gone');
           gate.release();
           return pending;
         })();
         await expect(finalizing).rejects.toBeDefined();
+        // Capture the finalization failure: this rejection -- not the optional
+        // trailing emission -- is the deterministic retry signal.
+        finalizationError = await finalizing.then(
+          () => undefined,
+          (error: { code?: string; message?: string }) => error,
+        );
         killer.release();
-        // The COMMIT interception genuinely engaged.
+        // The COMMIT interception genuinely engaged (exact match: BEGIN passes).
         expect(killer.arrivalCount()).toBeGreaterThanOrEqual(1);
         // No blind FAILED: the intent is still PENDING and the business
         // write did not survive. Exact retries observe PENDING until expiry;
@@ -332,6 +429,136 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         await expect(pool.query('SELECT 1')).resolves.toBeDefined();
       } finally {
         await terminating.end();
+      }
+      // Ownership + outcome proof, asserted after the pool fully shut down.
+      // (a) The sink was attached to the exact client whose backend
+      //     `pg_terminate_backend` killed: pid snapshots, immune to post-kill
+      //     recovery acquisitions and to client-object mutation on shutdown.
+      expect(terminatedPid).toBeDefined();
+      expect(acquiredPids).toContain(terminatedPid);
+      expect(instrumentedPids).toContain(terminatedPid);
+      // (b) Finalization surfaced a retryable outcome from the expected,
+      //     deliberately induced set -- never a blind success, never FAILED.
+      expect(finalizationError).toBeDefined();
+      expect(
+        finalizationError?.code === '57P01'
+          || finalizationError?.message === NOT_QUERYABLE_MESSAGE,
+      ).toBe(true);
+      // (c) Nothing outside the expected termination set leaked: `consume`
+      //     re-raises anything unexpected, so such an error would already have
+      //     failed the run as unhandled; this asserts the record stayed clean.
+      //     No assertion on the optional trailing emission: after `release(true)`
+      //     runs `client.end()`, that trailing 'end' is swallowed by design.
+      expect(terminatedClientErrors.every(
+        (error) => error.code === '57P01'
+          || (typeof error.message === 'string'
+            && EXPECTED_TERMINATION_MESSAGES.has(error.message)),
+      )).toBe(true);
+      expect(unexpectedTerminationErrors).toEqual([]);
+    });
+  });
+
+  it('persisted COMMIT with lost acknowledgement recovers the durable receipt as replay', async () => {
+    await withIntentSchema(databaseUrl, async (pool, schema) => {
+      const schemaOptions = `-c search_path=${schema},public`;
+      const organizationId = await insertProofOrg(pool, 'AckLost Org');
+      const userId = await insertProofUser(pool, organizationId, 'STAFF');
+      const jobCardId = await insertProofJob(pool, organizationId, userId);
+      // CASE B -- committed-but-unacknowledged recovery. A deterministic
+      // test-only seam dispatches the REAL exact COMMIT, awaits PostgreSQL
+      // success (durable business mutation + COMPLETED intent + completed
+      // receipt), and only then rejects to the repository caller with a
+      // distinctive transport-style error. This models "server committed but
+      // caller did not receive success" without relying on nondeterministic
+      // network timing and without faking any DB state. Production recovery
+      // behavior -- not the harness -- decides whether the durable receipt
+      // exists: the test goes through the real `findCompletedCriticalAction`
+      // path inside `finalizeLifecycleIntent`.
+      const plain = new Pool({
+        connectionString: databaseUrl,
+        options: schemaOptions,
+        max: 1,
+        application_name: 'ovr49-acklost',
+      });
+      try {
+        const reserveRepository = new PostgresJobCardRepository(plain);
+        const claim = intentClaim(organizationId, userId, jobCardId, randomUUID());
+        const reserved = await reserveRepository.reserveLifecycleIntent(claim, { jobCardId, ttlMs: 60_000 });
+        expect(reserved.kind).toBe('reserved');
+        if (reserved.kind !== 'reserved') return;
+        const ACK_LOST_CODE = 'TEST_COMMIT_ACK_LOST';
+        const sabotage = sabotageDispatchedStatements(plain, 'COMMIT', {
+          exact: true,
+          makeError: () => Object.assign(
+            new Error('test-only simulated lost COMMIT acknowledgement'),
+            { code: ACK_LOST_CODE },
+          ),
+        });
+        const gatedRepository = new PostgresJobCardRepository(sabotage.pool);
+        const finalized = await gatedRepository.finalizeLifecycleIntent<{ ok: boolean }>(
+          claim,
+          reserved.reservation,
+          async (tx) => {
+            await tx.transitionWithVersion({
+              organizationId,
+              jobCardId,
+              expectedVersion: 1,
+              command: 'START',
+              status: 'IN_PROGRESS',
+              occurredAt: reserved.reservation.reservedAt,
+              actorId: userId,
+              note: null,
+              revisionReason: null,
+              cancelReason: null,
+              followUpProposal: null,
+            });
+            return { response: { ok: true }, realtimeEvents: [] };
+          },
+          { jobCardId },
+        );
+        // The interception genuinely engaged (exact match: BEGIN passes), and
+        // production recovery returned the durable receipt instead of throwing
+        // the synthetic transport error.
+        expect(sabotage.arrivalCount()).toBeGreaterThanOrEqual(1);
+        expect(finalized.kind).toBe('replay');
+        if (finalized.kind !== 'replay') return;
+        expect(finalized.response).toEqual({ ok: true });
+        // Durable state: the business mutation persisted exactly once, the
+        // intent is COMPLETED, and the completed receipt carries the response.
+        const intent = (await pool.query(
+          'SELECT state FROM job_card_lifecycle_intents WHERE id = $1',
+          [reserved.reservation.intentId],
+        )).rows[0] as Record<string, unknown>;
+        expect(intent.state).toBe('COMPLETED');
+        const job = (await pool.query(
+          'SELECT status, version FROM job_cards WHERE id = $1',
+          [jobCardId],
+        )).rows[0] as Record<string, unknown>;
+        expect(job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+        const receipt = (await pool.query(
+          `SELECT status, response_body FROM processed_actions
+            WHERE organization_id = $1 AND user_id = $2
+              AND client_action_id = $3 AND operation_key = $4`,
+          [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+        )).rows[0] as Record<string, unknown>;
+        expect(receipt.status).toBe('completed');
+        expect(receipt.response_body).toEqual({ ok: true });
+        // Exactly one intent row for this identity and no FAILED state: the
+        // recovery replayed the receipt instead of duplicating the mutation.
+        const intentCount = (await pool.query(
+          'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents WHERE id = $1',
+          [reserved.reservation.intentId],
+        )).rows[0] as Record<string, unknown>;
+        expect(intentCount.count).toBe('1');
+        const failedCount = (await pool.query(
+          `SELECT COUNT(*) AS count FROM job_card_lifecycle_intents
+            WHERE job_card_id = $1 AND state = 'FAILED'`,
+          [jobCardId],
+        )).rows[0] as Record<string, unknown>;
+        expect(failedCount.count).toBe('0');
+        await expect(pool.query('SELECT 1')).resolves.toBeDefined();
+      } finally {
+        await plain.end();
       }
     });
   });
