@@ -90,6 +90,30 @@ export async function verifyPassword(
   }
 }
 
+/**
+ * Constant-work invalid-credential sentinel.
+ *
+ * `AuthService.login` must not reveal whether an email exists by skipping
+ * password KDF work: rejecting an unknown account without deriving a key would
+ * make "no such user" measurably cheaper than "known user, wrong password".
+ * When no stored hash is available the caller verifies the supplied password
+ * against this single process-wide sentinel instead, so every invalid branch
+ * pays exactly one scrypt derivation.
+ *
+ * The sentinel is derived exactly once per process from a random, unguessable
+ * source and memoized. It is never persisted, never belongs to a real account,
+ * and its only purpose is to consume equivalent work — it can never
+ * authenticate, because the login path rejects on the missing user row before
+ * trusting the verification result.
+ */
+let sentinelPasswordHash: Promise<string> | null = null;
+
+/** Memoized single-flight derivation of the invalid-credential sentinel hash. */
+export function invalidCredentialSentinelHash(): Promise<string> {
+  sentinelPasswordHash ??= hashPassword(randomBytes(32).toString('base64url'));
+  return sentinelPasswordHash;
+}
+
 export function createSessionToken(): { rawToken: string; tokenHash: string } {
   const rawToken = randomBytes(32).toString('base64url');
   return { rawToken, tokenHash: hashSessionToken(rawToken) };

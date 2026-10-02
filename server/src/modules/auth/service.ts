@@ -3,6 +3,7 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  invalidCredentialSentinelHash,
   verifyPassword,
 } from './crypto.js';
 import type { AuthRepository } from './repository.js';
@@ -42,7 +43,13 @@ export class AuthService {
   async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.repository.findUserByEmail(normalizedEmail);
-    if (!user || !user.isActive || !(await verifyPassword(password, user.passwordHash))) {
+    // Constant work: an unknown account still pays exactly one scrypt
+    // derivation, against the sentinel hash, so response time cannot reveal
+    // whether the email exists. Inactive accounts pay the real derivation
+    // before the same generic rejection.
+    const storedHash = user?.passwordHash ?? (await invalidCredentialSentinelHash());
+    const passwordMatches = await verifyPassword(password, storedHash);
+    if (!user || !user.isActive || !passwordMatches) {
       throw INVALID_CREDENTIALS;
     }
 
