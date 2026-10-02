@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
+import type { PoolClient } from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
@@ -266,11 +267,68 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         max: 1,
         application_name: 'ovr49-ambig',
       });
-      // pg_terminate_backend deliberately kills this pool's single connection.
-      // node-pg surfaces that socket error as a pool 'error' event; register an
-      // expected-event sink so the deliberate termination cannot escape as an
-      // unhandled error while the test still asserts the ambiguous outcome.
-      terminating.on('error', () => undefined);
+      // `pg_terminate_backend` deliberately kills this pool's single backend while
+      // the finalizer still holds it, in the ambiguity window before the COMMIT is
+      // acknowledged. node-postgres error ownership in that window: pg-pool removes
+      // its idle 'error' listener on checkout (`pg-pool/index.js` `_acquireClient`,
+      // line 344) and re-adds it only on release (line 385), so an error raised
+      // while the client is checked out is emitted on the PoolClient itself
+      // (`pg/lib/client.js` `_handleErrorEvent`, line 417). A pool-level listener
+      // never receives it, and Node aborts the process with "Unhandled 'error'
+      // event" -- the CI failure this sink removes.
+      //
+      // The induced admin shutdown surfaces through one of two orderings, decided
+      // by whether the gated COMMIT reaches the socket before the client observes
+      // the death:
+      //   A) COMMIT in flight  -> the pending query rejects with 57P01 and the
+      //                           socket death is emitted as 'error' on the client
+      //   B) death observed    -> 57P01 is emitted as 'error' on the client and the
+      //                           COMMIT rejects with 'Client has encountered a
+      //                           connection error and is not queryable'
+      // The expected error set is therefore exactly {57P01, socket death}. Consume
+      // only those, from the exact client the termination kills; record and re-raise
+      // anything else so an unrelated pg error still fails the test loudly.
+      const EXPECTED_TERMINATION_CODES = new Set(['57P01']);
+      const EXPECTED_TERMINATION_MESSAGES = new Set([
+        'terminating connection due to administrator command',
+        'Connection terminated unexpectedly',
+      ]);
+      const isExpectedTerminationError = (error: unknown): boolean => {
+        const candidate = error as { code?: unknown; message?: unknown } | null;
+        if (typeof candidate?.code === 'string' && EXPECTED_TERMINATION_CODES.has(candidate.code)) {
+          return true;
+        }
+        return typeof candidate?.message === 'string'
+          && EXPECTED_TERMINATION_MESSAGES.has(candidate.message);
+      };
+      const terminatedClientErrors: { code?: string; message?: string }[] = [];
+      const unexpectedTerminationErrors: unknown[] = [];
+      const consumedTerminationErrors = new WeakSet<object>();
+      const consume = (error: unknown): void => {
+        if (isExpectedTerminationError(error)) {
+          // pg-pool's idle listener forwards the same object to the pool after
+          // mutating it (`err.client = client`), so de-duplicate by identity.
+          if (typeof error === 'object' && error !== null) {
+            if (consumedTerminationErrors.has(error)) return;
+            consumedTerminationErrors.add(error);
+          }
+          terminatedClientErrors.push(error as { code?: string; message?: string });
+          return;
+        }
+        unexpectedTerminationErrors.push(error);
+        throw error;
+      };
+      const killedClients: PoolClient[] = [];
+      const instrumented = new WeakSet<PoolClient>();
+      terminating.on('error', consume);
+      terminating.on('acquire', (client: PoolClient) => {
+        killedClients.push(client);
+        if (instrumented.has(client)) return;
+        instrumented.add(client);
+        client.on('error', consume);
+      });
+      let terminatedPid: number | undefined;
+      let finalizationError: { code?: string; message?: string } | undefined;
       try {
         const repository = new PostgresJobCardRepository(terminating);
         const claim = intentClaim(organizationId, userId, jobCardId, randomUUID());
@@ -308,11 +366,18 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
             `SELECT pid FROM pg_stat_activity WHERE application_name = 'ovr49-ambig' AND pid <> pg_backend_pid()`,
           )).rows[0]?.pid;
           expect(pid).toBeDefined();
+          terminatedPid = pid;
           await pool.query('SELECT pg_terminate_backend($1)', [pid]);
           gate.release();
           return pending;
         })();
         await expect(finalizing).rejects.toBeDefined();
+        // Capture the finalization failure so the ownership proof below can show the
+        // deliberately induced admin shutdown surfaced through this path too.
+        finalizationError = await finalizing.then(
+          () => undefined,
+          (error: { code?: string; message?: string }) => error,
+        );
         killer.release();
         // The COMMIT interception genuinely engaged.
         expect(killer.arrivalCount()).toBeGreaterThanOrEqual(1);
@@ -333,6 +398,23 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
       } finally {
         await terminating.end();
       }
+      // Error-ownership proof, asserted after the pool has fully shut down.
+      // (a) The sink was attached to the exact client whose backend
+      //     `pg_terminate_backend` killed: the killed pid IS that client's processID.
+      expect(terminatedPid).toBeDefined();
+      expect(killedClients.at(-1)?.processID).toBe(terminatedPid);
+      // (b) The deliberate admin shutdown was observed and consumed rather than
+      //     silently swallowed. It is present either as the emitted connection
+      //     error or as the finalization rejection -- which of the two carries the
+      //     57P01 depends on the ordering documented above, so accept either.
+      expect(
+        terminatedClientErrors.some((error) => error.code === '57P01')
+          || finalizationError?.code === '57P01',
+      ).toBe(true);
+      // (c) The sink genuinely engaged on the induced termination ...
+      expect(terminatedClientErrors.length).toBeGreaterThan(0);
+      // (d) ... and nothing outside the expected termination set leaked.
+      expect(unexpectedTerminationErrors).toEqual([]);
     });
   });
 
