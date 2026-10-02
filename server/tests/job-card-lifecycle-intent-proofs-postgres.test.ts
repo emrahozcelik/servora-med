@@ -268,31 +268,41 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         application_name: 'ovr49-ambig',
       });
       // `pg_terminate_backend` deliberately kills this pool's single backend while
-      // the finalizer still holds it, in the ambiguity window before the COMMIT is
-      // acknowledged. node-postgres error ownership in that window: pg-pool removes
-      // its idle 'error' listener on checkout (`pg-pool/index.js` `_acquireClient`,
-      // line 344) and re-adds it only on release (line 385), so an error raised
-      // while the client is checked out is emitted on the PoolClient itself
-      // (`pg/lib/client.js` `_handleErrorEvent`, line 417). A pool-level listener
-      // never receives it, and Node aborts the process with "Unhandled 'error'
-      // event" -- the CI failure this sink removes.
+      // the finalizer holds it checked out, in the ambiguity window after the
+      // COMPLETED update and before the COMMIT is acknowledged. node-postgres
+      // error ownership in that window: pg-pool removes its idle 'error' listener
+      // on checkout (`pg-pool/index.js` `_acquireClient`) and re-adds it only on
+      // release, so an error raised while the client is checked out is emitted on
+      // the PoolClient itself (`pg/lib/client.js` `_handleErrorEvent`). A
+      // pool-level listener never receives it, and Node aborts the process with
+      // "Unhandled 'error' event" -- the CI failure (run 36976432500, both
+      // attempts: 3690 passed, 0 failed, plus 1 unhandled pg 57P01) this sink
+      // removes.
       //
-      // The induced admin shutdown surfaces through one of two orderings, decided
-      // by whether the gated COMMIT reaches the socket before the client observes
-      // the death:
-      //   A) COMMIT in flight  -> the pending query rejects with 57P01 and the
-      //                           socket death is emitted as 'error' on the client
-      //   B) death observed    -> 57P01 is emitted as 'error' on the client and the
-      //                           COMMIT rejects with 'Client has encountered a
-      //                           connection error and is not queryable'
-      // The expected error set is therefore exactly {57P01, socket death}. Consume
-      // only those, from the exact client the termination kills; record and re-raise
-      // anything else so an unrelated pg error still fails the test loudly.
+      // The induced shutdown reaches the finalizer through one of two orderings,
+      // decided by whether the gated COMMIT is dispatched before the client
+      // observes the death:
+      //   A) COMMIT dispatched first -> the pending query rejects with 57P01
+      //      (backend errors route to the active query); the trailing socket
+      //      death is emitted as 'error' on the client -- unless `release(true)`
+      //      already ran `client.end()`, which swallows that trailing 'end' by
+      //      design, so an observed emission is NOT guaranteed.
+      //   B) death observed first    -> 57P01 is emitted as 'error' on the client
+      //      and the COMMIT dispatch rejects immediately with 'Client has
+      //      encountered a connection error and is not queryable' (pg 8.22.0
+      //      non-queryable fast path).
+      // Hence the deterministic signals are the finalization rejection (always one
+      // of the two outcomes above) and the business state -- never the optional
+      // trailing emission. Consume only the expected termination set; record and
+      // re-raise anything else so an unrelated pg error still fails the test
+      // loudly.
       const EXPECTED_TERMINATION_CODES = new Set(['57P01']);
       const EXPECTED_TERMINATION_MESSAGES = new Set([
         'terminating connection due to administrator command',
         'Connection terminated unexpectedly',
       ]);
+      // Rejection of a COMMIT dispatched after the death was observed.
+      const NOT_QUERYABLE_MESSAGE = 'Client has encountered a connection error and is not queryable';
       const isExpectedTerminationError = (error: unknown): boolean => {
         const candidate = error as { code?: unknown; message?: unknown } | null;
         if (typeof candidate?.code === 'string' && EXPECTED_TERMINATION_CODES.has(candidate.code)) {
@@ -318,13 +328,19 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         unexpectedTerminationErrors.push(error);
         throw error;
       };
-      const killedClients: PoolClient[] = [];
+      // Snapshot backend pids as plain numbers: the killed client's `processID`
+      // object may be mutated during shutdown, and the post-kill recovery query
+      // (`findCompletedCriticalAction` reconnects on the same pool) acquires a
+      // replacement backend, so last-acquired identity is NOT the killed one.
+      const acquiredPids: number[] = [];
+      const instrumentedPids: number[] = [];
       const instrumented = new WeakSet<PoolClient>();
       terminating.on('error', consume);
       terminating.on('acquire', (client: PoolClient) => {
-        killedClients.push(client);
+        if (typeof client.processID === 'number') acquiredPids.push(client.processID);
         if (instrumented.has(client)) return;
         instrumented.add(client);
+        if (typeof client.processID === 'number') instrumentedPids.push(client.processID);
         client.on('error', consume);
       });
       let terminatedPid: number | undefined;
@@ -335,9 +351,12 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
         const reserved = await repository.reserveLifecycleIntent(claim, { jobCardId, ttlMs: 60_000 });
         expect(reserved.kind).toBe('reserved');
         if (reserved.kind !== 'reserved') return;
-        // Kill the finalizer backend between the COMPLETED update and the
-        // COMMIT: the outcome is genuinely ambiguous.
-        const killer = gatePoolStatements(terminating, 'COMMIT');
+        // Hold the true COMMIT between the COMPLETED update and its
+        // acknowledgement: the outcome is genuinely ambiguous. Exact matching is
+        // required -- a substring gate on 'COMMIT' would trip at
+        // 'BEGIN ISOLATION LEVEL READ COMMITTED' and kill the backend before any
+        // business write, proving nothing about COMMIT ambiguity.
+        const killer = gatePoolStatements(terminating, 'COMMIT', { exact: true });
         const gatedRepository = new PostgresJobCardRepository(killer.pool);
         const finalizing = (async () => {
           const gate = killer;
@@ -361,6 +380,8 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
             },
             { jobCardId },
           );
+          // The exact COMMIT is now held: the COMPLETED update already ran on the
+          // checked-out backend, and nothing can commit until released.
           await gate.arrived;
           const pid = (await pool.query<{ pid: number }>(
             `SELECT pid FROM pg_stat_activity WHERE application_name = 'ovr49-ambig' AND pid <> pg_backend_pid()`,
@@ -368,18 +389,26 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
           expect(pid).toBeDefined();
           terminatedPid = pid;
           await pool.query('SELECT pg_terminate_backend($1)', [pid]);
+          // Confirm the backend is gone BEFORE releasing COMMIT: the dispatch
+          // then provably reaches a dead socket, so "did not survive" is
+          // deterministic rather than a second race. Bounded poll, never a sleep.
+          await waitFor(async () => (await pool.query<{ n: string }>(
+            `SELECT COUNT(*) AS n FROM pg_stat_activity
+              WHERE pid = $1 AND application_name = 'ovr49-ambig'`,
+            [pid],
+          )).rows[0]!.n === '0', 5_000, 'terminated backend gone');
           gate.release();
           return pending;
         })();
         await expect(finalizing).rejects.toBeDefined();
-        // Capture the finalization failure so the ownership proof below can show the
-        // deliberately induced admin shutdown surfaced through this path too.
+        // Capture the finalization failure: this rejection -- not the optional
+        // trailing emission -- is the deterministic retry signal.
         finalizationError = await finalizing.then(
           () => undefined,
           (error: { code?: string; message?: string }) => error,
         );
         killer.release();
-        // The COMMIT interception genuinely engaged.
+        // The COMMIT interception genuinely engaged (exact match: BEGIN passes).
         expect(killer.arrivalCount()).toBeGreaterThanOrEqual(1);
         // No blind FAILED: the intent is still PENDING and the business
         // write did not survive. Exact retries observe PENDING until expiry;
@@ -398,22 +427,30 @@ describe.skipIf(!databaseUrl)('049 concurrency proofs', () => {
       } finally {
         await terminating.end();
       }
-      // Error-ownership proof, asserted after the pool has fully shut down.
+      // Ownership + outcome proof, asserted after the pool fully shut down.
       // (a) The sink was attached to the exact client whose backend
-      //     `pg_terminate_backend` killed: the killed pid IS that client's processID.
+      //     `pg_terminate_backend` killed: pid snapshots, immune to post-kill
+      //     recovery acquisitions and to client-object mutation on shutdown.
       expect(terminatedPid).toBeDefined();
-      expect(killedClients.at(-1)?.processID).toBe(terminatedPid);
-      // (b) The deliberate admin shutdown was observed and consumed rather than
-      //     silently swallowed. It is present either as the emitted connection
-      //     error or as the finalization rejection -- which of the two carries the
-      //     57P01 depends on the ordering documented above, so accept either.
+      expect(acquiredPids).toContain(terminatedPid);
+      expect(instrumentedPids).toContain(terminatedPid);
+      // (b) Finalization surfaced a retryable outcome from the expected,
+      //     deliberately induced set -- never a blind success, never FAILED.
+      expect(finalizationError).toBeDefined();
       expect(
-        terminatedClientErrors.some((error) => error.code === '57P01')
-          || finalizationError?.code === '57P01',
+        finalizationError?.code === '57P01'
+          || finalizationError?.message === NOT_QUERYABLE_MESSAGE,
       ).toBe(true);
-      // (c) The sink genuinely engaged on the induced termination ...
-      expect(terminatedClientErrors.length).toBeGreaterThan(0);
-      // (d) ... and nothing outside the expected termination set leaked.
+      // (c) Nothing outside the expected termination set leaked: `consume`
+      //     re-raises anything unexpected, so such an error would already have
+      //     failed the run as unhandled; this asserts the record stayed clean.
+      //     No assertion on the optional trailing emission: after `release(true)`
+      //     runs `client.end()`, that trailing 'end' is swallowed by design.
+      expect(terminatedClientErrors.every(
+        (error) => error.code === '57P01'
+          || (typeof error.message === 'string'
+            && EXPECTED_TERMINATION_MESSAGES.has(error.message)),
+      )).toBe(true);
       expect(unexpectedTerminationErrors).toEqual([]);
     });
   });

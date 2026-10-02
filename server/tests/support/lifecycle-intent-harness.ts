@@ -99,11 +99,17 @@ export type StatementGate = {
 };
 
 /**
- * Proxy-gate around a pool: the first client query whose text contains
- * `marker` notifies `arrived` and blocks until `release()`. The source
- * pool is never mutated. Callers must always release (use try/finally).
+ * Proxy-gate around a pool: the first client query matching `marker`
+ * notifies `arrived` and blocks until `release()`. The source pool is
+ * never mutated. Callers must always release (use try/finally).
+ *
+ * Matching is substring by default; pass `{ exact: true }` to intercept
+ * only the statement whose text equals `marker`. Exact matching is
+ * required when the marker is a substring of an earlier statement: e.g.
+ * marker `'COMMIT'` also matches `'BEGIN ISOLATION LEVEL READ COMMITTED'`,
+ * so a substring gate trips at BEGIN instead of the intended COMMIT.
  */
-export function gatePoolStatements(source: Pool, marker: string): StatementGate {
+export function gatePoolStatements(source: Pool, marker: string, options?: { exact?: boolean }): StatementGate {
   let releaseGate: (() => void) | null = null;
   const gate = new Promise<void>((resolve) => {
     releaseGate = resolve;
@@ -128,7 +134,9 @@ export function gatePoolStatements(source: Pool, marker: string): StatementGate 
             const text = typeof first === 'string'
               ? first
               : (first as { text?: unknown } | null)?.text;
-            if (typeof text === 'string' && text.includes(marker)) {
+            const matches = typeof text === 'string'
+              && (options?.exact ? text === marker : text.includes(marker));
+            if (matches) {
               count += 1;
               arrivalResolve?.();
               return (async () => {
