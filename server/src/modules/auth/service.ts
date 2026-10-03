@@ -69,6 +69,11 @@ export class AuthService {
       expiresAt,
       expectedPasswordHash: work.verifiedHash,
     });
+    // The record serialized as the authenticated user. Normally the login-time
+    // row; the Option-2 path below may rebind it to the refetched row so the
+    // response never carries stale flags (e.g. must_change_password set by a
+    // concurrent admin reset to the same password).
+    let authenticatedUser = user;
     // The hash the issued session is bound to. Normally the verified hash;
     // the Option-2 path below may rebind it after re-verification.
     let sessionHash = work.verifiedHash;
@@ -95,6 +100,7 @@ export class AuthService {
         });
         if (session) {
           sessionHash = currentHash;
+          authenticatedUser = current;
         }
       }
     }
@@ -113,7 +119,7 @@ export class AuthService {
       await this.bestEffortPasswordHashUpgrade(user.id, sessionHash, work.upgradeCandidateHash);
     }
 
-    return { user: toSafeUser(user), rawToken };
+    return { user: toSafeUser(authenticatedUser), rawToken };
   }
 
   /**

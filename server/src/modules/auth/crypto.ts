@@ -334,27 +334,39 @@ export async function performLoginPasswordWork(
     };
   }
   const matches = await verifyPassword(password, storedHash as string);
-  const candidateSalt = randomBytes(16);
-  const candidateKey = await derivePasswordKey(
-    password,
-    candidateSalt,
-    SCRYPT_V2_COST,
-    SCRYPT_V2_MAX_MEMORY,
-  );
-  const upgradeCandidateHash = [
-    'scrypt',
-    CURRENT_PASSWORD_HASH_VERSION,
-    SCRYPT_V2_COST,
-    SCRYPT_BLOCK_SIZE,
-    SCRYPT_PARALLELIZATION,
-    candidateSalt.toString('base64url'),
-    candidateKey.toString('base64url'),
-  ].join('$');
+  // The CURRENT-slot candidate is best-effort budget work, not the
+  // authentication decision: if its derivation fails at runtime (e.g. VPS
+  // memory pressure), proceed without a candidate so an OLD-profile login
+  // behaves exactly like every other path (generic 401/200 from the OLD
+  // verification) instead of leaking an OLD-credential oracle via 500s.
+  let upgradeCandidateHash: string | undefined;
+  if (matches) {
+    try {
+      const candidateSalt = randomBytes(16);
+      const candidateKey = await derivePasswordKey(
+        password,
+        candidateSalt,
+        SCRYPT_V2_COST,
+        SCRYPT_V2_MAX_MEMORY,
+      );
+      upgradeCandidateHash = [
+        'scrypt',
+        CURRENT_PASSWORD_HASH_VERSION,
+        SCRYPT_V2_COST,
+        SCRYPT_BLOCK_SIZE,
+        SCRYPT_PARALLELIZATION,
+        candidateSalt.toString('base64url'),
+        candidateKey.toString('base64url'),
+      ].join('$');
+    } catch {
+      upgradeCandidateHash = undefined;
+    }
+  }
   return {
     credentialClass: 'OLD',
     matches,
     verifiedHash: matches ? (storedHash as string) : null,
-    ...(matches ? { upgradeCandidateHash } : {}),
+    ...(upgradeCandidateHash ? { upgradeCandidateHash } : {}),
   };
 }
 

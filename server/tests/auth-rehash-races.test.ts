@@ -81,11 +81,20 @@ class RaceRepository implements AuthRepository {
   }
 
   async findUserByEmail(email: string) {
-    return this.users.find((user) => user.email.toLowerCase() === email) ?? null;
+    // Return a copy like the production row mapper: callers must never observe
+    // later in-place mutations through a previously fetched record.
+    const found = this.users.find((user) => user.email.toLowerCase() === email) ?? null;
+    return found ? { ...found } : null;
   }
 
   async findUserById(id: string) {
-    return this.users.find((user) => user.id === id) ?? null;
+    const found = this.users.find((user) => user.id === id) ?? null;
+    return found ? { ...found } : null;
+  }
+
+  /** Direct mutable access for deterministic race gates (tests only). */
+  liveUser(id: string): AuthUserRecord | undefined {
+    return this.users.find((user) => user.id === id);
   }
 
   async createSessionIfCredentialCurrent(
@@ -277,7 +286,7 @@ describe('R3/R6 simultaneous OLD logins', () => {
     derivations.counts.clear();
     // Gate: another login transparently upgrades BEFORE this login's session CAS.
     repo.beforeSessionCas = async () => {
-      const user = await repo.findUserById('user-1');
+      const user = repo.liveUser('user-1');
       if (user) user.passwordHash = upgraded;
     };
 
@@ -292,13 +301,37 @@ describe('R3/R6 simultaneous OLD logins', () => {
   });
 });
 
-describe('R4 deactivation', () => {
-  it('deactivation before session CAS -> no session, no rehash', async () => {
+describe('recovery returns the refreshed user record', () => {
+  it('reset to the same password with must_change_password set surfaces the fresh flags', async () => {
+    const legacy = oldArtifact(PASSWORD);
+    const repo = new RaceRepository();
+    repo.seed(legacy);
+    const resetToSame = await hashPassword(PASSWORD);
+    // Gate: admin resets to the SAME password (v2, must_change_password=TRUE)
+    // after verification but before the initial session CAS.
+    repo.beforeSessionCas = async () => {
+      const user = repo.liveUser('user-1');
+      if (user) {
+        user.passwordHash = resetToSame;
+        user.mustChangePassword = true;
+      }
+    };
+
+    const result = await repo.service().login('race@example.com', PASSWORD);
+
+    expect(repo.sessions).toHaveLength(1);
+    // The response must carry the refreshed row, not the stale login-time row.
+    expect(result.user.mustChangePassword).toBe(true);
+    expect(repo.users[0]?.passwordHash).toBe(resetToSame);
+  });
+});
+
+describe('R4 deactivation', () => {  it('deactivation before session CAS -> no session, no rehash', async () => {
     const legacy = oldArtifact(PASSWORD);
     const repo = new RaceRepository();
     repo.seed(legacy);
     repo.beforeSessionCas = async () => {
-      const user = await repo.findUserById('user-1');
+      const user = repo.liveUser('user-1');
       if (user) user.isActive = false;
     };
 
@@ -350,7 +383,7 @@ describe('R7/R8 rehash CAS contention', () => {
     repo.seed(legacy);
     const otherV2 = await hashPassword(PASSWORD);
     repo.beforeRehashCas = async () => {
-      const user = await repo.findUserById('user-1');
+      const user = repo.liveUser('user-1');
       if (user) user.passwordHash = otherV2;
     };
 
