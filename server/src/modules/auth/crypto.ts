@@ -334,21 +334,22 @@ export async function performLoginPasswordWork(
     };
   }
   const matches = await verifyPassword(password, storedHash as string);
-  // The CURRENT-slot candidate is best-effort budget work, not the
-  // authentication decision: if its derivation fails at runtime (e.g. VPS
+  // The CURRENT-slot candidate is derived from the SUPPLIED password whether
+  // verification succeeds or not (fixed budget), and is returned only on
+  // success. Derivation is best-effort: if it fails at runtime (e.g. VPS
   // memory pressure), proceed without a candidate so an OLD-profile login
   // behaves exactly like every other path (generic 401/200 from the OLD
   // verification) instead of leaking an OLD-credential oracle via 500s.
   let upgradeCandidateHash: string | undefined;
-  if (matches) {
-    try {
-      const candidateSalt = randomBytes(16);
-      const candidateKey = await derivePasswordKey(
-        password,
-        candidateSalt,
-        SCRYPT_V2_COST,
-        SCRYPT_V2_MAX_MEMORY,
-      );
+  try {
+    const candidateSalt = randomBytes(16);
+    const candidateKey = await derivePasswordKey(
+      password,
+      candidateSalt,
+      SCRYPT_V2_COST,
+      SCRYPT_V2_MAX_MEMORY,
+    );
+    if (matches) {
       upgradeCandidateHash = [
         'scrypt',
         CURRENT_PASSWORD_HASH_VERSION,
@@ -358,9 +359,9 @@ export async function performLoginPasswordWork(
         candidateSalt.toString('base64url'),
         candidateKey.toString('base64url'),
       ].join('$');
-    } catch {
-      upgradeCandidateHash = undefined;
     }
+  } catch {
+    upgradeCandidateHash = undefined;
   }
   return {
     credentialClass: 'OLD',
