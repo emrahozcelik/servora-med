@@ -91,10 +91,30 @@ export interface ParsedPasswordHash {
 }
 
 /**
+ * Strict base64url field decoder for stored hash artifacts. Node's base64url
+ * decoder is intentionally permissive (padding, standard-Base64 `+`/`/`, and
+ * non-canonical trailing-bit aliases can decode to valid bytes), so decoded
+ * length alone cannot enforce the documented grammar. This helper requires
+ * the exact `A-Za-z0-9-_` alphabet with no padding, the expected byte length,
+ * and round-trip canonicality (`decoded.toString('base64url') === input`), so
+ * no two accepted textual forms map to the same bytes.
+ */
+function decodeCanonicalBase64Url(value: string, expectedBytes: number): Buffer | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    return null;
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.length !== expectedBytes || decoded.toString('base64url') !== value) {
+    return null;
+  }
+  return decoded;
+}
+
+/**
  * Single SSOT parser for stored password artifacts. Accepts ONLY the two
  * explicitly allowed profiles and rejects everything else (unknown algorithm,
  * unknown version, non-canonical or non-allowlisted N/r/p, bad field count,
- * undecodable or wrong-length salt/key). Verification therefore never
+ * non-canonical or wrong-length salt/key). Verification therefore never
  * executes arbitrary KDF parameters read from the database: a hostile stored
  * artifact cannot request an unbounded scrypt cost.
  *
@@ -126,9 +146,9 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
     return null;
   }
 
-  const salt = Buffer.from(encodedSalt, 'base64url');
-  const key = Buffer.from(encodedKey, 'base64url');
-  if (salt.length !== 16 || key.length !== SCRYPT_KEY_LENGTH) {
+  const salt = decodeCanonicalBase64Url(encodedSalt, 16);
+  const key = decodeCanonicalBase64Url(encodedKey, SCRYPT_KEY_LENGTH);
+  if (!salt || !key) {
     return null;
   }
   return { profile, salt, key };

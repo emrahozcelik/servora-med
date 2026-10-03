@@ -108,6 +108,65 @@ describe('verifyPassword matrix', () => {
   });
 });
 
+const BASE64URL_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** Flip the lowest bit of the final symbol: same decoded bytes, non-canonical text. */
+function trailingBitAlias(canonical: string): string {
+  const last = canonical[canonical.length - 1] ?? '';
+  const value = BASE64URL_ALPHABET.indexOf(last);
+  expect(value).toBeGreaterThanOrEqual(0);
+  return `${canonical.slice(0, -1)}${BASE64URL_ALPHABET[value ^ 1]}`;
+}
+
+describe('canonical base64url enforcement', () => {
+  it('rejects padded, standard-alphabet, invalid, and trailing-bit-alias fields', async () => {
+    const current = await hashPassword(PASSWORD);
+    const [, , , , , canonicalSalt, canonicalKey] = current.split('$');
+    const legacyBase = toLegacyFormat(current);
+    const [algo, n, r, p, , key] = legacyBase.split('$');
+    const legacyWithSalt = (salt: string) => `${algo}$${n}$${r}$${p}$${salt}$${key}`;
+
+    const aliasSalt = trailingBitAlias(canonicalSalt);
+    // Premise: the alias really decodes to the same bytes (decoder ignores
+    // trailing bits), so only the round-trip check can reject it.
+    expect(Buffer.from(aliasSalt, 'base64url').equals(Buffer.from(canonicalSalt, 'base64url'))).toBe(
+      true,
+    );
+    expect(aliasSalt).not.toBe(canonicalSalt);
+
+    const variants: Array<[string, string]> = [
+      [legacyWithSalt(`${canonicalSalt}=`), 'padded salt'],
+      [`${algo}$${n}$${r}$${p}$${canonicalSalt}$${canonicalKey}=`, 'padded key'],
+      [legacyWithSalt(`+${canonicalSalt.slice(1)}`), 'standard-base64 + in salt'],
+      [`${algo}$${n}$${r}$${p}$${canonicalSalt}$/${canonicalKey.slice(1)}`, 'standard-base64 / in key'],
+      [legacyWithSalt(`!${canonicalSalt.slice(1)}`), 'invalid alphabet character'],
+      [legacyWithSalt(aliasSalt), 'non-canonical trailing-bit alias'],
+    ];
+    for (const [hash, label] of variants) {
+      expect(parsePasswordHash(hash), label).toBeNull();
+      await expect(verifyPassword(PASSWORD, hash), label).resolves.toBe(false);
+      expect(passwordHashNeedsUpgrade(hash), label).toBe(false);
+    }
+  });
+
+  it('rejects padded and aliased fields in v1 artifacts', async () => {
+    const current = await hashPassword(PASSWORD);
+    const [algo, version, n, r, p, canonicalSalt, canonicalKey] = current.split('$');
+    const v1With = (salt: string, k: string) =>
+      `${algo}$${version}$${n}$${r}$${p}$${salt}$${k}`;
+
+    for (const [hash, label] of [
+      [v1With(`${canonicalSalt}=`, canonicalKey), 'v1 padded salt'],
+      [v1With(canonicalSalt, `${canonicalKey}==`), 'v1 padded key'],
+      [v1With(trailingBitAlias(canonicalSalt), canonicalKey), 'v1 trailing-bit alias salt'],
+    ] as Array<[string, string]>) {
+      expect(parsePasswordHash(hash), label).toBeNull();
+      await expect(verifyPassword(PASSWORD, hash), label).resolves.toBe(false);
+    }
+  });
+});
+
 /** Minimal login repository: production CAS semantics mirrored, nothing more. */
 class LoginMemoryRepository implements AuthRepository {
   users: AuthUserRecord[] = [];
