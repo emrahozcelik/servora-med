@@ -326,6 +326,29 @@ describe('recovery returns the refreshed user record', () => {
   });
 });
 
+describe('policy-violating historical password', () => {
+  it('transparently upgrades without running new-password policy or forced reset', async () => {
+    // 'legacy-password' fails today's composition (no uppercase/digit/symbol).
+    const salt = Buffer.from([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]);
+    const key = scryptSync('legacy-password', salt, 64, { N: 16384, r: 8, p: 1, maxmem: 128 * 1024 * 1024 });
+    const historical = ['scrypt', 16384, 8, 1,
+      salt.toString('base64url'), key.toString('base64url')].join('$');
+    const repo = new RaceRepository();
+    repo.seed(historical);
+
+    const result = await repo.service().login('race@example.com', 'legacy-password');
+
+    expect(typeof result.rawToken).toBe('string');
+    expect(repo.sessions).toHaveLength(1);
+    expect(parsePasswordHash(repo.users[0]?.passwordHash ?? '')).toMatchObject({
+      profile: 'SCRYPT_V2',
+    });
+    await expect(
+      verifyPassword('legacy-password', repo.users[0]?.passwordHash ?? ''),
+    ).resolves.toBe(true);
+  });
+});
+
 describe('R4 deactivation', () => {  it('deactivation before session CAS -> no session, no rehash', async () => {
     const legacy = oldArtifact(PASSWORD);
     const repo = new RaceRepository();
