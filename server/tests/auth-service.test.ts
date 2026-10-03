@@ -131,15 +131,15 @@ describe('AuthService', () => {
 
   it('changes the password, clears must-change flag, and revokes all sessions', async () => {
     const login = await service.login('admin@example.com', 'correct-password');
-    await service.changePassword('user-1', 'correct-password', 'new-secure-password');
+    await service.changePassword('user-1', 'correct-password', 'NewSecure1!');
     await expect(service.authenticateSession(login.rawToken)).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
-    await expect(service.login('admin@example.com', 'new-secure-password')).resolves.toBeDefined();
+    await expect(service.login('admin@example.com', 'NewSecure1!')).resolves.toBeDefined();
     expect(repository.users[0]?.mustChangePassword).toBe(false);
     expect(repository.users[0]?.version).toBe(2);
   });
 
   it('rejects password change when the current password is wrong', async () => {
-    await expect(service.changePassword('user-1', 'wrong-password', 'new-secure-password'))
+    await expect(service.changePassword('user-1', 'wrong-password', 'NewSecure1!'))
       .rejects.toMatchObject({ code: 'INVALID_CURRENT_PASSWORD', statusCode: 400 });
   });
 

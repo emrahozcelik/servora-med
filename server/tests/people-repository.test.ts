@@ -18,7 +18,7 @@ function recordingPool(rows: unknown[] = []) {
     calls,
     pool: { connect: async () => client, query: client.query } as never,
     credentials: {
-      validatePassword: () => undefined,
+      validateNewPassword: () => undefined,
       hashPassword: async () => 'hash',
       resetTemporaryPassword: async () => 2,
     },
@@ -234,7 +234,7 @@ describe('PostgresPeopleRepository transactions', () => {
     };
     const pool = { connect: async () => client, query: client.query } as never;
     const repository = new PostgresPeopleRepository(pool, {
-      validatePassword: () => undefined, hashPassword: async () => 'hash', resetTemporaryPassword: async () => 2,
+      validateNewPassword: () => undefined, hashPassword: async () => 'hash', resetTemporaryPassword: async () => 2,
     }, { revokeAllSessions: async () => undefined });
 
     await expect(repository.getUserDeletionFacts('org-1', 'staff-1')).resolves.toEqual({

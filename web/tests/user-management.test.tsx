@@ -10,11 +10,15 @@ import type { ManagedUser } from '../src/services/people-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const people = vi.hoisted(() => ({ getUser: vi.fn(), permanentlyDeleteUser: vi.fn() }));
+const people = vi.hoisted(() => ({
+  getUser: vi.fn(), permanentlyDeleteUser: vi.fn(), createUser: vi.fn(), resetUserPassword: vi.fn(),
+}));
 vi.mock('../src/services/people-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/services/people-api')>(),
   getUser: (...args: unknown[]) => people.getUser(...args),
   permanentlyDeleteUser: (...args: unknown[]) => people.permanentlyDeleteUser(...args),
+  createUser: (...args: unknown[]) => people.createUser(...args),
+  resetUserPassword: (...args: unknown[]) => people.resetUserPassword(...args),
 }));
 
 const user: ManagedUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com',
@@ -80,6 +84,84 @@ describe('Admin user management views', () => {
     // Vazgeç should appear only once (no duplicate in heading)
     const vazgecMatches = html.match(/Vazgeç/g);
     expect(vazgecMatches).toHaveLength(1);
+  });
+});
+
+describe('temporary password policy', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    people.createUser.mockReset();
+    people.resetUserPassword.mockReset();
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  function fill(input: HTMLInputElement | null, value: string) {
+    expect(input).not.toBeNull();
+    input!.value = value;
+  }
+
+  it('shows the composition hint with 6..128 bounds on both password inputs', () => {
+    const create = renderToStaticMarkup(<UserCreateForm managers={[]} onCancel={() => {}} onCreated={() => {}} />);
+    expect(create).toContain('6–128 karakter; en az bir büyük harf, bir rakam ve bir sembol.');
+    expect(create).toContain('minLength="6"');
+    expect(create).toContain('maxLength="128"');
+    expect(create).toContain('aria-describedby="temporary-password-hint"');
+    const detail = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={user} onBack={() => {}} onChanged={() => {}} />);
+    expect(detail).toContain('6–128 karakter; en az bir büyük harf, bir rakam ve bir sembol.');
+    expect(detail).toContain('aria-describedby="reset-password-hint"');
+  });
+
+  it('rejects a non-compliant temporary password before creating the user', async () => {
+    const onCreated = vi.fn();
+    await act(async () => root.render(<MemoryRouter><UserCreateForm managers={[]} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    fill(container.querySelector('#user-name'), 'Yeni Personel');
+    fill(container.querySelector('#user-email'), 'yeni@example.com');
+    fill(container.querySelector('#temporary-password'), 'Server1');
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('en az bir sembol');
+    expect(people.createUser).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('creates the user with a compliant temporary password', async () => {
+    const onCreated = vi.fn();
+    people.createUser.mockResolvedValue({ ...user, name: 'Yeni Personel' });
+    await act(async () => root.render(<MemoryRouter><UserCreateForm managers={[]} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    fill(container.querySelector('#user-name'), 'Yeni Personel');
+    fill(container.querySelector('#user-email'), 'yeni@example.com');
+    fill(container.querySelector('#temporary-password'), 'Serv1!');
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(people.createUser).toHaveBeenCalledWith(expect.objectContaining({ temporaryPassword: 'Serv1!' }));
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-compliant reset password without calling the API', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewerRole="ADMIN" user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Server1');
+    const forms = Array.from(container.querySelectorAll('form'));
+    const resetForm = forms.find((form) => form.querySelector('#reset-password'))!;
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('en az bir sembol');
+    expect(people.resetUserPassword).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 });
 

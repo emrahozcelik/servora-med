@@ -33,7 +33,8 @@ function demoDatasetKeyForAction(clientActionId: string): string {
 }
 
 function createSyntheticPassword(): string {
-  // 20 url-safe chars, always within 12..128 and passes validatePassword
+  // Internal undisclosed credential for synthetic demo users: the scrypt KDF
+  // is policy-agnostic, so no new-password composition is required here.
   return randomBytes(15).toString('base64url');
 }
 

@@ -153,7 +153,7 @@ class MemoryPeopleRepository implements PeopleRepository {
 const admin = { id: 'admin-1', organizationId: 'org-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const, mustChangePassword: false };
 const manager = { ...admin, id: 'manager-1', role: 'MANAGER' as const };
 const staff = { ...admin, id: 'staff-1', role: 'STAFF' as const };
-const credentials = { validatePassword: () => undefined, hashPassword: async () => 'temporary-hash' };
+const credentials = { validateNewPassword: () => undefined, hashPassword: async () => 'temporary-hash' };
 const staffSummaries = {
   getOne: async ({ staffUserId }: { staffUserId: string }) => ({
     staffUserId,

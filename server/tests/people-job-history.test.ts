@@ -13,7 +13,7 @@ const page = (total: number): PaginatedJobHistory => ({ items: [], total, limit:
 const repository = {
   getStaffProfile: vi.fn().mockResolvedValue({ id: 'profile-1' }),
 };
-const credentials = { validatePassword: vi.fn(), hashPassword: vi.fn() };
+const credentials = { validateNewPassword: vi.fn(), hashPassword: vi.fn() };
 const summaries = { getOne: vi.fn(), getMany: vi.fn() };
 
 describe('PeopleService JobCard history integration', () => {

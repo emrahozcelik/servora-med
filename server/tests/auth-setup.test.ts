@@ -18,19 +18,19 @@ describe('auth setup', () => {
     const repository = new MemorySetupRepository();
     await bootstrapAdmin(repository, {
       organizationName: ' Servora Med ', name: ' First Admin ',
-      email: ' ADMIN@EXAMPLE.COM ', password: 'secure-bootstrap-password',
+      email: ' ADMIN@EXAMPLE.COM ', password: 'Secure-Bootstrap-1!',
     });
     const request = repository.requests[0]!;
     expect(request.organizationName).toBe('Servora Med');
     expect(request.users[0]).toMatchObject({ name: 'First Admin', email: 'admin@example.com', role: 'ADMIN', mustChangePassword: false });
     expect(request.referenceData).toBeUndefined();
-    expect(await verifyPassword('secure-bootstrap-password', request.users[0]!.passwordHash)).toBe(true);
+    expect(await verifyPassword('Secure-Bootstrap-1!', request.users[0]!.passwordHash)).toBe(true);
   });
 
   it('refuses bootstrap when any user already exists', async () => {
     const repository = new MemorySetupRepository(); repository.userCount = 1;
     await expect(bootstrapAdmin(repository, {
-      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'secure-bootstrap-password',
+      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'Secure-Bootstrap-1!',
     })).rejects.toMatchObject({ code: 'BOOTSTRAP_NOT_ALLOWED' });
     expect(repository.requests).toHaveLength(0);
   });
@@ -43,10 +43,21 @@ describe('auth setup', () => {
     expect(repository.requests).toHaveLength(0);
   });
 
+  it('rejects bootstrap and seed passwords that fail the new-password policy', async () => {
+    const repository = new MemorySetupRepository();
+    await expect(bootstrapAdmin(repository, {
+      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'Server1',
+    })).rejects.toMatchObject({ code: 'INVALID_SETUP_INPUT', statusCode: 400 });
+    await expect(seedDevelopment(repository, {
+      organizationName: 'Demo Org', password: 'Server1',
+    }, 'development')).rejects.toMatchObject({ code: 'INVALID_SETUP_INPUT', statusCode: 400 });
+    expect(repository.requests).toHaveLength(0);
+  });
+
   it('refuses development seed in production', async () => {
     const repository = new MemorySetupRepository();
     await expect(seedDevelopment(repository, {
-      organizationName: 'Demo Org', password: 'development-password',
+      organizationName: 'Demo Org', password: 'Development-1!',
     }, 'production')).rejects.toMatchObject({ code: 'DEV_SEED_FORBIDDEN' });
     expect(repository.requests).toHaveLength(0);
   });
@@ -54,7 +65,7 @@ describe('auth setup', () => {
   it('creates admin, manager, and staff only in an empty non-production database', async () => {
     const repository = new MemorySetupRepository();
     await seedDevelopment(repository, {
-      organizationName: 'Demo Org', password: 'development-password',
+      organizationName: 'Demo Org', password: 'Development-1!',
     }, 'development');
     expect(repository.requests[0]!.users.map((user) => user.role)).toEqual(['ADMIN', 'MANAGER', 'STAFF']);
     expect(repository.requests[0]!.users.every((user) => user.mustChangePassword)).toBe(true);
@@ -73,7 +84,7 @@ describe('auth setup', () => {
     const repository = new MemorySetupRepository();
 
     await seedDevelopment(repository, {
-      organizationName: 'Demo Org', password: 'development-password',
+      organizationName: 'Demo Org', password: 'Development-1!',
     }, 'development');
 
     expect(repository.requests[0]!.demoDataset).toEqual({
@@ -85,7 +96,7 @@ describe('auth setup', () => {
   it('does not create a Staff profile for Admin bootstrap', async () => {
     const repository = new MemorySetupRepository();
     await bootstrapAdmin(repository, {
-      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'secure-bootstrap-password',
+      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'Secure-Bootstrap-1!',
     });
     expect(repository.requests[0]!.staffProfile).toBeUndefined();
   });

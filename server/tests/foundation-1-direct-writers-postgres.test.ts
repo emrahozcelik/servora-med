@@ -53,7 +53,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 direct writers', () => {
     try {
       await seedDevelopment(new PostgresSetupRepository(fixture.pool), {
         organizationName: `F1 Setup ${randomUUID()}`,
-        password: 'development-password',
+        password: 'Development-1!',
       }, 'test');
       const jobs = await fixture.pool.query<{ id: string }>(
         `SELECT id FROM job_cards`,
@@ -82,7 +82,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 direct writers', () => {
     try {
       await seedDevelopment(new PostgresSetupRepository(fixture.pool), {
         organizationName: `F1 Setup Interval ${randomUUID()}`,
-        password: 'development-password',
+        password: 'Development-1!',
       }, 'test');
       const job = await fixture.pool.query<{
         id: string; type: string; scheduled_at: Date | null; scheduled_ends_at: Date | null;

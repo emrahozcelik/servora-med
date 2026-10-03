@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
-import { hashPassword, validatePassword } from '../auth/crypto.js';
+import { hashPassword, validateNewPassword } from '../auth/crypto.js';
 
 const IMPORT_SOURCE = 'production-personnel-onboarding';
 const IMPORT_VERSION = 1;
@@ -223,7 +223,7 @@ export function parsePersonnelCredentials(value: unknown): PersonnelCredential[]
       || /[\u0000-\u001f\u007f]/.test(entry.temporaryPassword)) {
       throw new AppError('INVALID_CREDENTIAL_FILE', 400, 'Credential file validation failed.');
     }
-    try { validatePassword(entry.temporaryPassword); }
+    try { validateNewPassword(entry.temporaryPassword); }
     catch { throw new AppError('INVALID_CREDENTIAL_FILE', 400, 'Credential file validation failed.'); }
     return { email: normalizedEmail, temporaryPassword: entry.temporaryPassword };
   });
@@ -386,7 +386,7 @@ function credentialMap(credentials: PersonnelCredential[], plans: PersonnelPlan[
   for (const credential of credentials) {
     try {
       if (/^scrypt\$/.test(credential.temporaryPassword)) throw new Error('hash input');
-      validatePassword(credential.temporaryPassword);
+      validateNewPassword(credential.temporaryPassword);
     }
     catch { throw new AppError('INVALID_CREDENTIAL_FILE', 400, 'Credential file validation failed.'); }
   }

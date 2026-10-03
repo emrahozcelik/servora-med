@@ -153,7 +153,7 @@ describe.runIf(Boolean(databaseUrl))('B1 session-issuance race on real PostgreSQ
         const pendingLogin = service.login(email, 'correct-password');
         await waitForArrival();
 
-        await service.changePassword(userId, 'correct-password', 'new-secure-password');
+        await service.changePassword(userId, 'correct-password', 'NewSecure1!');
 
         release();
         await expect(pendingLogin).rejects.toMatchObject({
@@ -184,7 +184,7 @@ describe.runIf(Boolean(databaseUrl))('B1 session-issuance race on real PostgreSQ
         const pendingChange = service.changePassword(
           userId,
           'correct-password',
-          'new-secure-password',
+          'NewSecure1!',
         );
 
         release();
@@ -195,7 +195,7 @@ describe.runIf(Boolean(databaseUrl))('B1 session-issuance race on real PostgreSQ
           .rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
         await expect(service.login(email, 'correct-password'))
           .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
-        await expect(service.login(email, 'new-secure-password')).resolves.toBeDefined();
+        await expect(service.login(email, 'NewSecure1!')).resolves.toBeDefined();
 
         const sessions = await pool.query(
           'SELECT revoked_at FROM sessions WHERE user_id = $1',
@@ -311,18 +311,18 @@ describe.runIf(Boolean(databaseUrl))('B1 session-issuance race on real PostgreSQ
         await expect(service.login(inactiveUser.email, 'correct-password'))
           .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-        await expect(service.changePassword(fixture.userId, 'wrong-password', 'new-secure-password'))
+        await expect(service.changePassword(fixture.userId, 'wrong-password', 'NewSecure1!'))
           .rejects.toMatchObject({ code: 'INVALID_CURRENT_PASSWORD', statusCode: 400 });
 
-        await expect(service.changePassword(randomUUID(), 'correct-password', 'new-secure-password'))
+        await expect(service.changePassword(randomUUID(), 'correct-password', 'NewSecure1!'))
           .rejects.toMatchObject({ code: 'INVALID_CURRENT_PASSWORD', statusCode: 400 });
 
-        await expect(service.changePassword(fixture.userId, 'correct-password', 'new-secure-password'))
+        await expect(service.changePassword(fixture.userId, 'correct-password', 'NewSecure1!'))
           .resolves.toBeUndefined();
 
         await expect(service.login(fixture.email, 'correct-password'))
           .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
-        const renewed = await service.login(fixture.email, 'new-secure-password');
+        const renewed = await service.login(fixture.email, 'NewSecure1!');
         await expect(service.authenticateSession(renewed.rawToken)).resolves.toBeDefined();
 
         await expect(repository.createSessionIfCredentialCurrent({

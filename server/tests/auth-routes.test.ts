@@ -121,9 +121,22 @@ describe('auth HTTP routes', () => {
       payload: { email: 'admin@example.com', password: 'correct-password' } });
     const response = await app.inject({ method: 'POST', url: '/api/auth/change-password',
       headers: { cookie: login.headers['set-cookie'] as string, origin: baseConfig.corsOrigin },
-      payload: { currentPassword: 'correct-password', newPassword: 'new-secure-password' } });
+      payload: { currentPassword: 'correct-password', newPassword: 'NewSecure1!' } });
     expect(response.statusCode).toBe(204);
     expect(response.headers['set-cookie']).toMatch(/Max-Age=0/i);
+  });
+
+  it('rejects a non-compliant new password with 400 and keeps the credential', async () => {
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login',
+      headers: { origin: baseConfig.corsOrigin },
+      payload: { email: 'admin@example.com', password: 'correct-password' } });
+    const before = repository.user.passwordHash;
+    const response = await app.inject({ method: 'POST', url: '/api/auth/change-password',
+      headers: { cookie: login.headers['set-cookie'] as string, origin: baseConfig.corsOrigin },
+      payload: { currentPassword: 'correct-password', newPassword: 'Server1' } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'PASSWORD_POLICY_VIOLATION' });
+    expect(repository.user.passwordHash).toBe(before);
   });
 
   it('rejects missing or mismatched origins for unsafe production requests', async () => {
@@ -177,7 +190,7 @@ describe('auth HTTP routes', () => {
     const cookie = login.headers['set-cookie'] as string;
     const guess = () => app.inject({ method: 'POST', url: '/api/auth/change-password',
       headers: { cookie, origin: baseConfig.corsOrigin },
-      payload: { currentPassword: 'wrong-password', newPassword: 'new-secure-password' } });
+      payload: { currentPassword: 'wrong-password', newPassword: 'NewSecure1!' } });
 
     // Deliberately tighter than the login budget (default 3 per window).
     expect((await guess()).statusCode).toBe(400);
@@ -193,7 +206,7 @@ describe('auth HTTP routes', () => {
     const cookie = login.headers['set-cookie'] as string;
     const guess = () => app.inject({ method: 'POST', url: '/api/auth/change-password',
       headers: { cookie, origin: baseConfig.corsOrigin },
-      payload: { currentPassword: 'wrong-password', newPassword: 'new-secure-password' } });
+      payload: { currentPassword: 'wrong-password', newPassword: 'NewSecure1!' } });
 
     await guess(); await guess(); await guess();
     expect((await guess()).statusCode).toBe(429);
@@ -211,7 +224,7 @@ describe('auth HTTP routes', () => {
 
     const changed = await app.inject({ method: 'POST', url: '/api/auth/change-password',
       headers: { cookie, origin: baseConfig.corsOrigin },
-      payload: { currentPassword: 'correct-password', newPassword: 'new-secure-password' } });
+      payload: { currentPassword: 'correct-password', newPassword: 'NewSecure1!' } });
     expect(changed.statusCode).toBe(204);
     expect(changed.headers['set-cookie']).toMatch(/Max-Age=0/i);
 
@@ -221,7 +234,7 @@ describe('auth HTTP routes', () => {
     // ...and the new credential authenticates while the old one does not.
     const relogin = await app.inject({ method: 'POST', url: '/api/auth/login',
       headers: { origin: baseConfig.corsOrigin },
-      payload: { email: 'admin@example.com', password: 'new-secure-password' } });
+      payload: { email: 'admin@example.com', password: 'NewSecure1!' } });
     expect(relogin.statusCode).toBe(200);
   });
 });

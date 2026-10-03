@@ -66,13 +66,13 @@ describe.skipIf(!databaseUrl)('Demo and People integration PostgreSQL contract',
     demo = new DemoDatasetService(new PostgresDemoDatasetRepository(pool), () => true);
     const peopleRepository = new PostgresPeopleRepository(
       pool,
-      { validatePassword: () => undefined, hashPassword: async () => 'synthetic-test-hash' },
+      { validateNewPassword: () => undefined, hashPassword: async () => 'synthetic-test-hash' },
       { revokeAllSessions: async () => undefined },
       new PostgresCustomerAssignmentCleanup(),
     );
     const people = new PeopleService(
       peopleRepository,
-      { validatePassword: () => undefined, hashPassword: async () => 'synthetic-test-hash' },
+      { validateNewPassword: () => undefined, hashPassword: async () => 'synthetic-test-hash' },
       new PostgresReportsRepository(pool),
       () => new Date('2026-08-30T09:00:00.000Z'),
     );

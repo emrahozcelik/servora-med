@@ -4,6 +4,7 @@ import {
   hashPassword,
   hashSessionToken,
   invalidCredentialSentinelHash,
+  validateNewPassword,
   verifyPassword,
 } from './crypto.js';
 import type { AuthRepository } from './repository.js';
@@ -101,6 +102,9 @@ export class AuthService {
       );
     }
 
+    // New-password policy applies ONLY to the replacement credential: the
+    // current password is verified as-is so historical passwords keep working.
+    validateNewPassword(newPassword);
     const passwordHash = await hashPassword(newPassword);
     const changed = await this.repository.updatePasswordAndRevokeSessions(
       user.id,

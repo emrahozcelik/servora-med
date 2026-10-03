@@ -98,12 +98,12 @@ async function insertRule(
 function peopleService(pool: Pool): PeopleService {
   const repository = new PostgresPeopleRepository(
     pool,
-    { validatePassword() {}, hashPassword: async () => 'unused' },
+    { validateNewPassword() {}, hashPassword: async () => 'unused' },
     new PostgresSessionRevocationPort(),
   );
   return new PeopleService(
     repository,
-    { validatePassword() {}, hashPassword: async () => 'unused' },
+    { validateNewPassword() {}, hashPassword: async () => 'unused' },
     {} as never,
     () => new Date(NOW),
   );

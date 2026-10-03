@@ -1,9 +1,9 @@
 import type { PoolClient } from 'pg';
 
-import { hashPassword, validatePassword } from './crypto.js';
+import { hashPassword, validateNewPassword } from './crypto.js';
 
 export interface CredentialAdministrationPort {
-  validatePassword(password: string): void;
+  validateNewPassword(password: string): void;
   hashPassword(password: string): Promise<string>;
   resetTemporaryPassword(
     client: PoolClient,
@@ -18,8 +18,8 @@ export interface SessionRevocationPort {
 }
 
 export class AuthCredentialAdministration implements CredentialAdministrationPort {
-  validatePassword(password: string) {
-    validatePassword(password);
+  validateNewPassword(password: string) {
+    validateNewPassword(password);
   }
 
   hashPassword(password: string) {
@@ -32,7 +32,7 @@ export class AuthCredentialAdministration implements CredentialAdministrationPor
     expectedVersion: number,
     password: string,
   ) {
-    validatePassword(password);
+    validateNewPassword(password);
     const passwordHash = await hashPassword(password);
     const result = await client.query<{ version: number }>(
       `UPDATE users

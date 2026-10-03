@@ -71,13 +71,13 @@ describe.skipIf(!databaseUrl)('FOUNDATION-1 user deletion history guard', () => 
 
       const repository = new PostgresPeopleRepository(
         pool,
-        { validatePassword: () => undefined, hashPassword: async () => 'synthetic-hash' },
+        { validateNewPassword: () => undefined, hashPassword: async () => 'synthetic-hash' },
         { revokeAllSessions: async () => undefined },
         new PostgresCustomerAssignmentCleanup(),
       );
       const people = new PeopleService(
         repository,
-        { validatePassword: () => undefined, hashPassword: async () => 'synthetic-hash' },
+        { validateNewPassword: () => undefined, hashPassword: async () => 'synthetic-hash' },
         new PostgresReportsRepository(pool),
         () => new Date('2026-09-10T08:00:00.000Z'),
       );

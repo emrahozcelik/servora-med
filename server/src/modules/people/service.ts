@@ -47,7 +47,7 @@ const profileNotFound = () => new AppError('STAFF_PROFILE_NOT_FOUND', 404, 'Pers
 const userVersionConflict = () => new AppError('USER_VERSION_CONFLICT', 409, 'Kullanıcı başka bir işlem tarafından güncellendi.');
 const profileVersionConflict = () => new AppError('STAFF_PROFILE_VERSION_CONFLICT', 409, 'Personel profili başka bir işlem tarafından güncellendi.');
 
-type CredentialPreparation = Pick<CredentialAdministrationPort, 'validatePassword' | 'hashPassword'>;
+type CredentialPreparation = Pick<CredentialAdministrationPort, 'validateNewPassword' | 'hashPassword'>;
 
 function safe(user: ManagedUserRecord): SafeManagedUser {
   const { passwordHash: _passwordHash, ...result } = user;
@@ -177,7 +177,7 @@ export class PeopleService {
     if (input.role !== 'STAFF' && input.staffProfile) {
       throw new AppError('STAFF_PROFILE_NOT_ALLOWED', 400, 'Bu rol için personel profili oluşturulamaz.');
     }
-    this.credentials.validatePassword(input.temporaryPassword);
+    this.credentials.validateNewPassword(input.temporaryPassword);
     const passwordHash = await this.credentials.hashPassword(input.temporaryPassword);
     const normalizedEmail = cleanRequired(input.email, 'email').toLowerCase();
     const name = cleanRequired(input.name, 'name');
@@ -343,7 +343,7 @@ export class PeopleService {
 
   async resetPassword(actor: SafeUser, userId: string, input: { expectedVersion: number; temporaryPassword: string }) {
     requireAdmin(actor);
-    this.credentials.validatePassword(input.temporaryPassword);
+    this.credentials.validateNewPassword(input.temporaryPassword);
     return this.repository.execute(async (tx) => {
       const target = await this.requireUser(tx, actor, userId);
       if (target.version !== input.expectedVersion) throw userVersionConflict();

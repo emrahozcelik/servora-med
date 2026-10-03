@@ -9,7 +9,11 @@ import { PageHeader } from '../ui/PageHeader';
 import { RecordDescriptions } from '../ui/antd/RecordDescriptions';
 import { SettingsTabs } from '../ui/antd/SettingsTabs';
 import { UserAvatar } from '../ui/antd/UserAvatar';
-import { PASSWORD_LENGTH_HINT_TR } from '../ui/password-policy';
+import {
+  NEW_PASSWORD_MAX_LENGTH,
+  NEW_PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT_TR,
+} from '../ui/password-policy';
 import { useWebPush } from '../web-push/WebPushProvider';
 import { useInstallOpportunity } from '../install/InstallOpportunity';
 import { AppleInstallSteps } from '../install/AppleInstallSteps';
@@ -147,10 +151,10 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
         <div className="field-group"><label htmlFor="settings-current-password">Mevcut parola</label>
           <input id="settings-current-password" name="currentPassword" type="password" autoComplete="current-password" required disabled={pending} /></div>
         <div className="field-group"><label htmlFor="settings-new-password">Yeni parola</label>
-          <input id="settings-new-password" name="newPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={pending} aria-describedby="settings-password-hint" />
-          <p id="settings-password-hint" className="field-hint">{PASSWORD_LENGTH_HINT_TR}</p></div>
+          <input id="settings-new-password" name="newPassword" type="password" autoComplete="new-password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required disabled={pending} aria-describedby="settings-password-hint" />
+          <p id="settings-password-hint" className="field-hint">{PASSWORD_POLICY_HINT_TR}</p></div>
         <div className="field-group"><label htmlFor="settings-password-confirmation">Yeni parolayı doğrulayın</label>
-          <input id="settings-password-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={pending} /></div>
+          <input id="settings-password-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required disabled={pending} /></div>
         <button className="primary-button" type="submit" disabled={pending}>{pending ? 'Değiştiriliyor…' : 'Parolayı değiştir'}</button>
       </form>
     </OperationalCard>

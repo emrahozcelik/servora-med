@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { changePassword, logout, type CurrentUser } from './services/api';
-import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
+import {
+  NEW_PASSWORD_MAX_LENGTH,
+  NEW_PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT_TR,
+  newPasswordPolicyMessage,
+  validateNewPasswordPolicy,
+} from './ui/password-policy';
 
 export function validatePasswordChange(current: string, next: string, confirmation: string) {
   if (!current) return 'Mevcut parola zorunludur.';
-  if (next.length < 12 || next.length > 128) return 'Yeni parola 12 ile 128 karakter arasında olmalıdır.';
+  const issue = validateNewPasswordPolicy(next);
+  if (issue) return newPasswordPolicyMessage(issue);
   if (next !== confirmation) return 'Yeni parola ve doğrulama alanları eşleşmiyor.';
   return null;
 }
@@ -52,10 +59,10 @@ export function PasswordChangeScreen({ user, onChanged, onSignedOut }: {
       <div className="field-group"><label htmlFor="current-password">Mevcut parola</label>
         <input id="current-password" name="currentPassword" type="password" autoComplete="current-password" required disabled={pending} /></div>
       <div className="field-group"><label htmlFor="new-password">Yeni parola</label>
-        <input id="new-password" name="newPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={pending} aria-describedby="new-password-hint" />
-        <p id="new-password-hint" className="field-hint">{PASSWORD_LENGTH_HINT_TR}</p></div>
+        <input id="new-password" name="newPassword" type="password" autoComplete="new-password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required disabled={pending} aria-describedby="new-password-hint" />
+        <p id="new-password-hint" className="field-hint">{PASSWORD_POLICY_HINT_TR}</p></div>
       <div className="field-group"><label htmlFor="password-confirmation">Yeni parolayı doğrulayın</label>
-        <input id="password-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={pending} aria-describedby="new-password-hint" /></div>
+        <input id="password-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required disabled={pending} aria-describedby="new-password-hint" /></div>
       <button className="primary-button" type="submit" disabled={pending}>{pending ? 'Değiştiriliyor…' : 'Parolayı değiştir'}</button>
       <button className="secondary-button password-signout" type="button" onClick={signOut} disabled={pending}>Oturumu kapat</button>
     </form>
