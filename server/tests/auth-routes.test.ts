@@ -22,6 +22,10 @@ class MemoryRepository implements AuthRepository {
     };
     this.sessions.push(session); return session;
   }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
+
   async findSessionWithUser(hash: string) {
     const session = this.sessions.find((item) => item.tokenHash === hash);
     return session ? { session, user: this.user } : null;

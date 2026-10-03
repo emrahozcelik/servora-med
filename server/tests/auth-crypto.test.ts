@@ -14,7 +14,7 @@ describe('password hashing', () => {
     const first = await hashPassword(password);
     const second = await hashPassword(password);
 
-    expect(first).toMatch(/^scrypt\$v1\$16384\$8\$1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
+    expect(first).toMatch(/^scrypt\$v2\$32768\$8\$1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
     expect(second).not.toBe(first);
     await expect(verifyPassword(password, first)).resolves.toBe(true);
     await expect(verifyPassword('Wrong-Password-2026!', first)).resolves.toBe(false);

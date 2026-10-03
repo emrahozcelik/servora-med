@@ -14,6 +14,15 @@ const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELIZATION = 1;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_MAX_MEMORY = 32 * 1024 * 1024;
+/**
+ * Provisional SCRYPT_V2 profile (N=32768). V2 remains PROVISIONAL until a
+ * deployment-class benchmark confirms the cost; do not treat it as
+ * operationally final. V2 maxmem is an explicit bounded ceiling (64 MiB):
+ * local evidence showed 48 MiB is the practical Node minimum for N=32768,
+ * so 64 MiB carries headroom without being unbounded.
+ */
+const SCRYPT_V2_COST = 32_768;
+const SCRYPT_V2_MAX_MEMORY = 64 * 1024 * 1024;
 
 /**
  * Server-side authority for NEW password validation. Applies ONLY when a new
@@ -45,17 +54,22 @@ export function validateNewPassword(password: string): void {
   }
 }
 
-async function derivePasswordKey(password: string, salt: Buffer): Promise<Buffer> {
+async function derivePasswordKey(
+  password: string,
+  salt: Buffer,
+  cost: number = SCRYPT_COST,
+  maxmem: number = SCRYPT_MAX_MEMORY,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scryptCallback(
       password,
       salt,
       SCRYPT_KEY_LENGTH,
       {
-        N: SCRYPT_COST,
+        N: cost,
         r: SCRYPT_BLOCK_SIZE,
         p: SCRYPT_PARALLELIZATION,
-        maxmem: SCRYPT_MAX_MEMORY,
+        maxmem,
       },
       (error, derivedKey) => {
         if (error) reject(error);
@@ -65,24 +79,32 @@ async function derivePasswordKey(password: string, salt: Buffer): Promise<Buffer
   });
 }
 
+/** KDF cost parameters selected ONLY from the parsed profile allowlist. */
+function profileKdfParams(profile: PasswordHashProfile): { cost: number; maxmem: number } {
+  return profile === 'SCRYPT_V2'
+    ? { cost: SCRYPT_V2_COST, maxmem: SCRYPT_V2_MAX_MEMORY }
+    : { cost: SCRYPT_COST, maxmem: SCRYPT_MAX_MEMORY };
+}
+
 /**
  * Password-hash serialization profiles.
  *
  * Stored-credential grammar (exact):
  *   LEGACY  := "scrypt" "$" N "$" r "$" p "$" saltB64u "$" keyB64u   (6 fields)
- *   CURRENT := "scrypt" "$" "v1" "$" N "$" r "$" p "$" saltB64u "$" keyB64u (7 fields)
- * with N=16384, r=8, p=1, a 16-byte salt and a 64-byte key, both base64url
- * without padding.
+ *   V1      := "scrypt" "$" "v1" "$" N "$" r "$" p "$" saltB64u "$" keyB64u
+ *   V2      := "scrypt" "$" "v2" "$" N "$" r "$" p "$" saltB64u "$" keyB64u
+ * LEGACY/V1 use N=16384; V2 (provisional current) uses N=32768. r=8, p=1, a
+ * 16-byte salt and a 64-byte key everywhere, both base64url without padding.
  *
- * LEGACY artifacts are production credentials and MUST remain verifiable.
- * CURRENT (SCRYPT_V1) is the only format `hashPassword` emits. Both profiles
- * deliberately share identical KDF parameters in this slice, so invalid
- * credential work stays one equivalent scrypt derivation (Security Slice 1).
- * Profile-cost migration is a separate slice.
+ * LEGACY and V1 artifacts are production credentials and MUST remain
+ * verifiable. SCRYPT_V2 is the only format `hashPassword` emits. Verification
+ * never executes arbitrary stored KDF parameters: each profile allowlists its
+ * exact N/r/p, and derivation parameters come only from the parsed profile.
  */
-export type PasswordHashProfile = 'LEGACY_SCRYPT' | 'SCRYPT_V1';
+export type PasswordHashProfile = 'LEGACY_SCRYPT' | 'SCRYPT_V1' | 'SCRYPT_V2';
 
-export const CURRENT_PASSWORD_HASH_VERSION = 'v1';
+export const CURRENT_PASSWORD_HASH_VERSION = 'v2';
+const PREVIOUS_PASSWORD_HASH_VERSION = 'v1';
 
 export interface ParsedPasswordHash {
   profile: PasswordHashProfile;
@@ -111,12 +133,14 @@ function decodeCanonicalBase64Url(value: string, expectedBytes: number): Buffer 
 }
 
 /**
- * Single SSOT parser for stored password artifacts. Accepts ONLY the two
+ * Single SSOT parser for stored password artifacts. Accepts ONLY the three
  * explicitly allowed profiles and rejects everything else (unknown algorithm,
  * unknown version, non-canonical or non-allowlisted N/r/p, bad field count,
- * non-canonical or wrong-length salt/key). Verification therefore never
- * executes arbitrary KDF parameters read from the database: a hostile stored
- * artifact cannot request an unbounded scrypt cost.
+ * non-canonical or wrong-length salt/key). Each profile allowlists its exact
+ * parameters (LEGACY/V1: N=16384; V2: N=32768); a v2-labeled artifact with any
+ * other N is rejected. Verification therefore never executes arbitrary KDF
+ * parameters read from the database: a hostile stored artifact cannot request
+ * an unbounded scrypt cost.
  *
  * Never throws credential details; returns null for unsupported input.
  */
@@ -128,6 +152,9 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
     profile = 'LEGACY_SCRYPT';
     fields = parts;
   } else if (parts.length === 7 && parts[1] === CURRENT_PASSWORD_HASH_VERSION) {
+    profile = 'SCRYPT_V2';
+    fields = [parts[0], ...parts.slice(2)];
+  } else if (parts.length === 7 && parts[1] === PREVIOUS_PASSWORD_HASH_VERSION) {
     profile = 'SCRYPT_V1';
     fields = [parts[0], ...parts.slice(2)];
   } else {
@@ -135,9 +162,10 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
   }
 
   const [algorithm, cost, blockSize, parallelization, encodedSalt, encodedKey] = fields;
+  const expectedCost = profile === 'SCRYPT_V2' ? SCRYPT_V2_COST : SCRYPT_COST;
   if (
     algorithm !== 'scrypt' ||
-    cost !== String(SCRYPT_COST) ||
+    cost !== String(expectedCost) ||
     blockSize !== String(SCRYPT_BLOCK_SIZE) ||
     parallelization !== String(SCRYPT_PARALLELIZATION) ||
     !encodedSalt ||
@@ -155,14 +183,13 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
 }
 
 /**
- * Pure upgrade classifier: groundwork for a later migration slice. Returns
- * true only for a supported LEGACY artifact; CURRENT artifacts are already
- * final, and malformed/unsupported artifacts are NOT legitimate upgrade
- * candidates. The login path MUST NOT act on this result yet (no
- * opportunistic rehash in this slice).
+ * Pure upgrade classifier. Returns true for supported LEGACY and V1 artifacts
+ * (both migrate toward provisional V2); V2 artifacts are already final, and
+ * malformed/unsupported artifacts are NOT legitimate upgrade candidates.
  */
 export function passwordHashNeedsUpgrade(storedHash: string): boolean {
-  return parsePasswordHash(storedHash)?.profile === 'LEGACY_SCRYPT';
+  const profile = parsePasswordHash(storedHash)?.profile;
+  return profile === 'LEGACY_SCRYPT' || profile === 'SCRYPT_V1';
 }
 
 /**
@@ -172,18 +199,18 @@ export function passwordHashNeedsUpgrade(storedHash: string): boolean {
  * today's new-password composition. Policy enforcement belongs to the
  * explicit `validateNewPassword` call sites that set new passwords.
  *
- * Emits ONLY the CURRENT versioned format, so newly set passwords naturally
- * use the versioned representation. No call site may construct the format
- * manually. KDF parameters are unchanged from the legacy profile.
+ * Emits ONLY the provisional CURRENT v2 format (N=32768), so newly set
+ * passwords naturally use the versioned representation. No call site may
+ * construct the format manually.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const derivedKey = await derivePasswordKey(password, salt);
+  const derivedKey = await derivePasswordKey(password, salt, SCRYPT_V2_COST, SCRYPT_V2_MAX_MEMORY);
 
   return [
     'scrypt',
     CURRENT_PASSWORD_HASH_VERSION,
-    SCRYPT_COST,
+    SCRYPT_V2_COST,
     SCRYPT_BLOCK_SIZE,
     SCRYPT_PARALLELIZATION,
     salt.toString('base64url'),
@@ -201,7 +228,8 @@ export async function verifyPassword(
       return false;
     }
 
-    const actualKey = await derivePasswordKey(password, parsed.salt);
+    const params = profileKdfParams(parsed.profile);
+    const actualKey = await derivePasswordKey(password, parsed.salt, params.cost, params.maxmem);
     return timingSafeEqual(actualKey, parsed.key);
   } catch {
     return false;
@@ -209,27 +237,125 @@ export async function verifyPassword(
 }
 
 /**
- * Constant-work invalid-credential sentinel.
+ * Fixed-work invalid-credential sentinels (one per KDF class).
  *
- * `AuthService.login` must not reveal whether an email exists by skipping
- * password KDF work: rejecting an unknown account without deriving a key would
- * make "no such user" measurably cheaper than "known user, wrong password".
- * When no stored hash is available the caller verifies the supplied password
- * against this single process-wide sentinel instead, so every invalid branch
- * pays exactly one scrypt derivation.
+ * `AuthService.login` must not reveal whether an email exists, whether the
+ * account is inactive, or which profile a stored credential uses by skipping
+ * KDF work. Every login therefore performs exactly one OLD-class and one
+ * CURRENT-class derivation; paths without a real credential in a slot verify
+ * the supplied password against the corresponding process-wide sentinel, so
+ * every branch pays the same structural work.
  *
- * The sentinel is derived exactly once per process from a random, unguessable
- * source and memoized. It is never persisted, never belongs to a real account,
- * and its only purpose is to consume equivalent work — it can never
- * authenticate, because the login path rejects on the missing user row before
- * trusting the verification result.
+ * Both sentinels are derived exactly once per process from random,
+ * unguessable sources and memoized single-flight. They are never persisted,
+ * never belong to a real account, and can never authenticate, because the
+ * login path rejects on the missing/inactive user row or a failed match
+ * before trusting any verification result. New-password composition policy
+ * does not apply to sentinel sources.
  */
-let sentinelPasswordHash: Promise<string> | null = null;
+let oldSentinelHash: Promise<string> | null = null;
+let currentSentinelHash: Promise<string> | null = null;
 
-/** Memoized single-flight derivation of the invalid-credential sentinel hash. */
-export function invalidCredentialSentinelHash(): Promise<string> {
-  sentinelPasswordHash ??= hashPassword(randomBytes(32).toString('base64url'));
-  return sentinelPasswordHash;
+async function deriveSentinelHash(
+  cost: number,
+  maxmem: number,
+  version: string,
+): Promise<string> {
+  const salt = randomBytes(16);
+  const derivedKey = await derivePasswordKey(
+    randomBytes(32).toString('base64url'),
+    salt,
+    cost,
+    maxmem,
+  );
+  return ['scrypt', version, cost, SCRYPT_BLOCK_SIZE, SCRYPT_PARALLELIZATION,
+    salt.toString('base64url'), derivedKey.toString('base64url')].join('$');
+}
+
+/** Memoized single-flight derivation of the OLD-class (N=16384) sentinel. */
+export function oldCredentialSentinelHash(): Promise<string> {
+  oldSentinelHash ??= deriveSentinelHash(SCRYPT_COST, SCRYPT_MAX_MEMORY, PREVIOUS_PASSWORD_HASH_VERSION);
+  return oldSentinelHash;
+}
+
+/** Memoized single-flight derivation of the CURRENT-class (N=32768) sentinel. */
+export function currentCredentialSentinelHash(): Promise<string> {
+  currentSentinelHash ??= deriveSentinelHash(
+    SCRYPT_V2_COST,
+    SCRYPT_V2_MAX_MEMORY,
+    CURRENT_PASSWORD_HASH_VERSION,
+  );
+  return currentSentinelHash;
+}
+
+/**
+ * Centralized login credential-work abstraction: the single SSOT for login
+ * KDF structure. Guarantees the fixed budget structurally — every call
+ * performs sequentially exactly one OLD-class and one CURRENT-class
+ * derivation, never concurrently and with no wall-clock sleep padding.
+ *
+ * Slot assignment:
+ * - OLD stored credential: OLD slot = real verification; CURRENT slot =
+ *   fresh canonical V2 candidate derived from the SUPPLIED password (whether
+ *   verification succeeds or not). On success the candidate is returned for
+ *   transparent-upgrade reuse, so rehash needs no third normal-path KDF.
+ * - CURRENT stored credential: OLD slot = dummy verification against the
+ *   warmed OLD sentinel; CURRENT slot = real verification.
+ * - Unknown/malformed/unsupported: both slots dummy (OLD + CURRENT sentinels).
+ */
+export type LoginCredentialClass = 'OLD' | 'CURRENT' | 'UNSUPPORTED';
+
+export interface LoginPasswordWork {
+  credentialClass: LoginCredentialClass;
+  matches: boolean;
+  /** Exact stored hash that was verified; null unless supported and matching. */
+  verifiedHash: string | null;
+  /** Precomputed canonical V2 hash; present only when OLD && matches. */
+  upgradeCandidateHash?: string;
+}
+
+export async function performLoginPasswordWork(
+  password: string,
+  storedHash: string | null,
+): Promise<LoginPasswordWork> {
+  const parsed = storedHash ? parsePasswordHash(storedHash) : null;
+  if (!parsed) {
+    await verifyPassword(password, await oldCredentialSentinelHash());
+    await verifyPassword(password, await currentCredentialSentinelHash());
+    return { credentialClass: 'UNSUPPORTED', matches: false, verifiedHash: null };
+  }
+  if (parsed.profile === 'SCRYPT_V2') {
+    await verifyPassword(password, await oldCredentialSentinelHash());
+    const matches = await verifyPassword(password, storedHash as string);
+    return {
+      credentialClass: 'CURRENT',
+      matches,
+      verifiedHash: matches ? (storedHash as string) : null,
+    };
+  }
+  const matches = await verifyPassword(password, storedHash as string);
+  const candidateSalt = randomBytes(16);
+  const candidateKey = await derivePasswordKey(
+    password,
+    candidateSalt,
+    SCRYPT_V2_COST,
+    SCRYPT_V2_MAX_MEMORY,
+  );
+  const upgradeCandidateHash = [
+    'scrypt',
+    CURRENT_PASSWORD_HASH_VERSION,
+    SCRYPT_V2_COST,
+    SCRYPT_BLOCK_SIZE,
+    SCRYPT_PARALLELIZATION,
+    candidateSalt.toString('base64url'),
+    candidateKey.toString('base64url'),
+  ].join('$');
+  return {
+    credentialClass: 'OLD',
+    matches,
+    verifiedHash: matches ? (storedHash as string) : null,
+    ...(matches ? { upgradeCandidateHash } : {}),
+  };
 }
 
 export function createSessionToken(): { rawToken: string; tokenHash: string } {

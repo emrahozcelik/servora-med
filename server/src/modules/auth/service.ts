@@ -3,7 +3,9 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
-  invalidCredentialSentinelHash,
+  parsePasswordHash,
+  passwordHashNeedsUpgrade,
+  performLoginPasswordWork,
   validateNewPassword,
   verifyPassword,
 } from './crypto.js';
@@ -44,29 +46,99 @@ export class AuthService {
   async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.repository.findUserByEmail(normalizedEmail);
-    // Constant work: an unknown account still pays exactly one scrypt
-    // derivation, against the sentinel hash, so response time cannot reveal
-    // whether the email exists. Inactive accounts pay the real derivation
-    // before the same generic rejection.
-    const storedHash = user?.passwordHash ?? (await invalidCredentialSentinelHash());
-    const passwordMatches = await verifyPassword(password, storedHash);
-    if (!user || !user.isActive || !passwordMatches) {
+    // Fixed KDF budget: every attempt performs sequentially exactly one
+    // OLD-class and one CURRENT-class derivation, regardless of account
+    // existence, credential profile, activity, or password correctness.
+    const work = await performLoginPasswordWork(password, user?.passwordHash ?? null);
+    if (
+      !user ||
+      !user.isActive ||
+      work.credentialClass === 'UNSUPPORTED' ||
+      !work.matches ||
+      !work.verifiedHash
+    ) {
       throw INVALID_CREDENTIALS;
     }
 
     const { rawToken, tokenHash } = createSessionToken();
     const issuedAt = this.now();
-    const session = await this.repository.createSessionIfCredentialCurrent({
+    const expiresAt = new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000);
+    let session = await this.repository.createSessionIfCredentialCurrent({
       userId: user.id,
       tokenHash,
-      expiresAt: new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000),
-      expectedPasswordHash: user.passwordHash,
+      expiresAt,
+      expectedPasswordHash: work.verifiedHash,
     });
+    // The hash the issued session is bound to. Normally the verified hash;
+    // the Option-2 path below may rebind it after re-verification.
+    let sessionHash = work.verifiedHash;
+    if (!session && work.credentialClass === 'OLD') {
+      // Bounded Option-2 recovery (single attempt): the initial CAS failed
+      // after a successfully verified OLD credential, so another login may
+      // have transparently upgraded it. Re-verify the SAME supplied password
+      // against the CURRENT stored hash — never assume hash-changed == rehash.
+      const current = await this.repository.findUserById(user.id);
+      const currentHash = current?.passwordHash ?? null;
+      if (
+        current &&
+        current.isActive &&
+        currentHash &&
+        currentHash !== work.verifiedHash &&
+        parsePasswordHash(currentHash) &&
+        (await verifyPassword(password, currentHash))
+      ) {
+        session = await this.repository.createSessionIfCredentialCurrent({
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+          expectedPasswordHash: currentHash,
+        });
+        if (session) {
+          sessionHash = currentHash;
+        }
+      }
+    }
     if (!session) {
       throw INVALID_CREDENTIALS;
     }
 
+    // Transparent upgrade only after a durable session, reusing the
+    // precomputed candidate (no third normal-path KDF). The candidate was
+    // derived from the supplied password, which verified against sessionHash,
+    // so it represents the same secret in the current representation.
+    if (
+      work.upgradeCandidateHash &&
+      passwordHashNeedsUpgrade(sessionHash)
+    ) {
+      await this.bestEffortPasswordHashUpgrade(user.id, sessionHash, work.upgradeCandidateHash);
+    }
+
     return { user: toSafeUser(user), rawToken };
+  }
+
+  /**
+   * Best-effort transparent KDF maintenance. Runs only after a session was
+   * durably created; CAS conflict (lost race) and operational errors never
+   * fail the already-successful login. Operational errors emit a structured
+   * warning without credential material.
+   */
+  private async bestEffortPasswordHashUpgrade(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<void> {
+    try {
+      await this.repository.upgradePasswordHashIfCurrent(
+        userId,
+        expectedPasswordHash,
+        replacementPasswordHash,
+      );
+    } catch (error) {
+      console.warn('Transparent password-hash upgrade failed', {
+        userId,
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+    }
   }
 
   async authenticateSession(rawToken: string) {
