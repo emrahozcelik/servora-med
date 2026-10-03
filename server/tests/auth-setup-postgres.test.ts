@@ -39,7 +39,7 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
 
     await seedDevelopment(repository, {
       organizationName,
-      password: 'development-password',
+      password: 'Development-1!',
     }, 'test');
 
     const result = await pool!.query<{

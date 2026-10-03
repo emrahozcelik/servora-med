@@ -87,7 +87,7 @@ function setup() {
     getOne: vi.fn(async ({ staffUserId }) => summaries.get(staffUserId) ?? null),
   };
   const credentials = {
-    validatePassword: () => undefined,
+    validateNewPassword: () => undefined,
     hashPassword: async () => 'hash',
   };
   const service = new PeopleService(

@@ -29,9 +29,10 @@ The credential file is a separate operator-controlled JSON file outside Git:
 
 It must be a regular, non-symlink file with mode `0600` or stricter, owned by
 the executing operator (or root). Coverage must exactly match accounts that
-will be created. Passwords use the existing production policy (12–128
-characters) and are hashed through the existing scrypt implementation. Never
-print or log the file or its passwords.
+will be created. Passwords use the existing production new-password policy
+(6–128 characters with at least one uppercase letter, one ASCII digit, and one
+symbol; whitespace never counts as the symbol) and are hashed through the
+existing scrypt implementation. Never print or log the file or its passwords.
 
 ## Manifest shape
 

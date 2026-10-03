@@ -25,13 +25,15 @@ describe('mandatory password change integration', () => {
     } };
     const port = new AuthCredentialAdministration();
 
-    await expect(port.resetTemporaryPassword(client as never, 'user-1', 3, 'temporary-password'))
+    await expect(port.resetTemporaryPassword(client as never, 'user-1', 3, 'Temporary-1!'))
       .resolves.toBe(4);
+    await expect(port.resetTemporaryPassword(client as never, 'user-1', 3, 'Server1'))
+      .rejects.toMatchObject({ code: 'PASSWORD_POLICY_VIOLATION', statusCode: 400 });
     const update = calls[0]!;
     expect(update.text).toMatch(/must_change_password = TRUE/);
     expect(update.text).toMatch(/version = version \+ 1/);
     expect(update.text).toMatch(/WHERE id = \$1 AND version = \$2/);
-    expect(update.values[2]).not.toBe('temporary-password');
+    expect(update.values[2]).not.toBe('Temporary-1!');
   });
 
   it('revokes every active session for a user through the supplied transaction', async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Pool } from 'pg';
 
-import { hashPassword } from '../src/modules/auth/crypto.js';
+import { hashPassword, validateNewPassword } from '../src/modules/auth/crypto.js';
 import { canonicalScheduledEnd } from '../src/modules/job-cards/job-card-duration.js';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -146,6 +146,10 @@ async function insertJob(spec: JobSpec) {
   }
 }
 
+// Operator-supplied credential for login-capable synthetic users: enforce the
+// new-password composition policy before hashing (the KDF itself is
+// policy-agnostic and would otherwise accept a weak password silently).
+validateNewPassword(password);
 const passwordHash = await hashPassword(password);
 
 try {

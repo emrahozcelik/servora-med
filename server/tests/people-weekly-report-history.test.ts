@@ -20,7 +20,7 @@ const staff: SafeUser = { ...admin, id: 'staff-1', name: 'Staff', role: 'STAFF' 
 const page = (total: number): PaginatedWeeklyReportHistory =>
   ({ items: [], total, limit: 20, offset: 0 });
 
-const credentials = { validatePassword: vi.fn(), hashPassword: vi.fn() };
+const credentials = { validateNewPassword: vi.fn(), hashPassword: vi.fn() };
 const summaries = { getOne: vi.fn(), getMany: vi.fn() };
 
 function repositoryDouble(existingProfile: unknown = { id: 'profile-1' }) {

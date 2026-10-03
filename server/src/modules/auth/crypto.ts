@@ -5,20 +5,43 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
-const PASSWORD_MIN_LENGTH = 12;
-const PASSWORD_MAX_LENGTH = 128;
+import { AppError } from '../../errors/index.js';
+
+export const NEW_PASSWORD_MIN_LENGTH = 6;
+export const NEW_PASSWORD_MAX_LENGTH = 128;
 const SCRYPT_COST = 16_384;
 const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELIZATION = 1;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_MAX_MEMORY = 32 * 1024 * 1024;
 
-export function validatePassword(password: string): void {
-  if (
-    password.length < PASSWORD_MIN_LENGTH ||
-    password.length > PASSWORD_MAX_LENGTH
-  ) {
-    throw new Error('Password must be between 12 and 128 characters');
+/**
+ * Server-side authority for NEW password validation. Applies ONLY when a new
+ * password is being set (self-service change, Admin create/reset, bootstrap,
+ * dev seed, personnel import). It MUST NOT run against existing credentials:
+ * login verification, `verifyPassword`, and the invalid-credential sentinel
+ * stay policy-agnostic so historical passwords keep working.
+ *
+ * Composition (single generic failure, no rule oracle):
+ * - length 6..128 inclusive
+ * - at least one Unicode uppercase letter (covers Turkish Ş/İ/Ğ/Ü/Ö/Ç)
+ * - at least one ASCII digit 0-9
+ * - at least one symbol: non-letter, non-number, non-whitespace
+ *   (whitespace may exist but never satisfies the symbol requirement)
+ * Lowercase is NOT required.
+ */
+export function validateNewPassword(password: string): void {
+  const compliant = password.length >= NEW_PASSWORD_MIN_LENGTH
+    && password.length <= NEW_PASSWORD_MAX_LENGTH
+    && /\p{Lu}/u.test(password)
+    && /[0-9]/.test(password)
+    && /[^\p{L}\p{N}\s]/u.test(password);
+  if (!compliant) {
+    throw new AppError(
+      'PASSWORD_POLICY_VIOLATION',
+      400,
+      'Yeni parola 6–128 karakter olmalı; en az bir büyük harf, bir rakam ve bir sembol içermelidir.',
+    );
   }
 }
 
@@ -42,9 +65,14 @@ async function derivePasswordKey(password: string, salt: Buffer): Promise<Buffer
   });
 }
 
+/**
+ * Policy-agnostic scrypt KDF. Deliberately performs NO password-policy
+ * validation: it must hash legacy credentials, the invalid-credential
+ * sentinel source, and internally generated secrets without requiring
+ * today's new-password composition. Policy enforcement belongs to the
+ * explicit `validateNewPassword` call sites that set new passwords.
+ */
 export async function hashPassword(password: string): Promise<string> {
-  validatePassword(password);
-
   const salt = randomBytes(16);
   const derivedKey = await derivePasswordKey(password, salt);
 

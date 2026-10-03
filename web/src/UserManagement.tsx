@@ -6,7 +6,13 @@ import {
   changeUserRole, createUser, getUser, listUsers,
   permanentlyDeleteUser, resetUserPassword, updateUser, type ManagedUser, type ManagedUserDetails,
 } from './services/people-api';
-import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
+import {
+  NEW_PASSWORD_MAX_LENGTH,
+  NEW_PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT_TR,
+  newPasswordPolicyMessage,
+  validateNewPasswordPolicy,
+} from './ui/password-policy';
 import { PageHeader } from './ui/PageHeader';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
@@ -48,9 +54,13 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
   const [role, setRole] = useState<ManagedUser['role']>('STAFF'); const [pending, setPending] = useState(false); const [error, setError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null); useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setPending(true); setError(''); const data = new FormData(event.currentTarget);
+    event.preventDefault(); setError(''); const data = new FormData(event.currentTarget);
+    const temporaryPassword = String(data.get('temporaryPassword') ?? '');
+    const policyIssue = validateNewPasswordPolicy(temporaryPassword);
+    if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; }
+    setPending(true);
     try { onCreated(await createUser({ name: String(data.get('name') ?? ''), email: String(data.get('email') ?? ''), role,
-      temporaryPassword: String(data.get('temporaryPassword') ?? ''), ...(role === 'STAFF' ? { staffProfile: {
+      temporaryPassword, ...(role === 'STAFF' ? { staffProfile: {
         title: String(data.get('title') ?? '') || null, phone: String(data.get('phone') ?? '') || null,
         region: String(data.get('region') ?? '') || null, managerUserId: String(data.get('managerUserId') ?? '') || null,
       } } : {}) })); }
@@ -62,8 +72,8 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
       <Field id="user-email" label="E-posta"><input id="user-email" name="email" type="email" required disabled={pending} /></Field>
       <Field id="user-role" label="Rol"><select id="user-role" value={role} onChange={(e) => setRole(e.target.value as ManagedUser['role'])} disabled={pending}>
         <option value="STAFF">Personel</option><option value="MANAGER">Yönetici</option><option value="ADMIN">Sistem yöneticisi</option></select></Field>
-      <Field id="temporary-password" label="Geçici parola" hintId="temporary-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
-        <input id="temporary-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required disabled={pending} aria-describedby="temporary-password-hint" /></Field>
+      <Field id="temporary-password" label="Geçici parola" hintId="temporary-password-hint" hint={PASSWORD_POLICY_HINT_TR}>
+        <input id="temporary-password" name="temporaryPassword" type="password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required disabled={pending} aria-describedby="temporary-password-hint" /></Field>
       {role === 'STAFF' && <><Field id="staff-title" label="Unvan"><input id="staff-title" name="title" /></Field>
         <Field id="staff-phone" label="Telefon"><input id="staff-phone" name="phone" type="tel" /></Field>
         <Field id="staff-region" label="Bölge"><input id="staff-region" name="region" /></Field>
@@ -132,9 +142,9 @@ export function UserDetailView({ user: initial, viewerRole, onChanged, onDeleted
       <Field id="detail-name" label="Ad soyad"><input id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
     <section className="security-section"><h2>Rol ve erişim</h2>{user.role !== 'STAFF' && <form onSubmit={(e) => { e.preventDefault(); const role = String(new FormData(e.currentTarget).get('role')) as 'ADMIN' | 'MANAGER'; void run(() => changeUserRole(user.id, { expectedVersion: user.version, role }), 'Rol güncellendi.'); }}>
       <Field id="detail-role" label="Rol"><select id="detail-role" name="role" defaultValue={user.role}><option value="ADMIN">Sistem yöneticisi</option><option value="MANAGER">Yönetici</option></select></Field><button className="primary-button">Rolü değiştir</button></form>}
-      <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
-        <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
-          <input id="reset-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required aria-describedby="reset-password-hint" /></Field>
+      <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); const policyIssue = validateNewPasswordPolicy(temporaryPassword); if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; } if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
+        <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_POLICY_HINT_TR}>
+          <input id="reset-password" name="temporaryPassword" type="password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required aria-describedby="reset-password-hint" /></Field>
         <button className="secondary-button command-button">Parolayı sıfırla</button></form>
       {viewerRole === 'ADMIN' && user.role === 'STAFF' && <StaffOffboardingWorkflow target={user}
         onCompleted={() => {

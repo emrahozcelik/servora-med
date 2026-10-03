@@ -530,9 +530,9 @@ silent database-name rewrite. See
 | `BOOTSTRAP_ORGANIZATION_NAME` | bootstrap only | first organization name |
 | `BOOTSTRAP_ADMIN_NAME` | bootstrap only | first Admin display name |
 | `BOOTSTRAP_ADMIN_EMAIL` | bootstrap only | first Admin email |
-| `BOOTSTRAP_ADMIN_PASSWORD` | bootstrap only | first Admin password; 12 to 128 characters |
+| `BOOTSTRAP_ADMIN_PASSWORD` | bootstrap only | first Admin password; 6–128 characters with at least one uppercase letter, one ASCII digit, and one symbol |
 | `DEV_SEED_ORGANIZATION_NAME` | seed only | local demo organization name |
-| `DEV_SEED_PASSWORD` | seed only | local demo password; 12 to 128 characters |
+| `DEV_SEED_PASSWORD` | seed only | local demo password; 6–128 characters with at least one uppercase letter, one ASCII digit, and one symbol |
 
 Production secrets must come from the deployment environment. Raw passwords, session tokens, cookies, and authorization headers must never be committed or logged.
 

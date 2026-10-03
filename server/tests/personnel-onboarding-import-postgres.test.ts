@@ -175,6 +175,8 @@ describe('personnel onboarding parser and privacy contract', () => {
       .toThrowError(expect.objectContaining({ code: 'INVALID_CREDENTIAL_FILE' }));
     expect(() => parsePersonnelCredentials({ version: 1, credentials: [{ email: 'staff@example.test', temporaryPassword: 'scrypt$16384$8$1$hash' }] }))
       .toThrowError(expect.objectContaining({ code: 'INVALID_CREDENTIAL_FILE' }));
+    expect(() => parsePersonnelCredentials({ version: 1, credentials: [{ email: 'staff@example.test', temporaryPassword: 'Server1' }] }))
+      .toThrowError(expect.objectContaining({ code: 'INVALID_CREDENTIAL_FILE' }));
     const safe = formatPersonnelImportError({ code: '23505', detail: 'temporaryPassword=DO-NOT-LEAK email=secret@example.test' });
     expect(JSON.stringify(safe)).not.toContain('DO-NOT-LEAK');
     expect(JSON.stringify(safe)).not.toContain('secret@example.test');

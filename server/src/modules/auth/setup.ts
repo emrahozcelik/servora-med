@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import type { NodeEnvironment } from '../../config.js';
 import { AppError } from '../../errors/index.js';
 import { canonicalScheduledEnd } from '../job-cards/job-card-duration.js';
-import { hashPassword } from './crypto.js';
+import { hashPassword, validateNewPassword } from './crypto.js';
 import type { UserRole } from './types.js';
 
 export type SetupUser = {
@@ -62,7 +62,10 @@ export async function bootstrapAdmin(repository: SetupRepository, input: Bootstr
     throw new AppError('INVALID_SETUP_INPUT', 400, 'Kurulum bilgileri geçersiz.');
   }
   let passwordHash: string;
-  try { passwordHash = await hashPassword(input.password); }
+  try {
+    validateNewPassword(input.password);
+    passwordHash = await hashPassword(input.password);
+  }
   catch { throw new AppError('INVALID_SETUP_INPUT', 400, 'Kurulum bilgileri geçersiz.'); }
   await assertEmpty(repository);
   await repository.createOrganizationWithUsers({
@@ -82,6 +85,11 @@ export async function seedDevelopment(repository: SetupRepository, input: SeedIn
     { role: 'MANAGER', name: 'Demo Manager', email: 'manager@servora.local' },
     { role: 'STAFF', name: 'Demo Staff', email: 'staff@servora.local' },
   ];
+  try {
+    validateNewPassword(input.password);
+  } catch {
+    throw new AppError('INVALID_SETUP_INPUT', 400, 'Kurulum bilgileri geçersiz.');
+  }
   const users = await Promise.all(roles.map(async (user) => ({
     ...user, passwordHash: await hashPassword(input.password), mustChangePassword: true,
   })));

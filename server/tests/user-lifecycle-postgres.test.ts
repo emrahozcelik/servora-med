@@ -92,12 +92,12 @@ async function createUser(
 async function createService(pool: Pool) {
   const repository = new PostgresPeopleRepository(
     pool,
-    { validatePassword() {}, hashPassword: async () => 'unused' },
+    { validateNewPassword() {}, hashPassword: async () => 'unused' },
     new PostgresSessionRevocationPort(),
   );
   return new PeopleService(
     repository,
-    { validatePassword() {}, hashPassword: async () => 'unused' },
+    { validateNewPassword() {}, hashPassword: async () => 'unused' },
     {} as never,
     () => new Date('2026-08-30T10:00:00.000Z'),
   );
