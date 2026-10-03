@@ -45,6 +45,7 @@ import { buildApp } from '../src/app.js';
 import {
   hashPassword,
   invalidCredentialSentinelHash,
+  parsePasswordHash,
 } from '../src/modules/auth/crypto.js';
 import type { AuthRepository } from '../src/modules/auth/repository.js';
 import { AuthService } from '../src/modules/auth/service.js';
@@ -107,18 +108,6 @@ class MemoryAuthRepository implements AuthRepository {
   }
 }
 
-function parseScryptArtifact(hash: string) {
-  const [algorithm, cost, blockSize, parallelization, salt, key] = hash.split('$');
-  return {
-    algorithm,
-    cost: Number(cost),
-    blockSize: Number(blockSize),
-    parallelization: Number(parallelization),
-    salt: Buffer.from(salt ?? '', 'base64url'),
-    key: Buffer.from(key ?? '', 'base64url'),
-  };
-}
-
 describe('login invalid-credential constant work', () => {
   const now = new Date('2026-10-01T08:00:00.000Z');
   let repository: MemoryAuthRepository;
@@ -179,14 +168,13 @@ describe('login invalid-credential constant work', () => {
 
 describe('invalid-credential sentinel', () => {
   it('is a genuine scrypt artifact of the production parameter set', async () => {
-    const artifact = parseScryptArtifact(await invalidCredentialSentinelHash());
+    // Parse through the production SSOT (no second parser): the sentinel must
+    // be a CURRENT v1 artifact with the production 16-byte salt / 64-byte key.
+    const artifact = parsePasswordHash(await invalidCredentialSentinelHash());
 
-    expect(artifact.algorithm).toBe('scrypt');
-    expect(artifact.cost).toBe(16_384);
-    expect(artifact.blockSize).toBe(8);
-    expect(artifact.parallelization).toBe(1);
-    expect(artifact.salt).toHaveLength(16);
-    expect(artifact.key).toHaveLength(64);
+    expect(artifact?.profile).toBe('SCRYPT_V1');
+    expect(artifact?.salt).toHaveLength(16);
+    expect(artifact?.key).toHaveLength(64);
   });
 
   it('is derived once per process, never per request', async () => {

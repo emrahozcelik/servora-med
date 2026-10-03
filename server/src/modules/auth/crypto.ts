@@ -66,11 +66,115 @@ async function derivePasswordKey(password: string, salt: Buffer): Promise<Buffer
 }
 
 /**
+ * Password-hash serialization profiles.
+ *
+ * Stored-credential grammar (exact):
+ *   LEGACY  := "scrypt" "$" N "$" r "$" p "$" saltB64u "$" keyB64u   (6 fields)
+ *   CURRENT := "scrypt" "$" "v1" "$" N "$" r "$" p "$" saltB64u "$" keyB64u (7 fields)
+ * with N=16384, r=8, p=1, a 16-byte salt and a 64-byte key, both base64url
+ * without padding.
+ *
+ * LEGACY artifacts are production credentials and MUST remain verifiable.
+ * CURRENT (SCRYPT_V1) is the only format `hashPassword` emits. Both profiles
+ * deliberately share identical KDF parameters in this slice, so invalid
+ * credential work stays one equivalent scrypt derivation (Security Slice 1).
+ * Profile-cost migration is a separate slice.
+ */
+export type PasswordHashProfile = 'LEGACY_SCRYPT' | 'SCRYPT_V1';
+
+export const CURRENT_PASSWORD_HASH_VERSION = 'v1';
+
+export interface ParsedPasswordHash {
+  profile: PasswordHashProfile;
+  salt: Buffer;
+  key: Buffer;
+}
+
+/**
+ * Strict base64url field decoder for stored hash artifacts. Node's base64url
+ * decoder is intentionally permissive (padding, standard-Base64 `+`/`/`, and
+ * non-canonical trailing-bit aliases can decode to valid bytes), so decoded
+ * length alone cannot enforce the documented grammar. This helper requires
+ * the exact `A-Za-z0-9-_` alphabet with no padding, the expected byte length,
+ * and round-trip canonicality (`decoded.toString('base64url') === input`), so
+ * no two accepted textual forms map to the same bytes.
+ */
+function decodeCanonicalBase64Url(value: string, expectedBytes: number): Buffer | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    return null;
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.length !== expectedBytes || decoded.toString('base64url') !== value) {
+    return null;
+  }
+  return decoded;
+}
+
+/**
+ * Single SSOT parser for stored password artifacts. Accepts ONLY the two
+ * explicitly allowed profiles and rejects everything else (unknown algorithm,
+ * unknown version, non-canonical or non-allowlisted N/r/p, bad field count,
+ * non-canonical or wrong-length salt/key). Verification therefore never
+ * executes arbitrary KDF parameters read from the database: a hostile stored
+ * artifact cannot request an unbounded scrypt cost.
+ *
+ * Never throws credential details; returns null for unsupported input.
+ */
+export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null {
+  const parts = storedHash.split('$');
+  let profile: PasswordHashProfile;
+  let fields: string[];
+  if (parts.length === 6) {
+    profile = 'LEGACY_SCRYPT';
+    fields = parts;
+  } else if (parts.length === 7 && parts[1] === CURRENT_PASSWORD_HASH_VERSION) {
+    profile = 'SCRYPT_V1';
+    fields = [parts[0], ...parts.slice(2)];
+  } else {
+    return null;
+  }
+
+  const [algorithm, cost, blockSize, parallelization, encodedSalt, encodedKey] = fields;
+  if (
+    algorithm !== 'scrypt' ||
+    cost !== String(SCRYPT_COST) ||
+    blockSize !== String(SCRYPT_BLOCK_SIZE) ||
+    parallelization !== String(SCRYPT_PARALLELIZATION) ||
+    !encodedSalt ||
+    !encodedKey
+  ) {
+    return null;
+  }
+
+  const salt = decodeCanonicalBase64Url(encodedSalt, 16);
+  const key = decodeCanonicalBase64Url(encodedKey, SCRYPT_KEY_LENGTH);
+  if (!salt || !key) {
+    return null;
+  }
+  return { profile, salt, key };
+}
+
+/**
+ * Pure upgrade classifier: groundwork for a later migration slice. Returns
+ * true only for a supported LEGACY artifact; CURRENT artifacts are already
+ * final, and malformed/unsupported artifacts are NOT legitimate upgrade
+ * candidates. The login path MUST NOT act on this result yet (no
+ * opportunistic rehash in this slice).
+ */
+export function passwordHashNeedsUpgrade(storedHash: string): boolean {
+  return parsePasswordHash(storedHash)?.profile === 'LEGACY_SCRYPT';
+}
+
+/**
  * Policy-agnostic scrypt KDF. Deliberately performs NO password-policy
  * validation: it must hash legacy credentials, the invalid-credential
  * sentinel source, and internally generated secrets without requiring
  * today's new-password composition. Policy enforcement belongs to the
  * explicit `validateNewPassword` call sites that set new passwords.
+ *
+ * Emits ONLY the CURRENT versioned format, so newly set passwords naturally
+ * use the versioned representation. No call site may construct the format
+ * manually. KDF parameters are unchanged from the legacy profile.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -78,6 +182,7 @@ export async function hashPassword(password: string): Promise<string> {
 
   return [
     'scrypt',
+    CURRENT_PASSWORD_HASH_VERSION,
     SCRYPT_COST,
     SCRYPT_BLOCK_SIZE,
     SCRYPT_PARALLELIZATION,
@@ -91,28 +196,13 @@ export async function verifyPassword(
   storedHash: string,
 ): Promise<boolean> {
   try {
-    const [algorithm, cost, blockSize, parallelization, encodedSalt, encodedKey] =
-      storedHash.split('$');
-
-    if (
-      algorithm !== 'scrypt' ||
-      Number(cost) !== SCRYPT_COST ||
-      Number(blockSize) !== SCRYPT_BLOCK_SIZE ||
-      Number(parallelization) !== SCRYPT_PARALLELIZATION ||
-      !encodedSalt ||
-      !encodedKey
-    ) {
+    const parsed = parsePasswordHash(storedHash);
+    if (!parsed) {
       return false;
     }
 
-    const salt = Buffer.from(encodedSalt, 'base64url');
-    const expectedKey = Buffer.from(encodedKey, 'base64url');
-    if (salt.length !== 16 || expectedKey.length !== SCRYPT_KEY_LENGTH) {
-      return false;
-    }
-
-    const actualKey = await derivePasswordKey(password, salt);
-    return timingSafeEqual(actualKey, expectedKey);
+    const actualKey = await derivePasswordKey(password, parsed.salt);
+    return timingSafeEqual(actualKey, parsed.key);
   } catch {
     return false;
   }
