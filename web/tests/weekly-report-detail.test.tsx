@@ -34,7 +34,7 @@ const weeklyApi = vi.hoisted(() => ({
 const realtime = vi.hoisted(() => ({
   latest: null as { keys: string[]; callback: () => void } | null,
 }));
-const location = vi.hoisted(() => ({ captureStartLocation: vi.fn() }));
+const location = vi.hoisted(() => ({ captureStartLocation: vi.fn(), captureActionLocation: vi.fn() }));
 const downloads = vi.hoisted(() => ({ saveBlobAs: vi.fn() }));
 
 vi.mock('../src/jobs/jobs-api', async (original) => ({
@@ -164,6 +164,7 @@ describe('WeeklyReportDetail', () => {
     weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail());
     weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([]);
     location.captureStartLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'UNSUPPORTED' });
+    location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'UNSUPPORTED' });
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   });
 
@@ -619,7 +620,7 @@ describe('WeeklyReportDetail', () => {
     await render();
     click(buttonByText('İşi başlat'));
     await flush();
-    expect(location.captureStartLocation).not.toHaveBeenCalled();
+    expect(location.captureActionLocation).not.toHaveBeenCalled();
     expect(jobsApi.startJobCard).toHaveBeenCalledTimes(1);
     expect(jobsApi.startJobCard.mock.calls[0]![1]).not.toHaveProperty('locationCapture');
   });
@@ -641,10 +642,111 @@ describe('WeeklyReportDetail', () => {
     expect(host.textContent).toContain('yaklaşık konum');
     click(buttonByText('İşi başlat'));
     await flush();
-    expect(location.captureStartLocation).toHaveBeenCalledTimes(1);
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
     expect(jobsApi.startJobCard.mock.calls[0]![1]).toMatchObject({
       locationCapture: { outcome: 'unavailable', reason: 'UNSUPPORTED' },
     });
+  });
+
+  // 20c
+  function makeSubmitJob(): JobCard {
+    return makeJob({
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        submitLocationCaptureEnabled: true,
+        lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: '2026-08-03T09:00:00.000Z' },
+        submissionReadiness: null,
+      },
+    });
+  }
+
+  function confirmSubmitDialog(reason: string) {
+    const dialog = host.querySelector('.reason-dialog');
+    expect(dialog, 'submit dialog').not.toBeNull();
+    const textarea = dialog!.querySelector('textarea') as HTMLTextAreaElement | null;
+    expect(textarea, 'reason field').not.toBeNull();
+    type(textarea!, reason);
+    const form = textarea!.closest('form');
+    expect(form, 'dialog form').not.toBeNull();
+    act(() => { form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  }
+
+  it('does not request geolocation on SUBMIT when workflowContext disables it', async () => {
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    expect(location.captureActionLocation).not.toHaveBeenCalled();
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![1]).not.toHaveProperty('locationCapture');
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![1]).toMatchObject({ note: 'Hafta tamamlandı.' });
+  });
+
+  // 20d
+  it('captures geolocation on SUBMIT exactly when workflowContext enables it', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    location.captureActionLocation.mockResolvedValue({
+      outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+      accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+    });
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![1]).toMatchObject({
+      note: 'Hafta tamamlandı.',
+      locationCapture: {
+        outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+        accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+      },
+    });
+  });
+
+  // 20e
+  it('executes an unavailable SUBMIT capture without blocking', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'TIMEOUT' });
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![1]).toMatchObject({
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    });
+  });
+
+  // 20f
+  it('reuses the exact SUBMIT capture and clientActionId on ambiguous retry with one browser call', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    const captured = {
+      outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+      accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+    };
+    location.captureActionLocation.mockResolvedValue(captured);
+    jobsApi.submitJobCardForApproval.mockRejectedValueOnce(new Error('transport lost'));
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    expect(host.textContent).toContain('Özgün işlemi tekrar dene');
+    click(buttonByText('Özgün işlemi tekrar dene'));
+    await flush();
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(2);
+    const first = jobsApi.submitJobCardForApproval.mock.calls[0]![1];
+    const second = jobsApi.submitJobCardForApproval.mock.calls[1]![1];
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ clientActionId: 'action-1', locationCapture: captured });
   });
 
   // --- PDF export of an immutable submission ---------------------------------

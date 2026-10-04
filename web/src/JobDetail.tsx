@@ -1056,6 +1056,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       mutationInFlight.current = false;
       setPending(false);
       setStartPendingPhase(null);
+      setSubmitPendingPhase(null);
     }
   }
 
@@ -1073,6 +1074,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     withdrawEditAttempt.current = null;
     setUncertain(false);
     startCapture.current = null;
+    submitCapture.current = null;
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
@@ -1085,6 +1087,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     setInvalidationMutation({ kind: 'idle' });
     setDialog(null);
     setStartPendingPhase(null);
+    setSubmitPendingPhase(null);
   }, [jobId]);
 
   useEffect(() => {

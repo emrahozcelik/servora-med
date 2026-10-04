@@ -31,7 +31,7 @@ import { JobWorkflowDialog, type JobWorkflowDialogKind } from './JobWorkflowDial
 import { JobApprovalReviewPanel } from './JobApprovalReviewPanel';
 import { JobDecisionPanel } from './JobDecisionPanel';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
-import { captureStartLocation, type StartLocationCapture } from './start-location-capture';
+import { captureActionLocation, type ActionLocationCapture } from './start-location-capture';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { PageHeader } from '../ui/PageHeader';
 import { StatusChip } from '../ui/StatusChip';
@@ -124,7 +124,7 @@ type LifecycleAttempt = {
     note?: string;
     revisionReason?: string;
     cancelReason?: string;
-    locationCapture?: StartLocationCapture;
+    locationCapture?: ActionLocationCapture;
   };
   reason: string;
 };
@@ -289,6 +289,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     job, user, workflowContext: loadedJob.workflowContext, deliveryItems: [], meetingDetails: null,
   });
   const startLocationCaptureEnabled = loadedJob.workflowContext.startLocationCaptureEnabled;
+  const submitLocationCaptureEnabled = loadedJob.workflowContext.submitLocationCaptureEnabled;
   const isOwner = user.role === 'STAFF' && loadedReport.staffUserId === user.id;
   const editable = isOwner && (loadedJob.status === 'ACCEPTED' || loadedJob.status === 'IN_PROGRESS');
   const managementReview = user.role !== 'STAFF' && loadedJob.status === 'WAITING_APPROVAL';
@@ -420,12 +421,19 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           clientActionId: crypto.randomUUID(),
           expectedVersion: loadedJob.version,
         };
-        if (command === 'SUBMIT_FOR_APPROVAL') input.note = reason;
+        if (command === 'SUBMIT_FOR_APPROVAL') {
+          input.note = reason;
+          // Slice 1: advisory one-shot SUBMIT snapshot, bound to this exact
+          // attempt so ambiguous retry reuses it without recapturing.
+          if (submitLocationCaptureEnabled) {
+            input.locationCapture = await captureActionLocation();
+          }
+        }
         else if (command === 'APPROVE' && reason.trim()) input.note = reason.trim();
         else if (command === 'REQUEST_REVISION') input.revisionReason = reason;
         else if (command === 'CANCEL') input.cancelReason = reason;
         else if (command === 'START' && startLocationCaptureEnabled) {
-          input.locationCapture = await captureStartLocation();
+          input.locationCapture = await captureActionLocation();
         }
         attemptRef.current = { command, input, reason };
       }

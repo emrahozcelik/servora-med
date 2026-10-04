@@ -86,6 +86,7 @@ function staffContext(
     allowedCommands: extras.allowedCommands ?? commandsByStatus[status],
     allowedActions: extras.allowedActions ?? actionsByStatus[status],
     startLocationCaptureEnabled: extras.startLocationCaptureEnabled ?? false,
+    submitLocationCaptureEnabled: extras.submitLocationCaptureEnabled ?? false,
     lifecycle: { ...baseLifecycle, ...lifecycle },
     submissionReadiness: extras.submissionReadiness === undefined
       ? (status === 'IN_PROGRESS'
@@ -3278,6 +3279,95 @@ describe('Staff JobCard detail', () => {
 
     await act(async () => {
       succeed?.({ coords: { latitude: 39, longitude: 32, accuracy: 50 } } as GeolocationPosition);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it('resets the submit pending phase so later actions show the default pending label', async () => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 18 },
+    } as GeolocationPosition));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    let releaseCancel!: (value: unknown) => void;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+        return Response.json(waiting);
+      }
+      if (url.endsWith('/cancel') && init?.method === 'POST') {
+        return new Promise((resolve) => { releaseCancel = resolve; });
+      }
+      if (url.endsWith(`/api/job-cards/${inProgress.id}`)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    // Complete a location-capturing SUBMIT.
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const submitDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const submitTextareas = submitDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const submitReason = submitTextareas.item(submitTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(submitReason, 'Görev tamamlandı');
+      submitReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain('İş yönetici kontrolüne gönderildi');
+
+    // A later CANCEL must not show the stale submit pending label.
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const cancelDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const cancelTextareas = cancelDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const cancelReason = cancelTextareas.item(cancelTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(cancelReason, 'Müşteri vazgeçti');
+      cancelReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    act(() => {
+      buttonByName(cancelDialog, 'İşi iptal et')?.click();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(buttonByName(host, 'Kontrole gönderiliyor…')).toBeNull();
+    const pendingCancel = buttonByName(host, 'İşleniyor…') as HTMLButtonElement | null;
+    expect(pendingCancel?.disabled).toBe(true);
+    await act(async () => {
+      releaseCancel(Response.json({ ...waiting, status: 'CANCELLED', version: 5 }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   });

@@ -966,6 +966,71 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
     expect((await new JobCardService(repository, () => new Date(), undefined, { enabled: false })
       .detail(staff, 'job-1')).workflowContext.submitLocationCaptureEnabled).toBe(false);
   });
+
+  it('completes advisory SUBMIT when the quota guard throws, with FAILED enrichment', async () => {
+    const { repository, reverse, service, quota } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-quota-throw');
+    quota.reserve.mockRejectedValueOnce(new Error('quota store unavailable'));
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-quota-throw',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    // The START capture used the provider; the throwing SUBMIT quota degraded.
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[1]).toMatchObject({
+      action: 'JOB_SUBMITTED_FOR_APPROVAL',
+      activityId: 'activity-2',
+      capture: expect.objectContaining({
+        outcome: 'CAPTURED',
+        latitude: 39.92077,
+        longitude: 32.85411,
+        accuracyMeters: 18,
+        geocodingStatus: 'FAILED',
+        geocodingProvider: null,
+        approximateLabel: null,
+      }),
+    });
+    expect(repository.notificationAppends).toHaveLength(1);
+    expect(quota.reserve).toHaveBeenCalledTimes(2);
+
+    // Intent completed: replay returns the stored receipt without new I/O.
+    const replay = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-quota-throw',
+      note: submitNote,
+      locationCapture: captured,
+    });
+    expect(replay).toEqual(submitted);
+    expect(quota.reserve).toHaveBeenCalledTimes(2);
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+  });
+
+  it('keeps START quota infrastructure failures strict without mutation', async () => {
+    const quotaError = new Error('quota store unavailable');
+    const repository = new MemoryJobCardRepository();
+    const reverse = vi.fn();
+    const quota = { reserve: vi.fn().mockRejectedValue(quotaError) };
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse },
+      quotaGuard: quota,
+    });
+
+    await expect(service.start(staff, 'job-1', {
+      ...input,
+      locationCapture: captured,
+    })).rejects.toBe(quotaError);
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.locationAppends).toHaveLength(0);
+    expect(reverse).not.toHaveBeenCalled();
+  });
 });
 
 describe('JobCardService realtime event emission', () => {

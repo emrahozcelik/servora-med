@@ -3305,6 +3305,7 @@ export class JobCardService {
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
+      softInfrastructureFailure: false,
     });
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_STARTED', capture: resolvedCapture }, {
       claim,
@@ -3357,6 +3358,7 @@ export class JobCardService {
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
+      softInfrastructureFailure: true,
     });
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_SUBMITTED_FOR_APPROVAL', capture: resolvedCapture }, {
       claim,
@@ -4851,8 +4853,14 @@ export class JobCardService {
     actorUserId: string;
     capture: StartLocationCapture;
     correlationId: string;
+    /**
+     * Slice 1: SUBMIT location is advisory, so a quota infrastructure
+     * failure degrades to FAILED enrichment instead of aborting the
+     * lifecycle. START keeps the historical strict behavior (false).
+     */
+    softInfrastructureFailure: boolean;
   }): Promise<JobActionLocationCapture> {
-    const { capture, correlationId, organizationId, actorUserId } = input;
+    const { capture, correlationId, organizationId, actorUserId, softInfrastructureFailure } = input;
     if (capture.outcome === 'UNAVAILABLE') return capture;
     const base = {
       ...capture,
@@ -4868,12 +4876,20 @@ export class JobCardService {
 
     const quotaGuard = this.geolocation.quotaGuard;
     if (quotaGuard) {
-      const decision = await quotaGuard.reserve({
-        provider: 'GOOGLE',
-        organizationId,
-        actorUserId,
-        now: this.now(),
-      });
+      let decision;
+      try {
+        decision = await quotaGuard.reserve({
+          provider: 'GOOGLE',
+          organizationId,
+          actorUserId,
+          now: this.now(),
+        });
+      } catch (quotaError) {
+        // START keeps the historical behavior: the raw quota error
+        // propagates unchanged. Only advisory SUBMIT degrades to FAILED.
+        if (!softInfrastructureFailure) throw quotaError;
+        return { ...base, geocodingStatus: 'FAILED' };
+      }
       if (!decision.allowed) {
         return { ...base, geocodingStatus: 'FAILED' };
       }
