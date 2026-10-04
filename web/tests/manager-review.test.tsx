@@ -842,7 +842,7 @@ describe('Manager review', () => {
       }
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
-      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
         return Response.json({
           error: 'Satış görüşmesi yapılandırılmış sonuç bilgileri tamamlanmalıdır.',
           code: 'MEETING_NOT_READY',

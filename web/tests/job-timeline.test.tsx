@@ -130,6 +130,55 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
   });
 
+  it('renders the advisory SUBMIT comparison without coordinates or misconduct claims', async () => {
+    const base = {
+      jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+      actor: { id: 'staff-1', name: 'Ayşe Personel' },
+      createdAt: '2026-07-21T08:37:02.000Z',
+    } as const;
+    const location = {
+      outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+      accuracyMeters: 18, capturedAt: '2026-07-21T08:37:00.000Z',
+      geocodingProvider: 'GOOGLE',
+    } as const;
+    const activities: JobCardActivity[] = [
+      {
+        ...base,
+        id: 'different', details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitLocation: { ...location },
+          submitComparison: { outcome: 'DIFFERENT', distanceMeters: 1240.5 },
+        },
+      },
+      {
+        ...base,
+        id: 'unreliable', details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitLocation: { ...location },
+          submitComparison: { outcome: 'UNRELIABLE', distanceMeters: 12.75 },
+        },
+      },
+      {
+        ...base,
+        id: 'match', details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitLocation: { ...location },
+          submitComparison: { outcome: 'MATCH', distanceMeters: 42.5 },
+        },
+      },
+    ];
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page(activities))} />));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.textContent).toContain('Başlangıç konumundan farklı: yaklaşık');
+    expect(host.textContent).toContain('Konum doğruluğu güvenilir karşılaştırma için yetersiz.');
+    // MATCH stays understated: no success badge, no alarming copy.
+    expect(host.textContent).not.toMatch(/eşleşti|uyumlu|başarılı|MATCH/i);
+    expect(host.textContent).not.toMatch(/sahte|hile|suistimal|fraud/i);
+    expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
+  });
+
   it('uses a safe unknown-event fallback and only emits a non-sensitive development diagnostic', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const activity: JobCardActivity = {

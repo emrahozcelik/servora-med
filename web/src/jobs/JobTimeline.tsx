@@ -5,6 +5,7 @@ import { ActivityTimeline, type ActivityTimelineItem } from '../ui/antd';
 import { ResultState } from '../ui/antd/ResultState';
 import { historicalJobStatusLabels, isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
+import { formatLocationDistance } from './location-distance-format';
 
 const PAGE_SIZE = 50;
 const fieldLabels = {
@@ -48,6 +49,23 @@ function actionLocationSuffix(
   return ` · ${takenLabel}: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(location.capturedAt)}${attribution}`;
 }
 
+/**
+ * Slice 2 advisory comparison suffix. Only DIFFERENT is visually alarming;
+ * UNRELIABLE is neutral; MATCH adds nothing (understated by design).
+ */
+function comparisonSuffixText(
+  comparison: Extract<JobCardActivityDetails, { kind: 'STATUS_TRANSITION' }>['submitComparison'],
+): string {
+  if (!comparison) return '';
+  if (comparison.outcome === 'DIFFERENT') {
+    return ` · Başlangıç konumundan farklı: yaklaşık ${formatLocationDistance(comparison.distanceMeters)}`;
+  }
+  if (comparison.outcome === 'UNRELIABLE') {
+    return ' · Konum doğruluğu güvenilir karşılaştırma için yetersiz.';
+  }
+  return '';
+}
+
 function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'STATUS_TRANSITION') {
     const transition = `${historicalJobStatusLabels[details.fromStatus]} → ${historicalJobStatusLabels[details.toStatus]}`;
@@ -58,7 +76,10 @@ function detailText(details: JobCardActivityDetails) {
     const submitSuffix = details.submitLocation
       ? actionLocationSuffix(details.submitLocation, 'Onaya gönderme konumu', 'Onaya gönderme konumu alınamadı')
       : '';
-    return `${transition}${startSuffix}${submitSuffix}`;
+    // Slice 2: advisory comparison. DIFFERENT warns without implying
+    // misconduct; UNRELIABLE stays neutral; MATCH stays understated.
+    const comparisonSuffix = comparisonSuffixText(details.submitComparison);
+    return `${transition}${startSuffix}${submitSuffix}${comparisonSuffix}`;
   }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {

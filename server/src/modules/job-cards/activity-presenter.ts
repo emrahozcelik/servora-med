@@ -98,6 +98,7 @@ function statusDetails(
   newValue: unknown,
   metadata: unknown,
   startLocation: ActivityRecord['startLocation'],
+  options?: { includeSubmitLocationCapability?: boolean },
 ): JobCardActivityDetails {
   const oldRecord = jsonRecord(oldValue);
   const newRecord = jsonRecord(newValue);
@@ -148,6 +149,20 @@ function statusDetails(
     reason,
     ...(safeStartLocation ? { startLocation: safeStartLocation } : {}),
     ...(safeSubmitLocation ? { submitLocation: safeSubmitLocation } : {}),
+    // Slice 2: advisory comparison rides the gated reader contract like the
+    // SUBMIT capability flag. Omitted without opt-in so previous bundles
+    // keep parsing activity details; reference identity stays server-side.
+    ...(options?.includeSubmitLocationCapability
+      && eventType === 'JOB_SUBMITTED_FOR_APPROVAL'
+      && startLocation?.outcome === 'CAPTURED'
+      && startLocation.comparison
+      ? {
+          submitComparison: {
+            outcome: startLocation.comparison.outcome,
+            distanceMeters: startLocation.comparison.distanceMeters,
+          },
+        }
+      : {}),
   };
 }
 
@@ -210,7 +225,10 @@ function meetingDetails(metadata: unknown): JobCardActivityDetails {
     : { kind: 'NONE' };
 }
 
-function details(record: ActivityRecord): JobCardActivityDetails {
+function details(
+  record: ActivityRecord,
+  options?: { includeSubmitLocationCapability?: boolean },
+): JobCardActivityDetails {
   switch (record.eventType) {
     case 'JOB_CREATED': return { kind: 'NONE' };
     // OVR-4 reminder facts carry their semantics in metadata (incident,
@@ -238,6 +256,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
         record.newValue,
         record.metadata,
         record.startLocation,
+        options,
       );
     case 'DELIVERY_ITEM_ADDED':
     case 'DELIVERY_ITEM_UPDATED':
@@ -254,7 +273,10 @@ function details(record: ActivityRecord): JobCardActivityDetails {
   }
 }
 
-export function presentActivity(record: ActivityRecord): JobCardActivityDto {
+export function presentActivity(
+  record: ActivityRecord,
+  options?: { includeSubmitLocationCapability?: boolean },
+): JobCardActivityDto {
   return {
     id: record.id,
     jobCardId: record.jobCardId,
@@ -262,7 +284,7 @@ export function presentActivity(record: ActivityRecord): JobCardActivityDto {
     actor: record.actorId !== null && typeof record.actorName === 'string'
       ? { id: record.actorId, name: record.actorName }
       : null,
-    details: details(record),
+    details: details(record, options),
     createdAt: record.createdAt.toISOString(),
   };
 }

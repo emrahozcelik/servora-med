@@ -46,6 +46,9 @@ async function applyMigrations(pool: Pool) {
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
+  '050_overdue_incident_scanner_source.sql',
+  '054_job_action_locations_submit_approval.sql',
+  '055_job_submit_location_comparison.sql',
 
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

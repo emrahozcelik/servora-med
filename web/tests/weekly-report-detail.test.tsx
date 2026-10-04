@@ -84,6 +84,7 @@ function makeJob(overrides: Partial<JobCard> = {}): JobCard {
       ...workflowOverrides,
     },
     followUpContext: null, followUpProposal: null,
+    submitLocationComparison: null,
     ...rest,
   };
 }
@@ -651,7 +652,7 @@ describe('WeeklyReportDetail', () => {
   });
 
   // 20c
-  function makeSubmitJob(): JobCard {
+  function makeSubmitJob(overrides: Partial<JobCard> = {}): JobCard {
     return makeJob({
       workflowContext: {
         ...baseWorkflowContext,
@@ -662,6 +663,7 @@ describe('WeeklyReportDetail', () => {
         lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: '2026-08-03T09:00:00.000Z' },
         submissionReadiness: null,
       },
+      ...overrides,
     });
   }
 
@@ -868,6 +870,38 @@ describe('WeeklyReportDetail', () => {
     expect(host.querySelector('.submit-location-notice')).toBeNull();
   });
 
+  // 20n
+  it.each([
+    ['DIFFERENT', { outcome: 'DIFFERENT', distanceMeters: 1240.5 }, true],
+    ['MATCH', { outcome: 'MATCH', distanceMeters: 42.5 }, false],
+    ['UNRELIABLE', { outcome: 'UNRELIABLE', distanceMeters: 12.75 }, false],
+  ] as const)('shows an advisory warning after submit only for %s comparison', async (
+    _name,
+    comparison,
+    warns,
+  ) => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
+      id: 'job-1',
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      submitLocationComparison: comparison,
+    }));
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    // Exactly one SUBMIT: the warning never triggers a second request.
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    if (warns) {
+      expect(host.textContent).toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık');
+      expect(host.textContent).toContain('iş geçmişine kaydedildi');
+      expect(host.textContent).toContain('yönetici tarafından görülebilir');
+    } else {
+      expect(host.textContent).not.toContain('fark tespit edildi');
+    }
+  });
   // 20l
   it('exposes the captured SUBMIT location through the shared timeline without coordinates', async () => {
     jobsApi.listActivity.mockResolvedValue({

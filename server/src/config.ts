@@ -7,6 +7,10 @@ import type {
 import { validateBackupInstanceId } from './modules/backup/object-keys.js';
 import { LIFECYCLE_INTENT_TTL_MS_DEFAULT } from './modules/job-cards/types.js';
 import {
+  DEFAULT_SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
+  DEFAULT_SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
+} from './modules/job-cards/submit-location-comparison.js';
+import {
   OVERDUE_SUBMISSION_MANAGEMENT_ESCALATION_DELAY_MS,
   OVERDUE_SUBMISSION_STAFF_REMINDER_DELAY_MS,
 } from './modules/job-cards/overdue-reminder-policy.js';
@@ -133,6 +137,15 @@ export type AppConfig = {
   geocodingUserDailyLimit: number;
   geocodingOrganizationDailyLimit: number;
   geocodingGlobalMonthlyLimit: number;
+  /**
+   * Slice 2 advisory comparison policy (server-owned SSOT; never duplicated
+   * in the web client). Warning distance in metres: a reliable SUBMIT
+   * snapshot at or beyond this distance from the START snapshot classifies
+   * DIFFERENT. Reliability ceiling in metres: either snapshot less accurate
+   * than this classifies UNRELIABLE instead of MATCH/DIFFERENT.
+   */
+  submitLocationWarningDistanceMeters: number;
+  submitLocationMaxReliableAccuracyMeters: number;
   capabilities?: AuthenticatedCapabilities;
   calendarReminderLeadMinutes?: number;
   /**
@@ -629,7 +642,23 @@ function readGeocodingConfig(env: NodeJS.ProcessEnv, actionScopedGeolocationEnab
   | 'geocodingUserDailyLimit'
   | 'geocodingOrganizationDailyLimit'
   | 'geocodingGlobalMonthlyLimit'
+  | 'submitLocationWarningDistanceMeters'
+  | 'submitLocationMaxReliableAccuracyMeters'
 > {
+  const submitLocationWarningDistanceMeters = readIntegerInRange(
+    env.SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
+    DEFAULT_SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
+    'SUBMIT_LOCATION_WARNING_DISTANCE_METERS',
+    1,
+    100_000,
+  );
+  const submitLocationMaxReliableAccuracyMeters = readIntegerInRange(
+    env.SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
+    DEFAULT_SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
+    'SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS',
+    1,
+    10_000,
+  );
   if (!actionScopedGeolocationEnabled) {
     return {
       reverseGeocoderProvider: null,
@@ -638,6 +667,8 @@ function readGeocodingConfig(env: NodeJS.ProcessEnv, actionScopedGeolocationEnab
       geocodingUserDailyLimit: DEFAULT_GEOCODING_USER_DAILY_LIMIT,
       geocodingOrganizationDailyLimit: DEFAULT_GEOCODING_ORG_DAILY_LIMIT,
       geocodingGlobalMonthlyLimit: DEFAULT_GEOCODING_GLOBAL_MONTHLY_LIMIT,
+      submitLocationWarningDistanceMeters,
+      submitLocationMaxReliableAccuracyMeters,
     };
   }
 
@@ -700,6 +731,8 @@ function readGeocodingConfig(env: NodeJS.ProcessEnv, actionScopedGeolocationEnab
     geocodingUserDailyLimit,
     geocodingOrganizationDailyLimit,
     geocodingGlobalMonthlyLimit,
+    submitLocationWarningDistanceMeters,
+    submitLocationMaxReliableAccuracyMeters,
   };
 }
 

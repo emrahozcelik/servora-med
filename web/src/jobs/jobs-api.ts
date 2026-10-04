@@ -216,6 +216,19 @@ export type JobCard = {
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
+  /**
+   * Slice 2 advisory SUBMIT comparison of the just-completed submission.
+   * Reader-gated server-side; absent (null) on plain reads. No coordinates.
+   */
+  submitLocationComparison: JobCardSubmitLocationComparison | null;
+};
+/**
+ * Slice 2 safe comparison projection. Reference activity identity stays
+ * server-side; viewers receive only the classification and distance.
+ */
+export type JobCardSubmitLocationComparison = {
+  outcome: 'MATCH' | 'DIFFERENT' | 'UNRELIABLE';
+  distanceMeters: number;
 };
 type FollowUpCreateCommon = {
   clientActionId: string;
@@ -328,6 +341,7 @@ export type JobCardActivityDetails =
       reason: string | null;
       startLocation?: JobCardActivityLocation;
       submitLocation?: JobCardActivityLocation;
+      submitComparison?: JobCardSubmitLocationComparison;
     }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'scheduledAt' | 'scheduledEndsAt' | 'engagementKind'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
@@ -589,6 +603,22 @@ function parseWorkflowContext(value: unknown): JobWorkflowContext {
       : parseReadiness(v.submissionReadiness),
   };
 }
+/**
+ * Slice 2 advisory comparison. Tolerantly absent (null) on plain reads and
+ * for previous backends; strictly validated when present. Distance may be
+ * exactly 0 (identical snapshots), so non-negativity — not positivity — is
+ * the bound. No coordinates travel here.
+ */
+function parseSubmitLocationComparison(value: unknown): JobCardSubmitLocationComparison | null {
+  if (value === undefined || value === null) return null;
+  const v = object(value);
+  const outcome = oneOf(v.outcome, 'submitLocationComparison.outcome', ['MATCH', 'DIFFERENT', 'UNRELIABLE'] as const);
+  const distanceMeters = v.distanceMeters;
+  if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters) || distanceMeters < 0) {
+    invalid('submitLocationComparison.distanceMeters');
+  }
+  return { outcome, distanceMeters };
+}
 function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngagementKind | null {
   if (type === 'SALES_MEETING') {
     return oneOf(value, 'engagementKind', JOB_CARD_ENGAGEMENT_KINDS);
@@ -743,6 +773,7 @@ function parseJobCard(value: unknown): JobCard {
     followUpProposal: 'followUpProposal' in v
       ? parseFollowUpProposal(v.followUpProposal)
       : null,
+    submitLocationComparison: parseSubmitLocationComparison(v.submitLocationComparison),
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -875,6 +906,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   if (kind === 'STATUS_TRANSITION') {
     const detail = exactObject(v, 'details', [
       'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation', 'submitLocation',
+      'submitComparison',
     ]);
     const parseActionLocation = (field: 'startLocation' | 'submitLocation') => {
       const raw = detail[field];
@@ -906,6 +938,8 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     };
     const startLocation = parseActionLocation('startLocation');
     const submitLocation = parseActionLocation('submitLocation');
+    // Slice 2: tolerantly absent on plain reads and previous backends.
+    const submitComparison = parseSubmitLocationComparison(detail.submitComparison);
     return {
       kind,
       fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_ACTIVITY_STATUSES),
@@ -913,6 +947,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
       reason: nullableString(detail.reason, 'reason'),
       ...(startLocation ? { startLocation } : {}),
       ...(submitLocation ? { submitLocation } : {}),
+      ...(submitComparison ? { submitComparison } : {}),
     };
   }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
@@ -1046,7 +1081,12 @@ export const addJobCardNote = async (id: string, input: {
 }) =>
   parseNote(await request(`${jobPath(id)}/notes`, json('POST', input)));
 export const listActivity = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
-  parsePage(await request(`${jobPath(id)}/activity${query(page)}`), parseActivity);
+  parsePage(await request(`${jobPath(id)}/activity${query({
+    ...page,
+    // Slice 2 reader gate: only opted-in readers receive the advisory
+    // SUBMIT comparison evidence; previous bundles keep the old shape.
+    includeSubmitLocationCapability: 'true',
+  })}`), parseActivity);
 export const listJobCardActivity = listActivity;
 
 /**
@@ -1238,12 +1278,14 @@ export async function removeDeliveryItem(id: string, itemId: string, expectedVer
   return { id: string(v.id, 'id'), jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion') };
 }
 
-const lifecycle = async (id: string, command: string, input: object) =>
-  parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
+const lifecycle = async (id: string, command: string, input: object, options: { includeSubmitLocationCapability?: boolean } = {}) =>
+  parseJobCard(await request(`${jobPath(id)}/${command}${query({
+    includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
+  })}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
 export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
-  lifecycle(id, 'submit-for-approval', input);
+  lifecycle(id, 'submit-for-approval', input, { includeSubmitLocationCapability: true });
 export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
   const parsed = parseJobCard(raw);

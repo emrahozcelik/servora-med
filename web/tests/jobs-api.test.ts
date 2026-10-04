@@ -37,6 +37,7 @@ const job = {
   workflowContext,
   followUpContext: null,
   followUpProposal: null,
+  submitLocationComparison: null,
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
@@ -286,6 +287,53 @@ describe('JobCard workspace transport', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       '/api/job-cards/job-1?includeSubmitLocationCapability=true', expect.anything(),
     );
+  });
+
+  it('parses the gated SUBMIT comparison, defaults it to null, and rejects malformed evidence', async () => {
+    const comparison = { outcome: 'DIFFERENT', distanceMeters: 1240.5 };
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json(job))
+      .mockResolvedValueOnce(json({ ...job, submitLocationComparison: comparison }))
+      .mockResolvedValueOnce(json({ ...job, submitLocationComparison: { outcome: 'DIFFERENT' } }))
+      .mockResolvedValueOnce(json({ ...job, submitLocationComparison: { outcome: 'MATCH', distanceMeters: -5 } })));
+
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ submitLocationComparison: null });
+    await expect(submitJobCardForApproval('job-1', { clientActionId: 'a', expectedVersion: 7, note: 'Bitti' }))
+      .resolves.toMatchObject({ submitLocationComparison: comparison });
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('requests gated activity evidence and parses the SUBMIT comparison tolerantly', async () => {
+    const activity = (details: unknown) => ({
+      items: [{
+        id: 'a1', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: related('s1', 'Ayşe'), details,
+        createdAt: '2026-07-21T08:37:02.000Z',
+      }],
+      total: 1, limit: 50, offset: 0,
+    });
+    const base = {
+      kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+      submitLocation: {
+        outcome: 'CAPTURED', approximateLabel: 'Kızılay', accuracyMeters: 18,
+        capturedAt: '2026-07-21T08:37:00.000Z', geocodingProvider: 'GOOGLE',
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(activity(base)))
+      .mockResolvedValueOnce(json(activity({ ...base, submitComparison: { outcome: 'MATCH', distanceMeters: 42.5 } })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const plain = await listActivity('job-1');
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true', expect.anything(),
+    );
+    expect(plain.items[0]!.details).not.toHaveProperty('submitComparison');
+    const gated = await listActivity('job-1');
+    expect(gated.items[0]!.details).toMatchObject({
+      submitComparison: { outcome: 'MATCH', distanceMeters: 42.5 },
+    });
   });
   it('normalizes an absent start location capability to false and preserves server true', async () => {
     const { startLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
@@ -641,7 +689,7 @@ describe('JobCard workspace transport', () => {
 
     await submitJobCardForApproval('job-1', input);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/submit-for-approval', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', expect.objectContaining({
       method: 'POST', body: JSON.stringify(input), credentials: 'include',
     }));
   });
@@ -792,7 +840,7 @@ describe('JobCard workspace transport', () => {
     await cancelJobCard('job-1', { ...versioned, cancelReason: 'Müşteri iptal etti' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/job-cards/job-1/accept', '/api/job-cards/job-1/start',
-      '/api/job-cards/job-1/submit-for-approval', '/api/job-cards/job-1/approve',
+      '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', '/api/job-cards/job-1/approve',
       '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/withdraw-from-approval',
       '/api/job-cards/job-1/resume',
       '/api/job-cards/job-1/cancel',

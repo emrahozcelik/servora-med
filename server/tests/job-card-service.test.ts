@@ -210,6 +210,18 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.locationAppends.push(location);
         return { ...location, id: `location-${this.locationAppends.length}`, createdAt: new Date() };
       },
+      findStartActionLocationForComparison: async (organizationId, jobCardId) => {
+        const row = this.locationAppends.find((entry) =>
+          entry.organizationId === organizationId && entry.jobCardId === jobCardId
+          && entry.action === 'JOB_STARTED' && entry.capture.outcome === 'CAPTURED');
+        if (!row || row.capture.outcome !== 'CAPTURED') return null;
+        return {
+          activityId: row.activityId,
+          latitude: row.capture.latitude,
+          longitude: row.capture.longitude,
+          accuracyMeters: row.capture.accuracyMeters,
+        };
+      },
       appendRealtimeEvent: async (input) => {
         const record: RealtimeEventRecord = { ...input, id: BigInt(this.realtimeEvents.length + 1) };
         this.realtimeEvents.push(record);
@@ -1051,6 +1063,188 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
     expect(repository.activities).toHaveLength(0);
     expect(repository.locationAppends).toHaveLength(0);
     expect(reverse).not.toHaveBeenCalled();
+  });
+
+  describe('submit-vs-start comparison (slice 2)', () => {
+    const istanbul = {
+      outcome: 'captured' as const,
+      latitude: 40.99025,
+      longitude: 29.02702,
+      accuracyMeters: 22,
+      capturedAt: '2026-07-21T12:05:00+03:00',
+    };
+    const GATE = { includeSubmitLocationCapability: true };
+
+    async function submitOnce(
+      service: JobCardService,
+      repository: MemoryJobCardRepository,
+      clientActionId: string,
+      locationCapture: unknown,
+      expectedVersion: number,
+      presentation?: { includeSubmitLocationCapability?: boolean },
+    ) {
+      return service.submitForApproval(staff, 'job-1', {
+        expectedVersion,
+        clientActionId,
+        note: submitNote,
+        locationCapture,
+      }, presentation);
+    }
+
+    it('persists a MATCH comparison with the exact START reference and gates the response projection', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-match');
+      const submitted = await submitOnce(service, repository, 'cmp-submit-match', captured, 2, GATE);
+
+      expect(repository.locationAppends).toHaveLength(2);
+      const submitRow = repository.locationAppends[1]!;
+      expect(submitRow.action).toBe('JOB_SUBMITTED_FOR_APPROVAL');
+      expect(submitRow.comparison).toMatchObject({
+        referenceActivityId: 'activity-1',
+        outcome: 'MATCH',
+      });
+      expect(submitRow.comparison!.distanceMeters).toBeCloseTo(0, 3);
+      // The START row never carries comparison.
+      expect(repository.locationAppends[0]).not.toHaveProperty('comparison');
+
+      // Gated readers receive outcome + distance only (no reference identity,
+      // no coordinates); ungated readers keep the Slice-1 shape.
+      expect(submitted).toMatchObject({
+        status: 'WAITING_APPROVAL',
+        submitLocationComparison: { outcome: 'MATCH', distanceMeters: expect.any(Number) },
+      });
+      expect(submitted.submitLocationComparison).not.toHaveProperty('referenceActivityId');
+      const ungated = await service.detail(staff, 'job-1');
+      expect(ungated).not.toHaveProperty('submitLocationComparison');
+    });
+
+    it('persists DIFFERENT with server-computed distance for far snapshots', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-diff');
+      const submitted = await submitOnce(service, repository, 'cmp-submit-diff', istanbul, 2, GATE);
+
+      const submitRow = repository.locationAppends[1]!;
+      expect(submitRow.comparison).toMatchObject({
+        referenceActivityId: 'activity-1',
+        outcome: 'DIFFERENT',
+      });
+      expect(submitRow.comparison!.distanceMeters).toBeGreaterThan(300_000);
+      expect(submitRow.comparison!.distanceMeters).toBeLessThan(360_000);
+      expect(submitted.submitLocationComparison).toMatchObject({ outcome: 'DIFFERENT' });
+      expect(submitted.submitLocationComparison!.distanceMeters).toBeCloseTo(
+        submitRow.comparison!.distanceMeters, 6,
+      );
+    });
+
+    it('keeps the raw distance on UNRELIABLE without ever classifying DIFFERENT', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-unrel', {
+        ...captured,
+        accuracyMeters: 150,
+      });
+      const submitted = await submitOnce(service, repository, 'cmp-submit-unrel', istanbul, 2, GATE);
+
+      const submitRow = repository.locationAppends[1]!;
+      // Far apart, but the poor START fix forbids a DIFFERENT verdict.
+      expect(submitRow.comparison).toMatchObject({
+        referenceActivityId: 'activity-1',
+        outcome: 'UNRELIABLE',
+      });
+      expect(submitRow.comparison!.distanceMeters).toBeGreaterThan(300_000);
+      expect(submitted.submitLocationComparison).toMatchObject({ outcome: 'UNRELIABLE' });
+    });
+
+    it('classifies UNRELIABLE on a poor SUBMIT fix even for nearby snapshots', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-unrel-2');
+      const submitted = await submitOnce(
+        service, repository, 'cmp-submit-unrel-2', { ...captured, accuracyMeters: 250 }, 2, GATE,
+      );
+      expect(repository.locationAppends[1]!.comparison).toMatchObject({ outcome: 'UNRELIABLE' });
+      expect(submitted.submitLocationComparison).toMatchObject({ outcome: 'UNRELIABLE' });
+    });
+
+    it.each([
+      ['no START evidence at all', 'none'],
+      ['START evidence unavailable', 'unavailable-start'],
+      ['SUBMIT evidence unavailable', 'unavailable-submit'],
+    ])('records no comparison when %s', async (_name, variant) => {
+      const { repository, service } = enabledSubmitService();
+      toInProgressGeneralTask(repository);
+      let submitCapture: unknown = captured;
+      if (variant === 'unavailable-submit') {
+        await startGeneralTask(service, repository, 'cmp-start-then-unavail');
+        submitCapture = { outcome: 'unavailable', reason: 'TIMEOUT' };
+      } else {
+        repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+        if (variant === 'unavailable-start') {
+          repository.locationAppends.push({
+            organizationId: 'org-1',
+            jobCardId: 'job-1',
+            activityId: 'activity-1',
+            actorUserId: 'staff-1',
+            action: 'JOB_STARTED',
+            capture: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+          });
+        }
+      }
+      const submitted = await submitOnce(
+        service, repository, `cmp-no-ref-${variant}`, submitCapture,
+        variant === 'unavailable-submit' ? 2 : 1, GATE,
+      );
+
+      expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL' });
+      expect(submitted).not.toHaveProperty('submitLocationComparison');
+      const submitRows = repository.locationAppends.filter(
+        (entry) => entry.action === 'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+      expect(submitRows).toHaveLength(1);
+      expect(submitRows[0]).not.toHaveProperty('comparison');
+    });
+
+    it('references the canonical START on resubmission after revision', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-resub');
+      await submitOnce(service, repository, 'cmp-submit-1', captured, 2, GATE);
+      await service.withdrawFromApproval(staff, 'job-1', { expectedVersion: 3, clientActionId: 'cmp-withdraw' });
+      const resubmitted = await submitOnce(service, repository, 'cmp-submit-2', istanbul, 4, GATE);
+
+      const submitRows = repository.locationAppends.filter(
+        (entry) => entry.action === 'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+      expect(submitRows).toHaveLength(2);
+      expect(submitRows[0]!.comparison).toMatchObject({ referenceActivityId: 'activity-1', outcome: 'MATCH' });
+      expect(submitRows[1]!.comparison).toMatchObject({ referenceActivityId: 'activity-1', outcome: 'DIFFERENT' });
+      expect(resubmitted.submitLocationComparison).toMatchObject({ outcome: 'DIFFERENT' });
+    });
+
+    it('replays the identical comparison without new rows or recomputation', async () => {
+      const { repository, reverse, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-replay');
+      const first = await submitOnce(service, repository, 'cmp-submit-replay', captured, 2, GATE);
+      const replay = await submitOnce(service, repository, 'cmp-submit-replay', captured, 2, GATE);
+
+      expect(replay).toEqual(first);
+      expect(replay.submitLocationComparison).toMatchObject({ outcome: 'MATCH' });
+      expect(repository.locationAppends).toHaveLength(2);
+      expect(repository.locationAppends[1]!.comparison).toMatchObject({
+        referenceActivityId: 'activity-1',
+        outcome: 'MATCH',
+      });
+      // No provider/geocoder work on replay (START + SUBMIT resolved once).
+      expect(reverse).toHaveBeenCalledTimes(2);
+    });
+
+    it('rolls back comparison evidence with the failed SUBMIT', async () => {
+      const { repository, service } = enabledSubmitService();
+      await startGeneralTask(service, repository, 'cmp-start-rollback');
+      repository.failLocation = true;
+      await expect(submitOnce(service, repository, 'cmp-submit-rollback', captured, 2, GATE))
+        .rejects.toThrow('location failed');
+      expect(repository.locationAppends).toHaveLength(1);
+      expect(repository.locationAppends[0]!.action).toBe('JOB_STARTED');
+      expect(repository.locationAppends.every((entry) => entry.comparison === undefined)).toBe(true);
+    });
   });
 });
 

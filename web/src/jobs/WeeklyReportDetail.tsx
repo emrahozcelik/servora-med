@@ -33,6 +33,7 @@ import { JobDecisionPanel } from './JobDecisionPanel';
 import { JobTimeline } from './JobTimeline';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import { captureActionLocation, type ActionLocationCapture } from './start-location-capture';
+import { submitComparisonWarning } from './location-distance-format';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { PageHeader } from '../ui/PageHeader';
 import { StatusChip } from '../ui/StatusChip';
@@ -210,6 +211,11 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [actionError, setActionError] = useState('');
+  /**
+   * Slice 2 advisory post-submit notice (neutral, non-error). Set only on a
+   * successful DIFFERENT submit; cleared when a new lifecycle starts.
+   */
+  const [actionNotice, setActionNotice] = useState('');
   const [pdfPending, setPdfPending] = useState(false);
   const [pdfError, setPdfError] = useState('');
   const [ambiguous, setAmbiguous] = useState(false);
@@ -458,7 +464,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     if (retained !== null && retained.command !== command) return;
     lifecycleInFlight.current = true;
     const operationJobId = jobCardId;
-    setPending(true); setActionError('');
+    setPending(true); setActionError(''); setActionNotice('');
     try {
       if (retained === null) {
         const input: LifecycleAttempt['input'] = {
@@ -486,7 +492,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       }
       const attempt = attemptRef.current;
       if (attempt === null || !isLifecycleCurrent(operationJobId)) return;
-      await dispatchCommand(attempt.command, attempt.input);
+      const updated = await dispatchCommand(attempt.command, attempt.input);
       if (!isLifecycleCurrent(operationJobId)) return;
       attemptRef.current = null;
       setAmbiguous(false);
@@ -496,6 +502,13 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       // The shared activity timeline (SUBMIT location evidence included)
       // reloads from the first page after a successful lifecycle mutation.
       setTimelineKey((value) => value + 1);
+      // Slice 2: advisory post-submit notice on the mutation response. The
+      // submission already succeeded — informational only, no second
+      // request, no misconduct implication. MATCH/UNRELIABLE stay silent.
+      if (attempt.command === 'SUBMIT_FOR_APPROVAL'
+        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
+        setActionNotice(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
+      }
     } catch (caught) {
       if (!isLifecycleCurrent(operationJobId)) return;
       if (caught instanceof ApiError
@@ -505,16 +518,19 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         setDialog(null);
         await refresh();
         setActionError('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        setActionNotice('');
       } else if (isDefinitiveMutationError(caught)) {
         attemptRef.current = null;
         setAmbiguous(false);
         setActionError(caught instanceof Error ? caught.message : 'İşlem tamamlanamadı. Tekrar deneyin.');
+        setActionNotice('');
       } else {
         // Ambiguous: keep the exact original attempt frozen for replay.
         setAmbiguous(true);
         setActionError(caught instanceof Error
           ? caught.message
           : 'İşlem sonucu doğrulanamadı. Özgün isteği tekrar deneyebilirsiniz.');
+        setActionNotice('');
       }
     } finally { lifecycleInFlight.current = false; setPending(false); }
   }
@@ -636,15 +652,22 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         <StatusChip status={loadedJob.status} />
       </div>
     </div>
-    {actionError && <div
-      className="detail-feedback detail-feedback-error"
-      role="alert"
-      data-job-detail-section="feedback"
-    >
-      {actionError}
-      {ambiguous && <>{' '}<button className="secondary-button" type="button" disabled={pending}
-        onClick={retryAttempt}>Özgün işlemi tekrar dene</button></>}
-    </div>}
+      {actionError && <div
+        className="detail-feedback detail-feedback-error"
+        role="alert"
+        data-job-detail-section="feedback"
+      >
+        {actionError}
+        {ambiguous && <>{' '}<button className="secondary-button" type="button" disabled={pending}
+          onClick={retryAttempt}>Özgün işlemi tekrar dene</button></>}
+      </div>}
+      {actionNotice && <div
+        className="detail-feedback"
+        role="status"
+        data-job-detail-section="feedback"
+      >
+        {actionNotice}
+      </div>}
     <div data-job-detail-section="lifecycle">
       <WorkflowSteps
         items={presentation.phaseItems.map((item) => ({

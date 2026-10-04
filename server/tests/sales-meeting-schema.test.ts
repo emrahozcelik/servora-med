@@ -155,8 +155,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(54);
-      expect(firstRun.appliedVersions.at(-1)).toBe('054_job_action_locations_submit_approval');
+      expect(firstRun.appliedVersions).toHaveLength(55);
+      expect(firstRun.appliedVersions.at(-1)).toBe('055_job_submit_location_comparison');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -249,6 +249,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '052_weekly_report_recurrence',
           '053_overdue_submission_reminders',
           '054_job_action_locations_submit_approval',
+          '055_job_submit_location_comparison',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -271,7 +272,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '051_weekly_report_foundation.sql'
           && file !== '052_weekly_report_recurrence.sql'
           && file !== '053_overdue_submission_reminders.sql'
-          && file !== '054_job_action_locations_submit_approval.sql')
+          && file !== '054_job_action_locations_submit_approval.sql'
+          && file !== '055_job_submit_location_comparison.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -309,6 +311,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '052_weekly_report_recurrence',
           '053_overdue_submission_reminders',
           '054_job_action_locations_submit_approval',
+          '055_job_submit_location_comparison',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

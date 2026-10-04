@@ -474,7 +474,14 @@ describe('JobCard routes', () => {
   ])('dispatches %s lifecycle command', async (path, method, payload) => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload })).statusCode).toBe(200);
-    expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+    if (method === 'submitForApproval') {
+      // Slice 2 reader gate defaults to the ungated previous-bundle shape.
+      expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(
+        expect.anything(), 'job-1', payload, { includeSubmitLocationCapability: false },
+      );
+    } else {
+      expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+    }
   });
 
   it('forwards the SUBMIT locationCapture to the service and still rejects unknown fields', async () => {
@@ -492,7 +499,9 @@ describe('JobCard routes', () => {
     expect((await app.inject({
       method: 'POST', url: '/api/job-cards/job-1/submit-for-approval', payload,
     })).statusCode).toBe(200);
-    expect(service.submitForApproval).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+    expect(service.submitForApproval).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', payload, { includeSubmitLocationCapability: false },
+    );
 
     const unavailable = await app.inject({
       method: 'POST',
@@ -595,7 +604,7 @@ describe('JobCard routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false });
   });
 
   it('forwards an explicit activity page', async () => {
@@ -607,7 +616,46 @@ describe('JobCard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(page);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false });
+  });
+
+  it('gates SUBMIT comparison evidence on activity behind the reader opt-in', async () => {
+    const { app, service } = await createApp();
+    await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true' });
+    expect(service.listActivity).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: true },
+    );
+  });
+
+  it('rejects client-supplied comparison evidence on submit', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/submit-for-approval',
+      payload: {
+        clientActionId: 'cmp-evil', expectedVersion: 2, note: 'Bitti',
+        distanceMeters: 12,
+        comparisonOutcome: 'MATCH',
+        referenceActivityId: 'activity-1',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.submitForApproval).not.toHaveBeenCalled();
+  });
+
+  it('gates the SUBMIT comparison projection on the mutation response', async () => {
+    const { app, service } = await createApp();
+    await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true',
+      payload: { clientActionId: 'cmp-gated', expectedVersion: 2, note: 'Bitti' },
+    });
+    expect(service.submitForApproval).toHaveBeenCalledWith(
+      expect.anything(), 'job-1',
+      { clientActionId: 'cmp-gated', expectedVersion: 2, note: 'Bitti' },
+      { includeSubmitLocationCapability: true },
+    );
   });
 
   it.each([

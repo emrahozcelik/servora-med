@@ -63,6 +63,7 @@ import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { submitComparisonWarning } from './jobs/location-distance-format';
 import {
   OverdueIncidentHistorySection,
   SubmissionLatenessSection,
@@ -1506,6 +1507,13 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
+      // Slice 2: advisory post-submit notice. The submission already
+      // succeeded — this only informs, with no second request and no
+      // misconduct implication. MATCH/UNRELIABLE stay silent here.
+      if (command === 'SUBMIT_FOR_APPROVAL'
+        && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
+        setMessage(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
+      }
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {

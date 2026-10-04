@@ -406,7 +406,7 @@ describe('JobDetail Staff AUTO submit integration', () => {
           },
         });
       }
-      if (url.endsWith('/submit-for-approval') && method === 'POST') {
+      if (url.includes('/submit-for-approval') && method === 'POST') {
         if (submitFailure) {
           return Response.json(
             { code: submitFailure.code, error: submitFailure.message },
@@ -450,7 +450,7 @@ describe('JobDetail Staff AUTO submit integration', () => {
 
   function submitBody() {
     const call = vi.mocked(fetch).mock.calls.find(([url, init]) => (
-      String(url).endsWith('/submit-for-approval') && (init as RequestInit | undefined)?.method === 'POST'
+      String(url).includes('/submit-for-approval') && (init as RequestInit | undefined)?.method === 'POST'
     ));
     return call ? JSON.parse(String((call[1] as RequestInit).body)) : null;
   }

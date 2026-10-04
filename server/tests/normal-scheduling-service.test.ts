@@ -143,6 +143,7 @@ class SchedulingMemoryRepository implements JobCardRepository {
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       appendJobActionLocation: async (input) => ({ id: 'loc-1', jobCardId: input.jobCardId, activityId: input.activityId, actorUserId: input.actorUserId, action: input.action, capture: input.capture, createdAt: new Date() }),
+      findStartActionLocationForComparison: async () => null,
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
