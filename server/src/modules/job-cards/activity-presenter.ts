@@ -126,12 +126,28 @@ function statusDetails(
         }
       : { outcome: 'UNAVAILABLE' as const, reason: startLocation.reason }
     : undefined;
+  // Slice 1: the SUBMIT snapshot reuses the START privacy boundary (no raw
+  // coordinates) and presentation shape under its own key. No comparison.
+  const safeSubmitLocation = eventType === 'JOB_SUBMITTED_FOR_APPROVAL' && startLocation != null
+    ? startLocation.outcome === 'CAPTURED'
+      ? {
+          outcome: 'CAPTURED' as const,
+          approximateLabel: startLocation.approximateLabel,
+          accuracyMeters: startLocation.accuracyMeters,
+          capturedAt: startLocation.capturedAt.toISOString(),
+          geocodingProvider: startLocation.geocodingProvider === 'GOOGLE'
+            ? 'GOOGLE' as const
+            : null,
+        }
+      : { outcome: 'UNAVAILABLE' as const, reason: startLocation.reason }
+    : undefined;
   return {
     kind: 'STATUS_TRANSITION',
     fromStatus: oldRecord.status,
     toStatus: newRecord.status,
     reason,
     ...(safeStartLocation ? { startLocation: safeStartLocation } : {}),
+    ...(safeSubmitLocation ? { submitLocation: safeSubmitLocation } : {}),
   };
 }
 

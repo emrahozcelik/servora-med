@@ -31,6 +31,16 @@ const draft: FollowUpDraft = {
   followUpInstructions: 'Takip: Kontrol görüşmesi',
 };
 
+
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`).
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
+}
+
 function renderSection(props: Partial<Parameters<typeof FollowUpProposalSection>[0]> = {}) {
   document.body.innerHTML = '';
   const host = document.createElement('div');
@@ -235,7 +245,7 @@ describe('JobDetail follow-up proposal integration', () => {
       if (url.endsWith('/submit-for-approval') && method === 'POST') {
         return Response.json({ ...card, status: 'WAITING_APPROVAL', version: 4 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(card);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(card);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
   }

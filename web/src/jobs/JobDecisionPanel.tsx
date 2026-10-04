@@ -15,6 +15,7 @@ export function JobDecisionPanel({
   pending,
   pendingLabel,
   startLocationCaptureEnabled,
+  submitLocationCaptureEnabled = false,
   startScheduleBlockedReason,
   disabledCommands = [],
   onCommand,
@@ -26,6 +27,12 @@ export function JobDecisionPanel({
   pending: boolean;
   pendingLabel?: string;
   startLocationCaptureEnabled: boolean;
+  /**
+   * Slice 1: advisory SUBMIT snapshot. Shown only when a SUBMIT_FOR_APPROVAL
+   * transition is offered, mirroring the START notice pattern. The capture
+   * never blocks submission; there is no continuous tracking.
+   */
+  submitLocationCaptureEnabled?: boolean;
   /**
    * Advisory SCHED-3 reason shown when the assigned STAFF viewer's START
    * control is locally disabled because the SM/PD planned interval is
@@ -48,6 +55,8 @@ export function JobDecisionPanel({
   if (!primary && secondary.length === 0 && !recordEditAction) return null;
   const hasStart = primary?.command === 'START'
     || secondary.some((transition) => transition.command === 'START');
+  const hasSubmit = primary?.command === 'SUBMIT_FOR_APPROVAL'
+    || secondary.some((transition) => transition.command === 'SUBMIT_FOR_APPROVAL');
   const commandBlocked = (command: LifecycleCommand) => pending
     || disabledCommands.includes(command)
     || Boolean(startScheduleBlockedReason && command === 'START');
@@ -64,6 +73,11 @@ export function JobDecisionPanel({
       İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
       Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
       kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
+    </p>}
+    {submitLocationCaptureEnabled && hasSubmit && <p className="submit-location-notice">
+      Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
+      Konum, yetkili kullanıcıların görebildiği iş geçmişinde saklanır.
+      Konum alınamazsa gönderim engellenmez.
     </p>}
     {hasStart && startScheduleBlockedReason && (
       <p

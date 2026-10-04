@@ -102,6 +102,15 @@ const conversation = {
 
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
 
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`).
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
+}
+
 function mockFetch(card: JobCard, lookup: () => Response | Error, options: {
   createResponse?: Response;
   createError?: Error;
@@ -123,7 +132,7 @@ function mockFetch(card: JobCard, lookup: () => Response | Error, options: {
     if (url.includes('/follow-ups')) return Response.json({ ...emptyPage, limit: 100 });
     if (url.includes('/notes?')) return Response.json(emptyPage);
     if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-    if (url.endsWith(`/api/job-cards/${card.id}`)) return Response.json(card);
+    if (detailUrlMatches(url, card.id)) return Response.json(card);
     throw new Error(`Unexpected request: ${url}`);
   });
 }

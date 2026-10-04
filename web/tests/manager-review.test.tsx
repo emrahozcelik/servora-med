@@ -131,6 +131,15 @@ function withdrawPresentation(role: 'STAFF' | 'MANAGER'): RecordEditPresentation
   };
 }
 
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`).
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
+}
+
 function buttonByName(host: ParentNode, name: string) {
   return Array.from(host.querySelectorAll('button'))
     .find((button) => button.textContent?.trim() === name) ?? null;
@@ -219,7 +228,7 @@ describe('Manager review', () => {
           approvedBy: { id: manager.id, name: manager.name },
         }) });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(waitingJob);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(waitingJob);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -263,7 +272,7 @@ describe('Manager review', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(waitingJob);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(waitingJob);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -350,7 +359,7 @@ describe('Manager review', () => {
       if (url.includes('/api/customers/c1/contacts?')) {
         return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -596,7 +605,7 @@ describe('Manager review', () => {
       if (url.includes('/api/customers/c1/contacts?')) {
         return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -679,7 +688,7 @@ describe('Manager review', () => {
       if (url.endsWith('/start') && init?.method === 'POST') {
         return Response.json({ error: 'İş güncellendi.', code: 'VERSION_CONFLICT' }, { status: 409 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         detailReads += 1;
         return Response.json(detailReads === 1 ? initialTask : refreshedTask);
       }
@@ -735,7 +744,7 @@ describe('Manager review', () => {
       }
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) { jobReads += 1; return Response.json(meeting); }
+      if (detailUrlMatches(url, 'job-1')) { jobReads += 1; return Response.json(meeting); }
       throw new Error(`Unexpected request: ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -778,7 +787,7 @@ describe('Manager review', () => {
         if (url.endsWith('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
         if (url.includes('/notes?')) return Response.json(page);
         if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
-        if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+        if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
         throw new Error(`Unexpected request: ${url}`);
       }));
       const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -846,7 +855,7 @@ describe('Manager review', () => {
           },
         }, { status: 400 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -908,7 +917,7 @@ describe('Manager review', () => {
           nextFollowUpAt: null, jobCardVersion: meeting.version - 1,
         });
       }
-      if (url.endsWith('/api/job-cards/job-1')) { jobReads += 1; return Response.json(meeting); }
+      if (detailUrlMatches(url, 'job-1')) { jobReads += 1; return Response.json(meeting); }
       throw new Error(`Unexpected request: ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -974,7 +983,7 @@ describe('Manager review', () => {
           }),
         });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(initialJob);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(initialJob);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const host = document.createElement('div'); document.body.append(host);

@@ -1,7 +1,7 @@
 import {
   ApiError, boolean, items, json, nullableString, number, object, request, string,
 } from '../services/api';
-import type { StartLocationCapture } from './start-location-capture.js';
+import type { ActionLocationCapture, StartLocationCapture } from './start-location-capture.js';
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
@@ -130,6 +130,7 @@ export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
   startLocationCaptureEnabled: boolean;
+  submitLocationCaptureEnabled: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
@@ -310,21 +311,23 @@ export type JobCardNotePage = {
   limit: number;
   nextCursor: JobCardNoteCursor | null;
 };
+export type JobCardActivityLocation =
+  | {
+      outcome: 'CAPTURED';
+      approximateLabel: string | null;
+      accuracyMeters: number;
+      capturedAt: string;
+      geocodingProvider: 'GOOGLE' | null;
+    }
+  | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
 export type JobCardActivityDetails =
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
       toStatus: JobCardActivityStatus;
       reason: string | null;
-      startLocation?:
-        | {
-            outcome: 'CAPTURED';
-            approximateLabel: string | null;
-            accuracyMeters: number;
-            capturedAt: string;
-            geocodingProvider: 'GOOGLE' | null;
-          }
-        | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
+      startLocation?: JobCardActivityLocation;
+      submitLocation?: JobCardActivityLocation;
     }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'scheduledAt' | 'scheduledEndsAt' | 'engagementKind'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
@@ -387,6 +390,11 @@ export type JobCardInvalidationInput = {
   note?: string | null;
 };
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
+export type SubmitJobCardInput = LifecycleInput & {
+  note: string;
+  followUpProposal?: FollowUpProposalInput;
+  locationCapture?: ActionLocationCapture;
+};
 export type FollowUpProposalInput = {
   scheduledAt?: string;
   type: JobCardType;
@@ -554,7 +562,7 @@ function parseReadiness(value: unknown): SubmissionReadiness {
 function parseWorkflowContext(value: unknown): JobWorkflowContext {
   const v = exactObject(value, 'workflowContext', [
     'allowedCommands', 'allowedActions', 'startLocationCaptureEnabled',
-    'lifecycle', 'submissionReadiness',
+    'submitLocationCaptureEnabled', 'lifecycle', 'submissionReadiness',
   ]);
   const allowedCommands = uniqueValues(
     array(v.allowedCommands, 'allowedCommands').map((entry) =>
@@ -572,6 +580,9 @@ function parseWorkflowContext(value: unknown): JobWorkflowContext {
     startLocationCaptureEnabled: v.startLocationCaptureEnabled === undefined
       ? false
       : boolean(v.startLocationCaptureEnabled, 'startLocationCaptureEnabled'),
+    submitLocationCaptureEnabled: v.submitLocationCaptureEnabled === undefined
+      ? false
+      : boolean(v.submitLocationCaptureEnabled, 'submitLocationCaptureEnabled'),
     lifecycle: parseLifecycleFacts(v.lifecycle),
     submissionReadiness: v.submissionReadiness === null
       ? null
@@ -863,42 +874,45 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   if (kind === 'NONE') return { kind };
   if (kind === 'STATUS_TRANSITION') {
     const detail = exactObject(v, 'details', [
-      'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation',
+      'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation', 'submitLocation',
     ]);
-    let startLocation: Extract<JobCardActivityDetails, { kind: 'STATUS_TRANSITION' }>['startLocation'];
-    if (detail.startLocation !== undefined) {
-      const location = object(detail.startLocation);
-      const outcome = oneOf(location.outcome, 'startLocation.outcome', ['CAPTURED', 'UNAVAILABLE'] as const);
+    const parseActionLocation = (field: 'startLocation' | 'submitLocation') => {
+      const raw = detail[field];
+      if (raw === undefined) return undefined;
+      const location = object(raw);
+      const outcome = oneOf(location.outcome, `${field}.outcome`, ['CAPTURED', 'UNAVAILABLE'] as const);
       if (outcome === 'CAPTURED') {
-        const captured = exactObject(location, 'startLocation', [
+        const captured = exactObject(location, field, [
           'outcome', 'approximateLabel', 'accuracyMeters', 'capturedAt', 'geocodingProvider',
         ]);
         const provider = captured.geocodingProvider === null
           ? null
           : oneOf(captured.geocodingProvider, 'geocodingProvider', ['GOOGLE'] as const);
-        startLocation = {
+        return {
           outcome,
           approximateLabel: nullableString(captured.approximateLabel, 'approximateLabel'),
           accuracyMeters: positiveFiniteNumber(captured.accuracyMeters, 'accuracyMeters'),
           capturedAt: canonicalInstant(captured.capturedAt, 'capturedAt'),
           geocodingProvider: provider,
-        };
-      } else {
-        const unavailable = exactObject(location, 'startLocation', ['outcome', 'reason']);
-        startLocation = {
-          outcome,
-          reason: oneOf(unavailable.reason, 'reason', [
-            'PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'UNSUPPORTED', 'UNKNOWN',
-          ] as const),
-        };
+        } as const;
       }
-    }
+      const unavailable = exactObject(location, field, ['outcome', 'reason']);
+      return {
+        outcome,
+        reason: oneOf(unavailable.reason, 'reason', [
+          'PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'UNSUPPORTED', 'UNKNOWN',
+        ] as const),
+      } as const;
+    };
+    const startLocation = parseActionLocation('startLocation');
+    const submitLocation = parseActionLocation('submitLocation');
     return {
       kind,
       fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_ACTIVITY_STATUSES),
       toStatus: oneOf(detail.toStatus, 'toStatus', JOB_CARD_ACTIVITY_STATUSES),
       reason: nullableString(detail.reason, 'reason'),
       ...(startLocation ? { startLocation } : {}),
+      ...(submitLocation ? { submitLocation } : {}),
     };
   }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
@@ -980,7 +994,16 @@ export const listJobCards = async (filters: JobCardListFilters = {}) => parsePag
 export const getJobCardBoard = async (filters: JobCardBoardFilters = {}) =>
   parseBoard(await request(`/api/job-cards/board${query(filters)}`));
 export const listJobCardBoard = getJobCardBoard;
-export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
+/**
+ * Slice 1 reader gate: the backend only serializes the SUBMIT capability flag
+ * for readers that explicitly opt in, so previous bundles (strict response
+ * parsers) keep receiving the shape they understand. This bundle always opts
+ * in on the detail screens that can submit.
+ */
+export const getJobCard = async (id: string, options: { includeSubmitLocationCapability?: boolean } = {}) =>
+  parseJobCard(await request(`${jobPath(id)}${query({
+    includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
+  })}`));
 export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
 export const createProductDelivery = async (input: ProductDeliveryCreateInput) =>
@@ -1219,7 +1242,7 @@ const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
-export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string; followUpProposal?: FollowUpProposalInput }) =>
+export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
   lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));

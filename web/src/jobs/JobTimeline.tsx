@@ -30,21 +30,35 @@ type TimelineState =
   | { kind: 'ready'; page: Paginated<JobCardActivity> }
   | { kind: 'error'; message: string; retryable: boolean };
 
+function actionLocationSuffix(
+  location: NonNullable<Extract<JobCardActivityDetails, { kind: 'STATUS_TRANSITION' }>['startLocation']>,
+  takenLabel: string,
+  missingLabel: string,
+) {
+  if (location.outcome === 'UNAVAILABLE') {
+    return ` · ${missingLabel}: ${locationFailureLabels[location.reason]}`;
+  }
+  const address = location.approximateLabel ?? 'Yaklaşık adres oluşturulamadı';
+  const accuracy = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
+    .format(location.accuracyMeters);
+  const attribution = location.geocodingProvider === 'GOOGLE'
+    && location.approximateLabel
+    ? ' · Adres verisi: Google Maps'
+    : '';
+  return ` · ${takenLabel}: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(location.capturedAt)}${attribution}`;
+}
+
 function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'STATUS_TRANSITION') {
     const transition = `${historicalJobStatusLabels[details.fromStatus]} → ${historicalJobStatusLabels[details.toStatus]}`;
-    if (!details.startLocation) return transition;
-    if (details.startLocation.outcome === 'UNAVAILABLE') {
-      return `${transition} · Konum alınamadı: ${locationFailureLabels[details.startLocation.reason]}`;
-    }
-    const address = details.startLocation.approximateLabel ?? 'Yaklaşık adres oluşturulamadı';
-    const accuracy = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
-      .format(details.startLocation.accuracyMeters);
-    const attribution = details.startLocation.geocodingProvider === 'GOOGLE'
-      && details.startLocation.approximateLabel
-      ? ' · Adres verisi: Google Maps'
+    const startSuffix = details.startLocation
+      ? actionLocationSuffix(details.startLocation, 'Konum', 'Konum alınamadı')
       : '';
-    return `${transition} · Konum: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(details.startLocation.capturedAt)}${attribution}`;
+    // Slice 1: basic SUBMIT snapshot only; no comparison or anomaly badges.
+    const submitSuffix = details.submitLocation
+      ? actionLocationSuffix(details.submitLocation, 'Onaya gönderme konumu', 'Onaya gönderme konumu alınamadı')
+      : '';
+    return `${transition}${startSuffix}${submitSuffix}`;
   }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {

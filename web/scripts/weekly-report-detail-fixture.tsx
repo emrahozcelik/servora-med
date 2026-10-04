@@ -238,9 +238,13 @@ function installTransport(state: StateName) {
   const job = JSON.stringify(jobFor(state));
   const report = JSON.stringify(reportFor(state));
   const submissions = JSON.stringify(submissionsFor(state));
+  // The shared activity timeline always has a backing page in the fixture so
+  // the layout smoke measures the real timeline slot, not its error state.
+  const activity = JSON.stringify({ items: [], total: 0, limit: 50, offset: 0 });
   const routes: [string, string][] = [
     [`/api/job-cards/${JOB_ID}/weekly-report/submissions`, submissions],
     [`/api/job-cards/${JOB_ID}/weekly-report`, report],
+    [`/api/job-cards/${JOB_ID}/activity`, activity],
     [`/api/job-cards/${JOB_ID}`, job],
   ];
 
@@ -248,7 +252,10 @@ function installTransport(state: StateName) {
     const raw = typeof input === 'string'
       ? input
       : input instanceof URL ? input.href : input.url;
-    const path = raw.startsWith('http') ? new URL(raw).pathname : raw;
+    // Query-tolerant: the detail reader appends the Slice 1 capability gate
+    // (`?includeSubmitLocationCapability=true`) to the same resource path.
+    const withoutQuery = raw.split('?')[0] ?? raw;
+    const path = withoutQuery.startsWith('http') ? new URL(withoutQuery).pathname : withoutQuery;
     const match = routes.find(([route]) => path === route);
     if (!match) {
       return new Response(JSON.stringify({ error: `no fixture route for ${path}` }), {

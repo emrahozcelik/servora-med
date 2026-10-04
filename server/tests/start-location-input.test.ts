@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseStartLocationCapture } from '../src/modules/job-cards/start-location-input.js';
+import {
+  parseActionLocationCapture,
+  parseStartLocationCapture,
+} from '../src/modules/job-cards/start-location-input.js';
 
 describe('parseStartLocationCapture', () => {
   it('accepts an exact captured envelope', () => {
@@ -45,6 +48,40 @@ describe('parseStartLocationCapture', () => {
   ])('rejects malformed or non-exact envelopes', (capture) => {
     expect(() => parseStartLocationCapture(capture)).toThrowError(
       expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 }),
+    );
+  });
+});
+
+describe('parseActionLocationCapture (slice 1 SSOT)', () => {
+  it('is the same parser as START: accepts captured and unavailable envelopes', () => {
+    expect(parseActionLocationCapture({
+      outcome: 'captured',
+      latitude: 39.92077,
+      longitude: 32.85411,
+      accuracyMeters: 18,
+      capturedAt: '2026-07-21T11:37:00+03:00',
+    })).toEqual({
+      outcome: 'CAPTURED',
+      latitude: 39.92077,
+      longitude: 32.85411,
+      accuracyMeters: 18,
+      capturedAt: new Date('2026-07-21T08:37:00.000Z'),
+    });
+    expect(parseActionLocationCapture({ outcome: 'unavailable', reason: 'TIMEOUT' }))
+      .toEqual({ outcome: 'UNAVAILABLE', reason: 'TIMEOUT' });
+  });
+
+  it('rejects malformed envelopes exactly like START', () => {
+    expect(() => parseActionLocationCapture({
+      outcome: 'captured',
+      latitude: 39.92077,
+      longitude: 32.85411,
+      accuracyMeters: 18,
+      capturedAt: '2026-07-21T11:37:00+03:00',
+      distanceMeters: 50,
+    })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    expect(() => parseActionLocationCapture(null)).toThrowError(
+      expect.objectContaining({ code: 'VALIDATION_ERROR' }),
     );
   });
 });

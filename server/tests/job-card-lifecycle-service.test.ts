@@ -651,6 +651,7 @@ describe('JobCard lifecycle commands', () => {
         'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'EDIT_DELIVERY_ACTUAL_TIME',
       ],
       startLocationCaptureEnabled: false,
+      // Reader-gated: absent by default so previous web bundles keep parsing.
       lifecycle: repo.persistedDetail.lifecycle,
       submissionReadiness: {
         evaluatedAt: time.toISOString(),

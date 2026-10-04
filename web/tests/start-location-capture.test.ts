@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { captureStartLocation } from '../src/jobs/start-location-capture.js';
+import { captureActionLocation, captureStartLocation } from '../src/jobs/start-location-capture.js';
 
 const options = {
   enableHighAccuracy: true,
@@ -83,5 +83,48 @@ describe('captureStartLocation', () => {
     await captureStartLocation();
 
     expect(getCurrentPosition).toHaveBeenCalledOnce();
+  });
+});
+
+describe('captureActionLocation (slice 1 SSOT)', () => {
+  it('shares the START implementation and envelope for captured results', async () => {
+    expect(captureActionLocation).toBe(captureStartLocation);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-21T08:37:00.000Z'));
+    installGeolocation((success) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 18 },
+    } as GeolocationPosition));
+
+    await expect(captureActionLocation()).resolves.toEqual({
+      outcome: 'captured',
+      latitude: 39.92077,
+      longitude: 32.85411,
+      accuracyMeters: 18,
+      capturedAt: '2026-07-21T08:37:00.000Z',
+    });
+  });
+
+  it('shares the unavailable normalization without a second browser request', async () => {
+    const getCurrentPosition = installGeolocation((_success, error) => error?.({ code: 1 } as GeolocationPositionError));
+
+    await expect(captureActionLocation()).resolves.toEqual({
+      outcome: 'unavailable',
+      reason: 'PERMISSION_DENIED',
+    });
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(getCurrentPosition).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      options,
+    );
+  });
+
+  it('reports unsupported without touching the browser API', async () => {
+    vi.stubGlobal('navigator', {});
+
+    await expect(captureActionLocation()).resolves.toEqual({
+      outcome: 'unavailable',
+      reason: 'UNSUPPORTED',
+    });
   });
 });

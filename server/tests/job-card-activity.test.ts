@@ -137,6 +137,52 @@ describe('safe JobCard activity presenter', () => {
     });
   });
 
+  it('presents the SUBMIT snapshot under submitLocation without touching START', () => {
+    const submitted = presentActivity(baseRecord('JOB_SUBMITTED_FOR_APPROVAL', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'WAITING_APPROVAL' },
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 18,
+        capturedAt: new Date('2026-07-21T08:37:00.000Z'),
+        geocodingProvider: 'GOOGLE',
+      },
+    }));
+
+    expect(submitted.details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL',
+      reason: null,
+      submitLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 18,
+        capturedAt: '2026-07-21T08:37:00.000Z',
+        geocodingProvider: 'GOOGLE',
+      },
+    });
+    expect(JSON.stringify(submitted)).not.toMatch(/latitude|longitude|39\.|32\./);
+
+    const unavailableSubmit = presentActivity(baseRecord('JOB_SUBMITTED_FOR_APPROVAL', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'WAITING_APPROVAL' },
+      startLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+    }));
+    expect(unavailableSubmit.details).toMatchObject({
+      kind: 'STATUS_TRANSITION',
+      submitLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+    });
+
+    // START events never gain a submitLocation key.
+    const started = presentActivity(baseRecord('JOB_STARTED', {
+      oldValue: { status: 'ACCEPTED' },
+      newValue: { status: 'IN_PROGRESS' },
+      startLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+    }));
+    expect(started.details).not.toHaveProperty('submitLocation');
+    expect(unavailableSubmit.details).not.toHaveProperty('startLocation');
+  });
+
   it('allowlists reasons only for revision and cancellation events', () => {
     const revision = presentActivity(baseRecord('JOB_REVISION_REQUESTED', {
       oldValue: { status: 'WAITING_APPROVAL' },

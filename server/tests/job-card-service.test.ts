@@ -698,6 +698,362 @@ describe('JobCardService action-scoped start location', () => {
   });
 });
 
+describe('JobCardService action-scoped submit location (slice 1)', () => {
+  const captured = {
+    outcome: 'captured' as const,
+    latitude: 39.92077,
+    longitude: 32.85411,
+    accuracyMeters: 18,
+    capturedAt: '2026-07-21T11:37:00+03:00',
+  };
+  const submitNote = 'Görev tamamlandı.';
+
+  function enabledSubmitService(
+    repository = new MemoryJobCardRepository(),
+    options: {
+      quota?: { reserve: ReturnType<typeof vi.fn> };
+      now?: () => Date;
+    } = {},
+  ) {
+    const reverse = vi.fn().mockResolvedValue({
+      neighborhood: 'Kızılay',
+      district: 'Çankaya',
+      city: 'Ankara',
+      approximateLabel: 'Kızılay, Çankaya / Ankara',
+    });
+    const quota = options.quota ?? {
+      reserve: vi.fn().mockResolvedValue({
+        allowed: true, userUsed: 1, organizationUsed: 1, globalUsed: 1,
+      }),
+    };
+    const service = new JobCardService(repository, options.now, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse },
+      quotaGuard: quota,
+    });
+    return { repository, reverse, service, quota };
+  }
+
+  function toInProgressGeneralTask(repository: MemoryJobCardRepository) {
+    repository.job = {
+      ...repository.job,
+      type: 'GENERAL_TASK',
+      customerId: null,
+    };
+  }
+
+  async function startGeneralTask(
+    service: JobCardService,
+    repository: MemoryJobCardRepository,
+    clientActionId: string,
+    locationCapture: unknown = captured,
+  ) {
+    toInProgressGeneralTask(repository);
+    await service.start(staff, 'job-1', { ...input, clientActionId, locationCapture });
+  }
+
+  it('persists a captured SUBMIT location beside JOB_SUBMITTED_FOR_APPROVAL', async () => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-1');
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-captured-1',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    expect(reverse).toHaveBeenCalledTimes(2);
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[1]).toMatchObject({
+      jobCardId: 'job-1',
+      activityId: 'activity-2',
+      actorUserId: 'staff-1',
+      action: 'JOB_SUBMITTED_FOR_APPROVAL',
+      capture: expect.objectContaining({
+        outcome: 'CAPTURED',
+        geocodingStatus: 'RESOLVED',
+        geocodingProvider: 'GOOGLE',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+      }),
+    });
+    // Existing submit behavior is preserved: one approval notification batch.
+    expect(repository.notificationAppends).toHaveLength(1);
+    expect(repository.activities.map((activity) => activity.event)).toEqual([
+      'JOB_STARTED',
+      'JOB_SUBMITTED_FOR_APPROVAL',
+    ]);
+  });
+
+  it.each([
+    'PERMISSION_DENIED',
+    'POSITION_UNAVAILABLE',
+    'TIMEOUT',
+    'UNSUPPORTED',
+    'UNKNOWN',
+  ] as const)('persists unavailable SUBMIT evidence for %s without blocking', async (reason) => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, `submit-start-${reason}`);
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: `submit-unavailable-${reason}`,
+      note: submitNote,
+      locationCapture: { outcome: 'unavailable', reason },
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    // Only the START capture used the provider; the unavailable SUBMIT did not.
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[1]).toMatchObject({
+      action: 'JOB_SUBMITTED_FOR_APPROVAL',
+      activityId: 'activity-2',
+      capture: { outcome: 'UNAVAILABLE', reason },
+    });
+  });
+
+  it('succeeds without a SUBMIT location when capture is omitted', async () => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-omitted');
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-omitted',
+      note: submitNote,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(1);
+    expect(repository.locationAppends[0]).toMatchObject({ action: 'JOB_STARTED' });
+  });
+
+  it.each([
+    ['latitude out of range', { ...captured, latitude: 91 }],
+    ['longitude out of range', { ...captured, longitude: -181 }],
+    ['non-positive accuracy', { ...captured, accuracyMeters: 0 }],
+    ['non-finite accuracy', { ...captured, accuracyMeters: Number.NaN }],
+    ['invalid capturedAt', { ...captured, capturedAt: 'not-an-instant' }],
+    ['extra key', { ...captured, distanceMeters: 12 }],
+    ['missing key', { outcome: 'captured', latitude: 1, longitude: 2, accuracyMeters: 3 }],
+    ['unknown reason', { outcome: 'unavailable', reason: 'NETWORK_ERROR' }],
+    ['null envelope', null],
+  ])('rejects malformed SUBMIT location (%s) without mutation', async (name, locationCapture) => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, `submit-start-malformed-${String(name).replaceAll(' ', '-')}`);
+
+    await expect(service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: `submit-malformed-${String(name).replaceAll(' ', '-')}`,
+      note: submitNote,
+      locationCapture,
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+
+    expect(repository.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(repository.activities.map((activity) => activity.event)).toEqual(['JOB_STARTED']);
+    expect(repository.locationAppends).toHaveLength(1);
+    expect(reverse).toHaveBeenCalledOnce();
+  });
+
+  it('replays the same SUBMIT attempt without a second activity, location, or geocoder call', async () => {
+    const { repository, reverse, service, quota } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-replay');
+    const request = {
+      expectedVersion: 2,
+      clientActionId: 'submit-replay',
+      note: submitNote,
+      locationCapture: captured,
+    };
+    const first = await service.submitForApproval(staff, 'job-1', request);
+    const replay = await service.submitForApproval(staff, 'job-1', request);
+
+    expect(replay).toEqual(first);
+    expect(reverse).toHaveBeenCalledTimes(2);
+    expect(quota.reserve).toHaveBeenCalledTimes(2);
+    expect(repository.activities.map((activity) => activity.event)).toEqual([
+      'JOB_STARTED',
+      'JOB_SUBMITTED_FOR_APPROVAL',
+    ]);
+    expect(repository.locationAppends).toHaveLength(2);
+  });
+
+  it('discards SUBMIT location while the capability is disabled', async () => {
+    const repository = new MemoryJobCardRepository();
+    toInProgressGeneralTask(repository);
+    const reverse = vi.fn();
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: false,
+      reverseGeocoder: { reverse },
+    });
+    await service.start(staff, 'job-1', input);
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-disabled',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends).toEqual([]);
+  });
+
+  it('discards SUBMIT location for non-Staff actors without blocking', async () => {
+    const { repository, reverse, service } = enabledSubmitService();
+    toInProgressGeneralTask(repository);
+    repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+    const submitted = await service.submitForApproval(manager, 'job-1', {
+      expectedVersion: 1,
+      clientActionId: 'submit-manager',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 2 });
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends).toEqual([]);
+  });
+
+  it('keeps ACTION_IN_PROGRESS and VERSION_CONFLICT semantics with location', async () => {
+    const busy = enabledSubmitService();
+    await startGeneralTask(busy.service, busy.repository, 'submit-start-busy');
+    busy.repository.processing.add('org-1:staff-1:submit-busy:JOB_SUBMIT_FOR_APPROVAL:job-1');
+    await expect(busy.service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-busy',
+      note: submitNote,
+      locationCapture: captured,
+    })).rejects.toMatchObject({ code: 'ACTION_IN_PROGRESS', statusCode: 409 });
+    expect(busy.reverse).toHaveBeenCalledOnce();
+
+    const stale = enabledSubmitService();
+    await startGeneralTask(stale.service, stale.repository, 'submit-start-stale');
+    await expect(stale.service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 9,
+      clientActionId: 'submit-stale',
+      note: submitNote,
+      locationCapture: captured,
+    })).rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+    expect(stale.reverse).toHaveBeenCalledOnce();
+    expect(stale.repository.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(stale.repository.locationAppends).toHaveLength(1);
+  });
+
+  it('rolls back transition and activity when the SUBMIT location append fails', async () => {
+    const { repository, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-rollback');
+    repository.failLocation = true;
+
+    await expect(service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-rollback',
+      note: submitNote,
+      locationCapture: captured,
+    })).rejects.toThrow('location failed');
+    expect(repository.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(repository.activities.map((activity) => activity.event)).toEqual(['JOB_STARTED']);
+    expect(repository.locationAppends).toHaveLength(1);
+  });
+
+  it('exposes submitLocationCaptureEnabled only to Staff with SUBMIT allowed', async () => {
+    const { repository, service } = enabledSubmitService();
+    toInProgressGeneralTask(repository);
+    repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+    const gated = { includeSubmitLocationCapability: true };
+
+    expect((await service.detail(staff, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled)
+      .toBe(true);
+    expect((await service.detail(manager, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled)
+      .toBe(false);
+    expect((await new JobCardService(repository, () => new Date(), undefined, { enabled: false })
+      .detail(staff, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled).toBe(false);
+  });
+
+  it('keeps the default detail shape readable by previous web bundles', async () => {
+    // Previous deployed bundles parse workflowContext with a strict key
+    // allowlist: any new key on the default shape turns every JobCard read on
+    // already-open tabs into INVALID_RESPONSE until reload. The SUBMIT flag is
+    // therefore reader-gated — absent unless explicitly requested.
+    const { repository, service } = enabledSubmitService();
+    toInProgressGeneralTask(repository);
+    repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+
+    const previous = await service.detail(staff, 'job-1');
+    expect(previous.workflowContext).not.toHaveProperty('submitLocationCaptureEnabled');
+    expect(Object.keys(previous.workflowContext).sort()).toEqual([
+      'allowedActions', 'allowedCommands', 'lifecycle',
+      'startLocationCaptureEnabled', 'submissionReadiness',
+    ]);
+
+    const gated = await service.detail(staff, 'job-1', { includeSubmitLocationCapability: true });
+    expect(gated.workflowContext.submitLocationCaptureEnabled).toBe(true);
+  });
+
+  it('completes advisory SUBMIT when the quota guard throws, with FAILED enrichment', async () => {
+    const { repository, reverse, service, quota } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'submit-start-quota-throw');
+    quota.reserve.mockRejectedValueOnce(new Error('quota store unavailable'));
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-quota-throw',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    // The START capture used the provider; the throwing SUBMIT quota degraded.
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[1]).toMatchObject({
+      action: 'JOB_SUBMITTED_FOR_APPROVAL',
+      activityId: 'activity-2',
+      capture: expect.objectContaining({
+        outcome: 'CAPTURED',
+        latitude: 39.92077,
+        longitude: 32.85411,
+        accuracyMeters: 18,
+        geocodingStatus: 'FAILED',
+        geocodingProvider: null,
+        approximateLabel: null,
+      }),
+    });
+    expect(repository.notificationAppends).toHaveLength(1);
+    expect(quota.reserve).toHaveBeenCalledTimes(2);
+
+    // Intent completed: replay returns the stored receipt without new I/O.
+    const replay = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-quota-throw',
+      note: submitNote,
+      locationCapture: captured,
+    });
+    expect(replay).toEqual(submitted);
+    expect(quota.reserve).toHaveBeenCalledTimes(2);
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+  });
+
+  it('keeps START quota infrastructure failures strict without mutation', async () => {
+    const quotaError = new Error('quota store unavailable');
+    const repository = new MemoryJobCardRepository();
+    const reverse = vi.fn();
+    const quota = { reserve: vi.fn().mockRejectedValue(quotaError) };
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse },
+      quotaGuard: quota,
+    });
+
+    await expect(service.start(staff, 'job-1', {
+      ...input,
+      locationCapture: captured,
+    })).rejects.toBe(quotaError);
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.locationAppends).toHaveLength(0);
+    expect(reverse).not.toHaveBeenCalled();
+  });
+});
+
 describe('JobCardService realtime event emission', () => {
   function withPublisher() {
     const repository = new MemoryJobCardRepository();

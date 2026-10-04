@@ -22,6 +22,13 @@ export type StartLocationCapture =
       reason: LocationFailureReason;
     }>;
 
+/**
+ * Slice 1 SSOT: SUBMIT_FOR_APPROVAL carries the same conceptual capture
+ * envelope as START. One parser serves both lifecycle actions so the
+ * coordinate/accuracy/timestamp/enum contract cannot drift between them.
+ */
+export type ActionLocationCapture = StartLocationCapture;
+
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
@@ -62,3 +69,6 @@ export function parseStartLocationCapture(value: unknown): StartLocationCapture 
   }
   throw validation('locationCapture');
 }
+
+/** Alias kept so START and SUBMIT share one implementation by construction. */
+export const parseActionLocationCapture = parseStartLocationCapture;

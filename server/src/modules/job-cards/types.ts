@@ -292,6 +292,15 @@ export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
   startLocationCaptureEnabled: boolean;
+  /**
+   * Slice 1 SUBMIT capability. Reader-gated on the wire: the detail presenter
+   * only serializes this key when the reader explicitly opts in
+   * (`includeSubmitLocationCapability`). Previously deployed web bundles parse
+   * workflowContext with a strict allowlist, so an unconditional new key
+   * would turn every JobCard read into INVALID_RESPONSE on already-open tabs
+   * until reload. The default (absent) keeps the pre-Slice-1 response shape.
+   */
+  submitLocationCaptureEnabled?: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
@@ -643,25 +652,28 @@ export type ActivityRecord = {
   createdAt: Date;
 };
 
+export type JobCardActivityLocation =
+  | {
+      outcome: 'CAPTURED';
+      approximateLabel: string | null;
+      accuracyMeters: number;
+      capturedAt: string;
+      geocodingProvider: 'GOOGLE' | null;
+    }
+  | {
+      outcome: 'UNAVAILABLE';
+      reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT'
+        | 'UNSUPPORTED' | 'UNKNOWN';
+    };
+
 export type JobCardActivityDetails =
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
       toStatus: JobCardActivityStatus;
       reason: string | null;
-      startLocation?:
-        | {
-            outcome: 'CAPTURED';
-            approximateLabel: string | null;
-            accuracyMeters: number;
-            capturedAt: string;
-            geocodingProvider: 'GOOGLE' | null;
-          }
-        | {
-            outcome: 'UNAVAILABLE';
-            reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT'
-              | 'UNSUPPORTED' | 'UNKNOWN';
-          };
+      startLocation?: JobCardActivityLocation;
+      submitLocation?: JobCardActivityLocation;
     }
   | {
       kind: 'FIELDS_UPDATED';

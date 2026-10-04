@@ -86,6 +86,7 @@ function staffContext(
     allowedCommands: extras.allowedCommands ?? commandsByStatus[status],
     allowedActions: extras.allowedActions ?? actionsByStatus[status],
     startLocationCaptureEnabled: extras.startLocationCaptureEnabled ?? false,
+    submitLocationCaptureEnabled: extras.submitLocationCaptureEnabled ?? false,
     lifecycle: { ...baseLifecycle, ...lifecycle },
     submissionReadiness: extras.submissionReadiness === undefined
       ? (status === 'IN_PROGRESS'
@@ -254,11 +255,21 @@ function mockDetailFetch(card: JobCard, options: {
       return Response.json(options.notes ?? emptyPage);
     }
     if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-    if (url.endsWith(`/api/job-cards/${card.id}`) || url.endsWith('/api/job-cards/job-1')) {
+    if (detailUrlMatches(url, card.id) || detailUrlMatches(url, 'job-1')) {
       return Response.json(card);
     }
     throw new Error(`Unexpected request: ${url}`);
   });
+}
+
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`). Plain endsWith matching would
+ * reject the gated URL even though it addresses the same resource.
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
 }
 
 class FakeRealtimeEventSource implements RealtimeEventSource {
@@ -342,7 +353,7 @@ describe('Staff JobCard detail', () => {
   it('loads authorized JobCard detail via canonical REST and does not use push payload as job data', async () => {
     const fetch = await renderScreen(job);
     expect(host.textContent).toContain(job.title);
-    expect(fetch.mock.calls.some(([input]) => String(input).endsWith(`/api/job-cards/${job.id}`))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => detailUrlMatches(String(input), job.id))).toBe(true);
     expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
   });
 
@@ -366,7 +377,7 @@ describe('Staff JobCard detail', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
-      if (url.endsWith(`/api/job-cards/${job.id}`)) {
+      if (detailUrlMatches(url, job.id)) {
         return new Response(JSON.stringify({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }), {
           status: 404, headers: { 'content-type': 'application/json' },
         });
@@ -401,7 +412,7 @@ describe('Staff JobCard detail', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         return new Promise<Response>((resolve) => { resolveFirst = resolve; });
       }
       return base2(input);
@@ -639,7 +650,7 @@ describe('Staff JobCard detail', () => {
   it('refreshes an idle matching detail from canonical REST truth', async () => {
     const source = new FakeRealtimeEventSource();
     const fetch = await renderRealtimeScreen(job, source);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -660,13 +671,13 @@ describe('Staff JobCard detail', () => {
     expect(edit).not.toBeNull();
     await act(async () => { edit?.click(); await Promise.resolve(); });
     expect(host.textContent).toContain('Görüşmeyi düzenle');
-    const jobRequestsBeforeEvent = fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1')).length;
+    const jobRequestsBeforeEvent = fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1')).length;
 
     await act(async () => { source.emitJobUpdate('1'); await Promise.resolve(); });
 
     expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.');
     expect(host.textContent).toContain('En güncel bilgileri yükle');
-    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'))).toHaveLength(jobRequestsBeforeEvent);
+    expect(fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'))).toHaveLength(jobRequestsBeforeEvent);
 
     await act(async () => {
       buttonByName(host, 'En güncel bilgileri yükle')?.click();
@@ -674,7 +685,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1')))
+    expect(fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1')))
       .toHaveLength(jobRequestsBeforeEvent + 1);
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi.');
   });
@@ -703,14 +714,14 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? job : accepted);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
     expect(buttonByName(host, 'İşi kabul et')).not.toBeNull();
 
@@ -757,11 +768,11 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return Response.json(accepted);
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -800,14 +811,14 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? job : accepted);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -861,7 +872,7 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? job : newer);
       }
@@ -912,7 +923,7 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests > 1) throw new TypeError('network');
         return Response.json(job);
@@ -966,7 +977,7 @@ describe('Staff JobCard detail', () => {
           error: 'İş başka bir işlemle güncellendi.',
         }, { status: 409, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? job : newer);
       }
@@ -1017,7 +1028,7 @@ describe('Staff JobCard detail', () => {
         if (acceptBodies.length === 1) return acceptGate;
         return Response.json(accepted);
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? job : accepted);
       }
@@ -1099,7 +1110,7 @@ describe('Staff JobCard detail', () => {
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(resumed);
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         detailRequests += 1;
         return Response.json(detailRequests === 1 ? card : refreshed);
       }
@@ -1183,7 +1194,7 @@ describe('Staff JobCard detail', () => {
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(started);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderScreen(accepted, staffUser, fetch);
@@ -1259,7 +1270,7 @@ describe('Staff JobCard detail', () => {
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(next);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(submission);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(submission);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderScreen(submission, staffUser, fetch);
@@ -1334,7 +1345,7 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(job);
         if (jobCardRequests === 2) return drainGetGate;
@@ -1343,7 +1354,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -1404,7 +1415,7 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(job);
         if (jobCardRequests === 2) return idleGetGate;
@@ -1413,7 +1424,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
 
     await act(async () => {
       source.emitJobUpdate('1');
@@ -1478,7 +1489,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [{ ...item, deliveredAt: null }] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(accepted);
         if (jobCardRequests === 2) return refreshGetGate;
@@ -1487,7 +1498,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(accepted, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -1554,7 +1565,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) return refreshGetGate;
@@ -1563,7 +1574,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(meeting, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
 
     await act(async () => {
       const summary = host.querySelector('#meeting-summary') as HTMLTextAreaElement;
@@ -1634,14 +1645,14 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [{ ...item, deliveredAt: null }] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? accepted : accepted);
       }
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(accepted, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -1697,7 +1708,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [{ ...item, deliveredAt: null }] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(accepted, source, fetch);
@@ -1739,7 +1750,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(meeting, source, fetch);
@@ -1824,7 +1835,7 @@ describe('Staff JobCard detail', () => {
         withdrawBodies.push(JSON.parse(String(init.body)));
         return withdrawGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests === 1 ? meeting : newer);
       }
@@ -1899,7 +1910,7 @@ describe('Staff JobCard detail', () => {
         startBodies.push(JSON.parse(String(init.body)));
         return startGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(acceptedMeeting);
         if (jobCardRequests === 2) return refreshGetGate;
@@ -1908,7 +1919,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(acceptedMeeting, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -1957,7 +1968,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) return reloadGetGate;
@@ -1966,7 +1977,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(meeting, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
 
     await act(async () => {
       buttonByName(host, 'Görüşmeyi düzenle')?.click();
@@ -2029,7 +2040,7 @@ describe('Staff JobCard detail', () => {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(job);
         if (jobCardRequests === 2) return idleGetGate;
@@ -2038,7 +2049,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
 
     await act(async () => {
       source.emitJobUpdate('1');
@@ -2094,7 +2105,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(job);
         const gate: { resolve: (value: Response) => void } = { resolve: () => {} };
@@ -2104,7 +2115,7 @@ describe('Staff JobCard detail', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -2160,7 +2171,7 @@ describe('Staff JobCard detail', () => {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(accepted, source, fetch);
@@ -2186,7 +2197,7 @@ describe('Staff JobCard detail', () => {
   it('ignores invalidation events for unrelated JobCards', async () => {
     const source = new FakeRealtimeEventSource();
     const fetch = await renderRealtimeScreen(job, source);
-    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => detailUrlMatches(String(input), 'job-1'));
     expect(jobRequests()).toHaveLength(1);
 
     await act(async () => {
@@ -3031,7 +3042,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         return Response.json(patchBodies.length > 0
           ? { ...initialCard, version: 4 }
           : initialCard);
@@ -3173,7 +3184,7 @@ describe('Staff JobCard detail', () => {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(updated);
       }
-      if (url.endsWith(`/api/job-cards/${accepted.id}`)) return Response.json(accepted);
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderScreen(accepted, staffUser, fetch);
@@ -3222,7 +3233,7 @@ describe('Staff JobCard detail', () => {
         if (startBodies.length === 1) throw new TypeError('offline');
         return Response.json(updated);
       }
-      if (url.endsWith(`/api/job-cards/${accepted.id}`)) return Response.json(accepted);
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderScreen(accepted, staffUser, fetch);
@@ -3280,6 +3291,126 @@ describe('Staff JobCard detail', () => {
       succeed?.({ coords: { latitude: 39, longitude: 32, accuracy: 50 } } as GeolocationPosition);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+  });
+
+  it('resets the submit pending phase so later actions show the default pending label', async () => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 18 },
+    } as GeolocationPosition));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    let releaseCancel!: (value: unknown) => void;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+        return Response.json(waiting);
+      }
+      if (url.endsWith('/cancel') && init?.method === 'POST') {
+        return new Promise((resolve) => { releaseCancel = resolve; });
+      }
+      if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    // Complete a location-capturing SUBMIT.
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const submitDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const submitTextareas = submitDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const submitReason = submitTextareas.item(submitTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(submitReason, 'Görev tamamlandı');
+      submitReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain('İş yönetici kontrolüne gönderildi');
+
+    // A later CANCEL must not show the stale submit pending label.
+    await act(async () => {
+      buttonByName(host, 'İşi iptal et')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const cancelDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const cancelTextareas = cancelDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const cancelReason = cancelTextareas.item(cancelTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(cancelReason, 'Müşteri vazgeçti');
+      cancelReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    act(() => {
+      buttonByName(cancelDialog, 'İşi iptal et')?.click();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(buttonByName(host, 'Kontrole gönderiliyor…')).toBeNull();
+    const pendingCancel = buttonByName(host, 'İşleniyor…') as HTMLButtonElement | null;
+    expect(pendingCancel?.disabled).toBe(true);
+    await act(async () => {
+      releaseCancel(Response.json({ ...waiting, status: 'CANCELLED', version: 5 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it('explains the advisory SUBMIT capture before the submit action', async () => {
+    const submittable: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submitLocationCaptureEnabled: true }),
+    };
+    await renderDetail(submittable);
+    const notice = host.querySelector('.submit-location-notice');
+    expect(notice, 'submit notice').not.toBeNull();
+    expect(notice!.textContent).toContain('Onaya gönderdiğinizde');
+    expect(notice!.textContent).toContain('bir kez yaklaşık konum');
+    expect(notice!.textContent).toContain('iş geçmişinde');
+    expect(notice!.textContent).toContain('engellenmez');
+    expect(notice!.textContent).not.toMatch(/sürekli|takip|mesafe|eşleş|MATCH|DIFFERENT/i);
+  });
+
+  it('hides the SUBMIT notice when the capability is off', async () => {
+    const submittable: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submitLocationCaptureEnabled: false }),
+    };
+    await renderDetail(submittable);
+    expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
+    expect(host.querySelector('.submit-location-notice')).toBeNull();
   });
 
   it('does not show acceptance action for manager on NEW', () => {
@@ -3391,7 +3522,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(currentCard);
       throw new Error(`Unexpected request: ${url}`);
     }));
 
@@ -3513,7 +3644,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/meeting-details')) return Response.json(currentMeeting);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(currentCard);
       throw new Error(`Unexpected request: ${url}`);
     }));
 
@@ -3841,7 +3972,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith(scenario.endpoint) && init?.method === 'POST') {
         return Response.json(scenario.next);
       }
-      if (url.endsWith(`/api/job-cards/${scenario.card.id}`)) {
+      if (detailUrlMatches(url, scenario.card.id)) {
         return Response.json(scenario.card);
       }
       if (url.includes('/follow-up-suggestion')) {
@@ -3952,8 +4083,8 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4034,8 +4165,8 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/start') && init?.method === 'POST') return startGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meetingA);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meetingA);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4094,14 +4225,14 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobGetCounts['job-1'] += 1;
         if (jobGetCounts['job-1'] === 1) return Response.json(job);
         const gate: { resolve: (value: Response) => void } = { resolve: () => {} };
         gates['job-1-drain'] = gate;
         return new Promise<Response>((resolve) => { gate.resolve = resolve; });
       }
-      if (url.endsWith('/api/job-cards/job-2')) {
+      if (detailUrlMatches(url, 'job-2')) {
         jobGetCounts['job-2'] += 1;
         if (jobGetCounts['job-2'] === 1) return Response.json(jobB);
         if (jobGetCounts['job-2'] === 2) {
@@ -4198,8 +4329,8 @@ describe('Staff JobCard detail', () => {
         if (acceptBodies.length === 1) return acceptAGate;
         return acceptBGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4277,8 +4408,8 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(waitingA);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(waitingA);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4352,8 +4483,8 @@ describe('Staff JobCard detail', () => {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(startedB);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(acceptedA);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(acceptedA);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4414,7 +4545,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) return reloadGetGate;
@@ -4475,7 +4606,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) return reloadGetGate;
@@ -4536,7 +4667,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) return reloadGetGate;
@@ -4600,7 +4731,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         if (jobCardRequests === 2) throw new TypeError('network');
@@ -4670,8 +4801,8 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4723,8 +4854,8 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4776,11 +4907,11 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         return Response.json(job);
       }
-      if (url.endsWith('/api/job-cards/job-2')) {
+      if (detailUrlMatches(url, 'job-2')) {
         job2Requests += 1;
         return Response.json(jobB);
       }
@@ -4848,9 +4979,9 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(meetingB);
+      if (detailUrlMatches(url, 'job-1') && init?.method === 'PATCH') return saveGate;
+      if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(meetingB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -4919,12 +5050,12 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         return drainGetGate;
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5001,8 +5132,8 @@ describe('Staff JobCard detail', () => {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(startedB);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(acceptedA);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(acceptedB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(acceptedA);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(acceptedB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5076,8 +5207,8 @@ describe('Staff JobCard detail', () => {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json({ ...acceptedB, status: 'IN_PROGRESS', version: acceptedB.version + 1 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(acceptedA);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(acceptedB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(acceptedA);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(acceptedB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5143,13 +5274,13 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         requestsA += 1;
         if (requestsA === 1) return Response.json(meeting);
         if (requestsA === 2) return gateA;
         return Response.json(newerA);
       }
-      if (url.endsWith('/api/job-cards/job-2')) {
+      if (detailUrlMatches(url, 'job-2')) {
         requestsB += 1;
         if (requestsB === 1) return Response.json(meetingB);
         if (requestsB === 2) return gateB;
@@ -5235,12 +5366,12 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         if (jobCardRequests === 1) return Response.json(meeting);
         return reloadGetGate;
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5296,8 +5427,8 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5367,13 +5498,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(job);
         if (job1Requests === 2) return drainGetGate;
         return Response.json(acceptedA);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5469,13 +5600,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/start') && init?.method === 'POST') return startGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(acceptedMeetingA);
         if (job1Requests === 2) return refreshGetGate;
         return Response.json(startedA);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(meetingB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(meetingB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5559,14 +5690,14 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1') && init?.method === 'PATCH') return saveGate;
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(meeting);
         if (job1Requests === 2) return refreshGetGate;
         return Response.json(updatedMeeting);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(meetingB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(meetingB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5669,14 +5800,14 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1') && init?.method === 'PATCH') return saveGate;
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(scheduleA);
         if (job1Requests === 2) return drainGetGate;
         return Response.json(scheduleA);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5746,13 +5877,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.includes('/delivery-items/i1') && init?.method === 'PATCH') return saveGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(editableJob);
         if (job1Requests === 2) return refreshGetGate;
         return Response.json(editableJob);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5816,13 +5947,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(job);
         if (job1Requests === 2) return refreshGetGate;
         return Response.json(job);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5897,13 +6028,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/withdraw-from-approval') && init?.method === 'POST') return withdrawGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(waitingMeeting);
         if (job1Requests === 2) return refreshGetGate;
         return Response.json(waitingMeeting);
       }
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(meetingB);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(meetingB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -5970,7 +6101,7 @@ describe('Staff JobCard detail', () => {
         acceptPosts += 1;
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -6023,7 +6154,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1')) {
         jobCardRequests += 1;
         return Response.json(jobCardRequests >= 3 ? newer : meeting);
       }
@@ -6077,8 +6208,8 @@ describe('Staff JobCard detail', () => {
         acceptPosts += 1;
         return acceptGate;
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
-      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(job);
+      if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetch);
@@ -6149,8 +6280,8 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
-      if (url.endsWith('/api/job-cards/job-1')) {
+      if (detailUrlMatches(url, 'job-1') && init?.method === 'PATCH') return saveGate;
+      if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         return Response.json(job1Requests >= 2 ? updatedMeeting : meeting);
       }
@@ -6268,7 +6399,7 @@ describe('Staff JobCard detail', () => {
         }
         return Response.json(next);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(submission);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(submission);
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderScreen(submission, staffUser, fetch);
@@ -6433,7 +6564,7 @@ describe('Staff JobCard detail', () => {
         if (url.endsWith('/meeting-details')) return Response.json({
           ...meetingDetails, jobCardVersion: current.version,
         });
-        if (url.endsWith('/api/job-cards/job-1')) return Response.json(current);
+        if (detailUrlMatches(url, 'job-1')) return Response.json(current);
         throw new Error(`Unexpected request: ${url}`);
       });
       await renderRealtimeScreen(current, source, fetch);
@@ -6477,7 +6608,7 @@ describe('Staff JobCard detail', () => {
             { status: 400 },
           );
         }
-        if (url.endsWith('/api/job-cards/job-1')) return Response.json(staleValid);
+        if (detailUrlMatches(url, 'job-1')) return Response.json(staleValid);
         throw new Error(`Unexpected request: ${url}`);
       });
       await renderScreen(staleValid, staffUser, fetch);

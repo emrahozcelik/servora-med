@@ -30,12 +30,14 @@ export type JobActionLocationCapture =
   | CapturedJobActionLocation
   | UnavailableJobActionLocation;
 
+export type JobActionLocationAction = 'JOB_STARTED' | 'JOB_SUBMITTED_FOR_APPROVAL';
+
 export type AppendJobActionLocationInput = Readonly<{
   organizationId: string;
   jobCardId: string;
   activityId: string;
   actorUserId: string;
-  action: 'JOB_STARTED';
+  action: JobActionLocationAction;
   capture: JobActionLocationCapture;
 }>;
 
