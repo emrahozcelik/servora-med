@@ -257,6 +257,22 @@ describe('JobCard workspace transport', () => {
     });
   });
 
+  it('normalizes an absent submit location capability to false and preserves server true', async () => {
+    const { submitLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json({ ...job, workflowContext: legacyContext }))
+      .mockResolvedValueOnce(json({
+        ...job,
+        workflowContext: { ...workflowContext, submitLocationCaptureEnabled: true },
+      })));
+
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      workflowContext: { submitLocationCaptureEnabled: false },
+    });
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      workflowContext: { submitLocationCaptureEnabled: true },
+    });
+  });
   it('normalizes an absent start location capability to false and preserves server true', async () => {
     const { startLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
     vi.stubGlobal('fetch', vi.fn()
@@ -596,6 +612,63 @@ describe('JobCard workspace transport', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/start', expect.objectContaining({
       method: 'POST', body: JSON.stringify(input), credentials: 'include',
     }));
+  });
+
+  it('sends the SUBMIT locationCapture on the existing submit endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(job));
+    vi.stubGlobal('fetch', fetchMock);
+    const input = {
+      clientActionId: 'submit-location-1', expectedVersion: 7, note: 'Bitti',
+      locationCapture: {
+        outcome: 'captured' as const, latitude: 39.92077, longitude: 32.85411,
+        accuracyMeters: 18, capturedAt: '2026-07-21T08:37:00.000Z',
+      },
+    };
+
+    await submitJobCardForApproval('job-1', input);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/submit-for-approval', expect.objectContaining({
+      method: 'POST', body: JSON.stringify(input), credentials: 'include',
+    }));
+  });
+
+  it('parses only the safe submit location activity presentation', async () => {
+    const captured = {
+      id: 'a9', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL', actor: related('s1', 'Ayşe'),
+      details: {
+        kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+        submitLocation: {
+          outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+          accuracyMeters: 18, capturedAt: '2026-07-21T08:37:00.000Z',
+          geocodingProvider: 'GOOGLE',
+        },
+      },
+      createdAt: '2026-07-21T08:37:02.000Z',
+    };
+    const unavailable = {
+      ...captured,
+      id: 'a10',
+      details: {
+        ...captured.details,
+        submitLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [captured, unavailable], total: 2, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [captured, unavailable] });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{
+        ...captured,
+        details: {
+          ...captured.details,
+          submitLocation: { ...captured.details.submitLocation, latitude: 39.92077 },
+        },
+      }],
+      total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
   it('rejects raw activity JSONB fields rather than exposing them', async () => {

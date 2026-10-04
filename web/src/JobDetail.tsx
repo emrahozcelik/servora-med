@@ -23,7 +23,8 @@ import {
 } from './jobs/jobs-api';
 import { listCalendarAssignees } from './services/calendar-api';
 import {
-  captureStartLocation,
+  captureActionLocation,
+  type ActionLocationCapture,
   type StartLocationCapture,
 } from './jobs/start-location-capture';
 import {
@@ -924,6 +925,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const reassignmentSync = useReassignmentConversationSync(jobId);
   const [pending, setPending] = useState(false);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
+  const [submitPendingPhase, setSubmitPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
@@ -972,6 +974,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const startCapture = useRef<{
     clientActionId: string;
     capture: StartLocationCapture;
+  } | null>(null);
+  // Slice 1: one-shot SUBMIT snapshot, retained per lifecycle attempt so
+  // transport retry reuses the same capture and clientActionId.
+  const submitCapture = useRef<{
+    clientActionId: string;
+    capture: ActionLocationCapture;
   } | null>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
@@ -1429,13 +1437,27 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       if (!retained && command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
           setStartPendingPhase('capturing');
-          const capture = await captureStartLocation();
+          const capture = await captureActionLocation();
           if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
           startCapture.current = { clientActionId: input.clientActionId, capture };
         }
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setStartPendingPhase('submitting');
         commandInput = { ...input, locationCapture: startCapture.current.capture };
+      }
+      // Slice 1: SUBMIT snapshot is advisory; an unavailable capture still
+      // submits. The capture is bound to the attempt so uncertain retry
+      // never recaptures and never rotates the clientActionId.
+      if (!retained && command === 'SUBMIT_FOR_APPROVAL' && state.detail.job.workflowContext.submitLocationCaptureEnabled) {
+        if (submitCapture.current?.clientActionId !== input.clientActionId) {
+          setSubmitPendingPhase('capturing');
+          const capture = await captureActionLocation();
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          submitCapture.current = { clientActionId: input.clientActionId, capture };
+        }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+        setSubmitPendingPhase('submitting');
+        commandInput = { ...input, locationCapture: submitCapture.current.capture };
       }
       if (!retained) {
         if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
@@ -1470,6 +1492,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       lifecycleAttempt.current = null;
       setUncertain(false);
       if (command === 'START') startCapture.current = null;
+      if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
       setTimelineKey((value) => value + 1);
       setLifecycleNoteKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
@@ -1487,6 +1510,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         lifecycleAttempt.current = null;
         setUncertain(false);
         if (command === 'START') startCapture.current = null;
+      if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
         try {
           if (!(await refreshTruth())) return;
           if (!(await requestRealtimeDrain())) return;
@@ -1506,6 +1530,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           lifecycleAttempt.current = null;
           setUncertain(false);
           if (command === 'START') startCapture.current = null;
+      if (command === 'SUBMIT_FOR_APPROVAL') submitCapture.current = null;
         } else {
           setUncertain(lifecycleAttempt.current !== null);
         }
@@ -2139,7 +2164,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       ? 'Konum alınıyor…'
       : startPendingPhase === 'submitting'
         ? 'İş başlatılıyor…'
-        : undefined}
+        : submitPendingPhase === 'capturing'
+          ? 'Konum alınıyor…'
+          : submitPendingPhase === 'submitting'
+            ? 'Kontrole gönderiliyor…'
+            : undefined}
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}

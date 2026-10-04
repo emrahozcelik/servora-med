@@ -292,6 +292,7 @@ export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
   startLocationCaptureEnabled: boolean;
+  submitLocationCaptureEnabled: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
@@ -643,25 +644,28 @@ export type ActivityRecord = {
   createdAt: Date;
 };
 
+export type JobCardActivityLocation =
+  | {
+      outcome: 'CAPTURED';
+      approximateLabel: string | null;
+      accuracyMeters: number;
+      capturedAt: string;
+      geocodingProvider: 'GOOGLE' | null;
+    }
+  | {
+      outcome: 'UNAVAILABLE';
+      reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT'
+        | 'UNSUPPORTED' | 'UNKNOWN';
+    };
+
 export type JobCardActivityDetails =
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
       toStatus: JobCardActivityStatus;
       reason: string | null;
-      startLocation?:
-        | {
-            outcome: 'CAPTURED';
-            approximateLabel: string | null;
-            accuracyMeters: number;
-            capturedAt: string;
-            geocodingProvider: 'GOOGLE' | null;
-          }
-        | {
-            outcome: 'UNAVAILABLE';
-            reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT'
-              | 'UNSUPPORTED' | 'UNKNOWN';
-          };
+      startLocation?: JobCardActivityLocation;
+      submitLocation?: JobCardActivityLocation;
     }
   | {
       kind: 'FIELDS_UPDATED';

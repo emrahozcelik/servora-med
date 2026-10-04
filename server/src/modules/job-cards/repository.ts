@@ -1320,7 +1320,7 @@ type JobActionLocationRow = {
   job_card_id: string;
   activity_id: string;
   actor_user_id: string;
-  action: 'JOB_STARTED';
+  action: 'JOB_STARTED' | 'JOB_SUBMITTED_FOR_APPROVAL';
   capture_outcome: JobActionLocationRecord['capture']['outcome'];
   failure_reason: LocationFailureReason | null;
   latitude: string | null;

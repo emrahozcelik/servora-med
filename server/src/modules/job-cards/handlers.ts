@@ -114,7 +114,7 @@ const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deli
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
-const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal'] as const;
+const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal', 'locationCapture'] as const;
 const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp'] as const;
 
 export function createJobCardHandlers(service: JobCardService) {

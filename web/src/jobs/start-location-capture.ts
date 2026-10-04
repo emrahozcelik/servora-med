@@ -16,6 +16,12 @@ export type StartLocationCapture =
         | 'UNKNOWN';
     }>;
 
+/**
+ * Slice 1: SUBMIT_FOR_APPROVAL carries the same action-scoped envelope as
+ * START. One adapter serves both lifecycle actions.
+ */
+export type ActionLocationCapture = StartLocationCapture;
+
 const POSITION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
   timeout: 10_000,
@@ -31,7 +37,7 @@ function unavailableReason(code: number): Extract<StartLocationCapture, {
   return 'UNKNOWN';
 }
 
-export function captureStartLocation(): Promise<StartLocationCapture> {
+export function captureActionLocation(): Promise<ActionLocationCapture> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     return Promise.resolve({ outcome: 'unavailable', reason: 'UNSUPPORTED' });
   }
@@ -57,3 +63,6 @@ export function captureStartLocation(): Promise<StartLocationCapture> {
     }
   });
 }
+
+/** Pre-slice-1 name; kept so START call sites and tests keep working. */
+export const captureStartLocation = captureActionLocation;

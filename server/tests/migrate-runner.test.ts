@@ -113,9 +113,10 @@ describe('runMigrations', () => {
       '051_weekly_report_foundation.sql',
       '052_weekly_report_recurrence.sql',
       '053_overdue_submission_reminders.sql',
+      '054_job_action_locations_submit_approval.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('053_overdue_submission_reminders.sql');
-    expect(expectedSchemaVersion).toBe(53);
+    expect(migrations.at(-1)?.name).toBe('054_job_action_locations_submit_approval.sql');
+    expect(expectedSchemaVersion).toBe(54);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

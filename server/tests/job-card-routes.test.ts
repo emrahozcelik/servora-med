@@ -467,6 +467,44 @@ describe('JobCard routes', () => {
     expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
   });
 
+  it('forwards the SUBMIT locationCapture to the service and still rejects unknown fields', async () => {
+    const { app, service } = await createApp();
+    const captured = {
+      outcome: 'captured',
+      latitude: 39.92077,
+      longitude: 32.85411,
+      accuracyMeters: 18,
+      capturedAt: '2026-07-21T11:37:00.000Z',
+    };
+    const payload = {
+      clientActionId: 'submit-loc-1', expectedVersion: 2, note: 'Bitti', locationCapture: captured,
+    };
+    expect((await app.inject({
+      method: 'POST', url: '/api/job-cards/job-1/submit-for-approval', payload,
+    })).statusCode).toBe(200);
+    expect(service.submitForApproval).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+
+    const unavailable = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/submit-for-approval',
+      payload: {
+        clientActionId: 'submit-loc-2', expectedVersion: 2, note: 'Bitti',
+        locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+      },
+    });
+    expect(unavailable.statusCode).toBe(200);
+
+    const unknownField = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/submit-for-approval',
+      payload: {
+        clientActionId: 'submit-loc-3', expectedVersion: 2, note: 'Bitti', distanceMeters: 50,
+      },
+    });
+    expect(unknownField.statusCode).toBe(400);
+    expect(service.submitForApproval).toHaveBeenCalledTimes(2);
+  });
+
   it('parses the Admin invalidation contract and rejects client-owned fields', async () => {
     const { app, service } = await createApp();
     const response = await app.inject({

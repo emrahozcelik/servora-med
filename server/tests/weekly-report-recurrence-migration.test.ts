@@ -95,6 +95,7 @@ describe('052 weekly report recurrence migration', () => {
     expect(after051).toEqual([
       '052_weekly_report_recurrence.sql',
       '053_overdue_submission_reminders.sql',
+      '054_job_action_locations_submit_approval.sql',
     ]);
     expect(files).not.toContain('053_weekly_report_recurrence_due.sql');
   });
@@ -109,7 +110,7 @@ describe.skipIf(!databaseUrl)('052 schema behaviour (PostgreSQL)', () => {
       const versions = applied.rows.map((row) => row.version);
       expect(versions).toContain('051_weekly_report_foundation');
       expect(versions).toContain('052_weekly_report_recurrence');
-      expect(versions[versions.length - 1]).toBe('053_overdue_submission_reminders');
+      expect(versions[versions.length - 1]).toBe('054_job_action_locations_submit_approval');
       const columns = await pool.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema = current_schema() AND table_name = 'weekly_report_recurrences'

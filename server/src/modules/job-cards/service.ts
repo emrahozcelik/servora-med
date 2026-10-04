@@ -210,10 +210,12 @@ import { lockAssigneesInOrder } from './assignee-lock.js';
 import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
 import type { ReverseGeocoder } from './reverse-geocoder.js';
 import {
+  parseActionLocationCapture,
   parseStartLocationCapture,
+  type ActionLocationCapture,
   type StartLocationCapture,
 } from './start-location-input.js';
-import type { JobActionLocationCapture } from './location-types.js';
+import type { JobActionLocationAction, JobActionLocationCapture } from './location-types.js';
 import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
 import type { NotificationDraft } from '../notifications/types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
@@ -262,7 +264,7 @@ type LifecycleInput = {
   clientActionId: string;
   note?: string | null;
 };
-type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput };
+type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput; locationCapture?: unknown };
 type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
@@ -3298,25 +3300,67 @@ export class JobCardService {
       const receipt = decodeJobCardMutationReceipt(reserved.response);
       return this.presentLifecycleReceipt(actor, receipt);
     }
-    const resolvedCapture = await this.resolveStartLocation({
+    const resolvedCapture = await this.resolveActionLocation({
       organizationId: actor.organizationId,
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
     });
-    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture, {
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_STARTED', capture: resolvedCapture }, {
       claim,
       reservation: reserved.reservation,
     });
   }
 
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: SubmitInput) {
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
       target: 'WAITING_APPROVAL', event: 'JOB_SUBMITTED_FOR_APPROVAL',
       note: requireSubmissionNote(input.note), revisionReason: null, cancelReason: null,
       noteContext: 'SUBMIT_FOR_APPROVAL',
       followUpProposal: input.followUpProposal,
+    };
+    // Slice 1: the SUBMIT location is advisory/soft. Unlike START, an omitted
+    // or unavailable capture never blocks the transition; only a malformed
+    // supplied envelope is a validation error. When action-scoped
+    // geolocation is disabled (or the actor is not Staff) any supplied
+    // capture is discarded before parsing, exactly like the START path.
+    if (!this.geolocation.enabled || actor.role !== 'STAFF') {
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+    }
+    if (input.locationCapture === undefined) {
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+    }
+    const capture: ActionLocationCapture = parseActionLocationCapture(input.locationCapture);
+    const claim = this.intentClaim(actor, jobCardId, lifecycleInput.clientActionId, definition, lifecycleInput, capture);
+    const completed = await this.repository.findCompletedLifecycleIntent<unknown>(claim);
+    if (completed) {
+      const receipt = decodeJobCardMutationReceipt(completed);
+      return this.presentLifecycleReceipt(actor, receipt);
+    }
+    // Reserve BEFORE the provider call so geocoder latency never holds the
+    // JobCard lock; the claim hash covers only the pre-provider capture
+    // core, which the normalizer keeps stable across provider resolution.
+    const reserved = await this.repository.reserveLifecycleIntent<JobCardMutationReceipt>(
+      claim,
+      { jobCardId, ttlMs: this.intentTtlMs(),
+        preflight: async (_tx, job, reservedAt) => this.assertLifecycleReservation(actor, job, definition, reservedAt),
+      },
+    );
+    if (reserved.kind === 'replay') {
+      const receipt = decodeJobCardMutationReceipt(reserved.response);
+      return this.presentLifecycleReceipt(actor, receipt);
+    }
+    const resolvedCapture = await this.resolveActionLocation({
+      organizationId: actor.organizationId,
+      actorUserId: actor.id,
+      capture,
+      correlationId: lifecycleInput.clientActionId,
+    });
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_SUBMITTED_FOR_APPROVAL', capture: resolvedCapture }, {
+      claim,
+      reservation: reserved.reservation,
     });
   }
 
@@ -3386,11 +3430,11 @@ export class JobCardService {
     jobCardId: string,
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
-    startLocation?: JobActionLocationCapture,
+    actionLocation?: { action: JobActionLocationAction; capture: JobActionLocationCapture },
     preReserved?: { claim: LifecycleIntentClaim; reservation: LifecycleIntentReservation },
   ) {
     const claim = preReserved?.claim
-      ?? this.intentClaim(actor, jobCardId, input.clientActionId, definition, input, startLocation);
+      ?? this.intentClaim(actor, jobCardId, input.clientActionId, definition, input, actionLocation?.capture);
     // Pre-049 compatibility: a completed processed_actions receipt for the
     // same identity still replays through the same hash gate, and legacy
     // NULL-hash rows stay fail-closed via CLIENT_ACTION_REUSED.
@@ -3428,7 +3472,7 @@ export class JobCardService {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-        if (startLocation) assertStaffStartActor(actor);
+        if (definition.command === 'START' && actionLocation) assertStaffStartActor(actor);
         assertCanTransition(
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
@@ -3619,14 +3663,14 @@ export class JobCardService {
             invoiceNumber: null,
           });
         }
-        if (startLocation) {
+        if (actionLocation) {
           await tx.appendJobActionLocation({
             organizationId: actor.organizationId,
             jobCardId,
             activityId: activity.id,
             actorUserId: actor.id,
-            action: 'JOB_STARTED',
-            capture: startLocation,
+            action: actionLocation.action,
+            capture: actionLocation.capture,
           });
         }
         if (definition.command === 'START' || definition.command === 'SUBMIT_FOR_APPROVAL') {
@@ -4157,7 +4201,7 @@ export class JobCardService {
     clientActionId: string,
     definition: LifecycleDefinition,
     input: { expectedVersion: number },
-    startLocation?: LifecycleLocationCapture,
+    actionLocation?: LifecycleLocationCapture,
   ): LifecycleIntentClaim {
     return {
       organizationId: actor.organizationId,
@@ -4178,7 +4222,7 @@ export class JobCardService {
         cancelReason: definition.cancelReason,
         followUpProposal: definition.followUpProposal ?? null,
         approveFollowUp: definition.approveFollowUp ?? null,
-        locationCapture: startLocation ?? null,
+        locationCapture: actionLocation ?? null,
       }),
     };
   }
@@ -4802,7 +4846,7 @@ export class JobCardService {
     return this.projectEvaluation(actor, evaluation);
   }
 
-  private async resolveStartLocation(input: {
+  private async resolveActionLocation(input: {
     organizationId: string;
     actorUserId: string;
     capture: StartLocationCapture;
@@ -4949,6 +4993,9 @@ export class JobCardService {
         startLocationCaptureEnabled: this.geolocation.enabled
           && actor.role === 'STAFF'
           && allowedCommands.includes('START'),
+        submitLocationCaptureEnabled: this.geolocation.enabled
+          && actor.role === 'STAFF'
+          && allowedCommands.includes('SUBMIT_FOR_APPROVAL'),
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },

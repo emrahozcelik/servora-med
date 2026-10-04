@@ -50,7 +50,7 @@ const migrations = [
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
   '050_overdue_incident_scanner_source.sql',
-
+  '054_job_action_locations_submit_approval.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
@@ -760,6 +760,161 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
         locationCount: 0,
         actionCount: 0,
       });
+    });
+  });
+
+  it('054 accepts a SUBMIT location for its JOB_SUBMITTED_FOR_APPROVAL activity', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const capturedActivityId = await createActivity(
+        pool,
+        organizationId,
+        jobCardId,
+        actorUserId,
+        'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+      const unavailableActivityId = await createActivity(
+        pool,
+        organizationId,
+        jobCardId,
+        actorUserId,
+        'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+
+      const capturedAt = new Date('2026-07-21T14:37:00.000Z');
+      const captured = await pool.query<{
+        action: string;
+        latitude: string;
+        longitude: string;
+        accuracyMeters: string;
+        capturedAt: Date;
+      }>(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, latitude, longitude, accuracy_meters, captured_at,
+            geocoding_status)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'CAPTURED',
+                 39.920770, 32.854110, 18.250, $5, 'NOT_REQUESTED')
+         RETURNING action, latitude::text AS latitude,
+                   longitude::text AS longitude,
+                   accuracy_meters::text AS "accuracyMeters",
+                   captured_at AS "capturedAt"`,
+        [organizationId, jobCardId, capturedActivityId, actorUserId, capturedAt],
+      );
+      expect(captured.rows[0]).toEqual({
+        action: 'JOB_SUBMITTED_FOR_APPROVAL',
+        latitude: '39.920770',
+        longitude: '32.854110',
+        accuracyMeters: '18.250',
+        capturedAt,
+      });
+
+      await pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'UNAVAILABLE',
+                 'PERMISSION_DENIED', 'NOT_REQUESTED')`,
+        [organizationId, jobCardId, unavailableActivityId, actorUserId],
+      );
+      const unavailable = await pool.query<{ failureReason: string }>(
+        `SELECT failure_reason AS "failureReason" FROM job_action_locations
+          WHERE activity_id = $1`,
+        [unavailableActivityId],
+      );
+      expect(unavailable.rows[0]).toEqual({ failureReason: 'PERMISSION_DENIED' });
+    });
+  });
+
+  it('054 still rejects actions outside the START/SUBMIT vocabulary', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const approvedActivityId = await createActivity(
+        pool,
+        organizationId,
+        jobCardId,
+        actorUserId,
+        'JOB_APPROVED',
+      );
+      const startedActivityId = await createActivity(
+        pool,
+        organizationId,
+        jobCardId,
+        actorUserId,
+      );
+
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status)
+         VALUES ($1, $2, $3, $4, 'JOB_APPROVED', 'UNAVAILABLE', 'TIMEOUT',
+                 'NOT_REQUESTED')`,
+        [organizationId, jobCardId, approvedActivityId, actorUserId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // Legacy START evidence keeps working after the widened constraint.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status)
+         VALUES ($1, $2, $3, $4, 'JOB_STARTED', 'UNAVAILABLE', 'TIMEOUT',
+                 'NOT_REQUESTED')`,
+        [organizationId, jobCardId, startedActivityId, actorUserId],
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('054 allows one location per submit activity and rolls back together', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const repository = new PostgresJobCardRepository(pool);
+      const clientActionId = randomUUID();
+
+      await expect(repository.executeCriticalAction({
+        organizationId,
+        userId: actorUserId,
+        clientActionId,
+        operationKey: 'JOB_CARD_SUBMIT',
+      }, async (transaction) => {
+        const activity = await transaction.appendActivity({
+          organizationId,
+          jobCardId,
+          actorId: actorUserId,
+          event: 'JOB_SUBMITTED_FOR_APPROVAL',
+          clientActionId,
+        });
+        const insert = () => transaction.appendJobActionLocation({
+          organizationId,
+          jobCardId,
+          activityId: activity.id,
+          actorUserId,
+          action: 'JOB_SUBMITTED_FOR_APPROVAL',
+          capture: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+        });
+        await insert();
+        await expect(insert()).rejects.toMatchObject({ code: '23505' });
+        throw new Error('force submit location transaction rollback');
+      })).rejects.toThrow('force submit location transaction rollback');
+
+      const persisted = await pool.query<{
+        activityCount: number;
+        locationCount: number;
+      }>(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_activity_logs
+             WHERE organization_id = $1 AND job_card_id = $2
+               AND client_action_id = $3) AS "activityCount",
+           (SELECT COUNT(*)::int FROM job_action_locations
+             WHERE organization_id = $1 AND job_card_id = $2) AS "locationCount"`,
+        [organizationId, jobCardId, clientActionId],
+      );
+      expect(persisted.rows[0]).toEqual({ activityCount: 0, locationCount: 0 });
     });
   });
 });

@@ -95,6 +95,41 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
   });
 
+  it('renders the SUBMIT snapshot beside the transition without coordinates or comparison', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'submit-captured', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitLocation: {
+            outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+            accuracyMeters: 18, capturedAt: '2026-07-21T08:37:00.000Z',
+            geocodingProvider: 'GOOGLE',
+          },
+        },
+        createdAt: '2026-07-21T08:37:02.000Z',
+      },
+      {
+        id: 'submit-unavailable', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL', reason: null,
+          submitLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+        },
+        createdAt: '2026-07-21T08:36:00.000Z',
+      },
+    ];
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page(activities))} />));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.textContent).toContain('Onaya gönderme konumu: Kızılay, Çankaya / Ankara');
+    expect(host.textContent).toContain('Onaya gönderme konumu alınamadı: Konum isteği zaman aşımına uğradı');
+    expect(host.textContent).not.toMatch(/farklı|eşleş|MATCH|DIFFERENT|distance/i);
+    expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
+  });
+
   it('uses a safe unknown-event fallback and only emits a non-sensitive development diagnostic', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const activity: JobCardActivity = {
