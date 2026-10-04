@@ -86,6 +86,7 @@ describe('safe JobCard activity presenter', () => {
         accuracyMeters: 24.5,
         capturedAt: new Date('2026-07-21T06:15:30.123Z'),
         geocodingProvider: 'GOOGLE',
+        comparison: null,
       },
     }));
 
@@ -113,6 +114,7 @@ describe('safe JobCard activity presenter', () => {
         accuracyMeters: 1200,
         capturedAt: new Date('2026-07-21T06:15:30.123Z'),
         geocodingProvider: null,
+        comparison: null,
       },
     }));
     expect(result.details).toMatchObject({
@@ -137,6 +139,68 @@ describe('safe JobCard activity presenter', () => {
     });
   });
 
+  it('presents the SUBMIT comparison only to opted-in readers', () => {
+    const classified = baseRecord('JOB_SUBMITTED_FOR_APPROVAL', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'WAITING_APPROVAL' },
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 18,
+        capturedAt: new Date('2026-07-21T08:37:00.000Z'),
+        geocodingProvider: 'GOOGLE',
+        comparison: {
+          referenceActivityId: 'activity-JOB_STARTED',
+          distanceMeters: 1240.5,
+          outcome: 'DIFFERENT',
+        },
+      },
+    });
+    const GATE = { includeSubmitLocationCapability: true };
+
+    // Ungated readers keep the Slice-1 shape (previous-bundle contract).
+    expect(presentActivity(classified).details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL',
+      reason: null,
+      submitLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 18,
+        capturedAt: '2026-07-21T08:37:00.000Z',
+        geocodingProvider: 'GOOGLE',
+      },
+    });
+    // Gated readers receive outcome + distance only.
+    expect(presentActivity(classified, GATE).details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL',
+      reason: null,
+      submitLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 18,
+        capturedAt: '2026-07-21T08:37:00.000Z',
+        geocodingProvider: 'GOOGLE',
+      },
+      submitComparison: { outcome: 'DIFFERENT', distanceMeters: 1240.5 },
+    });
+    expect(JSON.stringify(presentActivity(classified, GATE))).not.toMatch(/referenceActivity|latitude|longitude/);
+
+    // Records built without comparison never crash the gated projection.
+    const legacy = baseRecord('JOB_SUBMITTED_FOR_APPROVAL', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'WAITING_APPROVAL' },
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay',
+        accuracyMeters: 18,
+        capturedAt: new Date('2026-07-21T08:37:00.000Z'),
+        geocodingProvider: null,
+        comparison: null,
+      },
+    });
+    expect(presentActivity(legacy, GATE).details).not.toHaveProperty('submitComparison');
+  });
+
   it('presents the SUBMIT snapshot under submitLocation without touching START', () => {
     const submitted = presentActivity(baseRecord('JOB_SUBMITTED_FOR_APPROVAL', {
       oldValue: { status: 'IN_PROGRESS' },
@@ -147,6 +211,7 @@ describe('safe JobCard activity presenter', () => {
         accuracyMeters: 18,
         capturedAt: new Date('2026-07-21T08:37:00.000Z'),
         geocodingProvider: 'GOOGLE',
+        comparison: null,
       },
     }));
 

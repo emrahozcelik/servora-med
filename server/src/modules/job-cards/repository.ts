@@ -91,6 +91,7 @@ import type {
 } from '../notifications/types.js';
 import type {
   AppendJobActionLocationInput,
+  JobActionLocationComparisonOutcome,
   JobActionLocationRecord,
   LocationFailureReason,
   LocationGeocodingStatus,
@@ -552,9 +553,29 @@ export type ActivityRecord = {
     outcome: 'CAPTURED'; approximateLabel: string | null;
     accuracyMeters: number; capturedAt: Date;
     geocodingProvider: 'GOOGLE' | null;
+    /**
+     * Slice 2 advisory comparison, present only on SUBMIT location rows that
+     * were classified. Raw coordinates are never projected here.
+     */
+    comparison: null | {
+      referenceActivityId: string;
+      distanceMeters: number;
+      outcome: JobActionLocationComparisonOutcome;
+    };
   } | {
     outcome: 'UNAVAILABLE'; reason: LocationFailureReason;
   };
+};
+/**
+ * Canonical START evidence for a SUBMIT comparison (coordinates stay
+ * server-side; only the activity identity leaves the repository for audit
+ * linkage, the snapshots feed the distance computation).
+ */
+export type StartActionLocationReference = {
+  activityId: string;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
 };
 export type PageQuery = { limit: number; offset: number };
 export type NotePageQuery = {
@@ -657,6 +678,10 @@ export interface JobCardTransaction extends SubmissionReader {
   appendJobActionLocation(
     input: AppendJobActionLocationInput,
   ): Promise<JobActionLocationRecord>;
+  findStartActionLocationForComparison(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<StartActionLocationReference | null>;
   appendRealtimeEvent(
     input: RealtimeEventInput,
   ): Promise<RealtimeEventRecord>;
@@ -1333,6 +1358,9 @@ type JobActionLocationRow = {
   district: string | null;
   city: string | null;
   approximate_label: string | null;
+  reference_activity_id: string | null;
+  distance_meters: string | null;
+  comparison_outcome: JobActionLocationComparisonOutcome | null;
   created_at: Date;
 };
 
@@ -1372,6 +1400,15 @@ function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecor
     actorUserId: row.actor_user_id,
     action: row.action,
     capture,
+    comparison: row.comparison_outcome !== null
+      && row.reference_activity_id !== null
+      && row.distance_meters !== null
+      ? {
+          referenceActivityId: row.reference_activity_id,
+          distanceMeters: Number(row.distance_meters),
+          outcome: row.comparison_outcome,
+        }
+      : null,
     createdAt: row.created_at,
   };
 }
@@ -2296,14 +2333,16 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
          (organization_id, job_card_id, activity_id, actor_user_id, action,
           capture_outcome, failure_reason, latitude, longitude, accuracy_meters,
           captured_at, geocoding_status, geocoding_provider, neighborhood,
-          district, city, approximate_label)
+          district, city, approximate_label, reference_activity_id,
+          distance_meters, comparison_outcome)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-               $15, $16, $17)
+               $15, $16, $17, $18, $19, $20)
        RETURNING id, organization_id, job_card_id, activity_id, actor_user_id,
                  action, capture_outcome, failure_reason, latitude, longitude,
                  accuracy_meters, captured_at, geocoding_status,
                  geocoding_provider, neighborhood, district, city,
-                 approximate_label, created_at`,
+                 approximate_label, reference_activity_id, distance_meters,
+                 comparison_outcome, created_at`,
       [
         input.organizationId,
         input.jobCardId,
@@ -2322,9 +2361,49 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         captured?.district ?? null,
         captured?.city ?? null,
         captured?.approximateLabel ?? null,
+        input.comparison?.referenceActivityId ?? null,
+        input.comparison?.distanceMeters ?? null,
+        input.comparison?.outcome ?? null,
       ],
     );
     return mapJobActionLocation(result.rows[0]!);
+  }
+
+  /**
+   * Canonical START evidence for a SUBMIT comparison: same organization and
+   * JobCard, JOB_STARTED action, captured coordinates only. The lifecycle
+   * admits a single START per job; the earliest row wins with a deterministic
+   * id tiebreak so legacy duplicates can never silently reselect.
+   */
+  async findStartActionLocationForComparison(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<StartActionLocationReference | null> {
+    const result = await this.client.query<{
+      activity_id: string;
+      latitude: string;
+      longitude: string;
+      accuracy_meters: string;
+    }>(
+      `SELECT activity_id, latitude, longitude, accuracy_meters
+       FROM job_action_locations
+       WHERE organization_id = $1 AND job_card_id = $2
+         AND action = 'JOB_STARTED'
+         AND capture_outcome = 'CAPTURED'
+         AND latitude IS NOT NULL AND longitude IS NOT NULL
+         AND accuracy_meters IS NOT NULL
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`,
+      [organizationId, jobCardId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      activityId: row.activity_id,
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      accuracyMeters: Number(row.accuracy_meters),
+    };
   }
 
   appendRealtimeEvent(input: RealtimeEventInput) {
@@ -4299,6 +4378,9 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       location_captured_at: Date | null;
       location_approximate_label: string | null;
       location_geocoding_provider: 'GOOGLE' | null;
+      location_reference_activity_id: string | null;
+      location_distance_meters: string | null;
+      location_comparison_outcome: JobActionLocationComparisonOutcome | null;
     }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
               a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at,
               l.capture_outcome AS location_outcome,
@@ -4306,7 +4388,10 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               l.accuracy_meters AS location_accuracy_meters,
               l.captured_at AS location_captured_at,
               l.approximate_label AS location_approximate_label,
-              l.geocoding_provider AS location_geocoding_provider
+              l.geocoding_provider AS location_geocoding_provider,
+              l.reference_activity_id AS location_reference_activity_id,
+              l.distance_meters AS location_distance_meters,
+              l.comparison_outcome AS location_comparison_outcome
        FROM job_card_activity_logs a
        LEFT JOIN users u
          ON u.organization_id = a.organization_id AND u.id = a.actor_id
@@ -4329,6 +4414,15 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
               capturedAt: row.location_captured_at,
               geocodingProvider: row.location_geocoding_provider === 'GOOGLE'
                 ? 'GOOGLE' as const
+                : null,
+              comparison: row.location_comparison_outcome !== null
+                && row.location_reference_activity_id !== null
+                && row.location_distance_meters !== null
+                ? {
+                    referenceActivityId: row.location_reference_activity_id,
+                    distanceMeters: Number(row.location_distance_meters),
+                    outcome: row.location_comparison_outcome,
+                  }
                 : null,
             }
           : row.location_outcome === 'UNAVAILABLE' && row.location_failure_reason !== null

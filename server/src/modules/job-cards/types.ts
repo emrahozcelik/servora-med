@@ -1,4 +1,5 @@
 import type { UserRole } from '../auth/types.js';
+import type { JobActionLocationComparison } from './location-types.js';
 import type {
   OverdueAccountableRole,
   OverdueAccountableSource,
@@ -332,6 +333,13 @@ export type JobCardDetail = Omit<
   workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
   followUpProposal: FollowUpProposal | null;
+  /**
+   * Slice 2 advisory comparison of the just-completed SUBMIT, present only
+   * for explicitly opted-in readers (same reader gate as the SUBMIT
+   * capability flag). Absent (undefined) on plain reads and for previous
+   * bundles; no comparison means no key (never serialized null).
+   */
+  submitLocationComparison?: JobCardSubmitLocationComparison;
 };
 
 export type DeliveryItem = {
@@ -555,7 +563,24 @@ export type JobCardMutationReceipt = {
   jobCardId: string;
   evaluatedAt?: string;
   followUpJobCardId?: string;
+  /**
+   * Slice 2 advisory SUBMIT comparison, present only when the finalized
+   * SUBMIT classified one. Persisted verbatim on the intent response so
+   * replays return the identical durable result. Server-computed; never
+   * client-supplied.
+   */
+  submitLocationComparison?: JobActionLocationComparison;
 };
+
+/**
+ * Slice 2 safe SUBMIT comparison projection. Reference activity identity
+ * stays server-side; authorized viewers receive only the classification and
+ * the server-computed distance. No raw coordinates.
+ */
+export type JobCardSubmitLocationComparison = Readonly<{
+  outcome: 'MATCH' | 'DIFFERENT' | 'UNRELIABLE';
+  distanceMeters: number;
+}>;
 
 export type FollowUpCreateReceipt = JobCardMutationReceipt;
 
@@ -674,6 +699,12 @@ export type JobCardActivityDetails =
       reason: string | null;
       startLocation?: JobCardActivityLocation;
       submitLocation?: JobCardActivityLocation;
+      /**
+       * Slice 2 advisory comparison of this SUBMIT against its START
+       * reference. Reader-gated like the SUBMIT capability flag: omitted
+       * (not null) without opt-in or classification. No raw coordinates.
+       */
+      submitComparison?: JobCardSubmitLocationComparison;
     }
   | {
       kind: 'FIELDS_UPDATED';

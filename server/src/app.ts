@@ -264,6 +264,8 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           enabled: config.actionScopedGeolocationEnabled,
           reverseGeocoder: dependencies.reverseGeocoder,
           quotaGuard: dependencies.reverseGeocodingQuotaGuard,
+          submitLocationWarningDistanceMeters: config.submitLocationWarningDistanceMeters,
+          submitLocationMaxReliableAccuracyMeters: config.submitLocationMaxReliableAccuracyMeters,
         },
         { enabled: config.webPush.enabled },
         {

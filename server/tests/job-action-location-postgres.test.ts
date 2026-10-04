@@ -51,6 +51,7 @@ const migrations = [
   '049_job_card_lifecycle_intents.sql',
   '050_overdue_incident_scanner_source.sql',
   '054_job_action_locations_submit_approval.sql',
+  '055_job_submit_location_comparison.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
@@ -865,6 +866,209 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
                  'NOT_REQUESTED')`,
         [organizationId, jobCardId, startedActivityId, actorUserId],
       )).resolves.toBeDefined();
+    });
+  });
+
+  it('055 persists comparison evidence with reference, distance, and outcome', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const startActivityId = await createActivity(pool, organizationId, jobCardId, actorUserId);
+      const submitActivityId = await createActivity(
+        pool, organizationId, jobCardId, actorUserId, 'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+      const repository = new PostgresJobCardRepository(pool);
+
+      await repository.executeTransaction(async (transaction) => {
+        await transaction.appendJobActionLocation({
+          organizationId,
+          jobCardId,
+          activityId: startActivityId,
+          actorUserId,
+          action: 'JOB_STARTED',
+          capture: {
+            outcome: 'CAPTURED', latitude: 39.92077, longitude: 32.85411,
+            accuracyMeters: 18, capturedAt: new Date('2026-07-21T11:15:00.000Z'),
+            geocodingStatus: 'NOT_REQUESTED', geocodingProvider: null,
+            neighborhood: null, district: null, city: null, approximateLabel: null,
+          },
+        });
+        await transaction.appendJobActionLocation({
+          organizationId,
+          jobCardId,
+          activityId: submitActivityId,
+          actorUserId,
+          action: 'JOB_SUBMITTED_FOR_APPROVAL',
+          capture: {
+            outcome: 'CAPTURED', latitude: 40.99025, longitude: 29.02702,
+            accuracyMeters: 22, capturedAt: new Date('2026-07-21T12:05:00.000Z'),
+            geocodingStatus: 'NOT_REQUESTED', geocodingProvider: null,
+            neighborhood: null, district: null, city: null, approximateLabel: null,
+          },
+          comparison: {
+            referenceActivityId: startActivityId,
+            distanceMeters: 349512.25,
+            outcome: 'DIFFERENT',
+          },
+        });
+      });
+
+      const persisted = await pool.query<{
+        referenceActivityId: string | null;
+        distanceMeters: string | null;
+        outcome: string | null;
+      }>(
+        `SELECT reference_activity_id AS "referenceActivityId",
+                distance_meters::text AS "distanceMeters",
+                comparison_outcome AS "outcome"
+         FROM job_action_locations WHERE activity_id = $1`,
+        [submitActivityId],
+      );
+      expect(persisted.rows[0]).toEqual({
+        referenceActivityId: startActivityId,
+        distanceMeters: '349512.250',
+        outcome: 'DIFFERENT',
+      });
+
+      // The canonical START reference resolves through the repository port.
+      await repository.executeTransaction(async (transaction) => {
+        const reference = await transaction.findStartActionLocationForComparison(
+          organizationId, jobCardId,
+        );
+        expect(reference).toMatchObject({
+          activityId: startActivityId,
+          latitude: 39.92077,
+          longitude: 32.85411,
+          accuracyMeters: 18,
+        });
+      });
+
+      // Legacy rows without comparison stay valid beside classified rows.
+      const legacy = await pool.query<{ outcome: string | null }>(
+        `SELECT comparison_outcome AS "outcome" FROM job_action_locations
+         WHERE activity_id = $1`,
+        [startActivityId],
+      );
+      expect(legacy.rows[0]).toEqual({ outcome: null });
+    });
+  });
+
+  it('055 rejects incoherent comparison evidence', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const activityId = await createActivity(
+        pool, organizationId, jobCardId, actorUserId, 'JOB_SUBMITTED_FOR_APPROVAL',
+      );
+      const startActivityId = await createActivity(pool, organizationId, jobCardId, actorUserId);
+      const base = [organizationId, jobCardId, activityId, actorUserId];
+
+      // Outcome without a reference.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status, comparison_outcome)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'UNAVAILABLE',
+                 'TIMEOUT', 'NOT_REQUESTED', 'UNRELIABLE')`,
+        base,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // Comparison on a START row.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status,
+            reference_activity_id, distance_meters, comparison_outcome)
+         VALUES ($1, $2, $3, $4, 'JOB_STARTED', 'UNAVAILABLE', 'TIMEOUT',
+                 'NOT_REQUESTED', $3, 10.5, 'MATCH')`,
+        [organizationId, jobCardId, startActivityId, actorUserId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // Negative distance.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status,
+            reference_activity_id, distance_meters, comparison_outcome)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'UNAVAILABLE',
+                 'TIMEOUT', 'NOT_REQUESTED', $3, -1, 'MATCH')`,
+        base,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // Outside the outcome vocabulary.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, failure_reason, geocoding_status,
+            reference_activity_id, distance_meters, comparison_outcome)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'UNAVAILABLE',
+                 'TIMEOUT', 'NOT_REQUESTED', $3, 10.5, 'UNAVAILABLE')`,
+        base,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      // UNRELIABLE keeps its raw distance: coherent and accepted.
+      await expect(pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, latitude, longitude, accuracy_meters, captured_at,
+            geocoding_status, reference_activity_id, distance_meters,
+            comparison_outcome)
+         VALUES ($1, $2, $3, $4, 'JOB_SUBMITTED_FOR_APPROVAL', 'CAPTURED',
+                 39.92077, 32.85411, 250, NOW(), 'NOT_REQUESTED', $3, 12.75,
+                 'UNRELIABLE')`,
+        base,
+      )).resolves.toBeDefined();
+    });
+  });
+
+  it('055 resolves the earliest START and scopes the reference by org and job', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createStartedJob(pool, organizationId, actorUserId);
+      const otherJobId = await createStartedJob(pool, organizationId, actorUserId);
+      const otherOrgId = await createOrganization(pool, 'Other org');
+      const otherOrgUserId = await createUser(pool, otherOrgId);
+      const otherOrgJobId = await createStartedJob(pool, otherOrgId, otherOrgUserId);
+      const firstStartId = await createActivity(pool, organizationId, jobCardId, actorUserId);
+      const repository = new PostgresJobCardRepository(pool);
+
+      const insertStart = (jobId: string, activity: string, org = organizationId, actor = actorUserId) => pool.query(
+        `INSERT INTO job_action_locations
+           (organization_id, job_card_id, activity_id, actor_user_id, action,
+            capture_outcome, latitude, longitude, accuracy_meters, captured_at,
+            geocoding_status)
+         VALUES ($1, $2, $3, $4, 'JOB_STARTED', 'CAPTURED',
+                 39.9, 32.8, 18, NOW(), 'NOT_REQUESTED')`,
+        [org, jobId, activity, actor],
+      );
+      await insertStart(jobCardId, firstStartId);
+      const secondStartId = await createActivity(pool, organizationId, jobCardId, actorUserId);
+      await insertStart(jobCardId, secondStartId);
+      const otherActivityId = await createActivity(pool, organizationId, otherJobId, actorUserId);
+      await insertStart(otherJobId, otherActivityId);
+      const otherOrgActivityId = await createActivity(pool, otherOrgId, otherOrgJobId, otherOrgUserId);
+      await insertStart(otherOrgJobId, otherOrgActivityId, otherOrgId, otherOrgUserId);
+
+      await repository.executeTransaction(async (transaction) => {
+        // Earliest START wins deterministically.
+        const reference = await transaction.findStartActionLocationForComparison(
+          organizationId, jobCardId,
+        );
+        expect(reference?.activityId).toBe(firstStartId);
+        // Same org, other job resolves its own reference.
+        const other = await transaction.findStartActionLocationForComparison(
+          organizationId, otherJobId,
+        );
+        expect(other?.activityId).toBe(otherActivityId);
+        // Cross-organization rows never leak across.
+        const foreign = await transaction.findStartActionLocationForComparison(
+          organizationId, otherOrgJobId,
+        );
+        expect(foreign).toBeNull();
+      });
     });
   });
 

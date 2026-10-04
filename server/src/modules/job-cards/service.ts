@@ -215,7 +215,18 @@ import {
   type ActionLocationCapture,
   type StartLocationCapture,
 } from './start-location-input.js';
-import type { JobActionLocationAction, JobActionLocationCapture } from './location-types.js';
+import type {
+  JobActionLocationAction,
+  JobActionLocationCapture,
+  JobActionLocationComparison,
+} from './location-types.js';
+import {
+  DEFAULT_SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
+  DEFAULT_SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
+  classifySubmitLocationComparison,
+  haversineMeters,
+  type SubmitLocationComparisonPolicy,
+} from './submit-location-comparison.js';
 import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
 import type { NotificationDraft } from '../notifications/types.js';
 import { normalizeExpiryDate } from './delivery-input.js';
@@ -395,6 +406,7 @@ type DecodedLifecycleReceipt = {
   jobCardId: string;
   evaluatedAt: Date | null;
   followUpJobCardId: string | null;
+  submitLocationComparison: JobActionLocationComparison | null;
 };
 
 function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
@@ -414,7 +426,27 @@ function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
   const followUpJobCardId = typeof record.followUpJobCardId === 'string'
     ? record.followUpJobCardId
     : null;
-  return { jobCardId, evaluatedAt, followUpJobCardId };
+  // Slice 2: advisory comparison carried on the receipt. Tolerantly decoded:
+  // rows persisted before Slice 2 (or non-SUBMIT commands) simply yield null.
+  // Server-computed at finalize time; never client-supplied.
+  const rawComparison = record.submitLocationComparison;
+  let submitLocationComparison: JobActionLocationComparison | null = null;
+  if (rawComparison && typeof rawComparison === 'object' && !Array.isArray(rawComparison)) {
+    const candidate = rawComparison as Record<string, unknown>;
+    if ((candidate.outcome === 'MATCH' || candidate.outcome === 'DIFFERENT'
+        || candidate.outcome === 'UNRELIABLE')
+      && typeof candidate.referenceActivityId === 'string'
+      && typeof candidate.distanceMeters === 'number'
+      && Number.isFinite(candidate.distanceMeters)
+      && candidate.distanceMeters >= 0) {
+      submitLocationComparison = {
+        referenceActivityId: candidate.referenceActivityId,
+        distanceMeters: candidate.distanceMeters,
+        outcome: candidate.outcome,
+      };
+    }
+  }
+  return { jobCardId, evaluatedAt, followUpJobCardId, submitLocationComparison };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -537,6 +569,8 @@ export class JobCardService {
       reverseGeocoder?: ReverseGeocoder;
       reverseGeocoderTimeoutMs?: number;
       quotaGuard?: ReverseGeocodingQuotaGuard;
+      submitLocationWarningDistanceMeters?: number;
+      submitLocationMaxReliableAccuracyMeters?: number;
     }> = { enabled: false },
     private readonly webPush: Readonly<{
       enabled: boolean;
@@ -562,6 +596,21 @@ export class JobCardService {
    */
   private intentTtlMs(): number {
     return this.lifecycle.intentTtlMs ?? LIFECYCLE_INTENT_TTL_MS_DEFAULT;
+  }
+
+  /**
+   * Slice 2 advisory comparison policy. Configured via
+   * SUBMIT_LOCATION_WARNING_DISTANCE_METERS /
+   * SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS, defaulting to the domain
+   * constants. Server-owned SSOT: the web client never duplicates these.
+   */
+  private submitLocationComparisonPolicy(): SubmitLocationComparisonPolicy {
+    return {
+      warningDistanceMeters: this.geolocation.submitLocationWarningDistanceMeters
+        ?? DEFAULT_SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
+      maxReliableAccuracyMeters: this.geolocation.submitLocationMaxReliableAccuracyMeters
+        ?? DEFAULT_SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
+    };
   }
 
   /**
@@ -2063,7 +2112,7 @@ export class JobCardService {
     return this.detailAt(actor, jobCardId, this.now(), options);
   }
 
-  private async detailAt(actor: JobCardActor, jobCardId: string, evaluatedAt: Date, options?: { includeSubmitLocationCapability?: boolean }) {
+  private async detailAt(actor: JobCardActor, jobCardId: string, evaluatedAt: Date, options?: { includeSubmitLocationCapability?: boolean; submitLocationComparison?: JobActionLocationComparison | null }) {
     const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -2883,11 +2932,16 @@ export class JobCardService {
     return this.repository.listDeliveryItems(actor.organizationId, jobCardId);
   }
 
-  async listActivity(actor: JobCardActor, jobCardId: string, page: PageQuery) {
+  async listActivity(
+    actor: JobCardActor,
+    jobCardId: string,
+    page: PageQuery,
+    options?: { includeSubmitLocationCapability?: boolean },
+  ) {
     await this.detail(actor, jobCardId);
     const result = await this.repository.listActivity(actor.organizationId, jobCardId, page);
     return {
-      items: result.items.map(presentActivity),
+      items: result.items.map((item) => presentActivity(item, options)),
       total: result.total,
       limit: result.limit,
       offset: result.offset,
@@ -3313,7 +3367,12 @@ export class JobCardService {
     });
   }
 
-  async submitForApproval(actor: JobCardActor, jobCardId: string, input: SubmitInput) {
+  async submitForApproval(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: SubmitInput,
+    presentation?: { includeSubmitLocationCapability?: boolean },
+  ) {
     const lifecycleInput = this.lifecycleInput(input);
     const definition: LifecycleDefinition = {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
@@ -3328,17 +3387,17 @@ export class JobCardService {
     // geolocation is disabled (or the actor is not Staff) any supplied
     // capture is discarded before parsing, exactly like the START path.
     if (!this.geolocation.enabled || actor.role !== 'STAFF') {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, undefined, presentation);
     }
     if (input.locationCapture === undefined) {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, undefined, presentation);
     }
     const capture: ActionLocationCapture = parseActionLocationCapture(input.locationCapture);
     const claim = this.intentClaim(actor, jobCardId, lifecycleInput.clientActionId, definition, lifecycleInput, capture);
     const completed = await this.repository.findCompletedLifecycleIntent<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
     // Reserve BEFORE the provider call so geocoder latency never holds the
     // JobCard lock; the claim hash covers only the pre-provider capture
@@ -3351,7 +3410,7 @@ export class JobCardService {
     );
     if (reserved.kind === 'replay') {
       const receipt = decodeJobCardMutationReceipt(reserved.response);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
     const resolvedCapture = await this.resolveActionLocation({
       organizationId: actor.organizationId,
@@ -3363,7 +3422,7 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_SUBMITTED_FOR_APPROVAL', capture: resolvedCapture }, {
       claim,
       reservation: reserved.reservation,
-    });
+    }, presentation);
   }
 
   async approve(actor: JobCardActor, jobCardId: string, input: ApproveInput) {
@@ -3434,6 +3493,7 @@ export class JobCardService {
     definition: LifecycleDefinition,
     actionLocation?: { action: JobActionLocationAction; capture: JobActionLocationCapture },
     preReserved?: { claim: LifecycleIntentClaim; reservation: LifecycleIntentReservation },
+    presentation?: { includeSubmitLocationCapability?: boolean },
   ) {
     const claim = preReserved?.claim
       ?? this.intentClaim(actor, jobCardId, input.clientActionId, definition, input, actionLocation?.capture);
@@ -3449,7 +3509,7 @@ export class JobCardService {
     });
     if (legacyCompleted) {
       const receipt = decodeJobCardMutationReceipt(legacyCompleted);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
     const reserved = preReserved
       ? { kind: 'reserved' as const, reservation: preReserved.reservation }
@@ -3467,6 +3527,10 @@ export class JobCardService {
     // JobCard lock — never service-entry time.
     const requestTime = reserved.reservation.reservedAt;
     let lockedAssignees = new Map<string, JobCardAssignee>();
+    // Slice 2: advisory SUBMIT comparison computed inside the finalize
+    // transaction (null when inapplicable). Carried on the receipt response
+    // so replays return the identical durable result without recomputing.
+    let submitLocationComparison: JobActionLocationComparison | null = null;
     const result = await this.repository.finalizeLifecycleIntent<JobCardMutationReceipt>(
       claim,
       reserved.reservation,
@@ -3666,6 +3730,15 @@ export class JobCardService {
           });
         }
         if (actionLocation) {
+          // Slice 2: the SUBMIT comparison is computed from immutable
+          // evidence inside the same transaction and persisted with the
+          // SUBMIT row, so submit + activity + location + comparison commit
+          // (or roll back) atomically. START rows never carry comparison.
+          submitLocationComparison = actionLocation.action === 'JOB_SUBMITTED_FOR_APPROVAL'
+            ? await this.resolveSubmitLocationComparison(
+              tx, actor.organizationId, jobCardId, actionLocation.capture,
+            )
+            : null;
           await tx.appendJobActionLocation({
             organizationId: actor.organizationId,
             jobCardId,
@@ -3673,6 +3746,7 @@ export class JobCardService {
             actorUserId: actor.id,
             action: actionLocation.action,
             capture: actionLocation.capture,
+            ...(submitLocationComparison ? { comparison: submitLocationComparison } : {}),
           });
         }
         if (definition.command === 'START' || definition.command === 'SUBMIT_FOR_APPROVAL') {
@@ -3775,6 +3849,7 @@ export class JobCardService {
             jobCardId,
             evaluatedAt: requestTime.toISOString(),
             ...(followUpJobCardId ? { followUpJobCardId } : {}),
+            ...(submitLocationComparison ? { submitLocationComparison } : {}),
           },
           realtimeEvents: [...realtimeEvents, ...childRealtimeEvents],
         };
@@ -3813,11 +3888,18 @@ export class JobCardService {
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     const receipt = decodeJobCardMutationReceipt(result.response);
-    return this.presentLifecycleReceipt(actor, receipt);
+    return this.presentLifecycleReceipt(actor, receipt, presentation);
   }
 
-  private async presentLifecycleReceipt(actor: JobCardActor, receipt: ReturnType<typeof decodeJobCardMutationReceipt>) {
-    const detail = await this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
+  private async presentLifecycleReceipt(
+    actor: JobCardActor,
+    receipt: ReturnType<typeof decodeJobCardMutationReceipt>,
+    presentation?: { includeSubmitLocationCapability?: boolean },
+  ) {
+    const detail = await this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now(), {
+      ...presentation,
+      submitLocationComparison: receipt.submitLocationComparison,
+    });
     return receipt.followUpJobCardId
       ? { ...detail, followUpJobCardId: receipt.followUpJobCardId }
       : detail;
@@ -4848,6 +4930,39 @@ export class JobCardService {
     return this.projectEvaluation(actor, evaluation);
   }
 
+  /**
+   * Slice 2 advisory comparison. Resolves the canonical START reference for
+   * the job inside the SUBMIT transaction and classifies the current SUBMIT
+   * snapshot against it. Returns null (no comparison) when the SUBMIT
+   * evidence is unavailable, no valid START reference exists, or the START
+   * reference itself carries no coordinates. Never throws for missing
+   * evidence: the submission always succeeds.
+   */
+  private async resolveSubmitLocationComparison(
+    tx: JobCardTransaction,
+    organizationId: string,
+    jobCardId: string,
+    submit: JobActionLocationCapture,
+  ): Promise<JobActionLocationComparison | null> {
+    if (submit.outcome !== 'CAPTURED') return null;
+    const reference = await tx.findStartActionLocationForComparison(organizationId, jobCardId);
+    if (!reference) return null;
+    const policy = this.submitLocationComparisonPolicy();
+    const distanceMeters = haversineMeters(
+      reference.latitude,
+      reference.longitude,
+      submit.latitude,
+      submit.longitude,
+    );
+    const outcome = classifySubmitLocationComparison({
+      distanceMeters,
+      startAccuracyMeters: reference.accuracyMeters,
+      submitAccuracyMeters: submit.accuracyMeters,
+      policy,
+    });
+    return { referenceActivityId: reference.activityId, distanceMeters, outcome };
+  }
+
   private async resolveActionLocation(input: {
     organizationId: string;
     actorUserId: string;
@@ -4945,7 +5060,7 @@ export class JobCardService {
     persisted: PersistedJobCardDetail,
     evaluatedAt: Date,
     precomputed?: SubmissionEvaluation,
-    options?: { includeSubmitLocationCapability?: boolean },
+    options?: { includeSubmitLocationCapability?: boolean; submitLocationComparison?: JobActionLocationComparison | null },
   ): Promise<JobCardDetail> {
     const { lifecycle, ...persistedJob } = persisted;
     const {
@@ -5020,6 +5135,16 @@ export class JobCardService {
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },
+      // Slice 2: the just-completed SUBMIT comparison, reader-gated like the
+      // capability flag. Omitted (not null) without opt-in or comparison.
+      ...(options?.includeSubmitLocationCapability && options?.submitLocationComparison
+        ? {
+            submitLocationComparison: {
+              outcome: options.submitLocationComparison.outcome,
+              distanceMeters: options.submitLocationComparison.distanceMeters,
+            },
+          }
+        : {}),
       followUpContext,
       followUpProposal,
     };

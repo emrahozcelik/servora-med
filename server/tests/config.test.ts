@@ -131,6 +131,8 @@ describe('loadConfig', () => {
       geocodingUserDailyLimit: 15,
       geocodingOrganizationDailyLimit: 250,
       geocodingGlobalMonthlyLimit: 8000,
+      submitLocationWarningDistanceMeters: 300,
+      submitLocationMaxReliableAccuracyMeters: 100,
       capabilities: {
         overviewDashboard: false,
         calendar: false,
@@ -181,6 +183,8 @@ describe('loadConfig', () => {
       geocodingUserDailyLimit: 15,
       geocodingOrganizationDailyLimit: 250,
       geocodingGlobalMonthlyLimit: 8000,
+      submitLocationWarningDistanceMeters: 300,
+      submitLocationMaxReliableAccuracyMeters: 100,
       capabilities: {
         overviewDashboard: false,
         calendar: false,
@@ -516,6 +520,86 @@ describe('loadConfig', () => {
       GEOCODING_ORG_DAILY_LIMIT: '10',
     })).toThrow('GEOCODING_USER_DAILY_LIMIT must not exceed GEOCODING_ORG_DAILY_LIMIT');
   });
+
+  it('defaults the Slice 2 comparison policy to 300m warning and 100m ceiling', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it('treats blank Slice 2 policy values as compiled defaults', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: '',
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: '',
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it.each(['   ', '\t '])('treats whitespace-only Slice 2 policy value %j as default', (value) => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: value,
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: value,
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it('starts with geolocation disabled despite blank example-style policy values', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ACTION_SCOPED_GEOLOCATION_ENABLED: 'false',
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: '',
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: '',
+    });
+    expect(config.actionScopedGeolocationEnabled).toBe(false);
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it('accepts explicit Slice 2 comparison policy values', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: '500',
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: '50',
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(500);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(50);
+  });
+
+  it.each(['0', '100001', '12.5', 'x'])(
+    'rejects invalid submit location warning distance %s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        ...completeGoogleGeolocation,
+        SUBMIT_LOCATION_WARNING_DISTANCE_METERS: value,
+      })).toThrow(
+        'SUBMIT_LOCATION_WARNING_DISTANCE_METERS must be an integer between 1 and 100000',
+      );
+    },
+  );
+
+  it.each(['0', '10001', '12.5', 'x'])(
+    'rejects invalid submit location reliability ceiling %s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        ...completeGoogleGeolocation,
+        SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: value,
+      })).toThrow(
+        'SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS must be an integer between 1 and 10000',
+      );
+    },
+  );
 
   it('config error messages never include the API key value', () => {
     const secret = 'super-secret-key-value-never-echo';

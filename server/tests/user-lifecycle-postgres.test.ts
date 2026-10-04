@@ -132,8 +132,8 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(migrationResult.appliedVersions).toHaveLength(54);
-      expect(migrationResult.appliedVersions.at(-1)).toBe('054_job_action_locations_submit_approval');
+      expect(migrationResult.appliedVersions).toHaveLength(55);
+      expect(migrationResult.appliedVersions.at(-1)).toBe('055_job_submit_location_comparison');
 
       const organizationId = await createOrganization(pool, 'U3 deletion organization');
       const otherOrganizationId = await createOrganization(pool, 'U3 other organization');
@@ -396,7 +396,7 @@ describe.skipIf(!databaseUrl)('User/Staff lifecycle PostgreSQL acceptance', () =
         store,
         logger: { info() {}, error() {} },
       });
-      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval']);
+      expect(upgrade.appliedVersions).toEqual(['041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison']);
       await expect(pool.query('SELECT id, name FROM customers WHERE id = $1', [customer]))
         .resolves.toMatchObject({ rows: [{ id: customer, name: 'Existing clinic' }] });
       await expect(pool.query(

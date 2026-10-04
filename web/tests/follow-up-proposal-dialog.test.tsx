@@ -242,7 +242,7 @@ describe('JobDetail follow-up proposal integration', () => {
           ...card, status: 'COMPLETED', version: 5, followUpJobCardId: 'child-1',
         });
       }
-      if (url.endsWith('/submit-for-approval') && method === 'POST') {
+      if (url.includes('/submit-for-approval') && method === 'POST') {
         return Response.json({ ...card, status: 'WAITING_APPROVAL', version: 4 });
       }
       if (detailUrlMatches(url, 'job-1')) return Response.json(card);

@@ -62,12 +62,12 @@ function page(raw: unknown, defaultLimit: number) {
 }
 
 /**
- * Slice 1 reader gate for the SUBMIT capability flag. The detail endpoint
- * historically ignores query, so unknown keys stay ignored (no behavior
- * change for previous bundles, which never send this parameter); only an
- * explicit opt-in receives the new workflowContext key.
+ * Slice 1/2 reader gate for SUBMIT location evidence. Detail-class endpoints
+ * historically ignore unknown query keys (no behavior change for previous
+ * bundles, which never send this parameter); only an explicit opt-in
+ * receives the new response keys.
  */
-function detailCapabilityQuery(raw: unknown) {
+function includeSubmitLocationCapability(raw: unknown) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
   return (raw as Record<string, unknown>).includeSubmitLocationCapability === 'true';
 }
@@ -196,7 +196,7 @@ export function createJobCardHandlers(service: JobCardService) {
     detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(
       actor(request),
       request.params.id,
-      { includeSubmitLocationCapability: detailCapabilityQuery(request.query) },
+      { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
     ),
     meetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
       service.getMeetingDetails(actor(request), parseMeetingJobCardId(request.params.id)),
@@ -221,7 +221,12 @@ export function createJobCardHandlers(service: JobCardService) {
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(actor(request), request.params.id, body(request, START_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.submitForApproval(actor(request), request.params.id, body(request, SUBMIT_FIELDS) as never),
+      service.submitForApproval(
+        actor(request),
+        request.params.id,
+        body(request, SUBMIT_FIELDS) as never,
+        { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
+      ),
     approve: async (request: FastifyRequest<{ Params: Params }>) =>
       service.approve(actor(request), request.params.id, body(request, APPROVE_FIELDS) as never),
     followUpSuggestion: async (request: FastifyRequest<{ Params: Params }>) => {
@@ -251,8 +256,20 @@ export function createJobCardHandlers(service: JobCardService) {
         request.params.id,
         parseJobCardInvalidationInput(request.body),
       ),
-    activity: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.listActivity(actor(request), request.params.id, page(request.query, 50)),
+    activity: async (request: FastifyRequest<{ Params: Params }>) => {
+      // The paginated `page()` contract rejects unknown query keys, so the
+      // gate key is separated before pagination parsing; previous bundles
+      // never send it and keep receiving the ungated shape.
+      const { includeSubmitLocationCapability: _gate, ...pageQuery } =
+        (request.query as Record<string, unknown> | undefined) ?? {};
+      void _gate;
+      return service.listActivity(
+        actor(request),
+        request.params.id,
+        page(pageQuery, 50),
+        { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
+      );
+    },
     listOverdueIncidents: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listOverdueIncidents(
         actor(request),

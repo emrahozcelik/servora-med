@@ -1265,7 +1265,7 @@ describe('Staff JobCard detail', () => {
           },
         });
       }
-      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)));
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(next);
@@ -3321,7 +3321,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
         return Response.json(waiting);
       }
       if (url.endsWith('/cancel') && init?.method === 'POST') {
@@ -3380,6 +3380,75 @@ describe('Staff JobCard detail', () => {
       releaseCancel(Response.json({ ...waiting, status: 'CANCELLED', version: 5 }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+  });
+
+  it.each([
+    ['DIFFERENT', { outcome: 'DIFFERENT', distanceMeters: 1240.5 }, true],
+    ['MATCH', { outcome: 'MATCH', distanceMeters: 42.5 }, false],
+    ['UNRELIABLE', { outcome: 'UNRELIABLE', distanceMeters: 12.75 }, false],
+  ] as const)('shows an advisory warning after submit only for %s comparison', async (_name, comparison, warns) => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      submitLocationComparison: null,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      submitLocationComparison: comparison,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    const submitPosts: unknown[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
+        submitPosts.push(JSON.parse(String(init.body)));
+        return Response.json(waiting);
+      }
+      if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const submitDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const submitTextareas = submitDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const submitReason = submitTextareas.item(submitTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(submitReason, 'Görev tamamlandı');
+      submitReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Exactly one SUBMIT: the warning never triggers a second request.
+    expect(submitPosts).toHaveLength(1);
+    if (warns) {
+      expect(host.textContent).toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık');
+      expect(host.textContent).toContain('iş geçmişine kaydedildi');
+      expect(host.textContent).toContain('yönetici tarafından görülebilir');
+    } else {
+      expect(host.textContent).toContain('İş yönetici kontrolüne gönderildi');
+      expect(host.textContent).not.toContain('fark tespit edildi');
+    }
   });
 
   it('explains the advisory SUBMIT capture before the submit action', async () => {
@@ -3816,7 +3885,7 @@ describe('Staff JobCard detail', () => {
           card,
           user: staffUser,
           trigger: 'Kontrole gönder',
-          endpoint: '/submit-for-approval',
+          endpoint: '/submit-for-approval?includeSubmitLocationCapability=true',
           next: {
             ...card,
             status: 'WAITING_APPROVAL' as const,
@@ -6392,7 +6461,7 @@ describe('Staff JobCard detail', () => {
           },
         });
       }
-      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)));
         if (bodies.length === 1) {
           return new Response('{"jobCardId":"截断', { status: 200, headers: { 'content-type': 'application/json' } });
