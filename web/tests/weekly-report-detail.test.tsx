@@ -902,6 +902,44 @@ describe('WeeklyReportDetail', () => {
       expect(host.textContent).not.toContain('fark tespit edildi');
     }
   });
+  // 20o
+  it('clears the previous DIFFERENT notice when the same screen switches to another job', async () => {
+    const secondJob = makeSubmitJob({ id: 'job-2' });
+    jobsApi.getJobCard.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? secondJob : makeSubmitJob()));
+    weeklyApi.getWeeklyReport.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? makeDetail({ jobCardId: 'job-2' }) : makeDetail()));
+    jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
+      id: 'job-1', status: 'WAITING_APPROVAL', version: 4,
+      submitLocationComparison: { outcome: 'DIFFERENT', distanceMeters: 1240.5 },
+    }));
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    expect(host.textContent).toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık');
+    // Switch to another weekly report in the same component instance.
+    await act(async () => {
+      root.render(<WeeklyReportDetail jobCardId="job-2" user={staffUser} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(host.textContent).not.toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık');
+    // The replacement report produces its own notice independently.
+    jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
+      id: 'job-2', status: 'WAITING_APPROVAL', version: 4,
+      submitLocationComparison: { outcome: 'DIFFERENT', distanceMeters: 88.25 },
+    }));
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('İkinci iş tamamlandı.');
+    await flush();
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(2);
+    expect(host.textContent)
+      .toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık 88 metre');
+  });
   // 20l
   it('exposes the captured SUBMIT location through the shared timeline without coordinates', async () => {
     jobsApi.listActivity.mockResolvedValue({

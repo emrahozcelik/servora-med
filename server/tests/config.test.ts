@@ -530,6 +530,40 @@ describe('loadConfig', () => {
     expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
   });
 
+  it('treats blank Slice 2 policy values as compiled defaults', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: '',
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: '',
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it.each(['   ', '\t '])('treats whitespace-only Slice 2 policy value %j as default', (value) => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: value,
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: value,
+    });
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
+  it('starts with geolocation disabled despite blank example-style policy values', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ACTION_SCOPED_GEOLOCATION_ENABLED: 'false',
+      SUBMIT_LOCATION_WARNING_DISTANCE_METERS: '',
+      SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS: '',
+    });
+    expect(config.actionScopedGeolocationEnabled).toBe(false);
+    expect(config.submitLocationWarningDistanceMeters).toBe(300);
+    expect(config.submitLocationMaxReliableAccuracyMeters).toBe(100);
+  });
+
   it('accepts explicit Slice 2 comparison policy values', () => {
     const config = loadConfig({
       ...validEnvironment,

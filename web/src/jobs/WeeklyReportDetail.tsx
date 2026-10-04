@@ -306,13 +306,16 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
    * Session reset. A retained ambiguous attempt belongs to the previous job's
    * version/clientActionId and must never replay against the new job; an
    * in-flight operation of the previous job releases its claim so the new
-   * screen is never blocked by a stale owner.
+   * screen is never blocked by a stale owner. Slice 2 job-scoped transient
+   * state (`actionNotice`) is cleared here so a previous job's DIFFERENT
+   * advisory never renders under the new job.
    */
   useEffect(() => {
     lifecycleSession.current = { jobId: jobCardId, active: true };
     lifecycleInFlight.current = false;
     attemptRef.current = null;
     setAmbiguous(false);
+    setActionNotice('');
     return () => {
       lifecycleSession.current.active = false;
     };

@@ -247,6 +247,25 @@ function readIntegerInRange(
   return parsed;
 }
 
+/**
+ * Slice 2 advisory comparison policy settings are optional: an absent or
+ * blank (empty / whitespace-only) value selects the compiled default, while
+ * any other value follows the same strict validation as required integers.
+ * Narrowly scoped to these settings so no other config contract changes.
+ */
+function readOptionalIntegerInRange(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined || value.trim() === '') {
+    return fallback;
+  }
+  return readIntegerInRange(value, fallback, name, min, max);
+}
+
 function readBoolean(value: string | undefined, name: string): boolean {
   const resolved = value?.trim() ?? '';
   if (!resolved || resolved === 'false') return false;
@@ -645,14 +664,14 @@ function readGeocodingConfig(env: NodeJS.ProcessEnv, actionScopedGeolocationEnab
   | 'submitLocationWarningDistanceMeters'
   | 'submitLocationMaxReliableAccuracyMeters'
 > {
-  const submitLocationWarningDistanceMeters = readIntegerInRange(
+  const submitLocationWarningDistanceMeters = readOptionalIntegerInRange(
     env.SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
     DEFAULT_SUBMIT_LOCATION_WARNING_DISTANCE_METERS,
     'SUBMIT_LOCATION_WARNING_DISTANCE_METERS',
     1,
     100_000,
   );
-  const submitLocationMaxReliableAccuracyMeters = readIntegerInRange(
+  const submitLocationMaxReliableAccuracyMeters = readOptionalIntegerInRange(
     env.SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
     DEFAULT_SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS,
     'SUBMIT_LOCATION_MAX_RELIABLE_ACCURACY_METERS',
