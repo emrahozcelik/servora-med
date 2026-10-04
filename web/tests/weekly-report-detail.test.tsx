@@ -24,6 +24,7 @@ const jobsApi = vi.hoisted(() => ({
   approveJobCard: vi.fn(),
   requestJobCardRevision: vi.fn(),
   cancelJobCard: vi.fn(),
+  listActivity: vi.fn(),
 }));
 const weeklyApi = vi.hoisted(() => ({
   getWeeklyReport: vi.fn(),
@@ -163,6 +164,7 @@ describe('WeeklyReportDetail', () => {
     jobsApi.getJobCard.mockResolvedValue(makeJob());
     weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail());
     weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([]);
+    jobsApi.listActivity.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
     location.captureStartLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'UNSUPPORTED' });
     location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'UNSUPPORTED' });
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
@@ -749,7 +751,170 @@ describe('WeeklyReportDetail', () => {
     expect(first).toMatchObject({ clientActionId: 'action-1', locationCapture: captured });
   });
 
-  // --- PDF export of an immutable submission ---------------------------------
+  // 20g
+  it('takes the lifecycle lock synchronously so one confirm cannot mint two attempts', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    const captured = {
+      outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+      accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+    };
+    location.captureActionLocation.mockResolvedValue(captured);
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    // Confirm twice in the same tick: React has no chance to rerender between
+    // the two submits, so a state-only `pending` guard would admit both and
+    // mint action-1/action-2 with two browser acquisitions.
+    const dialog = host.querySelector('.reason-dialog');
+    expect(dialog, 'submit dialog').not.toBeNull();
+    const textarea = dialog!.querySelector('textarea') as HTMLTextAreaElement | null;
+    expect(textarea, 'reason field').not.toBeNull();
+    type(textarea!, 'Hafta tamamlandı.');
+    const form = textarea!.closest('form');
+    expect(form, 'dialog form').not.toBeNull();
+    act(() => {
+      form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![1])
+      .toMatchObject({ clientActionId: 'action-1', locationCapture: captured });
+  });
+
+  // 20h
+  it('abandons the SUBMIT when the screen unmounts while the capture is pending', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    const gate = deferred<{ outcome: 'unavailable'; reason: 'TIMEOUT' }>();
+    location.captureActionLocation.mockReturnValue(gate.promise);
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await act(async () => { root.unmount(); });
+    root = createRoot(host);
+    await act(async () => {
+      gate.resolve({ outcome: 'unavailable', reason: 'TIMEOUT' });
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobsApi.submitJobCardForApproval).not.toHaveBeenCalled();
+  });
+
+  // 20i
+  it('never submits the previous job after the screen moves to another job mid-capture', async () => {
+    const secondJob = makeJob({
+      id: 'job-2',
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        startLocationCaptureEnabled: false,
+        submitLocationCaptureEnabled: true,
+        lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: '2026-08-03T09:00:00.000Z' },
+        submissionReadiness: null,
+      },
+    });
+    jobsApi.getJobCard.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? secondJob : makeSubmitJob()));
+    weeklyApi.getWeeklyReport.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? makeDetail({ jobCardId: 'job-2' }) : makeDetail()));
+    const gate = deferred<{ outcome: 'unavailable'; reason: 'TIMEOUT' }>();
+    location.captureActionLocation.mockReturnValue(gate.promise);
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    // Navigate to another job while the first capture is still pending.
+    await act(async () => {
+      root.render(<WeeklyReportDetail jobCardId="job-2" user={staffUser} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      gate.resolve({ outcome: 'unavailable', reason: 'TIMEOUT' });
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobsApi.submitJobCardForApproval).not.toHaveBeenCalled();
+    // The replacement screen is usable: its own SUBMIT dispatches for job-2.
+    location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'TIMEOUT' });
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('İkinci iş tamamlandı.');
+    await flush();
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval.mock.calls[0]![0]).toBe('job-2');
+  });
+
+  // 20j
+  it('explains the advisory SUBMIT capture before the submit action', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    await render();
+    const notice = host.querySelector('.submit-location-notice');
+    expect(notice, 'submit notice').not.toBeNull();
+    expect(notice!.textContent).toContain('Onaya gönderdiğinizde');
+    expect(notice!.textContent).toContain('bir kez yaklaşık konum');
+    expect(notice!.textContent).toContain('iş geçmişinde');
+    expect(notice!.textContent).toContain('engellenmez');
+    expect(notice!.textContent).not.toMatch(/sürekli|takip|mesafe|eşleş|MATCH|DIFFERENT/i);
+  });
+
+  // 20k
+  it('hides the SUBMIT notice when the capability is off', async () => {
+    await render();
+    expect(buttonByText('Kontrole gönder')).not.toBeNull();
+    expect(host.querySelector('.submit-location-notice')).toBeNull();
+  });
+
+  // 20l
+  it('exposes the captured SUBMIT location through the shared timeline without coordinates', async () => {
+    jobsApi.listActivity.mockResolvedValue({
+      items: [{
+        id: 'act-submit', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL',
+          reason: null,
+          submitLocation: {
+            outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+            accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+            geocodingProvider: 'GOOGLE',
+          },
+        },
+        createdAt: '2026-08-07T11:37:02.000Z',
+      }],
+      total: 1, limit: 50, offset: 0,
+    });
+    await render();
+    expect(host.textContent).toContain('İşlem geçmişi');
+    expect(host.textContent).toContain('Onaya gönderme konumu: Kızılay, Çankaya / Ankara');
+    expect(host.textContent).toContain('Doğruluk: yaklaşık');
+    expect(host.textContent).toContain('Yakalama zamanı:');
+    expect(host.textContent).not.toMatch(/39\.92|32\.85|latitude|longitude/);
+    expect(host.textContent).not.toMatch(/farklı|eşleş|MATCH|DIFFERENT|distance/i);
+  });
+
+  // 20m
+  it('exposes the unavailable SUBMIT reason through the shared timeline', async () => {
+    jobsApi.listActivity.mockResolvedValue({
+      items: [{
+        id: 'act-submit', jobCardId: 'job-1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'WAITING_APPROVAL',
+          reason: null,
+          submitLocation: { outcome: 'UNAVAILABLE', reason: 'TIMEOUT' },
+        },
+        createdAt: '2026-08-07T11:37:02.000Z',
+      }],
+      total: 1, limit: 50, offset: 0,
+    });
+    await render();
+    expect(host.textContent)
+      .toContain('Onaya gönderme konumu alınamadı: Konum isteği zaman aşımına uğradı');
+  });
 
   function submissionVersions(...seqs: number[]): WeeklyReportSubmission[] {
     return seqs.map((seqNo) => makeSubmission({ seqNo }));

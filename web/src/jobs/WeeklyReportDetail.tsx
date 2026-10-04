@@ -30,6 +30,7 @@ import {
 import { JobWorkflowDialog, type JobWorkflowDialogKind } from './JobWorkflowDialog';
 import { JobApprovalReviewPanel } from './JobApprovalReviewPanel';
 import { JobDecisionPanel } from './JobDecisionPanel';
+import { JobTimeline } from './JobTimeline';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import { captureActionLocation, type ActionLocationCapture } from './start-location-capture';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
@@ -214,9 +215,31 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [ambiguous, setAmbiguous] = useState(false);
   const [pending, setPending] = useState(false);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  const [timelineKey, setTimelineKey] = useState(0);
   const loadGeneration = useRef(0);
   const formRef = useRef<FormState | null>(null);
   const attemptRef = useRef<LifecycleAttempt | null>(null);
+  /**
+   * Synchronous lifecycle ownership. React `pending` state only flips after a
+   * rerender, so two triggers in the same tick would both observe
+   * `pending === false` and mint different clientActionIds/captures. This ref
+   * is claimed synchronously before any awaited location capture; a second
+   * invocation during the same operation creates nothing.
+   */
+  const lifecycleInFlight = useRef(false);
+  /**
+   * Minimal session identity for the lifecycle path (mirrors the generic
+   * detail screen's operation/session check without its realtime machinery).
+   * After every awaited boundary the operation must still belong to the
+   * mounted component for the same jobCardId, otherwise it terminates
+   * without dispatching or touching the replacement screen's state.
+   */
+  const lifecycleSession = useRef({ jobId: jobCardId, active: true });
+
+  function isLifecycleCurrent(operationJobId: string) {
+    const session = lifecycleSession.current;
+    return session.active && session.jobId === operationJobId;
+  }
 
   const applyForm = useCallback((next: FormState) => {
     formRef.current = next;
@@ -236,7 +259,9 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     if (options?.showLoading) setLoad({ kind: 'loading' });
     try {
       const [loadedJob, loadedReport, submissions] = await Promise.all([
-        getJobCard(jobCardId),
+        // Slice 1 reader gate: this screen can submit, so it opts into the
+        // SUBMIT capability flag previous bundles never request.
+        getJobCard(jobCardId, { includeSubmitLocationCapability: true }),
         getWeeklyReport(jobCardId),
         listWeeklyReportSubmissions(jobCardId),
       ]);
@@ -271,6 +296,21 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
 
   useEffect(() => { void refresh({ showLoading: true }); }, [refresh]);
   useRealtimeInvalidation([`job-detail:${jobCardId}`], () => { void refresh(); });
+  /**
+   * Session reset. A retained ambiguous attempt belongs to the previous job's
+   * version/clientActionId and must never replay against the new job; an
+   * in-flight operation of the previous job releases its claim so the new
+   * screen is never blocked by a stale owner.
+   */
+  useEffect(() => {
+    lifecycleSession.current = { jobId: jobCardId, active: true };
+    lifecycleInFlight.current = false;
+    attemptRef.current = null;
+    setAmbiguous(false);
+    return () => {
+      lifecycleSession.current.active = false;
+    };
+  }, [jobCardId]);
 
   if (load.kind === 'error') {
     return <main className="workspace"><ResultState status="error" title="Rapor yüklenemedi"
@@ -410,10 +450,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   }
 
   async function runLifecycle(command: LifecycleCommand, reason: string) {
-    if (pending) return;
+    // Synchronous claim BEFORE any awaited location capture: a second trigger
+    // in the same tick must not mint another clientActionId/capture.
+    if (lifecycleInFlight.current) return;
     const retained = attemptRef.current;
     // Unrelated actions are blocked while an ambiguous attempt is frozen.
     if (retained !== null && retained.command !== command) return;
+    lifecycleInFlight.current = true;
+    const operationJobId = jobCardId;
     setPending(true); setActionError('');
     try {
       if (retained === null) {
@@ -427,6 +471,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           // attempt so ambiguous retry reuses it without recapturing.
           if (submitLocationCaptureEnabled) {
             input.locationCapture = await captureActionLocation();
+            // Navigated/unmounted while capturing: never dispatch for the old job.
+            if (!isLifecycleCurrent(operationJobId)) return;
           }
         }
         else if (command === 'APPROVE' && reason.trim()) input.note = reason.trim();
@@ -434,17 +480,24 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         else if (command === 'CANCEL') input.cancelReason = reason;
         else if (command === 'START' && startLocationCaptureEnabled) {
           input.locationCapture = await captureActionLocation();
+          if (!isLifecycleCurrent(operationJobId)) return;
         }
         attemptRef.current = { command, input, reason };
       }
       const attempt = attemptRef.current;
-      if (attempt === null) return;
+      if (attempt === null || !isLifecycleCurrent(operationJobId)) return;
       await dispatchCommand(attempt.command, attempt.input);
+      if (!isLifecycleCurrent(operationJobId)) return;
       attemptRef.current = null;
       setAmbiguous(false);
       setDialog(null);
       await refresh();
+      if (!isLifecycleCurrent(operationJobId)) return;
+      // The shared activity timeline (SUBMIT location evidence included)
+      // reloads from the first page after a successful lifecycle mutation.
+      setTimelineKey((value) => value + 1);
     } catch (caught) {
+      if (!isLifecycleCurrent(operationJobId)) return;
       if (caught instanceof ApiError
         && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
         attemptRef.current = null;
@@ -463,7 +516,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           ? caught.message
           : 'İşlem sonucu doğrulanamadı. Özgün isteği tekrar deneyebilirsiniz.');
       }
-    } finally { setPending(false); }
+    } finally { lifecycleInFlight.current = false; setPending(false); }
   }
 
   function retryAttempt() {
@@ -798,6 +851,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   recordEditAction={null}
                   pending={pending}
                   startLocationCaptureEnabled={startLocationCaptureEnabled}
+                  submitLocationCaptureEnabled={submitLocationCaptureEnabled}
                   disabledCommands={[...blockedCommands]}
                   onCommand={onCommand}
                 />}
@@ -850,6 +904,13 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
               />}
             </>}
       </section>
+      {/*
+        Slice 1 SUBMIT location evidence is exposed through the shared
+        JobTimeline (SSOT formatter): approximate label, accuracy and capture
+        time for captured snapshots, the localized reason when unavailable.
+        No raw coordinates, no comparison, no badges.
+      */}
+      <JobTimeline jobId={jobCardId} refreshKey={timelineKey} />
     </div>
 
     {dialog && dialog.kind !== 'withdraw-edit' && (

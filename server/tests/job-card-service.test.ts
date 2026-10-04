@@ -958,13 +958,34 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
     const { repository, service } = enabledSubmitService();
     toInProgressGeneralTask(repository);
     repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+    const gated = { includeSubmitLocationCapability: true };
 
-    expect((await service.detail(staff, 'job-1')).workflowContext.submitLocationCaptureEnabled)
+    expect((await service.detail(staff, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled)
       .toBe(true);
-    expect((await service.detail(manager, 'job-1')).workflowContext.submitLocationCaptureEnabled)
+    expect((await service.detail(manager, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled)
       .toBe(false);
     expect((await new JobCardService(repository, () => new Date(), undefined, { enabled: false })
-      .detail(staff, 'job-1')).workflowContext.submitLocationCaptureEnabled).toBe(false);
+      .detail(staff, 'job-1', gated)).workflowContext.submitLocationCaptureEnabled).toBe(false);
+  });
+
+  it('keeps the default detail shape readable by previous web bundles', async () => {
+    // Previous deployed bundles parse workflowContext with a strict key
+    // allowlist: any new key on the default shape turns every JobCard read on
+    // already-open tabs into INVALID_RESPONSE until reload. The SUBMIT flag is
+    // therefore reader-gated — absent unless explicitly requested.
+    const { repository, service } = enabledSubmitService();
+    toInProgressGeneralTask(repository);
+    repository.job = { ...repository.job, status: 'IN_PROGRESS' };
+
+    const previous = await service.detail(staff, 'job-1');
+    expect(previous.workflowContext).not.toHaveProperty('submitLocationCaptureEnabled');
+    expect(Object.keys(previous.workflowContext).sort()).toEqual([
+      'allowedActions', 'allowedCommands', 'lifecycle',
+      'startLocationCaptureEnabled', 'submissionReadiness',
+    ]);
+
+    const gated = await service.detail(staff, 'job-1', { includeSubmitLocationCapability: true });
+    expect(gated.workflowContext.submitLocationCaptureEnabled).toBe(true);
   });
 
   it('completes advisory SUBMIT when the quota guard throws, with FAILED enrichment', async () => {

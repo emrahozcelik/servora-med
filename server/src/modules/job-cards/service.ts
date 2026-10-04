@@ -2059,16 +2059,16 @@ export class JobCardService {
     };
   }
 
-  async detail(actor: JobCardActor, jobCardId: string) {
-    return this.detailAt(actor, jobCardId, this.now());
+  async detail(actor: JobCardActor, jobCardId: string, options?: { includeSubmitLocationCapability?: boolean }) {
+    return this.detailAt(actor, jobCardId, this.now(), options);
   }
 
-  private async detailAt(actor: JobCardActor, jobCardId: string, evaluatedAt: Date) {
+  private async detailAt(actor: JobCardActor, jobCardId: string, evaluatedAt: Date, options?: { includeSubmitLocationCapability?: boolean }) {
     const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
-    return this.presentDetail(this.repository, actor, job, evaluatedAt);
+    return this.presentDetail(this.repository, actor, job, evaluatedAt, undefined, options);
   }
 
   async getMeetingDetails(actor: JobCardActor, jobCardId: string) {
@@ -4945,6 +4945,7 @@ export class JobCardService {
     persisted: PersistedJobCardDetail,
     evaluatedAt: Date,
     precomputed?: SubmissionEvaluation,
+    options?: { includeSubmitLocationCapability?: boolean },
   ): Promise<JobCardDetail> {
     const { lifecycle, ...persistedJob } = persisted;
     const {
@@ -5009,9 +5010,13 @@ export class JobCardService {
         startLocationCaptureEnabled: this.geolocation.enabled
           && actor.role === 'STAFF'
           && allowedCommands.includes('START'),
-        submitLocationCaptureEnabled: this.geolocation.enabled
-          && actor.role === 'STAFF'
-          && allowedCommands.includes('SUBMIT_FOR_APPROVAL'),
+        // Reader-gated (see JobWorkflowContext): only opted-in readers
+        // receive the new key, so previous bundles keep parsing this response.
+        ...(options?.includeSubmitLocationCapability ? {
+          submitLocationCaptureEnabled: this.geolocation.enabled
+            && actor.role === 'STAFF'
+            && allowedCommands.includes('SUBMIT_FOR_APPROVAL'),
+        } : {}),
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },

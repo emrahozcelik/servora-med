@@ -124,6 +124,16 @@ const conversation = {
 
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
 
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`).
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
+}
+
+
 function buttonByName(host: ParentNode, name: string) {
   return Array.from(host.querySelectorAll('button'))
     .find((button) => button.textContent?.trim() === name) ?? null;
@@ -176,7 +186,7 @@ function makeFetch(options: {
       options.onSyncPost?.(JSON.parse(String(init?.body)));
       return Response.json({ conversationId: 'conv-1', synced: true, changed: true });
     }
-    if (url.endsWith('/api/job-cards/job-1') && method === 'PATCH') {
+    if (detailUrlMatches(url, 'job-1') && method === 'PATCH') {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       patchBodies.push(body);
       const updated: JobCard = {
@@ -194,7 +204,7 @@ function makeFetch(options: {
       }
       return Response.json({ ...updated, assignmentTransitionId: null });
     }
-    if (url.endsWith('/api/job-cards/job-1')) {
+    if (detailUrlMatches(url, 'job-1')) {
       return Response.json(currentCard);
     }
     throw new Error(`Unexpected request: ${method} ${url}`);

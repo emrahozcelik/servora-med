@@ -61,6 +61,17 @@ function page(raw: unknown, defaultLimit: number) {
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
+/**
+ * Slice 1 reader gate for the SUBMIT capability flag. The detail endpoint
+ * historically ignores query, so unknown keys stay ignored (no behavior
+ * change for previous bundles, which never send this parameter); only an
+ * explicit opt-in receives the new workflowContext key.
+ */
+function detailCapabilityQuery(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  return (raw as Record<string, unknown>).includeSubmitLocationCapability === 'true';
+}
+
 /** Positive-integer route parameter (e.g. an immutable submission seq). */
 function positiveIntegerParam(raw: unknown, field: string) {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
@@ -182,7 +193,11 @@ export function createJobCardHandlers(service: JobCardService) {
       service.list(actor(request), parseJobCardListQuery(request.query)),
     board: async (request: FastifyRequest) =>
       service.board(actor(request), parseJobCardBoardQuery(request.query)),
-    detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(actor(request), request.params.id),
+    detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(
+      actor(request),
+      request.params.id,
+      { includeSubmitLocationCapability: detailCapabilityQuery(request.query) },
+    ),
     meetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
       service.getMeetingDetails(actor(request), parseMeetingJobCardId(request.params.id)),
     patchMeetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>

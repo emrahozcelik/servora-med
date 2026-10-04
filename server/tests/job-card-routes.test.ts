@@ -117,8 +117,18 @@ describe('JobCard routes', () => {
       expect.objectContaining({ id: 'staff-1' }),
       expect.objectContaining({ status: 'active', limit: 25, offset: 0 }),
     );
-    expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    expect(service.detail).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', { includeSubmitLocationCapability: false },
+    );
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni' });
+  });
+
+  it('gates the SUBMIT capability flag behind an explicit reader opt-in', async () => {
+    const { app, service } = await createApp();
+    await app.inject({ method: 'GET', url: '/api/job-cards/job-1?includeSubmitLocationCapability=true' });
+    expect(service.detail).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', { includeSubmitLocationCapability: true },
+    );
   });
 
   it('dispatches the atomic Product Delivery create-with-items boundary', async () => {

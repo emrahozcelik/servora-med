@@ -273,6 +273,20 @@ describe('JobCard workspace transport', () => {
       workflowContext: { submitLocationCaptureEnabled: true },
     });
   });
+
+  it('requests the submit capability gate only when the reader opts in', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(job))
+      .mockResolvedValueOnce(json(job));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getJobCard('job-1');
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/job-cards/job-1', expect.anything());
+    await getJobCard('job-1', { includeSubmitLocationCapability: true });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/job-cards/job-1?includeSubmitLocationCapability=true', expect.anything(),
+    );
+  });
   it('normalizes an absent start location capability to false and preserves server true', async () => {
     const { startLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
     vi.stubGlobal('fetch', vi.fn()

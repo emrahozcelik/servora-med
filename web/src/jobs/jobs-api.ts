@@ -994,7 +994,16 @@ export const listJobCards = async (filters: JobCardListFilters = {}) => parsePag
 export const getJobCardBoard = async (filters: JobCardBoardFilters = {}) =>
   parseBoard(await request(`/api/job-cards/board${query(filters)}`));
 export const listJobCardBoard = getJobCardBoard;
-export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
+/**
+ * Slice 1 reader gate: the backend only serializes the SUBMIT capability flag
+ * for readers that explicitly opt in, so previous bundles (strict response
+ * parsers) keep receiving the shape they understand. This bundle always opts
+ * in on the detail screens that can submit.
+ */
+export const getJobCard = async (id: string, options: { includeSubmitLocationCapability?: boolean } = {}) =>
+  parseJobCard(await request(`${jobPath(id)}${query({
+    includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
+  })}`));
 export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
 export const createProductDelivery = async (input: ProductDeliveryCreateInput) =>

@@ -14,6 +14,15 @@ import { requiresMandatoryFollowUpProposal } from '../src/jobs/job-workflow-pres
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+/**
+ * Detail-path matcher tolerant of the Slice 1 reader-gate query
+ * (`?includeSubmitLocationCapability=true`).
+ */
+function detailUrlMatches(url: string, id: string) {
+  const path = url.split('?')[0] ?? url;
+  return path.endsWith(`/api/job-cards/${id}`);
+}
+
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
     matches: false, media: '', onchange: null,
@@ -251,7 +260,7 @@ describe('JobDetail suggestion failure semantics', () => {
           },
         });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(staffCard);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(staffCard);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
   }
@@ -406,7 +415,7 @@ describe('JobDetail Staff AUTO submit integration', () => {
         }
         return Response.json(submitResult ?? { ...staffCard, status: 'WAITING_APPROVAL', version: 4 });
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(staffCard);
+      if (detailUrlMatches(url, 'job-1')) return Response.json(staffCard);
       throw new Error(`Unexpected request: ${method} ${url}`);
     }));
   }

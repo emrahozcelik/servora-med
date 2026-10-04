@@ -292,7 +292,15 @@ export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
   startLocationCaptureEnabled: boolean;
-  submitLocationCaptureEnabled: boolean;
+  /**
+   * Slice 1 SUBMIT capability. Reader-gated on the wire: the detail presenter
+   * only serializes this key when the reader explicitly opts in
+   * (`includeSubmitLocationCapability`). Previously deployed web bundles parse
+   * workflowContext with a strict allowlist, so an unconditional new key
+   * would turn every JobCard read into INVALID_RESPONSE on already-open tabs
+   * until reload. The default (absent) keeps the pre-Slice-1 response shape.
+   */
+  submitLocationCaptureEnabled?: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };

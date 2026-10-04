@@ -609,6 +609,7 @@ export function JobDetailPanel({
       pending={localMutationPending}
       pendingLabel={pendingLabel}
       startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
+      submitLocationCaptureEnabled={job.workflowContext.submitLocationCaptureEnabled}
       startScheduleBlockedReason={startScheduleBlockedReason(job)}
       onCommand={onCommand}
       onRecordEdit={onRecordEdit}
@@ -823,7 +824,7 @@ type DetailState = { kind: 'loading' } | { kind: 'ready'; detail: LoadedJobDetai
   | { kind: 'error'; message: string; retryable: boolean };
 
 async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
-  const job = await getJobCard(jobId);
+  const job = await getJobCard(jobId, { includeSubmitLocationCapability: true });
   if (job.type === 'PRODUCT_DELIVERY') {
     return {
       kind: job.type,
