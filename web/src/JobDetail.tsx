@@ -65,6 +65,12 @@ import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { submitComparisonWarning } from './jobs/location-distance-format';
 import {
+  classifyDevice,
+  readDeviceSignals,
+  startLocationUnavailableAdvisory,
+  submitLocationUnavailableGuidance,
+} from './jobs/location-guidance';
+import {
   OverdueIncidentHistorySection,
   SubmissionLatenessSection,
 } from './jobs/SubmissionLateness';
@@ -1507,10 +1513,19 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
-      // Slice 2: advisory post-submit notice. The submission already
-      // succeeded — this only informs, with no second request and no
-      // misconduct implication. MATCH/UNRELIABLE stay silent here.
-      if (command === 'SUBMIT_FOR_APPROVAL'
+      // #347: location is advisory at both checkpoints. Precedence is
+      // deterministic: the lifecycle already succeeded, an unavailable local
+      // snapshot yields enablement guidance, a captured SUBMIT keeps the
+      // Slice-2 DIFFERENT distance advisory, everything else stays ordinary.
+      const localCapture = attempt.input.locationCapture;
+      if (command === 'START' && localCapture?.outcome === 'unavailable') {
+        setMessage(startLocationUnavailableAdvisory());
+      } else if (command === 'SUBMIT_FOR_APPROVAL' && localCapture?.outcome === 'unavailable') {
+        setMessage(submitLocationUnavailableGuidance({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        }));
+      } else if (command === 'SUBMIT_FOR_APPROVAL'
         && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
         setMessage(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
       }

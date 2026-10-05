@@ -6691,4 +6691,245 @@ describe('Staff JobCard detail', () => {
       expect(host.querySelector('[role="alert"]')).not.toBeNull();
     });
   });
+
+  it('starts successfully with an unavailable capture and shows the retry advisory', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const updated: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const getCurrentPosition = vi.fn((_success: PositionCallback, failure?: PositionErrorCallback) =>
+      failure?.({ code: 1, message: 'denied' } as GeolocationPositionError));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const startBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        startBodies.push(JSON.parse(String(init.body)));
+        return Response.json(updated);
+      }
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(startBodies).toHaveLength(1);
+    expect(startBodies[0]).toMatchObject({
+      expectedVersion: accepted.version,
+      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+    });
+    expect(host.textContent).toContain('İş başlatıldı ancak konum alınamadı');
+    expect(host.textContent).toContain('Yönetici onayına gönderirken konum yeniden denenecek');
+    // Advisory, not an error: announced through the non-error feedback region.
+    const feedback = host.querySelector('.detail-feedback');
+    expect(feedback?.getAttribute('role')).toBe('status');
+    expect(host.querySelector('.detail-feedback-error')).toBeNull();
+  });
+
+  it('does not show the retry advisory when the START capture succeeds', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const updated: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 18 },
+    } as GeolocationPosition));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') return Response.json(updated);
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(host.textContent).not.toContain('İş başlatıldı ancak konum alınamadı');
+  });
+
+  it('shows device guidance after a successful SUBMIT whose capture was unavailable', async () => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const getCurrentPosition = vi.fn((_success: PositionCallback, failure?: PositionErrorCallback) =>
+      failure?.({ code: 1, message: 'denied' } as GeolocationPositionError));
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
+      platform: 'iPhone',
+      maxTouchPoints: 5,
+      geolocation: { getCurrentPosition },
+    });
+    const submitBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
+        submitBodies.push(JSON.parse(String(init.body)));
+        return Response.json(waiting);
+      }
+      if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const textareas = dialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const reason = textareas.item(textareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görev tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(submitBodies).toHaveLength(1);
+    expect(submitBodies[0]).toMatchObject({
+      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+    });
+    expect(host.textContent).toContain('İş yönetici onayına gönderildi ancak konum alınamadı');
+    expect(host.textContent).toContain('Tarayıcıda bu site için konum iznini etkinleştirin');
+    expect(host.textContent).toContain('iPhone/iPad: Ayarlar > Gizlilik ve Güvenlik');
+    expect(host.textContent).not.toContain('fark tespit edildi');
+  });
+
+  it('reuses the frozen unavailable SUBMIT capture on retry and shows guidance once', async () => {
+    const inProgress: JobCard = {
+      ...generalTask,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...inProgress,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        submittedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const getCurrentPosition = vi.fn((_success: PositionCallback, failure?: PositionErrorCallback) =>
+      failure?.({ code: 3, message: 'timeout' } as GeolocationPositionError));
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36',
+      platform: 'Linux armv8l',
+      maxTouchPoints: 5,
+      geolocation: { getCurrentPosition },
+    });
+    const submitBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
+        submitBodies.push(JSON.parse(String(init.body)));
+        if (submitBodies.length === 1) throw new TypeError('offline');
+        return Response.json(waiting);
+      }
+      if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(inProgress, staffUser, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const textareas = dialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const reason = textareas.item(textareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(reason, 'Görev tamamlandı');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(submitBodies).toHaveLength(1);
+
+    await act(async () => {
+      buttonByName(host, 'Özgün isteği tekrar dene')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(submitBodies).toHaveLength(2);
+    expect(submitBodies[1]).toEqual(submitBodies[0]);
+    expect(host.textContent).toContain('İş yönetici onayına gönderildi ancak konum alınamadı');
+    expect(host.textContent).toContain('Konum servislerini açık tutun ve daha net bir konum sinyaliyle');
+    expect(host.textContent).toContain('Android: Ayarlar > Konum bölümünden konumu açın');
+  });
 });

@@ -34,6 +34,12 @@ import { JobTimeline } from './JobTimeline';
 import { isDefinitiveMutationError } from './mutation-attempt-error';
 import { captureActionLocation, type ActionLocationCapture } from './start-location-capture';
 import { submitComparisonWarning } from './location-distance-format';
+import {
+  classifyDevice,
+  readDeviceSignals,
+  startLocationUnavailableAdvisory,
+  submitLocationUnavailableGuidance,
+} from './location-guidance';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { PageHeader } from '../ui/PageHeader';
 import { StatusChip } from '../ui/StatusChip';
@@ -505,10 +511,20 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
       // The shared activity timeline (SUBMIT location evidence included)
       // reloads from the first page after a successful lifecycle mutation.
       setTimelineKey((value) => value + 1);
-      // Slice 2: advisory post-submit notice on the mutation response. The
-      // submission already succeeded — informational only, no second
-      // request, no misconduct implication. MATCH/UNRELIABLE stay silent.
-      if (attempt.command === 'SUBMIT_FOR_APPROVAL'
+      // #347: location is advisory at both checkpoints. Deterministic
+      // precedence: successful lifecycle first, then unavailable-snapshot
+      // enablement guidance, then the Slice-2 DIFFERENT distance advisory.
+      // The frozen attempt supplies the capture, so retries never recapture.
+      const localCapture = attempt.input.locationCapture;
+      if (attempt.command === 'START' && localCapture?.outcome === 'unavailable') {
+        setActionNotice(startLocationUnavailableAdvisory());
+      } else if (attempt.command === 'SUBMIT_FOR_APPROVAL'
+        && localCapture?.outcome === 'unavailable') {
+        setActionNotice(submitLocationUnavailableGuidance({
+          reason: localCapture.reason,
+          device: classifyDevice(readDeviceSignals()),
+        }));
+      } else if (attempt.command === 'SUBMIT_FOR_APPROVAL'
         && updated.submitLocationComparison?.outcome === 'DIFFERENT') {
         setActionNotice(submitComparisonWarning(updated.submitLocationComparison.distanceMeters));
       }

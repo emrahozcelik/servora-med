@@ -881,6 +881,11 @@ describe('WeeklyReportDetail', () => {
     warns,
   ) => {
     jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    // A server comparison exists only for a captured local submission.
+    location.captureActionLocation.mockResolvedValue({
+      outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+      accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+    });
     jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
       id: 'job-1',
       status: 'WAITING_APPROVAL',
@@ -909,6 +914,11 @@ describe('WeeklyReportDetail', () => {
       (id === 'job-2' ? secondJob : makeSubmitJob()));
     weeklyApi.getWeeklyReport.mockImplementation(async (id: string) =>
       (id === 'job-2' ? makeDetail({ jobCardId: 'job-2' }) : makeDetail()));
+    // A server comparison exists only for a captured local submission.
+    location.captureActionLocation.mockResolvedValue({
+      outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+      accuracyMeters: 18, capturedAt: '2026-08-07T11:37:00.000Z',
+    });
     jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
       id: 'job-1', status: 'WAITING_APPROVAL', version: 4,
       submitLocationComparison: { outcome: 'DIFFERENT', distanceMeters: 1240.5 },
@@ -939,6 +949,72 @@ describe('WeeklyReportDetail', () => {
     expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(2);
     expect(host.textContent)
       .toContain('Başlangıç konumu ile onaya gönderme konumu arasında yaklaşık 88 metre');
+  });
+  // 20p
+  it('starts a weekly report with an unavailable capture and shows the retry advisory', async () => {
+    const accepted = makeJob({
+      status: 'ACCEPTED',
+      version: 2,
+      workflowContext: {
+        ...baseWorkflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: [],
+        startLocationCaptureEnabled: true,
+        lifecycle: {
+          ...baseWorkflowContext.lifecycle,
+          acceptedAt: '2026-08-03T08:30:00.000Z',
+          acceptedBy: { id: 'staff-1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: null,
+      },
+    });
+    const started = makeJob({ status: 'IN_PROGRESS', version: 3 });
+    let startedFlow = false;
+    jobsApi.getJobCard.mockImplementation(async () => (startedFlow ? started : accepted));
+    jobsApi.startJobCard.mockImplementation(async () => { startedFlow = true; return started; });
+    location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'PERMISSION_DENIED' });
+    await render();
+    click(buttonByText('İşi başlat'));
+    await flush();
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
+    expect(jobsApi.startJobCard).toHaveBeenCalledTimes(1);
+    expect(jobsApi.startJobCard.mock.calls[0]![1]).toMatchObject({
+      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+    });
+    expect(host.textContent).toContain('İş başlatıldı ancak konum alınamadı');
+    expect(host.textContent).toContain('Yönetici onayına gönderirken konum yeniden denenecek');
+  });
+
+  // 20q
+  it('shows submit location guidance for an unavailable weekly capture and clears it on job switch', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeSubmitJob());
+    location.captureActionLocation.mockResolvedValue({ outcome: 'unavailable', reason: 'TIMEOUT' });
+    jobsApi.submitJobCardForApproval.mockResolvedValue(makeSubmitJob({
+      id: 'job-1', status: 'WAITING_APPROVAL', version: 4,
+    }));
+    await render();
+    click(buttonByText('Kontrole gönder'));
+    await flush();
+    confirmSubmitDialog('Hafta tamamlandı.');
+    await flush();
+    // Exactly one SUBMIT and one capture: guidance never triggers a retry.
+    expect(location.captureActionLocation).toHaveBeenCalledTimes(1);
+    expect(jobsApi.submitJobCardForApproval).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('İş yönetici onayına gönderildi ancak konum alınamadı');
+    expect(host.textContent).toContain('Konum servislerini açık tutun ve daha net bir konum sinyaliyle');
+    // Switch to another weekly report in the same component instance.
+    const secondJob = makeSubmitJob({ id: 'job-2' });
+    jobsApi.getJobCard.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? secondJob : makeSubmitJob()));
+    weeklyApi.getWeeklyReport.mockImplementation(async (id: string) =>
+      (id === 'job-2' ? makeDetail({ jobCardId: 'job-2' }) : makeDetail()));
+    await act(async () => {
+      root.render(<WeeklyReportDetail jobCardId="job-2" user={staffUser} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(host.textContent).not.toContain('İş yönetici onayına gönderildi ancak konum alınamadı');
   });
   // 20l
   it('exposes the captured SUBMIT location through the shared timeline without coordinates', async () => {

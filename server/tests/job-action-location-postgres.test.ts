@@ -259,6 +259,90 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
     });
   });
 
+  it('atomically starts with an unavailable capture, persists evidence, and replays identically', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createAcceptedJob(pool, organizationId, actorUserId);
+      let reverseCalls = 0;
+      const service = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-21T12:00:00.000Z'),
+        undefined,
+        {
+          enabled: true,
+          reverseGeocoder: {
+            reverse: async () => {
+              reverseCalls += 1;
+              return {
+                neighborhood: 'Kızılay', district: 'Çankaya', city: 'Ankara',
+                approximateLabel: 'Kızılay, Çankaya / Ankara',
+              };
+            },
+          },
+        },
+      );
+      const actor = { id: actorUserId, organizationId, role: 'STAFF' as const };
+      const request = {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        locationCapture: { outcome: 'unavailable' as const, reason: 'PERMISSION_DENIED' as const },
+      };
+
+      const first = await service.start(actor, jobCardId, request);
+      const replay = await service.start(actor, jobCardId, request);
+
+      // #347: an unavailable capture starts the job and keeps one evidence row.
+      expect(replay).toEqual(first);
+      expect(reverseCalls).toBe(0);
+      expect(first).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+      const persisted = await pool.query<{
+        status: string;
+        version: number;
+        activityCount: number;
+        locationCount: number;
+        realtimeCount: number;
+        actionCount: number;
+        captureOutcome: string;
+        failureReason: string | null;
+        geocodingStatus: string;
+      }>(
+        `SELECT j.status, j.version,
+           (SELECT COUNT(*)::int FROM job_card_activity_logs a
+             WHERE a.organization_id = j.organization_id AND a.job_card_id = j.id
+               AND a.event_type = 'JOB_STARTED') AS "activityCount",
+           (SELECT COUNT(*)::int FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "locationCount",
+           (SELECT COUNT(*)::int FROM realtime_events r
+             WHERE r.organization_id = j.organization_id AND r.entity_id = j.id
+               AND r.event_type = 'job.started') AS "realtimeCount",
+           (SELECT COUNT(*)::int FROM processed_actions p
+             WHERE p.organization_id = j.organization_id AND p.user_id = $3
+               AND p.client_action_id = $2) AS "actionCount",
+           (SELECT l.capture_outcome FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "captureOutcome",
+           (SELECT l.failure_reason FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "failureReason",
+           (SELECT l.geocoding_status FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "geocodingStatus"
+         FROM job_cards j WHERE j.organization_id = $1 AND j.id = $4`,
+        [organizationId, request.clientActionId, actorUserId, jobCardId],
+      );
+      expect(persisted.rows[0]).toEqual({
+        status: 'IN_PROGRESS', version: 2, activityCount: 1, locationCount: 1,
+        realtimeCount: 1, actionCount: 1,
+        captureOutcome: 'UNAVAILABLE', failureReason: 'PERMISSION_DENIED',
+        geocodingStatus: 'NOT_REQUESTED',
+      });
+      const history = await service.listActivity(actor, jobCardId, { limit: 50, offset: 0 });
+      expect(history.items[0]?.details).toMatchObject({
+        kind: 'STATUS_TRANSITION',
+        startLocation: { outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' },
+      });
+      expect(JSON.stringify(history)).not.toMatch(/latitude|longitude|39\.92077|32\.85411/);
+    });
+  });
+
   it('stores a captured location for its JOB_STARTED activity', async () => {
     await withMigratedDatabase(async (pool) => {
       const organizationId = await createOrganization(pool);
