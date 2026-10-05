@@ -24,6 +24,12 @@ const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', impor
 const WEEK_A = '2026-10-05';
 const WEEK_B = '2026-10-12';
 const NOW = '2026-10-05T09:00:00.000Z';
+/**
+ * Deterministic retry clock for directly inserted fixtures: one second
+ * before the frozen test clock. Due-state must come from the injected clock,
+ * never the database's real NOW().
+ */
+const FIXTURE_DUE_AT = new Date(new Date(NOW).valueOf() - 1_000);
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
@@ -73,9 +79,10 @@ async function insertRule(
 ): Promise<string> {
   return (await pool.query<{ id: string }>(
     `INSERT INTO weekly_report_recurrences
-       (organization_id, staff_user_id, requested_by_user_id, next_period_start)
-     VALUES ($1, $2, $3, $4) RETURNING id`,
-    [input.organizationId, input.staffUserId, input.requestedByUserId, WEEK_A],
+       (organization_id, staff_user_id, requested_by_user_id, next_period_start,
+        next_attempt_at)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [input.organizationId, input.staffUserId, input.requestedByUserId, WEEK_A, FIXTURE_DUE_AT],
   )).rows[0]!.id;
 }
 
