@@ -106,6 +106,20 @@ async function insertRule(
   )).rows[0]!.id;
 }
 
+/**
+ * Aligns the persisted retry clock with the simulated instant. The
+ * production repository intentionally writes DB `NOW()` on resume, but these
+ * tests run with an injected historical clock; after a real `resume()` the
+ * helper restores the single simulated time authority before frozen-clock
+ * due discovery. Test-only, not a production repair.
+ */
+async function pinNextAttemptAt(pool: Pool, ruleId: string, instant: Date): Promise<void> {
+  await pool.query(
+    `UPDATE weekly_report_recurrences SET next_attempt_at = $2 WHERE id = $1`,
+    [ruleId, instant],
+  );
+}
+
 function buildHarness(pool: Pool, published: unknown[] = [], nowIso = NOW) {
   const jobCardService = new JobCardService(
     new PostgresJobCardRepository(pool),
@@ -688,6 +702,12 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
         expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: futureWeek, version: 3 });
         // The committed resume must not inherit the pre-pause lease.
         expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+        // Resume happened at the simulated 2026-10-26 instant: pin the retry
+        // clock to it so the later 2026-11-02 due discovery is deterministic
+        // instead of comparing against the database's real NOW().
+        await pinNextAttemptAt(pool, ruleId, claimedAt);
+        expect((await ruleRow(pool, ruleId)).next_attempt_at.valueOf())
+          .toBeLessThanOrEqual(claimedAt.valueOf());
 
         // The stale pre-pause claim now processes: it must skip.
         const outcome = await harness.repository.processOccurrence(
@@ -743,6 +763,12 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
           { clientActionId: randomUUID(), expectedVersion: 2, periodStart: currentWeek },
         );
         expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: currentWeek });
+        // Resume happened at the simulated 2026-10-26 instant: pin the retry
+        // clock so the fresh claim below is due relative to `claimedAt`, not
+        // the database's real NOW().
+        await pinNextAttemptAt(pool, ruleId, claimedAt);
+        expect((await ruleRow(pool, ruleId)).next_attempt_at.valueOf())
+          .toBeLessThanOrEqual(claimedAt.valueOf());
 
         // Old claim: skipped, creates nothing.
         const stale = await harness.repository.processOccurrence(
