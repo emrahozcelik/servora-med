@@ -71,6 +71,9 @@ class MemoryAuthRepository implements AuthRepository {
     if (session) session.revokedAt = at;
   }
   async updatePasswordAndRevokeSessions() { return false; }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
 }
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {

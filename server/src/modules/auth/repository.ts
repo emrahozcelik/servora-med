@@ -20,6 +20,18 @@ export interface AuthRepository {
     passwordHash: string,
     revokedAt: Date,
   ): Promise<boolean>;
+  /**
+   * Transparent KDF-maintenance CAS: replaces the stored credential ONLY when
+   * the row is active and its hash still exactly equals the verified old hash.
+   * Never revokes sessions, never validates policy, never touches
+   * must_change_password, version, or updated_at, and never emits activity
+   * events — the replacement represents the SAME credential secret.
+   */
+  upgradePasswordHashIfCurrent(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<'updated' | 'conflict'>;
 }
 
 type UserRow = {
@@ -189,5 +201,25 @@ export class PostgresAuthRepository implements AuthRepository {
       [userId, expectedPasswordHash, passwordHash],
     );
     return result.rowCount === 1;
+  }
+
+  async upgradePasswordHashIfCurrent(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<'updated' | 'conflict'> {
+    // Single-statement atomic CAS. Deliberately touches ONLY password_hash:
+    // transparent KDF maintenance must not bump users.version (consumed by
+    // user-management optimistic concurrency), must not change updated_at or
+    // must_change_password, and must not revoke sessions or emit activity.
+    // The is_active guard skips pointless maintenance writes for rows that
+    // were deactivated between verification and this update.
+    const result = await this.pool.query(
+      `UPDATE users
+       SET password_hash = $3
+       WHERE id = $1 AND password_hash = $2 AND is_active = TRUE`,
+      [userId, expectedPasswordHash, replacementPasswordHash],
+    );
+    return result.rowCount === 1 ? 'updated' : 'conflict';
   }
 }

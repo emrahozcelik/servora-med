@@ -56,6 +56,9 @@ class MemoryAuthRepository implements AuthRepository {
     if (session) session.revokedAt = at;
   }
   async updatePasswordAndRevokeSessions() { return false; }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
 }
 
 function product(overrides: Partial<Product> = {}): Product {

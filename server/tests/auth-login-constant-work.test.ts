@@ -1,21 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * R1 fixed-work login KDF budget (structural, never wall-clock).
+ * R2 fixed-work login KDF budget (structural, never wall-clock).
  *
  * Every login attempt must perform sequentially exactly:
  *   1 × OLD-cost derivation (N=16384) AND 1 × V2-cost derivation (N=32768)
  * regardless of account existence, credential profile, activity, or password
- * correctness — so no branch can reveal which case applied. R1 is
- * reader-first: V2 is verifiable, V1 remains the sole writer, and login
- * performs NO hash mutation.
+ * correctness — so no branch can reveal which case applied. R2 adds the
+ * writer flip (V2 emission) and opportunistic rehash after session creation.
  *
  * Seam (deterministic, no timing): a counted wrapper around node:crypto
  * `scrypt` recording (N, salt) per derivation, in call order. The salt
  * proves slot assignment — the stored credential salt for a real
- * verification, the sentinel salt for a dummy — because salts are unique
- * per artifact. Budget assertions use the N counts; assignment assertions
- * use the recorded salts.
+ * verification, a random fresh salt for the V2 upgrade candidate, the
+ * sentinel salt for a dummy. Budget assertions use the N counts.
  */
 const derivations = vi.hoisted(() => ({
   counts: new Map<number, number>(),
@@ -44,10 +42,10 @@ vi.mock('node:crypto', async (importOriginal) => {
 import { scryptSync } from 'node:crypto';
 import { buildApp } from '../src/app.js';
 import {
-  hashPassword,
   oldCredentialSentinelHash,
   parsePasswordHash,
   v2CredentialSentinelHash,
+  verifyPassword,
 } from '../src/modules/auth/crypto.js';
 import type { AuthRepository } from '../src/modules/auth/repository.js';
 import { AuthService } from '../src/modules/auth/service.js';
@@ -89,6 +87,7 @@ async function sentinelSalts() {
 class MemoryAuthRepository implements AuthRepository {
   users: AuthUserRecord[] = [];
   sessions: SessionRecord[] = [];
+  upgradeCalls = 0;
 
   async findUserByEmail(email: string) {
     return this.users.find((user) => user.email.toLowerCase() === email) ?? null;
@@ -141,20 +140,29 @@ class MemoryAuthRepository implements AuthRepository {
     }
     return true;
   }
+
+  async upgradePasswordHashIfCurrent(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<'updated' | 'conflict'> {
+    this.upgradeCalls += 1;
+    const user = this.users.find((candidate) => candidate.id === userId);
+    if (!user || !user.isActive || user.passwordHash !== expectedPasswordHash) return 'conflict';
+    user.passwordHash = replacementPasswordHash;
+    return 'updated';
+  }
 }
 
-function resetSeams() {
+function resetSeams(repository?: MemoryAuthRepository) {
   derivations.counts.clear();
   derivations.slots.length = 0;
+  if (repository) repository.upgradeCalls = 0;
 }
 
 /** Exactly one OLD slot then one V2 slot, in order, no more, no fewer. */
-function expectFixedBudget(oldSaltHex: string, v2SaltHex: string) {
+function expectFixedBudget() {
   expect(Object.fromEntries(derivations.counts)).toEqual({ 16384: 1, 32768: 1 });
-  expect(derivations.slots).toEqual([
-    { N: 16384, saltHex: oldSaltHex },
-    { N: 32768, saltHex: v2SaltHex },
-  ]);
 }
 
 describe('login fixed-work budget', () => {
@@ -172,98 +180,139 @@ describe('login fixed-work budget', () => {
     });
     service = new AuthService(repository, 28_800, () => now);
     sentinels = await sentinelSalts();
-    resetSeams();
+    resetSeams(repository);
   });
 
   it('unknown email: OLD dummy + V2 dummy, generic reject, no session', async () => {
     await expect(service.login('nobody@example.com', 'wrong-password'))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(sentinels.old, sentinels.v2);
+    expectFixedBudget();
+    expect(derivations.slots).toEqual([
+      { N: 16384, saltHex: sentinels.old },
+      { N: 32768, saltHex: sentinels.v2 },
+    ]);
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.upgradeCalls).toBe(0);
   });
 
   it('malformed stored hash: OLD dummy + V2 dummy, generic reject', async () => {
     repository.users[0]!.passwordHash = 'not-a-password-hash';
-    resetSeams();
+    resetSeams(repository);
 
     await expect(service.login('admin@example.com', PASSWORD))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(sentinels.old, sentinels.v2);
+    expectFixedBudget();
+    expect(derivations.slots[0]!.saltHex).toBe(sentinels.old);
+    expect(derivations.slots[1]!.saltHex).toBe(sentinels.v2);
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('inactive LEGACY account: same budget before generic reject', async () => {
+  it('inactive LEGACY account: same budget before generic reject, no upgrade', async () => {
     repository.users[0]!.passwordHash = LEGACY();
     repository.users[0]!.isActive = false;
-    resetSeams();
+    resetSeams(repository);
 
     await expect(service.login('admin@example.com', PASSWORD))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
+    expectFixedBudget();
+    expect(derivations.slots[0]).toEqual({ N: 16384, saltHex: SALT_OLD_HEX });
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.upgradeCalls).toBe(0);
   });
 
   it('inactive V2 account: same budget before generic reject', async () => {
     repository.users[0]!.passwordHash = V2();
     repository.users[0]!.isActive = false;
-    resetSeams();
+    resetSeams(repository);
 
     await expect(service.login('admin@example.com', PASSWORD))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(sentinels.old, SALT_V2_HEX);
+    expectFixedBudget();
+    expect(derivations.slots[0]!.saltHex).toBe(sentinels.old);
+    expect(derivations.slots[1]).toEqual({ N: 32768, saltHex: SALT_V2_HEX });
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('V1 correct: real OLD + dummy V2, session issued, hash untouched', async () => {
-    const before = repository.users[0]!.passwordHash;
-
+  it('V1 correct: real OLD + fresh V2 candidate, session, one CAS upgrade to V2', async () => {
     const result = await service.login('admin@example.com', PASSWORD);
 
-    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
+    expectFixedBudget();
+    // Slot 1 = real verification against the stored credential.
+    expect(derivations.slots[0]).toEqual({ N: 16384, saltHex: SALT_OLD_HEX });
+    // Slot 2 = fresh candidate salt (never the V2 sentinel, never the stored salt).
+    expect(derivations.slots[1]!.N).toBe(32768);
+    expect(derivations.slots[1]!.saltHex).not.toBe(sentinels.v2);
+    expect(derivations.slots[1]!.saltHex).not.toBe(SALT_OLD_HEX);
     expect(result.rawToken).toHaveLength(43);
     expect(repository.sessions).toHaveLength(1);
-    // R1 performs NO rehash: the stored credential is byte-identical.
-    expect(repository.users[0]!.passwordHash).toBe(before);
+    // One exact-CAS upgrade; stored credential is now canonical V2.
+    expect(repository.upgradeCalls).toBe(1);
+    const stored = repository.users[0]!.passwordHash;
+    expect(parsePasswordHash(stored)).toMatchObject({ profile: 'SCRYPT_V2' });
+    await expect(verifyPassword(PASSWORD, stored)).resolves.toBe(true);
   });
 
-  it('V1 wrong: real OLD + dummy V2, generic reject, no mutation', async () => {
+  it('LEGACY correct: same fixed budget, upgraded to V2', async () => {
+    repository.users[0]!.passwordHash = LEGACY();
+    resetSeams(repository);
+
+    await service.login('admin@example.com', PASSWORD);
+
+    expectFixedBudget();
+    expect(repository.upgradeCalls).toBe(1);
+    expect(parsePasswordHash(repository.users[0]!.passwordHash)).toMatchObject({
+      profile: 'SCRYPT_V2',
+    });
+  });
+
+  it('V1 wrong: real OLD + fresh V2 candidate, generic reject, no mutation', async () => {
     const before = repository.users[0]!.passwordHash;
 
     await expect(service.login('admin@example.com', 'wrong-password'))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
+    expectFixedBudget();
+    expect(derivations.slots[0]).toEqual({ N: 16384, saltHex: SALT_OLD_HEX });
+    expect(derivations.slots[1]!.N).toBe(32768);
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.upgradeCalls).toBe(0);
     expect(repository.users[0]!.passwordHash).toBe(before);
   });
 
-  it('V2 correct: dummy OLD + real V2, session issued, no downgrade', async () => {
+  it('V2 correct: dummy OLD + real V2, session, no upgrade write', async () => {
     const v2 = V2();
     repository.users[0]!.passwordHash = v2;
-    resetSeams();
+    resetSeams(repository);
 
     const result = await service.login('admin@example.com', PASSWORD);
 
-    expectFixedBudget(sentinels.old, SALT_V2_HEX);
+    expectFixedBudget();
+    expect(derivations.slots).toEqual([
+      { N: 16384, saltHex: sentinels.old },
+      { N: 32768, saltHex: SALT_V2_HEX },
+    ]);
     expect(result.rawToken).toHaveLength(43);
     expect(repository.sessions).toHaveLength(1);
+    expect(repository.upgradeCalls).toBe(0);
     expect(repository.users[0]!.passwordHash).toBe(v2);
   });
 
-  it('V2 wrong: dummy OLD + real V2, generic reject', async () => {
+  it('V2 wrong: dummy OLD + real V2, generic reject, no upgrade write', async () => {
     const v2 = V2();
     repository.users[0]!.passwordHash = v2;
-    resetSeams();
+    resetSeams(repository);
 
     await expect(service.login('admin@example.com', 'wrong-password'))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expectFixedBudget(sentinels.old, SALT_V2_HEX);
+    expectFixedBudget();
+    expect(derivations.slots[1]).toEqual({ N: 32768, saltHex: SALT_V2_HEX });
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.upgradeCalls).toBe(0);
     expect(repository.users[0]!.passwordHash).toBe(v2);
   });
 });
@@ -329,24 +378,20 @@ const appConfig = {
 describe('sentinel warmup at app construction', () => {
   let repository: MemoryAuthRepository;
   let app: Awaited<ReturnType<typeof buildApp>>;
-  let freshHashPassword: typeof hashPassword;
-  let freshBuildApp: typeof buildApp;
 
   beforeEach(async () => {
     // Fresh module state per test: sentinel memoization is process-global, so
     // only a re-imported module can prove buildApp itself performs the two
     // derivations. The node:crypto counting seam survives resetModules.
     vi.resetModules();
-    const freshCrypto = await import('../src/modules/auth/crypto.js');
-    freshHashPassword = freshCrypto.hashPassword;
-    ({ buildApp: freshBuildApp } = await import('../src/app.js'));
+    const { buildApp: freshBuildApp } = await import('../src/app.js');
     repository = new MemoryAuthRepository();
     repository.users.push({
       id: 'user-1', organizationId: 'org-1', name: 'Admin User',
-      email: 'admin@example.com', passwordHash: await freshHashPassword('correct-password'),
+      email: 'admin@example.com', passwordHash: V1(),
       role: 'ADMIN', mustChangePassword: false, isActive: true, version: 1,
     });
-    resetSeams();
+    resetSeams(repository);
     app = await freshBuildApp(appConfig, { authRepository: repository });
   });
 
@@ -393,7 +438,7 @@ describe('sentinel warmup at app construction', () => {
     const response = await app.inject({
       method: 'POST', url: '/api/auth/login',
       headers: { origin: appConfig.corsOrigin },
-      payload: { email: 'admin@example.com', password: 'correct-password' },
+      payload: { email: 'admin@example.com', password: PASSWORD },
     });
 
     expect(response.statusCode).toBe(200);
