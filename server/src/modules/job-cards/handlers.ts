@@ -219,7 +219,12 @@ export function createJobCardHandlers(service: JobCardService) {
     accept: async (request: FastifyRequest<{ Params: Params }>) =>
       service.acceptAssignment(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.start(actor(request), request.params.id, body(request, START_FIELDS) as never),
+      service.start(
+        actor(request),
+        request.params.id,
+        body(request, START_FIELDS) as never,
+        { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
+      ),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>
       service.submitForApproval(
         actor(request),

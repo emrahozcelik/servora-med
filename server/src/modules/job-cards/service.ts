@@ -465,22 +465,6 @@ function assertPlannedIntervalForStart(job: Pick<JobCard, 'type' | 'scheduledAt'
   }
 }
 
-function locationUnavailableMessage(reason: string): string {
-  switch (reason) {
-    case 'PERMISSION_DENIED':
-      return 'Konum izni reddedildi. Lütfen cihaz ayarlarından konum iznini verin ve tekrar deneyin.';
-    case 'POSITION_UNAVAILABLE':
-      return 'Konum alınamadı. Cihaz konumu şu anda kullanılamıyor.';
-    case 'TIMEOUT':
-      return 'Konum alınamadı. Konum isteği zaman aşımına uğradı, lütfen tekrar deneyin.';
-    case 'UNSUPPORTED':
-      return 'Bu tarayıcı konum özelliğini desteklemiyor.';
-    case 'UNKNOWN':
-    default:
-      return 'Konum alınamadı. Lütfen tekrar deneyin.';
-  }
-}
-
 function meetingDetailsResponse(
   jobCardId: string,
   jobCardVersion: number,
@@ -3311,7 +3295,12 @@ export class JobCardService {
     });
   }
 
-  async start(actor: JobCardActor, jobCardId: string, input: StartInput) {
+  async start(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: StartInput,
+    presentation?: { includeSubmitLocationCapability?: boolean },
+  ) {
     const lifecycleInput = this.lifecycleInput(input);
     const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
@@ -3320,7 +3309,7 @@ export class JobCardService {
     };
     assertStaffStartActor(actor);
     if (!this.geolocation.enabled) {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, undefined, presentation);
     }
 
     const capture = parseStartLocationCapture(input.locationCapture);
@@ -3328,17 +3317,12 @@ export class JobCardService {
     const completed = await this.repository.findCompletedLifecycleIntent<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
 
-    if (capture.outcome === 'UNAVAILABLE') {
-      throw new AppError(
-        'LOCATION_REQUIRED',
-        400,
-        locationUnavailableMessage(capture.reason),
-        { reason: capture.reason },
-      );
-    }
+    // #347 product decision: location is important but never workflow-blocking.
+    // A valid UNAVAILABLE capture starts the job exactly like a captured one;
+    // the unavailable envelope is persisted as JOB_STARTED evidence below.
     // 049: reserve BEFORE the provider call. The reservation commits and
     // releases the JobCard lock, so geocoder latency never holds it; the
     // claim hash covers only the pre-provider capture core, which the
@@ -3352,19 +3336,21 @@ export class JobCardService {
     );
     if (reserved.kind === 'replay') {
       const receipt = decodeJobCardMutationReceipt(reserved.response);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
     const resolvedCapture = await this.resolveActionLocation({
       organizationId: actor.organizationId,
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
-      softInfrastructureFailure: false,
+      // #347: location infrastructure must never prevent START. Quota-store
+      // exceptions degrade to FAILED enrichment, exactly like advisory SUBMIT.
+      softInfrastructureFailure: true,
     });
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_STARTED', capture: resolvedCapture }, {
       claim,
       reservation: reserved.reservation,
-    });
+    }, presentation);
   }
 
   async submitForApproval(

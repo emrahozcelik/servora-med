@@ -529,45 +529,86 @@ describe('JobCardService action-scoped start location', () => {
     expect(repository.job.status).toBe('IN_PROGRESS');
   });
 
-  it('rejects unavailable capture without provider I/O or mutation', async () => {
-    const reasons = ['PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'UNSUPPORTED', 'UNKNOWN'] as const;
-    for (const reason of reasons) {
-      const { repository, reverse, service, quota } = enabledService();
-      await expect(service.start(staff, 'job-1', {
-        ...input,
-        clientActionId: `unavailable-${reason}`,
-        locationCapture: { outcome: 'unavailable', reason },
-      })).rejects.toMatchObject({ code: 'LOCATION_REQUIRED', statusCode: 400 });
+  it.each([
+    'PERMISSION_DENIED',
+    'POSITION_UNAVAILABLE',
+    'TIMEOUT',
+    'UNSUPPORTED',
+    'UNKNOWN',
+  ] as const)('starts with unavailable %s capture, persisting the evidence without provider I/O', async (reason) => {
+    const { repository, reverse, service, quota } = enabledService();
+    const result = await service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: `unavailable-${reason}`,
+      locationCapture: { outcome: 'unavailable', reason },
+    });
 
-      expect(quota.reserve).not.toHaveBeenCalled();
-      expect(reverse).not.toHaveBeenCalled();
-      expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
-      expect(repository.activities).toHaveLength(0);
-      expect(repository.realtimeEvents).toHaveLength(0);
-      expect(repository.notificationAppends).toHaveLength(0);
-      expect(repository.locationAppends).toEqual([]);
-    }
+    expect(result).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(quota.reserve).not.toHaveBeenCalled();
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.activities.map((activity) => activity.event)).toEqual(['JOB_STARTED']);
+    expect(repository.locationAppends).toEqual([
+      expect.objectContaining({
+        jobCardId: 'job-1',
+        activityId: 'activity-1',
+        actorUserId: 'staff-1',
+        action: 'JOB_STARTED',
+        capture: { outcome: 'UNAVAILABLE', reason },
+      }),
+    ]);
   });
 
-  it('does not poison retry after unavailable failure', async () => {
-    const { repository, reverse, service, quota } = enabledService();
-    const unavailableId = 'retry-unavailable';
-    await expect(service.start(staff, 'job-1', {
+  it('keeps one transition, activity, and evidence row across a frozen unavailable retry', async () => {
+    const { repository, service, quota } = enabledService(undefined, { now: advancingClock() });
+    const request = {
       ...input,
-      clientActionId: unavailableId,
-      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
-    })).rejects.toMatchObject({ code: 'LOCATION_REQUIRED' });
-    expect(repository.job.status).toBe('ACCEPTED');
-    // Same clientActionId retry with valid capture should succeed (no poisoning)
-    await service.start(staff, 'job-1', {
-      ...input,
-      clientActionId: unavailableId,
-      locationCapture: captured,
-    });
-    expect(repository.job.status).toBe('IN_PROGRESS');
-    expect(quota.reserve).toHaveBeenCalledOnce();
-    expect(reverse).toHaveBeenCalledOnce();
+      clientActionId: 'retry-unavailable',
+      locationCapture: { outcome: 'unavailable' as const, reason: 'PERMISSION_DENIED' as const },
+    };
+    const first = await service.start(staff, 'job-1', request);
+    const replay = await service.start(staff, 'job-1', request);
+
+    expect(replay).toEqual(first);
+    expect(repository.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(repository.activities.map((activity) => activity.event)).toEqual(['JOB_STARTED']);
     expect(repository.locationAppends).toHaveLength(1);
+    expect(repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' });
+    expect(quota.reserve).not.toHaveBeenCalled();
+  });
+
+  it('omits the SUBMIT capability flag without the reader gate and includes it with the gate', async () => {
+    // P2: the START response replaces web local state, so it must carry the
+    // reader-gated capability when requested; previous readers keep the old
+    // shape without the key.
+    const plain = await enabledService().service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: 'gate-plain',
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    });
+    expect(plain.workflowContext).not.toHaveProperty('submitLocationCaptureEnabled');
+
+    const gated = await enabledService().service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: 'gate-opt-in',
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    }, { includeSubmitLocationCapability: true });
+    expect(gated.workflowContext.submitLocationCaptureEnabled).toBe(true);
+  });
+
+  it('retains the presentation gate on an ambiguous START retry', async () => {
+    const { service } = enabledService();
+    const request = {
+      ...input,
+      clientActionId: 'retry-gate',
+      locationCapture: { outcome: 'unavailable' as const, reason: 'TIMEOUT' as const },
+    };
+    const presentation = { includeSubmitLocationCapability: true };
+    const first = await service.start(staff, 'job-1', request, presentation);
+    const replay = await service.start(staff, 'job-1', request, presentation);
+
+    expect(replay).toEqual(first);
+    expect(replay.workflowContext.submitLocationCaptureEnabled).toBe(true);
   });
 
   it('does not call provider for malformed, stale, unauthorized, or ineligible requests', async () => {
@@ -824,6 +865,56 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
     });
   });
 
+  it('does not suppress a later captured SUBMIT after an unavailable START', async () => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'start-unavailable-captured', {
+      outcome: 'unavailable',
+      reason: 'POSITION_UNAVAILABLE',
+    });
+
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-after-unavailable-start',
+      note: submitNote,
+      locationCapture: captured,
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    // Fresh SUBMIT attempt uses the provider; START evidence stays unavailable.
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'UNAVAILABLE', reason: 'POSITION_UNAVAILABLE' });
+    expect(repository.locationAppends[1]?.capture)
+      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'RESOLVED' });
+    // No captured START reference exists: the SUBMIT carries no comparison.
+    expect(repository.locationAppends[1]?.comparison).toBeUndefined();
+  });
+
+  it('retains both unavailable evidence rows when SUBMIT is also unavailable', async () => {
+    const { repository, reverse, service } = enabledSubmitService();
+    await startGeneralTask(service, repository, 'start-unavailable-both', {
+      outcome: 'unavailable',
+      reason: 'PERMISSION_DENIED',
+    });
+
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-unavailable-both',
+      note: submitNote,
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    });
+
+    expect(submitted).toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends).toHaveLength(2);
+    expect(repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' });
+    expect(repository.locationAppends[1]?.capture)
+      .toMatchObject({ outcome: 'UNAVAILABLE', reason: 'TIMEOUT' });
+    expect(repository.locationAppends[1]?.comparison).toBeUndefined();
+  });
+
   it('succeeds without a SUBMIT location when capture is omitted', async () => {
     const { repository, reverse, service } = enabledSubmitService();
     await startGeneralTask(service, repository, 'submit-start-omitted');
@@ -1044,7 +1135,7 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
     expect(repository.locationAppends).toHaveLength(2);
   });
 
-  it('keeps START quota infrastructure failures strict without mutation', async () => {
+  it('starts with FAILED enrichment when the quota guard throws', async () => {
     const quotaError = new Error('quota store unavailable');
     const repository = new MemoryJobCardRepository();
     const reverse = vi.fn();
@@ -1055,14 +1146,23 @@ describe('JobCardService action-scoped submit location (slice 1)', () => {
       quotaGuard: quota,
     });
 
-    await expect(service.start(staff, 'job-1', {
+    const result = await service.start(staff, 'job-1', {
       ...input,
       locationCapture: captured,
-    })).rejects.toBe(quotaError);
-    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
-    expect(repository.activities).toHaveLength(0);
-    expect(repository.locationAppends).toHaveLength(0);
+    });
+
+    // #347: infrastructure failure no longer rolls back the START.
+    expect(result).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(repository.activities.map((activity) => activity.event)).toEqual(['JOB_STARTED']);
     expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends).toHaveLength(1);
+    expect(repository.locationAppends[0]?.capture)
+      .toMatchObject({
+        outcome: 'CAPTURED',
+        geocodingStatus: 'FAILED',
+        geocodingProvider: null,
+        approximateLabel: null,
+      });
   });
 
   describe('submit-vs-start comparison (slice 2)', () => {

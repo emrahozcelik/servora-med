@@ -71,8 +71,8 @@ export function JobDecisionPanel({
   >
     {startLocationCaptureEnabled && hasStart && <p className="start-location-notice">
       İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
-      Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
-      kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
+      Konum iş geçmişinde saklanır. Konum alınamazsa iş yine başlar ve yönetici
+      onayına gönderirken tekrar denenir. Konum servislerinin açık olması önemlidir.
     </p>}
     {submitLocationCaptureEnabled && hasSubmit && <p className="submit-location-notice">
       Onaya gönderdiğinizde cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
