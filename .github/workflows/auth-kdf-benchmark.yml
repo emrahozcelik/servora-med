@@ -14,6 +14,12 @@ on:
 permissions:
   contents: read
 
+# Container images default to `sh` (dash), which rejects `pipefail`.
+# Force bash for every run step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   benchmark:
     name: Bounded auth KDF benchmark (2 CPU / 4 GiB)
