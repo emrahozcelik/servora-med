@@ -25,6 +25,13 @@ const WEEK_D = '2026-10-26';
 const NOW = '2026-10-05T09:00:00.000Z';
 /** Tuesday 12:00 Europe/Istanbul — three weeks of downtime to catch up. */
 const NOW_CATCHUP = '2026-10-20T09:00:00.000Z';
+/**
+ * Deterministic retry clock for directly inserted fixtures: one second
+ * before the file's default frozen clock. A fixture intended to be due must
+ * be due relative to the injected test clock, never the database's real
+ * NOW(); tests whose harness clock is earlier pass their own instant.
+ */
+const FIXTURE_DUE_AT = new Date(new Date(NOW).valueOf() - 1_000);
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
@@ -78,13 +85,15 @@ async function insertRule(
     nextPeriodStart: string;
     questions?: unknown;
     instructions?: string | null;
+    /** Defaults to FIXTURE_DUE_AT; override only for earlier harness clocks. */
+    nextAttemptAt?: Date;
   },
 ): Promise<string> {
   return (await pool.query<{ id: string }>(
     `INSERT INTO weekly_report_recurrences
        (organization_id, staff_user_id, requested_by_user_id, next_period_start,
-        manager_questions, instructions)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        manager_questions, instructions, next_attempt_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
     [
       input.organizationId,
       input.staffUserId,
@@ -92,8 +101,23 @@ async function insertRule(
       input.nextPeriodStart,
       JSON.stringify(input.questions ?? []),
       input.instructions ?? null,
+      input.nextAttemptAt ?? FIXTURE_DUE_AT,
     ],
   )).rows[0]!.id;
+}
+
+/**
+ * Aligns the persisted retry clock with the simulated instant. The
+ * production repository intentionally writes DB `NOW()` on resume, but these
+ * tests run with an injected historical clock; after a real `resume()` the
+ * helper restores the single simulated time authority before frozen-clock
+ * due discovery. Test-only, not a production repair.
+ */
+async function pinNextAttemptAt(pool: Pool, ruleId: string, instant: Date): Promise<void> {
+  await pool.query(
+    `UPDATE weekly_report_recurrences SET next_attempt_at = $2 WHERE id = $1`,
+    [ruleId, instant],
+  );
 }
 
 function buildHarness(pool: Pool, published: unknown[] = [], nowIso = NOW) {
@@ -201,6 +225,11 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
           organizationId, staffUserId: staffId, requestedByUserId: managerId,
           nextPeriodStart: WEEK_A, questions, instructions: 'Lütfen detaylandır.',
         });
+        // Determinism regression: the fixture's retry clock is tied to the
+        // injected clock, so it stays due even after the real wall clock has
+        // passed the frozen instant (the old DB default NOW() drifted).
+        expect((await ruleRow(pool, ruleId)).next_attempt_at.valueOf())
+          .toBeLessThanOrEqual(new Date(NOW).valueOf());
         const harness = buildHarness(pool);
         const worker = buildWorker(harness, NOW);
         expect(await worker.runOnce()).toBe(1);
@@ -412,13 +441,16 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
         const managerSunday = await insertUser(pool, orgSunday, 'MANAGER');
         const staffMonday = await insertUser(pool, orgMonday, 'STAFF');
         const staffSunday = await insertUser(pool, orgSunday, 'STAFF');
+        // This harness clock precedes FIXTURE_DUE_AT, so the due state must be
+        // tied to this instant explicitly.
+        const dueAt = new Date(new Date(instant).valueOf() - 1_000);
         const ruleMonday = await insertRule(pool, {
           organizationId: orgMonday, staffUserId: staffMonday,
-          requestedByUserId: managerMonday, nextPeriodStart: WEEK_A,
+          requestedByUserId: managerMonday, nextPeriodStart: WEEK_A, nextAttemptAt: dueAt,
         });
         const ruleSunday = await insertRule(pool, {
           organizationId: orgSunday, staffUserId: staffSunday,
-          requestedByUserId: managerSunday, nextPeriodStart: WEEK_A,
+          requestedByUserId: managerSunday, nextPeriodStart: WEEK_A, nextAttemptAt: dueAt,
         });
         const harness = buildHarness(pool);
         const worker = buildWorker(harness, instant);
@@ -670,6 +702,12 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
         expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: futureWeek, version: 3 });
         // The committed resume must not inherit the pre-pause lease.
         expect((await ruleRow(pool, ruleId)).lease_token).toBeNull();
+        // Resume happened at the simulated 2026-10-26 instant: pin the retry
+        // clock to it so the later 2026-11-02 due discovery is deterministic
+        // instead of comparing against the database's real NOW().
+        await pinNextAttemptAt(pool, ruleId, claimedAt);
+        expect((await ruleRow(pool, ruleId)).next_attempt_at.valueOf())
+          .toBeLessThanOrEqual(claimedAt.valueOf());
 
         // The stale pre-pause claim now processes: it must skip.
         const outcome = await harness.repository.processOccurrence(
@@ -725,6 +763,12 @@ describe.skipIf(!databaseUrl)('weekly report recurrence worker (PostgreSQL)', ()
           { clientActionId: randomUUID(), expectedVersion: 2, periodStart: currentWeek },
         );
         expect(resumed).toMatchObject({ enabled: true, nextPeriodStart: currentWeek });
+        // Resume happened at the simulated 2026-10-26 instant: pin the retry
+        // clock so the fresh claim below is due relative to `claimedAt`, not
+        // the database's real NOW().
+        await pinNextAttemptAt(pool, ruleId, claimedAt);
+        expect((await ruleRow(pool, ruleId)).next_attempt_at.valueOf())
+          .toBeLessThanOrEqual(claimedAt.valueOf());
 
         // Old claim: skipped, creates nothing.
         const stale = await harness.repository.processOccurrence(
