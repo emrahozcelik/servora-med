@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '../ui/PageHeader';
+import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
 import type { DeliveryPurpose, JobCardType, MeetingOutcome } from '../jobs/jobs-api';
 import { jobTypeLabels } from '../jobs/job-labels';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
@@ -31,9 +32,7 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
 
-const REPORT_WORK_TYPE_ORDER = [
-  'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
-] as const satisfies readonly JobCardType[];
+const REPORT_WORK_TYPE_ORDER: readonly JobCardType[] = PRODUCTIVE_JOB_CARD_TYPES;
 
 const DELIVERY_PURPOSE_COLUMNS: readonly OperationalTableColumn[] = [
   { key: 'purpose', title: 'Amaç' },

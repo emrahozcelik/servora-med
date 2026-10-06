@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/services/api';
 import {
   activateContact, activateCustomer, createContact, createCustomer, deactivateContact,
-  deactivateCustomer, deleteCustomer, getContact, getCustomer, listContacts, listCustomerJobs, listCustomers,
+  deactivateCustomer, deleteCustomer, getContact, getCustomer, getCustomerOperationalSummary,
+  listContacts, listCustomerJobs, listCustomers,
   makePrimaryContact, updateContact, updateCustomer,
 } from '../src/services/crm-api';
 
@@ -38,6 +39,60 @@ describe('CRM API client', () => {
       .resolves.toMatchObject({ total: 1, items: [{ followUp: { sourceJobCardId: 'source-1' }, childCount: 2 }] });
     expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1/jobs?status=completed&type=GENERAL_TASK&limit=10&offset=20', expect.anything());
   });
+  it('accepts every canonical JobCard type in Customer history, including Weekly Report', async () => {
+    for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'WEEKLY_REPORT'] as const) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+        items: [{
+          id: 'job-1', title: 'Haftalık Rapor', type, status: 'COMPLETED', priority: 'normal',
+          scheduledAt: null, dueDate: null, createdAt: '2026-10-01T08:00:00Z',
+          updatedAt: '2026-10-02T08:00:00Z', completedAt: '2026-10-02T09:00:00Z',
+          assignee: { id: 'staff-1', name: 'Ayşe' }, customer: null, contact: null,
+          followUp: null, childCount: null,
+        }],
+        total: 1, limit: 20, offset: 0,
+      })));
+      await expect(listCustomerJobs('customer-1')).resolves.toMatchObject({ items: [{ type }] });
+    }
+  });
+
+  it('still rejects an unknown JobCard history type', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{
+        id: 'job-1', title: 'Bilinmeyen', type: 'BOGUS', status: 'COMPLETED', priority: 'normal',
+        scheduledAt: null, dueDate: null, createdAt: '2026-10-01T08:00:00Z',
+        updatedAt: '2026-10-02T08:00:00Z', completedAt: '2026-10-02T09:00:00Z',
+        assignee: { id: 'staff-1', name: 'Ayşe' }, customer: null, contact: null,
+        followUp: null, childCount: null,
+      }],
+      total: 1, limit: 20, offset: 0,
+    })));
+    await expect(listCustomerJobs('customer-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('accepts Weekly Report in the Customer operational summary and rejects unknown summary types', async () => {
+    const summary = {
+      latestInteraction: {
+        jobCardId: 'job-1', title: 'Haftalık Rapor', type: 'WEEKLY_REPORT',
+        completedAt: '2026-10-02T09:00:00Z', assignee: { id: 'staff-1', name: 'Ayşe' },
+      },
+      nextPlannedWork: {
+        jobCardId: 'job-2', title: 'Haftalık Rapor', type: 'WEEKLY_REPORT', status: 'ACCEPTED',
+        scheduledAt: '2026-10-05T08:00:00Z', assignee: { id: 'staff-1', name: 'Ayşe' },
+      },
+      pendingReview: { waitingApprovalCount: 0, revisionRequestedCount: 0 },
+      latestMeetingOutcome: null, followUp: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(summary)));
+    await expect(getCustomerOperationalSummary('customer-1')).resolves.toMatchObject({
+      latestInteraction: { type: 'WEEKLY_REPORT' }, nextPlannedWork: { type: 'WEEKLY_REPORT' },
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      ...summary, nextPlannedWork: { ...summary.nextPlannedWork, type: 'BOGUS' },
+    })));
+    await expect(getCustomerOperationalSummary('customer-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('encodes every Customer filter, omits empty values, and includes credentials', async () => {
     const response = {
       items: [{ ...customer, assignedStaffName: null, primaryContact: { id: 'p1', name: 'Başhekim', title: null } }],

@@ -47,16 +47,18 @@ describe.skipIf(!databaseUrl)('JobCard history PostgreSQL authorization and pagi
 
       const createJob = async (input: {
         title: string; assignedTo: string; status: 'NEW' | 'COMPLETED'; sourceJobCardId?: string | null;
-        createdAt: string;
+        createdAt: string; type?: 'GENERAL_TASK' | 'WEEKLY_REPORT'; customerId?: string | null;
       }) => (await pool!.query<{ id: string }>(
         `INSERT INTO job_cards
           (organization_id, type, status, title, customer_id, assigned_to, created_by, priority,
            started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by,
            source_job_card_id, follow_up_instructions, created_at, updated_at)
-         VALUES ($1, 'GENERAL_TASK', $2, $3, $4, $5, $6, 'normal',
-           $7, $8, $9, $10, $11, $12, $13, $14, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'normal',
+           $8, $9, $10, $11, $12, $13, $14, $15, $15)
          RETURNING id`,
-        [organizationId, input.status, input.title, customerId, input.assignedTo, managerId,
+        [organizationId, input.type ?? 'GENERAL_TASK', input.status, input.title,
+          input.customerId === undefined ? customerId : input.customerId,
+          input.assignedTo, managerId,
           input.status === 'COMPLETED' ? '2026-07-20T09:00:00Z' : null,
           input.status === 'COMPLETED' ? '2026-07-20T10:00:00Z' : null,
           input.status === 'COMPLETED' ? input.assignedTo : null,
@@ -71,6 +73,10 @@ describe.skipIf(!databaseUrl)('JobCard history PostgreSQL authorization and pagi
       await createJob({ title: 'Açık B', assignedTo: staffBId, status: 'NEW', createdAt: '2026-07-22T08:00:00Z' });
       const sourceId = await createJob({ title: 'Tamamlanan kaynak', assignedTo: staffAId, status: 'COMPLETED', createdAt: '2026-07-23T08:00:00Z' });
       await createJob({ title: 'Takip B', assignedTo: staffBId, status: 'COMPLETED', sourceJobCardId: sourceId, createdAt: '2026-07-24T08:00:00Z' });
+      const weeklyReportId = await createJob({
+        title: 'Haftalık Rapor B', assignedTo: staffBId, status: 'COMPLETED',
+        createdAt: '2026-07-25T08:00:00Z', type: 'WEEKLY_REPORT', customerId: null,
+      });
 
       const repository = new PostgresJobCardRepository(pool);
       const managerActor = { id: managerId, organizationId, role: 'MANAGER' as const };
@@ -92,8 +98,9 @@ describe.skipIf(!databaseUrl)('JobCard history PostgreSQL authorization and pagi
       ]) });
       await expect(repository.listStaffJobHistory({
         organizationId, targetUserId: staffBId, actor: managerActor, status: 'completed', limit: 20, offset: 0,
-      })).resolves.toMatchObject({ total: 1, items: expect.arrayContaining([
+      })).resolves.toMatchObject({ total: 2, items: expect.arrayContaining([
         expect.objectContaining({ assignee: expect.objectContaining({ id: staffBId }), followUp: { sourceJobCardId: sourceId }, childCount: 0 }),
+        expect.objectContaining({ id: weeklyReportId, type: 'WEEKLY_REPORT', customer: null, assignee: expect.objectContaining({ id: staffBId }) }),
       ]) });
       await expect(repository.listCustomerJobHistory({
         organizationId, customerId, actor: managerActor, status: 'open', limit: 20, offset: 0,

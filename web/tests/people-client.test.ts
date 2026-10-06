@@ -77,6 +77,21 @@ describe('People API client', () => {
       '/api/staff/staff%2F1/jobs?status=all',
     ]);
   });
+  it('parses a completed Weekly Report row through the Staff job history route', async () => {
+    const weekly = {
+      id: 'job-weekly-1', title: 'Haftalık Rapor 2026-09-28 – 2026-10-04', type: 'WEEKLY_REPORT',
+      status: 'COMPLETED', priority: 'normal', scheduledAt: null, dueDate: null,
+      createdAt: '2026-10-03T08:00:00Z', updatedAt: '2026-10-03T09:00:00Z',
+      completedAt: '2026-10-03T09:00:00Z', assignee: { id: 'staff/1', name: 'Ayşe' },
+      customer: null, contact: null, followUp: null, childCount: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json({ items: [weekly], total: 1, limit: 20, offset: 0 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listStaffJobs('staff/1', { status: 'completed' })).resolves
+      .toMatchObject({ items: [{ type: 'WEEKLY_REPORT', completedAt: '2026-10-03T09:00:00Z' }] });
+    expect(fetchMock).toHaveBeenCalledWith('/api/staff/staff%2F1/jobs?status=completed', expect.anything());
+  });
+
   it('parses user and Staff responses with included credentials', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(json([user])).mockResolvedValueOnce(json([profile])).mockResolvedValueOnce(json(profile));
     vi.stubGlobal('fetch', fetchMock);

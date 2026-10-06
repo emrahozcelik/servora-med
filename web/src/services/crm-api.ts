@@ -3,8 +3,8 @@ import {
   string, type JobCardStatus,
 } from './api';
 import {
-  MEETING_OUTCOMES, UNSUCCESSFUL_VISIT_REASON_CODES,
-  type MeetingOutcome, type UnsuccessfulVisitReasonCode,
+  JOB_CARD_TYPES, MEETING_OUTCOMES, UNSUCCESSFUL_VISIT_REASON_CODES,
+  type JobCardType, type MeetingOutcome, type UnsuccessfulVisitReasonCode,
 } from '../jobs/jobs-api';
 
 export const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
@@ -42,7 +42,7 @@ export type CustomerDetail = CustomerSummary & {
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 
 export type JobHistoryItem = {
-  id: string; title: string; type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING';
+  id: string; title: string; type: JobCardType;
   status: JobCardStatus; priority: string; scheduledAt: string | null; dueDate: string | null;
   createdAt: string; updatedAt: string; completedAt: string | null;
   assignee: { id: string; name: string };
@@ -140,7 +140,7 @@ export function parseJobHistoryItem(value: unknown): JobHistoryItem {
   const childCount = v.childCount === null ? null : number(v.childCount, 'childCount');
   return {
     id: string(v.id, 'id'), title: string(v.title, 'title'),
-    type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), priority: string(v.priority, 'priority'),
     scheduledAt: nullableString(v.scheduledAt, 'scheduledAt'), dueDate: nullableString(v.dueDate, 'dueDate'),
     createdAt: string(v.createdAt, 'createdAt'), updatedAt: string(v.updatedAt, 'updatedAt'),
@@ -193,14 +193,14 @@ function parseOperationalSummary(value: unknown): CustomerOperationalSummary {
     latestInteraction: latest === null ? null : {
       jobCardId: string(latest.jobCardId, 'latestInteraction.jobCardId'),
       title: string(latest.title, 'latestInteraction.title'),
-      type: oneOf(latest.type, 'latestInteraction.type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+      type: oneOf(latest.type, 'latestInteraction.type', JOB_CARD_TYPES),
       completedAt: string(latest.completedAt, 'latestInteraction.completedAt'),
       assignee: parseIdentity(latest.assignee, 'latestInteraction.assignee'),
     },
     nextPlannedWork: next === null ? null : {
       jobCardId: string(next.jobCardId, 'nextPlannedWork.jobCardId'),
       title: string(next.title, 'nextPlannedWork.title'),
-      type: oneOf(next.type, 'nextPlannedWork.type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+      type: oneOf(next.type, 'nextPlannedWork.type', JOB_CARD_TYPES),
       status: oneOf(next.status, 'nextPlannedWork.status', JOB_CARD_STATUSES),
       scheduledAt: string(next.scheduledAt, 'nextPlannedWork.scheduledAt'),
       assignee: parseIdentity(next.assignee, 'nextPlannedWork.assignee'),
