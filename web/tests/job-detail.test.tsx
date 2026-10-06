@@ -1189,7 +1189,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)));
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(started);
@@ -1906,7 +1906,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return startGate;
       }
@@ -3180,7 +3180,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(updated);
       }
@@ -3228,7 +3228,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         if (startBodies.length === 1) throw new TypeError('offline');
         return Response.json(updated);
@@ -3380,6 +3380,111 @@ describe('Staff JobCard detail', () => {
       releaseCancel(Response.json({ ...waiting, status: 'CANCELLED', version: 5 }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+  });
+
+  it('retains the SUBMIT capability across START so the same-screen SUBMIT captures location', async () => {
+    // P2 regression: the START response replaces local state. The mock below
+    // models the server faithfully: without the reader gate the response
+    // omits submitLocationCaptureEnabled (parses as false) and the
+    // same-screen SUBMIT must then skip its capture.
+    const accepted: JobCard = {
+      ...generalTask,
+      status: 'ACCEPTED',
+      version: 2,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const startedBase: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { allowedActions: [], submitLocationCaptureEnabled: true }),
+    };
+    const waiting: JobCard = {
+      ...startedBase,
+      status: 'WAITING_APPROVAL',
+      version: 4,
+      workflowContext: staffContext('WAITING_APPROVAL', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: '2026-07-17T10:00:00.000Z',
+      }, { allowedActions: [] }),
+    };
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 18 },
+    } as GeolocationPosition));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const bodies: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/start') && init?.method === 'POST') {
+        bodies.push({ url, body: JSON.parse(String(init.body)) });
+        const gated = url.includes('includeSubmitLocationCapability=true');
+        return Response.json(gated ? startedBase : {
+          ...startedBase,
+          workflowContext: { ...startedBase.workflowContext, submitLocationCaptureEnabled: undefined },
+        });
+      }
+      if (url.includes('/submit-for-approval') && init?.method === 'POST') {
+        bodies.push({ url, body: JSON.parse(String(init.body)) });
+        return Response.json(waiting);
+      }
+      if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    // No realtime connection and no refresh: the START response alone must
+    // keep the next SUBMIT capturable.
+    await renderScreen(accepted, staffUser, fetch);
+
+    // START captures once.
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    const startCall = bodies.find((entry) => entry.url.includes('/start'))!;
+    expect(startCall.url).toContain('includeSubmitLocationCapability=true');
+    expect(startCall.body).toMatchObject({
+      locationCapture: expect.objectContaining({ outcome: 'captured' }),
+    });
+    expect(host.textContent).toContain('İş uygulanmaya başladı.');
+
+    // The same mounted instance submits: a second capture must occur and the
+    // SUBMIT request must carry it.
+    await act(async () => {
+      buttonByName(host, 'Kontrole gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const submitDialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const submitTextareas = submitDialog.querySelectorAll<HTMLTextAreaElement>('textarea');
+    const submitReason = submitTextareas.item(submitTextareas.length - 1)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(submitReason, 'Görev tamamlandı');
+      submitReason.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
+      buttonByName(submitDialog, 'Tamamla ve yönetici onayına gönder')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(getCurrentPosition).toHaveBeenCalledTimes(2);
+    const submitCall = bodies.find((entry) => entry.url.includes('/submit-for-approval'))!;
+    expect(submitCall.body).toMatchObject({
+      note: 'Görev tamamlandı',
+      locationCapture: expect.objectContaining({ outcome: 'captured' }),
+    });
+    expect(host.textContent).toContain('İş yönetici kontrolüne gönderildi');
   });
 
   it.each([
@@ -4233,7 +4338,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') return startGate;
+      if (url.includes('/start') && init?.method === 'POST') return startGate;
       if (detailUrlMatches(url, 'job-1')) return Response.json(meetingA);
       if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
@@ -4548,7 +4653,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(startedB);
       }
@@ -5197,7 +5302,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(startedB);
       }
@@ -5272,7 +5377,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json({ ...acceptedB, status: 'IN_PROGRESS', version: acceptedB.version + 1 });
       }
@@ -5668,7 +5773,7 @@ describe('Staff JobCard detail', () => {
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') return startGate;
+      if (url.includes('/start') && init?.method === 'POST') return startGate;
       if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(acceptedMeetingA);
@@ -6671,7 +6776,7 @@ describe('Staff JobCard detail', () => {
         if (url.endsWith('/meeting-details')) return Response.json({
           ...meetingDetails, jobCardVersion: staleValid.version,
         });
-        if (url.endsWith('/start') && init?.method === 'POST') {
+        if (url.includes('/start') && init?.method === 'POST') {
           return Response.json(
             { error: 'Bu iş türü başlatılmadan önce geçerli bir planlanan zaman aralığı gereklidir.', code: 'SCHEDULED_INTERVAL_REQUIRED' },
             { status: 400 },
@@ -6718,7 +6823,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         startBodies.push(JSON.parse(String(init.body)));
         return Response.json(updated);
       }
@@ -6772,7 +6877,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') return Response.json(updated);
+      if (url.includes('/start') && init?.method === 'POST') return Response.json(updated);
       if (detailUrlMatches(url, accepted.id)) return Response.json(accepted);
       throw new Error(`Unexpected request: ${url}`);
     });

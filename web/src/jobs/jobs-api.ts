@@ -1283,7 +1283,11 @@ const lifecycle = async (id: string, command: string, input: object, options: { 
     includeSubmitLocationCapability: options.includeSubmitLocationCapability === true ? 'true' : undefined,
   })}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
-export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
+export const startJobCard = (id: string, input: StartJobCardInput) =>
+  // #347/P2: the START response replaces local state, so it must also carry
+  // the reader-gated SUBMIT capability; otherwise a same-screen SUBMIT would
+  // parse the flag as absent (false) and skip its location capture.
+  lifecycle(id, 'start', input, { includeSubmitLocationCapability: true });
 export const submitJobCardForApproval = (id: string, input: SubmitJobCardInput) =>
   lifecycle(id, 'submit-for-approval', input, { includeSubmitLocationCapability: true });
 export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {

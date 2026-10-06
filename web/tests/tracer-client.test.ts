@@ -158,7 +158,7 @@ describe('tracer API client', () => {
     await expect(listActivity('job-1')).resolves.toMatchObject({ items: [expect.objectContaining({ id: 'e1' })] });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/job-cards/job-1/delivery-items', '/api/job-cards/job-1/delivery-items/i1',
-      '/api/job-cards/job-1/delivery-items/i1', '/api/job-cards/job-1/start',
+      '/api/job-cards/job-1/delivery-items/i1', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
       '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', '/api/job-cards/job-1/approve',
       '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true',
     ]);

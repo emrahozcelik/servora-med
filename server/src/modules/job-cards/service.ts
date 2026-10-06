@@ -3295,7 +3295,12 @@ export class JobCardService {
     });
   }
 
-  async start(actor: JobCardActor, jobCardId: string, input: StartInput) {
+  async start(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: StartInput,
+    presentation?: { includeSubmitLocationCapability?: boolean },
+  ) {
     const lifecycleInput = this.lifecycleInput(input);
     const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
@@ -3304,7 +3309,7 @@ export class JobCardService {
     };
     assertStaffStartActor(actor);
     if (!this.geolocation.enabled) {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, undefined, presentation);
     }
 
     const capture = parseStartLocationCapture(input.locationCapture);
@@ -3312,7 +3317,7 @@ export class JobCardService {
     const completed = await this.repository.findCompletedLifecycleIntent<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
 
     // #347 product decision: location is important but never workflow-blocking.
@@ -3331,7 +3336,7 @@ export class JobCardService {
     );
     if (reserved.kind === 'replay') {
       const receipt = decodeJobCardMutationReceipt(reserved.response);
-      return this.presentLifecycleReceipt(actor, receipt);
+      return this.presentLifecycleReceipt(actor, receipt, presentation);
     }
     const resolvedCapture = await this.resolveActionLocation({
       organizationId: actor.organizationId,
@@ -3345,7 +3350,7 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, { action: 'JOB_STARTED', capture: resolvedCapture }, {
       claim,
       reservation: reserved.reservation,
-    });
+    }, presentation);
   }
 
   async submitForApproval(

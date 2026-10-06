@@ -685,7 +685,7 @@ describe('Manager review', () => {
       }
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
-      if (url.endsWith('/start') && init?.method === 'POST') {
+      if (url.includes('/start') && init?.method === 'POST') {
         return Response.json({ error: 'İş güncellendi.', code: 'VERSION_CONFLICT' }, { status: 409 });
       }
       if (detailUrlMatches(url, 'job-1')) {

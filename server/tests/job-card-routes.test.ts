@@ -474,14 +474,25 @@ describe('JobCard routes', () => {
   ])('dispatches %s lifecycle command', async (path, method, payload) => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload })).statusCode).toBe(200);
-    if (method === 'submitForApproval') {
-      // Slice 2 reader gate defaults to the ungated previous-bundle shape.
+    if (method === 'submitForApproval' || method === 'start') {
+      // Slice 2 / #347 reader gates default to the ungated previous-bundle shape.
       expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(
         expect.anything(), 'job-1', payload, { includeSubmitLocationCapability: false },
       );
     } else {
       expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
     }
+  });
+
+  it('forwards the START capability gate to the service', async () => {
+    const { app, service } = await createApp();
+    const payload = { clientActionId: 'start-gate-1', expectedVersion: 1 };
+    expect((await app.inject({
+      method: 'POST', url: '/api/job-cards/job-1/start?includeSubmitLocationCapability=true', payload,
+    })).statusCode).toBe(200);
+    expect(service.start).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', payload, { includeSubmitLocationCapability: true },
+    );
   });
 
   it('forwards the SUBMIT locationCapture to the service and still rejects unknown fields', async () => {
@@ -578,7 +589,10 @@ describe('JobCard routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(service.start).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+    // The START reader gate defaults to the ungated previous-bundle shape.
+    expect(service.start).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', payload, { includeSubmitLocationCapability: false },
+    );
   });
 
   it.each([

@@ -671,9 +671,14 @@ describe('JobCard workspace transport', () => {
 
     await startJobCard('job-1', input);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/start', expect.objectContaining({
-      method: 'POST', body: JSON.stringify(input), credentials: 'include',
-    }));
+    // #347/P2: START opts into the reader-gated SUBMIT capability so the
+    // response replacing local state keeps the next SUBMIT capturable.
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
+      expect.objectContaining({
+        method: 'POST', body: JSON.stringify(input), credentials: 'include',
+      }),
+    );
   });
 
   it('sends the SUBMIT locationCapture on the existing submit endpoint', async () => {
@@ -839,7 +844,7 @@ describe('JobCard workspace transport', () => {
     await resumeJobCard('job-1', versioned);
     await cancelJobCard('job-1', { ...versioned, cancelReason: 'Müşteri iptal etti' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/job-cards/job-1/accept', '/api/job-cards/job-1/start',
+      '/api/job-cards/job-1/accept', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
       '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', '/api/job-cards/job-1/approve',
       '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/withdraw-from-approval',
       '/api/job-cards/job-1/resume',

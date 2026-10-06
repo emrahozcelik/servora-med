@@ -577,6 +577,40 @@ describe('JobCardService action-scoped start location', () => {
     expect(quota.reserve).not.toHaveBeenCalled();
   });
 
+  it('omits the SUBMIT capability flag without the reader gate and includes it with the gate', async () => {
+    // P2: the START response replaces web local state, so it must carry the
+    // reader-gated capability when requested; previous readers keep the old
+    // shape without the key.
+    const plain = await enabledService().service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: 'gate-plain',
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    });
+    expect(plain.workflowContext).not.toHaveProperty('submitLocationCaptureEnabled');
+
+    const gated = await enabledService().service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: 'gate-opt-in',
+      locationCapture: { outcome: 'unavailable', reason: 'TIMEOUT' },
+    }, { includeSubmitLocationCapability: true });
+    expect(gated.workflowContext.submitLocationCaptureEnabled).toBe(true);
+  });
+
+  it('retains the presentation gate on an ambiguous START retry', async () => {
+    const { service } = enabledService();
+    const request = {
+      ...input,
+      clientActionId: 'retry-gate',
+      locationCapture: { outcome: 'unavailable' as const, reason: 'TIMEOUT' as const },
+    };
+    const presentation = { includeSubmitLocationCapability: true };
+    const first = await service.start(staff, 'job-1', request, presentation);
+    const replay = await service.start(staff, 'job-1', request, presentation);
+
+    expect(replay).toEqual(first);
+    expect(replay.workflowContext.submitLocationCaptureEnabled).toBe(true);
+  });
+
   it('does not call provider for malformed, stale, unauthorized, or ineligible requests', async () => {
     const scenarios: Array<{ actor: JobCardActor; version: number; status?: JobCard['status']; capture: unknown }> = [
       { actor: staff, version: 1, capture: { ...captured, latitude: 91 } },
