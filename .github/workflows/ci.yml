@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  benchmark-smoke:
+    name: Auth KDF benchmark smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # Small deterministic smoke only: proves the script parses/runs, both
+      # KDF costs succeed, fixed-work uses exactly two sequential slots, and
+      # the output schema is valid. No wall-clock thresholds here.
+      - run: node ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke
+
   server:
     runs-on: ubuntu-latest
     services:

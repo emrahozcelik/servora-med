@@ -1,0 +1,65 @@
+name: Auth KDF Benchmark
+
+# Bounded scrypt KDF benchmark for the #344 SCRYPT_V2 (N=32768) decision.
+# Compares cost models A (N16384), B (N32768), C (sequential N16384+N32768)
+# on the SAME constrained host. Same-host ratios only — never compare
+# absolute milliseconds across machines.
+#
+# This workflow is a measurement harness, NOT a deployment mechanism.
+# It needs no database, no secrets, and never touches production.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Bounded auth KDF benchmark (2 CPU / 4 GiB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: node:22-bookworm
+      options: --cpus 2 --memory 4g
+    env:
+      BENCHMARK_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact benchmark SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify resource envelope
+        run: |
+          set -Eeuo pipefail
+          node --version
+          echo "--- cgroup cpu ---"
+          cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo "cpu.max unavailable"
+          echo "--- cgroup memory ---"
+          cat /sys/fs/cgroup/memory.max 2>/dev/null || echo "memory.max unavailable"
+          echo "--- meminfo ---"
+          grep -E "MemTotal|MemAvailable" /proc/meminfo
+
+      - name: Run full bounded benchmark
+        run: |
+          set -Eeuo pipefail
+          node ops/benchmarks/auth-kdf-benchmark.mjs --mode=full \
+            --controls=A,B,C --concurrency=1,2,4,8 \
+            --iterations=100 --warmup=10 \
+            --output=auth-kdf-benchmark.json
+          ls -la auth-kdf-benchmark.json auth-kdf-benchmark.md
+
+      - name: Append summary to job summary
+        run: |
+          set -Eeuo pipefail
+          cat auth-kdf-benchmark.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-kdf-benchmark-${{ github.sha }}
+          path: |
+            auth-kdf-benchmark.json
+            auth-kdf-benchmark.md
+          retention-days: 90
