@@ -38,6 +38,9 @@ class MemoryRepository implements AuthRepository {
     this.sessions.forEach((session) => { session.revokedAt ??= at; });
     return true;
   }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
 }
 
 const baseConfig = {

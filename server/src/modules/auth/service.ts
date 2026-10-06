@@ -3,6 +3,8 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  parsePasswordHash,
+  passwordHashNeedsUpgrade,
   performLoginPasswordWork,
   validateNewPassword,
   verifyPassword,
@@ -44,11 +46,10 @@ export class AuthService {
   async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.repository.findUserByEmail(normalizedEmail);
-    // Fixed KDF budget (R1 reader-first): every attempt performs sequentially
-    // exactly one OLD-cost and one V2-cost derivation, regardless of account
-    // existence, credential profile, activity, or password correctness — so no
-    // branch can reveal which case applied. R1 performs NO hash mutation:
-    // the verified hash only binds the session CAS below.
+    // Fixed KDF budget (R2): every attempt performs sequentially exactly one
+    // OLD-cost and one V2-cost derivation, regardless of account existence,
+    // credential profile, activity, or password correctness — so no branch
+    // can reveal which case applied.
     const work = await performLoginPasswordWork(password, user?.passwordHash ?? null);
     if (
       !user ||
@@ -62,17 +63,86 @@ export class AuthService {
 
     const { rawToken, tokenHash } = createSessionToken();
     const issuedAt = this.now();
-    const session = await this.repository.createSessionIfCredentialCurrent({
+    const expiresAt = new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000);
+    let session = await this.repository.createSessionIfCredentialCurrent({
       userId: user.id,
       tokenHash,
-      expiresAt: new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000),
+      expiresAt,
       expectedPasswordHash: work.verifiedHash,
     });
+    // The record serialized as the authenticated user. Normally the login-time
+    // row; the recovery path below may rebind it to the refetched row so the
+    // response never carries stale flags (e.g. must_change_password set by a
+    // concurrent admin reset to the same password).
+    let authenticatedUser = user;
+    // The hash the issued session is bound to. Normally the verified hash;
+    // the recovery path below may rebind it after re-verification.
+    let sessionHash = work.verifiedHash;
+    if (!session && work.credentialClass === 'OLD') {
+      // Bounded Option-2 recovery (single attempt): the initial CAS failed
+      // after a successfully verified OLD credential, so another login may
+      // have transparently upgraded it. Re-verify the SAME supplied password
+      // against the CURRENT stored hash — never assume hash-changed == rehash.
+      const current = await this.repository.findUserById(user.id);
+      const currentHash = current?.passwordHash ?? null;
+      if (
+        current &&
+        current.isActive &&
+        currentHash &&
+        currentHash !== work.verifiedHash &&
+        parsePasswordHash(currentHash) &&
+        (await verifyPassword(password, currentHash))
+      ) {
+        session = await this.repository.createSessionIfCredentialCurrent({
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+          expectedPasswordHash: currentHash,
+        });
+        if (session) {
+          sessionHash = currentHash;
+          authenticatedUser = current;
+        }
+      }
+    }
     if (!session) {
       throw INVALID_CREDENTIALS;
     }
 
-    return { user: toSafeUser(user), rawToken };
+    // Transparent upgrade only after a durable session, reusing the
+    // precomputed candidate (no third normal-path KDF). Best-effort: a CAS
+    // conflict (lost race) or an operational failure never fails the
+    // already-successful login.
+    if (work.upgradeCandidateHash && passwordHashNeedsUpgrade(sessionHash)) {
+      await this.bestEffortPasswordHashUpgrade(user.id, sessionHash, work.upgradeCandidateHash);
+    }
+
+    return { user: toSafeUser(authenticatedUser), rawToken };
+  }
+
+  /**
+   * Best-effort transparent KDF maintenance. Runs only after a session was
+   * durably created; an exact-CAS conflict (lost race) or operational error
+   * never fails the already-successful login. Operational errors emit a
+   * structured warning without any credential material.
+   */
+  private async bestEffortPasswordHashUpgrade(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<void> {
+    try {
+      await this.repository.upgradePasswordHashIfCurrent(
+        userId,
+        expectedPasswordHash,
+        replacementPasswordHash,
+      );
+    } catch (error) {
+      console.warn('Transparent password-hash upgrade failed', {
+        userId,
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+    }
   }
 
   async authenticateSession(rawToken: string) {

@@ -70,6 +70,9 @@ class MemoryAuthRepository implements AuthRepository {
     }
     return true;
   }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
 }
 
 describe('new-password policy backward compatibility', () => {

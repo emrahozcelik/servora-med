@@ -1,14 +1,15 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { scryptSync } from 'node:crypto';
 
 /**
- * R1 rollback-target proof: after a future R2 writer release produces genuine
- * V2 credentials, an emergency rollback to R1 must keep those holders working
- * with zero lockout and zero schema change — while R1 itself keeps writing V1.
+ * R2 rollback contract: R1 (`19cfb2ab5511e3ff58a4dad3f64e137e6b05501f`) is
+ * the mandatory rollback floor once any V2 credential exists — it can read
+ * and verify V2 but writes only V1. Rolling back to a pre-R1 release
+ * (`e4519b041fad136f98195cf79aecb21898fd6e9e`) is UNSAFE after R2 writes V2.
  *
- * Intentional fallback behavior under test:
- *   R2 → emergency R1 rollback → existing V2 stays readable →
- *   newly changed/reset passwords temporarily emit V1.
+ * Under R2: V2 holders authenticate normally with zero rewrite (V2 is not an
+ * upgrade candidate), there is no downgrade, and policy-invalid historical
+ * passwords still authenticate while transparently upgrading to V2.
  */
 import {
   hashPassword,
@@ -38,10 +39,10 @@ function buildArtifact(
 const SALT = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7];
 const genuineV2 = () => buildArtifact(V2_PASSWORD, 'v2', 32768, SALT);
 
-/** Deliberately WITHOUT any upgrade method: the R1 repository is unchanged. */
-class R1MemoryRepository implements AuthRepository {
+class MemoryRepository implements AuthRepository {
   users: AuthUserRecord[] = [];
   sessions: SessionRecord[] = [];
+  upgradeCalls = 0;
 
   async findUserByEmail(email: string) {
     return this.users.find((user) => user.email.toLowerCase() === email) ?? null;
@@ -89,10 +90,22 @@ class R1MemoryRepository implements AuthRepository {
     }
     return true;
   }
+
+  async upgradePasswordHashIfCurrent(
+    userId: string,
+    expectedPasswordHash: string,
+    replacementPasswordHash: string,
+  ): Promise<'updated' | 'conflict'> {
+    this.upgradeCalls += 1;
+    const user = this.users.find((candidate) => candidate.id === userId);
+    if (!user || !user.isActive || user.passwordHash !== expectedPasswordHash) return 'conflict';
+    user.passwordHash = replacementPasswordHash;
+    return 'updated';
+  }
 }
 
-function seedUser(passwordHash: string): { repository: R1MemoryRepository; service: AuthService } {
-  const repository = new R1MemoryRepository();
+function seedUser(passwordHash: string): { repository: MemoryRepository; service: AuthService } {
+  const repository = new MemoryRepository();
   repository.users.push({
     id: 'user-1', organizationId: 'org-1', name: 'V2 Holder',
     email: 'holder@example.com', passwordHash,
@@ -102,8 +115,8 @@ function seedUser(passwordHash: string): { repository: R1MemoryRepository; servi
   return { repository, service };
 }
 
-describe('R1 rollback target: genuine V2 credential', () => {
-  it('authenticates the correct password, byte-identical hash, session issued', async () => {
+describe('R2 V2 holder contract', () => {
+  it('authenticates the correct password, byte-identical hash, session issued, no rewrite', async () => {
     const v2 = genuineV2();
     expect(parsePasswordHash(v2)).toMatchObject({ profile: 'SCRYPT_V2' });
     const { repository, service } = seedUser(v2);
@@ -113,6 +126,8 @@ describe('R1 rollback target: genuine V2 credential', () => {
     expect(result.rawToken).toHaveLength(43);
     expect(result.user.email).toBe('holder@example.com');
     expect(repository.sessions).toHaveLength(1);
+    // V2 is final: no upgrade candidate, no CAS write.
+    expect(repository.upgradeCalls).toBe(0);
     expect(repository.users[0]!.passwordHash).toBe(v2);
   });
 
@@ -124,6 +139,7 @@ describe('R1 rollback target: genuine V2 credential', () => {
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.upgradeCalls).toBe(0);
     expect(repository.users[0]!.passwordHash).toBe(v2);
   });
 
@@ -138,33 +154,33 @@ describe('R1 rollback target: genuine V2 credential', () => {
     expect(passwordHashNeedsUpgrade(genuineV2())).toBe(false);
   });
 
-  it('password change under R1 still emits V1 (temporary writer fallback)', async () => {
+  it('password change under R2 emits V2', async () => {
     const v2 = genuineV2();
     const { repository, service } = seedUser(v2);
 
     await service.changePassword('user-1', V2_PASSWORD, 'Fresh-Rotation-2026!');
 
     const rotated = repository.users[0]!.passwordHash;
-    expect(rotated).toMatch(/^scrypt\$v1\$16384\$8\$1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
-    expect(parsePasswordHash(rotated)).toMatchObject({ profile: 'SCRYPT_V1' });
+    expect(rotated).toMatch(/^scrypt\$v2\$32768\$8\$1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
+    expect(parsePasswordHash(rotated)).toMatchObject({ profile: 'SCRYPT_V2' });
     await expect(verifyPassword('Fresh-Rotation-2026!', rotated)).resolves.toBe(true);
   });
 
-  it('hashPassword never emits V2', async () => {
+  it('hashPassword never emits LEGACY or V1', async () => {
     for (let i = 0; i < 3; i += 1) {
       const emitted = await hashPassword('Writer-Probe-2026!');
-      expect(emitted).not.toContain('$v2$');
-      expect(parsePasswordHash(emitted)).toMatchObject({ profile: 'SCRYPT_V1' });
+      expect(emitted).not.toContain('$v1$');
+      expect(parsePasswordHash(emitted)).toMatchObject({ profile: 'SCRYPT_V2' });
     }
   });
 });
 
-describe('R1 historical-password boundary', () => {
+describe('historical-password boundary under R2', () => {
   it.each([
     ['legacy', ''],
     ['v1', 'v1'],
     ['v2', 'v2'],
-  ])('policy-violating historical password authenticates under %s without reset', async (
+  ])('policy-violating historical password authenticates under %s and upgrades to V2', async (
     _label: string,
     version: '' | 'v1' | 'v2',
   ) => {
@@ -178,6 +194,16 @@ describe('R1 historical-password boundary', () => {
     expect(result.rawToken).toHaveLength(43);
     expect(repository.sessions).toHaveLength(1);
     expect(repository.users[0]!.mustChangePassword).toBe(false);
-    expect(repository.users[0]!.passwordHash).toBe(historical);
+    const stored = repository.users[0]!.passwordHash;
+    if (version === 'v2') {
+      // Already final: no rewrite, same bytes.
+      expect(repository.upgradeCalls).toBe(0);
+      expect(stored).toBe(historical);
+    } else {
+      // Transparent upgrade; the SAME plaintext still authenticates.
+      expect(repository.upgradeCalls).toBe(1);
+      expect(parsePasswordHash(stored)).toMatchObject({ profile: 'SCRYPT_V2' });
+    }
+    await expect(verifyPassword(LEGACY_PASSWORD, stored)).resolves.toBe(true);
   });
 });

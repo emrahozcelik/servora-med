@@ -15,11 +15,12 @@ const SCRYPT_PARALLELIZATION = 1;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_MAX_MEMORY = 32 * 1024 * 1024;
 /**
- * R1 reader-first rollout: SCRYPT_V2 (N=32768) is READABLE but never emitted.
- * The N=32768 cost was accepted by the bounded cross-environment benchmark
- * (local ARM + GitHub x86, 2 CPU / 4 GiB, zero errors, ~320 MiB peak RSS,
- * stable event loop). V2 emission and opportunistic rehash belong to a later
- * writer slice (R2). `hashPassword` MUST keep emitting V1 below.
+ * R2 writer flip: SCRYPT_V2 (N=32768) is now READABLE and WRITABLE. The
+ * N=32768 cost was accepted by the bounded cross-environment benchmark
+ * (local ARM + GitHub x86, 2 CPU / 4 GiB, run 37492115413, zero
+ * errors/timeouts, ~320 MiB peak RSS, stable event loop). R1
+ * (`19cfb2ab5511e3ff58a4dad3f64e137e6b05501f`) is the mandatory rollback
+ * floor once V2 credentials exist; do not roll back to pre-R1 releases.
  */
 const SCRYPT_V2_COST = 32_768;
 const SCRYPT_V2_MAX_MEMORY = 64 * 1024 * 1024;
@@ -96,18 +97,19 @@ function profileKdfParams(profile: PasswordHashProfile): { cost: number; maxmem:
  * LEGACY/V1 use N=16384; V2 uses N=32768. r=8, p=1, a 16-byte salt and a
  * 64-byte key everywhere, both base64url without padding.
  *
- * R1 reader-first: LEGACY, V1, and V2 artifacts are all verifiable, but
- * `hashPassword` emits ONLY V1 (V2_WRITABLE = NO). Verification never
- * executes arbitrary stored KDF parameters: each profile allowlists its
- * exact N/r/p, and derivation parameters come only from the parsed profile.
+ * R2 writer flip: LEGACY, V1, and V2 artifacts remain verifiable
+ * indefinitely, and `hashPassword` emits ONLY V2 (V2_READABLE = YES,
+ * V2_WRITABLE = YES). Verification never executes arbitrary stored KDF
+ * parameters: each profile allowlists its exact N/r/p, and derivation
+ * parameters come only from the parsed profile.
  */
 export type PasswordHashProfile = 'LEGACY_SCRYPT' | 'SCRYPT_V1' | 'SCRYPT_V2';
 
-/** Sole writer version. R1 MUST NOT emit V2: V2_READABLE = YES, V2_WRITABLE = NO. */
-export const CURRENT_PASSWORD_HASH_VERSION = 'v1';
+/** Sole writer version (R2). R1's rollback floor already reads it. */
+export const CURRENT_PASSWORD_HASH_VERSION = 'v2';
 
-/** Supported reader version for forward-compatible V2 credentials (R2 rollout target). */
-const READER_V2_VERSION = 'v2';
+/** Previous writer version; readable indefinitely, no longer emitted. */
+export const PREVIOUS_PASSWORD_HASH_VERSION = 'v1';
 
 export interface ParsedPasswordHash {
   profile: PasswordHashProfile;
@@ -154,10 +156,10 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
   if (parts.length === 6) {
     profile = 'LEGACY_SCRYPT';
     fields = parts;
-  } else if (parts.length === 7 && parts[1] === READER_V2_VERSION) {
+  } else if (parts.length === 7 && parts[1] === CURRENT_PASSWORD_HASH_VERSION) {
     profile = 'SCRYPT_V2';
     fields = [parts[0], ...parts.slice(2)];
-  } else if (parts.length === 7 && parts[1] === CURRENT_PASSWORD_HASH_VERSION) {
+  } else if (parts.length === 7 && parts[1] === PREVIOUS_PASSWORD_HASH_VERSION) {
     profile = 'SCRYPT_V1';
     fields = [parts[0], ...parts.slice(2)];
   } else {
@@ -186,14 +188,15 @@ export function parsePasswordHash(storedHash: string): ParsedPasswordHash | null
 }
 
 /**
- * Pure upgrade classifier: groundwork for a later migration slice. Returns
- * true only for a supported LEGACY artifact, matching current production
- * semantics; V1 and V2 artifacts are already final, and malformed/unsupported
- * artifacts are NOT legitimate upgrade candidates. The R1 login path MUST NOT
- * act on this result (no opportunistic rehash in this slice).
+ * Pure upgrade classifier (R2). Returns true for supported LEGACY and V1
+ * artifacts (both migrate toward V2 after a successful login); V2 artifacts
+ * are already final, and malformed/unsupported artifacts are NOT legitimate
+ * upgrade candidates. Purely a classification — it mutates nothing and
+ * never lets stored artifacts select KDF parameters.
  */
 export function passwordHashNeedsUpgrade(storedHash: string): boolean {
-  return parsePasswordHash(storedHash)?.profile === 'LEGACY_SCRYPT';
+  const profile = parsePasswordHash(storedHash)?.profile;
+  return profile === 'LEGACY_SCRYPT' || profile === 'SCRYPT_V1';
 }
 
 /**
@@ -203,19 +206,23 @@ export function passwordHashNeedsUpgrade(storedHash: string): boolean {
  * today's new-password composition. Policy enforcement belongs to the
  * explicit `validateNewPassword` call sites that set new passwords.
  *
- * Emits ONLY the V1 versioned format (R1 writer boundary: V2_WRITABLE = NO),
- * so newly set passwords naturally use the versioned representation. No call
- * site may construct the format manually. KDF parameters are unchanged from
- * the legacy profile.
+ * Emits ONLY the V2 format (R2 writer flip), so newly set passwords and
+ * transparent upgrades naturally use the current representation. No call
+ * site may construct the format manually.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const derivedKey = await derivePasswordKey(password, salt);
+  const derivedKey = await derivePasswordKey(
+    password,
+    salt,
+    SCRYPT_V2_COST,
+    SCRYPT_V2_MAX_MEMORY,
+  );
 
   return [
     'scrypt',
     CURRENT_PASSWORD_HASH_VERSION,
-    SCRYPT_COST,
+    SCRYPT_V2_COST,
     SCRYPT_BLOCK_SIZE,
     SCRYPT_PARALLELIZATION,
     salt.toString('base64url'),
@@ -290,7 +297,7 @@ export function oldCredentialSentinelHash(): Promise<string> {
   oldSentinelHash ??= deriveSentinelHash(
     SCRYPT_COST,
     SCRYPT_MAX_MEMORY,
-    CURRENT_PASSWORD_HASH_VERSION,
+    PREVIOUS_PASSWORD_HASH_VERSION,
   );
   return oldSentinelHash;
 }
@@ -300,7 +307,7 @@ export function v2CredentialSentinelHash(): Promise<string> {
   v2SentinelHash ??= deriveSentinelHash(
     SCRYPT_V2_COST,
     SCRYPT_V2_MAX_MEMORY,
-    READER_V2_VERSION,
+    CURRENT_PASSWORD_HASH_VERSION,
   );
   return v2SentinelHash;
 }
@@ -311,15 +318,19 @@ export function v2CredentialSentinelHash(): Promise<string> {
  * performs sequentially exactly one OLD-cost and one V2-cost derivation,
  * never concurrently and with no wall-clock sleep padding.
  *
- * Slot assignment:
- * - OLD stored credential (LEGACY/V1): OLD slot = real verification;
- *   V2 slot = dummy verification against the warmed V2 sentinel.
+ * Slot assignment (R2):
+ * - OLD stored credential (LEGACY/V1): OLD slot = real verification; V2 slot
+ *   = a fresh canonical V2 candidate derived from the SUPPLIED password
+ *   (whether verification succeeds or not), returned for transparent-upgrade
+ *   reuse only on success — so OLD logins need no third normal-path KDF.
  * - V2 stored credential: OLD slot = dummy verification against the warmed
  *   OLD sentinel; V2 slot = real verification.
  * - Unknown/malformed/unsupported: both slots dummy (OLD + V2 sentinels).
  *
- * R1 performs NO upgrade-candidate derivation and NO hash mutation: the
- * fixed budget is exactly two normal-path KDFs.
+ * Candidate derivation is best-effort maintenance: if it fails at runtime
+ * (e.g. memory pressure), the OLD verification result remains authoritative
+ * and the login proceeds without an upgrade candidate — a valid OLD password
+ * can never produce a 500 or an OLD-credential oracle.
  */
 export type LoginCredentialClass = 'OLD' | 'V2' | 'UNSUPPORTED';
 
@@ -328,6 +339,8 @@ export interface LoginPasswordWork {
   matches: boolean;
   /** Exact stored hash that was verified; null unless supported and matching. */
   verifiedHash: string | null;
+  /** Precomputed canonical V2 hash; present only when OLD && matches. */
+  upgradeCandidateHash?: string;
 }
 
 export async function performLoginPasswordWork(
@@ -350,11 +363,24 @@ export async function performLoginPasswordWork(
     };
   }
   const matches = await verifyPassword(password, storedHash as string);
-  await verifyPassword(password, await v2CredentialSentinelHash());
+  // The V2-slot candidate is derived from the SUPPLIED password whether
+  // verification succeeds or not (fixed budget) and is returned only on
+  // success. Derivation is best-effort: failure must not turn a valid OLD
+  // credential into a 500 or create an authentication oracle.
+  let upgradeCandidateHash: string | undefined;
+  try {
+    const candidate = await hashPassword(password);
+    if (matches) {
+      upgradeCandidateHash = candidate;
+    }
+  } catch {
+    upgradeCandidateHash = undefined;
+  }
   return {
     credentialClass: 'OLD',
     matches,
     verifiedHash: matches ? (storedHash as string) : null,
+    ...(upgradeCandidateHash ? { upgradeCandidateHash } : {}),
   };
 }
 

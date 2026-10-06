@@ -32,6 +32,9 @@ class MemoryRepository implements AuthRepository {
     if (session && !session.revokedAt) session.revokedAt = at;
   }
   async updatePasswordAndRevokeSessions() { return false; }
+  async upgradePasswordHashIfCurrent(): Promise<'updated' | 'conflict'> {
+    return 'conflict';
+  }
 }
 
 const baseConfig: AppConfig = {
