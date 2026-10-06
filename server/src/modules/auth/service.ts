@@ -3,7 +3,7 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
-  invalidCredentialSentinelHash,
+  performLoginPasswordWork,
   validateNewPassword,
   verifyPassword,
 } from './crypto.js';
@@ -44,13 +44,19 @@ export class AuthService {
   async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.repository.findUserByEmail(normalizedEmail);
-    // Constant work: an unknown account still pays exactly one scrypt
-    // derivation, against the sentinel hash, so response time cannot reveal
-    // whether the email exists. Inactive accounts pay the real derivation
-    // before the same generic rejection.
-    const storedHash = user?.passwordHash ?? (await invalidCredentialSentinelHash());
-    const passwordMatches = await verifyPassword(password, storedHash);
-    if (!user || !user.isActive || !passwordMatches) {
+    // Fixed KDF budget (R1 reader-first): every attempt performs sequentially
+    // exactly one OLD-cost and one V2-cost derivation, regardless of account
+    // existence, credential profile, activity, or password correctness — so no
+    // branch can reveal which case applied. R1 performs NO hash mutation:
+    // the verified hash only binds the session CAS below.
+    const work = await performLoginPasswordWork(password, user?.passwordHash ?? null);
+    if (
+      !user ||
+      !user.isActive ||
+      work.credentialClass === 'UNSUPPORTED' ||
+      !work.matches ||
+      !work.verifiedHash
+    ) {
       throw INVALID_CREDENTIALS;
     }
 
@@ -60,7 +66,7 @@ export class AuthService {
       userId: user.id,
       tokenHash,
       expiresAt: new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000),
-      expectedPasswordHash: user.passwordHash,
+      expectedPasswordHash: work.verifiedHash,
     });
     if (!session) {
       throw INVALID_CREDENTIALS;

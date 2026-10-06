@@ -12,7 +12,7 @@ import {
   type BackupHealthReadinessPort,
   type HealthReadinessPort,
 } from './modules/health/service.js';
-import { invalidCredentialSentinelHash } from './modules/auth/crypto.js';
+import { oldCredentialSentinelHash, v2CredentialSentinelHash } from './modules/auth/crypto.js';
 import { AuthService } from './modules/auth/service.js';
 import type { AuthRepository } from './modules/auth/repository.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -234,15 +234,15 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     backupReadiness: dependencies.backupHealthReadiness,
   });
   if (dependencies.authRepository) {
-    // Warm the invalid-credential sentinel BEFORE the app can serve any request.
-    // Deriving it lazily on the first unknown-account login would make that one
-    // request pay two scrypt derivations (create the sentinel, then verify the
-    // supplied password) while a known-account wrong password pays one — which
-    // re-creates an account-existence timing distinction on the first login
-    // after every process start / restart / deploy. `buildApp` is awaited before
-    // the server calls `listen()`, so this always completes before any HTTP
-    // login request can arrive. The one-time startup KDF cost is intentional.
-    await invalidCredentialSentinelHash();
+    // Warm BOTH KDF-class sentinels BEFORE the app can serve any request.
+    // Deriving either lazily on the first login would make that one request
+    // pay an extra scrypt derivation while later logins do not — which
+    // re-creates a timing distinction on the first login after every process
+    // start / restart / deploy. `buildApp` is awaited before the server calls
+    // `listen()`, so both always complete before any HTTP login request can
+    // arrive. The one-time startup KDF cost is intentional.
+    await oldCredentialSentinelHash();
+    await v2CredentialSentinelHash();
     const authService = new AuthService(dependencies.authRepository, config.sessionTtlSeconds);
     await app.register(authRoutes, {
       prefix: '/api/auth',

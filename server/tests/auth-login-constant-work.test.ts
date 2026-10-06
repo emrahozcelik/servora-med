@@ -1,55 +1,90 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Proves the login invalid-credential branches all execute the same password
- * verification path, so "no such email" cannot be distinguished from "known
- * email, wrong password" by skipping key-derivation work.
+ * R1 fixed-work login KDF budget (structural, never wall-clock).
  *
- * The observation seam is a counted wrapper around `verifyPassword`, the only
- * KDF entry point on the login path. Assertions are structural (call count and
- * the hash actually verified against) rather than wall-clock, so they are not
- * timing-brittle on loaded CI machines.
+ * Every login attempt must perform sequentially exactly:
+ *   1 × OLD-cost derivation (N=16384) AND 1 × V2-cost derivation (N=32768)
+ * regardless of account existence, credential profile, activity, or password
+ * correctness — so no branch can reveal which case applied. R1 is
+ * reader-first: V2 is verifiable, V1 remains the sole writer, and login
+ * performs NO hash mutation.
+ *
+ * Seam (deterministic, no timing): a counted wrapper around node:crypto
+ * `scrypt` recording (N, salt) per derivation, in call order. The salt
+ * proves slot assignment — the stored credential salt for a real
+ * verification, the sentinel salt for a dummy — because salts are unique
+ * per artifact. Budget assertions use the N counts; assignment assertions
+ * use the recorded salts.
  */
-const spies = vi.hoisted(() => ({
-  verifyPasswordCalls: 0,
-  storedHashes: [] as string[],
-  sentinelDerivations: 0,
-  sentinelMemo: null as Promise<string> | null,
+const derivations = vi.hoisted(() => ({
+  counts: new Map<number, number>(),
+  slots: [] as { N: number; saltHex: string }[],
 }));
 
-vi.mock('../src/modules/auth/crypto.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/modules/auth/crypto.js')>();
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
   return {
     ...actual,
-    // Counted seam around the one-time sentinel derivation. `invalidCredentialSentinelHash`
-    // calls the module-local `hashPassword`, so mocking `hashPassword` would NOT observe the
-    // derivation; wrapping the sentinel entry point itself is the seam that actually sees it.
-    // The wrapper mirrors the production memoization contract exactly (single-flight `??=`),
-    // so the counter increments precisely when a real derivation would occur.
-    invalidCredentialSentinelHash() {
-      spies.sentinelMemo ??= (async () => {
-        spies.sentinelDerivations += 1;
-        return actual.invalidCredentialSentinelHash();
-      })();
-      return spies.sentinelMemo;
-    },
-    async verifyPassword(password: string, storedHash: string) {
-      spies.verifyPasswordCalls += 1;
-      spies.storedHashes.push(storedHash);
-      return actual.verifyPassword(password, storedHash);
+    scrypt(
+      password: unknown,
+      salt: unknown,
+      keylen: unknown,
+      options: { N?: number } & Record<string, unknown>,
+      callback: (err: Error | null, key?: Buffer) => void,
+    ) {
+      const N = options.N ?? -1;
+      derivations.counts.set(N, (derivations.counts.get(N) ?? 0) + 1);
+      derivations.slots.push({ N, saltHex: Buffer.from(salt as Uint8Array).toString('hex') });
+      return actual.scrypt(password as never, salt as never, keylen as never, options as never, callback as never);
     },
   };
 });
 
+import { scryptSync } from 'node:crypto';
 import { buildApp } from '../src/app.js';
 import {
   hashPassword,
-  invalidCredentialSentinelHash,
+  oldCredentialSentinelHash,
   parsePasswordHash,
+  v2CredentialSentinelHash,
 } from '../src/modules/auth/crypto.js';
 import type { AuthRepository } from '../src/modules/auth/repository.js';
 import { AuthService } from '../src/modules/auth/service.js';
 import type { AuthUserRecord, SessionRecord } from '../src/modules/auth/types.js';
+
+const PASSWORD = 'Fixed-Work-2026!';
+
+function buildArtifact(
+  password: string,
+  version: '' | 'v1' | 'v2',
+  cost: number,
+  saltBytes: number[],
+): string {
+  const salt = Buffer.from(saltBytes);
+  const key = scryptSync(password, salt, 64, { N: cost, r: 8, p: 1, maxmem: 128 * 1024 * 1024 });
+  return ['scrypt', ...(version ? [version] : []), cost, 8, 1,
+    salt.toString('base64url'), key.toString('base64url')].join('$');
+}
+
+const SALT_OLD = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const SALT_V2 = [31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+const SALT_OLD_HEX = Buffer.from(SALT_OLD).toString('hex');
+const SALT_V2_HEX = Buffer.from(SALT_V2).toString('hex');
+const LEGACY = () => buildArtifact(PASSWORD, '', 16384, SALT_OLD);
+const V1 = () => buildArtifact(PASSWORD, 'v1', 16384, SALT_OLD);
+const V2 = () => buildArtifact(PASSWORD, 'v2', 32768, SALT_V2);
+
+async function sentinelSalts() {
+  const old = parsePasswordHash(await oldCredentialSentinelHash());
+  const v2 = parsePasswordHash(await v2CredentialSentinelHash());
+  expect(old?.profile).toBe('SCRYPT_V1');
+  expect(v2?.profile).toBe('SCRYPT_V2');
+  return {
+    old: old!.salt.toString('hex'),
+    v2: v2!.salt.toString('hex'),
+  };
+}
 
 class MemoryAuthRepository implements AuthRepository {
   users: AuthUserRecord[] = [];
@@ -108,98 +143,168 @@ class MemoryAuthRepository implements AuthRepository {
   }
 }
 
-describe('login invalid-credential constant work', () => {
+function resetSeams() {
+  derivations.counts.clear();
+  derivations.slots.length = 0;
+}
+
+/** Exactly one OLD slot then one V2 slot, in order, no more, no fewer. */
+function expectFixedBudget(oldSaltHex: string, v2SaltHex: string) {
+  expect(Object.fromEntries(derivations.counts)).toEqual({ 16384: 1, 32768: 1 });
+  expect(derivations.slots).toEqual([
+    { N: 16384, saltHex: oldSaltHex },
+    { N: 32768, saltHex: v2SaltHex },
+  ]);
+}
+
+describe('login fixed-work budget', () => {
   const now = new Date('2026-10-01T08:00:00.000Z');
   let repository: MemoryAuthRepository;
   let service: AuthService;
+  let sentinels: { old: string; v2: string };
 
   beforeEach(async () => {
-    spies.verifyPasswordCalls = 0;
-    spies.storedHashes.length = 0;
     repository = new MemoryAuthRepository();
     repository.users.push({
       id: 'user-1', organizationId: 'org-1', name: 'Admin User',
-      email: 'admin@example.com', passwordHash: await hashPassword('correct-password'),
+      email: 'admin@example.com', passwordHash: V1(),
       role: 'ADMIN', mustChangePassword: false, isActive: true, version: 1,
     });
     service = new AuthService(repository, 28_800, () => now);
+    sentinels = await sentinelSalts();
+    resetSeams();
   });
 
-  it('verifies exactly once against the sentinel for an unknown email', async () => {
+  it('unknown email: OLD dummy + V2 dummy, generic reject, no session', async () => {
     await expect(service.login('nobody@example.com', 'wrong-password'))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expect(spies.verifyPasswordCalls).toBe(1);
-    // The sentinel — never a fabricated account row and never the real hash.
-    expect(spies.storedHashes[0]).toBe(await invalidCredentialSentinelHash());
-    expect(spies.storedHashes[0]).not.toBe(repository.users[0]!.passwordHash);
+    expectFixedBudget(sentinels.old, sentinels.v2);
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('verifies exactly once for an inactive account before the generic reject', async () => {
-    repository.users[0]!.isActive = false;
+  it('malformed stored hash: OLD dummy + V2 dummy, generic reject', async () => {
+    repository.users[0]!.passwordHash = 'not-a-password-hash';
+    resetSeams();
 
-    await expect(service.login('admin@example.com', 'correct-password'))
+    await expect(service.login('admin@example.com', PASSWORD))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expect(spies.verifyPasswordCalls).toBe(1);
-    expect(spies.storedHashes[0]).toBe(repository.users[0]!.passwordHash);
+    expectFixedBudget(sentinels.old, sentinels.v2);
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('verifies exactly once for a wrong password', async () => {
+  it('inactive LEGACY account: same budget before generic reject', async () => {
+    repository.users[0]!.passwordHash = LEGACY();
+    repository.users[0]!.isActive = false;
+    resetSeams();
+
+    await expect(service.login('admin@example.com', PASSWORD))
+      .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
+
+    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
+    expect(repository.sessions).toHaveLength(0);
+  });
+
+  it('inactive V2 account: same budget before generic reject', async () => {
+    repository.users[0]!.passwordHash = V2();
+    repository.users[0]!.isActive = false;
+    resetSeams();
+
+    await expect(service.login('admin@example.com', PASSWORD))
+      .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
+
+    expectFixedBudget(sentinels.old, SALT_V2_HEX);
+    expect(repository.sessions).toHaveLength(0);
+  });
+
+  it('V1 correct: real OLD + dummy V2, session issued, hash untouched', async () => {
+    const before = repository.users[0]!.passwordHash;
+
+    const result = await service.login('admin@example.com', PASSWORD);
+
+    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
+    expect(result.rawToken).toHaveLength(43);
+    expect(repository.sessions).toHaveLength(1);
+    // R1 performs NO rehash: the stored credential is byte-identical.
+    expect(repository.users[0]!.passwordHash).toBe(before);
+  });
+
+  it('V1 wrong: real OLD + dummy V2, generic reject, no mutation', async () => {
+    const before = repository.users[0]!.passwordHash;
+
     await expect(service.login('admin@example.com', 'wrong-password'))
       .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
 
-    expect(spies.verifyPasswordCalls).toBe(1);
-    expect(spies.storedHashes[0]).toBe(repository.users[0]!.passwordHash);
+    expectFixedBudget(SALT_OLD_HEX, sentinels.v2);
     expect(repository.sessions).toHaveLength(0);
+    expect(repository.users[0]!.passwordHash).toBe(before);
   });
 
-  it('verifies exactly once on a successful login', async () => {
-    const result = await service.login('admin@example.com', 'correct-password');
+  it('V2 correct: dummy OLD + real V2, session issued, no downgrade', async () => {
+    const v2 = V2();
+    repository.users[0]!.passwordHash = v2;
+    resetSeams();
 
-    expect(spies.verifyPasswordCalls).toBe(1);
-    expect(spies.storedHashes[0]).toBe(repository.users[0]!.passwordHash);
+    const result = await service.login('admin@example.com', PASSWORD);
+
+    expectFixedBudget(sentinels.old, SALT_V2_HEX);
     expect(result.rawToken).toHaveLength(43);
     expect(repository.sessions).toHaveLength(1);
+    expect(repository.users[0]!.passwordHash).toBe(v2);
+  });
+
+  it('V2 wrong: dummy OLD + real V2, generic reject', async () => {
+    const v2 = V2();
+    repository.users[0]!.passwordHash = v2;
+    resetSeams();
+
+    await expect(service.login('admin@example.com', 'wrong-password'))
+      .rejects.toMatchObject({ code: 'INVALID_CREDENTIALS', statusCode: 401 });
+
+    expectFixedBudget(sentinels.old, SALT_V2_HEX);
+    expect(repository.sessions).toHaveLength(0);
+    expect(repository.users[0]!.passwordHash).toBe(v2);
   });
 });
 
-describe('invalid-credential sentinel', () => {
-  it('is a genuine scrypt artifact of the production parameter set', async () => {
-    // Parse through the production SSOT (no second parser): the sentinel must
-    // be a CURRENT v1 artifact with the production 16-byte salt / 64-byte key.
-    const artifact = parsePasswordHash(await invalidCredentialSentinelHash());
+describe('fixed-work sentinels', () => {
+  it('OLD sentinel is a genuine v1 artifact, V2 sentinel a genuine v2 artifact', async () => {
+    const old = parsePasswordHash(await oldCredentialSentinelHash());
+    const v2 = parsePasswordHash(await v2CredentialSentinelHash());
 
-    expect(artifact?.profile).toBe('SCRYPT_V1');
-    expect(artifact?.salt).toHaveLength(16);
-    expect(artifact?.key).toHaveLength(64);
+    expect(old?.profile).toBe('SCRYPT_V1');
+    expect(old?.salt).toHaveLength(16);
+    expect(old?.key).toHaveLength(64);
+    expect(v2?.profile).toBe('SCRYPT_V2');
+    expect(v2?.salt).toHaveLength(16);
+    expect(v2?.key).toHaveLength(64);
+    expect(await oldCredentialSentinelHash()).not.toBe(await v2CredentialSentinelHash());
   });
 
-  it('is derived once per process, never per request', async () => {
-    const [concurrent, memoized] = await Promise.all([
-      invalidCredentialSentinelHash(),
-      invalidCredentialSentinelHash(),
+  it('each sentinel is derived once per process, never per request', async () => {
+    const [aOld, bOld] = await Promise.all([
+      oldCredentialSentinelHash(),
+      oldCredentialSentinelHash(),
+    ]);
+    const [aV2, bV2] = await Promise.all([
+      v2CredentialSentinelHash(),
+      v2CredentialSentinelHash(),
     ]);
 
-    expect(concurrent).toBe(memoized);
-    expect(await invalidCredentialSentinelHash()).toBe(concurrent);
+    expect(aOld).toBe(bOld);
+    expect(aV2).toBe(bV2);
   });
 });
 
 /**
  * Cold-start regression.
  *
- * The sentinel is memoized, so if it is first derived lazily by the first
- * unknown-account login, that single request pays two scrypt derivations
- * (create the sentinel, then verify the supplied password) while a known
- * account with a wrong password pays one. That re-creates an account-existence
- * timing distinction for the first unknown login after every process start.
- *
- * The fix derives the sentinel during `buildApp`. These tests use the counted
- * derivation seam above (not wall-clock) to prove the derivation has already
- * happened by the time `buildApp` resolves, and that no later login re-derives.
+ * Both sentinels are memoized, so deriving either lazily on the first login
+ * would make that one request pay an extra scrypt derivation while later
+ * logins do not — re-creating a timing distinction on the first login after
+ * every process start / restart / deploy. `buildApp` warms both sentinels
+ * before `listen()`; the counted scrypt seam (not wall-clock) proves it.
  */
 const appConfig = {
   nodeEnv: 'test' as const, host: '127.0.0.1', port: 3000,
@@ -221,40 +326,41 @@ const appConfig = {
   },
 };
 
-describe('invalid-credential sentinel warmup at app construction', () => {
+describe('sentinel warmup at app construction', () => {
   let repository: MemoryAuthRepository;
   let app: Awaited<ReturnType<typeof buildApp>>;
+  let freshHashPassword: typeof hashPassword;
+  let freshBuildApp: typeof buildApp;
 
   beforeEach(async () => {
-    spies.verifyPasswordCalls = 0;
-    spies.storedHashes.length = 0;
-    spies.sentinelDerivations = 0;
-    spies.sentinelMemo = null;
+    // Fresh module state per test: sentinel memoization is process-global, so
+    // only a re-imported module can prove buildApp itself performs the two
+    // derivations. The node:crypto counting seam survives resetModules.
+    vi.resetModules();
+    const freshCrypto = await import('../src/modules/auth/crypto.js');
+    freshHashPassword = freshCrypto.hashPassword;
+    ({ buildApp: freshBuildApp } = await import('../src/app.js'));
     repository = new MemoryAuthRepository();
     repository.users.push({
       id: 'user-1', organizationId: 'org-1', name: 'Admin User',
-      email: 'admin@example.com', passwordHash: await hashPassword('correct-password'),
+      email: 'admin@example.com', passwordHash: await freshHashPassword('correct-password'),
       role: 'ADMIN', mustChangePassword: false, isActive: true, version: 1,
     });
-    app = await buildApp(appConfig, { authRepository: repository });
+    resetSeams();
+    app = await freshBuildApp(appConfig, { authRepository: repository });
   });
 
   afterEach(async () => {
     await app.close();
   });
 
-  it('derives the sentinel during buildApp, before any request can be served', () => {
-    // `buildApp` has resolved and no HTTP request exists yet. The production
-    // server only reaches `listen()` after this resolves, so the derivation is
-    // already complete before the first login can arrive.
-    expect(spies.sentinelDerivations).toBe(1);
+  it('derives exactly one OLD and one V2 sentinel during buildApp', () => {
+    // Seeding ran before the reset; the only derivations since are the two
+    // warmed sentinels. No HTTP request exists yet.
+    expect(Object.fromEntries(derivations.counts)).toEqual({ 16384: 1, 32768: 1 });
   });
 
-  it('does not re-derive on the first unknown-email login and verifies exactly once', async () => {
-    // Baseline captured after construction: the cold-start login must not add a
-    // derivation on top of it (that would be the lazy two-KDF path this fix removes).
-    const warmedDerivations = spies.sentinelDerivations;
-
+  it('cold-start unknown-email login reuses warmed sentinels and pays the fixed budget', async () => {
     const response = await app.inject({
       method: 'POST', url: '/api/auth/login',
       headers: { origin: appConfig.corsOrigin },
@@ -263,14 +369,14 @@ describe('invalid-credential sentinel warmup at app construction', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ code: 'INVALID_CREDENTIALS' });
-    // The cold-start request must reuse the warmed sentinel, not derive a new one.
-    expect(spies.sentinelDerivations).toBe(warmedDerivations);
-    expect(spies.verifyPasswordCalls).toBe(1);
-    expect(spies.storedHashes[0]).toBe(await invalidCredentialSentinelHash());
+    // Two warmed derivations + exactly one fixed-budget login (2 slots).
+    expect(derivations.counts.get(16384)).toBe(2);
+    expect(derivations.counts.get(32768)).toBe(2);
+    expect(derivations.slots).toHaveLength(4);
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('performs exactly one verification for a known user with a wrong password', async () => {
+  it('known user with wrong password pays the same fixed budget', async () => {
     const response = await app.inject({
       method: 'POST', url: '/api/auth/login',
       headers: { origin: appConfig.corsOrigin },
@@ -278,13 +384,12 @@ describe('invalid-credential sentinel warmup at app construction', () => {
     });
 
     expect(response.statusCode).toBe(401);
-    expect(spies.sentinelDerivations).toBe(1);
-    expect(spies.verifyPasswordCalls).toBe(1);
-    expect(spies.storedHashes[0]).toBe(repository.users[0]!.passwordHash);
+    expect(derivations.counts.get(16384)).toBe(2);
+    expect(derivations.counts.get(32768)).toBe(2);
     expect(repository.sessions).toHaveLength(0);
   });
 
-  it('leaves successful login unchanged', async () => {
+  it('successful login pays the same fixed budget and issues a session', async () => {
     const response = await app.inject({
       method: 'POST', url: '/api/auth/login',
       headers: { origin: appConfig.corsOrigin },
@@ -292,7 +397,8 @@ describe('invalid-credential sentinel warmup at app construction', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(spies.verifyPasswordCalls).toBe(1);
+    expect(derivations.counts.get(16384)).toBe(2);
+    expect(derivations.counts.get(32768)).toBe(2);
     expect(repository.sessions).toHaveLength(1);
     expect(response.headers['set-cookie']).toMatch(/servora_session=/);
   });
