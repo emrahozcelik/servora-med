@@ -39,6 +39,12 @@ describe('job detail lifecycle spacing (UI polish slice A)', () => {
     expect(marginRem(bodies, 'margin-top')).toBeGreaterThan(0);
   });
 
+  it('separates a follow-up source panel from the terminal banner', () => {
+    const bodies = rulesFor('.follow-up-source-context + [data-job-detail-section="terminal"]');
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(marginRem(bodies, 'margin-top')).toBeGreaterThan(0);
+  });
+
   it('keeps the shared terminal banner free of top margin (WeeklyReportDetail undisturbed)', () => {
     const bodies = rulesFor('.completed-job-banner');
     expect(bodies.length).toBeGreaterThan(0);

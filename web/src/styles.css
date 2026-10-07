@@ -3684,6 +3684,14 @@ html a:focus-visible {
 .support-contact h2,
 .settings-panel h2 { margin-top: 0; font-size: 1.15rem; }
 .overview-section h2 { margin-bottom: 0.75rem; }
+/* Late-submission rows render inside OperationalCard, whose Ant title slot
+   does not wrap. Keep long job titles fully readable on this surface only
+   (including 200% text) without changing global card behavior. */
+.submission-late-card .servora-operational-card__title,
+.submission-late-card .servora-operational-card__title a {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .overview-card-stack {
   display: grid;
   gap: 0.65rem;

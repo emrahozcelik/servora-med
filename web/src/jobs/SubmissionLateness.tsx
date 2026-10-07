@@ -306,6 +306,7 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
             key={`${item.jobCardId}:${item.episodeNo}`}
             title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
             tone="attention"
+            className="submission-late-card"
           >
             <span>
               {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
