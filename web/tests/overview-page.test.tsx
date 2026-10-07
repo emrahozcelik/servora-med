@@ -41,6 +41,10 @@ const managementOverview: OverviewResponse = {
   completedInPeriod: 6, cancelledInPeriod: 1,
   completionTrend: [{ date: '2026-07-25', count: 2 }],
   approvalQueueSummary: { pendingCount: 3, oldestWaitingMinutes: 120 },
+  workTypeDistribution: [
+    { type: 'GENERAL_TASK', count: 2 },
+    { type: 'WEEKLY_REPORT', count: 1 },
+  ],
   recentCompletedWork: [{ id: 'j-2', title: 'Muayene ziyareti', customerName: 'Klinik B', assigneeName: 'Ahmet Yönetici', completedAt: '2026-07-24' }],
   recentNotes: [{
     id: 'note-2', jobCardId: 'job-2', jobTitle: 'Toplantı',
@@ -138,6 +142,15 @@ describe('OverviewPage', () => {
     expect(html).toContain('Ürün teslimi');
     expect(html).toContain('Klinik A');
     expect(html).toContain('Ayşe Personel');
+  });
+
+  it('renders canonical Turkish work-type labels without raw enums', async () => {
+    const html = await render(managementOverview);
+    expect(html).toContain('İş dağılımı');
+    expect(html).toContain('Genel görev');
+    expect(html).toContain('Haftalık rapor');
+    expect(html).not.toContain('WEEKLY_REPORT');
+    expect(html).not.toContain('GENERAL_TASK');
   });
 
   it('renders OperationalCards for recent notes', async () => {

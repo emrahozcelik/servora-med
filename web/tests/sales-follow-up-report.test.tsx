@@ -302,6 +302,16 @@ describe('Sales follow-up presentation', () => {
     expect(html).not.toContain('Satış başarısı');
   });
 
+  it('renders canonical Turkish type labels without raw enums', () => {
+    const html = viewMarkup(baseReport);
+    expect(html).toContain('Ürün teslimi');
+    expect(html).toContain('Genel görev');
+    expect(html).toContain('Satış görüşmesi');
+    expect(html).not.toContain('PRODUCT_DELIVERY');
+    expect(html).not.toContain('GENERAL_TASK');
+    expect(html).not.toContain('SALES_MEETING');
+  });
+
   it('renders outcome empty state without global emptiness claim', () => {
     const emptyOutcome: SalesFollowUpReportResponse = {
       ...baseReport,

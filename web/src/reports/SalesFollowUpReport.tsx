@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { jobTypeLabels } from '../jobs/job-labels';
+import { jobTypeLabel } from '../jobs/job-labels';
 import { activeWorkflowPresentation } from '../jobs/job-status-presentation';
 import { JOB_CARD_TYPES } from '../jobs/jobs-api';
 import { paths } from '../paths';
@@ -173,7 +173,7 @@ export function SalesFollowUpReportView({
   }));
   const followUpTypeItems = report.current.followUpChildren.typeDistribution.map((item) => ({
     key: item.type,
-    label: jobTypeLabels[item.type as keyof typeof jobTypeLabels] ?? item.type,
+    label: jobTypeLabel(item.type),
     value: item.count,
   }));
 
@@ -223,7 +223,7 @@ export function SalesFollowUpReportView({
           <div className="report-sales-created-types" aria-label="Oluşturulan takip türleri">
             {report.period.followUpChildrenCreatedByType.map((item) => (
               <span key={item.type} className="report-customer-chip">
-                {jobTypeLabels[item.type as keyof typeof jobTypeLabels] ?? item.type} {item.count}
+                {jobTypeLabel(item.type)} {item.count}
               </span>
             ))}
           </div>
@@ -441,7 +441,7 @@ export function SalesFollowUpReportView({
                 key: 'type',
                 responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
-                  record.followUpProposedType ? (jobTypeLabels[record.followUpProposedType as keyof typeof jobTypeLabels] ?? record.followUpProposedType) : 'Belirtilmedi',
+                  record.followUpProposedType ? jobTypeLabel(record.followUpProposedType) : 'Belirtilmedi',
               },
               {
                 title: 'Önerilen sorumlu',
@@ -466,7 +466,7 @@ export function SalesFollowUpReportView({
                     </div>
                     <div>{formatProposedAt(record.proposedFollowUpAt, report.range.timezone)}</div>
                     <div>
-                      {record.followUpProposedType ? (jobTypeLabels[record.followUpProposedType as keyof typeof jobTypeLabels] ?? record.followUpProposedType) : 'Belirtilmedi'}
+                      {record.followUpProposedType ? jobTypeLabel(record.followUpProposedType) : 'Belirtilmedi'}
                       {record.followUpProposedAssignee ? ` · ${record.followUpProposedAssignee.name}` : ''}
                     </div>
                   </div>

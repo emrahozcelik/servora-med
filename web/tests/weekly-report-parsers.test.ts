@@ -54,7 +54,7 @@ describe('weekly report web parser safety', () => {
     expect([...PRODUCTIVE_JOB_CARD_TYPES]).toEqual([
       'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
     ]);
-    expect(jobTypeLabels.WEEKLY_REPORT).toBe('Haftalık Rapor');
+    expect(jobTypeLabels.WEEKLY_REPORT).toBe('Haftalık rapor');
   });
 
   it('accepts WEEKLY_REPORT in list filters and search params', () => {

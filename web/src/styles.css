@@ -2607,6 +2607,13 @@ html a:focus-visible {
   margin-top: 0.65rem;
   min-width: 0;
 }
+/* The heading group (PageHeader plus status/priority chips) owns bottom
+   separation from whatever operational surface follows (lifecycle steps,
+   submission-lateness surface). Scoped to the JobDetail root so PageHeader
+   spacing elsewhere and the WeeklyReportDetail composition are untouched. */
+[data-job-detail="true"] > [data-job-detail-section="heading"] {
+  margin-bottom: 1.15rem;
+}
 .detail-back-button {
   flex: 0 0 auto;
   align-self: flex-start;
@@ -2814,6 +2821,16 @@ html a:focus-visible {
   border-radius: var(--radius-control);
   background: var(--paper);
   min-width: 0;
+}
+/* Follow-up panels own top margin only and the terminal banner owns bottom
+   margin only, so a completed follow-up panel would touch the terminal
+   surface with 0px. Keep the two apart without changing the shared
+   TerminalJobBanner or the WeeklyReportDetail composition (which never
+   renders follow-up panels, so these selectors cannot match there). */
+.follow-up-source-context + [data-job-detail-section="terminal"],
+.follow-up-recommendation + [data-job-detail-section="terminal"],
+.follow-up-create-action + [data-job-detail-section="terminal"] {
+  margin-top: 1.15rem;
 }
 .workflow-responsibility h2,
 .revision-loop h2,
@@ -3667,6 +3684,14 @@ html a:focus-visible {
 .support-contact h2,
 .settings-panel h2 { margin-top: 0; font-size: 1.15rem; }
 .overview-section h2 { margin-bottom: 0.75rem; }
+/* Late-submission rows render inside OperationalCard, whose Ant title slot
+   does not wrap. Keep long job titles fully readable on this surface only
+   (including 200% text) without changing global card behavior. */
+.submission-late-card .servora-operational-card__title,
+.submission-late-card .servora-operational-card__title a {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .overview-card-stack {
   display: grid;
   gap: 0.65rem;

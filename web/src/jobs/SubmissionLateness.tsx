@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { ApiError, type CurrentUser } from '../services/api';
+import { OperationalCard } from '../ui/antd/OperationalCard';
 import { ResultState } from '../ui/antd/ResultState';
 import { formatDurationSeconds } from '../ui/duration';
 import {
@@ -301,14 +302,16 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
       <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
       <div className="overview-card-stack">
         {state.items.map((item) => (
-          <div key={`${item.jobCardId}:${item.episodeNo}`}>
-            <Link to={item.jobPath}>
-              {item.jobTitle}
-            </Link>
+          <OperationalCard
+            key={`${item.jobCardId}:${item.episodeNo}`}
+            title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
+            tone="attention"
+            className="submission-late-card"
+          >
             <span>
               {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
             </span>
-          </div>
+          </OperationalCard>
         ))}
       </div>
     </section>
