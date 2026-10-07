@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { OpenSubmissionLateSection } from '../jobs/SubmissionLateness';
+import { jobTypeLabel } from '../jobs/job-labels';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
@@ -181,13 +182,7 @@ export function OverviewPage({
             <h2 id="work-type-dist-title">İş dağılımı</h2>
             <div className="overview-card-stack">
               {overview.workTypeDistribution.map((item) => {
-                const label = item.type === 'PRODUCT_DELIVERY'
-                  ? 'Ürün Teslimi'
-                  : item.type === 'GENERAL_TASK'
-                    ? 'Genel Görev'
-                    : item.type === 'SALES_MEETING'
-                      ? 'Satış Görüşmesi'
-                      : item.type;
+                const label = jobTypeLabel(item.type);
                 return (
                   <OperationalCard key={item.type} title={label} tone="default">
                     <span>{item.count} iş</span>

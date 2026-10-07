@@ -11,7 +11,7 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
   GENERAL_TASK: 'Genel görev',
   SALES_MEETING: 'Satış görüşmesi',
-  WEEKLY_REPORT: 'Haftalık Rapor',
+  WEEKLY_REPORT: 'Haftalık rapor',
 };
 
 /** Neutral label for a job type this client does not recognise. */
