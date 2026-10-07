@@ -3684,14 +3684,8 @@ html a:focus-visible {
 .support-contact h2,
 .settings-panel h2 { margin-top: 0; font-size: 1.15rem; }
 .overview-section h2 { margin-bottom: 0.75rem; }
-/* Late-submission rows render inside OperationalCard, whose Ant title slot
-   does not wrap. Keep long job titles fully readable on this surface only
-   (including 200% text) without changing global card behavior. */
-.submission-late-card .servora-operational-card__title,
-.submission-late-card .servora-operational-card__title a {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
+/* Late-submission rows render inside OperationalCard; title wrapping is
+   covered by the shared adapter contract below. */
 .overview-card-stack {
   display: grid;
   gap: 0.65rem;
@@ -3865,7 +3859,6 @@ html a:focus-visible {
 .data-management-workspace { max-width: 72rem; min-width: 0; }
 .data-management-workspace .workspace-heading { width: 100%; min-width: 0; }
 .data-management-workspace .workspace-heading > div { min-width: 0; max-width: 100%; }
-.data-management-workspace .servora-operational-card__title { white-space: normal; overflow: visible; text-overflow: clip; }
 .data-management-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; }
 .data-management-grid > article { min-width: 0; }
 .data-management-grid > article .servora-operational-card { height: 100%; }
@@ -4319,8 +4312,15 @@ html a:focus-visible {
   min-width: 0;
 }
 
-.servora-operational-card__title {
+/* Canonical title reflow contract: Ant Card truncates titles with
+   nowrap/ellipsis, which clips meaningful long titles (including at 200%
+   text) and creates a min-content width floor that overflows narrow grids.
+   The owned adapter defines wrap behavior instead. Two-class specificity
+   wins against Ant's head-title rule. */
+.servora-operational-card .servora-operational-card__title {
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .servora-operational-card .ant-card-head {
