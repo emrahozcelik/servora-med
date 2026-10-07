@@ -181,13 +181,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
 
   return <main className="task-create">
     <PageHeader eyebrow="Yeni kayıt" description="Genel görev" fallbackTitle="Yeni iş" />
-    <p className="form-intro">Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.</p>
+    <p className="form-intro">Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın. Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="task-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending || ambiguous}>
         <div className="field-group">
           <label htmlFor="task-title">Başlık</label>
           <input id="task-title" name="title" required maxLength={255} value={title}
+            placeholder="Örn. Havaalanı karşılama — misafir transferi"
             aria-invalid={fieldErrors.title ? true : undefined}
             aria-describedby={fieldErrors.title ? 'task-title-error' : undefined}
             onChange={(event) => setTitle(event.target.value)} />
@@ -195,8 +196,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         </div>
         <div className="field-group">
           <label htmlFor="task-description">Açıklama (isteğe bağlı)</label>
-          <textarea id="task-description" name="description" rows={4} value={description}
+          <textarea id="task-description" name="description" rows={5} value={description}
+            placeholder="Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle."
+            aria-describedby="task-description-help"
             onChange={(event) => setDescription(event.target.value)} />
+          <p id="task-description-help" className="form-help">Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.</p>
         </div>
         {user.role === 'STAFF'
           ? <div className="field-group"><span className="field-label">Sorumlu personel</span>

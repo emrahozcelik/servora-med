@@ -240,6 +240,36 @@ describe('General Task quick create', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it('guides detailed customer-independent operational work for every creator role', async () => {
+    for (const creator of [staff, manager]) {
+      await act(async () => root.render(
+        <MemoryRouter><GeneralTaskCreateScreen user={creator} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
+      ));
+      await settle();
+      const intro = container.querySelector('.form-intro')?.textContent ?? '';
+      expect(intro).toContain('Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın.');
+      expect(intro).toContain('Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.');
+      expect(container.textContent).not.toContain('Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.');
+
+      const title = container.querySelector<HTMLInputElement>('#task-title')!;
+      expect(title.getAttribute('placeholder')).toBe('Örn. Havaalanı karşılama — misafir transferi');
+
+      const description = container.querySelector<HTMLTextAreaElement>('#task-description')!;
+      expect(description.getAttribute('placeholder')).toBe(
+        "Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle.",
+      );
+      expect(description.getAttribute('rows')).toBe('5');
+      expect(description.getAttribute('aria-describedby')).toBe('task-description-help');
+      const helper = container.querySelector('#task-description-help');
+      expect(helper?.textContent).toBe(
+        'Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.',
+      );
+      await act(async () => root.unmount());
+      container = document.createElement('div'); document.body.append(container);
+      root = createRoot(container);
+    }
+  });
+
   it('keeps disclosure labels and moves focus to an associated error summary', async () => {
     await act(async () => root.render(
       <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
