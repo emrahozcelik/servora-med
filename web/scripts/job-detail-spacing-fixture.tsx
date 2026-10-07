@@ -97,6 +97,74 @@ function LateCardCase() {
   );
 }
 
+/**
+ * Shared OperationalCard title contract cases (Slice B). Plain adapter cards
+ * with no surface-scoped classes: long titles must wrap (including 200%
+ * text), grids must not overflow, title+extra must not collide, and short
+ * titles with actions must stay visually stable.
+ */
+function SharedTitleCase() {
+  return (
+    <main className="workspace overview-workspace">
+      <div className="overview-card-stack" id="shared-title-stack">
+        <OperationalCard
+          title={<a href="/jobs/fixture-shared-1">{LONG_TITLE}</a>}
+        >
+          <span>{`Denetim Personeli · ${LONG_CUSTOMER}`}</span>
+        </OperationalCard>
+      </div>
+    </main>
+  );
+}
+
+function SharedExtraCase() {
+  return (
+    <main className="workspace overview-workspace">
+      <div className="overview-card-stack" id="shared-extra-stack">
+        <OperationalCard
+          title={<a href="/jobs/fixture-shared-2">{LONG_TITLE}</a>}
+          extra={<span data-shared-extra="true">Ek bilgi</span>}
+        >
+          <span>Gövde metni.</span>
+        </OperationalCard>
+      </div>
+    </main>
+  );
+}
+
+function SharedGridCase() {
+  return (
+    <main className="workspace settings-workspace">
+      <nav className="settings-card-grid" id="shared-grid-stack" aria-label="Ayar kartları">
+        {[0, 1, 2, 3].map((i) => (
+          <OperationalCard
+            key={i}
+            title={<a href={`/ayar/fixture-${i}`}>{`${LONG_TITLE} ${i}`}</a>}
+          >
+            <small>{`Kart gövdesi ${i}.`}</small>
+          </OperationalCard>
+        ))}
+      </nav>
+    </main>
+  );
+}
+
+function SharedActionsCase() {
+  return (
+    <main className="workspace overview-workspace">
+      <div className="overview-card-stack" id="shared-actions-stack">
+        <OperationalCard
+          tone="attention"
+          title={<h2>Takip gerekli</h2>}
+          actions={<button type="button" className="secondary-button">Takip işi oluştur</button>}
+        >
+          <p>Personel bu görüşmenin ardından yeni bir takip işi önerdi.</p>
+        </OperationalCard>
+      </div>
+    </main>
+  );
+}
+
 function Case() {
   switch (fixtureCase) {
     case 'recommendation-terminal':
@@ -135,6 +203,14 @@ function Case() {
       );
     case 'late-card':
       return <LateCardCase />;
+    case 'shared-title':
+      return <SharedTitleCase />;
+    case 'shared-extra':
+      return <SharedExtraCase />;
+    case 'shared-grid':
+      return <SharedGridCase />;
+    case 'shared-actions':
+      return <SharedActionsCase />;
     case 'create-terminal':
     default:
       return (
