@@ -328,10 +328,10 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
           aria-describedby={fieldErrors.name ? 'customer-name-error customer-name-help' : 'customer-name-help'} onChange={(event) => onNameChange?.(event.target.value)} />
         <p id="customer-name-help" className="form-help">Klinik, poliklinik, şirket veya kişi adı yazabilirsiniz.</p>
       </div>{fieldErrors.name && <p className="field-error" id="customer-name-error">{fieldErrors.name}</p>}
-      <div className="field-group"><label htmlFor="customer-phone">Telefon</label>
-        <PhoneInput id="customer-phone" name="phone" disabled={pending} required invalid={Boolean(fieldErrors.phone)}
+      <div className="field-group"><label htmlFor="customer-phone">Telefon (isteğe bağlı)</label>
+        <PhoneInput id="customer-phone" name="phone" disabled={pending} invalid={Boolean(fieldErrors.phone)}
           describedBy={fieldErrors.phone ? 'customer-phone-error customer-phone-help' : 'customer-phone-help'} />
-        <p id="customer-phone-help" className="form-help">Örnek: (0532) 123 45 67. Yalnızca rakam yazın; parantez ve boşluklar otomatik eklenir.</p>
+        <p id="customer-phone-help" className="form-help">İsteğe bağlıdır. Girerseniz geçerli bir telefon numarası yazın. Örnek: (0532) 123 45 67.</p>
       </div>{fieldErrors.phone && <p className="field-error" id="customer-phone-error">{fieldErrors.phone}</p>}
       <label className="field-group" htmlFor="create-customer-type">Müşteri türü
         <select id="create-customer-type" name="customerType" defaultValue="clinic" disabled={pending}>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -548,7 +548,7 @@ export function CustomerCreateFlow({
     if (staffMode) input.assignedStaffUserId = null;
     const errors: CustomerFieldErrors = {};
     if (!name) errors.name = 'Müşteri adı zorunludur.';
-    if (!isTrPhoneMaskComplete(input.phone ?? '')) errors.phone = 'Geçerli bir telefon numarası girin.';
+    if (input.phone && !isTrPhoneMaskComplete(input.phone)) errors.phone = 'Geçerli bir telefon numarası girin.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Geçerli bir e-posta adresi yazın.';
     if (!staffMode && !contactInputFromFormData(data) && incompleteContactInput(data)) {
       errors.contactName = 'İletişim kişisi bilgileri girildiğinde ad soyad zorunludur.';

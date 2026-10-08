@@ -54,7 +54,7 @@ function changeName(host: HTMLElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-/** Customer creation requires a phone, so every submit fills the masked field first. */
+/** Fill name + a valid phone; phone itself is optional on create. */
 async function fillRequiredCustomerFields(host: HTMLElement, name: string) {
   changeName(host, name);
   await setCustomerPhone(host, '05321234567');
@@ -173,21 +173,22 @@ describe('CustomerCreateSideFlow dismiss and stale-attempt protection', () => {
     expect(onCreated).toHaveBeenCalledWith(createdCustomer.id);
   });
 
-  it('enforces the same required phone rule in the inline JobCard drawer', async () => {
+  it('applies the same optional phone rule in the inline JobCard drawer', async () => {
+    crm.createCustomer.mockResolvedValue(createdCustomer);
     render(true);
     await settle();
     changeName(host, 'Telefonsuz Klinik');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
+    await settle();
 
-    expect(crm.createCustomer).not.toHaveBeenCalled();
-    const phone = host.querySelector('#customer-phone') as HTMLInputElement;
-    expect(phone.getAttribute('aria-invalid')).toBe('true');
-    expect(host.querySelector('#customer-phone-error')?.textContent)
-      .toContain('Geçerli bir telefon numarası girin.');
+    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: null });
+    expect(host.querySelector('#customer-phone-error')).toBeNull();
 
     await setCustomerPhone(host, '05321234567');
     await act(async () => (host.querySelector('.customer-form') as HTMLFormElement).requestSubmit());
-    expect(crm.createCustomer).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(crm.createCustomer).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -179,14 +179,38 @@ describe.skipIf(!databaseUrl)('customer phone create contract over HTTP + Postgr
     });
   }, 15_000);
 
-  it('rejects a missing or malformed phone with fieldErrors and writes nothing', async () => {
+  it('stores null for a missing or blank phone', async () => {
+    await withSchema(async (pool) => {
+      const organizationId = await seedOrg(pool);
+      const managerId = await seedUser(pool, organizationId, 'MANAGER');
+      const { app, cookie } = await createApp(pool, organizationId, 'MANAGER', managerId);
+      const blanks: (string | undefined)[] = [undefined, '', '   '];
+      for (const phone of blanks) {
+        const payload: Record<string, unknown> = {
+          name: `Blank ${randomUUID()}`, customerType: 'clinic',
+        };
+        if (phone !== undefined) payload.phone = phone;
+        const response = await app.inject({
+          method: 'POST', url: '/api/customers', headers: { cookie }, payload,
+        });
+        expect(response.statusCode, String(phone)).toBe(201);
+        const created = response.json() as { id: string; phone: string | null };
+        expect(created.phone, String(phone)).toBeNull();
+        const stored = await pool.query<{ phone: string | null }>(
+          `SELECT phone FROM customers WHERE id = $1`, [created.id]);
+        expect(stored.rows[0]!.phone, String(phone)).toBeNull();
+      }
+    });
+  }, 15_000);
+
+  it('rejects a malformed non-empty phone with fieldErrors and writes nothing', async () => {
     await withSchema(async (pool) => {
       const organizationId = await seedOrg(pool);
       const managerId = await seedUser(pool, organizationId, 'MANAGER');
       const { app, cookie } = await createApp(pool, organizationId, 'MANAGER', managerId);
       const before = await customerCount(pool, organizationId);
       const rejected: (string | undefined)[] = [
-        undefined, '', '   ', '0', '0532', '0532123456', '053212345678', 'abc',
+        '0', '0532', '0532123456', '053212345678', 'abc',
         '0532x1234567', '90+5321234567', '---',
         '+1 202 555 0147', '+49 151 12345678', '+9005321234567', '+9003121234567',
         '+3572212345', '+15551234567', '+495551234567',

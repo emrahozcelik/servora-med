@@ -70,18 +70,18 @@ describe('Customer create phone contract', () => {
     await settle();
   }
 
-  it('places the required Telefon field immediately after the customer name', async () => {
+  it('marks the Telefon field optional immediately after the customer name', async () => {
     await renderScreen();
     const name = container.querySelector('#customer-name')!;
     const phone = container.querySelector('#customer-phone')!;
     const type = container.querySelector('#create-customer-type')!;
     expect(name.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(phone.compareDocumentPosition(type) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect((phone as HTMLInputElement).required).toBe(true);
+    expect((phone as HTMLInputElement).required).toBe(false);
     expect((phone as HTMLInputElement).type).toBe('tel');
     expect((phone as HTMLInputElement).getAttribute('inputmode')).toBe('tel');
     expect(container.querySelector('#customer-phone')?.closest('.field-group')?.textContent)
-      .toContain('Telefon');
+      .toContain('Telefon (isteğe bağlı)');
   });
 
   it('masks typed digits and submits the masked value for the server to normalize', async () => {
@@ -224,17 +224,28 @@ describe('Customer create phone contract', () => {
       .toContain('Geçerli bir telefon numarası girin.');
   });
 
-  it('blocks the request and shows an inline error when the phone is missing', async () => {
+  it('submits successfully with a blank phone and sends phone null', async () => {
     await renderScreen();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Telefonsuz Klinik');
     await submit();
 
-    expect(crmApi.createCustomer).not.toHaveBeenCalled();
-    const phone = container.querySelector('#customer-phone') as HTMLInputElement;
-    expect(phone.getAttribute('aria-invalid')).toBe('true');
-    expect(phone.getAttribute('aria-describedby')).toContain('customer-phone-error');
-    expect(container.querySelector('#customer-phone-error')?.textContent)
-      .toContain('Geçerli bir telefon numarası girin.');
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({ phone: null });
+    expect(container.querySelector('#customer-phone-error')).toBeNull();
+  });
+
+  it('applies the same optional-phone rule for a Staff creator', async () => {
+    const staffUser: CurrentUser = { ...manager, id: 'staff-1', name: 'Saha Personeli', role: 'STAFF' };
+    await act(async () => root.render(<CustomerCreateScreen user={staffUser} />));
+    await settle();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Personel Telefonsuz Klinik');
+    await submit();
+
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createCustomer.mock.calls[0]![0]).toMatchObject({
+      phone: null, assignedStaffUserId: null,
+    });
+    expect(container.querySelector('#customer-phone-error')).toBeNull();
   });
 
   it('blocks the request for an incomplete or over-long phone', async () => {

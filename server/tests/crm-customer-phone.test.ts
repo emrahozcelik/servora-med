@@ -6,6 +6,7 @@ import type { Customer } from '../src/modules/crm/types.js';
 
 const now = new Date('2026-09-28T10:00:00Z');
 const manager = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' as const };
+const admin = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const };
 const staff = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const };
 
 const CANONICAL_MOBILE = '+905321234567';
@@ -142,9 +143,19 @@ describe('normalizeTurkishPhone', () => {
   });
 });
 
-describe('customer create contract requires a normalized Turkish phone', () => {
-  it('rejects a missing or malformed phone with fieldErrors before any write', async () => {
-    const rejected = [null, '', '   ', '0532', '0532123456', '053212345678', 'abc',
+describe('customer create contract keeps phone optional', () => {
+  it('stores null for a missing or blank phone', async () => {
+    for (const phone of [null, '', '   ']) {
+      for (const actor of [manager, admin]) {
+        const { service, created } = fixture();
+        await service.createCustomer(actor, { ...baseInput, phone });
+        expect(created[0]!.phone, `${actor.role}:${String(phone)}`).toBeNull();
+      }
+    }
+  });
+
+  it('rejects a malformed non-empty phone with fieldErrors before any write', async () => {
+    const rejected = ['0532', '0532123456', '053212345678', 'abc',
       '+1 202 555 0147', '0532x1234567', '90+5321234567', '---',
       '+3572212345', '+15551234567', '+495551234567',
       '+9005321234567', '+9003121234567',
@@ -176,17 +187,29 @@ describe('customer create contract requires a normalized Turkish phone', () => {
     }
   });
 
-  it('applies the same requirement to a Staff-created prospect', async () => {
-    const denied = fixture();
-    await expect(denied.service.createCustomer(staff, { ...baseInput, phone: null }))
-      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-    expect(denied.created).toHaveLength(0);
+  it('lets a Staff-created prospect omit the phone while staying self-assigned', async () => {
+    const omitted = fixture();
+    await omitted.service.createCustomer(staff, { ...baseInput, phone: null });
+    expect(omitted.created[0]).toMatchObject({
+      phone: null, status: 'prospect', assignedStaffUserId: 'staff-1',
+    });
+
+    const blank = fixture();
+    await blank.service.createCustomer(staff, { ...baseInput, phone: '   ' });
+    expect(blank.created[0]).toMatchObject({
+      phone: null, status: 'prospect', assignedStaffUserId: 'staff-1',
+    });
 
     const allowed = fixture();
     await allowed.service.createCustomer(staff, { ...baseInput, phone: '05321234567' });
     expect(allowed.created[0]).toMatchObject({
       phone: CANONICAL_MOBILE, status: 'prospect', assignedStaffUserId: 'staff-1',
     });
+
+    const denied = fixture();
+    await expect(denied.service.createCustomer(staff, { ...baseInput, phone: '0532' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(denied.created).toHaveLength(0);
   });
 });
 
