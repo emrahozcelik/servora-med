@@ -70,11 +70,16 @@ function optional(value: string | null) {
 }
 
 /**
- * Interactive customer create contract: users must supply a Turkish phone.
+ * Interactive customer create contract: phone is optional, but a supplied
+ * non-empty value must still be a valid Turkish phone. normalizeTurkishPhone
+ * returns null for both blank and malformed input, so emptiness is checked
+ * first to distinguish "not provided" (stored as null) from "malformed"
+ * (rejected with the existing phone validation error).
  * Operational import/demo/seed writers have separate contracts; the database
  * remains nullable for those paths and historical rows.
  */
-function requiredPhone(value: string | null) {
+function optionalCreatePhone(value: string | null) {
+  if (value === null || value.trim() === '') return null;
   const phone = normalizeTurkishPhone(value);
   if (phone === null) throw phoneValidation();
   return phone;
@@ -179,7 +184,7 @@ export class CrmService {
 
   async createCustomer(actor: CrmActor, input: CreateCustomerInput) {
     requireCustomerCreator(actor);
-    const phone = requiredPhone(input.phone);
+    const phone = optionalCreatePhone(input.phone);
     const staffCreated = actor.role === 'STAFF';
     const status = staffCreated ? 'prospect' : input.status ?? 'prospect';
     if (status !== 'prospect' && status !== 'active') {
