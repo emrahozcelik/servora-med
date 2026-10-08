@@ -38,7 +38,7 @@ EMULATED="false"
 IMPORT_JSON="$(docker run --rm --platform linux/amd64 -v "$SERVER_DIR:/src:ro" node:22-bookworm bash -c '
 set -e
 cp -a /src /build && cd /build
-npm ci --omit=dev --no-audit --no-fund
+npm ci --omit=dev --no-audit --no-fund >/dev/null
 node --input-type=module -e "
 import fs from \"node:fs\";
 const deps = Object.keys(JSON.parse(fs.readFileSync(\"package.json\", \"utf8\")).dependencies ?? {});
@@ -48,7 +48,8 @@ console.log(JSON.stringify({ imported: deps.length }));
 npm ls --omit=dev --parseable 2>/dev/null | wc -l
 ' 2>/dev/null)" || { echo "LINUX_AMD64_COMPAT_FAILED reason=AMD64_INSTALL_OR_IMPORT_FAILED" >&2; exit 1; }
 
-IMPORTED="$(printf '%s' "$IMPORT_JSON" | sed -n '1p' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).imported")"
+IMPORT_LINE="$(printf '%s' "$IMPORT_JSON" | grep '^{' | tail -n 1)"
+IMPORTED="$(printf '%s' "$IMPORT_LINE" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).imported" 2>/dev/null || echo invalid)"
 TOTAL="$(printf '%s' "$IMPORT_JSON" | sed -n '2p' | tr -d ' ')"
 [[ "$IMPORTED" =~ ^[0-9]+$ && "$IMPORTED" -gt 0 ]] \
   || { echo "LINUX_AMD64_COMPAT_FAILED reason=AMD64_IMPORT_COUNT_INVALID" >&2; exit 1; }
