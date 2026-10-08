@@ -1559,3 +1559,52 @@ Verification is covered by the focused server unit and real PostgreSQL phone
 suites, web mask/caret and create/edit suites, and the existing delivery,
 general-task and sales-meeting inline-create suites. No migration or backfill is
 required.
+## Customer phone optional for interactive creation — 2026-10-08
+
+- **Status:** Accepted and verified.
+- **Supersedes:** Customer phone required for interactive creation — 2026-10-01.
+  The 2026-10-01 entry above is preserved verbatim as history; its
+  phone-mandatory create rule no longer applies.
+
+A user creating a new customer through the normal product UX must supply a
+name; the phone is optional on CREATE for ADMIN, MANAGER and STAFF. All
+interactive surfaces share the contract through `CustomerCreateFlow` and
+`CrmService.createCustomer` (`/customers/new`, the embedded customer-create
+drawer, and the Sales Meeting, General Task and Product Delivery inline
+creation flows, including STAFF-created prospects).
+
+- Missing, empty or whitespace-only phone input is stored as `NULL`. The
+  create path checks emptiness before normalization because
+  `normalizeTurkishPhone` returns `null` for both blank and malformed input.
+- A supplied non-empty phone must still pass the existing canonical
+  `normalizeTurkishPhone` validator, unchanged. Valid Turkish numbers remain
+  stored in canonical `+90XXXXXXXXXX` format. Malformed non-empty values remain
+  rejected with `VALIDATION_ERROR` and `fieldErrors.phone` before any write.
+- The create form labels the field `Telefon (isteğe bağlı)` and validates a
+  non-empty entry with the existing mask-completeness check; a blank entry
+  submits normally. The server remains authoritative.
+- STAFF-created customers remain self-assigned prospects with forced
+  `status='prospect'`; only the phone requirement changes. CRM authorization is
+  unchanged.
+- Existing Customer EDIT compatibility behavior is unchanged (`editablePhone`
+  preserves null and historical free text). Imports, demo/seed/bootstrap
+  contracts keep their separate phone-optional paths and are not modified.
+- `customers.phone` was already nullable; no migration, default, CHECK, unique
+  index or backfill is introduced, and no existing rows are touched.
+- No authorization, duplicate-policy (similar-name search, tax-number
+  uniqueness, confirmations), lifecycle or Auth change is introduced.
+
+Product reason: customer records must be creatable quickly during field
+operations, even before complete contact information is known. Missing contact
+details are collected later; contact/customer enrichment is a planned separate
+capability and is not implemented here.
+
+Verification is covered by the updated focused server unit phone suite
+(blank accepted as null, malformed still rejected, STAFF self-assignment
+preserved), the real PostgreSQL create suite (HTTP 201 with stored `NULL` for
+missing/blank, 400 with `fieldErrors.phone` for malformed), the updated web
+create/phone suites (blank submits with `phone: null`, malformed still
+blocked, STAFF same rule, embedded drawer same rule), the full web suite, the
+full server suite (only pre-existing environment failures, identical on the
+pristine base), disposable-DB browser acceptance (blank create stores `NULL`,
+partial input blocked inline), and exact-head CI.
