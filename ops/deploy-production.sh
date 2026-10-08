@@ -19,14 +19,16 @@ FQDN="${SERVORA_PROD_FQDN:-}"
 PROD_HOST="${SERVORA_PROD_HOST:-}"
 SSH_USER="${SERVORA_PROD_SSH_USER:-$DEFAULT_SSH_USER}"
 SSH_KEY="${SERVORA_PROD_SSH_KEY:-}"
+SSH_KEY_FILE="${SERVORA_PROD_SSH_KEY_FILE:-}"
 KNOWN_HOSTS="${SERVORA_PROD_KNOWN_HOSTS:-}"
+KNOWN_HOSTS_PATH="${SERVORA_PROD_KNOWN_HOSTS_FILE:-}"
 ALLOW_MIGRATIONS=false
 CHECK_ONLY=false
 CI_MODE="github"
 EVIDENCE=""
 EVIDENCE_ROOT="${SERVORA_EVIDENCE_ROOT:-${HOME:-/tmp}/.local/share/servora-med/evidence}"
-EVIDENCE_EXCEPTIONS="${SERVORA_EVIDENCE_EXCEPTIONS:-}"
 DEPLOY_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-production-deploy.lock"
+LOCK_CLAIM=""
 ARTIFACT_INPUT=""
 ARTIFACT=""
 ARTIFACT_SHA=""
@@ -58,7 +60,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
-  ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle> [--evidence-exceptions <id:reason,...>]
+  ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle>
   ops/deploy-production.sh --check
 
 CI mode (default: github):
@@ -69,12 +71,18 @@ CI mode (default: github):
 
 Environment (GitHub production environment secrets/variables):
   SERVORA_PROD_HOST
-  SERVORA_PROD_SSH_USER (default: servora-deploy)
-  SERVORA_PROD_SSH_KEY
-  SERVORA_PROD_KNOWN_HOSTS
+  SERVORA_PROD_SSH_USER (default: servora-deploy; root is refused)
+  SERVORA_PROD_SSH_KEY (inline key material; GitHub secrets path)
+  SERVORA_PROD_SSH_KEY_FILE (operator-owned 0600/0400 key file; local path,
+    validated at use; preferred over inline keys for local runs)
+  SERVORA_PROD_KNOWN_HOSTS (pinned host identity, inline)
+  SERVORA_PROD_KNOWN_HOSTS_FILE (pinned host identity file; local path)
   SERVORA_PROD_FQDN
   SERVORA_EVIDENCE_ROOT (default: ~/.local/share/servora-med/evidence)
-  SERVORA_EVIDENCE_EXCEPTIONS (checkId:reason,... for reviewed exceptions)
+
+Exception policy A (no production exceptions): local mode requires every
+mandatory evidence check to PASS. There is no exception flag: a
+caller-supplied reason string is not independent approval.
 
 For a prebuilt, exact-SHA artifact, set --artifact PATH. The artifact must
 have a sibling SHA-256 sidecar and must contain only the release payload.
@@ -173,7 +181,38 @@ validate_fqdn() {
 validate_host_identity() {
   [[ "$PROD_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail INVALID_PRODUCTION_HOST
   [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || fail INVALID_SSH_USER
-  [[ -n "$SSH_KEY" && -n "$KNOWN_HOSTS" ]] || fail SSH_SECRETS_MISSING
+  [[ "$SSH_USER" != root ]] || fail ROOT_SSH_USER_FORBIDDEN
+  if [[ -n "$SSH_KEY_FILE" ]]; then
+    validate_deploy_key_file "$SSH_KEY_FILE"
+  else
+    [[ -n "$SSH_KEY" ]] || fail SSH_SECRETS_MISSING
+  fi
+  if [[ -z "$KNOWN_HOSTS_PATH" ]]; then
+    [[ -n "$KNOWN_HOSTS" ]] || fail SSH_SECRETS_MISSING
+  else
+    [[ -e "$KNOWN_HOSTS_PATH" && ! -L "$KNOWN_HOSTS_PATH" && -f "$KNOWN_HOSTS_PATH" ]] \
+      || fail SSH_KNOWN_HOSTS_FILE_INVALID
+  fi
+}
+
+# Re-validate an operator-owned SSH key file at use time (defense in depth;
+# load-prod-env.sh is the format authority for the local credential file).
+# Never prints key material.
+validate_deploy_key_file() {
+  local key_file="$1"
+  [[ -e "$key_file" && ! -L "$key_file" && -f "$key_file" ]] || fail SSH_KEY_FILE_INVALID
+  local key_mode
+  key_mode="$(stat -f '%Lp' "$key_file" 2>/dev/null || stat -c '%a' "$key_file")"
+  [[ "$key_mode" == "600" || "$key_mode" == "400" ]] || fail SSH_KEY_FILE_PERMISSIONS
+  local key_size
+  key_size="$(wc -c <"$key_file" | tr -d ' ')"
+  [[ "$key_size" -gt 0 && "$key_size" -le 16384 ]] || fail SSH_KEY_FILE_SIZE
+  local key_first_line
+  key_first_line="$(head -n 1 "$key_file")"
+  case "$key_first_line" in
+    "-----BEGIN OPENSSH PRIVATE KEY-----"|"-----BEGIN RSA PRIVATE KEY-----"|"-----BEGIN EC PRIVATE KEY-----"|"-----BEGIN DSA PRIVATE KEY-----") return 0 ;;
+    *) fail SSH_KEY_FILE_FORMAT ;;
+  esac
 }
 
 check_commands() {
@@ -297,9 +336,6 @@ verify_local_evidence() {
   evidence_root="$(cd -- "$bundle_dir/.." && pwd -P)"
   live_tree="$(git -C "$REPO_ROOT" rev-parse "${SHA}^{tree}")" || fail COMMIT_NOT_FOUND
   local -a verify_args=(--evidence-root "$evidence_root" --sha "$SHA" --tree "$live_tree")
-  if [[ -n "$EVIDENCE_EXCEPTIONS" ]]; then
-    verify_args+=(--exceptions "$EVIDENCE_EXCEPTIONS")
-  fi
   "$REPO_ROOT/ops/local-ci/verify-evidence.sh" "${verify_args[@]}" \
     || fail LOCAL_EVIDENCE_NOT_VERIFIED
   CI_RUN_ID="local:$(sha256_file "$manifest" | cut -c1-16)"
@@ -308,30 +344,71 @@ verify_local_evidence() {
 
 acquire_deploy_lock() {
   PHASE=LOCK
-  local pid_file="$DEPLOY_LOCK_DIR/pid"
   if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
-    printf '%s\n' "$$" >"$pid_file"
+    write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
     return 0
   fi
+  # A lock directory exists. Only a holder whose PID is numeric and currently
+  # dead may be recovered; anything else (live holder, or an unparseable claim
+  # from a just-starting owner) fails closed — stealing those could delete a
+  # newly acquired lock.
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
   local holder=""
   [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
-  if [[ "$holder" =~ ^[0-9]+$ ]] && ! kill -0 "$holder" 2>/dev/null; then
-    rm -rf -- "$DEPLOY_LOCK_DIR"
-    mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null \
-      || fail CONCURRENT_DEPLOYMENT_ACTIVE
-    printf '%s\n' "$$" >"$pid_file"
+  local holder_pid=""
+  if [[ "$holder" =~ ^pid=([0-9]+)\  ]]; then
+    holder_pid="${BASH_REMATCH[1]}"
+  elif [[ "$holder" =~ ^[0-9]+$ ]]; then
+    holder_pid="$holder"
+  else
+    fail CONCURRENT_DEPLOYMENT_ACTIVE
+  fi
+  if kill -0 "$holder_pid" 2>/dev/null; then
+    fail CONCURRENT_DEPLOYMENT_ACTIVE
+  fi
+  # Race-safe stale recovery: atomically rename the stale directory aside.
+  # rename(2) within one filesystem succeeds for exactly one contender; every
+  # loser observes the rename missing and fails closed. Only the renamed copy
+  # is ever deleted — never the live lock path — so a newly acquired lock
+  # cannot be removed by recovery.
+  local trash_base="${TMPDIR:-/tmp}/servora-med-deploy-lock-stale"
+  local trash
+  trash="$(mktemp -d "${trash_base}.XXXXXX")" || fail CONCURRENT_DEPLOYMENT_ACTIVE
+  rmdir -- "$trash" || fail CONCURRENT_DEPLOYMENT_ACTIVE
+  if ! mv -- "$DEPLOY_LOCK_DIR" "$trash" 2>/dev/null; then
+    rmdir -- "$trash" 2>/dev/null || true
+    fail CONCURRENT_DEPLOYMENT_ACTIVE
+  fi
+  rm -rf -- "$trash"
+  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
+    write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
     return 0
   fi
   fail CONCURRENT_DEPLOYMENT_ACTIVE
 }
 
+# Record this process as the lock owner and re-read the claim: if the
+# directory was stolen between mkdir and write, the write fails or the
+# re-read mismatches and acquisition fails closed.
+write_lock_claim() {
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  LOCK_CLAIM="pid=$$ nonce=$$-$RANDOM-$RANDOM time=$(date +%s)"
+  printf '%s\n' "$LOCK_CLAIM" >"$pid_file" || return 1
+  [[ "$(cat -- "$pid_file" 2>/dev/null || true)" == "$LOCK_CLAIM" ]] || return 1
+}
+
 release_deploy_lock() {
   local pid_file="$DEPLOY_LOCK_DIR/pid"
+  # Only the owning process may remove the lock: the on-disk claim must match
+  # exactly what this process wrote. Anything else (other owners,
+  # stale-format claims, missing file) is left untouched.
+  [[ -n "${LOCK_CLAIM:-}" ]] || return 0
   local holder=""
   [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
-  if [[ "$holder" == "$$" ]]; then
+  if [[ "$holder" == "$LOCK_CLAIM" ]]; then
     rm -rf -- "$DEPLOY_LOCK_DIR"
   fi
+  LOCK_CLAIM=""
 }
 
 is_forbidden_artifact_path() {
@@ -592,11 +669,22 @@ prepare_ssh() {
   validate_fqdn
   validate_host_identity
   SSH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/servora-production-ssh.XXXXXX")"
-  KEY_FILE="$SSH_DIR/id_deploy"
+  if [[ -n "$SSH_KEY_FILE" ]]; then
+    # Operator-owned key file (validated above): reference it directly instead
+    # of duplicating key material into another file.
+    KEY_FILE="$SSH_KEY_FILE"
+  else
+    KEY_FILE="$SSH_DIR/id_deploy"
+    printf '%s\n' "$SSH_KEY" >"$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+  fi
   KNOWN_HOSTS_FILE="$SSH_DIR/known_hosts"
-  printf '%s\n' "$SSH_KEY" >"$KEY_FILE"
-  printf '%s\n' "$KNOWN_HOSTS" >"$KNOWN_HOSTS_FILE"
-  chmod 600 "$KEY_FILE" "$KNOWN_HOSTS_FILE"
+  if [[ -n "$KNOWN_HOSTS_PATH" ]]; then
+    KNOWN_HOSTS_FILE="$KNOWN_HOSTS_PATH"
+  else
+    printf '%s\n' "$KNOWN_HOSTS" >"$KNOWN_HOSTS_FILE"
+    chmod 600 "$KNOWN_HOSTS_FILE"
+  fi
   SSH_OPTS=(-i "$KEY_FILE" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
   REMOTE_ARTIFACT="/var/tmp/servora-med-${SHA}-$$.tar.gz"
   REMOTE_CHECKSUM="${REMOTE_ARTIFACT}.sha256"
@@ -715,7 +803,6 @@ while [[ "$#" -gt 0 ]]; do
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
     --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
     --evidence) EVIDENCE="${2:-}"; shift 2 ;;
-    --evidence-exceptions) EVIDENCE_EXCEPTIONS="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
     --check|--dry-run) CHECK_ONLY=true; shift ;;
     --help|-h) usage; exit 0 ;;

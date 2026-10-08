@@ -1661,3 +1661,38 @@ incl. the new gate tests, web 2545/2545, benchmark smoke, all ops checks incl.
 docker-gated, linux-compat with zero native deps), and the existing
 `production-deploy-automation` suite confirming unchanged default
 (github) behavior.
+
+## Local-first security review reconciliation — 2026-10-08
+
+Supersedes the exception, lock, credential, and Linux-compat paragraphs of
+the local-first entry above (additive; no domain, Auth, migration, or product
+behavior changes).
+
+- Trust model is explicit (F1): integrity + source identity are verified;
+  execution provenance is NOT cryptographically established — bundles are
+  `local-operator-attested` (internal consistency + reproducibility), never
+  independently authenticated; forged provenance claims are refused.
+  Deployment authorization stays independent of the bundle (SSH key +
+  pinned known_hosts). No separate signature mechanism was introduced: with
+  the available local environment no trusted identity exists outside the
+  operator's machine, and weakening the gate to compensate was refused.
+- Deploy lock is race-safe (F2): stale recovery renames the lock aside
+  atomically (exactly one contender survives), only the renamed copy is
+  deleted, release requires the owner's exact claim. Proven by a real
+  12-process contention test (old code granted 3 simultaneous owners).
+- Credentials are key-file based (F3): the local credential file carries a
+  path to a 0600/0400 OpenSSH key file (validated: no symlink, bounded size,
+  key header, pinned known_hosts identity); inline multiline keys are
+  refused; root SSH is refused in loader and deploy gate. Tested with
+  synthetic `ssh-keygen` fixtures; no real credentials handled.
+- Exception policy A (F4): no production exceptions — every mandatory check
+  must PASS; the reason-string mechanism was removed from verifier, deploy
+  gate, docs, and tests.
+- Linux-compat is two signals (F6): the `.node`/`os`/`cpu` scan plus a real
+  production install + import of every direct dependency on linux/amd64
+  (Rosetta-emulated when the host is ARM); both are required by the
+  verifier. Documented limitation: emulated execution, glibc/Ubuntu scope,
+  no deploy-time fetches or kernel-specific behavior examined.
+- Sweep fixes: portable log enumeration (no `ls --`), manifest log-path
+  confinement, VM node probing instead of a hardcoded guest path, rerun log
+  reset, fail-closed concurrent-run lock, non-empty compat log.

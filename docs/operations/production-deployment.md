@@ -296,9 +296,21 @@ ops/local-ci/verify-evidence.sh --evidence-root <root> --sha <sha> [--tree <tree
 ```
 
 Unexecuted checks are recorded `ABSENT`/`NOT_RUN` and fail verification; they
-are never reported as passed. Reviewed exceptions require an explicit
-`--exceptions checkId:reason,...` reason per check. Do not represent local
-validation as GitHub Actions success.
+are never reported as passed. Exception policy A applies: there are no
+production exceptions — every mandatory check must PASS, and no reason string
+can mark a failed check acceptable. Do not represent local validation as
+GitHub Actions success.
+
+Trust model (explicit, no PKI): the verifier establishes evidence file
+integrity (recomputed log hashes) and exact Git source identity (SHA/tree
+binding, re-resolved from the live repository and origin/main at deploy
+time). It does not establish execution provenance: a self-consistent bundle
+proves internal consistency only and is always described as
+`local-operator-attested`, never as independently authenticated (any other
+provenance claim is refused). Reproducibility is the backstop — anyone can
+re-run `run.sh` on the same SHA and must obtain the same per-check outcomes.
+Deployment authorization is independent of the bundle: possession of the
+production SSH key plus the pinned known_hosts identity.
 
 Local production deploy keeps the same safety chain with an explicitly
 selected CI mode:
@@ -309,21 +321,29 @@ ops/deploy-production.sh --sha <main-sha> --ci-mode local --evidence <bundle-or-
 ```
 
 Local mode re-verifies the evidence bundle fail-closed (SHA/tree binding, log
-hashes, required checks, Linux compatibility) instead of consulting GitHub CI.
+hashes, required checks, Linux compatibility incl. a real linux/amd64
+production install+import) instead of consulting GitHub CI.
 `--ci-mode github` (default) preserves the previous behavior for restoration.
 There is no `--skip-ci`, `--force` or `--unsafe` bypass. A process lock
-(`mkdir`-atomic, stale-PID recovery) prevents concurrent deployments from one
-operator host; remote serialization remains host-helper owned.
+(atomically rename-away stale recovery, owner-verified release) prevents
+concurrent deployments from one operator host — exactly one owner even when
+two processes race a stale lock; remote serialization remains host-helper
+owned.
 
-Credential provisioning (owner action, once): copy the five `SERVORA_PROD_*`
-values from the GitHub `production` environment into
-`~/.config/servora-med/prod.env` (`KEY=value` lines), `chmod 600` the file,
-and confirm with `ops/local-ci/load-prod-env.sh --check`. Private keys are
-never printed, committed, or logged. If GitHub Actions capacity returns, prefer
+Credential provisioning (owner action, once): create
+`~/.config/servora-med/prod.env` (`chmod 600`, never committed) with
+`KEY=value` lines for `SERVORA_PROD_HOST`, `SERVORA_PROD_SSH_KEY_FILE`
+(absolute path to an operator-owned 0600/0400 OpenSSH key file — a multiline
+private key must never be embedded in this file), `SERVORA_PROD_FQDN`, and
+either `SERVORA_PROD_KNOWN_HOSTS` (pinned entry) or
+`SERVORA_PROD_KNOWN_HOSTS_FILE`; confirm with
+`ops/local-ci/load-prod-env.sh --check`. Private keys are never printed,
+committed, or logged. If GitHub Actions capacity returns, prefer
 restoring hosted runs; local evidence remains valid for its exact SHA.
 `SERVORA_PROD_KNOWN_HOSTS` is an independently verified pinned entry; the
 workflow refuses `StrictHostKeyChecking=no` and never runs a blind runtime
-`ssh-keyscan`. Temporary key files are mode `0600` and removed on exit.
+`ssh-keyscan`. Temporary key files are mode `0600` and removed on exit; the
+`servora-deploy` account is the only accepted SSH user (root is refused).
 
 ### Host bootstrap boundary
 

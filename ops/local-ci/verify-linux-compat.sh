@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# verify-linux-compat.sh — prove the production dependency tree carries no
-# platform-specific code, so a lockfile-built artifact is Linux/amd64-safe
-# regardless of the builder OS.
+# verify-linux-compat.sh — scan the production dependency tree for
+# platform-specific code. This is ONE of two linux-compat signals and, by
+# itself, does NOT prove every possible platform dependency is absent (a
+# postinstall script could fetch an arch binary at deploy time; libc or
+# kernel-specific behavior is not examined here).
+#
+# The documented guarantee is established by run.sh combining this scan with
+# chains/linux-amd64-compat.sh (real production install + import of every
+# direct dependency on linux/amd64). The evidence verifier requires both.
+# Nothing is compiled on the production VPS and no dependency versions are
+# changed for this gate.
 #
 # Usage: ops/local-ci/verify-linux-compat.sh --server-dir <dir>
 # Exit 0 prints a JSON detail object consumed by the evidence manifest:
@@ -59,6 +67,7 @@ if (nativeBinaries !== 0 || osRestricted !== 0 || cpuRestricted !== 0) {
   console.error('LINUX_COMPAT_FAILED ' + JSON.stringify(detail));
   process.exit(1);
 }
+console.error(`linux-compat scan: ${productionPackages} production packages, 0 native binaries, 0 os/cpu restrictions`);
 console.log(JSON.stringify(detail));
 NODEEOF
 )" -- "$SERVER_DIR"

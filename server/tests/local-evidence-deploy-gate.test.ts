@@ -60,7 +60,7 @@ function makeBundle(root: string, sha: string, tree: string, mutate?: (bundle: s
       sha256: createHash('sha256').update(content).digest('hex'),
       tests: null,
       detail: id === 'linux-compat'
-        ? { productionPackages: 10, nativeBinaries: 0, osRestricted: 0, cpuRestricted: 0, offenders: [], builderOs: 'linux', builderArch: 'arm64', nodeVersion: 'v22.0.0' }
+        ? { productionPackages: 10, nativeBinaries: 0, osRestricted: 0, cpuRestricted: 0, offenders: [], builderOs: 'linux', builderArch: 'arm64', nodeVersion: 'v22.0.0', linuxAmd64: { platform: 'linux/amd64', emulated: true, productionPackages: 10, result: 'pass' } }
         : null,
     };
   });
@@ -70,6 +70,7 @@ function makeBundle(root: string, sha: string, tree: string, mutate?: (bundle: s
     sha,
     tree,
     clean: true,
+    provenance: 'local-operator-attested',
     builder: { os: 'Linux x86_64', arch: 'arm64', node: 'v22.0.0', npm: '10.0.0', pgServer: '17', pgClient: '17' },
     startedAt: '2026-10-08T10:00:00Z',
     finishedAt: '2026-10-08T11:00:00Z',
@@ -155,16 +156,83 @@ describe('verify-evidence.sh fail-closed gates', () => {
     }
   });
 
-  it('accepts a self-consistent bundle', () => {
+  it('accepts a self-consistent bundle as integrity-only, never authenticated', () => {
     const root = temporaryDirectory('good');
     try {
       makeBundle(root, GOOD_SHA, 't'.repeat(40));
       const result = runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]);
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('EVIDENCE_VERIFY_PASS');
+      // The verifier must never describe the bundle as authenticated: the
+      // only provenance claim is operator-attested (internal consistency).
+      expect(`${result.stdout}${result.stderr}`).not.toMatch(/authenticated/i);
+      const manifest = JSON.parse(readFileSync(join(root, GOOD_SHA, 'manifest.json'), 'utf8'));
+      expect(manifest.provenance).toBe('local-operator-attested');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('rejects a forged provenance claim and a wholly fabricated bundle at the deploy gate', () => {
+    const root = temporaryDirectory('forged');
+    try {
+      // A forger upgrades the provenance claim to sound independently
+      // authenticated: refused, so forged evidence cannot be described as
+      // anything stronger than operator-attested.
+      makeBundle(root, GOOD_SHA, 't'.repeat(40), (bundle) => {
+        const manifest = JSON.parse(readFileSync(join(bundle, 'manifest.json'), 'utf8'));
+        manifest.provenance = 'independently-authenticated';
+        writeFileSync(join(bundle, 'manifest.json'), JSON.stringify(manifest));
+      });
+      expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).stderr)
+        .toContain('EVIDENCE_PROVENANCE_UNRECOGNIZED');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+
+    // A wholly fabricated but internally consistent bundle for a SHA that was
+    // never built: integrity checks pass (documenting the trust-model limit),
+    // but the deploy gate cannot resolve it against the live repository, so
+    // it can never authorize a deployment.
+    const fixture = createDeployFixture();
+    const forgedRoot = temporaryDirectory('fabricated');
+    try {
+      const manifest = makeBundle(forgedRoot, OTHER_SHA, 'f'.repeat(40));
+      const forged = runSourced(
+        fixture.script,
+        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; EVIDENCE_ROOT=""; verify_local_evidence',
+        [OTHER_SHA, manifest, fixture.root],
+        fixture.env,
+      );
+      expect(forged.status).not.toBe(0);
+      expect(`${forged.stdout}${forged.stderr}`).toMatch(
+        /LOCAL_EVIDENCE_MANIFEST_MISSING|COMMIT_NOT_FOUND/);
+    } finally {
+      fixture.cleanup();
+      rmSync(forgedRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects manifest log references escaping the logs directory', () => {
+    const root = temporaryDirectory('logpath');
+    try {
+      makeBundle(root, GOOD_SHA, 't'.repeat(40), (bundle) => {
+        const manifest = JSON.parse(readFileSync(join(bundle, 'manifest.json'), 'utf8'));
+        manifest.checks[0].log = 'logs/../../evil.log';
+        writeFileSync(join(bundle, 'manifest.json'), JSON.stringify(manifest));
+      });
+      expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).stderr)
+        .toContain('EVIDENCE_LOG_PATH_INVALID');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps machine-specific operator paths out of the local tooling', () => {
+    // Regression guard for the review: guest usernames and home directories
+    // differ per machine, so the tooling must probe instead of hardcode.
+    const gated = readFileSync(join(localCiDir, 'docker-gated.sh'), 'utf8');
+    expect(gated).not.toMatch(/\/home\/[a-z0-9._-]+\//i);
   });
 
   it('rejects a tampered log and an unlisted log file', () => {
@@ -208,7 +276,7 @@ describe('verify-evidence.sh fail-closed gates', () => {
     }
   });
 
-  it('rejects a failed check unless explicitly excepted', () => {
+  it('rejects a failed check with no exception mechanism', () => {
     const root = temporaryDirectory('failed-check');
     try {
       makeBundle(root, GOOD_SHA, 't'.repeat(40), (bundle) => {
@@ -219,12 +287,12 @@ describe('verify-evidence.sh fail-closed gates', () => {
       });
       expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).stderr)
         .toContain('EVIDENCE_CHECK_FAILED_server-tests');
-      const allowed = runVerifier(['--evidence-root', root, '--sha', GOOD_SHA,
-        '--exceptions', 'server-tests:reviewed-locale-gap-2026-10-08']);
-      expect(allowed.status).toBe(0);
-      expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA,
-        '--exceptions', 'no-such-check:reason']).stderr)
-        .toContain('EXCEPTION_UNKNOWN_CHECK');
+      // Policy A: no production exceptions. A caller-supplied reason string
+      // must never mark a failed check acceptable — the flag itself is refused.
+      const refused = runVerifier(['--evidence-root', root, '--sha', GOOD_SHA,
+        '--exceptions', 'server-tests:any-reason']);
+      expect(refused.status).not.toBe(0);
+      expect(`${refused.stdout}${refused.stderr}`).toContain('UNKNOWN_ARGUMENT');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -240,6 +308,21 @@ describe('verify-evidence.sh fail-closed gates', () => {
       });
       expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).stderr)
         .toContain('EVIDENCE_LINUX_INCOMPATIBLE');
+
+      // Scan-only detail without the linux/amd64 install+import proof is not
+      // a compatibility guarantee: refused as well.
+      const root3 = temporaryDirectory('compat-amd64');
+      try {
+        makeBundle(root3, GOOD_SHA, 't'.repeat(40), (bundle) => {
+          const manifest = JSON.parse(readFileSync(join(bundle, 'manifest.json'), 'utf8'));
+          delete manifest.checks.find((c: { id: string }) => c.id === 'linux-compat').detail.linuxAmd64;
+          writeFileSync(join(bundle, 'manifest.json'), JSON.stringify(manifest));
+        });
+        expect(runVerifier(['--evidence-root', root3, '--sha', GOOD_SHA]).stderr)
+          .toContain('EVIDENCE_LINUX_INCOMPATIBLE');
+      } finally {
+        rmSync(root3, { recursive: true, force: true });
+      }
 
       const root2 = temporaryDirectory('result');
       makeBundle(root2, GOOD_SHA, 't'.repeat(40), (bundle) => {
@@ -281,7 +364,7 @@ describe('deploy-production.sh local evidence gate', () => {
       const manifest = makeBundle(evidenceRoot, fixture.sha, fixture.tree);
       const good = runSourced(
         fixture.script,
-        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; EVIDENCE_ROOT=""; EVIDENCE_EXCEPTIONS=""; verify_local_evidence; echo "CI_STATUS=$CI_STATUS"',
+        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; EVIDENCE_ROOT=""; verify_local_evidence; echo "CI_STATUS=$CI_STATUS"',
         [fixture.sha, manifest, fixture.root],
         fixture.env,
       );
@@ -290,7 +373,7 @@ describe('deploy-production.sh local evidence gate', () => {
 
       const stale = runSourced(
         fixture.script,
-        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; EVIDENCE_ROOT=""; EVIDENCE_EXCEPTIONS=""; verify_local_evidence',
+        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; EVIDENCE_ROOT=""; verify_local_evidence',
         [OTHER_SHA, manifest, fixture.root],
         fixture.env,
       );
@@ -302,7 +385,7 @@ describe('deploy-production.sh local evidence gate', () => {
 
       const missing = runSourced(
         fixture.script,
-        'SHA="$2"; CI_MODE=local; EVIDENCE=""; EVIDENCE_ROOT="/nonexistent-evidence-root"; EVIDENCE_EXCEPTIONS=""; verify_local_evidence',
+        'SHA="$2"; CI_MODE=local; EVIDENCE=""; EVIDENCE_ROOT="/nonexistent-evidence-root"; verify_local_evidence',
         [fixture.sha, fixture.root],
         fixture.env,
       );
@@ -314,6 +397,77 @@ describe('deploy-production.sh local evidence gate', () => {
     }
   });
 
+  it('grants a racing stale-lock recovery to exactly one process', async () => {
+    const fixture = createDeployFixture();
+    const lockBase = temporaryDirectory('lock-race');
+    try {
+      const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
+      const gate = join(lockBase, 'start-gate');
+      const { spawn } = await import('node:child_process');
+      const race = () => {
+        const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve) => {
+          // All racers block on a start gate so the thundering herd attempts
+          // within milliseconds of each other, inside the winner's hold.
+          // The winner holds 3s (then releases); every loser must observe a
+          // live holder and fail. No racer may start after the hold ends, so
+          // a second ACQUIRED always means simultaneous ownership (the bug),
+          // never a legitimate post-release acquisition.
+          const hold = 'while [ ! -e "$3" ]; do sleep 0.02; done; acquire_deploy_lock >/dev/null 2>&1 && (echo ACQUIRED; sleep 3; release_deploy_lock) || echo FAILED';
+          const child = spawn('bash', ['-c',
+            `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
+            'lock-race', fixture.script, lockDir, gate,
+          ], { env: { ...process.env, ...fixture.env } });
+          let out = '';
+          child.stdout.on('data', (d) => { out += d; });
+          child.on('close', () => resolve(out));
+        }));
+        return Promise.all(racers);
+      };
+      // Fresh lock race: exactly one mkdir winner.
+      rmSync(lockDir, { recursive: true, force: true });
+      rmSync(gate, { force: true });
+      const freshPending = race();
+      await new Promise((r) => setTimeout(r, 1000));
+      writeFileSync(gate, 'go\n');
+      const fresh = await freshPending;
+      expect(fresh.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
+
+      // Stale-lock recovery race: the stale rename/mkdir window must not let
+      // two processes both believe they own the lock.
+      rmSync(lockDir, { recursive: true, force: true });
+      rmSync(gate, { force: true });
+      mkdirSync(lockDir);
+      writeFileSync(join(lockDir, 'pid'), '2147483647\n');
+      const stalePending = race();
+      await new Promise((r) => setTimeout(r, 1000));
+      writeFileSync(gate, 'go\n');
+      const stale = await stalePending;
+      expect(stale.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
+    } finally {
+      fixture.cleanup();
+      rmSync(lockBase, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  it('never releases a lock owned by a different process', () => {
+    const fixture = createDeployFixture();
+    const lockBase = temporaryDirectory('lock-other');
+    try {
+      const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
+      mkdirSync(lockDir);
+      writeFileSync(join(lockDir, 'pid'), `${process.pid}\n`);
+      const released = runSourced(
+        fixture.script,
+        `DEPLOY_LOCK_DIR=${lockDir}; release_deploy_lock; test -d ${lockDir} && echo LOCK_SURVIVES`,
+        [], fixture.env,
+      );
+      expect(released.status).toBe(0);
+      expect(released.stdout).toContain('LOCK_SURVIVES');
+    } finally {
+      fixture.cleanup();
+      rmSync(lockBase, { recursive: true, force: true });
+    }
+  });
   it('fails closed on concurrent deployment and recovers stale locks', () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock');

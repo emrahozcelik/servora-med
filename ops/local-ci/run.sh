@@ -56,6 +56,21 @@ node_major="$(node -p 'process.versions.node.split(".")[0]')"
 ORIGIN_URL="$(git -C "$REPO" remote get-url origin 2>/dev/null || echo unknown)"
 BUNDLE="$EVIDENCE_ROOT/$SHA"
 LOGS="$BUNDLE/logs"
+# Concurrent runs share fixed container/bundle names and would corrupt each
+# other's evidence: fail closed when another run holds the local-CI lock.
+# Recovery is deliberately manual (rmdir the path below): auto-stealing a
+# shared lock reintroduces the exact race this file refuses to take, and a
+# local CI run is always operator-supervised.
+LOCAL_CI_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-local-ci.lock"
+if ! mkdir "$LOCAL_CI_LOCK_DIR" 2>/dev/null; then
+  holder_pid="$(cat -- "$LOCAL_CI_LOCK_DIR/pid" 2>/dev/null || echo unknown)"
+  echo "LOCAL_CI_FAILED reason=LOCAL_CI_ALREADY_RUNNING holder=${holder_pid} recover_with=rmdir_${LOCAL_CI_LOCK_DIR}" >&2
+  exit 1
+fi
+printf '%s\n' "$$" >"$LOCAL_CI_LOCK_DIR/pid"
+# Start from an empty logs tree: a rerun must never inherit check results
+# from a previous run (stale PASS beside a new failure, or vice versa).
+rm -rf -- "$LOGS"
 mkdir -p "$LOGS" "$LOGS/aux"
 STARTED_AT="$(date -u +%FT%TZ)"
 NODE_VERSION="$(node --version)"
@@ -77,6 +92,7 @@ cleanup() {
   if [[ "$KEEP" != true ]]; then
     docker rm -f "$PG" >/dev/null 2>&1 || true
   fi
+  rm -rf -- "$LOCAL_CI_LOCK_DIR"
 }
 trap cleanup EXIT
 
@@ -104,12 +120,32 @@ docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
   node /repo/ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke >"$LOGS/benchmark-smoke.log" 2>&1 \
   && echo 0 >"$LOGS/benchmark-smoke.exit" || echo "$?" >"$LOGS/benchmark-smoke.exit"
 
-echo "=== [4/5] linux-compat gate ==="
+echo "=== [4/5] linux-compat gate (scan + linux/amd64 install+import) ==="
+scan_code=0
 (
   cd "$EXPORT_DIR/server" && npm ci --omit=dev --no-audit --no-fund >/dev/null 2>&1
-  bash "$SCRIPT_DIR/verify-linux-compat.sh" --server-dir "$EXPORT_DIR/server" >"$LOGS/linux-compat.detail.json" 2>"$LOGS/linux-compat.log"
-) && echo 0 >"$LOGS/linux-compat.exit" || echo "$?" >"$LOGS/linux-compat.exit"
-COMPAT_DETAIL="$(cat "$LOGS/linux-compat.detail.json" 2>/dev/null || echo null)"
+  bash "$SCRIPT_DIR/verify-linux-compat.sh" --server-dir "$EXPORT_DIR/server" >"$LOGS/aux/linux-compat-scan.json" 2>"$LOGS/aux/linux-compat-scan.log"
+) || scan_code=$?
+amd64_code=0
+bash "$SCRIPT_DIR/chains/linux-amd64-compat.sh" --server-dir "$EXPORT_DIR/server" >"$LOGS/aux/linux-amd64.json" 2>"$LOGS/aux/linux-amd64.log" || amd64_code=$?
+{
+  echo "--- dependency scan (verify-linux-compat.sh), exit=${scan_code} ---"
+  cat "$LOGS/aux/linux-compat-scan.log" 2>/dev/null || true
+  echo "--- linux/amd64 production install+import, exit=${amd64_code} ---"
+  cat "$LOGS/aux/linux-amd64.log" 2>/dev/null || true
+} >"$LOGS/linux-compat.log" 2>&1
+if [[ "$scan_code" -eq 0 && "$amd64_code" -eq 0 ]]; then
+  echo 0 >"$LOGS/linux-compat.exit"
+else
+  echo 1 >"$LOGS/linux-compat.exit"
+fi
+COMPAT_DETAIL="$(node --input-type=module -e '
+import fs from "node:fs";
+const scan = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const amd64 = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+scan.linuxAmd64 = amd64;
+process.stdout.write(JSON.stringify(scan));
+' -- "$LOGS/aux/linux-compat-scan.json" "$LOGS/aux/linux-amd64.json" 2>/dev/null || echo null)"
 if [[ "$COMPAT_DETAIL" == "null" ]]; then
   echo "linux-compat detail missing" >&2
 fi

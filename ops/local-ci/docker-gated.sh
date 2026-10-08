@@ -51,11 +51,13 @@ fi
 # run host-side with a shared TMPDIR (works for all but the SSE behavior test
 # when the backend cannot share the daemon net namespace).
 VM_RUN=false
+VM_NODE=""
 if command -v colima >/dev/null 2>&1 && colima ssh -p true -- true 2>/dev/null; then
-  if colima ssh -p true -- test -x /home/emrah.guest/.local/bin/node 2>/dev/null \
-    || colima ssh -p true -- test -x "$HOME/.local/bin/node" 2>/dev/null; then
-    VM_RUN=true
-  fi
+  # Probe the VM userspace for node instead of hardcoding a guest home path:
+  # guest usernames differ per machine (colima ssh runs as the guest user).
+  VM_NODE="$(colima ssh -p true -- command -v node 2>/dev/null || true)"
+  [[ -n "$VM_NODE" ]] || VM_NODE="$(colima ssh -p true -- sh -c 'for c in "$HOME/.local/bin/node" /usr/local/bin/node /usr/bin/node; do [ -x "$c" ] && echo "$c" && break; done' 2>/dev/null || true)"
+  [[ -n "$VM_NODE" ]] && VM_RUN=true
 fi
 
 TMP_SHARED="$HOME/.local/share/servora-med/ci-tmp"
@@ -64,7 +66,7 @@ mkdir -p "$TMP_SHARED"
 # Scripts run from the export tree (exact SHA content).
 run_one server-caddyfile -- bash -c "cd '$REPO/server' && TMPDIR='$TMP_SHARED' bash ../ops/ci/verify-caddyfile.sh" || failed=true
 if [[ "$VM_RUN" == true ]]; then
-  run_one server-sse-behavior -- bash -c "colima ssh -p true -- env PATH=/home/emrah.guest/.local/bin:/usr/bin:/bin TMPDIR=/tmp bash '$REPO/ops/ci/verify-sse-streaming-behavior.sh'" || failed=true
+  run_one server-sse-behavior -- bash -c "colima ssh -p true -- env PATH=\"\$(dirname '$VM_NODE'):/usr/bin:/bin\" TMPDIR=/tmp bash '$REPO/ops/ci/verify-sse-streaming-behavior.sh'" || failed=true
 else
   run_one server-sse-behavior -- bash -c "cd '$REPO/server' && TMPDIR='$TMP_SHARED' bash ../ops/ci/verify-sse-streaming-behavior.sh" || failed=true
 fi

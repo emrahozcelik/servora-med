@@ -7,10 +7,26 @@
 #     report.md       human-readable summary
 #     logs/           one log file per check (referenced by manifest)
 #
-# Integrity model (documented, no PKI): the verifier recomputes every log
-# SHA-256 and re-checks SHA/tree/result/policy. The manifest alone never
-# authorizes deployment: the deploy gate independently re-verifies origin/main
-# SHA, tree identity and worktree cleanliness from the live repository.
+# Trust model (explicit; no PKI, no trusted execution environment):
+#   1. Exact Git source identity — the verifier binds the bundle to one exact
+#      commit SHA and tree; the deploy gate re-resolves both from the live
+#      repository and origin/main, so evidence for any other source is useless.
+#   2. Evidence file integrity — every log hash is recomputed; tampering with
+#      any byte after assembly is detected. The manifest alone never
+#      authorizes deployment.
+#   3. Execution provenance — NOT cryptographically established. SHA-256 of a
+#      log proves integrity relative to its manifest, not that the log came
+#      from a real execution. A self-consistent bundle only proves internal
+#      consistency; it MUST be described as "local-operator-attested", never
+#      as independently authenticated. The verifier refuses any other
+#      provenance claim. Reproducibility is the backstop: anyone can re-run
+#      run.sh on the same SHA and must obtain the same per-check outcomes.
+#   4. Operator approval — the human operator explicitly invoking the deploy
+#      on a machine they control; local evidence is valid only for its exact
+#      SHA/tree and is re-verified at deploy time.
+#   5. Deployment authorization — possession of the production SSH private
+#      key plus pinned known_hosts identity. This secret is independent of
+#      the evidence bundle: forging evidence never yields authorization.
 # Evidence lives outside the source checkout; only hashes are summarized in PRs.
 set -Eeuo pipefail
 

@@ -93,6 +93,10 @@ const manifest = {
   sha: args.sha,
   tree: args.tree,
   clean: true,
+  // Provenance claim (see lib/evidence.sh trust model): "local-operator-
+  // attested" means internally consistent + reproducible, NOT independently
+  // authenticated. The verifier refuses any other value.
+  provenance: 'local-operator-attested',
   builder: {
     os: args.os, arch: args.arch, node: args.node, npm: args.npm,
     pgServer: args['pg-server'], pgClient: args['pg-client'],
