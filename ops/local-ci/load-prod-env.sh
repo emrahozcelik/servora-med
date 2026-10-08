@@ -30,10 +30,17 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
+# Portable permission read: GNU stat first, BSD stat fallback (the reverse
+# order silently misfires — Linux `stat -f` reports filesystem status and
+# exits 0 instead of failing).
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 [[ -n "$ENV_FILE" && -e "$ENV_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_FILE_MISSING" >&2; exit 1; }
 [[ ! -L "$ENV_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_FILE_SYMLINK" >&2; exit 1; }
 [[ -f "$ENV_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_FILE_NOT_REGULAR" >&2; exit 1; }
-mode="$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")"
+mode="$(file_mode "$ENV_FILE")"
 [[ "$mode" == "600" ]] || { echo "CRED_LOAD_FAILED reason=CRED_FILE_PERMISSIONS_${mode}" >&2; exit 1; }
 
 # Parse KEY=value lines only; anything else (including shell code) is inert.
@@ -67,7 +74,7 @@ fi
 [[ -e "$KEY_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_KEY_FILE_MISSING" >&2; exit 1; }
 [[ ! -L "$KEY_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_KEY_FILE_SYMLINK" >&2; exit 1; }
 [[ -f "$KEY_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_KEY_FILE_NOT_REGULAR" >&2; exit 1; }
-key_mode="$(stat -f '%Lp' "$KEY_FILE" 2>/dev/null || stat -c '%a' "$KEY_FILE")"
+key_mode="$(file_mode "$KEY_FILE")"
 [[ "$key_mode" == "600" || "$key_mode" == "400" ]] \
   || { echo "CRED_LOAD_FAILED reason=CRED_KEY_PERMISSIONS_${key_mode}" >&2; exit 1; }
 key_size="$(wc -c <"$KEY_FILE" | tr -d ' ')"

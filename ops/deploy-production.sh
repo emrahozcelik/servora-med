@@ -202,7 +202,7 @@ validate_deploy_key_file() {
   local key_file="$1"
   [[ -e "$key_file" && ! -L "$key_file" && -f "$key_file" ]] || fail SSH_KEY_FILE_INVALID
   local key_mode
-  key_mode="$(stat -f '%Lp' "$key_file" 2>/dev/null || stat -c '%a' "$key_file")"
+  key_mode="$(stat -c '%a' "$key_file" 2>/dev/null || stat -f '%Lp' "$key_file")"
   [[ "$key_mode" == "600" || "$key_mode" == "400" ]] || fail SSH_KEY_FILE_PERMISSIONS
   local key_size
   key_size="$(wc -c <"$key_file" | tr -d ' ')"
