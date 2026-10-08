@@ -1608,3 +1608,56 @@ blocked, STAFF same rule, embedded drawer same rule), the full web suite, the
 full server suite (only pre-existing environment failures, identical on the
 pristine base), disposable-DB browser acceptance (blank create stores `NULL`,
 partial input blocked inline), and exact-head CI.
+## Local-first CI and production deployment — 2026-10-08
+
+- **Status:** Accepted and verified.
+- **Supersedes:** nothing. No prior decision mandates GitHub-Actions-only
+  verification or deployment; this entry is additive and narrows operator
+  procedure while GitHub-hosted runner capacity is unavailable.
+
+GitHub remains the source repository and PR/review platform, but GitHub
+Actions is no longer a mandatory dependency for completing verified
+development or production deployment. Each mandatory gate is replaced by an
+equivalent verifiable local gate; no gate is disabled to bypass billing.
+
+- Local CI (`ops/local-ci/run.sh`) reproduces the `.github/workflows/ci.yml`
+  contract in Colima Docker (Ubuntu `node:22` containers, `postgres:17`
+  service, pinned `age` 1.3.1, `postgresql-client-17`, `gh`/`jq`/`zstd`).
+  Colima was chosen over a second full VM because every current check runs in
+  containers or VM userspace: `systemd-analyze verify` is offline-capable, and
+  the docker-gated Caddy/SSE/tunnel/cloudflared validations run against the
+  Colima daemon (SSE behavior inside VM userspace where node and docker share
+  a net namespace). Full Ubuntu-VM-only checks: none in the current contract.
+- Verification evidence is a hash-bound bundle (`manifest.json`, `report.md`,
+  per-check logs) stored outside the checkout and re-verified fail-closed by
+  `ops/local-ci/verify-evidence.sh` (SHA/tree binding, log hashes, required
+  checks, Linux-compat assertion). Unexecuted checks are `ABSENT`/`NOT_RUN`
+  and fail; reviewed exceptions need an explicit per-check reason. Local
+  validation is never represented as GitHub Actions success.
+- Production deploys keep the existing `ops/deploy-production.sh` safety
+  chain. `--ci-mode github` (default) preserves prior behavior; `--ci-mode
+  local --evidence <bundle>` is explicitly selected per invocation and
+  re-verifies local evidence instead of consulting GitHub CI. There is no
+  `--skip-ci`/`--force`/`--unsafe` bypass. A `mkdir`-atomic process lock with
+  stale-PID recovery prevents concurrent deployments from one operator host.
+- Release artifacts must be Linux-compatible: `linux-compat` evidence asserts
+  zero native (`.node`) and zero `os`/`cpu`-restricted production
+  dependencies (verified: 136+ packages, all portable JavaScript), so a
+  lockfile-built artifact is Linux/amd64-safe regardless of builder OS.
+- Credentials move from GitHub environment secrets to a local 0600 file
+  (`~/.config/servora-med/prod.env`) loaded by `ops/local-ci/load-prod-env.sh`,
+  which refuses missing/unreadable/symlinked files and missing keys. Keys are
+  never printed, committed, or logged. Provisioning the file is an explicit
+  owner action.
+- Negative gates are proven by `server/tests/local-evidence-deploy-gate.test.ts`
+  (forged/stale/mismatched/incomplete evidence, wrong SHA, failed checks,
+  non-Linux artifact, lock contention, unreachable transfer target) without
+  touching production. If GitHub Actions capacity returns, hosted runs are
+  preferred again; local evidence stays valid for its exact SHA.
+
+Verification is covered by the new gate test suite (11 tests), an end-to-end
+`run.sh` proving run on the implementation SHA (server 3884 passed / 0 failed
+incl. the new gate tests, web 2545/2545, benchmark smoke, all ops checks incl.
+docker-gated, linux-compat with zero native deps), and the existing
+`production-deploy-automation` suite confirming unchanged default
+(github) behavior.

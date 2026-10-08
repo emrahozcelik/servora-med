@@ -22,6 +22,11 @@ SSH_KEY="${SERVORA_PROD_SSH_KEY:-}"
 KNOWN_HOSTS="${SERVORA_PROD_KNOWN_HOSTS:-}"
 ALLOW_MIGRATIONS=false
 CHECK_ONLY=false
+CI_MODE="github"
+EVIDENCE=""
+EVIDENCE_ROOT="${SERVORA_EVIDENCE_ROOT:-${HOME:-/tmp}/.local/share/servora-med/evidence}"
+EVIDENCE_EXCEPTIONS="${SERVORA_EVIDENCE_EXCEPTIONS:-}"
+DEPLOY_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-production-deploy.lock"
 ARTIFACT_INPUT=""
 ARTIFACT=""
 ARTIFACT_SHA=""
@@ -53,7 +58,14 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
+  ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle> [--evidence-exceptions <id:reason,...>]
   ops/deploy-production.sh --check
+
+CI mode (default: github):
+  github  require a successful exact-main GitHub Actions CI run (ci.yml, push, main)
+  local   require a verified local evidence bundle instead (ops/local-ci).
+          The bundle is re-verified fail-closed; GitHub CI is not consulted.
+          There is intentionally no --skip-ci/--force/--unsafe bypass.
 
 Environment (GitHub production environment secrets/variables):
   SERVORA_PROD_HOST
@@ -61,6 +73,8 @@ Environment (GitHub production environment secrets/variables):
   SERVORA_PROD_SSH_KEY
   SERVORA_PROD_KNOWN_HOSTS
   SERVORA_PROD_FQDN
+  SERVORA_EVIDENCE_ROOT (default: ~/.local/share/servora-med/evidence)
+  SERVORA_EVIDENCE_EXCEPTIONS (checkId:reason,... for reviewed exceptions)
 
 For a prebuilt, exact-SHA artifact, set --artifact PATH. The artifact must
 have a sibling SHA-256 sidecar and must contain only the release payload.
@@ -95,6 +109,7 @@ cleanup_remote() {
 
 cleanup_local() {
   set +e
+  release_deploy_lock
   cleanup_remote
   local file
   if [[ "${#LOCAL_TEMP_FILES[@]}" -gt 0 ]]; then
@@ -119,6 +134,7 @@ write_summary() {
     echo "- Previous release: ${OLD_RELEASE}"
     echo "- New release: ${NEW_RELEASE}"
     echo "- Exact-main CI: ${CI_STATUS} (${CI_RUN_ID})"
+    echo "- CI mode: ${CI_MODE}"
     echo "- Build/package: ${BUILD_STATUS}"
     echo "- Transfer: ${TRANSFER_STATUS}"
     echo "- Deployment gates: ${DEPLOY_STATUS}"
@@ -262,6 +278,60 @@ verify_exact_main_ci() {
     || fail EXACT_MAIN_CI_WEB_NOT_GREEN
   CI_RUN_ID="$run_id"
   CI_STATUS=PASS
+}
+
+verify_local_evidence() {
+  PHASE=CI
+  [[ "$CI_MODE" == local ]] || fail CI_MODE_NOT_LOCAL
+  local manifest=""
+  if [[ -n "$EVIDENCE" && -f "$EVIDENCE/manifest.json" && ! -L "$EVIDENCE/manifest.json" ]]; then
+    manifest="$EVIDENCE/manifest.json"
+  elif [[ -n "$EVIDENCE" && -f "$EVIDENCE" && ! -L "$EVIDENCE" ]]; then
+    manifest="$EVIDENCE"
+  else
+    manifest="$EVIDENCE_ROOT/$SHA/manifest.json"
+  fi
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail LOCAL_EVIDENCE_MANIFEST_MISSING
+  local bundle_dir evidence_root live_tree
+  bundle_dir="$(cd -- "$(dirname -- "$manifest")" && pwd -P)"
+  evidence_root="$(cd -- "$bundle_dir/.." && pwd -P)"
+  live_tree="$(git -C "$REPO_ROOT" rev-parse "${SHA}^{tree}")" || fail COMMIT_NOT_FOUND
+  local -a verify_args=(--evidence-root "$evidence_root" --sha "$SHA" --tree "$live_tree")
+  if [[ -n "$EVIDENCE_EXCEPTIONS" ]]; then
+    verify_args+=(--exceptions "$EVIDENCE_EXCEPTIONS")
+  fi
+  "$REPO_ROOT/ops/local-ci/verify-evidence.sh" "${verify_args[@]}" \
+    || fail LOCAL_EVIDENCE_NOT_VERIFIED
+  CI_RUN_ID="local:$(sha256_file "$manifest" | cut -c1-16)"
+  CI_STATUS=PASS
+}
+
+acquire_deploy_lock() {
+  PHASE=LOCK
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
+    printf '%s\n' "$$" >"$pid_file"
+    return 0
+  fi
+  local holder=""
+  [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
+  if [[ "$holder" =~ ^[0-9]+$ ]] && ! kill -0 "$holder" 2>/dev/null; then
+    rm -rf -- "$DEPLOY_LOCK_DIR"
+    mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null \
+      || fail CONCURRENT_DEPLOYMENT_ACTIVE
+    printf '%s\n' "$$" >"$pid_file"
+    return 0
+  fi
+  fail CONCURRENT_DEPLOYMENT_ACTIVE
+}
+
+release_deploy_lock() {
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  local holder=""
+  [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
+  if [[ "$holder" == "$$" ]]; then
+    rm -rf -- "$DEPLOY_LOCK_DIR"
+  fi
 }
 
 is_forbidden_artifact_path() {
@@ -643,6 +713,9 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --sha) SHA="${2:-}"; shift 2 ;;
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
+    --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
+    --evidence) EVIDENCE="${2:-}"; shift 2 ;;
+    --evidence-exceptions) EVIDENCE_EXCEPTIONS="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
     --check|--dry-run) CHECK_ONLY=true; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -650,15 +723,22 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
+[[ "$CI_MODE" == github || "$CI_MODE" == local ]] || fail INVALID_CI_MODE
+
 if [[ "$CHECK_ONLY" == true ]]; then
   check_only
   exit 0
 fi
 
 [[ -n "$SHA" ]] || { usage; fail SHA_REQUIRED; }
+acquire_deploy_lock
 check_commands
 verify_source
-verify_exact_main_ci
+if [[ "$CI_MODE" == local ]]; then
+  verify_local_evidence
+else
+  verify_exact_main_ci
+fi
 build_artifact
 prepare_ssh
 deploy_remote
@@ -680,5 +760,5 @@ if ! postdeploy_remote; then
 fi
 
 PHASE=COMPLETE
-echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS}"
+echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS} ci_mode=${CI_MODE}"
 fi

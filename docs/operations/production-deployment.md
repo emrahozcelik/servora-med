@@ -272,6 +272,55 @@ SERVORA_PROD_FQDN
 ```
 
 `SERVORA_PROD_SSH_KEY` is the `servora-deploy` private key, not a root key.
+
+### Local-first operation (when GitHub-hosted runners are unavailable)
+
+GitHub remains the source repository and PR/review platform, but GitHub
+Actions is no longer a mandatory dependency for verified development or
+production deployment. Security gates are replaced by equivalent verifiable
+local gates, never disabled.
+
+Local CI:
+
+```bash
+ops/local-ci/run.sh --sha <40-character-sha>
+```
+
+reproduces the `.github/workflows/ci.yml` contract in Colima Docker (Ubuntu
+`node:22` containers + `postgres:17` service) and writes a hash-bound evidence
+bundle to `~/.local/share/servora-med/evidence/<sha>/` containing
+`manifest.json`, `report.md` and per-check logs. Verify any bundle with:
+
+```bash
+ops/local-ci/verify-evidence.sh --evidence-root <root> --sha <sha> [--tree <tree>]
+```
+
+Unexecuted checks are recorded `ABSENT`/`NOT_RUN` and fail verification; they
+are never reported as passed. Reviewed exceptions require an explicit
+`--exceptions checkId:reason,...` reason per check. Do not represent local
+validation as GitHub Actions success.
+
+Local production deploy keeps the same safety chain with an explicitly
+selected CI mode:
+
+```bash
+eval "$(ops/local-ci/load-prod-env.sh)"   # 0600 ~/.config/servora-med/prod.env
+ops/deploy-production.sh --sha <main-sha> --ci-mode local --evidence <bundle-or-manifest>
+```
+
+Local mode re-verifies the evidence bundle fail-closed (SHA/tree binding, log
+hashes, required checks, Linux compatibility) instead of consulting GitHub CI.
+`--ci-mode github` (default) preserves the previous behavior for restoration.
+There is no `--skip-ci`, `--force` or `--unsafe` bypass. A process lock
+(`mkdir`-atomic, stale-PID recovery) prevents concurrent deployments from one
+operator host; remote serialization remains host-helper owned.
+
+Credential provisioning (owner action, once): copy the five `SERVORA_PROD_*`
+values from the GitHub `production` environment into
+`~/.config/servora-med/prod.env` (`KEY=value` lines), `chmod 600` the file,
+and confirm with `ops/local-ci/load-prod-env.sh --check`. Private keys are
+never printed, committed, or logged. If GitHub Actions capacity returns, prefer
+restoring hosted runs; local evidence remains valid for its exact SHA.
 `SERVORA_PROD_KNOWN_HOSTS` is an independently verified pinned entry; the
 workflow refuses `StrictHostKeyChecking=no` and never runs a blind runtime
 `ssh-keyscan`. Temporary key files are mode `0600` and removed on exit.
