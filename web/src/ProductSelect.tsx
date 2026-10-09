@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { listProducts, type Paginated, type Product, type ProductFilters } from './services/products-api';
 import { createRequestGate } from './services/request-gate';
@@ -20,6 +20,7 @@ type MultiProductSelectProps = ProductSelectBaseProps & {
   selectedProducts: Product[];
   onAdd: (product: Product) => void;
   onRemove: (productId: string) => void;
+  renderQuantity?: (product: Product) => ReactNode;
   selected?: never;
   onChange?: never;
 };
@@ -30,6 +31,7 @@ type SingleProductSelectProps = ProductSelectBaseProps & {
   selectedProducts?: never;
   onAdd?: never;
   onRemove?: never;
+  renderQuantity?: never;
 };
 
 export type ProductSelectProps = MultiProductSelectProps | SingleProductSelectProps;
@@ -56,6 +58,7 @@ export function ProductSelect(props: ProductSelectProps) {
     ? (props as MultiProductSelectProps).onAdd
     : (props as SingleProductSelectProps).onChange;
   const removeProduct = isMulti ? (props as MultiProductSelectProps).onRemove : undefined;
+  const renderQuantity = isMulti ? (props as MultiProductSelectProps).renderQuantity : undefined;
   const [state, setState] = useState<ProductSelectState>({ kind: 'idle' });
   const [draftQuery, setDraftQuery] = useState('');
   const [query, setQuery] = useState('');
@@ -128,22 +131,9 @@ export function ProductSelect(props: ProductSelectProps) {
         <button className="secondary-button" type="button" disabled={disabled} onClick={submitSearch}>Ürün ara</button>
       </div>
     </div>
-    {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby="selected-products-heading">
-      <h2 id="selected-products-heading">Seçilen ürünler</h2>
-      <ul className="product-select-selected-list">
-        {selectedProducts.map((product) => {
-          const metadata = productMetadata(product);
-          return <li key={product.id} data-selected-product-id={product.id}>
-            <div><strong>{product.name}</strong>{metadata.length > 0 && <small>{metadata.join(' · ')}</small>}</div>
-            {removeProduct && <button className="secondary-button" type="button"
-              aria-label={`Kaldır: ${product.name}`} disabled={disabled}
-              onClick={() => removeProduct(product.id)}>Kaldır</button>}
-          </li>;
-        })}
-      </ul>
-    </div>}
-    <div className="product-select-results" aria-live="polite" aria-busy={state.kind === 'loading'}>
-      {state.kind === 'idle' && <p>Arama yaparak ürün seçin.</p>}
+    <div className="product-select-results" aria-live="polite" aria-busy={state.kind === 'loading'}
+      hidden={state.kind === 'idle' && selectedProducts.length > 0}>
+      {state.kind === 'idle' && selectedProducts.length === 0 && <p>Arama yaparak ürün seçin.</p>}
       {state.kind === 'loading' && <p role="status">Aktif ürünler yükleniyor…</p>}
       {state.kind === 'error' && <div className="field-error" role="alert"><p>{state.message}</p>
         <button className="secondary-button" type="button" disabled={disabled} onClick={() => setReload((value) => value + 1)}>Tekrar dene</button></div>}
@@ -167,5 +157,26 @@ export function ProductSelect(props: ProductSelectProps) {
           onClick={() => setOffset(state.page.offset + state.page.limit)}>Sonraki</button>
       </nav>}
     </div>
+    {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby="selected-products-heading">
+      <h2 id="selected-products-heading">Seçilen ürünler</h2>
+      <ul className="product-select-selected-list">
+        {selectedProducts.map((product) => {
+          const metadata = productMetadata(product);
+          return <li key={product.id} data-selected-product-id={product.id}
+            className={renderQuantity ? 'product-select-with-quantity' : undefined}>
+            {renderQuantity && <div className="product-select-quantity">{renderQuantity(product)}</div>}
+            <div><strong>{product.name}</strong>{metadata.length > 0 && <small>{metadata.join(' · ')}</small>}</div>
+            {removeProduct && <button className="ghost-button product-select-remove" type="button"
+              aria-label={`Kaldır: ${product.name}`} title={`Kaldır: ${product.name}`} disabled={disabled}
+              onClick={() => { removeProduct(product.id); searchInputRef.current?.focus(); }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" focusable="false">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
+            </button>}
+          </li>;
+        })}
+      </ul>
+    </div>}
   </section>;
 }

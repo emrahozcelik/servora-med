@@ -258,6 +258,80 @@ describe('Delivery create CRM defaults', () => {
     }));
   });
 
+  it('places each editable quantity before its product identity in the selected row', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container, 'product-1', 'implant');
+    await selectProduct(container, 'product-2', 'vida');
+
+    for (const selected of [product, secondProduct]) {
+      const row = container.querySelector(`[data-selected-product-id="${selected.id}"]`)!;
+      const quantity = row.querySelector(`#delivery-quantity-${selected.id}`) as HTMLInputElement;
+      expect(quantity).not.toBeNull();
+      expect(quantity.value).toBe('1');
+      expect(quantity.compareDocumentPosition(row.querySelector('strong')!))
+        .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(row.querySelector(`label[for="${quantity.id}"]`)?.textContent).toContain(selected.name);
+    }
+    expect(container.querySelector('.delivery-selected-quantities')).toBeNull();
+  });
+
+  it('keeps fractional quantities attached to product IDs after removal and re-addition', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container, 'product-1', 'implant');
+    await selectProduct(container, 'product-2', 'vida');
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0.001'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '0.5'));
+    await act(async () => (container.querySelector('[data-selected-product-id="product-1"] button') as HTMLButtonElement).click());
+    expect((container.querySelector('#delivery-quantity-product-2') as HTMLInputElement).value).toBe('0.5');
+    await selectProduct(container, 'product-1', 'implant');
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).value).toBe('1');
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0.001'));
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(api.createProductDelivery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      items: [{ productId: 'product-2', quantity: 0.5 }, { productId: 'product-1', quantity: 0.001 }],
+    }));
+  });
+
+  it.each(['0', '-1', '', '1e309'])('refuses invalid quantity %j without sending a request', async (value) => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, value));
+    // Exercise the owner validation even when native constraint validation is bypassed.
+    await act(async () => container.querySelector('.delivery-form')!.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    ));
+    await settle();
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
+    expect(container.querySelector('.form-error')?.textContent).toContain(product.name);
+  });
+
+  it('disables row controls while a delivery request is pending and prevents repeated clicks', async () => {
+    let resolve!: (result: { jobCardId: string; version: number }) => void;
+    api.createProductDelivery.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await pickCustomerByName(container, 'delivery-customer', 'A Klinik');
+    await selectProduct(container);
+    const submit = container.querySelector('.delivery-form [type="submit"]') as HTMLButtonElement;
+    await act(async () => submit.click());
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('[data-selected-product-id="product-1"] button') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).disabled).toBe(true);
+    await act(async () => submit.click());
+    expect(api.createProductDelivery).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ jobCardId: 'job-pending', version: 2 }));
+    await settle();
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).disabled).toBe(false);
+  });
+
   it('blocks a non-positive selected quantity before the atomic request', async () => {
     await act(async () => root.render(view(staffUser)));
     await settle();
@@ -501,6 +575,8 @@ describe('Delivery create ambiguous attempt contract', () => {
     expect(originalRequest).toMatchObject({ customerId: 'customer-a', items: [{ productId: 'product-1', quantity: 2 }] });
     expect(container.querySelector('[data-original-retry]')).not.toBeNull();
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('[data-selected-product-id="product-1"] button') as HTMLButtonElement).disabled).toBe(true);
     expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => (container.querySelector('[data-original-retry]') as HTMLButtonElement).click()); await settle();

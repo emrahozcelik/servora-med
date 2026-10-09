@@ -84,6 +84,63 @@ describe('ProductSelect', () => {
     expect(container.querySelector('.product-select-pagination')).toBeNull();
   });
 
+  it('places search results directly below the search control and above selected products', async () => {
+    await renderPicker(vi.fn().mockResolvedValue(page([productTwo])), [productOne]);
+    await search('vida');
+
+    const controls = container.querySelector('.product-select-search')!;
+    const results = container.querySelector('.product-select-results')!;
+    expect(controls.nextElementSibling).toBe(results);
+    expect(results.compareDocumentPosition(container.querySelector('.product-select-selected')!))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(container.querySelector('[data-selected-product-id="product-1"]')).not.toBeNull();
+  });
+
+  it('shows idle guidance only when no product has been selected', async () => {
+    const load = vi.fn();
+    await renderPicker(load, [productOne]);
+    expect(container.textContent).not.toContain('Arama yaparak ürün seçin.');
+    await renderPicker(load);
+    expect(container.textContent).toContain('Arama yaparak ürün seçin.');
+  });
+
+  it('returns focus to search after the compact accessible remove action without submitting', async () => {
+    const onRemove = vi.fn();
+    await renderPicker(vi.fn(), [productOne], vi.fn(), onRemove);
+    const remove = container.querySelector(`[aria-label="Kaldır: ${productOne.name}"]`) as HTMLButtonElement;
+    expect(remove.type).toBe('button');
+    expect(remove.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    remove.focus();
+    await act(async () => remove.click());
+    expect(onRemove).toHaveBeenCalledExactlyOnceWith(productOne.id);
+    expect(document.activeElement).toBe(container.querySelector('#delivery-product-search'));
+  });
+
+  it('preserves full long names, metadata and the actual product unit', async () => {
+    const selected = { ...productOne, name: 'Uzun dental ürün adı '.repeat(10), model: 'LONGMODEL'.repeat(10), unit: 'ml' };
+    await renderPicker(vi.fn(), [selected]);
+    const row = container.querySelector('[data-selected-product-id]')!;
+    expect(row.querySelector('strong')?.textContent).toBe(selected.name);
+    expect(row.querySelector('small')?.textContent).toContain(selected.model);
+    expect(row.querySelector('small')?.textContent).toContain('Birim ml');
+    expect(row.textContent).not.toContain('adet');
+    expect(row.querySelector('button')?.getAttribute('aria-label')).toBe(`Kaldır: ${selected.name}`);
+  });
+
+  it('keeps rendered quantities bound to product IDs when the selection order changes', async () => {
+    const quantities = new Map([[productOne.id, 0.001], [productTwo.id, 0.5]]);
+    async function render(selectedProducts: Product[]) {
+      await act(async () => root.render(<ProductSelect selectedProducts={selectedProducts}
+        onAdd={vi.fn()} onRemove={vi.fn()} renderQuantity={(selected) => <input
+          type="number" aria-label={`Miktar: ${selected.name}`} value={quantities.get(selected.id)} readOnly />} />));
+    }
+    await render([productOne, productTwo]);
+    await render([productTwo, productOne]);
+    const rows = Array.from(container.querySelectorAll('[data-selected-product-id]'));
+    expect(rows.map((row) => row.getAttribute('data-selected-product-id'))).toEqual([productTwo.id, productOne.id]);
+    expect(rows.map((row) => (row.querySelector('input') as HTMLInputElement).value)).toEqual(['0.5', '0.001']);
+  });
+
   it('searches with limit 8 and renders at most 8 results', async () => {
     const results = Array.from({ length: 8 }, (_, index) => product(`product-${index}`, `Ürün ${index}`));
     const load = vi.fn().mockResolvedValue(page(results, 0, 12));

@@ -96,6 +96,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Geciken iş satırı responsive fixture" data-smoke-job-row>
         <div id="responsive-job-row-root"></div>
       </section>
+      <section class="delivery-form" aria-label="Ürün miktarı responsive fixture">
+        <fieldset class="delivery-form-fieldset"><div id="responsive-product-select-root"></div></fieldset>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -184,6 +187,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-chart-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-notification-center-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-job-row-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-product-select-fixture.tsx"></script>
 </body></html>`;
 
 const overviewCardsFixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}</style></head>
@@ -1369,6 +1373,28 @@ try {
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: vp.name, ...m }));
+    await page.waitForSelector('#responsive-product-select-root input[type="number"]');
+    const productRows = await page.locator('#responsive-product-select-root [data-selected-product-id]').evaluateAll((rows) => rows.map((row) => {
+      const quantity = row.querySelector('input');
+      const name = row.querySelector('strong');
+      const remove = row.querySelector('button');
+      const q = quantity.getBoundingClientRect();
+      const n = name.getBoundingClientRect();
+      const r = remove.getBoundingClientRect();
+      return { quantity: quantity.value, leftToRight: q.right <= n.left && n.right <= r.left,
+        overflowing: [...row.querySelectorAll('*')].filter((el) => el instanceof HTMLElement && !el.classList.contains('sr-only') && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => ({ tag: el.tagName, width: el.clientWidth, scrollWidth: el.scrollWidth })),
+        fits: [...row.querySelectorAll('*')].every((el) => {
+          const rect = el.getBoundingClientRect();
+          return !(el instanceof HTMLElement) || el.classList.contains('sr-only')
+            || (rect.left >= 0 && rect.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1);
+        }), targets: q.height >= 44 && q.width >= 44 && r.height >= 44 && r.width >= 44 };
+    }));
+    console.log(JSON.stringify({ viewport: vp.name, productRows }));
+    if (productRows.length !== 2 || productRows.some((row) => !row.leftToRight || !row.fits || !row.targets)
+      || productRows[0]?.quantity !== '0.001' || productRows[1]?.quantity !== '0.5') {
+      failures.push(`${vp.name}: product selection quantity association, wrap or tap-target failure`);
+    }
     if (m.overflowX) failures.push(`${vp.name}: horizontal overflow`);
     if (m.detailOverflow) failures.push(`${vp.name}: job detail exceeds its workspace`);
     if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
