@@ -142,7 +142,10 @@ function createDeployFixture() {
   };
 }
 
-describe('verify-evidence.sh fail-closed gates', () => {
+// A verifier invocation starts many Node processes for the 27-check policy.
+// amd64 emulation on ARM can take 13–26s; retain every assertion with a
+// bounded CLI-test budget instead of the default 5s unit-test timeout.
+describe('verify-evidence.sh fail-closed gates', { timeout: 60000 }, () => {
   it('rejects unknown or duplicate manifest check identities', () => {
     const root = temporaryDirectory('unknown-check');
     try {
@@ -378,7 +381,7 @@ describe('verify-evidence.sh fail-closed gates', () => {
   });
 });
 
-describe('deploy-production.sh local evidence gate', () => {
+describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
   it('rejects an invalid --ci-mode and keeps github the default', () => {
     const fixture = createDeployFixture();
     try {
