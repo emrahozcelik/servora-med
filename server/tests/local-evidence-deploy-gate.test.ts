@@ -382,6 +382,31 @@ describe('verify-evidence.sh fail-closed gates', { timeout: 60000 }, () => {
 });
 
 describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
+  it('rejects invalid explicit evidence even when a valid default bundle exists', () => {
+    const fixture = createDeployFixture();
+    const evidenceRoot = temporaryDirectory('explicit-evidence');
+    try {
+      const manifest = makeBundle(evidenceRoot, fixture.sha, fixture.tree);
+      const fileLink = join(evidenceRoot, 'manifest-link');
+      const dirLink = join(evidenceRoot, 'bundle-link');
+      symlinkSync(manifest, fileLink);
+      symlinkSync(join(evidenceRoot, fixture.sha), dirLink);
+      for (const selected of ['', join(evidenceRoot, 'mistyped.json'), fileLink, dirLink]) {
+        const result = runSourced(fixture.script,
+          'SHA="$2"; CI_MODE=local; EVIDENCE_ROOT="$3"; EVIDENCE="$4"; EVIDENCE_EXPLICIT=true; verify_local_evidence',
+          [fixture.sha, evidenceRoot, selected], fixture.env);
+        expect(result.status).not.toBe(0);
+        expect(`${result.stdout}${result.stderr}`).toContain('LOCAL_EVIDENCE_PATH_INVALID');
+      }
+      const explicitEmpty = spawnSync('bash', [fixture.script, '--sha', fixture.sha,
+        '--ci-mode', 'local', '--evidence', ''], { encoding: 'utf8', env: {
+        ...process.env, ...fixture.env, TMPDIR: evidenceRoot,
+        SERVORA_EVIDENCE_ROOT: evidenceRoot, SERVORA_PROD_SSH_KEY: '', SERVORA_PROD_SSH_KEY_FILE: '',
+      } });
+      expect(explicitEmpty.status).not.toBe(0);
+      expect(`${explicitEmpty.stdout}${explicitEmpty.stderr}`).toContain('LOCAL_EVIDENCE_PATH_INVALID');
+    } finally { fixture.cleanup(); rmSync(evidenceRoot, { recursive: true, force: true }); }
+  });
   it('rejects an invalid --ci-mode and keeps github the default', () => {
     const fixture = createDeployFixture();
     try {

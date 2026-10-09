@@ -175,7 +175,7 @@ printf '%s\n' "$server_chain_code" >"$LOGS/aux/server-chain.exit"
 
 web_chain_code=0
 echo "=== [2/5] web chain (node:22) ==="
-docker run --rm --name "servora-localci-web-$RUN_ID" \
+docker run --rm --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \

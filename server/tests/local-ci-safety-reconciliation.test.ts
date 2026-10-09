@@ -76,6 +76,16 @@ exit 0`);
 }
 
 describe('production credential safety reconciliation', () => {
+  it('enforces the documented dedicated deployment account in loader and deploy', () => {
+    const f = credentialFixture();
+    try {
+      const config = readFileSync(f.envFile, 'utf8');
+      writeFileSync(f.envFile, config.replace('SSH_USER=servora-deploy', 'SSH_USER=ubuntu'));
+      expect(load(f.envFile).status).not.toBe(0);
+      const result = spawnSync('bash', ['-c', 'source "$1"; PROD_HOST=deploy.example; SSH_USER=ubuntu; SSH_KEY=synthetic; KNOWN_HOSTS_PATH="$2"; validate_host_identity', 'restricted-user', deploy, f.hosts], { encoding: 'utf8' });
+      expect(result.status).not.toBe(0);
+    } finally { f.cleanup(); }
+  });
   it('rejects an untrusted known_hosts owner, symlinks and malformed content', () => {
     const f = credentialFixture();
     try {

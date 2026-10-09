@@ -6,7 +6,8 @@ Scope: targeted reconciliation only; no merge, deploy or production SSH.
 
 ## Review disposition
 
-All 16 inline Codex comments from both completed reviews were inspected,
+All 19 inline Codex comments from the completed reviews through head
+`89650fd75d7424c966eda3374ed3e36dd2550068` were inspected,
 along with the conversation review summary. Comment IDs link to the PR threads.
 
 | Comment | Finding | Correction / proof | Status |
@@ -26,6 +27,9 @@ along with the conversation review summary. Comment IDs link to the PR threads.
 | [4224201412](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4224201412) | Stale deployment lock TOCTOU | No automatic recovery; deterministic paused stale reader cannot steal a new owner; atomic mkdir and exact owner release retained | Fixed |
 | [4224201417](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4224201417), [4224201426](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4224201426) | known_hosts owner/mode (duplicate comments) | Shared regular-file/non-symlink/owner/non-writable/content validation at loading and every SSH/SCP use; negative mode/owner/content/symlink regressions | Fixed |
 | [4224201434](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4224201434) | Inherited credential alternatives | Unset credential variables before exporting validated selected values; both inline/file inherited-environment regressions | Fixed |
+| [4227729484](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729484) | Invalid explicit evidence silently falls back | Distinguish omitted option from explicit empty/missing/symlink path; refuse invalid selection even with valid default evidence; function and CLI regressions | Fixed |
+| [4227729489](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729489) | Host UID/root logs not writable by node | Retain host ownership; grant node group access to log/aux directories; root-stage acceptance proves writes and original-owner removal for UID 501 and root 0; exact-tree mount remains read-only | Fixed |
+| [4227729497](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729497) | Dedicated SSH account claim not enforced | Shared `servora-deploy` account constant, exact enforcement in loader and authoritative deploy gate; other valid non-root username rejected | Fixed |
 
 ## Validation and completion gates
 
@@ -48,3 +52,23 @@ along with the conversation review summary. Comment IDs link to the PR threads.
 Post-commit gates and final hashes are recorded in the PR conversation and the
 external evidence bundle, avoiding a self-referential evidence commit. The required
 post-commit gates above are not claims of completed verification. Production is untouched.
+
+## Full-suite reconciliation notes
+
+The first post-change run correctly produced `FAIL` with 16 PASS, one FAIL and
+10 ABSENT checks after a Linux shellcheck source-path failure. Relative source
+paths and all deploy-fixture dependencies were corrected. The next full server
+run exposed only the missing macOS packaging fixture and six default-5s CLI
+timeouts under amd64 emulation. Fixture assertions remain unchanged; the CLI
+file now uses a bounded 60s test budget (an unchanged assertion took 13.4s in
+an emulated container). Host focused runs and cross-UID container acceptance pass.
+
+One responsive smoke run encountered `ERR_INSUFFICIENT_RESOURCES`; its
+container inherited a soft file-descriptor limit of 1024. The browser chain
+now explicitly uses 65536 soft/hard descriptors, verified in a disposable
+container. No browser assertions, geometry tolerances or application code changed.
+
+The full server suite contains four explicitly opt-in R2/DR acceptance tests
+across three files. Without dedicated non-production acceptance credentials
+and opt-in flags, they report SKIPPED, never PASSED. They do not substitute for
+any of the 27 mandatory local-CI checks; no real credentials were read.

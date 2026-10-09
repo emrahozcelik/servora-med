@@ -4,9 +4,21 @@
 # Each check writes /logs/<id>.log; failures abort the chain (set -e) so any
 # unexecuted check is simply absent and fails closed at manifest assembly.
 set -Eeuo pipefail
+prepare_check_logs() {
+  local logs="$1"
+  mkdir -p "$logs/aux"
+  # Retain the host owner so it can read evidence and remove a prior run.
+  # Grant only the container's node group access, never world write access.
+  chgrp node "$logs" "$logs/aux"
+  chmod g+rwx "$logs" "$logs/aux"
+}
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 export DEBIAN_FRONTEND=noninteractive
 
-mkdir -p /logs/aux
+prepare_check_logs /logs
 echo "=== stage A (root): toolchain ===" | tee /logs/aux/stage-a.log
 apt-get update -qq >>/logs/aux/stage-a.log 2>&1
 apt-get install -y -qq shellcheck curl ca-certificates gnupg lsb-release systemd zstd jq >>/logs/aux/stage-a.log 2>&1
@@ -29,6 +41,7 @@ install -m 0755 /tmp/age/age /tmp/age/age-keygen /tmp/age/age-inspect /usr/local
 age --version 2>&1 | tee -a /logs/aux/stage-a.log
 node --version 2>&1 | tee -a /logs/aux/stage-a.log
 grep PRETTY_NAME /etc/os-release | tee -a /logs/aux/stage-a.log
+bash /chains/verify-log-permissions.sh >>/logs/aux/stage-a.log 2>&1
 
 rm -rf /work && cp -a /repo /work
 cp /chains/static-syntax.sh /work/ops-local-ci-static-syntax.sh

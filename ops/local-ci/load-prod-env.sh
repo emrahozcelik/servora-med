@@ -3,7 +3,7 @@
 #
 # Local credential format (documented, key-file based):
 #   SERVORA_PROD_HOST=<hostname>
-#   SERVORA_PROD_SSH_USER=<restricted account, never root>
+#   SERVORA_PROD_SSH_USER=servora-deploy
 #   SERVORA_PROD_SSH_KEY_FILE=<absolute path to a 0600/0400 OpenSSH key file>
 #   SERVORA_PROD_KNOWN_HOSTS=<single pinned known_hosts line>
 #     or SERVORA_PROD_KNOWN_HOSTS_FILE=<absolute path to a known_hosts file>
@@ -57,6 +57,7 @@ get_value() {
 
 HOST="$(get_value SERVORA_PROD_HOST)"
 SSH_USER="$(get_value SERVORA_PROD_SSH_USER)"
+SSH_USER="${SSH_USER:-$DEFAULT_SSH_USER}"
 KEY_FILE="$(get_value SERVORA_PROD_SSH_KEY_FILE)"
 INLINE_KEY="$(get_value SERVORA_PROD_SSH_KEY)"
 KNOWN_HOSTS="$(get_value SERVORA_PROD_KNOWN_HOSTS)"
@@ -69,6 +70,7 @@ FQDN="$(get_value SERVORA_PROD_FQDN)"
 [[ -n "$KNOWN_HOSTS" || -n "$KNOWN_HOSTS_FILE" ]] \
   || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_MISSING" >&2; exit 1; }
 [[ "$SSH_USER" != root ]] || { echo "CRED_LOAD_FAILED reason=CRED_ROOT_SSH_USER_FORBIDDEN" >&2; exit 1; }
+[[ "$SSH_USER" == "$DEFAULT_SSH_USER" ]] || { echo "CRED_LOAD_FAILED reason=CRED_SSH_USER_NOT_DEDICATED" >&2; exit 1; }
 if [[ -n "$SSH_USER" ]]; then
   [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || { echo "CRED_LOAD_FAILED reason=CRED_SSH_USER_INVALID" >&2; exit 1; }
 fi

@@ -14,7 +14,6 @@ readonly REPO_ROOT
 # shellcheck source=local-ci/lib/ssh-files.sh
 source "$REPO_ROOT/ops/local-ci/lib/ssh-files.sh"
 readonly HOST_HELPER="/usr/local/libexec/servora-med/deploy-production-host"
-readonly DEFAULT_SSH_USER="servora-deploy"
 
 PHASE="SOURCE"
 SHA=""
@@ -29,6 +28,7 @@ ALLOW_MIGRATIONS=false
 CHECK_ONLY=false
 CI_MODE="github"
 EVIDENCE=""
+EVIDENCE_EXPLICIT=false
 EVIDENCE_ROOT="${SERVORA_EVIDENCE_ROOT:-${HOME:-/tmp}/.local/share/servora-med/evidence}"
 DEPLOY_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-production-deploy.lock"
 LOCK_CLAIM=""
@@ -185,6 +185,7 @@ validate_host_identity() {
   [[ "$PROD_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail INVALID_PRODUCTION_HOST
   [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || fail INVALID_SSH_USER
   [[ "$SSH_USER" != root ]] || fail ROOT_SSH_USER_FORBIDDEN
+  [[ "$SSH_USER" == "$DEFAULT_SSH_USER" ]] || fail SSH_USER_NOT_DEDICATED
   if [[ -n "$SSH_KEY_FILE" ]]; then
     validate_deploy_key_file "$SSH_KEY_FILE"
   else
@@ -335,10 +336,15 @@ verify_local_evidence() {
   PHASE=CI
   [[ "$CI_MODE" == local ]] || fail CI_MODE_NOT_LOCAL
   local manifest=""
-  if [[ -n "$EVIDENCE" && -f "$EVIDENCE/manifest.json" && ! -L "$EVIDENCE/manifest.json" ]]; then
-    manifest="$EVIDENCE/manifest.json"
-  elif [[ -n "$EVIDENCE" && -f "$EVIDENCE" && ! -L "$EVIDENCE" ]]; then
-    manifest="$EVIDENCE"
+  if [[ "$EVIDENCE_EXPLICIT" == true || -n "$EVIDENCE" ]]; then
+    [[ -n "$EVIDENCE" && ! -L "$EVIDENCE" ]] || fail LOCAL_EVIDENCE_PATH_INVALID
+    if [[ -d "$EVIDENCE" ]]; then
+      manifest="$EVIDENCE/manifest.json"
+    elif [[ -f "$EVIDENCE" ]]; then
+      manifest="$EVIDENCE"
+    else
+      fail LOCAL_EVIDENCE_PATH_INVALID
+    fi
   else
     manifest="$EVIDENCE_ROOT/$SHA/manifest.json"
   fi
@@ -801,7 +807,7 @@ while [[ "$#" -gt 0 ]]; do
     --sha) SHA="${2:-}"; shift 2 ;;
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
     --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
-    --evidence) EVIDENCE="${2:-}"; shift 2 ;;
+    --evidence) EVIDENCE_EXPLICIT=true; EVIDENCE="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
     --check|--dry-run) CHECK_ONLY=true; shift ;;
     --help|-h) usage; exit 0 ;;

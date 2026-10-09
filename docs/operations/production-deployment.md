@@ -296,6 +296,11 @@ bundle to `~/.local/share/servora-med/evidence/<sha>/` containing
 ops/local-ci/verify-evidence.sh --evidence-root <root> --sha <sha> [--tree <tree>]
 ```
 
+The server container grants its non-root node group log-directory access
+while retaining the host owner for cleanup. A cross-UID acceptance test covers
+UID 501 and root. The browser container uses a bounded 65536 descriptor budget
+to avoid inheriting Colima's 1024 soft limit.
+
 Unexecuted checks are recorded `ABSENT`/`NOT_RUN` and fail verification; they
 are never reported as passed. Exception policy A applies: there are no
 production exceptions — every mandatory check must PASS, and no reason string
@@ -328,6 +333,8 @@ Local mode re-verifies the evidence bundle fail-closed (SHA/tree binding, log
 hashes, required checks, Linux compatibility incl. a real linux/amd64
 production install+import) instead of consulting GitHub CI.
 `--ci-mode github` (default) preserves the previous behavior for restoration.
+An explicitly selected missing, empty or symlinked evidence path is refused;
+only an omitted `--evidence` option selects the default evidence root.
 There is no `--skip-ci`, `--force` or `--unsafe` bypass. Atomic `mkdir`
 acquires the local deployment lock. Every existing lock is rejected,
 including stale or malformed claims; there is no automatic rename/remove

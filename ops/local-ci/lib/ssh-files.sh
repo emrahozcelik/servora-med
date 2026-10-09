@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Shared pinned-host file validation; no credential material is printed.
+# shellcheck disable=SC2034 # Shared account policy consumed by both callers.
+readonly DEFAULT_SSH_USER=servora-deploy
+
 ssh_file_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
