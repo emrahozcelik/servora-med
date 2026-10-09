@@ -382,6 +382,25 @@ describe('verify-evidence.sh fail-closed gates', { timeout: 60000 }, () => {
 });
 
 describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
+  it('refuses a different selected file beside a valid canonical manifest', () => {
+    const fixture = createDeployFixture();
+    const evidenceRoot = temporaryDirectory('selected-file');
+    try {
+      const manifest = makeBundle(evidenceRoot, fixture.sha, fixture.tree);
+      const selected = join(evidenceRoot, fixture.sha, 'bad.json');
+      for (const content of ['invalid-json', JSON.stringify({ result: 'FAIL' })]) {
+        writeFileSync(selected, content);
+        const result = runSourced(fixture.script,
+          'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; verify_local_evidence',
+          [fixture.sha, selected], fixture.env);
+        expect(result.status).not.toBe(0);
+      }
+      const valid = runSourced(fixture.script,
+        'SHA="$2"; CI_MODE=local; EVIDENCE="$3"; verify_local_evidence',
+        [fixture.sha, manifest], fixture.env);
+      expect(valid.status, valid.stderr).toBe(0);
+    } finally { fixture.cleanup(); rmSync(evidenceRoot, { recursive: true, force: true }); }
+  });
   it('rejects invalid explicit evidence even when a valid default bundle exists', () => {
     const fixture = createDeployFixture();
     const evidenceRoot = temporaryDirectory('explicit-evidence');

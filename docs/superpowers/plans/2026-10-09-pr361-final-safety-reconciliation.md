@@ -6,8 +6,8 @@ Scope: targeted reconciliation only; no merge, deploy or production SSH.
 
 ## Review disposition
 
-All 19 inline Codex comments from the completed reviews through head
-`89650fd75d7424c966eda3374ed3e36dd2550068` were inspected,
+All 23 inline Codex comments from the completed reviews through head
+`1990636dc89dff6768499d8e7e1b4d90cbd79f80` were inspected,
 along with the conversation review summary. Comment IDs link to the PR threads.
 
 | Comment | Finding | Correction / proof | Status |
@@ -30,6 +30,10 @@ along with the conversation review summary. Comment IDs link to the PR threads.
 | [4227729484](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729484) | Invalid explicit evidence silently falls back | Distinguish omitted option from explicit empty/missing/symlink path; refuse invalid selection even with valid default evidence; function and CLI regressions | Fixed |
 | [4227729489](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729489) | Host UID/root logs not writable by node | Retain host ownership; grant node group access to log/aux directories; root-stage acceptance proves writes and original-owner removal for UID 501 and root 0; exact-tree mount remains read-only | Fixed |
 | [4227729497](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227729497) | Dedicated SSH account claim not enforced | Shared `servora-deploy` account constant, exact enforcement in loader and authoritative deploy gate; other valid non-root username rejected | Fixed |
+| [4227942443](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227942443) | Explicitly selected manifest never itself verified | Canonical-path equality: the selected manifest must be exactly `<evidence-root>/<sha>/manifest.json`, the file the verifier opens; sibling non-canonical files are refused; regression `refuses a different selected file beside a valid canonical manifest` | Fixed |
+| [4227942451](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227942451) | Deploy lock depended on caller `TMPDIR` | Lock moved to the fixed machine-wide `/tmp/servora-med-production-deploy.lock`; cross-`TMPDIR` serialization regression, alongside the retained 12-process contended acquisition and deterministic stale-window interleaving tests | Fixed |
+| [4227942462](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227942462) | CI tools not bound to the verified `--repo` checkout | `run.sh` refuses a script/target checkout mismatch with `CI_TOOL_ROOT_MISMATCH` before any lock, resource, evidence or docker use; regression proves no evidence directory and no docker invocation | Fixed |
+| [4227942472](https://github.com/emrahozcelik/servora-med/pull/361#discussion_r4227942472) | Lock decision record described removed automatic recovery | `DECISIONS.md` local-first paragraph and F2 entry now record the machine-wide fail-closed lock, supervised manual recovery and the real tests; runbook lock path updated | Fixed |
 
 ## Validation and completion gates
 
@@ -38,6 +42,10 @@ along with the conversation review summary. Comment IDs link to the PR threads.
 - [x] RED: six main regressions fail against the reviewed head, including the
   deterministic stale-lock interleaving. Additional SSH-use and unknown-check
   tests failed before their fixes.
+- [x] RED (second review round): the three code findings on `1990636` each
+  failed first — cross-`TMPDIR` lock, non-canonical selected manifest, foreign
+  CI tool root — before their fixes; the fourth (stale decision record) was a
+  documentation correction.
 - [x] GREEN: focused deploy/CI regression files pass on the host; shellcheck
   passes for every changed shell entrypoint/helper.
 - [x] Document supervised recovery: suspend launchers, verify no local or

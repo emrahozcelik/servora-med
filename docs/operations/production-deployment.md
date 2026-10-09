@@ -354,8 +354,9 @@ Supervised stale-lock recovery (never run while a deployment may be active):
    deployment lock is active. Do not recover when that state is unknown.
 3. With launchers still suspended, remove only the inspected `pid` file and
    use `rmdir` on the lock directory. Inspect unexpected contents; do not use
-   recursive deletion. The paths are `${TMPDIR:-/tmp}/servora-med-production-deploy.lock`
-   and, for CI only, `${TMPDIR:-/tmp}/servora-med-local-ci.lock`.
+   recursive deletion. The paths are the fixed machine-wide
+   `/tmp/servora-med-production-deploy.lock` and, for CI only,
+   `${TMPDIR:-/tmp}/servora-med-local-ci.lock`.
 4. Resume launchers only after the directory is gone. Keep an operator
    record of the inspected claim, process checks and recovery.
 

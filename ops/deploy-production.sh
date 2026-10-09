@@ -30,7 +30,9 @@ CI_MODE="github"
 EVIDENCE=""
 EVIDENCE_EXPLICIT=false
 EVIDENCE_ROOT="${SERVORA_EVIDENCE_ROOT:-${HOME:-/tmp}/.local/share/servora-med/evidence}"
-DEPLOY_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-production-deploy.lock"
+# Machine-wide fixed path: a caller-specific TMPDIR must never let two
+# deployments acquire different locks for the same production host.
+DEPLOY_LOCK_DIR="/tmp/servora-med-production-deploy.lock"
 LOCK_CLAIM=""
 ARTIFACT_INPUT=""
 ARTIFACT=""
@@ -350,9 +352,15 @@ verify_local_evidence() {
   fi
   [[ -f "$manifest" && ! -L "$manifest" ]] || fail LOCAL_EVIDENCE_MANIFEST_MISSING
   local bundle_dir evidence_root live_tree
-  bundle_dir="$(cd -- "$(dirname -- "$manifest")" && pwd -P)"
-  evidence_root="$(cd -- "$bundle_dir/.." && pwd -P)"
+  bundle_dir="$(cd -- "$(dirname -- "$manifest")" 2>/dev/null && pwd -P)" || fail LOCAL_EVIDENCE_PATH_INVALID
+  evidence_root="$(cd -- "$bundle_dir/.." 2>/dev/null && pwd -P)" || fail LOCAL_EVIDENCE_PATH_INVALID
   live_tree="$(git -C "$REPO_ROOT" rev-parse "${SHA}^{tree}")" || fail COMMIT_NOT_FOUND
+  # The verifier derives the verified file as <evidence-root>/<sha>/manifest.json.
+  # Require the selected manifest to BE that canonical file, so an explicitly
+  # selected path is never silently replaced by a different manifest that
+  # happens to share its directory.
+  [[ "${manifest##*/}" == "manifest.json" && "$bundle_dir" == "$evidence_root/$SHA" ]] \
+    || fail LOCAL_EVIDENCE_PATH_INVALID
   local -a verify_args=(--evidence-root "$evidence_root" --sha "$SHA" --tree "$live_tree")
   "$REPO_ROOT/ops/local-ci/verify-evidence.sh" "${verify_args[@]}" \
     || fail LOCAL_EVIDENCE_NOT_VERIFIED

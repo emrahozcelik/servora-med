@@ -102,6 +102,14 @@ done
 if [[ -z "$REPO" ]]; then
   REPO="$(git rev-parse --show-toplevel)"
 fi
+# CI tools must belong to the checkout being verified: chains, assembler and
+# policy files selected via SCRIPT_DIR must come from the same tree as --repo.
+# Otherwise a stale or modified tool checkout could run different commands and
+# produce evidence that looks bound to the target commit.
+SCRIPT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
+REPO_CANONICAL="$(cd -- "$REPO" 2>/dev/null && pwd -P)" || REPO_CANONICAL=""
+[[ -n "$REPO_CANONICAL" && "$SCRIPT_ROOT" == "$REPO_CANONICAL" ]] \
+  || { echo "LOCAL_CI_FAILED reason=CI_TOOL_ROOT_MISMATCH script_root=$SCRIPT_ROOT repo=${REPO_CANONICAL:-$REPO}" >&2; exit 1; }
 [[ "$(git -C "$REPO" rev-parse --verify HEAD)" == "$SHA" ]] \
   || { echo "LOCAL_CI_FAILED reason=HEAD_MISMATCH" >&2; exit 1; }
 TREE="$(git -C "$REPO" rev-parse "${SHA}^{tree}")"

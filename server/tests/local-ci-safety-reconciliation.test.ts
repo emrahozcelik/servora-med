@@ -69,7 +69,7 @@ exit 0`);
   execFileSync('git', ['-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture']);
   const sha = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const evidence = join(dir, 'evidence');
-  const invoke = () => spawnSync('bash', [join(ci, 'run.sh'), '--repo', repo, '--sha', sha, '--evidence-root', evidence], {
+  const invoke = (script = join(ci, 'run.sh')) => spawnSync('bash', [script, '--repo', repo, '--sha', sha, '--evidence-root', evidence], {
     encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, TMPDIR: dir, FIXTURE_DIR: dir },
   });
   return { dir, repo, sha, evidence, invoke, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
@@ -158,6 +158,30 @@ async function waitForFile(file: string) {
 }
 
 describe('deterministic deployment lock interleaving', () => {
+  it('serializes callers with different TMPDIR values using the same machine lock', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'servora-global-lock-'));
+    const owned = join(dir, 'owned');
+    const release = join(dir, 'release');
+    // Prefix the actual configured absolute path with a fixture root so this
+    // exercises the default selection without touching the machine lock.
+    const body = `source "$1"; printf '%s\\n' "$DEPLOY_LOCK_DIR";
+DEPLOY_LOCK_DIR="$2/\${DEPLOY_LOCK_DIR#/}"; mkdir -p "$(dirname "$DEPLOY_LOCK_DIR")";
+acquire_deploy_lock; : >"$3"; while [[ ! -e "$4" ]]; do sleep 0.01; done; release_deploy_lock`;
+    const a = spawn('bash', ['-c', body, 'machine-lock', deploy, dir, owned, release],
+      { env: { ...process.env, TMPDIR: '/tmp/operator-a' } });
+    const done = new Promise<number | null>((resolve) => a.on('close', resolve));
+    try {
+      await waitForFile(owned);
+      const b = spawnSync('bash', ['-c', `source "$1";
+DEPLOY_LOCK_DIR="$2/\${DEPLOY_LOCK_DIR#/}"; mkdir -p "$(dirname "$DEPLOY_LOCK_DIR")";
+acquire_deploy_lock; release_deploy_lock`, 'machine-lock', deploy, dir],
+        { encoding: 'utf8', env: { ...process.env, TMPDIR: '/tmp/operator-b' } });
+      expect(b.status).not.toBe(0);
+      expect(b.stderr).toContain('CONCURRENT_DEPLOYMENT_ACTIVE');
+      writeFileSync(release, 'go');
+      expect(await done).toBe(0);
+    } finally { a.kill(); rmSync(dir, { recursive: true, force: true }); }
+  }, 15000);
   it('cannot steal a new owner after reading an older stale claim', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'servora-delayed-lock-'));
     const lock = join(dir, 'lock');
@@ -199,6 +223,16 @@ acquire_deploy_lock; echo B_ACQUIRED`, 'delayed', deploy, lock, paused, resume])
 });
 
 describe('local CI runner reconciliation', () => {
+  it('rejects CI tools from another checkout before creating evidence or resources', () => {
+    const f = runnerFixture();
+    try {
+      const result = f.invoke(join(root, 'ops/local-ci/run.sh'));
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('CI_TOOL_ROOT_MISMATCH');
+      expect(existsSync(f.evidence)).toBe(false);
+      expect(existsSync(join(f.dir, 'docker-calls'))).toBe(false);
+    } finally { f.cleanup(); }
+  });
   it('preserves locks and resources when cleanup cannot verify ownership', () => {
     const dir = mkdtempSync(join(tmpdir(), 'servora-cleanup-owner-'));
     try {

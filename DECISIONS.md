@@ -1638,8 +1638,9 @@ equivalent verifiable local gate; no gate is disabled to bypass billing.
   chain. `--ci-mode github` (default) preserves prior behavior; `--ci-mode
   local --evidence <bundle>` is explicitly selected per invocation and
   re-verifies local evidence instead of consulting GitHub CI. There is no
-  `--skip-ci`/`--force`/`--unsafe` bypass. A `mkdir`-atomic process lock with
-  stale-PID recovery prevents concurrent deployments from one operator host.
+  `--skip-ci`/`--force`/`--unsafe` bypass. A machine-wide fixed-path
+  `mkdir`-atomic process lock fails closed on every existing lock (live, dead
+  or malformed); stale locks are recovered only by supervised manual removal.
 - Release artifacts must be Linux-compatible: `linux-compat` evidence asserts
   zero native (`.node`) and zero `os`/`cpu`-restricted production
   dependencies (verified: 136+ packages, all portable JavaScript), so a
@@ -1676,10 +1677,15 @@ behavior changes).
   pinned known_hosts). No separate signature mechanism was introduced: with
   the available local environment no trusted identity exists outside the
   operator's machine, and weakening the gate to compensate was refused.
-- Deploy lock is race-safe (F2): stale recovery renames the lock aside
-  atomically (exactly one contender survives), only the renamed copy is
-  deleted, release requires the owner's exact claim. Proven by a real
-  12-process contention test (old code granted 3 simultaneous owners).
+- Deploy lock is race-safe (F2): the lock lives at the fixed machine-wide
+  path `/tmp/servora-med-production-deploy.lock` (never under a caller
+  `TMPDIR`), is acquired with atomic `mkdir`, and every existing lock — live,
+  dead or malformed — fails closed; there is no automatic stale recovery,
+  only the supervised manual procedure in
+  `docs/operations/production-deployment.md`. Release requires the owner's
+  exact claim. Proven by a 12-process contended acquisition test, a
+  deterministic stale-window (TOCTOU) interleaving test and a cross-`TMPDIR`
+  serialization test.
 - Credentials are key-file based (F3): the local credential file carries a
   path to a 0600/0400 OpenSSH key file (validated: no symlink, bounded size,
   key header, pinned known_hosts identity); inline multiline keys are
