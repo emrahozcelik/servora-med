@@ -10,8 +10,10 @@ umask 077
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly REPO_ROOT
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=local-ci/lib/ssh-files.sh
+source "$REPO_ROOT/ops/local-ci/lib/ssh-files.sh"
 readonly HOST_HELPER="/usr/local/libexec/servora-med/deploy-production-host"
-readonly DEFAULT_SSH_USER="servora-deploy"
 
 PHASE="SOURCE"
 SHA=""
@@ -19,9 +21,19 @@ FQDN="${SERVORA_PROD_FQDN:-}"
 PROD_HOST="${SERVORA_PROD_HOST:-}"
 SSH_USER="${SERVORA_PROD_SSH_USER:-$DEFAULT_SSH_USER}"
 SSH_KEY="${SERVORA_PROD_SSH_KEY:-}"
+SSH_KEY_FILE="${SERVORA_PROD_SSH_KEY_FILE:-}"
 KNOWN_HOSTS="${SERVORA_PROD_KNOWN_HOSTS:-}"
+KNOWN_HOSTS_PATH="${SERVORA_PROD_KNOWN_HOSTS_FILE:-}"
 ALLOW_MIGRATIONS=false
 CHECK_ONLY=false
+CI_MODE="github"
+EVIDENCE=""
+EVIDENCE_EXPLICIT=false
+EVIDENCE_ROOT="${SERVORA_EVIDENCE_ROOT:-${HOME:-/tmp}/.local/share/servora-med/evidence}"
+# Machine-wide fixed path: a caller-specific TMPDIR must never let two
+# deployments acquire different locks for the same production host.
+DEPLOY_LOCK_DIR="/tmp/servora-med-production-deploy.lock"
+LOCK_CLAIM=""
 ARTIFACT_INPUT=""
 ARTIFACT=""
 ARTIFACT_SHA=""
@@ -53,14 +65,29 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
+  ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle>
   ops/deploy-production.sh --check
+
+CI mode (default: github):
+  github  require a successful exact-main GitHub Actions CI run (ci.yml, push, main)
+  local   require a verified local evidence bundle instead (ops/local-ci).
+          The bundle is re-verified fail-closed; GitHub CI is not consulted.
+          There is intentionally no --skip-ci/--force/--unsafe bypass.
 
 Environment (GitHub production environment secrets/variables):
   SERVORA_PROD_HOST
-  SERVORA_PROD_SSH_USER (default: servora-deploy)
-  SERVORA_PROD_SSH_KEY
-  SERVORA_PROD_KNOWN_HOSTS
+  SERVORA_PROD_SSH_USER (default: servora-deploy; root is refused)
+  SERVORA_PROD_SSH_KEY (inline key material; GitHub secrets path)
+  SERVORA_PROD_SSH_KEY_FILE (operator-owned 0600/0400 key file; local path,
+    validated at use; preferred over inline keys for local runs)
+  SERVORA_PROD_KNOWN_HOSTS (pinned host identity, inline)
+  SERVORA_PROD_KNOWN_HOSTS_FILE (pinned host identity file; local path)
   SERVORA_PROD_FQDN
+  SERVORA_EVIDENCE_ROOT (default: ~/.local/share/servora-med/evidence)
+
+Exception policy A (no production exceptions): local mode requires every
+mandatory evidence check to PASS. There is no exception flag: a
+caller-supplied reason string is not independent approval.
 
 For a prebuilt, exact-SHA artifact, set --artifact PATH. The artifact must
 have a sibling SHA-256 sidecar and must contain only the release payload.
@@ -95,6 +122,7 @@ cleanup_remote() {
 
 cleanup_local() {
   set +e
+  release_deploy_lock
   cleanup_remote
   local file
   if [[ "${#LOCAL_TEMP_FILES[@]}" -gt 0 ]]; then
@@ -119,6 +147,7 @@ write_summary() {
     echo "- Previous release: ${OLD_RELEASE}"
     echo "- New release: ${NEW_RELEASE}"
     echo "- Exact-main CI: ${CI_STATUS} (${CI_RUN_ID})"
+    echo "- CI mode: ${CI_MODE}"
     echo "- Build/package: ${BUILD_STATUS}"
     echo "- Transfer: ${TRANSFER_STATUS}"
     echo "- Deployment gates: ${DEPLOY_STATUS}"
@@ -157,14 +186,55 @@ validate_fqdn() {
 validate_host_identity() {
   [[ "$PROD_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || fail INVALID_PRODUCTION_HOST
   [[ "$SSH_USER" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || fail INVALID_SSH_USER
-  [[ -n "$SSH_KEY" && -n "$KNOWN_HOSTS" ]] || fail SSH_SECRETS_MISSING
+  [[ "$SSH_USER" != root ]] || fail ROOT_SSH_USER_FORBIDDEN
+  [[ "$SSH_USER" == "$DEFAULT_SSH_USER" ]] || fail SSH_USER_NOT_DEDICATED
+  if [[ -n "$SSH_KEY_FILE" ]]; then
+    validate_deploy_key_file "$SSH_KEY_FILE"
+  else
+    [[ -n "$SSH_KEY" ]] || fail SSH_SECRETS_MISSING
+  fi
+  if [[ -z "$KNOWN_HOSTS_PATH" ]]; then
+    [[ -n "$KNOWN_HOSTS" ]] || fail SSH_SECRETS_MISSING
+  else
+    validate_known_hosts_file "$KNOWN_HOSTS_PATH" || fail SSH_KNOWN_HOSTS_FILE_INVALID
+  fi
 }
+
+# Re-validate an operator-owned SSH key file at use time (defense in depth;
+# load-prod-env.sh is the format authority for the local credential file).
+# Never prints key material.
+validate_deploy_key_file() {
+  local key_file="$1"
+  [[ -e "$key_file" && ! -L "$key_file" && -f "$key_file" ]] || fail SSH_KEY_FILE_INVALID
+  local key_mode
+  key_mode="$(stat -c '%a' "$key_file" 2>/dev/null || stat -f '%Lp' "$key_file")"
+  [[ "$key_mode" == "600" || "$key_mode" == "400" ]] || fail SSH_KEY_FILE_PERMISSIONS
+  local key_size
+  key_size="$(wc -c <"$key_file" | tr -d ' ')"
+  [[ "$key_size" -gt 0 && "$key_size" -le 16384 ]] || fail SSH_KEY_FILE_SIZE
+  local key_first_line
+  key_first_line="$(head -n 1 "$key_file")"
+  case "$key_first_line" in
+    "-----BEGIN OPENSSH PRIVATE KEY-----"|"-----BEGIN RSA PRIVATE KEY-----"|"-----BEGIN EC PRIVATE KEY-----"|"-----BEGIN DSA PRIVATE KEY-----") return 0 ;;
+    *) fail SSH_KEY_FILE_FORMAT ;;
+  esac
+}
+
+BASE_COMMANDS=(bash git node npm tar ssh scp curl awk sed grep rm mktemp basename dirname od tr)
+GITHUB_COMMANDS=(gh jq)
 
 check_commands() {
   local command_name
-  for command_name in bash git node npm tar ssh scp curl gh jq awk sed grep rm mktemp basename dirname od tr; do
+  for command_name in "${BASE_COMMANDS[@]}"; do
     command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
   done
+  # gh/jq serve only verify_exact_main_ci: local mode (and --check) must not
+  # require GitHub CLI tooling.
+  if [[ "$CI_MODE" == github && "$CHECK_ONLY" != true ]]; then
+    for command_name in "${GITHUB_COMMANDS[@]}"; do
+      command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
+    done
+  fi
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     fail SHA256_TOOL_MISSING
   fi
@@ -262,6 +332,93 @@ verify_exact_main_ci() {
     || fail EXACT_MAIN_CI_WEB_NOT_GREEN
   CI_RUN_ID="$run_id"
   CI_STATUS=PASS
+}
+
+verify_local_evidence() {
+  PHASE=CI
+  [[ "$CI_MODE" == local ]] || fail CI_MODE_NOT_LOCAL
+  local manifest=""
+  if [[ "$EVIDENCE_EXPLICIT" == true || -n "$EVIDENCE" ]]; then
+    [[ -n "$EVIDENCE" && ! -L "$EVIDENCE" ]] || fail LOCAL_EVIDENCE_PATH_INVALID
+    if [[ -d "$EVIDENCE" ]]; then
+      manifest="$EVIDENCE/manifest.json"
+    elif [[ -f "$EVIDENCE" ]]; then
+      manifest="$EVIDENCE"
+    else
+      fail LOCAL_EVIDENCE_PATH_INVALID
+    fi
+  else
+    manifest="$EVIDENCE_ROOT/$SHA/manifest.json"
+  fi
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail LOCAL_EVIDENCE_MANIFEST_MISSING
+  local bundle_dir evidence_root live_tree
+  bundle_dir="$(cd -- "$(dirname -- "$manifest")" 2>/dev/null && pwd -P)" || fail LOCAL_EVIDENCE_PATH_INVALID
+  evidence_root="$(cd -- "$bundle_dir/.." 2>/dev/null && pwd -P)" || fail LOCAL_EVIDENCE_PATH_INVALID
+  live_tree="$(git -C "$REPO_ROOT" rev-parse "${SHA}^{tree}")" || fail COMMIT_NOT_FOUND
+  # The verifier derives the verified file as <evidence-root>/<sha>/manifest.json.
+  # Require the selected manifest to BE that canonical file, so an explicitly
+  # selected path is never silently replaced by a different manifest that
+  # happens to share its directory.
+  [[ "${manifest##*/}" == "manifest.json" && "$bundle_dir" == "$evidence_root/$SHA" ]] \
+    || fail LOCAL_EVIDENCE_PATH_INVALID
+  local -a verify_args=(--evidence-root "$evidence_root" --sha "$SHA" --tree "$live_tree")
+  "$REPO_ROOT/ops/local-ci/verify-evidence.sh" "${verify_args[@]}" \
+    || fail LOCAL_EVIDENCE_NOT_VERIFIED
+  CI_RUN_ID="local:$(sha256_file "$manifest" | cut -c1-16)"
+  CI_STATUS=PASS
+}
+
+acquire_deploy_lock() {
+  PHASE=LOCK
+  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
+    write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
+    return 0
+  fi
+  # A lock directory exists. There is deliberately NO automatic stale-lock
+  # recovery: any rename/remove-then-recreate window lets a delayed process
+  # move another process's newly acquired lock (TOCTOU on the path), so two
+  # processes could both believe they own the deployment. Every existing
+  # lock — live, dead, or unparseable — fails closed.
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  local holder=""
+  [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
+  local holder_pid=""
+  if [[ "$holder" =~ ^pid=([0-9]+)\  ]]; then
+    holder_pid="${BASH_REMATCH[1]}"
+  elif [[ "$holder" =~ ^[0-9]+$ ]]; then
+    holder_pid="$holder"
+  fi
+  if [[ -n "$holder_pid" ]] && kill -0 "$holder_pid" 2>/dev/null; then
+    fail CONCURRENT_DEPLOYMENT_ACTIVE
+  fi
+  # Supervised recovery requires suspending all launchers, checking local
+  # and remote deploy activity, then removing only the inspected claim and
+  # empty directory. See docs/operations/production-deployment.md.
+  fail STALE_DEPLOY_LOCK
+}
+
+# Record this process as the lock owner and re-read the claim: if the
+# directory was stolen between mkdir and write, the write fails or the
+# re-read mismatches and acquisition fails closed.
+write_lock_claim() {
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  LOCK_CLAIM="pid=$$ nonce=$$-$RANDOM-$RANDOM time=$(date +%s)"
+  printf '%s\n' "$LOCK_CLAIM" >"$pid_file" || return 1
+  [[ "$(cat -- "$pid_file" 2>/dev/null || true)" == "$LOCK_CLAIM" ]] || return 1
+}
+
+release_deploy_lock() {
+  local pid_file="$DEPLOY_LOCK_DIR/pid"
+  # Only the owning process may remove the lock: the on-disk claim must match
+  # exactly what this process wrote. Anything else (other owners,
+  # stale-format claims, missing file) is left untouched.
+  [[ -n "${LOCK_CLAIM:-}" ]] || return 0
+  local holder=""
+  [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
+  if [[ "$holder" == "$LOCK_CLAIM" ]]; then
+    rm -rf -- "$DEPLOY_LOCK_DIR"
+  fi
+  LOCK_CLAIM=""
 }
 
 is_forbidden_artifact_path() {
@@ -513,6 +670,7 @@ ssh_run() {
     quoted="$(shell_quote "$arg")"
     command_line+="${quoted} "
   done
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   # shellcheck disable=SC2029
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$PROD_HOST" "$command_line"
 }
@@ -522,11 +680,22 @@ prepare_ssh() {
   validate_fqdn
   validate_host_identity
   SSH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/servora-production-ssh.XXXXXX")"
-  KEY_FILE="$SSH_DIR/id_deploy"
+  if [[ -n "$SSH_KEY_FILE" ]]; then
+    # Operator-owned key file (validated above): reference it directly instead
+    # of duplicating key material into another file.
+    KEY_FILE="$SSH_KEY_FILE"
+  else
+    KEY_FILE="$SSH_DIR/id_deploy"
+    printf '%s\n' "$SSH_KEY" >"$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+  fi
   KNOWN_HOSTS_FILE="$SSH_DIR/known_hosts"
-  printf '%s\n' "$SSH_KEY" >"$KEY_FILE"
-  printf '%s\n' "$KNOWN_HOSTS" >"$KNOWN_HOSTS_FILE"
-  chmod 600 "$KEY_FILE" "$KNOWN_HOSTS_FILE"
+  if [[ -n "$KNOWN_HOSTS_PATH" ]]; then
+    KNOWN_HOSTS_FILE="$KNOWN_HOSTS_PATH"
+  else
+    printf '%s\n' "$KNOWN_HOSTS" >"$KNOWN_HOSTS_FILE"
+    chmod 600 "$KNOWN_HOSTS_FILE"
+  fi
   SSH_OPTS=(-i "$KEY_FILE" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
   REMOTE_ARTIFACT="/var/tmp/servora-med-${SHA}-$$.tar.gz"
   REMOTE_CHECKSUM="${REMOTE_ARTIFACT}.sha256"
@@ -535,9 +704,11 @@ prepare_ssh() {
   printf '%s  %s\n' "$ARTIFACT_SHA" "$(basename -- "$REMOTE_ARTIFACT")" >"$REMOTE_CHECKSUM_FILE"
   # Arm failure cleanup before the first transfer so a partially completed
   # scp cannot leave the remote temporary artifact behind.
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   SSH_READY=true
   scp "${SSH_OPTS[@]}" -- "$ARTIFACT" "$SSH_USER@$PROD_HOST:$REMOTE_ARTIFACT" \
     || fail ARTIFACT_TRANSFER_FAILED
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   scp "${SSH_OPTS[@]}" -- "$REMOTE_CHECKSUM_FILE" "$SSH_USER@$PROD_HOST:$REMOTE_CHECKSUM" \
     || fail ARTIFACT_CHECKSUM_TRANSFER_FAILED
   TRANSFER_STATUS=PASS
@@ -643,6 +814,8 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --sha) SHA="${2:-}"; shift 2 ;;
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
+    --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
+    --evidence) EVIDENCE_EXPLICIT=true; EVIDENCE="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
     --check|--dry-run) CHECK_ONLY=true; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -650,15 +823,22 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
+[[ "$CI_MODE" == github || "$CI_MODE" == local ]] || fail INVALID_CI_MODE
+
 if [[ "$CHECK_ONLY" == true ]]; then
   check_only
   exit 0
 fi
 
 [[ -n "$SHA" ]] || { usage; fail SHA_REQUIRED; }
+acquire_deploy_lock
 check_commands
 verify_source
-verify_exact_main_ci
+if [[ "$CI_MODE" == local ]]; then
+  verify_local_evidence
+else
+  verify_exact_main_ci
+fi
 build_artifact
 prepare_ssh
 deploy_remote
@@ -680,5 +860,5 @@ if ! postdeploy_remote; then
 fi
 
 PHASE=COMPLETE
-echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS}"
+echo "PRODUCTION_DEPLOYMENT_COMPLETE sha=${SHA} previous=${OLD_RELEASE} migrations_applied=${MIGRATIONS_APPLIED} browser_smoke=${BROWSER_STATUS} postdeploy_backup=${POSTDEPLOY_STATUS} ci_mode=${CI_MODE}"
 fi

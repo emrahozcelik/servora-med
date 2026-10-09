@@ -402,6 +402,22 @@ Local server test environment contract (fail-closed):
 
 See [docs/operations/local-test-environment.md](./docs/operations/local-test-environment.md).
 
+Local-first CI (when GitHub-hosted runners are unavailable):
+
+* Reproduce the full CI contract locally with `ops/local-ci/run.sh --sha <sha>`
+  (Colima Docker: Ubuntu `node:22` containers + `postgres:17` service). It emits
+  a hash-bound evidence bundle outside the checkout; verify it with
+  `ops/local-ci/verify-evidence.sh`. Never report unexecuted checks as passed —
+  `ABSENT`/`NOT_RUN` fail the manifest.
+* Production deploys keep the existing safety chain in `ops/deploy-production.sh`.
+  GitHub-CI mode is the default; local-evidence mode (`--ci-mode local
+  --evidence <bundle>`) is explicitly selected per invocation. There is no
+  `--skip-ci`/`--force` bypass. Credential file provisioning and the full gate
+  list live in [docs/operations/production-deployment.md](./docs/operations/production-deployment.md).
+* The production release artifact must be Linux-compatible: `linux-compat`
+  evidence requires zero native/platform-restricted production dependencies.
+  Do not package a platform-specific `node_modules` into a release.
+
 Use additional commands when relevant:
 
 ```bash

@@ -1,0 +1,34 @@
+# Required local-CI evidence checks — SINGLE SOURCE OF TRUTH.
+#
+# One check id per line. Consumed by:
+#   ops/local-ci/lib/evidence.sh      (REQUIRED_EVIDENCE_CHECKS for the verifier)
+#   ops/local-ci/assemble-manifest.mjs (manifest assembly)
+#   server/tests/local-evidence-deploy-gate.test.ts (fixtures + producer coverage)
+# Add or rename a gate here only, never in a copy.
+server-static-syntax
+server-shellcheck
+server-systemd-units
+server-backup-observation
+server-operator-alerting
+server-caddyfile
+server-sse-behavior
+server-tunnel-caddyfile
+server-tunnel-behavior
+server-cloudflared-ingress
+server-env-examples
+server-db-auth-contract
+server-build
+server-dep-smoke
+server-migrate-schema
+server-tests
+server-audit
+web-build
+web-bundle
+web-tests
+web-playwright-install
+web-smoke-dist
+web-smoke-responsive
+web-geometry
+web-audit
+benchmark-smoke
+linux-compat
