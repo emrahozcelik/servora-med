@@ -21,7 +21,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-# shellcheck source=ops/local-ci/lib/ssh-files.sh
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/ssh-files.sh
 source "$SCRIPT_DIR/lib/ssh-files.sh"
 
 ENV_FILE="${HOME:-/tmp}/.config/servora-med/prod.env"

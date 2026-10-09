@@ -10,7 +10,8 @@ umask 077
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly REPO_ROOT
-# shellcheck source=ops/local-ci/lib/ssh-files.sh
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=local-ci/lib/ssh-files.sh
 source "$REPO_ROOT/ops/local-ci/lib/ssh-files.sh"
 readonly HOST_HELPER="/usr/local/libexec/servora-med/deploy-production-host"
 readonly DEFAULT_SSH_USER="servora-deploy"
