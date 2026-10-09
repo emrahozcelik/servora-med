@@ -277,8 +277,9 @@ SERVORA_PROD_FQDN
 
 GitHub remains the source repository and PR/review platform, but GitHub
 Actions is no longer a mandatory dependency for verified development or
-production deployment. Security gates are replaced by equivalent verifiable
-local gates, never disabled.
+production deployment. The same mandatory check coverage is executed locally. Local results use
+an explicit operator-trust policy; their authenticity assurance differs
+from GitHub-hosted CI.
 
 Local CI:
 
@@ -309,8 +310,11 @@ proves internal consistency only and is always described as
 `local-operator-attested`, never as independently authenticated (any other
 provenance claim is refused). Reproducibility is the backstop — anyone can
 re-run `run.sh` on the same SHA and must obtain the same per-check outcomes.
-Deployment authorization is independent of the bundle: possession of the
-production SSH key plus the pinned known_hosts identity.
+Local evidence is accepted only under the single-operator trust policy,
+with separate human PR review and exact-SHA verification or rerun when
+needed. Hashes cannot prove that tests actually executed. Deployment
+authorization is independent of the bundle: possession of the production
+SSH key plus the pinned known_hosts identity.
 
 Local production deploy keeps the same safety chain with an explicitly
 selected CI mode:
@@ -324,11 +328,43 @@ Local mode re-verifies the evidence bundle fail-closed (SHA/tree binding, log
 hashes, required checks, Linux compatibility incl. a real linux/amd64
 production install+import) instead of consulting GitHub CI.
 `--ci-mode github` (default) preserves the previous behavior for restoration.
-There is no `--skip-ci`, `--force` or `--unsafe` bypass. A process lock
-(atomically rename-away stale recovery, owner-verified release) prevents
-concurrent deployments from one operator host — exactly one owner even when
-two processes race a stale lock; remote serialization remains host-helper
-owned.
+There is no `--skip-ci`, `--force` or `--unsafe` bypass. Atomic `mkdir`
+acquires the local deployment lock. Every existing lock is rejected,
+including stale or malformed claims; there is no automatic rename/remove
+recovery. Normal release requires an exact owner claim. Remote serialization
+remains host-helper owned. Local mode requires neither `gh` nor `jq`;
+GitHub CI mode retains those requirements when consulting hosted results.
+
+Supervised stale-lock recovery (never run while a deployment may be active):
+
+1. Suspend every local/automated deployment launcher and prevent new starts
+   for the entire inspection and recovery interval. A dead PID alone is not
+   sufficient: an interrupted local controller may have a remote phase in flight.
+2. Inspect the lock path and its `pid` claim. Verify with `ps`/`pgrep` that no
+   `ops/deploy-production.sh`, associated SSH/SCP controller, or local-CI
+   process is active. Separately have the authorized host operator confirm
+   no host deployment helper, backup/migration/activation phase or remote
+   deployment lock is active. Do not recover when that state is unknown.
+3. With launchers still suspended, remove only the inspected `pid` file and
+   use `rmdir` on the lock directory. Inspect unexpected contents; do not use
+   recursive deletion. The paths are `${TMPDIR:-/tmp}/servora-med-production-deploy.lock`
+   and, for CI only, `${TMPDIR:-/tmp}/servora-med-local-ci.lock`.
+4. Resume launchers only after the directory is gone. Keep an operator
+   record of the inspected claim, process checks and recovery.
+
+Local CI arms owner-verified cleanup immediately after acquisition. Each run
+creates uniquely named Docker resources and a temporary source export;
+cleanup removes only successfully created resources belonging to that run.
+Unknown lock ownership preserves resources for inspection. Evidence logs are
+retained. Server/web chain exit codes are captured; failed and unexecuted
+checks are recorded as `FAIL`/`ABSENT`, and manifest generation still runs
+with an overall `FAIL` and nonzero runner exit. Repository identity contains
+only the non-secret host/owner/repo, never the raw origin URL.
+
+`ops/local-ci/required-checks.txt` is the authoritative mandatory-check list.
+Assembler, verifier, runner helpers and test fixtures consume it; tests require
+an executable dispatch producer for every mandatory ID. Unknown, duplicated,
+missing, failed or skipped mandatory checks cannot authorize deployment.
 
 Credential provisioning (owner action, once): create
 `~/.config/servora-med/prod.env` (`chmod 600`, never committed) with
@@ -337,7 +373,12 @@ Credential provisioning (owner action, once): create
 private key must never be embedded in this file), `SERVORA_PROD_FQDN`, and
 either `SERVORA_PROD_KNOWN_HOSTS` (pinned entry) or
 `SERVORA_PROD_KNOWN_HOSTS_FILE`; confirm with
-`ops/local-ci/load-prod-env.sh --check`. Private keys are never printed,
+`ops/local-ci/load-prod-env.sh --check`. File-backed known_hosts must be a
+regular non-symlink file owned by the current operator or root, with no
+group/other write bits and valid pinned entries. These checks run both during
+loading and immediately before SSH/SCP use. Evaluating loader output first
+unsets credential alternatives, then exports only validated selected values.
+Private keys are never printed,
 committed, or logged. If GitHub Actions capacity returns, prefer
 restoring hosted runs; local evidence remains valid for its exact SHA.
 `SERVORA_PROD_KNOWN_HOSTS` is an independently verified pinned entry; the

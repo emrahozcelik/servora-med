@@ -10,6 +10,8 @@ umask 077
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly REPO_ROOT
+# shellcheck source=ops/local-ci/lib/ssh-files.sh
+source "$REPO_ROOT/ops/local-ci/lib/ssh-files.sh"
 readonly HOST_HELPER="/usr/local/libexec/servora-med/deploy-production-host"
 readonly DEFAULT_SSH_USER="servora-deploy"
 
@@ -190,8 +192,7 @@ validate_host_identity() {
   if [[ -z "$KNOWN_HOSTS_PATH" ]]; then
     [[ -n "$KNOWN_HOSTS" ]] || fail SSH_SECRETS_MISSING
   else
-    [[ -e "$KNOWN_HOSTS_PATH" && ! -L "$KNOWN_HOSTS_PATH" && -f "$KNOWN_HOSTS_PATH" ]] \
-      || fail SSH_KNOWN_HOSTS_FILE_INVALID
+    validate_known_hosts_file "$KNOWN_HOSTS_PATH" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   fi
 }
 
@@ -215,11 +216,21 @@ validate_deploy_key_file() {
   esac
 }
 
+BASE_COMMANDS=(bash git node npm tar ssh scp curl awk sed grep rm mktemp basename dirname od tr)
+GITHUB_COMMANDS=(gh jq)
+
 check_commands() {
   local command_name
-  for command_name in bash git node npm tar ssh scp curl gh jq awk sed grep rm mktemp basename dirname od tr; do
+  for command_name in "${BASE_COMMANDS[@]}"; do
     command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
   done
+  # gh/jq serve only verify_exact_main_ci: local mode (and --check) must not
+  # require GitHub CLI tooling.
+  if [[ "$CI_MODE" == github && "$CHECK_ONLY" != true ]]; then
+    for command_name in "${GITHUB_COMMANDS[@]}"; do
+      command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
+    done
+  fi
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
     fail SHA256_TOOL_MISSING
   fi
@@ -348,10 +359,11 @@ acquire_deploy_lock() {
     write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
     return 0
   fi
-  # A lock directory exists. Only a holder whose PID is numeric and currently
-  # dead may be recovered; anything else (live holder, or an unparseable claim
-  # from a just-starting owner) fails closed — stealing those could delete a
-  # newly acquired lock.
+  # A lock directory exists. There is deliberately NO automatic stale-lock
+  # recovery: any rename/remove-then-recreate window lets a delayed process
+  # move another process's newly acquired lock (TOCTOU on the path), so two
+  # processes could both believe they own the deployment. Every existing
+  # lock — live, dead, or unparseable — fails closed.
   local pid_file="$DEPLOY_LOCK_DIR/pid"
   local holder=""
   [[ -f "$pid_file" ]] && holder="$(cat -- "$pid_file" 2>/dev/null || true)"
@@ -360,31 +372,14 @@ acquire_deploy_lock() {
     holder_pid="${BASH_REMATCH[1]}"
   elif [[ "$holder" =~ ^[0-9]+$ ]]; then
     holder_pid="$holder"
-  else
+  fi
+  if [[ -n "$holder_pid" ]] && kill -0 "$holder_pid" 2>/dev/null; then
     fail CONCURRENT_DEPLOYMENT_ACTIVE
   fi
-  if kill -0 "$holder_pid" 2>/dev/null; then
-    fail CONCURRENT_DEPLOYMENT_ACTIVE
-  fi
-  # Race-safe stale recovery: atomically rename the stale directory aside.
-  # rename(2) within one filesystem succeeds for exactly one contender; every
-  # loser observes the rename missing and fails closed. Only the renamed copy
-  # is ever deleted — never the live lock path — so a newly acquired lock
-  # cannot be removed by recovery.
-  local trash_base="${TMPDIR:-/tmp}/servora-med-deploy-lock-stale"
-  local trash
-  trash="$(mktemp -d "${trash_base}.XXXXXX")" || fail CONCURRENT_DEPLOYMENT_ACTIVE
-  rmdir -- "$trash" || fail CONCURRENT_DEPLOYMENT_ACTIVE
-  if ! mv -- "$DEPLOY_LOCK_DIR" "$trash" 2>/dev/null; then
-    rmdir -- "$trash" 2>/dev/null || true
-    fail CONCURRENT_DEPLOYMENT_ACTIVE
-  fi
-  rm -rf -- "$trash"
-  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
-    write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
-    return 0
-  fi
-  fail CONCURRENT_DEPLOYMENT_ACTIVE
+  # Supervised recovery requires suspending all launchers, checking local
+  # and remote deploy activity, then removing only the inspected claim and
+  # empty directory. See docs/operations/production-deployment.md.
+  fail STALE_DEPLOY_LOCK
 }
 
 # Record this process as the lock owner and re-read the claim: if the
@@ -660,6 +655,7 @@ ssh_run() {
     quoted="$(shell_quote "$arg")"
     command_line+="${quoted} "
   done
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   # shellcheck disable=SC2029
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$PROD_HOST" "$command_line"
 }
@@ -693,9 +689,11 @@ prepare_ssh() {
   printf '%s  %s\n' "$ARTIFACT_SHA" "$(basename -- "$REMOTE_ARTIFACT")" >"$REMOTE_CHECKSUM_FILE"
   # Arm failure cleanup before the first transfer so a partially completed
   # scp cannot leave the remote temporary artifact behind.
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   SSH_READY=true
   scp "${SSH_OPTS[@]}" -- "$ARTIFACT" "$SSH_USER@$PROD_HOST:$REMOTE_ARTIFACT" \
     || fail ARTIFACT_TRANSFER_FAILED
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || fail SSH_KNOWN_HOSTS_FILE_INVALID
   scp "${SSH_OPTS[@]}" -- "$REMOTE_CHECKSUM_FILE" "$SSH_USER@$PROD_HOST:$REMOTE_CHECKSUM" \
     || fail ARTIFACT_CHECKSUM_TRANSFER_FAILED
   TRANSFER_STATUS=PASS

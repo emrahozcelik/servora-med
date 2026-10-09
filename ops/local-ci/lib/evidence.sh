@@ -30,39 +30,22 @@
 # Evidence lives outside the source checkout; only hashes are summarized in PRs.
 set -Eeuo pipefail
 
+# shellcheck disable=SC2034 # Public constant consumed by verify-evidence.sh.
 EVIDENCE_SCHEMA_VERSION=1
 
-# Required check ids. Keep in sync with ops/local-ci/run.sh and
-# .github/workflows/ci.yml coverage.
-REQUIRED_EVIDENCE_CHECKS=(
-  server-static-syntax
-  server-shellcheck
-  server-systemd-units
-  server-backup-observation
-  server-operator-alerting
-  server-caddyfile
-  server-sse-behavior
-  server-tunnel-caddyfile
-  server-tunnel-behavior
-  server-cloudflared-ingress
-  server-env-examples
-  server-db-auth-contract
-  server-build
-  server-dep-smoke
-  server-migrate-schema
-  server-tests
-  server-audit
-  web-build
-  web-bundle
-  web-tests
-  web-playwright-install
-  web-smoke-dist
-  web-smoke-responsive
-  web-geometry
-  web-audit
-  benchmark-smoke
-  linux-compat
-)
+# Required check ids — read from the single source of truth
+# ops/local-ci/required-checks.txt (one id per line; keep in sync with
+# .github/workflows/ci.yml coverage). Portable while-read: no mapfile, so
+# macOS bash 3.2 works.
+REQUIRED_EVIDENCE_CHECKS=()
+while IFS= read -r _check_id || [[ -n "$_check_id" ]]; do
+  case "$_check_id" in ''|'#'*) continue ;; esac
+  [[ "$_check_id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo EVIDENCE_POLICY_INVALID >&2; exit 1; }
+  for _existing_id in ${REQUIRED_EVIDENCE_CHECKS[@]+"${REQUIRED_EVIDENCE_CHECKS[@]}"}; do
+    [[ "$_check_id" != "$_existing_id" ]] || { echo EVIDENCE_POLICY_INVALID >&2; exit 1; }
+  done
+  REQUIRED_EVIDENCE_CHECKS+=("$_check_id")
+done < "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/required-checks.txt"
 
 evidence_sha256_file() {
   local file="$1"
@@ -77,3 +60,5 @@ evidence_sha256_file() {
 evidence_manifest_path() {
   printf '%s/%s/manifest.json' "$1" "$2"
 }
+
+[[ "${#REQUIRED_EVIDENCE_CHECKS[@]}" -gt 0 ]] || { echo EVIDENCE_POLICY_INVALID >&2; exit 1; }

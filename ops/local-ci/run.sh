@@ -19,6 +19,69 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/evidence.sh"
 
+# Helpers are sourceable for focused tests without executing CI.
+
+# canonical_repo_identity <remote-url>: canonical non-secret repository
+# identity (host/owner/repo) for evidence. Strips userinfo (which may carry
+# tokens) from https/ssh URLs and scp-like syntax; unparseable input yields
+# "unknown" rather than persisting attacker-influenced text.
+canonical_repo_identity() {
+  local url="$1" rest host path
+  case "$url" in
+    https://*|http://*|ssh://*)
+      rest="${url#*://}"
+      rest="${rest##*@}" # longest strip: passwords may contain @
+      host="${rest%%[/:]*}"
+      path="${rest#*/}"
+      ;;
+    *)
+      rest="$url"
+      case "$rest" in *@*) rest="${rest##*@}" ;; esac
+      case "$rest" in *:*)
+        host="${rest%%:*}"
+        path="${rest#*:}"
+        ;;
+      *) printf 'unknown'; return 0 ;;
+      esac
+      ;;
+  esac
+  path="${path%.git}"
+  if [[ "$host" =~ ^[A-Za-z0-9.-]+$ && "$path" =~ ^[A-Za-z0-9_./-]+$ ]]; then
+    printf '%s/%s' "$host" "$path"
+  else
+    printf 'unknown'
+  fi
+}
+
+cleanup() {
+  # Do not remove resources unless this run's claim is still on disk.
+  # Evidence is deliberately retained on every exit, including setup errors.
+  local owner=""
+  owner="$(cat -- "${LOCAL_CI_LOCK_DIR:-}/pid" 2>/dev/null || true)"
+  if [[ -z "${LOCAL_CI_LOCK_CLAIM:-}" || "$owner" != "$LOCAL_CI_LOCK_CLAIM" ]]; then
+    echo "LOCAL_CI cleanup: ownership unknown; resources left in place" >&2
+    return 0
+  fi
+  if [[ "${KEEP:-false}" != true ]]; then
+    if [[ "${PG_CREATED:-false}" == true ]]; then
+      docker rm -f "$PG" >/dev/null 2>&1 || true
+    fi
+    if [[ "${NET_CREATED:-false}" == true ]]; then
+      docker network rm "$NET" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ "${EXPORT_CREATED:-false}" == true ]]; then
+    rm -rf -- "$EXPORT_DIR"
+  fi
+  rm -- "$LOCAL_CI_LOCK_DIR/pid"
+  rmdir -- "$LOCAL_CI_LOCK_DIR"
+}
+
+# Sourcing exposes helpers only; direct invocations always run the full gate.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
 SHA=""
 REPO=""
 EVIDENCE_ROOT="${HOME}/.local/share/servora-med/evidence"
@@ -54,20 +117,25 @@ node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "$node_major" == 22 ]] || { echo "LOCAL_CI_FAILED reason=NODE_22_REQUIRED_$(node --version)" >&2; exit 1; }
 
 ORIGIN_URL="$(git -C "$REPO" remote get-url origin 2>/dev/null || echo unknown)"
+REPO_IDENTITY="$(canonical_repo_identity "$ORIGIN_URL")"
+unset ORIGIN_URL
 BUNDLE="$EVIDENCE_ROOT/$SHA"
 LOGS="$BUNDLE/logs"
-# Concurrent runs share fixed container/bundle names and would corrupt each
-# other's evidence: fail closed when another run holds the local-CI lock.
-# Recovery is deliberately manual (rmdir the path below): auto-stealing a
-# shared lock reintroduces the exact race this file refuses to take, and a
-# local CI run is always operator-supervised.
+# Concurrent runs can share a SHA bundle: fail closed on an existing lock.
+# Resources have per-run names; stale lock recovery requires supervised
+# quiescence, as documented in production-deployment.md.
 LOCAL_CI_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-local-ci.lock"
 if ! mkdir "$LOCAL_CI_LOCK_DIR" 2>/dev/null; then
   holder_pid="$(cat -- "$LOCAL_CI_LOCK_DIR/pid" 2>/dev/null || echo unknown)"
-  echo "LOCAL_CI_FAILED reason=LOCAL_CI_ALREADY_RUNNING holder=${holder_pid} recover_with=rmdir_${LOCAL_CI_LOCK_DIR}" >&2
+  echo "LOCAL_CI_FAILED reason=LOCAL_CI_ALREADY_RUNNING holder=${holder_pid} recovery=supervised_only" >&2
   exit 1
 fi
-printf '%s\n' "$$" >"$LOCAL_CI_LOCK_DIR/pid"
+LOCAL_CI_LOCK_CLAIM="pid=$$ nonce=$RANDOM-$RANDOM"
+# Cleanup is armed immediately after lock acquisition so even an early setup
+# failure (node/docker/network/PG provisioning) releases the lock and never
+# strands later invocations.
+trap cleanup EXIT
+printf '%s\n' "$LOCAL_CI_LOCK_CLAIM" >"$LOCAL_CI_LOCK_DIR/pid"
 # Start from an empty logs tree: a rerun must never inherit check results
 # from a previous run (stale PASS beside a new failure, or vice versa).
 rm -rf -- "$LOGS"
@@ -79,41 +147,41 @@ OS_INFO="$(uname -srm)"
 PG_SERVER="17 (postgres:17-alpine service)"
 PG_CLIENT="$(docker run --rm postgres:17-alpine psql --version 2>/dev/null || echo unknown)"
 
-NET=servora-localci
-PG=servora-localci-pg
-docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
-if docker ps -a --format '{{.Names}}' | grep -qx "$PG"; then
-  docker rm -f "$PG" >/dev/null
-fi
-docker run -d --name "$PG" --network "$NET" \
+RUN_ID="$$-$RANDOM-$RANDOM"
+NET="servora-localci-$RUN_ID"
+PG="servora-localci-pg-$RUN_ID"
+NET_CREATED=false
+PG_CREATED=false
+docker network create "$NET" >/dev/null
+NET_CREATED=true
+docker run -d --name "$PG" --network "$NET" --network-alias servora-localci-pg \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=servora_med_test postgres:17-alpine >/dev/null
-cleanup() {
-  if [[ "$KEEP" != true ]]; then
-    docker rm -f "$PG" >/dev/null 2>&1 || true
-  fi
-  rm -rf -- "$LOCAL_CI_LOCK_DIR"
-}
-trap cleanup EXIT
+PG_CREATED=true
 
-EXPORT_DIR="$BUNDLE/tree-export"
-rm -rf "$EXPORT_DIR" && mkdir -p "$EXPORT_DIR"
+# Temporary export belongs solely to this run; logs remain in the bundle.
+EXPORT_DIR="$(mktemp -d "$BUNDLE/tree-export.XXXXXX")"
+EXPORT_CREATED=true
 git -C "$REPO" archive "$SHA" | tar -x -C "$EXPORT_DIR"
 
+server_chain_code=0
 echo "=== [1/5] server chain (node:22 + postgres:17) ==="
-docker run --rm --network "$NET" --name servora-localci-server \
+docker run --platform linux/amd64 --rm --network "$NET" --name "servora-localci-server-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
-  node:22-bookworm bash /chains/server-chain.sh 2>&1 | tee "$LOGS/aux/server-chain.stdout.log"
+  node:22-bookworm bash /chains/server-chain.sh 2>&1 | tee "$LOGS/aux/server-chain.stdout.log" || server_chain_code=$?
+printf '%s\n' "$server_chain_code" >"$LOGS/aux/server-chain.exit"
 
+web_chain_code=0
 echo "=== [2/5] web chain (node:22) ==="
-docker run --rm --name servora-localci-web \
+docker run --rm --name "servora-localci-web-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
   -e LOCAL_CI_SHA="$SHA" \
-  node:22-bookworm bash /chains/web-chain.sh 2>&1 | tee "$LOGS/aux/web-chain.stdout.log"
+  node:22-bookworm bash /chains/web-chain.sh 2>&1 | tee "$LOGS/aux/web-chain.stdout.log" || web_chain_code=$?
+printf '%s\n' "$web_chain_code" >"$LOGS/aux/web-chain.exit"
 
 echo "=== [3/5] benchmark smoke ==="
 docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
@@ -164,9 +232,10 @@ fi
 echo "=== evidence manifest ==="
 FINISHED_AT="$(date -u +%FT%TZ)"
 node "$SCRIPT_DIR/assemble-manifest.mjs" \
-  --bundle "$BUNDLE" --sha "$SHA" --tree "$TREE" --repo "$ORIGIN_URL" \
+  --bundle "$BUNDLE" --sha "$SHA" --tree "$TREE" --repo "$REPO_IDENTITY" \
   --started "$STARTED_AT" --finished "$FINISHED_AT" \
   --os "$OS_INFO" --arch "$(uname -m)" --node "$NODE_VERSION" --npm "$NPM_VERSION" \
   --pg-server "$PG_SERVER" --pg-client "$PG_CLIENT" \
-  --compat-detail "$COMPAT_DETAIL"
+  --compat-detail "$COMPAT_DETAIL" \
+  --server-chain-exit "$server_chain_code" --web-chain-exit "$web_chain_code"
 echo "EVIDENCE_BUNDLE_READY dir=$BUNDLE"

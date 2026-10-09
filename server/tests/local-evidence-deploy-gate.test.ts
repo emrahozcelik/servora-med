@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,16 +22,10 @@ const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const localCiDir = fileURLToPath(new URL('../../ops/local-ci/', import.meta.url));
 const verifier = fileURLToPath(new URL('../../ops/local-ci/verify-evidence.sh', import.meta.url));
 
-const REQUIRED_IDS = [
-  'server-static-syntax', 'server-shellcheck', 'server-systemd-units',
-  'server-backup-observation', 'server-operator-alerting', 'server-caddyfile',
-  'server-sse-behavior', 'server-tunnel-caddyfile', 'server-tunnel-behavior',
-  'server-cloudflared-ingress', 'server-env-examples', 'server-db-auth-contract',
-  'server-build', 'server-dep-smoke', 'server-migrate-schema', 'server-tests',
-  'server-audit', 'web-build', 'web-bundle', 'web-tests', 'web-playwright-install',
-  'web-smoke-dist', 'web-smoke-responsive', 'web-geometry', 'web-audit',
-  'benchmark-smoke', 'linux-compat',
-];
+const REQUIRED_IDS: string[] = readFileSync(
+  fileURLToPath(new URL('../../ops/local-ci/required-checks.txt', import.meta.url)),
+  'utf8',
+).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
 
 const GOOD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -134,6 +129,9 @@ function createDeployFixture() {
   const bin = join(root, '.fixture-bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'gh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  for (const command of ['ssh', 'scp']) {
+    writeFileSync(join(bin, command), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  }
   return {
     root,
     sha,
@@ -145,6 +143,47 @@ function createDeployFixture() {
 }
 
 describe('verify-evidence.sh fail-closed gates', () => {
+  it('rejects unknown or duplicate manifest check identities', () => {
+    const root = temporaryDirectory('unknown-check');
+    try {
+      const file = makeBundle(root, GOOD_SHA, 't'.repeat(40));
+      const manifest = JSON.parse(readFileSync(file, 'utf8'));
+      manifest.checks.push({ ...manifest.checks[0], id: 'unknown-check' });
+      writeFileSync(file, JSON.stringify(manifest));
+      expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).status).not.toBe(0);
+      manifest.checks.at(-1).id = manifest.checks[0].id;
+      writeFileSync(file, JSON.stringify(manifest));
+      expect(runVerifier(['--evidence-root', root, '--sha', GOOD_SHA]).status).not.toBe(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it('derives required checks from the single source of truth with a producer for each', () => {
+    // SSOT: required-checks.txt is the only list. The verifier (via
+    // lib/evidence.sh), the assembler, and these fixtures all read it, so a
+    // gate added in one place cannot silently diverge from the others.
+    expect(REQUIRED_IDS.length).toBe(27);
+    expect(new Set(REQUIRED_IDS).size).toBe(REQUIRED_IDS.length);
+    const lib = readFileSync(join(localCiDir, 'lib', 'evidence.sh'), 'utf8');
+    expect(lib).toContain('required-checks.txt');
+    const assembler = readFileSync(join(localCiDir, 'assemble-manifest.mjs'), 'utf8');
+    expect(assembler).toContain('required-checks.txt');
+    // Only actual dispatch calls count; comments mentioning an ID cannot
+    // satisfy the policy. Syntax-check every producer script as well.
+    const scripts = ['chains/server-chain-user.sh', 'chains/web-chain.sh', 'docker-gated.sh'];
+    const produced: string[] = [];
+    for (const script of scripts) {
+      const file = join(localCiDir, script);
+      execFileSync('bash', ['-n', file]);
+      const source = readFileSync(file, 'utf8');
+      produced.push(...Array.from(source.matchAll(/^\s*(?:check|run_one)\s+([a-z0-9-]+)\s+--\s+\S/gm), (match) => match[1]));
+    }
+    const run = readFileSync(join(localCiDir, 'run.sh'), 'utf8');
+    execFileSync('bash', ['-n', join(localCiDir, 'run.sh')]);
+    expect(run).toContain('node /repo/ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke');
+    expect(run).toContain('bash "$SCRIPT_DIR/verify-linux-compat.sh"');
+    expect(run).toContain('bash "$SCRIPT_DIR/chains/linux-amd64-compat.sh"');
+    produced.push('benchmark-smoke', 'linux-compat');
+    expect([...new Set(produced)].sort()).toEqual([...REQUIRED_IDS].sort());
+  });
   it('rejects unknown arguments and malformed SHA', () => {
     const root = temporaryDirectory('args');
     try {
@@ -397,52 +436,35 @@ describe('deploy-production.sh local evidence gate', () => {
     }
   });
 
-  it('grants a racing stale-lock recovery to exactly one process', async () => {
+  it('grants a racing fresh-lock acquisition to exactly one process', async () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock-race');
     try {
       const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
       const gate = join(lockBase, 'start-gate');
       const { spawn } = await import('node:child_process');
-      const race = () => {
-        const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve) => {
-          // All racers block on a start gate so the thundering herd attempts
-          // within milliseconds of each other, inside the winner's hold.
-          // The winner holds 3s (then releases); every loser must observe a
-          // live holder and fail. No racer may start after the hold ends, so
-          // a second ACQUIRED always means simultaneous ownership (the bug),
-          // never a legitimate post-release acquisition.
-          const hold = 'while [ ! -e "$3" ]; do sleep 0.02; done; acquire_deploy_lock >/dev/null 2>&1 && (echo ACQUIRED; sleep 3; release_deploy_lock) || echo FAILED';
-          const child = spawn('bash', ['-c',
-            `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
-            'lock-race', fixture.script, lockDir, gate,
-          ], { env: { ...process.env, ...fixture.env } });
-          let out = '';
-          child.stdout.on('data', (d) => { out += d; });
-          child.on('close', () => resolve(out));
-        }));
-        return Promise.all(racers);
-      };
-      // Fresh lock race: exactly one mkdir winner.
+      // All racers block on a start gate so the thundering herd attempts
+      // within milliseconds of each other, inside the winner's hold.
+      // The winner holds 3s (then releases); every loser must fail. No racer
+      // may start after the hold ends, so a second ACQUIRED always means
+      // simultaneous ownership (the bug), never a legitimate acquisition.
       rmSync(lockDir, { recursive: true, force: true });
       rmSync(gate, { force: true });
-      const freshPending = race();
+      const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve) => {
+        const hold = 'while [ ! -e "$3" ]; do sleep 0.02; done; acquire_deploy_lock >/dev/null 2>&1 && (echo ACQUIRED; sleep 3; release_deploy_lock) || echo FAILED';
+        const child = spawn('bash', ['-c',
+          `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
+          'lock-race', fixture.script, lockDir, gate,
+        ], { env: { ...process.env, ...fixture.env } });
+        let out = '';
+        child.stdout.on('data', (d) => { out += d; });
+        child.on('close', () => resolve(out));
+      }));
+      const pending = Promise.all(racers);
       await new Promise((r) => setTimeout(r, 1000));
       writeFileSync(gate, 'go\n');
-      const fresh = await freshPending;
-      expect(fresh.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
-
-      // Stale-lock recovery race: the stale rename/mkdir window must not let
-      // two processes both believe they own the lock.
-      rmSync(lockDir, { recursive: true, force: true });
-      rmSync(gate, { force: true });
-      mkdirSync(lockDir);
-      writeFileSync(join(lockDir, 'pid'), '2147483647\n');
-      const stalePending = race();
-      await new Promise((r) => setTimeout(r, 1000));
-      writeFileSync(gate, 'go\n');
-      const stale = await stalePending;
-      expect(stale.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
+      const results = await pending;
+      expect(results.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
     } finally {
       fixture.cleanup();
       rmSync(lockBase, { recursive: true, force: true });
@@ -468,7 +490,7 @@ describe('deploy-production.sh local evidence gate', () => {
       rmSync(lockBase, { recursive: true, force: true });
     }
   });
-  it('fails closed on concurrent deployment and recovers stale locks', () => {
+  it('fails closed on concurrent deployment and on stale locks', () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock');
     try {
@@ -483,14 +505,16 @@ describe('deploy-production.sh local evidence gate', () => {
       expect(busy.status).not.toBe(0);
       expect(`${busy.stdout}${busy.stderr}`).toContain('CONCURRENT_DEPLOYMENT_ACTIVE');
 
+      // No automatic stale recovery: a dead holder blocks acquisition with a
+      // supervised-recovery reason instead of being silently stolen.
       writeFileSync(join(lockDir, 'pid'), '2147483647\n');
       const stale = runSourced(
         fixture.script,
-        `DEPLOY_LOCK_DIR=${lockDir}; acquire_deploy_lock; echo LOCK_ACQUIRED; release_deploy_lock`,
+        `DEPLOY_LOCK_DIR=${lockDir}; acquire_deploy_lock`,
         [], fixture.env,
       );
-      expect(stale.status).toBe(0);
-      expect(stale.stdout).toContain('LOCK_ACQUIRED');
+      expect(stale.status).not.toBe(0);
+      expect(`${stale.stdout}${stale.stderr}`).toContain('STALE_DEPLOY_LOCK');
     } finally {
       fixture.cleanup();
       rmSync(lockBase, { recursive: true, force: true });
@@ -527,17 +551,56 @@ describe('deploy-production.sh local evidence gate', () => {
           SERVORA_PROD_HOST: '127.0.0.1',
           SERVORA_PROD_SSH_USER: 'servora-deploy',
           SERVORA_PROD_SSH_KEY: 'dummy-key',
-          SERVORA_PROD_KNOWN_HOSTS: 'dummy-known-hosts',
+          SERVORA_PROD_KNOWN_HOSTS: 'deploy-test.example ssh-ed25519 AAAATestOnly',
           SERVORA_PROD_FQDN: 'deploy-test.example',
           TMPDIR: artifactDir,
         },
       });
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}${result.stderr}`).toContain('ARTIFACT_TRANSFER_FAILED');
+      expect(spawnSync('test', ['-d', join(artifactDir, 'servora-med-production-deploy.lock')]).status).not.toBe(0);
     } finally {
       fixture.cleanup();
       rmSync(evidenceRoot, { recursive: true, force: true });
       rmSync(artifactDir, { recursive: true, force: true });
+    }
+  });
+
+  it('requires GitHub CLI tooling only in github CI mode', () => {
+    // Base tools present, gh/jq absent: link every base command into an
+    // isolated bin dir. Missing required base tooling fails this test.
+    const baseTools = ['bash', 'git', 'node', 'npm', 'tar', 'ssh', 'scp', 'curl',
+      'awk', 'sed', 'grep', 'rm', 'mktemp', 'basename', 'dirname', 'od', 'tr'];
+    const missing = baseTools.filter((t) => {
+      try {
+        execFileSync('/bin/sh', ['-c', `command -v ${t}`], { stdio: 'pipe' });
+        return false;
+      } catch { return true; }
+    });
+    expect(missing).toEqual([]);
+    const bin = temporaryDirectory('no-gh-bin');
+    try {
+      const tools = [...baseTools];
+      for (const digest of ['sha256sum', 'shasum']) {
+        try {
+          execFileSync('/bin/sh', ['-c', `command -v ${digest}`], { stdio: 'pipe' });
+          tools.push(digest);
+          break;
+        } catch { /* try next */ }
+      }
+      for (const t of tools) {
+        const real = execFileSync('/bin/sh', ['-c', `command -v ${t}`], { encoding: 'utf8' }).trim().split('\n')[0];
+        symlinkSync(real, join(bin, t));
+      }
+      const env = { ...process.env, PATH: bin };
+      const local = runSourced(runner, 'CI_MODE=local; CHECK_ONLY=false; check_commands; echo COMMANDS_OK', [], env);
+      expect(local.status).toBe(0);
+      expect(local.stdout).toContain('COMMANDS_OK');
+      const github = runSourced(runner, 'CI_MODE=github; CHECK_ONLY=false; check_commands', [], env);
+      expect(github.status).not.toBe(0);
+      expect(`${github.stdout}${github.stderr}`).toContain('REQUIRED_COMMAND_MISSING_gh');
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
     }
   });
 

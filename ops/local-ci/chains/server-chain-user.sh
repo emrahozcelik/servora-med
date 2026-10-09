@@ -30,6 +30,11 @@ check() {
 
 check server-static-syntax -- bash /work/ops-local-ci-static-syntax.sh
 check server-shellcheck -- shellcheck -x \
+  ../ops/local-ci/run.sh \
+  ../ops/local-ci/load-prod-env.sh \
+  ../ops/local-ci/verify-evidence.sh \
+  ../ops/local-ci/lib/evidence.sh \
+  ../ops/local-ci/lib/ssh-files.sh \
   ../ops/scripts/backup-postgres.sh \
   ../ops/scripts/backup-observation.sh \
   ../ops/scripts/restore-dr-acceptance.sh \

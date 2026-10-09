@@ -71,6 +71,9 @@ if [[ -n "$TREE" ]]; then
   [[ "$(mget tree)" == "$TREE" ]] || fail EVIDENCE_TREE_MISMATCH
 fi
 [[ "$(mget result)" == "PASS" ]] || fail EVIDENCE_RESULT_NOT_PASS
+CHECKSET_JS='import fs from "node:fs"; const m = JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const required = process.argv.slice(2); const seen = new Set(); if (!Array.isArray(m.checks)) process.exit(10); for (const c of m.checks) { if (!required.includes(c.id) || seen.has(c.id)) process.exit(10); seen.add(c.id); } if (seen.size !== required.length) process.exit(10);'
+node --input-type=module -e "$CHECKSET_JS" -- "$MANIFEST" "${REQUIRED_EVIDENCE_CHECKS[@]}" \
+  || fail EVIDENCE_CHECK_SET_INVALID
 # Trust model (see lib/evidence.sh): the verifier establishes evidence FILE
 # INTEGRITY (log hashes recomputed) and exact GIT SOURCE IDENTITY (SHA/tree
 # binding). It does NOT establish execution provenance or operator approval:

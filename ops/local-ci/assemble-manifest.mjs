@@ -12,26 +12,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) {
   args[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
 }
 
-const REQUIRED = [
-  'server-static-syntax', 'server-shellcheck', 'server-systemd-units',
-  'server-backup-observation', 'server-operator-alerting', 'server-caddyfile',
-  'server-sse-behavior', 'server-tunnel-caddyfile', 'server-tunnel-behavior',
-  'server-cloudflared-ingress', 'server-env-examples', 'server-db-auth-contract',
-  'server-build', 'server-dep-smoke', 'server-migrate-schema', 'server-tests',
-  'server-audit', 'web-build', 'web-bundle', 'web-tests', 'web-smoke-dist',
-  'web-smoke-responsive', 'web-geometry', 'web-playwright-install', 'web-audit', 'benchmark-smoke',
-  'linux-compat',
-];
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REQUIRED = fs.readFileSync(path.join(SCRIPT_DIR, 'required-checks.txt'), 'utf8')
+  .split('\n').filter((l) => l && !l.startsWith('#'));
+if (!REQUIRED.length || new Set(REQUIRED).size !== REQUIRED.length
+    || REQUIRED.some((id) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))) {
+  throw new Error('EVIDENCE_POLICY_INVALID');
+}
 
 const COMMANDS = {
-  'server-static-syntax': 'bash -n (22 scripts) + node --check (3 scripts)',
-  'server-shellcheck': 'shellcheck -x (22 files)',
+  'server-static-syntax': 'bash -n + node --check (ops and local-CI tooling)',
+  'server-shellcheck': 'shellcheck -x (ops and local-CI tooling)',
   'server-systemd-units': 'verify-systemd-units.sh',
   'server-backup-observation': 'verify-backup-observation.sh',
   'server-operator-alerting': 'verify-operator-alerting.sh',
@@ -63,7 +61,8 @@ const logsDir = path.join(args.bundle, 'logs');
 const sha256 = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
 
 const checks = [];
-let overall = 'PASS';
+const chains = { server: Number(args['server-chain-exit'] ?? 0), web: Number(args['web-chain-exit'] ?? 0) };
+let overall = Object.values(chains).every((code) => code === 0) ? 'PASS' : 'FAIL';
 for (const id of REQUIRED) {
   const log = `logs/${id}.log`;
   const exitFile = path.join(logsDir, `${id}.exit`);
@@ -102,7 +101,7 @@ const manifest = {
     pgServer: args['pg-server'], pgClient: args['pg-client'],
   },
   startedAt: args.started, finishedAt: args.finished,
-  checks, result: overall,
+  checks, chains, result: overall,
 };
 fs.writeFileSync(path.join(args.bundle, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 

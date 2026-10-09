@@ -29,3 +29,9 @@ bash -n \
 node --check ../ops/scripts/migration-state.mjs
 node --check ../ops/scripts/migration-reconciliation.mjs
 node --check ../web/scripts/production-browser-smoke.mjs
+
+# Validate the local-first tooling that produces and verifies this evidence.
+for script in ../ops/local-ci/*.sh ../ops/local-ci/lib/*.sh ../ops/local-ci/chains/*.sh; do
+  bash -n "$script"
+done
+node --check ../ops/local-ci/assemble-manifest.mjs

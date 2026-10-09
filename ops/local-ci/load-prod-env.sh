@@ -20,6 +20,10 @@
 # Or: ops/local-ci/load-prod-env.sh --check [--file PATH]
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=ops/local-ci/lib/ssh-files.sh
+source "$SCRIPT_DIR/lib/ssh-files.sh"
+
 ENV_FILE="${HOME:-/tmp}/.config/servora-med/prod.env"
 CHECK_ONLY=false
 while [[ "$#" -gt 0 ]]; do
@@ -84,25 +88,8 @@ key_first_line="$(head -n 1 -- "$KEY_FILE" 2>/dev/null || head -n 1 "$KEY_FILE")
 [[ "$key_first_line" == "-----BEGIN OPENSSH PRIVATE KEY-----" || "$key_first_line" == "-----BEGIN RSA PRIVATE KEY-----" || "$key_first_line" == "-----BEGIN EC PRIVATE KEY-----" || "$key_first_line" == "-----BEGIN DSA PRIVATE KEY-----" ]] \
   || { echo "CRED_LOAD_FAILED reason=CRED_KEY_FORMAT" >&2; exit 1; }
 
-# known_hosts validation: every entry pins host + key type + base64 key.
-validate_known_hosts_line() {
-  local line="$1" field1 field2 field3 rest
-  case "$line" in ''|'#'*) return 0 ;; @*) line="${line#* }" ;; esac
-  read -r field1 field2 field3 rest <<<"$line"
-  [[ -n "$field1" && -n "$field2" && -n "$field3" && -z "$rest" ]] || return 1
-  [[ "$field3" =~ ^[A-Za-z0-9+/=]+$ ]] || return 1
-  case "$field2" in
-    ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 if [[ -n "$KNOWN_HOSTS_FILE" ]]; then
-  [[ -e "$KNOWN_HOSTS_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_FILE_MISSING" >&2; exit 1; }
-  [[ ! -L "$KNOWN_HOSTS_FILE" ]] || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_FILE_SYMLINK" >&2; exit 1; }
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    validate_known_hosts_line "$line" || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_FORMAT" >&2; exit 1; }
-  done <"$KNOWN_HOSTS_FILE"
+  validate_known_hosts_file "$KNOWN_HOSTS_FILE" || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_FILE_INVALID" >&2; exit 1; }
 else
   while IFS= read -r line || [[ -n "$line" ]]; do
     validate_known_hosts_line "$line" || { echo "CRED_LOAD_FAILED reason=CRED_KNOWN_HOSTS_FORMAT" >&2; exit 1; }
@@ -116,6 +103,7 @@ fi
 
 # Emit export statements without ever printing key material: only paths and
 # non-secret values pass through here.
+printf 'unset SERVORA_PROD_HOST SERVORA_PROD_SSH_USER SERVORA_PROD_SSH_KEY SERVORA_PROD_SSH_KEY_FILE SERVORA_PROD_KNOWN_HOSTS SERVORA_PROD_KNOWN_HOSTS_FILE SERVORA_PROD_FQDN\n'
 printf 'export SERVORA_PROD_HOST=%q\n' "$HOST"
 [[ -z "$SSH_USER" ]] || printf 'export SERVORA_PROD_SSH_USER=%q\n' "$SSH_USER"
 printf 'export SERVORA_PROD_SSH_KEY_FILE=%q\n' "$KEY_FILE"
