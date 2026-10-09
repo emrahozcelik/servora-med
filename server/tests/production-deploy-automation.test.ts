@@ -110,13 +110,17 @@ function runSourced(script: string, body: string, args: string[] = [], env: Node
   });
 }
 
+function copyRunnerFiles(directory: string) {
+  mkdirSync(join(directory, 'ops/local-ci/lib'), { recursive: true });
+  copyFileSync(runner, join(directory, 'ops/deploy-production.sh'));
+  copyFileSync(sshFiles, join(directory, 'ops/local-ci/lib/ssh-files.sh'));
+}
+
 function createGitFixture() {
   const root = temporaryDirectory('source');
   const bare = temporaryDirectory('origin');
   mkdirSync(join(root, 'ops'), { recursive: true });
-  copyFileSync(runner, join(root, 'ops', 'deploy-production.sh'));
-  mkdirSync(join(root, 'ops/local-ci/lib'), { recursive: true });
-  copyFileSync(sshFiles, join(root, 'ops/local-ci/lib/ssh-files.sh'));
+  copyRunnerFiles(root);
   chmodSync(join(root, 'ops', 'deploy-production.sh'), 0o755);
   execFileSync('git', ['init', '-q', '-b', 'main', root]);
   execFileSync('git', ['-C', root, 'config', 'user.email', 'fixture@example.test']);
@@ -1203,9 +1207,7 @@ describe('controlled production deployment automation contract', () => {
     mkdirSync(join(root, 'web', 'dist'), { recursive: true });
     writeFileSync(join(root, 'server', 'package.json'), '{}');
     writeFileSync(join(root, 'server', 'package-lock.json'), '{}');
-    copyFileSync(runner, join(root, 'ops', 'deploy-production.sh'));
-  mkdirSync(join(root, 'ops/local-ci/lib'), { recursive: true });
-  copyFileSync(sshFiles, join(root, 'ops/local-ci/lib/ssh-files.sh'));
+    copyRunnerFiles(root);
     chmodSync(join(root, 'ops', 'deploy-production.sh'), 0o755);
     writeFileSync(join(root, 'server', 'dist', 'index.js'), 'fixture');
     writeFileSync(
@@ -1311,7 +1313,7 @@ describe('controlled production deployment automation contract', () => {
       writeFileSync(join(srcDir, 'server', 'package-lock.json'), '{}');
       writeFileSync(join(srcDir, 'server', 'dist', 'index.js'), 'fixture');
       writeFileSync(join(srcDir, 'web', 'dist', 'index.html'), '<div id="root"></div>');
-      copyFileSync(runner, join(srcDir, 'ops', 'deploy-production.sh'));
+      copyRunnerFiles(srcDir);
       // Mark a file with provenance xattr to prove suppression at archive creation time
       const provenanceFile = join(srcDir, 'server', 'dist', 'index.js');
       const xattrResult = spawnSync('xattr', ['-w', 'com.apple.provenance', 'test-provenance', provenanceFile]);
@@ -1360,9 +1362,7 @@ describe('controlled production deployment automation contract', () => {
       mkdirSync(join(root, 'web', 'dist'), { recursive: true });
       writeFileSync(join(root, 'server', 'package.json'), '{}');
       writeFileSync(join(root, 'server', 'package-lock.json'), '{}');
-      copyFileSync(runner, join(root, 'ops', 'deploy-production.sh'));
-  mkdirSync(join(root, 'ops/local-ci/lib'), { recursive: true });
-  copyFileSync(sshFiles, join(root, 'ops/local-ci/lib/ssh-files.sh'));
+      copyRunnerFiles(root);
       writeFileSync(join(root, 'server', 'dist', 'index.js'), 'fixture');
       writeFileSync(join(root, 'web', 'dist', 'index.html'), '<div id="root"></div>');
       writeFileSync(join(root, 'ops', 'credentials.ts'), 'export const safe = true;');
