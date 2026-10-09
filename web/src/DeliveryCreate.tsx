@@ -308,16 +308,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
       </div>}
       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
-        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady} />
-      {selectedProducts.length > 0 && <div className="delivery-selected-quantities" aria-labelledby="delivery-quantities-heading">
-        <h2 id="delivery-quantities-heading">Miktarlar</h2>
-        {selectedProducts.map((entry) => <div className="field-group" key={entry.product.id}>
-          <label htmlFor={`delivery-quantity-${entry.product.id}`}>Miktar: {entry.product.name}</label>
-          <input id={`delivery-quantity-${entry.product.id}`} type="number" min="0.001" step="0.001"
-            inputMode="decimal" value={entry.quantity} required disabled={semanticInputsDisabled}
-            onChange={(event) => updateSelectedQuantity(entry.product.id, event.target.value)} />
-        </div>)}
-      </div>}
+        onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady}
+        renderQuantity={(product) => <>
+          <label htmlFor={`delivery-quantity-${product.id}`}>Miktar<span className="sr-only">: {product.name}</span></label>
+          <input className="form-control" id={`delivery-quantity-${product.id}`} type="number" min="0.001" step="0.001"
+            inputMode="decimal" value={selectedProducts.find((entry) => entry.product.id === product.id)!.quantity}
+            required disabled={semanticInputsDisabled}
+            onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
+        </>} />
       <div className="delivery-pair">
         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
