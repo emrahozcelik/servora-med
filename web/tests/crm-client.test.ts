@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../src/services/api';
 import {
+  getCustomerEnrichmentScope, enrichCustomer, createEnrichmentContact,
   activateContact, activateCustomer, createContact, createCustomer, deactivateContact,
   deactivateCustomer, deleteCustomer, getContact, getCustomer, getCustomerOperationalSummary,
   listContacts, listCustomerJobs, listCustomers,
@@ -227,4 +228,19 @@ describe('CRM API client', () => {
       status: 409, code: 'VERSION_CONFLICT', details: null,
     });
   });
+  it('uses action-scoped URLs and exact versions, parses scope strictly and preserves generic routes',async()=>{
+    const fetchMock=vi.fn().mockResolvedValueOnce(json({canEnrich:true,canCreateContact:false}))
+      .mockResolvedValueOnce(json({...customer,city:'İzmir',version:2}))
+      .mockResolvedValueOnce(json({customer:{...customer,version:3},contact:{...contact,isPrimary:false}}))
+      .mockResolvedValueOnce(json({canEnrich:'true',canCreateContact:true}));
+    vi.stubGlobal('fetch',fetchMock);
+    await expect(getCustomerEnrichmentScope('customer/1')).resolves.toEqual({canEnrich:true,canCreateContact:false});
+    await expect(enrichCustomer('customer/1',{expectedVersion:1,city:'İzmir'})).resolves.toMatchObject({city:'İzmir',version:2});
+    await expect(createEnrichmentContact('customer/1',{expectedVersion:2,name:'Dr. Synthetic',title:null,phone:null,email:null})).resolves.toMatchObject({customer:{version:3},contact:{isPrimary:false}});
+    expect(fetchMock.mock.calls.slice(0,3).map(c=>c[0])).toEqual(['/api/customers/customer%2F1/enrichment','/api/customers/customer%2F1/enrichment','/api/customers/customer%2F1/enrichment/contacts']);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({expectedVersion:1,city:'İzmir'});
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({expectedVersion:2,name:'Dr. Synthetic',title:null,phone:null,email:null});
+    await expect(getCustomerEnrichmentScope('customer/1')).rejects.toThrow();
+  });
+
 });

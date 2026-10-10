@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { RealtimeProvider } from '../src/realtime/RealtimeProvider';
 import { ContactRoute, CustomerRoute } from '../src/AppRouter';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Contact, CustomerDetail } from '../src/services/crm-api';
@@ -20,6 +21,7 @@ Object.assign(globalThis, {
 });
 
 const crm = vi.hoisted(() => ({
+  getCustomerEnrichmentScope: vi.fn(), enrichCustomer: vi.fn(), createEnrichmentContact: vi.fn(),
   getCustomer: vi.fn(), getContact: vi.fn(), updateCustomer: vi.fn(), updateContact: vi.fn(),
   activateCustomer: vi.fn(), deactivateCustomer: vi.fn(), activateContact: vi.fn(), deactivateContact: vi.fn(),
   makePrimaryContact: vi.fn(), createContact: vi.fn(), deleteCustomer: vi.fn(),
@@ -63,7 +65,7 @@ describe('CRM detail screen concurrency', () => {
   let root: Root; let container: HTMLDivElement;
 
   beforeEach(() => {
-    vi.clearAllMocks(); people.listStaff.mockResolvedValue([]);
+    vi.clearAllMocks(); people.listStaff.mockResolvedValue([]); crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:false,canCreateContact:false});
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
 
@@ -282,4 +284,194 @@ describe('CRM detail screen concurrency', () => {
       previousPrimaryContactId: 'contact-1',
     }));
   });
+  it('uses the server scope and dedicated action for STAFF rather than generic PATCH and restores opener focus', async()=>{
+    const staff={...manager,id:'staff-1',role:'STAFF' as const};const current=customer('customer-1','Synthetic clinic');
+    crm.getCustomer.mockResolvedValue(current);crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    crm.enrichCustomer.mockResolvedValue({...current,city:'İzmir',version:2});
+    const router=createMemoryRouter([{path:'/customers/:customerId',element:<CustomerRoute user={staff}/>}],{initialEntries:['/customers/customer-1']});
+    await render(router);await settle();
+    const opener=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Bilgileri tamamla');expect(opener).toBeTruthy();
+    await act(async()=>opener!.click());
+    (container.querySelector('[name="city"]') as HTMLInputElement).value='İzmir';
+    await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
+    expect(crm.enrichCustomer).toHaveBeenCalledWith('customer-1',{expectedVersion:1,phone:null,email:null,city:'İzmir',district:null,address:null});
+    expect(crm.updateCustomer).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('İletişim bilgileri güncellendi.');
+    await act(async()=>new Promise(resolve=>setTimeout(resolve,10)));
+    expect(document.activeElement).toBe(Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Bilgileri tamamla'));
+  });
+
+  const staffUser={...manager,id:'staff-1',role:'STAFF' as const};
+  function staffRouter(){return createMemoryRouter([{path:'/customers/:customerId',element:<CustomerRoute user={staffUser}/>}],{initialEntries:['/customers/customer-1']});}
+  const button=(text:string)=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent===text)!;
+  it('keeps a visible customer read-only when server scope denies permission, despite assignment projection',async()=>{
+    crm.getCustomer.mockResolvedValue({...customer('customer-1','Visible clinic'),assignedStaffUserId:staffUser.id});
+    await render(staffRouter());await settle();
+    expect(container.querySelector('form')).toBeNull();expect(container.textContent).not.toContain('Bilgileri tamamla');expect(container.textContent).not.toContain('İlgili kişi ekle');
+  });
+  it('focuses the phone field on open, cancels without mutation and restores focus',async()=>{
+    crm.getCustomer.mockResolvedValue(customer('customer-1','Synthetic'));crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await render(staffRouter());await settle();await act(async()=>button('Bilgileri tamamla').click());
+    expect(document.activeElement).toBe(container.querySelector('[name="phone"]'));
+    await act(async()=>button('Vazgeç').click());await act(async()=>new Promise(r=>setTimeout(r,10)));
+    expect(crm.enrichCustomer).not.toHaveBeenCalled();expect(document.activeElement).toBe(button('Bilgileri tamamla'));
+  });
+  it('freezes one expected-version request and disables all enrichment controls while pending',async()=>{
+    const response=deferred<CustomerDetail>();const current=customer('customer-1','Synthetic');
+    crm.getCustomer.mockResolvedValue(current);crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});crm.enrichCustomer.mockReturnValue(response.promise);
+    await render(staffRouter());await settle();await act(async()=>button('Bilgileri tamamla').click());
+    const form=container.querySelector('form')!;
+    await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+    expect(crm.enrichCustomer).toHaveBeenCalledTimes(1);
+    expect(button('İlgili kişi ekle').disabled).toBe(true);
+    expect(Array.from(form.querySelectorAll<HTMLInputElement>('input,textarea,button')).every(e=>e.disabled)).toBe(true);
+    await act(async()=>response.resolve({...current,version:2}));
+  });
+  it('preserves the mounted enrichment draft and focus across background reconciliation', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Synthetic'));
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    const router = staffRouter();
+    await act(async () => { root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={router} /></Suspense></RealtimeProvider>); });
+    await settle(); await act(async () => button('Bilgileri tamamla').click());
+    const address = container.querySelector('[name="address"]') as HTMLTextAreaElement;
+    address.value = 'Unsaved address'; address.focus();
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(crm.getCustomer).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[name="address"]')).toBe(address);
+    expect(address.value).toBe('Unsaved address'); expect(document.activeElement).toBe(address);
+    expect(button('İletişim bilgilerini kaydet').disabled).toBe(false);
+    expect(crm.enrichCustomer).not.toHaveBeenCalled();
+  });
+  it('preserves drafts on reconnect and fallback, blocking changed server versions until explicit reload', async () => {
+    const events = new EventTarget();
+    const source = {addEventListener:events.addEventListener.bind(events), removeEventListener:events.removeEventListener.bind(events), close:() => {}};
+    const current = customer('customer-1', 'Synthetic'); crm.getCustomer.mockResolvedValue(current);
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => source}><Suspense fallback={null}><RouterProvider router={staffRouter()} /></Suspense></RealtimeProvider>));
+    await settle(); await act(async () => button('Bilgileri tamamla').click());
+    const city = container.querySelector('[name="city"]') as HTMLInputElement; city.value = 'My draft';
+    await act(async () => events.dispatchEvent(new Event('open'))); await settle();
+    expect(container.querySelector('[name="city"]')).toBe(city); expect(city.value).toBe('My draft');
+    vi.useFakeTimers(); await act(async () => events.dispatchEvent(new Event('error')));
+    await act(async () => vi.advanceTimersByTimeAsync(60_000)); await settle();
+    expect(container.querySelector('[name="city"]')).toBe(city); expect(city.value).toBe('My draft');
+    crm.getCustomer.mockResolvedValue({...current, city:'Server value', version:2});
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(city.value).toBe('My draft'); expect(button('İletişim bilgilerini kaydet').disabled).toBe(true);
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
+    expect(crm.enrichCustomer).not.toHaveBeenCalled();
+    await act(async () => button('Güncel değerleri yükle').click()); await settle();
+    await act(async () => button('Bilgileri tamamla').click());
+    expect((container.querySelector('[name="city"]') as HTMLInputElement).value).toBe('Server value');
+  });
+  it('retains a disabled draft on background capability failure and restores it after scope retry', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Synthetic'));
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={staffRouter()} /></Suspense></RealtimeProvider>));
+    await settle(); await act(async () => button('Bilgileri tamamla').click());
+    const address = container.querySelector('[name="address"]') as HTMLTextAreaElement; address.value = 'Draft';
+    crm.getCustomerEnrichmentScope.mockRejectedValueOnce(new ApiError(409, 'VERSION_CONFLICT', 'Busy'));
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(container.querySelector('[name="address"]')).toBe(address); expect(address.value).toBe('Draft'); expect(address.disabled).toBe(true);
+    expect(button('İletişim bilgilerini kaydet').disabled).toBe(true);
+    await act(async () => button('Yetki kontrolünü tekrar dene').click()); await settle();
+    expect(address.value).toBe('Draft'); expect(address.disabled).toBe(false);
+  });
+  it('does not advance draft version when the editor opens during an in-flight background read', async () => {
+    const refresh = deferred<CustomerDetail>(); const current = customer('customer-1', 'Synthetic');
+    crm.getCustomer.mockResolvedValueOnce(current).mockReturnValueOnce(refresh.promise);
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={staffRouter()} /></Suspense></RealtimeProvider>));
+    await settle(); await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    await act(async () => button('Bilgileri tamamla').click());
+    const city = container.querySelector('[name="city"]') as HTMLInputElement; city.value = 'Draft';
+    await act(async () => refresh.resolve({...current, city:'Concurrent update', version:2})); await settle();
+    expect(city.value).toBe('Draft'); expect(button('İletişim bilgilerini kaydet').disabled).toBe(true);
+    expect(container.textContent).toContain('Sürüm 1');
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
+    expect(crm.enrichCustomer).not.toHaveBeenCalled();
+  });
+  it('ignores focus reconciliation during a pending save and rejects an older background response', async () => {
+    const current = customer('customer-1', 'Synthetic'); const refresh = deferred<CustomerDetail>(); const save = deferred<CustomerDetail>();
+    crm.getCustomer.mockResolvedValueOnce(current).mockReturnValueOnce(refresh.promise);
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true}); crm.enrichCustomer.mockReturnValue(save.promise);
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={staffRouter()} /></Suspense></RealtimeProvider>));
+    await settle(); await act(async () => button('Bilgileri tamamla').click());
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    (container.querySelector('[name="city"]') as HTMLInputElement).value = 'Saved';
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(crm.getCustomer).toHaveBeenCalledTimes(2); expect(crm.enrichCustomer).toHaveBeenCalledTimes(1);
+    await act(async () => save.resolve({...current,city:'Saved',version:2})); await settle();
+    await act(async () => refresh.resolve(current)); await settle();
+    expect(container.textContent).toContain('Sürüm 2'); expect(container.textContent).toContain('Saved');
+  });
+  it('preserves a read-only contact draft on scope failure without enabling a contact mutation', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Synthetic'));
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={staffRouter()} /></Suspense></RealtimeProvider>));
+    await settle(); await act(async () => button('İlgili kişi ekle').click());
+    const name = container.querySelector('[name="name"]') as HTMLInputElement; name.value = 'Contact draft';
+    crm.getCustomerEnrichmentScope.mockRejectedValueOnce(new ApiError(409, 'VERSION_CONFLICT', 'Busy'));
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(container.querySelector('[name="name"]')).toBe(name); expect(name.value).toBe('Contact draft'); expect(name.disabled).toBe(true);
+    expect(button('İlgili kişiyi ekle').disabled).toBe(true);
+    await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
+    expect(crm.createEnrichmentContact).not.toHaveBeenCalled();
+  });
+  it('applies same-version contact detail refreshes while preserving the manager editing draft', async () => {
+    const current = customer('customer-1', 'Synthetic clinic');
+    crm.getCustomer.mockResolvedValueOnce(current).mockResolvedValueOnce({...current, contacts:[contact('contact-new', 'Concurrent contact')]});
+    const router = createMemoryRouter([{path:'/customers/:customerId',element:<CustomerRoute user={manager}/>}],{initialEntries:['/customers/customer-1']});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={router}/></Suspense></RealtimeProvider>));
+    await settle(); const name = container.querySelector('[name="name"]') as HTMLInputElement; name.value = 'Unsaved manager draft'; name.focus();
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(container.textContent).toContain('Concurrent contact');
+    expect(container.querySelector('[name="name"]')).toBe(name); expect(name.value).toBe('Unsaved manager draft'); expect(document.activeElement).toBe(name);
+    expect(container.textContent).toContain('Sürüm 1');
+    expect(crm.updateCustomer).not.toHaveBeenCalled();
+  });
+  it('keeps readable customer details when scope fails and retries only the capability', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Readable clinic'));
+    crm.getCustomerEnrichmentScope.mockRejectedValueOnce(new ApiError(409, 'VERSION_CONFLICT', 'Busy witness'))
+      .mockResolvedValue({canEnrich:true,canCreateContact:true});
+    await render(staffRouter()); await settle();
+    expect(container.textContent).toContain('Readable clinic');
+    expect(container.textContent).not.toContain('Müşteri yüklenemedi');
+    expect(container.querySelector('form')).toBeNull();
+    expect(container.textContent).not.toContain('Bilgileri tamamla');
+    await act(async () => button('Yetki kontrolünü tekrar dene').click()); await settle();
+    expect(button('Bilgileri tamamla')).toBeTruthy();
+    expect(crm.getCustomer).toHaveBeenCalledTimes(1);
+    expect(crm.getCustomerEnrichmentScope).toHaveBeenCalledTimes(2);
+  });
+  it('retains the stale enrichment draft, blocks retry and reloads current scope/version explicitly',async()=>{
+    const current=customer('customer-1','Synthetic');crm.getCustomer.mockResolvedValueOnce(current).mockResolvedValueOnce({...current,city:'Latest',version:2});
+    crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});crm.enrichCustomer.mockRejectedValue(new ApiError(409,'VERSION_CONFLICT','Changed'));
+    await render(staffRouter());await settle();await act(async()=>button('Bilgileri tamamla').click());
+    const city=container.querySelector('[name="city"]') as HTMLInputElement;city.value='My draft';
+    await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
+    expect(city.value).toBe('My draft');expect(button('İletişim bilgilerini kaydet').disabled).toBe(true);
+    await act(async()=>button('Güncel değerleri yükle').click());await settle();await act(async()=>button('Bilgileri tamamla').click());
+    expect((container.querySelector('[name="city"]') as HTMLInputElement).value).toBe('Latest');expect(crm.enrichCustomer).toHaveBeenCalledTimes(1);
+  });
+  it('removes stale mutation affordances after server revokes authorization',async()=>{
+    crm.getCustomer.mockResolvedValue(customer('customer-1','Synthetic'));crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});crm.enrichCustomer.mockRejectedValue(new ApiError(403,'FORBIDDEN','Denied'));
+    await render(staffRouter());await settle();await act(async()=>button('Bilgileri tamamla').click());
+    await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
+    expect(container.querySelector('form')).toBeNull();expect(container.textContent).not.toContain('Bilgileri tamamla');expect(container.textContent).not.toContain('İlgili kişi ekle');expect(container.querySelector('[role="alert"]')).toBeTruthy();
+  });
+  it('uses scoped contact creation, preserves primary and binds the next enrichment to the returned version',async()=>{
+    const primary=contact('primary','Original primary',true),current={...customer('customer-1','Synthetic'),contacts:[primary],primaryContact:{id:primary.id,name:primary.name,title:primary.title}};
+    crm.getCustomer.mockResolvedValue(current);crm.getCustomerEnrichmentScope.mockResolvedValue({canEnrich:true,canCreateContact:true});
+    crm.createEnrichmentContact.mockResolvedValue({customer:{...current,version:2},contact:contact('new','New secondary')});crm.enrichCustomer.mockResolvedValue({...current,version:3});
+    await render(staffRouter());await settle();await act(async()=>button('İlgili kişi ekle').click());
+    (container.querySelector('#new-contact-name') as HTMLInputElement).value='New secondary';
+    await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
+    expect(crm.createEnrichmentContact).toHaveBeenCalledWith('customer-1',{expectedVersion:1,name:'New secondary',title:null,phone:null,email:null});expect(crm.createContact).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Original primary');await act(async()=>button('Bilgileri tamamla').click());
+    await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
+    expect(crm.enrichCustomer).toHaveBeenCalledWith('customer-1',expect.objectContaining({expectedVersion:2}));
+  });
+
 });

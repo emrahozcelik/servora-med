@@ -1,3 +1,4 @@
+import { canEnrichCustomer } from './enrichment-policy.js';
 import { AppError } from '../../errors/index.js';
 import type { CrmRepository, CrmTransaction } from './repository.js';
 import type {
@@ -15,8 +16,9 @@ import type {
   CustomerFilters,
   CustomerStatus,
   CustomerType,
+  EnrichCustomerInput,
 } from './types.js';
-import { normalizeTaxNumber, normalizeTurkishPhone } from './types.js';
+import { CONTACT_CREATE_FIELDS, CUSTOMER_ENRICHMENT_FIELDS, normalizeTaxNumber, normalizeTurkishPhone } from './types.js';
 
 export type CreateCustomerInput = {
   name: string; customerType: CustomerType; status?: CustomerStatus;
@@ -212,6 +214,79 @@ export class CrmService {
       }
       throw error;
     }
+  }
+
+  async createEnrichmentContact(actor: CrmActor, customerId: string, input: CreateContactInput & { expectedVersion: number }) {
+    if (actor.role !== 'STAFF') throw forbidden();
+    if (Object.keys(input).some((key) => key !== 'expectedVersion' && !CONTACT_CREATE_FIELDS.some((field) => field === key))
+      || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw new AppError('VALIDATION_ERROR', 400, 'İlgili kişi alanlarını ve expectedVersion gönderin.');
+    }
+    return this.repository.execute(async (tx) => {
+      const { customer: current, job, allowed } = await this.enrichmentScope(tx, actor, customerId);
+      if (!allowed) throw forbidden();
+      if (current.version !== input.expectedVersion) throw versionConflict(current.version);
+      const customer = await tx.enrichCustomer({ organizationId: actor.organizationId, customerId, expectedVersion: input.expectedVersion,
+        phone: current.phone, email: current.email, city: current.city, district: current.district, address: current.address });
+      if (!customer) throw versionConflict();
+      // This action never sets/changes the aggregate's primary contact. Consuming
+      // the customer version prevents duplicate creation on a stale/lost retry.
+      const contact = await tx.createContact({ organizationId: actor.organizationId, customerId,
+        name: required(input.name, 'name'), title: optional(input.title), phone: optional(input.phone),
+        email: optional(input.email)?.toLowerCase() ?? null, isActive: true, isPrimary: false });
+      await tx.appendAudit(audit(actor, 'CONTACT', contact.id, 'CONTACT_CREATED', null,
+        { customerId, isActive: true, isPrimary: false }, { action: 'STAFF_ENRICHMENT', customerId,
+          changedFields: [...CONTACT_CREATE_FIELDS], jobCardId: job?.id ?? null,
+          authorization: job ? 'active-job-assignment' : 'customer-assignment' }));
+      return { customer, contact };
+    });
+  }
+
+  async getEnrichmentScope(actor: CrmActor, customerId: string) {
+    return this.repository.execute(async (tx) => {
+      const { allowed } = await this.enrichmentScope(tx, actor, customerId);
+      return { canEnrich: allowed, canCreateContact: allowed };
+    });
+  }
+
+  private async enrichmentScope(tx: CrmTransaction, actor: CrmActor, customerId: string) {
+    const customer = await this.requireCustomer(tx, actor, customerId);
+    let job = null;
+    if (actor.role === 'STAFF' && customer.status !== 'inactive' && customer.assignedStaffUserId !== actor.id) {
+      try { job = await tx.lockEnrichmentJob(actor, customerId); } catch (error) {
+        if ((error as { code?: string }).code === '55P03') throw versionConflict();
+        throw error;
+      }
+    }
+    return { customer, job, allowed: canEnrichCustomer(actor, customer, job) };
+  }
+
+  async enrichCustomer(actor: CrmActor, customerId: string, input: EnrichCustomerInput) {
+    if (actor.role !== 'STAFF') throw forbidden();
+    if (Object.keys(input).some((key) => key !== 'expectedVersion' && !CUSTOMER_ENRICHMENT_FIELDS.some((field) => field === key))
+      || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1
+      || !CUSTOMER_ENRICHMENT_FIELDS.some((field) => Object.hasOwn(input, field))) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Yalnız iletişim alanlarını ve expectedVersion gönderin.');
+    }
+    return this.repository.execute(async (tx) => {
+      const { customer: current, job, allowed } = await this.enrichmentScope(tx, actor, customerId);
+      if (!allowed) throw forbidden();
+      if (current.version !== input.expectedVersion) throw versionConflict(current.version);
+      const fields = { phone: current.phone, email: current.email, city: current.city, district: current.district, address: current.address };
+      for (const field of CUSTOMER_ENRICHMENT_FIELDS) {
+        if (!Object.hasOwn(input, field)) continue;
+        const value = input[field];
+        if (value !== null && typeof value !== 'string') throw new AppError('VALIDATION_ERROR', 400, 'İletişim alanı metin veya null olmalıdır.');
+        fields[field] = field === 'phone' ? editablePhone(value ?? null) : field === 'email' ? optional(value ?? null)?.toLowerCase() ?? null : optional(value ?? null);
+      }
+      const changedFields = CUSTOMER_ENRICHMENT_FIELDS.filter((field) => current[field] !== fields[field]);
+      if (!changedFields.length) return current;
+      const updated = await tx.enrichCustomer({ ...fields, organizationId: actor.organizationId, customerId, expectedVersion: input.expectedVersion });
+      if (!updated) throw versionConflict();
+      await tx.appendAudit(audit(actor, 'CUSTOMER', customerId, 'CUSTOMER_FIELDS_UPDATED', null, null,
+        { action: 'STAFF_ENRICHMENT', changedFields, jobCardId: job?.id ?? null, authorization: job ? 'active-job-assignment' : 'customer-assignment' }));
+      return updated;
+    });
   }
 
   async updateCustomer(actor: CrmActor, customerId: string, input: UpdateCustomerInput) {
