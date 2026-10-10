@@ -311,7 +311,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (background && draft.customer && draft.editing) {
         if (record.version !== draft.customer.version) {
           setConflict(true); setError('Müşteri bilgileri değişti. Taslağınız korundu; kaydetmeden önce güncel değerleri yükleyin.');
-        }
+        } else setCustomer(record);
       } else setCustomer(record);
       setStaff(profiles);
       if (!background) setFormRevision((revision) => revision + 1);

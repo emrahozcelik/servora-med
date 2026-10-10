@@ -419,6 +419,18 @@ describe('CRM detail screen concurrency', () => {
     await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})));
     expect(crm.createEnrichmentContact).not.toHaveBeenCalled();
   });
+  it('applies same-version contact detail refreshes while preserving the manager editing draft', async () => {
+    const current = customer('customer-1', 'Synthetic clinic');
+    crm.getCustomer.mockResolvedValueOnce(current).mockResolvedValueOnce({...current, contacts:[contact('contact-new', 'Concurrent contact')]});
+    const router = createMemoryRouter([{path:'/customers/:customerId',element:<CustomerRoute user={manager}/>}],{initialEntries:['/customers/customer-1']});
+    await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={router}/></Suspense></RealtimeProvider>));
+    await settle(); const name = container.querySelector('[name="name"]') as HTMLInputElement; name.value = 'Unsaved manager draft'; name.focus();
+    await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
+    expect(container.textContent).toContain('Concurrent contact');
+    expect(container.querySelector('[name="name"]')).toBe(name); expect(name.value).toBe('Unsaved manager draft'); expect(document.activeElement).toBe(name);
+    expect(container.textContent).toContain('Sürüm 1');
+    expect(crm.updateCustomer).not.toHaveBeenCalled();
+  });
   it('keeps readable customer details when scope fails and retries only the capability', async () => {
     crm.getCustomer.mockResolvedValue(customer('customer-1', 'Readable clinic'));
     crm.getCustomerEnrichmentScope.mockRejectedValueOnce(new ApiError(409, 'VERSION_CONFLICT', 'Busy witness'))

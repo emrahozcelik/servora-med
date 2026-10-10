@@ -76,8 +76,16 @@ The three P2 findings on d8ce627f are addressed within the existing action scope
   no-ops leave version, updated_at, PostgreSQL tuple and audits unchanged. Scoped
   contact creation still consumes the customer version to prevent duplicates.
 
-Focused frontend/client: 42 passed. SQL security suite: 53 passed; CRM service:
+Focused frontend/client: 43 passed. SQL security suite: 53 passed; CRM service:
 28 passed. RED/GREEN logs and real Chrome focus/reconnect acceptance belong to
 .worktrees/crm-staff-enrichment-reconciliation-evidence-20261010. The new exact
 commit must pass all 27 local CI gates before the PR is declared ready. Keep the
 four opt-in R2/DR tests explicitly SKIPPED. No merge or deployment is authorized.
+
+
+New-head Codex P2 #4238001798 is also reconciled: background details with an
+unchanged parent customer version are applied without changing the form key.
+Concurrent contact additions become visible while the manager draft and focus
+stay intact. The regression fails on 361dbbf and passes with the correction.
+New exact-head evidence belongs to
+.worktrees/crm-staff-enrichment-reconciliation2-evidence-20261010.
