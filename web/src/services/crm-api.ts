@@ -290,6 +290,18 @@ export async function getCustomerEnrichmentScope(customerId: string): Promise<Cu
   const v = object(await request(`${customerPath(customerId)}/enrichment`));
   return { canEnrich: boolean(v.canEnrich, 'canEnrich'), canCreateContact: boolean(v.canCreateContact, 'canCreateContact') };
 }
+export const MISSING_INFO_CODES = [
+  'CUSTOMER_PHONE_MISSING', 'ACTIVE_CONTACT_MISSING', 'CONTACT_PHONE_MISSING',
+] as const;
+export type MissingInfoCode = (typeof MISSING_INFO_CODES)[number];
+export type CustomerCompleteness = { missingInfo: MissingInfoCode[] };
+export async function getCustomerCompleteness(customerId: string): Promise<CustomerCompleteness> {
+  const v = object(await request(`${customerPath(customerId)}/completeness`));
+  return {
+    missingInfo: array(v.missingInfo, 'missingInfo')
+      .map((code) => oneOf(code, 'missingInfo', MISSING_INFO_CODES)),
+  };
+}
 export const enrichCustomer = async (customerId: string, input: EnrichCustomerInput) =>
   parseCustomer(await request(`${customerPath(customerId)}/enrichment`, json('POST', input)));
 export async function createEnrichmentContact(customerId: string, input: ContactFields & { expectedVersion: number }) {

@@ -51,7 +51,7 @@ export const UNSUCCESSFUL_VISIT_REASON_CODES = [
   'OTHER',
 ] as const;
 export const MEETING_DETAIL_FIELDS = [
-  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;
 export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
@@ -358,16 +358,20 @@ export type DeliveryItem = {
   productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null;
   lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null;
 };
+export type MeetingDetailsContact = { id: string; name: string; title: string | null };
 export type MeetingDetails = {
   jobCardId: string; meetingAt: string | null; outcome: MeetingOutcome | null;
   unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
-  meetingSummary: string | null; nextFollowUpAt: string | null; jobCardVersion: number;
+  meetingSummary: string | null; nextFollowUpAt: string | null;
+  metContactId: string | null; metContact: MeetingDetailsContact | null;
+  jobCardVersion: number;
 };
 export type PatchMeetingDetailsInput = {
   clientActionId: string; expectedVersion: number; meetingAt?: string | null;
   outcome?: MeetingOutcome | null; unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
   meetingSummary?: string | null;
   nextFollowUpAt?: string | null;
+  metContactId?: string | null;
 };
 export type PatchJobCardInput = {
   expectedVersion: number;
@@ -998,10 +1002,19 @@ function parseProductDeliveryCreate(value: unknown) {
   const v = exactObject(value, 'productDeliveryCreate', ['jobCardId', 'version']);
   return { jobCardId: string(v.jobCardId, 'jobCardId'), version: positiveCount(v.version, 'version') };
 }
+function parseMeetingContact(value: unknown): MeetingDetailsContact | null {
+  if (value === null) return null;
+  const v = exactObject(value, 'meetingDetails.metContact', ['id', 'name', 'title']);
+  return {
+    id: string(v.id, 'meetingDetails.metContact.id'),
+    name: string(v.name, 'meetingDetails.metContact.name'),
+    title: nullableString(v.title, 'meetingDetails.metContact.title'),
+  };
+}
 export function parseMeetingDetails(value: unknown): MeetingDetails {
   const v = exactObject(value, 'meetingDetails', [
     'jobCardId', 'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
-    'jobCardVersion',
+    'metContactId', 'metContact', 'jobCardVersion',
   ]);
   return {
     jobCardId: string(v.jobCardId, 'jobCardId'),
@@ -1012,6 +1025,8 @@ export function parseMeetingDetails(value: unknown): MeetingDetails {
       : oneOf(v.unsuccessfulReason, 'unsuccessfulReason', UNSUCCESSFUL_VISIT_REASON_CODES),
     meetingSummary: nullableString(v.meetingSummary, 'meetingSummary'),
     nextFollowUpAt: nullableCanonicalInstant(v.nextFollowUpAt, 'nextFollowUpAt'),
+    metContactId: nullableString(v.metContactId, 'metContactId'),
+    metContact: parseMeetingContact(v.metContact),
     jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion'),
   };
 }

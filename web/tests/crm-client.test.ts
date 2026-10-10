@@ -4,7 +4,8 @@ import { ApiError } from '../src/services/api';
 import {
   getCustomerEnrichmentScope, enrichCustomer, createEnrichmentContact,
   activateContact, activateCustomer, createContact, createCustomer, deactivateContact,
-  deactivateCustomer, deleteCustomer, getContact, getCustomer, getCustomerOperationalSummary,
+  deactivateCustomer, deleteCustomer, getContact, getCustomer, getCustomerCompleteness,
+  getCustomerOperationalSummary,
   listContacts, listCustomerJobs, listCustomers,
   makePrimaryContact, updateContact, updateCustomer,
 } from '../src/services/crm-api';
@@ -241,6 +242,21 @@ describe('CRM API client', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({expectedVersion:1,city:'İzmir'});
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({expectedVersion:2,name:'Dr. Synthetic',title:null,phone:null,email:null});
     await expect(getCustomerEnrichmentScope('customer/1')).rejects.toThrow();
+  });
+
+  it('fetches the canonical completeness projection and rejects unknown codes', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ missingInfo: ['CUSTOMER_PHONE_MISSING', 'ACTIVE_CONTACT_MISSING'] }))
+      .mockResolvedValueOnce(json({ missingInfo: [] }))
+      .mockResolvedValueOnce(json({ missingInfo: ['QUALITY_SCORE'] }))
+      .mockResolvedValueOnce(json({ missingInfo: 'CUSTOMER_PHONE_MISSING' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getCustomerCompleteness('customer/1')).resolves
+      .toEqual({ missingInfo: ['CUSTOMER_PHONE_MISSING', 'ACTIVE_CONTACT_MISSING'] });
+    await expect(getCustomerCompleteness('customer/1')).resolves.toEqual({ missingInfo: [] });
+    await expect(getCustomerCompleteness('customer/1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    await expect(getCustomerCompleteness('customer/1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/customers/customer%2F1/completeness');
   });
 
 });

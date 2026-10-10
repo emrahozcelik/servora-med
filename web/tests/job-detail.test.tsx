@@ -229,7 +229,7 @@ function waitingApprovalJob(): JobCard {
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
 const meetingDetails: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-  meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 3,
+  meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
 };
 
 function buttonByName(host: ParentNode, name: string) {
@@ -1595,7 +1595,7 @@ describe('Staff JobCard detail', () => {
     await act(async () => {
       resolvePatch(Response.json({
         jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-        meetingSummary: 'Güncel görüşme özeti', nextFollowUpAt: null, jobCardVersion: meeting.version,
+        meetingSummary: 'Güncel görüşme özeti', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
       }));
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3762,11 +3762,11 @@ describe('Staff JobCard detail', () => {
     };
     const emptyMeeting: MeetingDetails = {
       jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
-      nextFollowUpAt: null, jobCardVersion: 3,
+      nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
     };
     const savedMeeting: MeetingDetails = {
       jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 4,
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 4,
     };
     const initialCard: JobCard = {
       ...inProgressMeeting(),
@@ -3929,7 +3929,7 @@ describe('Staff JobCard detail', () => {
     }, {
       jobCardId: 'job-1', meetingAt: '2026-07-17T10:00:00.000Z',
       outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
-      meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
+      meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
     });
     expect(submit).toHaveBeenCalledWith('job-1', {
       clientActionId: 'action-3', expectedVersion: 3, note: 'Ziyaret tamamlandı',

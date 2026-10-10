@@ -326,7 +326,7 @@ describe('Manager review', () => {
     };
     const details = {
       jobCardId: meeting.id, meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'NO_DECISION',
-      meetingSummary: 'İlk görüşme', nextFollowUpAt: null, jobCardVersion: meeting.version,
+      meetingSummary: 'İlk görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
     };
     const customer = {
       id: 'c1', organizationId: 'org-1', name: 'Klinik', customerType: 'clinic',
@@ -573,7 +573,7 @@ describe('Manager review', () => {
     };
     const details = {
       jobCardId: meeting.id, meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'NO_DECISION',
-      meetingSummary: 'İlk görüşme', nextFollowUpAt: null, jobCardVersion: meeting.version,
+      meetingSummary: 'İlk görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
     };
     const customer = {
       id: 'c1', organizationId: 'org-1', name: 'Klinik', customerType: 'clinic',
@@ -739,6 +739,7 @@ describe('Manager review', () => {
         meetingReads += 1; return Response.json({
           jobCardId: 'job-1', meetingAt: null,
           outcome: null, meetingSummary: null, nextFollowUpAt: null,
+          metContactId: null, metContact: null,
           jobCardVersion: meetingReads === 1 ? meeting.version - 1 : meeting.version,
         });
       }
@@ -825,7 +826,7 @@ describe('Manager review', () => {
       if (url.endsWith('/meeting-details')) {
         return Response.json({
           jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
-          nextFollowUpAt: null, jobCardVersion: meeting.version,
+          nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
         });
       }
       if (url.includes('/follow-up-suggestion')) {
@@ -914,7 +915,7 @@ describe('Manager review', () => {
         meetingReads += 1;
         return Response.json({
           jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
-          nextFollowUpAt: null, jobCardVersion: meeting.version - 1,
+          nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version - 1,
         });
       }
       if (detailUrlMatches(url, 'job-1')) { jobReads += 1; return Response.json(meeting); }
