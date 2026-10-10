@@ -288,8 +288,14 @@ class PostgresCrmTransaction implements CrmTransaction {
   }
 
   async contactHasAnyJobs(organizationId: string, contactId: string) {
+    // Slice 3: a contact recorded as the person actually met (visits) is also
+    // operational history. Deactivation stays allowed; permanent deletion must
+    // not orphan that reference.
     const result = await this.client.query(
-      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2 LIMIT 1`,
+      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2
+       UNION ALL
+       SELECT 1 FROM job_card_meeting_details
+        WHERE organization_id=$1 AND met_contact_id=$2 LIMIT 1`,
       [organizationId, contactId],
     );
     return (result.rowCount ?? 0) > 0;

@@ -371,7 +371,7 @@ describe('Sales Meeting detail reads and mutations', () => {
       .resolves.toEqual({
         jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',
         outcome: 'NO_DECISION', unsuccessfulReason: null, meetingSummary: 'İlk görüşme yapıldı.',
-        nextFollowUpAt: null, jobCardVersion: 2,
+        nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 2,
       });
     expect(repository.lockOrder).toEqual([]);
     expect(repository.jobs[0]!.version).toBe(2);
@@ -434,7 +434,7 @@ describe('Sales Meeting detail reads and mutations', () => {
       jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',
       outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
       meetingSummary: 'Kontrol ziyareti yapıldı.',
-      nextFollowUpAt: null, jobCardVersion: 3,
+      nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
     });
     expect(repository.jobs[0]!.version).toBe(3);
     expect(repository.activities).toEqual(['MEETING_DETAILS_UPDATED']);

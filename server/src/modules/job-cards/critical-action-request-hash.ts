@@ -149,7 +149,7 @@ export function lifecycleRequestHash(identity: LifecycleRequestIdentity): string
 }
 
 export const MEETING_PATCH_FIELDS = [
-  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;
 
 /**

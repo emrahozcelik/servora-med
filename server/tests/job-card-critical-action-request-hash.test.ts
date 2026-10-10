@@ -150,6 +150,27 @@ describe('JobCard critical-action request identity', () => {
       .toBe(meetingDetailsUpdateRequestHash('job-1', omitted));
   });
 
+  it('meeting patch: met contact presence is semantic and identity-free', () => {
+    const assigned = {
+      clientActionId: 'first', expectedVersion: 2, metContactId: 'contact-1',
+    } as never;
+    const cleared = {
+      clientActionId: 'second', expectedVersion: 2, metContactId: null,
+    } as never;
+    const omitted = {
+      clientActionId: 'third', expectedVersion: 2, outcome: 'POSITIVE',
+    } as never;
+    expect(meetingDetailsUpdateRequestHash('job-1', assigned))
+      .not.toBe(meetingDetailsUpdateRequestHash('job-1', cleared));
+    expect(meetingDetailsUpdateRequestHash('job-1', assigned))
+      .not.toBe(meetingDetailsUpdateRequestHash('job-1', omitted));
+    // clientActionId is not part of the request identity.
+    expect(meetingDetailsUpdateRequestHash('job-1', assigned))
+      .toBe(meetingDetailsUpdateRequestHash('job-1', {
+        clientActionId: 'other', expectedVersion: 2, metContactId: 'contact-1',
+      } as never));
+  });
+
   it('delivery expiry dates use one validated canonical date-only representation', () => {
     expect(normalizeExpiryDate('2026-9-1')).toBe('2026-09-01');
     expect(normalizeExpiryDate('2026-09-01')).toBe('2026-09-01');

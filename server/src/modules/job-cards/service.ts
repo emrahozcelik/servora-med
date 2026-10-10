@@ -85,6 +85,8 @@ import {
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
   type MeetingDetailsCandidate,
+  type MeetingDetailsContact,
+  type MeetingDetailsView,
   type PatchMeetingDetailsInput,
   type ApproveFollowUpInput,
   type FollowUpProposal,
@@ -468,12 +470,14 @@ function assertPlannedIntervalForStart(job: Pick<JobCard, 'type' | 'scheduledAt'
 function meetingDetailsResponse(
   jobCardId: string,
   jobCardVersion: number,
-  details: MeetingDetailsCandidate,
+  details: MeetingDetailsView,
 ): MeetingDetails {
   return {
     jobCardId,
     ...details,
     unsuccessfulReason: details.unsuccessfulReason ?? null,
+    metContactId: details.metContactId ?? null,
+    metContact: details.metContact ?? null,
     jobCardVersion,
   };
 }
@@ -2156,6 +2160,9 @@ export class JobCardService {
         );
         if (!current) invariantViolation();
         const outcome = input.outcome === undefined ? current.outcome : input.outcome;
+        const metContactId = input.metContactId === undefined
+          ? current.metContactId ?? null
+          : input.metContactId;
         const candidate: MeetingDetailsCandidate = {
           meetingAt: input.meetingAt === undefined ? current.meetingAt : input.meetingAt,
           outcome,
@@ -2170,7 +2177,28 @@ export class JobCardService {
           nextFollowUpAt: input.nextFollowUpAt === undefined
             ? current.nextFollowUpAt
             : input.nextFollowUpAt,
+          metContactId,
         };
+        // Görüşülen kişi must belong to this job's customer, live in the same
+        // organization and be active; the row lock keeps the check race-free.
+        let metContact: MeetingDetailsContact | null = null;
+        if (metContactId !== null) {
+          const contact = await transaction.getContactForUpdate(actor.organizationId, metContactId);
+          if (!contact) {
+            throw new AppError('CONTACT_NOT_FOUND', 404, 'İlgili kişi bulunamadı.');
+          }
+          if (job.customerId === null || contact.customerId !== job.customerId) {
+            throw new AppError(
+              'CONTACT_NOT_IN_CUSTOMER',
+              409,
+              'İlgili kişi seçilen müşteriye bağlı değil.',
+            );
+          }
+          if (!contact.isActive) {
+            throw new AppError('CONTACT_INACTIVE', 409, 'Pasif ilgili kişi iş kartında kullanılamaz.');
+          }
+          metContact = { id: contact.id, name: contact.name, title: contact.title };
+        }
         // Validate the merged post-patch state so a partial update cannot
         // persist FOLLOW_UP_REQUIRED without its structured unsuccessful reason.
         validateMeetingDetailsCandidate(candidate, { requireUnsuccessfulReason: true });
@@ -2220,7 +2248,10 @@ export class JobCardService {
           afterAssigneeId: job.assignedTo,
         });
         return {
-          response: meetingDetailsResponse(jobCardId, updated.version, candidate),
+          response: meetingDetailsResponse(jobCardId, updated.version, {
+            ...candidate,
+            metContact,
+          }),
           realtimeEvents,
         };
       },
