@@ -17,7 +17,7 @@ const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', statu
   contact: null, workflowContext } satisfies JobCard;
 const details: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: null, outcome: null, unsuccessfulReason: null,
-  meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 3,
+  meetingSummary: null, nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
 };
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype

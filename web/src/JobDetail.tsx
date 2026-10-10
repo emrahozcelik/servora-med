@@ -2152,6 +2152,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       unsuccessfulReason: detail.meetingDetails.unsuccessfulReason,
       meetingSummary: detail.meetingDetails.meetingSummary,
       nextFollowUpAt: detail.meetingDetails.nextFollowUpAt,
+      metContactId: detail.meetingDetails.metContactId,
     }).some((value) => value !== null);
   const showMeetingResult = detail.kind === 'SALES_MEETING'
     && viewMeeting && detail.meetingDetails !== null

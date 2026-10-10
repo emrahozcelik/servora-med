@@ -17,7 +17,7 @@ const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', statu
   contact: null, workflowContext } satisfies JobCard;
 const details: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: null, outcome: null, unsuccessfulReason: null,
-  meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 3,
+  meetingSummary: null, nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
 };
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype
@@ -33,9 +33,19 @@ function renderSection(onSave: (input: never) => Promise<MeetingDetails>, root: 
 
 describe('MeetingDetailsSection stale error lifecycle', () => {
   let root: Root; let container: HTMLDivElement;
-  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `stale-${++uuidSeq}`) }); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  beforeEach(() => {
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    uuidSeq = 0; Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => `stale-${++uuidSeq}`) });
+    // The contact picker loads the job's customer on mount; keep it resolvable
+    // so meeting-save alerts stay the only role="alert" in this suite.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 'c1', organizationId: 'org-1', name: 'Klinik', customerType: 'clinic', taxNumber: null,
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, status: 'active', version: 1, assignedStaffName: null,
+      primaryContact: null, contacts: [], hasOperationHistory: false, openJobCount: 0, completedJobCount: 0,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+  });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
   it('STALE-1: a definitive failure displays its own error', async () => {
     const onSave = vi.fn().mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', 'Görüşme özeti geçersiz.', false));
