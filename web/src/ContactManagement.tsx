@@ -74,17 +74,17 @@ export function contactMutationErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'İşlem tamamlanamadı. Tekrar deneyin.';
 }
 
-export function ContactCreateForm({ pending, blocked = false, error, onCancel, onSubmit }: {
-  pending: boolean; blocked?: boolean; error: string; onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+export function ContactCreateForm({ pending, blocked = false, unavailable = false, error, onCancel, onSubmit }: {
+  pending: boolean; blocked?: boolean; unavailable?: boolean; error: string; onCancel: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return <section className="inline-record-form" aria-labelledby="new-contact-title"><h2 id="new-contact-title">İlgili kişi ekle</h2>
     {error && <div className="form-error" role="alert">{error}</div>}
-    <form onSubmit={onSubmit}><label className="field-group" htmlFor="new-contact-name">Ad soyad<input id="new-contact-name" name="name" required disabled={pending} autoFocus /></label>
-      <label className="field-group" htmlFor="new-contact-title-field">Görev veya unvan<input id="new-contact-title-field" name="title" disabled={pending} /></label>
-      <div className="customer-form-pair"><label className="field-group" htmlFor="new-contact-phone">Telefon<input id="new-contact-phone" name="phone" type="tel" disabled={pending} /></label>
-        <label className="field-group" htmlFor="new-contact-email">E-posta<input id="new-contact-email" name="email" type="email" disabled={pending} /></label></div>
+    <form onSubmit={onSubmit}><label className="field-group" htmlFor="new-contact-name">Ad soyad<input id="new-contact-name" name="name" required disabled={pending || unavailable} autoFocus /></label>
+      <label className="field-group" htmlFor="new-contact-title-field">Görev veya unvan<input id="new-contact-title-field" name="title" disabled={pending || unavailable} /></label>
+      <div className="customer-form-pair"><label className="field-group" htmlFor="new-contact-phone">Telefon<input id="new-contact-phone" name="phone" type="tel" disabled={pending || unavailable} /></label>
+        <label className="field-group" htmlFor="new-contact-email">E-posta<input id="new-contact-email" name="email" type="email" disabled={pending || unavailable} /></label></div>
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
-        <button className="primary-button" type="submit" disabled={pending || blocked}>{pending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}</button></div></form>
+        <button className="primary-button" type="submit" disabled={pending || blocked || unavailable}>{pending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}</button></div></form>
   </section>;
 }
 

@@ -279,10 +279,11 @@ export class CrmService {
         if (value !== null && typeof value !== 'string') throw new AppError('VALIDATION_ERROR', 400, 'İletişim alanı metin veya null olmalıdır.');
         fields[field] = field === 'phone' ? editablePhone(value ?? null) : field === 'email' ? optional(value ?? null)?.toLowerCase() ?? null : optional(value ?? null);
       }
+      const changedFields = CUSTOMER_ENRICHMENT_FIELDS.filter((field) => current[field] !== fields[field]);
+      if (!changedFields.length) return current;
       const updated = await tx.enrichCustomer({ ...fields, organizationId: actor.organizationId, customerId, expectedVersion: input.expectedVersion });
       if (!updated) throw versionConflict();
-      const changedFields = CUSTOMER_ENRICHMENT_FIELDS.filter((field) => current[field] !== updated[field]);
-      if (changedFields.length) await tx.appendAudit(audit(actor, 'CUSTOMER', customerId, 'CUSTOMER_FIELDS_UPDATED', null, null,
+      await tx.appendAudit(audit(actor, 'CUSTOMER', customerId, 'CUSTOMER_FIELDS_UPDATED', null, null,
         { action: 'STAFF_ENRICHMENT', changedFields, jobCardId: job?.id ?? null, authorization: job ? 'active-job-assignment' : 'customer-assignment' }));
       return updated;
     });

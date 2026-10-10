@@ -183,10 +183,11 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   enrichmentScope?: CustomerEnrichmentScope | null; enrichmentEditing?: boolean;
+  enrichmentScopeError?: string; enrichmentScopeLoading?: boolean; onRetryEnrichmentScope?: () => void;
   enrichmentTriggerRef?: RefObject<HTMLButtonElement | null>;
   onOpenEnrichment?: () => void; onCancelEnrichment?: () => void; onSaveEnrichment?: (event: FormEvent<HTMLFormElement>) => void;
   historyStatus?: CustomerHistoryStatus; historyPage?: Paginated<JobHistoryItem> | null; historyLoading?: boolean; historyError?: string;
@@ -212,12 +213,14 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
       {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
-    {user.role === 'STAFF' && enrichmentScope?.canEnrich && <section className="record-section" aria-labelledby="customer-enrichment-title">
+    {user.role === 'STAFF' && enrichmentScopeError && <div className="form-error" role="alert">{enrichmentScopeError}
+      <button className="secondary-button" type="button" disabled={pending || enrichmentScopeLoading} onClick={onRetryEnrichmentScope}>Yetki kontrolünü tekrar dene</button></div>}
+    {user.role === 'STAFF' && (enrichmentScope?.canEnrich || (enrichmentEditing && !!enrichmentScopeError)) && <section className="record-section" aria-labelledby="customer-enrichment-title">
       <h2 id="customer-enrichment-title">İletişim bilgilerini tamamla</h2>
-      {enrichmentEditing ? <CustomerEnrichmentForm key={`${customer.id}:${formRevision}`} customer={customer} pending={pending} blocked={conflict} onSave={onSaveEnrichment} onCancel={onCancelEnrichment} />
-        : <button className="secondary-button" type="button" ref={enrichmentTriggerRef} disabled={pending} onClick={onOpenEnrichment}>Bilgileri tamamla</button>}
+      {enrichmentEditing ? <CustomerEnrichmentForm key={`${customer.id}:${formRevision}`} customer={customer} pending={pending} unavailable={!!enrichmentScopeError} blocked={conflict || enrichmentScopeLoading || !!enrichmentScopeError} onSave={onSaveEnrichment} onCancel={onCancelEnrichment} />
+        : <button className="secondary-button" type="button" ref={enrichmentTriggerRef} disabled={pending || enrichmentScopeLoading} onClick={onOpenEnrichment}>Bilgileri tamamla</button>}
     </section>}
-    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage || enrichmentScope?.canCreateContact === true} pending={pending} createButtonRef={createContactButtonRef}
+    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage || enrichmentScope?.canCreateContact === true} pending={pending || enrichmentScopeLoading} createButtonRef={createContactButtonRef}
       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
     {canDelete && <section className="record-section record-commands" aria-labelledby="customer-delete-title">
       <h2 id="customer-delete-title">Kalıcı silme</h2>
@@ -255,11 +258,16 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   }, [setRouteRuntimeLabel, customer?.name]);
   const [enrichmentScope, setEnrichmentScope] = useState<CustomerEnrichmentScope | null>(null);
   const [enrichmentEditing, setEnrichmentEditing] = useState(false);
+  const [enrichmentScopeError, setEnrichmentScopeError] = useState('');
+  const [enrichmentScopeLoading, setEnrichmentScopeLoading] = useState(false);
+  const enrichmentScopeGate = useRef(createRequestGate());
   const enrichmentTriggerRef = useRef<HTMLButtonElement>(null); const enrichmentInFlightRef = useRef(false);
   const enrichmentRestoreFocusRef = useRef(false);
 
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
+  const draftSnapshot = useRef({ customer, editing: enrichmentEditing || creatingContact || user.role !== 'STAFF' });
+  draftSnapshot.current = { customer, editing: enrichmentEditing || creatingContact || user.role !== 'STAFF' };
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false); const [deletePending, setDeletePending] = useState(false);
   const [historyStatus, setHistoryStatus] = useState<CustomerHistoryStatus>('all'); const [historyPage, setHistoryPage] = useState<Paginated<JobHistoryItem> | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true); const [historyError, setHistoryError] = useState('');
@@ -272,12 +280,41 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       enrichmentTriggerRef.current.focus();
     }
   }, [enrichmentEditing, pending]);
-  async function load() {
-    const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false); setEnrichmentScope(null); setEnrichmentEditing(false); setCreatingContact(false); setContactError('');
+  async function loadEnrichmentScope() {
+    if (user.role !== 'STAFF' || enrichmentInFlightRef.current) return;
+    const generation = enrichmentScopeGate.current.next(); setEnrichmentScopeLoading(true);
     try {
-      const [record, profiles, scope] = await Promise.all([getCustomer(customerId), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active'), user.role === 'STAFF' ? getCustomerEnrichmentScope(customerId) : Promise.resolve(null)]);
+      const scope = await getCustomerEnrichmentScope(customerId);
+      if (!enrichmentScopeGate.current.isCurrent(generation)) return;
+      setEnrichmentScope(scope); setEnrichmentScopeError('');
+      if (!scope.canEnrich) setEnrichmentEditing(false);
+      if (!scope.canCreateContact) setCreatingContact(false);
+    } catch {
+      if (!enrichmentScopeGate.current.isCurrent(generation)) return;
+      setEnrichmentScope(null);
+      setEnrichmentScopeError('Düzenleme yetkisi doğrulanamadı. Müşteri bilgileri salt okunur gösteriliyor.');
+    } finally {
+      if (enrichmentScopeGate.current.isCurrent(generation)) setEnrichmentScopeLoading(false);
+    }
+  }
+  async function load(background = false) {
+    if (background && (pending || enrichmentInFlightRef.current || deleteInFlightRef.current)) return;
+    const generation = requestGate.current.next();
+    if (!background) {
+      setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false); setEnrichmentScope(null); setEnrichmentEditing(false); setCreatingContact(false); setContactError('');
+    }
+    void loadEnrichmentScope();
+    try {
+      const [record, profiles] = await Promise.all([getCustomer(customerId), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')]);
       if (!requestGate.current.isCurrent(generation)) return;
-      setCustomer(record); setStaff(profiles); setEnrichmentScope(scope); setFormRevision((revision) => revision + 1);
+      const draft = draftSnapshot.current;
+      if (background && draft.customer && draft.editing) {
+        if (record.version !== draft.customer.version) {
+          setConflict(true); setError('Müşteri bilgileri değişti. Taslağınız korundu; kaydetmeden önce güncel değerleri yükleyin.');
+        }
+      } else setCustomer(record);
+      setStaff(profiles);
+      if (!background) setFormRevision((revision) => revision + 1);
     } catch (caught) {
       if (requestGate.current.isCurrent(generation)) setError(caught instanceof Error ? caught.message : 'Müşteri yüklenemedi.');
     } finally {
@@ -308,10 +345,10 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (summaryGate.current.isCurrent(generation)) setSummaryLoading(false);
     }
   }
-  useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, user.role]);
+  useEffect(() => { void load(); return () => { requestGate.current.next(); enrichmentScopeGate.current.next(); }; }, [customerId, user.role]);
   useEffect(() => { void loadHistory(historyStatus, 0); return () => { historyGate.current.next(); }; }, [customerId, historyStatus]);
   useEffect(() => { void loadSummary(); return () => { summaryGate.current.next(); }; }, [customerId]);
-  useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(); void loadHistory(historyStatus, historyPage?.offset ?? 0); void loadSummary(); });
+  useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(true); void loadHistory(historyStatus, historyPage?.offset ?? 0); void loadSummary(); });
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>Müşteri detayı yükleniyor</h1></main>;
   if (!customer) return <main className="customer-detail"><ResultState status="error" title="Müşteri yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
@@ -333,9 +370,9 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   }
   async function saveEnrichment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!customer || !enrichmentScope?.canEnrich || pending || conflict || enrichmentInFlightRef.current) return;
+    if (!customer || !enrichmentScope?.canEnrich || enrichmentScopeLoading || pending || conflict || enrichmentInFlightRef.current) return;
     const input = enrichmentFieldsFromFormData(new FormData(event.currentTarget), customer.version);
-    const generation = requestGate.current.current(); enrichmentInFlightRef.current = true;
+    const generation = requestGate.current.next(); enrichmentInFlightRef.current = true;
     setPending(true); setError(''); setNotice('');
     try {
       const updated = await enrichCustomer(customerId, input);
@@ -358,9 +395,9 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
 
   async function createContactRecord(event: FormEvent<HTMLFormElement>) { event.preventDefault();
     if (pending || conflict || enrichmentInFlightRef.current || !customer) return;
-    if (user.role === 'STAFF' && !enrichmentScope?.canCreateContact) return;
+    if (user.role === 'STAFF' && (enrichmentScopeLoading || !enrichmentScope?.canCreateContact)) return;
     enrichmentInFlightRef.current = true; setPending(true); setContactError('');
-    const generation = requestGate.current.current(); setNotice('');
+    const generation = requestGate.current.next(); setNotice('');
     try {
       const data = new FormData(event.currentTarget);
       const scoped = user.role === 'STAFF' ? await createEnrichmentContact(customerId, contactFieldsFromFormData(data, customer.version)) : null;
@@ -408,12 +445,12 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}
     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
     errorRef={errorRef} createContactButtonRef={createContactButtonRef}
-    enrichmentScope={enrichmentScope} enrichmentEditing={enrichmentEditing} enrichmentTriggerRef={enrichmentTriggerRef}
+    enrichmentScope={enrichmentScope} enrichmentEditing={enrichmentEditing} enrichmentScopeError={enrichmentScopeError} enrichmentScopeLoading={enrichmentScopeLoading} onRetryEnrichmentScope={() => void loadEnrichmentScope()} enrichmentTriggerRef={enrichmentTriggerRef}
     onOpenEnrichment={() => { setError(''); setNotice(''); setEnrichmentEditing(true); }} onCancelEnrichment={cancelEnrichment} onSaveEnrichment={(event) => void saveEnrichment(event)}
     onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
     onOpenContact={(customerIdValue, contactIdValue) => navigate(paths.contact(customerIdValue, contactIdValue))}
     onReloadCurrent={() => void load()} deleteConfirmOpen={deleteConfirmOpen} deletePending={deletePending} deleteTriggerRef={deleteTriggerRef}
     onRequestDelete={() => { setError(''); setNotice(''); setDeleteConfirmOpen(true); }} onConfirmDelete={() => void deleteCurrentCustomer()}
     onCancelDelete={() => { if (!deletePending) setDeleteConfirmOpen(false); }} />
-    {creatingContact && (user.role !== 'STAFF' || enrichmentScope?.canCreateContact) && <div className="customer-detail"><ContactCreateForm pending={pending} blocked={conflict} error={contactError} onCancel={() => { setCreatingContact(false); window.setTimeout(() => createContactButtonRef.current?.focus(), 0); }} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
+    {creatingContact && (user.role !== 'STAFF' || enrichmentScope?.canCreateContact || !!enrichmentScopeError) && <div className="customer-detail"><ContactCreateForm pending={pending} unavailable={!!enrichmentScopeError} blocked={conflict || enrichmentScopeLoading} error={contactError} onCancel={() => { setCreatingContact(false); window.setTimeout(() => createContactButtonRef.current?.focus(), 0); }} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
 }

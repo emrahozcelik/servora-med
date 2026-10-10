@@ -62,6 +62,37 @@ async function fixture(status: JobCardStatus | null=null, directlyAssigned=true)
 }
 
 describe.skipIf(!url)('STAFF enrichment PostgreSQL and HTTP boundary',()=>{
+  it('does not UPDATE, consume a version or append audit for normalized no-op enrichment', async () => {
+    const f = await fixture();
+    await pool!.query('UPDATE customers SET email=$2 WHERE id=$1', [f.customerId, 'staff@example.com']);
+    const before = await f.state();
+    const beforeTuple = (await pool!.query('SELECT xmin::text, ctid::text FROM customers WHERE id=$1', [f.customerId])).rows[0];
+    const response = await f.app.inject({method:'POST', url:`/api/customers/${f.customerId}/enrichment`, payload:{expectedVersion:1, phone:' historical switchboard ', email:' STAFF@EXAMPLE.COM ', city:' Ankara ', district:' ', address:null}});
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({version:1, phone:'historical switchboard', email:'staff@example.com', city:'Ankara'});
+    expect(await f.state()).toEqual(before);
+    expect((await pool!.query('SELECT xmin::text, ctid::text FROM customers WHERE id=$1', [f.customerId])).rows[0]).toEqual(beforeTuple);
+  });
+  it('preserves stale-version and revoked-ownership rejection even for unchanged values', async () => {
+    const f = await fixture();
+    const before = await f.state();
+    expect((await f.app.inject({method:'POST',url:`/api/customers/${f.customerId}/enrichment`,payload:{expectedVersion:2,city:'Ankara'}})).statusCode).toBe(409);
+    expect(await f.state()).toEqual(before);
+    await pool!.query('UPDATE customers SET assigned_staff_user_id=$2 WHERE id=$1', [f.customerId, f.otherId]);
+    const revoked = await f.state();
+    expect((await f.app.inject({method:'POST',url:`/api/customers/${f.customerId}/enrichment`,payload:{expectedVersion:1,city:'Ankara'}})).statusCode).toBe(403);
+    expect(await f.state()).toEqual(revoked);
+  });
+  it('keeps formatted canonical-phone no-op retries at the same version with no audit', async () => {
+    const f = await fixture();
+    await pool!.query('UPDATE customers SET phone=$2 WHERE id=$1', [f.customerId, '+905321234567']);
+    const before = await f.state();
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await f.app.inject({method:'POST',url:`/api/customers/${f.customerId}/enrichment`,payload:{expectedVersion:1,phone:'0532 123 45 67',city:'Ankara',email:null,district:null,address:null}});
+      expect(response.statusCode).toBe(200); expect(response.json().version).toBe(1);
+    }
+    expect(await f.state()).toEqual(before);
+  });
   it('updates whitelisted contact fields atomically through HTTP and records actor/field names in SQL audit',async()=>{
     const f=await fixture();
     const response=await f.app.inject({method:'POST',url:`/api/customers/${f.customerId}/enrichment`,payload:{expectedVersion:1,phone:'0532 123 45 67',email:' Staff@Example.COM ',district:'Çankaya',address:null}});

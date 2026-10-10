@@ -1720,6 +1720,9 @@ behavior changes).
   needed. The job witness stays locked through commit. Busy witnesses return
   VERSION_CONFLICT rather than waiting in an inverse order against existing
   JobCard flows. Capabilities are projections; every mutation rechecks ownership.
+- Compare normalized enrichment fields after transactional authorization and
+  expectedVersion checks. No-op field enrichment returns the current record
+  without UPDATE, version consumption, updated_at change or audit insertion.
 - Scoped contact creation uses the same resolver and consumes the customer
   version atomically. It always creates an active, non-primary contact, including
   the first contact; it cannot change the aggregate's primary contact. Lost

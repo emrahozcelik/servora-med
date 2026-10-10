@@ -59,3 +59,25 @@ The four separately contracted R2/DR acceptance tests remain opt-in SKIPPED.
 Evidence location (operator-local, local-operator-attested):
 .worktrees/crm-staff-enrichment-evidence-20261010.
 No production access, merge or deployment is part of this slice.
+
+
+## PR #363 review reconciliation
+
+The three P2 findings on d8ce627f are addressed within the existing action scope:
+
+- Background reconciliation keeps enrichment/contact drafts mounted and their
+  original version bound. A changed server version blocks saving until explicit
+  reload. Read responses that predate a mutation cannot replace its result.
+- Capability requests have a separate request gate. A failure leaves customer
+  details readable, disables retained drafts and offers a capability-only retry.
+  A confirmed denial removes mutation affordances; every write still authorizes
+  transactionally on the server.
+- Compare normalized enrichment fields before UPDATE. Authorized exact-version
+  no-ops leave version, updated_at, PostgreSQL tuple and audits unchanged. Scoped
+  contact creation still consumes the customer version to prevent duplicates.
+
+Focused frontend/client: 42 passed. SQL security suite: 53 passed; CRM service:
+28 passed. RED/GREEN logs and real Chrome focus/reconnect acceptance belong to
+.worktrees/crm-staff-enrichment-reconciliation-evidence-20261010. The new exact
+commit must pass all 27 local CI gates before the PR is declared ready. Keep the
+four opt-in R2/DR tests explicitly SKIPPED. No merge or deployment is authorized.
