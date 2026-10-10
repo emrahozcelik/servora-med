@@ -3,13 +3,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import { JOB_CARD_TYPES } from '../job-cards/types.js';
 import type { CrmService } from './service.js';
-import { CUSTOMER_STATUSES, CUSTOMER_TYPES, type CrmActor } from './types.js';
+import { CONTACT_CREATE_FIELDS, CUSTOMER_ENRICHMENT_FIELDS, CUSTOMER_STATUSES, CUSTOMER_TYPES, type CustomerEnrichmentFields, type CrmActor } from './types.js';
 
 const CUSTOMER_CREATE_FIELDS = ['name', 'customerType', 'status', 'taxNumber', 'phone', 'email',
   'city', 'district', 'address', 'assignedStaffUserId'] as const;
 const CUSTOMER_PATCH_FIELDS = ['expectedVersion', 'name', 'customerType', 'taxNumber', 'phone',
   'email', 'city', 'district', 'address', 'assignedStaffUserId'] as const;
-const CONTACT_CREATE_FIELDS = ['name', 'title', 'phone', 'email'] as const;
 const CONTACT_PATCH_FIELDS = ['expectedVersion', 'name', 'title', 'phone', 'email'] as const;
 
 function validation(message: string): never {
@@ -146,6 +145,24 @@ export function createCrmHandlers(service: CrmService) {
     getCustomer: (request: FastifyRequest) => service.getCustomer(actor(request), params(request).customerId),
   getCustomerOperationalSummary: (request: FastifyRequest) =>
     service.getCustomerOperationalSummary(actor(request), params(request).customerId),
+    getEnrichmentScope: (request: FastifyRequest) => {
+      query(request, []);
+      return service.getEnrichmentScope(actor(request), params(request).customerId);
+    },
+    enrichCustomer: (request: FastifyRequest) => {
+      const value = body(request, ['expectedVersion', ...CUSTOMER_ENRICHMENT_FIELDS]);
+      const fields: Partial<CustomerEnrichmentFields> = {};
+      for (const field of CUSTOMER_ENRICHMENT_FIELDS) {
+        if (Object.hasOwn(value, field)) fields[field] = nullableString(value[field], field);
+      }
+      return service.enrichCustomer(actor(request), params(request).customerId,
+        { ...fields, expectedVersion: version(value.expectedVersion) });
+    },
+    createEnrichmentContact: async (request: FastifyRequest, reply: FastifyReply) => {
+      const value = body(request, ['expectedVersion', ...CONTACT_CREATE_FIELDS]);
+      return reply.code(201).send(await service.createEnrichmentContact(actor(request), params(request).customerId,
+        { ...contactInput(value), expectedVersion: version(value.expectedVersion) }));
+    },
     updateCustomer: (request: FastifyRequest) => {
       const value = body(request, CUSTOMER_PATCH_FIELDS);
       return service.updateCustomer(actor(request), params(request).customerId,

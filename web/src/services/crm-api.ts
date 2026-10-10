@@ -283,3 +283,16 @@ export async function makePrimaryContact(customerId: string, contactId: string, 
   return { contact: parseContact(v.contact),
     previousPrimaryContactId: nullableString(v.previousPrimaryContactId, 'previousPrimaryContactId') };
 }
+
+export type CustomerEnrichmentScope = { canEnrich: boolean; canCreateContact: boolean };
+export type EnrichCustomerInput = Partial<Pick<CustomerFields, 'phone' | 'email' | 'city' | 'district' | 'address'>> & { expectedVersion: number };
+export async function getCustomerEnrichmentScope(customerId: string): Promise<CustomerEnrichmentScope> {
+  const v = object(await request(`${customerPath(customerId)}/enrichment`));
+  return { canEnrich: boolean(v.canEnrich, 'canEnrich'), canCreateContact: boolean(v.canCreateContact, 'canCreateContact') };
+}
+export const enrichCustomer = async (customerId: string, input: EnrichCustomerInput) =>
+  parseCustomer(await request(`${customerPath(customerId)}/enrichment`, json('POST', input)));
+export async function createEnrichmentContact(customerId: string, input: ContactFields & { expectedVersion: number }) {
+  const v = object(await request(`${customerPath(customerId)}/enrichment/contacts`, json('POST', input)));
+  return { customer: parseCustomer(v.customer), contact: parseContact(v.contact) };
+}

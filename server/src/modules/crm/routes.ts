@@ -22,6 +22,9 @@ export const crmRoutes: FastifyPluginAsync<CrmRoutesOptions> = async (app, optio
   app.get('/customers', auth, handlers.listCustomers);
   app.post('/customers', auth, handlers.createCustomer);
   app.get('/customers/:customerId', auth, handlers.getCustomer);
+  app.get('/customers/:customerId/enrichment', auth, handlers.getEnrichmentScope);
+  app.post('/customers/:customerId/enrichment', auth, handlers.enrichCustomer);
+  app.post('/customers/:customerId/enrichment/contacts', auth, handlers.createEnrichmentContact);
   app.patch('/customers/:customerId', auth, handlers.updateCustomer);
   app.post('/customers/:customerId/activate', auth, handlers.activateCustomer);
   app.post('/customers/:customerId/deactivate', auth, handlers.deactivateCustomer);

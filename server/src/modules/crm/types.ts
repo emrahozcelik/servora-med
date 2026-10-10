@@ -295,3 +295,10 @@ export function normalizeTurkishPhone(value: string | null | undefined): string 
         : null;
   return national === null ? null : canonicalFromNational(national);
 }
+
+export const CUSTOMER_ENRICHMENT_FIELDS = ['phone', 'email', 'city', 'district', 'address'] as const;
+export type CustomerEnrichmentFields = Pick<Customer, (typeof CUSTOMER_ENRICHMENT_FIELDS)[number]>;
+export type EnrichCustomerInput = Partial<CustomerEnrichmentFields> & { expectedVersion: number };
+export type EnrichCustomerRecord = CustomerEnrichmentFields & { organizationId: string; customerId: string; expectedVersion: number };
+
+export const CONTACT_CREATE_FIELDS = ['name', 'title', 'phone', 'email'] as const;

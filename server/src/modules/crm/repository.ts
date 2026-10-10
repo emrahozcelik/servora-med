@@ -1,4 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
+import { ACTIVE_JOB_CARD_STATUSES, type JobCardStatus } from '../job-cards/types.js';
+import type { CustomerEnrichmentJob } from './enrichment-policy.js';
 
 import type {
   AppendCrmAuditInput,
@@ -12,6 +14,7 @@ import type {
   CrmActor,
   CrmUserRecord,
   Customer,
+  EnrichCustomerRecord,
   CustomerDetail,
   CustomerFilters,
   CustomerRow,
@@ -48,8 +51,10 @@ function foldSearchColumn(expression: string) {
 export interface CrmTransaction {
   lockUser(organizationId: string, userId: string): Promise<CrmUserRecord | null>;
   lockCustomer(organizationId: string, customerId: string): Promise<Customer | null>;
+  lockEnrichmentJob(actor: CrmActor, customerId: string): Promise<CustomerEnrichmentJob | null>;
   createCustomer(input: CreateCustomerRecord): Promise<Customer>;
   updateCustomer(input: UpdateCustomerRecord): Promise<Customer | null>;
+  enrichCustomer(input: EnrichCustomerRecord): Promise<Customer | null>;
   setCustomerStatus(input: SetCustomerStatusRecord): Promise<Customer | null>;
   customerHasActiveJobs(organizationId: string, customerId: string): Promise<boolean>;
   customerHasAnyJobs(organizationId: string, customerId: string): Promise<boolean>;
@@ -97,6 +102,19 @@ class PostgresCrmTransaction implements CrmTransaction {
     return result.rows[0] ? mapCustomer(result.rows[0]) : null;
   }
 
+  async lockEnrichmentJob(actor: CrmActor, customerId: string): Promise<CustomerEnrichmentJob | null> {
+    // Hold one current authorization witness until commit. NOWAIT avoids waiting
+    // in an inverse lock order against existing JobCard edit/transition flows.
+    const result = await this.client.query<{ id: string; organization_id: string; customer_id: string; assigned_to: string; status: JobCardStatus }>(
+      `SELECT id, organization_id, customer_id, assigned_to, status FROM job_cards
+       WHERE organization_id=$1 AND customer_id=$2 AND assigned_to=$3
+         AND status=ANY($4::text[]) ORDER BY id LIMIT 1 FOR SHARE NOWAIT`,
+      [actor.organizationId, customerId, actor.id, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    const row = result.rows[0];
+    return row ? { id: row.id, organizationId: row.organization_id, customerId: row.customer_id, assignedTo: row.assigned_to, status: row.status } : null;
+  }
+
   async createCustomer(input: CreateCustomerRecord) {
     const result = await this.client.query<CustomerRow>(
       `INSERT INTO customers
@@ -123,6 +141,18 @@ class PostgresCrmTransaction implements CrmTransaction {
       [input.organizationId, input.customerId, input.expectedVersion, input.name,
         input.customerType, normalizeTaxNumber(input.taxNumber), input.phone, input.email,
         input.city, input.district, input.address, input.assignedStaffUserId],
+    );
+    return result.rows[0] ? mapCustomer(result.rows[0]) : null;
+  }
+
+  async enrichCustomer(input: EnrichCustomerRecord) {
+    const result = await this.client.query<CustomerRow>(
+      `UPDATE customers SET phone=$4, email=$5, city=$6, district=$7, address=$8,
+         version=version+1, updated_at=NOW()
+       WHERE organization_id=$1 AND id=$2 AND version=$3
+       RETURNING id, organization_id, name, customer_type, tax_number, phone, email,
+         city, district, address, assigned_staff_user_id, status, version, created_at, updated_at`,
+      [input.organizationId, input.customerId, input.expectedVersion, input.phone, input.email, input.city, input.district, input.address],
     );
     return result.rows[0] ? mapCustomer(result.rows[0]) : null;
   }

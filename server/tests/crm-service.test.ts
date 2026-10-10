@@ -25,6 +25,7 @@ function contact(overrides: Partial<Contact> = {}): Contact {
 function fixture(options: {
   currentCustomer?: Customer | null;
   currentContact?: Contact | null;
+  enrichmentJob?: { id: string; organizationId: string; customerId: string; assignedTo: string; status: string };
   activeContacts?: Contact[];
   customerHasJobs?: boolean;
   customerHasAnyJobs?: boolean;
@@ -53,6 +54,8 @@ function fixture(options: {
       return currentCustomer;
     },
     updateCustomer: async (input: Record<string, unknown>) => customer({ ...currentCustomer!, ...input, version: currentCustomer!.version + 1 } as Partial<Customer>),
+    lockEnrichmentJob: async () => options.enrichmentJob ?? null,
+    enrichCustomer: async (input: Record<string, unknown>) => customer({ ...currentCustomer!, ...input, version: currentCustomer!.version + 1 } as Partial<Customer>),
     setCustomerStatus: async (input: { status: Customer['status'] }) => customer({ ...currentCustomer!, status: input.status, version: currentCustomer!.version + 1 }),
     customerHasActiveJobs: async () => options.customerHasJobs ?? false,
     customerHasAnyJobs: async () => options.customerHasAnyJobs ?? false,
@@ -356,4 +359,31 @@ describe('CRM service policy', () => {
     const { service } = fixture({ currentContact: null });
     await expect(service.deleteContact(admin, 'customer-1', 'missing', 1)).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
   });
+});
+
+
+describe('STAFF customer enrichment', () => {
+  it('allows direct ownership to update only contact fields with versioned, value-free audit', async () => {
+    const { service, audits } = fixture({ currentCustomer: customer({ assignedStaffUserId: staff.id, name: 'Protected name', taxNumber: 'PROTECTED', city: 'Ankara' }) });
+    const updated = await service.enrichCustomer(staff, 'customer-1', { expectedVersion: 1, phone: '0532 123 45 67', email: ' STAFF@EXAMPLE.COM ' });
+    expect(updated).toMatchObject({ name: 'Protected name', taxNumber: 'PROTECTED', assignedStaffUserId: staff.id, city: 'Ankara', phone: '+905321234567', email: 'staff@example.com', version: 2 });
+    expect(audits).toMatchObject([{ actorUserId: staff.id, subjectId: 'customer-1', eventType: 'CUSTOMER_FIELDS_UPDATED', metadata: { action: 'STAFF_ENRICHMENT', changedFields: ['phone', 'email'], jobCardId: null } }]);
+    expect(JSON.stringify(audits)).not.toContain('+905321234567');
+    expect(JSON.stringify(audits)).not.toContain('staff@example.com');
+  });
+});
+
+it('allows an active JobCard owner to enrich another Staff customer with server-selected job audit context', async () => {
+  const {service, audits} = fixture({currentCustomer: customer({assignedStaffUserId:'staff-other'}), enrichmentJob:{id:'job-1',organizationId:'org-1',customerId:'customer-1',assignedTo:staff.id,status:'WAITING_APPROVAL'}});
+  await expect(service.enrichCustomer(staff,'customer-1',{expectedVersion:1,address:' Clinic address '})).resolves.toMatchObject({address:'Clinic address',assignedStaffUserId:'staff-other'});
+  expect(audits).toMatchObject([{metadata:{jobCardId:'job-1',authorization:'active-job-assignment',changedFields:['address']}}]);
+});
+
+it('creates a scoped non-primary contact without replacing the customer primary or generic contact permissions', async () => {
+  const {service,audits}=fixture({currentCustomer:customer({assignedStaffUserId:staff.id})});
+  const result=await service.createEnrichmentContact(staff,'customer-1',{expectedVersion:1,name:' Dr. Synthetic ',title:null,phone:null,email:null});
+  expect(result.customer.version).toBe(2);
+  expect(result.contact).toMatchObject({name:'Dr. Synthetic',customerId:'customer-1',isPrimary:false,isActive:true});
+  expect(audits).toMatchObject([{eventType:'CONTACT_CREATED',actorUserId:staff.id,metadata:{action:'STAFF_ENRICHMENT',customerId:'customer-1',jobCardId:null,changedFields:['name','title','phone','email']}}]);
+  await expect(service.createContact(staff,'customer-1',{name:'Forbidden',title:null,phone:null,email:null})).rejects.toMatchObject({code:'FORBIDDEN'});
 });

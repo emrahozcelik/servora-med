@@ -1702,3 +1702,33 @@ behavior changes).
 - Sweep fixes: portable log enumeration (no `ls --`), manifest log-path
   confinement, VM node probing instead of a hardcoded guest path, rerun log
   reset, fail-closed concurrent-run lock, non-empty compat log.
+
+
+## CRM-S2-001 — STAFF customer enrichment is an action-scoped capability
+
+- Generic customer PATCH and generic Contact mutation permissions remain unchanged.
+  Organization-wide CRM visibility does not grant mutation permission.
+- An active/prospect customer may be enriched by its current assigned STAFF user,
+  or by a STAFF user currently assigned to one of that customer's canonical
+  active JobCards. Both records must belong to the actor's organization.
+  Creator identity, historical assignments and terminal jobs grant nothing.
+- The customer-scoped enrichment action supports both ownership paths through
+  one transactional resolver. It accepts only phone/email/city/district/address
+  and expectedVersion; missing fields are preserved, unknown keys are rejected.
+  Existing editable-phone and nullable-field normalization remain authoritative.
+- Lock the customer first, then an authorizing JobCard FOR SHARE NOWAIT when
+  needed. The job witness stays locked through commit. Busy witnesses return
+  VERSION_CONFLICT rather than waiting in an inverse order against existing
+  JobCard flows. Capabilities are projections; every mutation rechecks ownership.
+- Scoped contact creation uses the same resolver and consumes the customer
+  version atomically. It always creates an active, non-primary contact, including
+  the first contact; it cannot change the aggregate's primary contact. Lost
+  response retries with the same version conflict without creating a duplicate.
+  Manager/Admin generic contact creation retains its existing primary behavior.
+- Contact selection stays in existing JobCard creation/edit surfaces, under their
+  existing active-contact, same-customer, ownership, status and version rules.
+  Customer detail has no JobCard association context. PRODUCT_DELIVERY continues
+  to reject new contact associations; no historical association endpoint is added.
+- Audits include actor, subject, changed field names, action and server-selected
+  JobCard context without contact/address values. No migration or dependency is
+  needed. See docs/superpowers/plans/2026-10-10-crm-staff-enrichment.md.
