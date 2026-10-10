@@ -42,19 +42,19 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => {
-  it('catalog head is 055 with 55 migrations', async () => {
+  it('catalog head is 056 with 56 migrations', async () => {
     const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-    expect(catalog.head?.version).toBe('055_job_submit_location_comparison');
-    expect(catalog.count).toBe(55);
+    expect(catalog.head?.version).toBe('056_meeting_met_contact');
+    expect(catalog.count).toBe(56);
   });
 
-  it('applies 001 -> 055 on an empty schema with an empty intent table', async () => {
+  it('applies 001 -> 056 on an empty schema with an empty intent table', async () => {
     await withSchema(async (pool) => {
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
-      expect(applied.rows.map((row) => row.version).at(-1)).toBe('055_job_submit_location_comparison');
-      expect(applied.rows).toHaveLength(55);
+      expect(applied.rows.map((row) => row.version).at(-1)).toBe('056_meeting_met_contact');
+      expect(applied.rows).toHaveLength(56);
       const count = await pool.query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents',
       );
@@ -62,7 +62,7 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
     });
   });
 
-  it('applies 049 -> 055 as the upgrade tail', async () => {
+  it('applies 049 -> 056 as the upgrade tail', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `lcint_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -82,7 +82,8 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           && file !== '052_weekly_report_recurrence.sql'
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
-          && file !== '055_job_submit_location_comparison.sql',
+          && file !== '055_job_submit_location_comparison.sql'
+          && file !== '056_meeting_met_contact.sql',
         )
         .sort();
       expect(files).toHaveLength(48);
@@ -103,12 +104,13 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           '053_overdue_submission_reminders',
           '054_job_action_locations_submit_approval',
           '055_job_submit_location_comparison',
+          '056_meeting_met_contact',
         ],
       });
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]!.version).toBe('055_job_submit_location_comparison');
+      expect(head.rows[0]!.version).toBe('056_meeting_met_contact');
     } finally {
       await pool?.end();
       if (subsetDir) await rm(subsetDir, { recursive: true, force: true });
