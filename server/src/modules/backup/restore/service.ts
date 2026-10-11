@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { Pool } from 'pg';
+import { loadInstalledRecoveryCatalog } from '../../../db/recovery-catalog.js';
 
 import { hashFile } from '../engine.js';
 import {
@@ -26,6 +27,7 @@ import {
   restoreDumpIntoNewDatabase,
   type NewTargetRestoreResult,
   validateRestoredDatabase,
+  validateDumpMigrationHistory,
 } from './postgres.js';
 import {
   downloadAndVerifyRemote,
@@ -58,6 +60,7 @@ export class RestoreOperationError extends Error {
 }
 
 export type RestoreServiceOptions = {
+  releaseSha?: string;
   storage?: RestoreRemoteStore;
   instanceId?: string;
   targetAdminDatabaseUrl?: string;
@@ -84,6 +87,8 @@ type PreparedPackage = {
 };
 
 type SafeRestoreEvidence = {
+  releaseSha: string;
+  releaseArtifactSha256: string;
   backupId: string;
   remoteKey: string | null;
   scope: RestoreManifestV1['backupScope'];
@@ -362,23 +367,34 @@ export class RestoreService {
       }
       prepared = await this.preparePackage(input);
       checkSignal(this.options.signal);
+      // The caller selects an already installed, verified release. Read-only
+      // inspect/verify remain usable for older backups without enabling restore.
+      const release = await loadInstalledRecoveryCatalog(this.options.releaseSha ?? '');
+      if (release.catalog.head?.version !== prepared.manifest.database.schemaVersion
+        || (prepared.manifest.application.gitCommit !== null
+          && prepared.manifest.application.gitCommit !== release.releaseSha)) {
+        throw new RestoreOperationError('backup does not match the verified recovery release');
+      }
       const pgRestoreVersion = await inspectPgDumpArchive({
         dumpPath: prepared.workspace.databaseDumpPath,
         sourceServerVersion: prepared.manifest.database.serverVersion,
         databaseUrlForEnv: this.options.targetAdminDatabaseUrl,
         signal: this.options.signal,
       });
+      await validateDumpMigrationHistory({ dumpPath: prepared.workspace.databaseDumpPath,
+        databaseUrlForEnv: this.options.targetAdminDatabaseUrl!, catalog: release.catalog,
+        expectedHead: prepared.manifest.database.schemaVersion, signal: this.options.signal });
       target = await restoreDumpIntoNewDatabase({
         adminDatabaseUrl: this.options.targetAdminDatabaseUrl!,
         targetDatabase: input.targetDatabase,
         dumpPath: prepared.workspace.databaseDumpPath,
-        manifest: prepared.manifest,
+        sourceServerVersion: prepared.manifest.database.serverVersion,
         productionDatabaseUrl: this.options.productionDatabaseUrl,
         keepFailedTarget: input.keepFailedTarget,
         signal: this.options.signal,
       });
       checkSignal(this.options.signal);
-      const databaseEvidence = await validateRestoredDatabase(target.targetDatabaseUrl, prepared.manifest);
+      const databaseEvidence = await validateRestoredDatabase(target.targetDatabaseUrl, prepared.manifest, release.catalog);
       const fullDataRestored = prepared.manifest.contents.files !== null;
       if (fullDataRestored) {
         if (!input.targetFilesRoot) throw new RestoreOperationError('FULL_DATA restore requires a new --target-files-root', 'RESTORE_INTEGRITY_FAILED');
@@ -391,6 +407,8 @@ export class RestoreService {
         );
       }
       const evidence: SafeRestoreEvidence = {
+        releaseSha: release.releaseSha,
+        releaseArtifactSha256: release.artifactSha256,
         backupId: prepared.manifest.backupId,
         remoteKey: prepared.descriptor?.key ?? null,
         scope: prepared.manifest.backupScope,

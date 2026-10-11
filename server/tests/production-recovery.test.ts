@@ -367,7 +367,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('production-recovery — disposa
     expect(databaseUrl).not.toMatch(/\/servora_med(\?|$)/);
   });
 
-  it('performs mocked restore with env atomic, mode 640, no duplicate, secret-safe', async () => {
+  it('refuses a mocked head without verified release evidence and preserves env', async () => {
     // This test uses mocked pg_restore/psql, not real DB, but runs under TEST_DATABASE_URL guard
     // to prove the helper works in test mode without touching production.
     const root = temporaryDirectory('mocked-restore-env');
@@ -424,26 +424,17 @@ exit 0
           PSQL_BIN: join(bin, 'psql'),
         },
       );
-      expect(result.status).toBe(0);
-      expect(`${result.stdout}${result.stderr}`).toContain('RECOVERY=PASS');
-      expect(`${result.stdout}${result.stderr}`).toContain(`head=${OLD_VERSION}`);
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).not.toContain('RECOVERY=PASS');
       const after = readFileSync(envFile, 'utf8');
-      expect(after).toContain(`HEALTH_SCHEMA_VERSION=${OLD_VERSION}`);
-      expect(after).not.toContain(NEW_VERSION);
-      expect(after).toContain('OTHER=keep');
-      expect(after).toContain('DATABASE_URL=postgresql://user:keep@localhost/db');
-      expect((after.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
-      // Secret not logged
+      expect(after).toBe(`DATABASE_URL=postgresql://user:keep@localhost/db\nHEALTH_SCHEMA_VERSION=${NEW_VERSION}\nOTHER=keep\n`);
       expect(`${result.stdout}${result.stderr}`).not.toContain('keep');
-      // Verify file mode is 640 or 600 (mocked chown not required)
-      const mode = (await import('node:fs')).statSync(envFile).mode & 0o777;
-      expect([0o640, 0o600]).toContain(mode);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('restores real disposable DB via pg_dump/pg_restore when tools available', async (ctx) => {
+  it('refuses unverified cross-schema real restore without changing DB or env', async (ctx) => {
     // Full integration with real postgres. Missing tooling or missing CREATEDB
     // privilege is an UNEXECUTED acceptance test: it must be reported as
     // SKIPPED, never as PASSED. A genuine recovery defect still fails.
@@ -499,8 +490,8 @@ exit 0
         await rm(tmp038, { recursive: true, force: true });
       }
       // Verify heads
-      const srcHead = await srcPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1');
-      const targetHeadBefore = await targetPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1');
+      const srcHead = await srcPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');
+      const targetHeadBefore = await targetPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');
       expect(srcHead.rows[0]?.version).toBe(OLD_VERSION);
       expect(targetHeadBefore.rows[0]?.version).toBe('038_demo_dataset_audit_types');
       // Dump src DB
@@ -547,18 +538,12 @@ exit 0
         ],
         { TEST_DATABASE_URL: targetUrlString },
       );
-      // Recovery should succeed
-      if (result.status !== 0) {
-        console.warn('Recovery failed, output:', `${result.stdout}${result.stderr}`);
-      }
-      expect(result.status).toBe(0);
-      expect(`${result.stdout}${result.stderr}`).toContain('RECOVERY=PASS');
-      const afterEnv = readFileSync(envFile, 'utf8');
-      expect(afterEnv).toContain(`HEALTH_SCHEMA_VERSION=${OLD_VERSION}`);
-      expect((afterEnv.match(/^HEALTH_SCHEMA_VERSION=/gm) || []).length).toBe(1);
-      // Verify DB head is now OLD_VERSION
-      const targetHeadAfter = await targetPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1');
-      expect(targetHeadAfter.rows[0]?.version).toBe(OLD_VERSION);
+      // A partial-migration downgrade is deliberately no longer supported.
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).not.toContain('RECOVERY=PASS');
+      expect(readFileSync(envFile, 'utf8')).toBe(`HEALTH_SCHEMA_VERSION=${NEW_VERSION}\nOTHER=keep\n`);
+      const targetHeadAfter = await targetPool.query<{ version: string }>('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');
+      expect(targetHeadAfter.rows[0]?.version).toBe('038_demo_dataset_audit_types');
     } catch (e) {
       // Missing CREATEDB privilege is an UNEXECUTED acceptance test: report it
       // as SKIPPED. A genuine recovery defect falls through to `throw e`.

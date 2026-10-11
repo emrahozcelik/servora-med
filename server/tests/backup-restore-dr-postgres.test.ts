@@ -6,11 +6,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { RestoreService } from '../src/modules/backup/restore/service.js';
+import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
+import { createRecoveryReleaseFixture } from './helpers/recovery-release-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -22,10 +24,16 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
     const sourceDb = `br7_src_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
     const targetDb = `br7_dst_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
     try {
+      const catalog = await loadMigrationCatalog(migrationsDirectory);
+      const releaseSha = 'a'.repeat(40);
+      const releasesRoot = path.join(root, 'releases');
+      createRecoveryReleaseFixture(releasesRoot, releaseSha, catalog.entries);
+      vi.stubEnv('RECOVERY_RELEASES_ROOT', releasesRoot);
       await admin.query(`CREATE DATABASE ${sourceDb}`);
       const sourceUrl = new URL(databaseUrl!);
       sourceUrl.pathname = `/${sourceDb}`;
       const source = new Pool({ connectionString: sourceUrl.toString() });
+      const serverVersion = (await source.query<{ version: string }>("SELECT current_setting('server_version') AS version")).rows[0]!.version;
       await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(source) });
       const org = (await source.query<{ id: string }>(
         `INSERT INTO organizations (name, timezone) VALUES ('BR7 Synthetic Org', 'Europe/Istanbul') RETURNING id`,
@@ -55,7 +63,7 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
         createdAt: new Date().toISOString(),
         application: { applicationVersion: 'br7-test', gitCommit: null },
         backupScope: 'DATABASE', origin: 'MANUAL', retentionClass: 'MANUAL',
-        database: { engine: 'postgresql', serverVersion: '16.13', dumpVersion, dumpToolVersion, schemaVersion: '036_job_card_invalidated' },
+        database: { engine: 'postgresql', serverVersion, dumpVersion, dumpToolVersion, schemaVersion: catalog.head!.version },
         contents: { database: { file: 'database.dump', bytes: dump.byteLength, sha256: digest }, files: null },
         checksums: { file: 'checksums.sha256' },
       };
@@ -67,6 +75,7 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
       await admin.query(`DROP DATABASE ${sourceDb}`);
 
       const result = await new RestoreService({
+        releaseSha,
         targetAdminDatabaseUrl: databaseUrl,
         productionDatabaseUrl: sourceUrl.toString(),
         workspaceRoot: path.join(root, 'workspace'),
@@ -82,13 +91,14 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
       const target = new Pool({ connectionString: targetUrl.toString() });
       try {
         await expect(target.query(`SELECT name FROM organizations WHERE name = 'BR7 Synthetic Org'`)).resolves.toMatchObject({ rows: [{ name: 'BR7 Synthetic Org' }] });
-        await expect(target.query('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1'))
+        await expect(target.query('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1'))
           .resolves.toMatchObject({ rows: [{ version: manifest.database.schemaVersion }] });
         await expect(target.query(`SELECT status FROM restore_runs WHERE id = $1`, [result.restoreRunId])).resolves.toMatchObject({ rows: [{ status: 'READY_FOR_CUTOVER' }] });
       } finally {
         await target.end();
       }
     } finally {
+      vi.unstubAllEnvs();
       await admin.query(`DROP DATABASE IF EXISTS ${targetDb}`).catch(() => undefined);
       await admin.query(`DROP DATABASE IF EXISTS ${sourceDb}`).catch(() => undefined);
       await admin.end();

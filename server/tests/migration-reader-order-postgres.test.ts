@@ -13,6 +13,7 @@ import { compareMigrationState, loadMigrationCatalog, type MigrationCatalog } fr
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { assertStartupSchemaCompatible, checkDatabaseSchemaCompatibility } from '../src/db/schema-compatibility.js';
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
+import { validateRestoredDatabase } from '../src/modules/backup/restore/postgres.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const schema = `migration_order_${randomUUID().replaceAll('-', '')}`;
@@ -100,6 +101,12 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
     expect((await checkDatabaseSchemaCompatibility({ pool: pool!, catalog })).status).toBe('COMPATIBLE');
     await expect(assertStartupSchemaCompatible({ pool: pool!, catalog })).resolves.toBeUndefined();
     expect(await createPostgresReadiness(pool!, catalog).check()).toBe('ok');
+    const restoredUrl = new URL(url!);
+    restoredUrl.searchParams.set('options', `-c search_path=${schema},public`);
+    await expect(validateRestoredDatabase(restoredUrl.toString(), {
+      database: { engine: 'postgresql', serverVersion: '17', dumpVersion: 'synthetic',
+        dumpToolVersion: '17', schemaVersion: catalog.head!.version },
+    }, catalog)).resolves.toMatchObject({ schemaVersion: catalog.head!.version });
     const startup = cli(path.join(release, 'server/dist/db/schema-check.js'));
     expect(startup.error).toBeUndefined();
     expect(startup.status).toBe(0);
