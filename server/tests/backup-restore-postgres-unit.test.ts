@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPgRestoreArgs, validateTargetDatabaseName } from '../src/modules/backup/restore/postgres.js';
+import { buildPgRestoreArgs, postgresConnectionEnv, validateTargetDatabaseName } from '../src/modules/backup/restore/postgres.js';
 
 describe('BR7 PostgreSQL target guard', () => {
+  it('preserves the IPv6 loopback endpoint when translating a URL to libpq environment', () => {
+    const env = postgresConnectionEnv('postgresql://operator:synthetic-only@[::1]:55473/servora_med_test_ipv6');
+    expect(env.PGHOST).toBe('::1');
+    expect(env.PGPORT).toBe('55473');
+    expect(env.PGDATABASE).toBe('servora_med_test_ipv6');
+    expect(env.PGUSER).toBe('operator');
+    expect(env.PGPASSWORD).toBe('synthetic-only');
+  });
+
   it('accepts only a fresh non-production database identifier', () => {
     expect(validateTargetDatabaseName('dr_2026')).toBe(true);
     expect(validateTargetDatabaseName('servora_med')).toBe(false);

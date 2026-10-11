@@ -742,7 +742,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       const manifest = {
         database: { schemaVersion: '056_meeting_met_contact' },
       } as unknown as RestoreManifestV1;
-      const evidence = await validateRestoredDatabase(url.toString(), manifest);
+      const evidence = await validateRestoredDatabase(url.toString(), manifest, await loadMigrationCatalog(MIGRATIONS_DIRECTORY));
       expect(evidence.schemaVersion).toBe('056_meeting_met_contact');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
@@ -774,7 +774,7 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       const manifest = {
         database: { schemaVersion: '043_job_card_schedule_and_assignment_history' },
       } as unknown as RestoreManifestV1;
-      await expect(validateRestoredDatabase(url.toString(), manifest)).rejects.toMatchObject({
+      await expect(validateRestoredDatabase(url.toString(), manifest, await loadMigrationCatalog(dir))).rejects.toMatchObject({
         code: 'RESTORE_INTEGRITY_FAILED',
       });
     } finally {

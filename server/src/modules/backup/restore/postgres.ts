@@ -102,7 +102,7 @@ export function postgresConnectionEnv(databaseUrl: string, databaseOverride?: st
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     LANG: process.env.LANG ?? 'C.UTF-8',
-    PGHOST: url.hostname || '127.0.0.1',
+    PGHOST: url.hostname.replace(/^\[(.*)\]$/, '$1') || '127.0.0.1',
     PGDATABASE: databaseOverride ?? databaseNameFromUrl(databaseUrl),
     PGPASSFILE: process.env.PGPASSFILE,
   };

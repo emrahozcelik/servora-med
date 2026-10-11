@@ -218,12 +218,16 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
   it('R1 rolls back late post-data failure including sequence values and schema metadata', async () => {
     const source = await createDatabase(seed55); const target = await createDatabase(seed55);
     await withPool(source, async (pool) => {
+      await pool.query('CREATE SEQUENCE recovery_test_sequence');
+      await pool.query("SELECT setval('recovery_test_sequence', 17, true)");
       await pool.query(`CREATE FUNCTION recovery_failure_gate(value text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
         BEGIN IF current_database() = '${target}' THEN RAISE EXCEPTION 'controlled_post_data_failure'; END IF; RETURN value; END $$`);
       await pool.query('CREATE INDEX recovery_failure_index ON customers(recovery_failure_gate(name))');
     });
     const file = dump(source, 'late-failure');
     await withPool(target, async (pool) => {
+      await pool.query('CREATE SEQUENCE recovery_test_sequence');
+      await pool.query("SELECT setval('recovery_test_sequence', 91, true)");
       const before = await snapshot(pool); const result = recover(target, file, 'late-failure');
       expect(result.output).toContain('RECOVERY_PREFLIGHT_PASS');
       expect(result.status, result.output).toBe(5);

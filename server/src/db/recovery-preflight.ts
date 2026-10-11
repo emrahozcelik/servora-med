@@ -35,7 +35,7 @@ async function main() {
       const value = new URL(process.env.TEST_DATABASE_URL ?? 'postgresql://127.0.0.1/postgres');
       value.pathname = '/postgres';
       if (!process.env.TEST_DATABASE_URL) {
-        value.hostname = process.env.PGHOST ?? '127.0.0.1';
+        value.hostname = process.env.PGHOST === '::1' ? '[::1]' : process.env.PGHOST ?? '127.0.0.1';
         value.port = process.env.PGPORT ?? '5432';
         value.username = process.env.PGUSER ?? userInfo().username;
         if (process.env.PGPASSWORD) value.password = process.env.PGPASSWORD;
