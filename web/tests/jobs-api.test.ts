@@ -327,7 +327,8 @@ describe('JobCard workspace transport', () => {
 
     const plain = await listActivity('job-1');
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true', expect.anything(),
+      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true',
+      expect.anything(),
     );
     expect(plain.items[0]!.details).not.toHaveProperty('submitComparison');
     const gated = await listActivity('job-1');
@@ -456,6 +457,7 @@ describe('JobCard workspace transport', () => {
       jobCardId: 'job-1', meetingAt: '2026-07-20T09:15:00.000Z', outcome: 'POSITIVE',
       unsuccessfulReason: null,
       meetingSummary: 'Yeni ürün grubu görüşüldü.', nextFollowUpAt: null,
+      metContactId: null, metContact: null,
       jobCardVersion: 8,
     };
     const input = {
@@ -469,7 +471,10 @@ describe('JobCard workspace transport', () => {
 
     await expect(getMeetingDetails('job-1')).resolves.toEqual(details);
     await expect(patchMeetingDetails('job-1', input)).resolves.toEqual(details);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/meeting-details',
+    expect(fetchMock).toHaveBeenNthCalledWith(1,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true', expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify(input) }));
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...details, unexpected: true })));
@@ -480,10 +485,35 @@ describe('JobCard workspace transport', () => {
       { ...details, meetingAt: '2026-07-20T12:15:00.000+03:00' },
       { ...details, outcome: 'FUTURE_OUTCOME' },
       { ...details, jobCardVersion: 0 },
+      { ...details, metContactId: 42 },
+      { ...details, metContact: { id: 'ct1', name: 'Dr. Deniz' } },
     ]) {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(invalidDetails)));
       await expect(getMeetingDetails('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
+  });
+
+  it('parses a met-contact reference with identity and sends it in the patch body', async () => {
+    const details = {
+      jobCardId: 'job-1', meetingAt: '2026-07-20T09:15:00.000Z', outcome: 'POSITIVE',
+      unsuccessfulReason: null, meetingSummary: 'Görüşüldü.', nextFollowUpAt: null,
+      metContactId: 'ct-9', metContact: { id: 'ct-9', name: 'Dr. Deniz', title: 'Başhekim' },
+      jobCardVersion: 9,
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(json(details)).mockResolvedValueOnce(json(details))
+      .mockResolvedValueOnce(json(details));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getMeetingDetails('job-1')).resolves.toEqual(details);
+    const input = { clientActionId: 'met-save', expectedVersion: 9, metContactId: 'ct-9' };
+    await expect(patchMeetingDetails('job-1', input)).resolves.toEqual(details);
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify(input) }));
+    const cleared = { clientActionId: 'met-clear', expectedVersion: 9, metContactId: null };
+    await expect(patchMeetingDetails('job-1', cleared)).resolves.toEqual(details);
+    expect(fetchMock).toHaveBeenNthCalledWith(3,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify(cleared) }));
   });
 
   it('sends the complete existing JobCard patch contract', async () => {

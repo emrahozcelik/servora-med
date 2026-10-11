@@ -302,3 +302,16 @@ export type EnrichCustomerInput = Partial<CustomerEnrichmentFields> & { expected
 export type EnrichCustomerRecord = CustomerEnrichmentFields & { organizationId: string; customerId: string; expectedVersion: number };
 
 export const CONTACT_CREATE_FIELDS = ['name', 'title', 'phone', 'email'] as const;
+
+/**
+ * Slice 3 canonical customer-completeness vocabulary. Codes describe missing
+ * data only — they never infer business outcomes and never gate any flow.
+ * A phone is "usable" only when the existing normalizeTurkishPhone contract
+ * resolves it to canonical form; historical free text is never modified.
+ */
+export const MISSING_INFO_CODES = [
+  'CUSTOMER_PHONE_MISSING', 'ACTIVE_CONTACT_MISSING', 'CONTACT_PHONE_MISSING',
+] as const;
+export type MissingInfoCode = (typeof MISSING_INFO_CODES)[number];
+export type CustomerCompletenessProjection = { missingInfo: MissingInfoCode[] };
+

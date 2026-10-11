@@ -80,7 +80,14 @@ export interface CrmRepository {
   getCustomerDetail(actor: CrmActor, customerId: string): Promise<CustomerDetail | null>;
   listContacts(organizationId: string, customerId: string, filters: ContactFilters): Promise<Paginated<ContactDetail>>;
   getContact(organizationId: string, customerId: string, contactId: string): Promise<ContactDetail | null>;
+  getCompletenessFacts(organizationId: string, customerId: string): Promise<CustomerCompletenessFacts | null>;
 }
+
+/** Narrow row set for the completeness projection; no unrelated reads. */
+export type CustomerCompletenessFacts = {
+  phone: string | null;
+  activeContactPhones: (string | null)[];
+};
 
 class PostgresCrmTransaction implements CrmTransaction {
   constructor(private readonly client: PoolClient) {}
@@ -288,8 +295,14 @@ class PostgresCrmTransaction implements CrmTransaction {
   }
 
   async contactHasAnyJobs(organizationId: string, contactId: string) {
+    // Slice 3: a contact recorded as the person actually met (visits) is also
+    // operational history. Deactivation stays allowed; permanent deletion must
+    // not orphan that reference.
     const result = await this.client.query(
-      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2 LIMIT 1`,
+      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2
+       UNION ALL
+       SELECT 1 FROM job_card_meeting_details
+        WHERE organization_id=$1 AND met_contact_id=$2 LIMIT 1`,
       [organizationId, contactId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -406,7 +419,10 @@ export class PostgresCrmRepository implements CrmRepository {
     if (!row) return null;
     const contacts = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
     );
@@ -433,7 +449,10 @@ export class PostgresCrmRepository implements CrmRepository {
     const pageValues = [...values, limit, filters.offset];
     const items = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE ${condition}
        ORDER BY is_primary DESC, name, id LIMIT $${pageValues.length - 1} OFFSET $${pageValues.length}`,
       pageValues,
@@ -445,9 +464,35 @@ export class PostgresCrmRepository implements CrmRepository {
   async getContact(organizationId: string, customerId: string, contactId: string) {
     const result = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND id=$3`, [organizationId, customerId, contactId],
     );
     return result.rows[0] ? mapContactDetail(result.rows[0]) : null;
+  }
+
+  async getCompletenessFacts(organizationId: string, customerId: string) {
+    const result = await this.pool.query<{
+      customer_phone: string | null; active_contact_phones: (string | null)[];
+    }>(
+      `SELECT c.phone AS customer_phone,
+              COALESCE(
+                array_agg(ct.phone) FILTER (WHERE ct.id IS NOT NULL),
+                ARRAY[]::text[]
+              ) AS active_contact_phones
+         FROM customers c
+         LEFT JOIN contacts ct
+           ON ct.organization_id = c.organization_id AND ct.customer_id = c.id
+          AND ct.is_active = TRUE
+        WHERE c.organization_id = $1 AND c.id = $2
+        GROUP BY c.id, c.phone`,
+      [organizationId, customerId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { phone: row.customer_phone, activeContactPhones: row.active_contact_phones }
+      : null;
   }
 }

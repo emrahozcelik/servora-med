@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, type CurrentUser } from '../services/api';
+import {
+  createEnrichmentContact, getCustomer, getCustomerEnrichmentScope, type Contact,
+} from '../services/crm-api';
+import { PhoneInput } from '../ui/PhoneInput';
 import type {
   JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
   UnsuccessfulVisitReasonCode,
@@ -34,10 +38,16 @@ type DeferredCanonical = {
   outcome: MeetingOutcome | null;
   unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
   meetingSummary: string | null;
+  metContactId: string | null;
 };
 const meetingFields: MeetingDetailField[] = [
-  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ];
+
+type ContactOptionState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; contacts: Contact[] }
+  | { kind: 'error' };
 
 function localValue(value: string | null) {
   if (!value) return '';
@@ -78,6 +88,14 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     details.unsuccessfulReason ?? '',
   );
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
+  const [metContactId, setMetContactId] = useState(details.metContactId ?? '');
+  const [contactsState, setContactsState] = useState<ContactOptionState>({ kind: 'loading' });
+  const [canCreateContact, setCanCreateContact] = useState(false);
+  const [customerVersion, setCustomerVersion] = useState<number | null>(null);
+  const [contactLoadKey, setContactLoadKey] = useState(0);
+  const [creatingContact, setCreatingContact] = useState(false);
+  const [contactCreatePending, setContactCreatePending] = useState(false);
+  const [contactCreateError, setContactCreateError] = useState('');
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
   const feedbackRef = useRef<HTMLDivElement>(null);
@@ -88,6 +106,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     setMeetingAt(meetingLocalValue(snapshot.meetingAt)); setOutcome(snapshot.outcome ?? '');
     setUnsuccessfulReason(snapshot.unsuccessfulReason ?? '');
     setSummary(snapshot.meetingSummary ?? '');
+    setMetContactId(snapshot.metContactId ?? '');
   }
   useEffect(() => {
     if (canonicalRef.current.jobCardId === details.jobCardId
@@ -101,12 +120,14 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       deferredCanonicalRef.current = {
         jobCardId: details.jobCardId, meetingAt: details.meetingAt, outcome: details.outcome,
         unsuccessfulReason: details.unsuccessfulReason, meetingSummary: details.meetingSummary,
+        metContactId: details.metContactId,
       };
       return;
     }
     applyCanonicalFields({
       jobCardId: details.jobCardId, meetingAt: details.meetingAt, outcome: details.outcome,
       unsuccessfulReason: details.unsuccessfulReason, meetingSummary: details.meetingSummary,
+      metContactId: details.metContactId,
     });
   }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
@@ -115,6 +136,69 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     ['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
     && (user.role !== 'STAFF' || user.id === job.assignedTo)
   );
+
+  // Görüşülen kişi options: active contacts of the job's customer, loaded only
+  // for the editable branch. A persisted selection that is no longer active
+  // stays visible through details.metContact without being offered as a new
+  // choice. The customer version gates the scoped inline creation, and the
+  // server-confirmed enrichment scope gates whether the inline creation is
+  // offered at all (STAFF-only capability; MANAGER/ADMIN never see it).
+  useEffect(() => {
+    if (!canEdit || job.customerId === null) return;
+    let cancelled = false;
+    setContactsState({ kind: 'loading' });
+    setCanCreateContact(false);
+    getCustomer(job.customerId)
+      .then((customer) => {
+        if (cancelled) return;
+        setCustomerVersion(customer.version);
+        setContactsState({
+          kind: 'ready',
+          contacts: customer.contacts.filter((contact) => contact.isActive),
+        });
+      })
+      .catch(() => { if (!cancelled) setContactsState({ kind: 'error' }); });
+    getCustomerEnrichmentScope(job.customerId)
+      .then((scope) => { if (!cancelled) setCanCreateContact(scope.canCreateContact); })
+      .catch(() => { if (!cancelled) setCanCreateContact(false); });
+    return () => { cancelled = true; };
+  }, [canEdit, job.customerId, contactLoadKey]);
+
+  const contactCreateRef = useRef<HTMLDivElement>(null);
+
+  async function submitNewContact() {
+    if (job.customerId === null || customerVersion === null || contactCreatePending) return;
+    const read = (id: string) => contactCreateRef.current
+      ?.querySelector<HTMLInputElement>(`#${id}`)?.value.trim() ?? '';
+    const name = read('meeting-new-contact-name');
+    const title = read('meeting-new-contact-title') || null;
+    const phone = read('meeting-new-contact-phone') || null;
+    const email = read('meeting-new-contact-email').toLowerCase() || null;
+    if (!name) { setContactCreateError('Ad soyad zorunludur.'); return; }
+    setContactCreatePending(true); setContactCreateError('');
+    try {
+      const result = await createEnrichmentContact(job.customerId, {
+        name, title, phone, email, expectedVersion: customerVersion,
+      });
+      setCustomerVersion(result.customer.version);
+      setContactsState((current) => current.kind === 'ready'
+        ? { kind: 'ready', contacts: [...current.contacts, result.contact] }
+        : current);
+      setMetContactId(result.contact.id);
+      setCreatingContact(false);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        setContactCreateError('Müşteri bilgileri başka bir işlemle güncellendi. Liste yenilendi; tekrar deneyin.');
+        setContactLoadKey((value) => value + 1);
+      } else if (caught instanceof ApiError && caught.status === 403) {
+        setContactCreateError('Bu işlem için yetkiniz bulunmuyor.');
+      } else {
+        setContactCreateError(caught instanceof Error ? caught.message : 'İlgili kişi eklenemedi.');
+      }
+    } finally {
+      setContactCreatePending(false);
+    }
+  }
 
   async function sendAttempt(input: PatchMeetingDetailsInput) {
     try {
@@ -163,6 +247,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       meetingAt: instant(meetingAt), outcome: outcome || null,
       unsuccessfulReason: outcome === 'FOLLOW_UP_REQUIRED' ? (unsuccessfulReason || null) : null,
       meetingSummary: normalizedSummary || null,
+      metContactId: metContactId || null,
       // Legacy follow-up time stays historical/API compatible; the mandatory
       // follow-up proposal is planned in the completion dialog instead.
       nextFollowUpAt: details.nextFollowUpAt,
@@ -170,6 +255,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     if (candidate.meetingAt === details.meetingAt && candidate.outcome === details.outcome
       && candidate.unsuccessfulReason === (details.unsuccessfulReason ?? null)
       && candidate.meetingSummary === details.meetingSummary
+      && candidate.metContactId === details.metContactId
       && candidate.nextFollowUpAt === details.nextFollowUpAt) {
       setFeedback('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
       return;
@@ -186,6 +272,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       {details.outcome === 'FOLLOW_UP_REQUIRED' && <div><dt>Görüşme nedeni</dt><dd>
         {details.unsuccessfulReason ? unsuccessfulReasonLabels[details.unsuccessfulReason] : 'Belirtilmedi'}
       </dd></div>}
+      <div><dt>Görüşülen kişi</dt><dd>{details.metContact?.name ?? 'Belirtilmedi'}</dd></div>
       <div><dt>Takip zamanı</dt><dd>{formatInstant(details.nextFollowUpAt)}</dd></div>
       <div className="detail-summary-wide"><dt>Görüşme özeti</dt><dd>{details.meetingSummary ?? 'Belirtilmedi'}</dd></div>
     </dl>{ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={mutationPending}
@@ -228,6 +315,54 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           {fieldErrors.unsuccessfulReason}
         </span>}
       </div>}
+      <div className="field-group">
+        <label htmlFor="meeting-met-contact">Görüşülen kişi</label>
+        {contactsState.kind === 'loading' && <span className="field-status">İlgili kişiler yükleniyor…</span>}
+        {contactsState.kind === 'error' && <div className="form-error" role="alert">İlgili kişiler yüklenemedi.
+          <button className="secondary-button compact-button" type="button" disabled={mutationPending}
+            onClick={() => setContactLoadKey((value) => value + 1)}>Tekrar dene</button></div>}
+        {contactsState.kind === 'ready' && <select id="meeting-met-contact" value={metContactId}
+          onChange={(event) => setMetContactId(event.target.value)}>
+          <option value="">Kişi seçilmedi</option>
+          {contactsState.contacts.map((contact) => <option key={contact.id} value={contact.id}>
+            {contact.name}{contact.title ? ` — ${contact.title}` : ''}</option>)}
+          {details.metContactId !== null && details.metContact !== null
+            && !contactsState.contacts.some((contact) => contact.id === details.metContactId)
+            && <option value={details.metContactId} disabled>
+              {details.metContact.name}{details.metContact.title ? ` — ${details.metContact.title}` : ''} (pasif)
+            </option>}
+        </select>}
+        {canCreateContact && <button className="secondary-button compact-button" type="button"
+          disabled={mutationPending || customerVersion === null}
+          onClick={() => { setContactCreateError(''); setCreatingContact(true); }}>
+          Yeni ilgili kişi ekle
+        </button>}
+        {creatingContact && <div className="meeting-contact-create" ref={contactCreateRef}
+          role="group" aria-label="Yeni ilgili kişi ekle">
+          <fieldset disabled={contactCreatePending}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') { event.preventDefault(); void submitNewContact(); }
+            }}>
+            <label className="field-group" htmlFor="meeting-new-contact-name">Ad soyad
+              <input id="meeting-new-contact-name" autoComplete="name" /></label>
+            <label className="field-group" htmlFor="meeting-new-contact-title">Ünvan
+              <input id="meeting-new-contact-title" /></label>
+            <label className="field-group" htmlFor="meeting-new-contact-phone">Telefon
+              <PhoneInput id="meeting-new-contact-phone" name="meeting-new-contact-phone" /></label>
+            <label className="field-group" htmlFor="meeting-new-contact-email">E-posta
+              <input id="meeting-new-contact-email" type="email" autoComplete="email" /></label>
+          </fieldset>
+          {contactCreateError && <div className="form-error" role="alert">{contactCreateError}</div>}
+          <div className="form-actions">
+            <button className="secondary-button compact-button" type="button" disabled={contactCreatePending}
+              onClick={() => { setCreatingContact(false); setContactCreateError(''); }}>Vazgeç</button>
+            <button className="primary-button compact-button" type="button" disabled={contactCreatePending}
+              onClick={() => { void submitNewContact(); }}>
+              {contactCreatePending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}
+            </button>
+          </div>
+        </div>}
+      </div>
       <div className="field-group"><label htmlFor="meeting-summary">Görüşme özeti</label>
         <textarea id="meeting-summary" rows={5} value={summary}
           aria-invalid={fieldErrors.meetingSummary ? true : undefined}

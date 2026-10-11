@@ -337,12 +337,34 @@ describe('JobCard routes', () => {
 
     expect(getResponse.statusCode).toBe(200);
     expect(patchResponse.statusCode).toBe(200);
-    expect(service.getMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId);
+    expect(service.getMeetingDetails).toHaveBeenCalledWith(
+      expect.anything(), jobCardId, { includeMetContactCapability: false },
+    );
     expect(service.patchMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId, {
       clientActionId: 'meeting-save-1', expectedVersion: 1,
       meetingAt: '2026-07-15T10:00:00.000Z',
       outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme',
+    }, { includeMetContactCapability: false });
+
+    const optInGet = await app.inject({
+      method: 'GET',
+      url: `/api/job-cards/${jobCardId}/meeting-details?includeMetContactCapability=true`,
     });
+    const optInPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/job-cards/${jobCardId}/meeting-details?includeMetContactCapability=true`,
+      payload: { clientActionId: 'meeting-save-optin', expectedVersion: 1, outcome: 'POSITIVE' },
+    });
+    expect(optInGet.statusCode).toBe(200);
+    expect(optInPatch.statusCode).toBe(200);
+    expect(service.getMeetingDetails).toHaveBeenLastCalledWith(
+      expect.anything(), jobCardId, { includeMetContactCapability: true },
+    );
+    expect(service.patchMeetingDetails).toHaveBeenLastCalledWith(
+      expect.anything(), jobCardId,
+      { clientActionId: 'meeting-save-optin', expectedVersion: 1, outcome: 'POSITIVE' },
+      { includeMetContactCapability: true },
+    );
   });
 
   it('rejects malformed meeting paths before service and exact-body violations', async () => {
@@ -618,7 +640,7 @@ describe('JobCard routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
   });
 
   it('forwards an explicit activity page', async () => {
@@ -630,14 +652,24 @@ describe('JobCard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(page);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
   });
 
   it('gates SUBMIT comparison evidence on activity behind the reader opt-in', async () => {
     const { app, service } = await createApp();
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true' });
     expect(service.listActivity).toHaveBeenCalledWith(
-      expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: true },
+      expect.anything(), 'job-1', { limit: 50, offset: 0 },
+      { includeSubmitLocationCapability: true, includeMetContactCapability: false },
+    );
+  });
+
+  it('gates the met-contact activity chip behind its reader opt-in', async () => {
+    const { app, service } = await createApp();
+    await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeMetContactCapability=true' });
+    expect(service.listActivity).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', { limit: 50, offset: 0 },
+      { includeSubmitLocationCapability: false, includeMetContactCapability: true },
     );
   });
 

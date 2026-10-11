@@ -14,6 +14,17 @@ import {
 } from './types.js';
 
 type JsonRecord = Record<string, unknown>;
+
+/**
+ * Reader gates for response keys that only opted-in bundles understand.
+ * `includeSubmitLocationCapability` gates the Slice 2 comparison evidence;
+ * `includeMetContactCapability` gates the Slice 3 met-contact chip on meeting
+ * activity, because previous bundles reject unknown changed-field names.
+ */
+export type ActivityPresentationOptions = {
+  includeSubmitLocationCapability?: boolean;
+  includeMetContactCapability?: boolean;
+};
 type LifecycleEvent =
   | 'JOB_PLANNED'
   | 'JOB_ACCEPTED'
@@ -212,14 +223,21 @@ function deliveryDetails(
   };
 }
 
-function meetingDetails(metadata: unknown): JobCardActivityDetails {
+function meetingDetails(
+  metadata: unknown,
+  options?: ActivityPresentationOptions,
+): JobCardActivityDetails {
   const record = jsonRecord(metadata);
   if (!record || !Array.isArray(record.changedFields)) return { kind: 'NONE' };
   const persisted = new Set(record.changedFields.filter(
     (field): field is (typeof MEETING_DETAIL_FIELDS)[number] =>
       MEETING_DETAIL_FIELDS.includes(field as (typeof MEETING_DETAIL_FIELDS)[number]),
   ));
-  const changedFields = MEETING_DETAIL_FIELDS.filter((field) => persisted.has(field));
+  // Slice 3 reader gate: the met-contact chip is only serialized for readers
+  // that opt in. An event whose only change was the met contact degrades to a
+  // plain fact for previous bundles instead of an unknown field name.
+  const changedFields = MEETING_DETAIL_FIELDS.filter((field) => persisted.has(field)
+    && (options?.includeMetContactCapability === true || field !== 'metContactId'));
   return changedFields.length > 0
     ? { kind: 'MEETING_DETAILS', changedFields }
     : { kind: 'NONE' };
@@ -227,7 +245,7 @@ function meetingDetails(metadata: unknown): JobCardActivityDetails {
 
 function details(
   record: ActivityRecord,
-  options?: { includeSubmitLocationCapability?: boolean },
+  options?: ActivityPresentationOptions,
 ): JobCardActivityDetails {
   switch (record.eventType) {
     case 'JOB_CREATED': return { kind: 'NONE' };
@@ -269,13 +287,13 @@ function details(
         : { kind: 'NONE' };
     }
     case 'MEETING_DETAILS_UPDATED':
-      return meetingDetails(record.metadata);
+      return meetingDetails(record.metadata, options);
   }
 }
 
 export function presentActivity(
   record: ActivityRecord,
-  options?: { includeSubmitLocationCapability?: boolean },
+  options?: ActivityPresentationOptions,
 ): JobCardActivityDto {
   return {
     id: record.id,

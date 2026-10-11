@@ -149,6 +149,10 @@ export function createCrmHandlers(service: CrmService) {
       query(request, []);
       return service.getEnrichmentScope(actor(request), params(request).customerId);
     },
+    getCustomerCompleteness: (request: FastifyRequest) => {
+      query(request, []);
+      return service.getCustomerCompleteness(actor(request), params(request).customerId);
+    },
     enrichCustomer: (request: FastifyRequest) => {
       const value = body(request, ['expectedVersion', ...CUSTOMER_ENRICHMENT_FIELDS]);
       const fields: Partial<CustomerEnrichmentFields> = {};

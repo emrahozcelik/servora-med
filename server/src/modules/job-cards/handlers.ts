@@ -72,6 +72,17 @@ function includeSubmitLocationCapability(raw: unknown) {
   return (raw as Record<string, unknown>).includeSubmitLocationCapability === 'true';
 }
 
+/**
+ * Slice 3 reader gate for the meeting-details met-contact fields. Meeting
+ * detail responses historically ignore unknown query keys, so previous
+ * bundles (which never send this parameter) keep the legacy response shape;
+ * only an explicit opt-in receives `metContactId`/`metContact`.
+ */
+function includeMetContactCapability(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  return (raw as Record<string, unknown>).includeMetContactCapability === 'true';
+}
+
 /** Positive-integer route parameter (e.g. an immutable submission seq). */
 function positiveIntegerParam(raw: unknown, field: string) {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
@@ -199,12 +210,17 @@ export function createJobCardHandlers(service: JobCardService) {
       { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
     ),
     meetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.getMeetingDetails(actor(request), parseMeetingJobCardId(request.params.id)),
+      service.getMeetingDetails(
+        actor(request),
+        parseMeetingJobCardId(request.params.id),
+        { includeMetContactCapability: includeMetContactCapability(request.query) },
+      ),
     patchMeetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patchMeetingDetails(
         actor(request),
         parseMeetingJobCardId(request.params.id),
         parseMeetingDetailsPatch(request.body),
+        { includeMetContactCapability: includeMetContactCapability(request.query) },
       ),
     patch: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patch(actor(request), request.params.id, body(request, PATCH_FIELDS) as never),
@@ -263,16 +279,22 @@ export function createJobCardHandlers(service: JobCardService) {
       ),
     activity: async (request: FastifyRequest<{ Params: Params }>) => {
       // The paginated `page()` contract rejects unknown query keys, so the
-      // gate key is separated before pagination parsing; previous bundles
-      // never send it and keep receiving the ungated shape.
-      const { includeSubmitLocationCapability: _gate, ...pageQuery } =
-        (request.query as Record<string, unknown> | undefined) ?? {};
-      void _gate;
+      // gate keys are separated before pagination parsing; previous bundles
+      // never send them and keep receiving the ungated shape.
+      const {
+        includeSubmitLocationCapability: _gate,
+        includeMetContactCapability: _metGate,
+        ...pageQuery
+      } = (request.query as Record<string, unknown> | undefined) ?? {};
+      void _gate; void _metGate;
       return service.listActivity(
         actor(request),
         request.params.id,
         page(pageQuery, 50),
-        { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
+        {
+          includeSubmitLocationCapability: includeSubmitLocationCapability(request.query),
+          includeMetContactCapability: includeMetContactCapability(request.query),
+        },
       );
     },
     listOverdueIncidents: async (request: FastifyRequest<{ Params: Params }>) =>

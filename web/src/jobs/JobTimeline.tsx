@@ -17,6 +17,7 @@ const meetingFieldLabels = {
   meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', unsuccessfulReason: 'Başarısız görüşme nedeni',
   meetingSummary: 'Görüşme özeti',
   nextFollowUpAt: 'Takip zamanı',
+  metContactId: 'Görüşülen kişi',
 } as const;
 const locationFailureLabels = {
   PERMISSION_DENIED: 'Konum izni reddedildi',

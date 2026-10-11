@@ -229,7 +229,7 @@ function waitingApprovalJob(): JobCard {
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
 const meetingDetails: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-  meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 3,
+  meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
 };
 
 function buttonByName(host: ParentNode, name: string) {
@@ -244,7 +244,7 @@ function mockDetailFetch(card: JobCard, options: {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith('/delivery-items')) return Response.json({ items: card.type === 'PRODUCT_DELIVERY' ? [item] : [] });
-    if (url.endsWith('/meeting-details')) {
+    if (url.includes('/meeting-details')) {
       if (options.meeting === null) throw new Error('unexpected meeting-details');
       return Response.json(options.meeting ?? { ...meetingDetails, jobCardVersion: card.version });
     }
@@ -1102,7 +1102,7 @@ describe('Staff JobCard detail', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
-      if (url.endsWith('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: refreshed.version });
+      if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: refreshed.version });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/request-revision') && init?.method === 'POST') {
@@ -1242,7 +1242,7 @@ describe('Staff JobCard detail', () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           outcome: 'FOLLOW_UP_REQUIRED',
@@ -1556,11 +1556,11 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') {
+      if (url.includes('/meeting-details') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
       }
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -1595,7 +1595,7 @@ describe('Staff JobCard detail', () => {
     await act(async () => {
       resolvePatch(Response.json({
         jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-        meetingSummary: 'Güncel görüşme özeti', nextFollowUpAt: null, jobCardVersion: meeting.version,
+        meetingSummary: 'Güncel görüşme özeti', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
       }));
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1746,8 +1746,8 @@ describe('Staff JobCard detail', () => {
     const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') return patchGate;
-      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/meeting-details') && init?.method === 'PATCH') return patchGate;
+      if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
@@ -1823,7 +1823,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           jobCardVersion: jobCardRequests >= 2 ? newer.version : meeting.version,
@@ -1901,7 +1901,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests === 2 ? started.version : newer.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -1963,7 +1963,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -3762,11 +3762,11 @@ describe('Staff JobCard detail', () => {
     };
     const emptyMeeting: MeetingDetails = {
       jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
-      nextFollowUpAt: null, jobCardVersion: 3,
+      nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
     };
     const savedMeeting: MeetingDetails = {
       jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
-      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 4,
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 4,
     };
     const initialCard: JobCard = {
       ...inProgressMeeting(),
@@ -3810,12 +3810,12 @@ describe('Staff JobCard detail', () => {
     });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') {
+      if (url.includes('/meeting-details') && init?.method === 'PATCH') {
         currentMeeting = savedMeeting;
         currentCard = refreshedCard;
         return Response.json(savedMeeting);
       }
-      if (url.endsWith('/meeting-details')) return Response.json(currentMeeting);
+      if (url.includes('/meeting-details')) return Response.json(currentMeeting);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (detailUrlMatches(url, 'job-1')) return Response.json(currentCard);
@@ -3929,7 +3929,7 @@ describe('Staff JobCard detail', () => {
     }, {
       jobCardId: 'job-1', meetingAt: '2026-07-17T10:00:00.000Z',
       outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
-      meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
+      meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
     });
     expect(submit).toHaveBeenCalledWith('job-1', {
       clientActionId: 'action-3', expectedVersion: 3, note: 'Ziyaret tamamlandı',
@@ -4138,7 +4138,7 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith('/delivery-items')) {
         return Response.json({ items: scenario.card.type === 'PRODUCT_DELIVERY' ? [item] : [] });
       }
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: scenario.card.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4334,7 +4334,7 @@ describe('Staff JobCard detail', () => {
     const startGate = new Promise<Response>((resolve) => { resolveStart = resolve; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 3 });
+      if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 3 });
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -4578,7 +4578,7 @@ describe('Staff JobCard detail', () => {
     };
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 4 });
+      if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 4 });
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -4714,7 +4714,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4775,7 +4775,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4836,7 +4836,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4900,7 +4900,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -5150,7 +5150,7 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/contacts?')) {
         return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
       }
-      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (detailUrlMatches(url, 'job-1') && init?.method === 'PATCH') return saveGate;
@@ -5221,7 +5221,7 @@ describe('Staff JobCard detail', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
-      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (detailUrlMatches(url, 'job-1')) {
@@ -5440,7 +5440,7 @@ describe('Staff JobCard detail', () => {
     let requestsB = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         if (url.includes('/job-1')) {
           return Response.json({ ...meetingDetails, jobCardVersion: requestsA >= 3 ? newerA.version : meeting.version });
         }
@@ -5537,7 +5537,7 @@ describe('Staff JobCard detail', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
-      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (detailUrlMatches(url, 'job-1')) {
@@ -5765,7 +5765,7 @@ describe('Staff JobCard detail', () => {
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           jobCardVersion: job1Requests >= 3 ? startedA.version : acceptedMeetingA.version,
@@ -5853,7 +5853,7 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/contacts?')) {
         return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
       }
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         if (url.includes('/job-1')) {
           return Response.json({
             ...meetingDetails,
@@ -5963,7 +5963,7 @@ describe('Staff JobCard detail', () => {
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         if (url.includes('/job-1')) {
           return Response.json({
             ...meetingDetails,
@@ -6196,7 +6196,7 @@ describe('Staff JobCard detail', () => {
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: waitingMeeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -6320,7 +6320,7 @@ describe('Staff JobCard detail', () => {
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version,
@@ -6446,7 +6446,7 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/contacts?')) {
         return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
       }
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           jobCardVersion: job1Requests >= 2 ? updatedMeeting.version : meeting.version,
@@ -6543,7 +6543,7 @@ describe('Staff JobCard detail', () => {
     // The unresolved attempt must stay frozen; retry must resend exactly.
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
           outcome: 'FOLLOW_UP_REQUIRED',
@@ -6735,7 +6735,7 @@ describe('Staff JobCard detail', () => {
         if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
         if (url.includes('/notes?')) return Response.json(emptyPage);
         if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-        if (url.endsWith('/meeting-details')) return Response.json({
+        if (url.includes('/meeting-details')) return Response.json({
           ...meetingDetails, jobCardVersion: current.version,
         });
         if (detailUrlMatches(url, 'job-1')) return Response.json(current);
@@ -6773,7 +6773,7 @@ describe('Staff JobCard detail', () => {
         if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
         if (url.includes('/notes?')) return Response.json(emptyPage);
         if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-        if (url.endsWith('/meeting-details')) return Response.json({
+        if (url.includes('/meeting-details')) return Response.json({
           ...meetingDetails, jobCardVersion: staleValid.version,
         });
         if (url.includes('/start') && init?.method === 'POST') {

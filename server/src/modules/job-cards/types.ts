@@ -214,8 +214,22 @@ export type MeetingDetails = {
   unsuccessfulReason: UnsuccessfulVisitReasonCode | null;
   meetingSummary: string | null;
   nextFollowUpAt: string | null;
+  metContactId: string | null;
+  metContact: MeetingDetailsContact | null;
   jobCardVersion: number;
 };
+
+/**
+ * Slice 3 reader gate. Previously deployed web bundles parse meeting details
+ * with a strict allowlist, so `metContactId`/`metContact` are only serialized
+ * for readers that explicitly opt in (`includeMetContactCapability`). The
+ * default (absent) keeps the pre-Slice-3 wire shape.
+ */
+export type MeetingDetailsLegacyResponse = Omit<MeetingDetails, 'metContactId' | 'metContact'>;
+export type MeetingDetailsReaderResponse = MeetingDetails | MeetingDetailsLegacyResponse;
+
+/** Contact identity projected with a meeting-result read (display only). */
+export type MeetingDetailsContact = { id: string; name: string; title: string | null };
 
 export type MeetingDetailsCandidate = {
   meetingAt: string | null;
@@ -223,10 +237,16 @@ export type MeetingDetailsCandidate = {
   unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
   meetingSummary: string | null;
   nextFollowUpAt: string | null;
+  metContactId?: string | null;
+};
+
+/** Candidate plus the locked/joined contact identity for response building. */
+export type MeetingDetailsView = MeetingDetailsCandidate & {
+  metContact?: MeetingDetailsContact | null;
 };
 
 export const MEETING_DETAIL_FIELDS = [
-  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;
 export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 
@@ -238,6 +258,7 @@ export type PatchMeetingDetailsInput = {
   unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
   meetingSummary?: string | null;
   nextFollowUpAt?: string | null;
+  metContactId?: string | null;
 };
 
 export type RelatedIdentity = { id: string; name: string };

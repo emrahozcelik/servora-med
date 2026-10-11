@@ -58,6 +58,7 @@ import {
   type FollowUpDraft,
 } from './jobs/FollowUpProposalSection';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
+import { CustomerCompletenessAction } from './jobs/CustomerCompletenessAction';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
@@ -2152,6 +2153,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       unsuccessfulReason: detail.meetingDetails.unsuccessfulReason,
       meetingSummary: detail.meetingDetails.meetingSummary,
       nextFollowUpAt: detail.meetingDetails.nextFollowUpAt,
+      metContactId: detail.meetingDetails.metContactId,
     }).some((value) => value !== null);
   const showMeetingResult = detail.kind === 'SALES_MEETING'
     && viewMeeting && detail.meetingDetails !== null
@@ -2161,26 +2163,29 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     || invalidationMutation.kind === 'retry-ready';
   const invalidationLocked = pending || uncertain || invalidationMutationLocked;
 
-  const recordContent = editing && detail.kind === 'SALES_MEETING'
-    ? <SalesMeetingEditForm job={detail.job} user={user}
-      pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveJob} />
-    : editing && detail.kind === 'PRODUCT_DELIVERY'
-      ? <DeliveryAssigneeEditForm job={detail.job}
-        pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
-      : editing && detail.kind === 'GENERAL_TASK'
-        ? <GeneralTaskEditForm job={detail.job} user={user}
-          pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
-        : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
-        ? <MeetingDetailsSection
-          job={detail.job}
-          details={detail.meetingDetails}
-          user={user}
-          canEdit={editMeeting}
-          mutationPending={invalidationLocked}
-          submissionError={meetingSubmissionError}
-          onSave={saveMeeting}
-        />
-        : null;
+  const recordContent = <>
+    {editing && detail.kind === 'SALES_MEETING'
+      ? <SalesMeetingEditForm job={detail.job} user={user}
+        pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveJob} />
+      : editing && detail.kind === 'PRODUCT_DELIVERY'
+        ? <DeliveryAssigneeEditForm job={detail.job}
+          pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
+        : editing && detail.kind === 'GENERAL_TASK'
+          ? <GeneralTaskEditForm job={detail.job} user={user}
+            pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
+          : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
+          ? <MeetingDetailsSection
+            job={detail.job}
+            details={detail.meetingDetails}
+            user={user}
+            canEdit={editMeeting}
+            mutationPending={invalidationLocked}
+            submissionError={meetingSubmissionError}
+            onSave={saveMeeting}
+          />
+          : null}
+    <CustomerCompletenessAction job={detail.job} user={user} disabled={invalidationLocked} />
+  </>;
 
   return <JobDetailPanel
     job={detail.job}

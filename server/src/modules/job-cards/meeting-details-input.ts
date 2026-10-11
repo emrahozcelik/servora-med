@@ -16,10 +16,10 @@ import {
 
 const PATCH_FIELDS = [
   'clientActionId', 'expectedVersion', 'meetingAt', 'outcome',
-  'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;
 const MUTATION_FIELDS = [
-  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt',
+  'meetingAt', 'outcome', 'unsuccessfulReason', 'meetingSummary', 'nextFollowUpAt', 'metContactId',
 ] as const;
 const INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -82,6 +82,16 @@ function summary(value: unknown) {
   return normalized;
 }
 
+/**
+ * Görüşülen kişi reference. null clears the association; omitted leaves it
+ * untouched. Existence, customer ownership and active state are validated
+ * inside the patch transaction, not here.
+ */
+function metContact(value: unknown) {
+  if (value === null) return null;
+  return uuidString(value, 'metContactId');
+}
+
 export function parseMeetingDetailsPatch(value: unknown): PatchMeetingDetailsInput {
   const record = exactRecord(value);
   if (!MUTATION_FIELDS.some((field) => Object.hasOwn(record, field))) {
@@ -99,6 +109,9 @@ export function parseMeetingDetailsPatch(value: unknown): PatchMeetingDetailsInp
   if (Object.hasOwn(record, 'meetingSummary')) parsed.meetingSummary = summary(record.meetingSummary);
   if (Object.hasOwn(record, 'nextFollowUpAt')) {
     parsed.nextFollowUpAt = instant(record.nextFollowUpAt, 'nextFollowUpAt');
+  }
+  if (Object.hasOwn(record, 'metContactId')) {
+    parsed.metContactId = metContact(record.metContactId);
   }
   return parsed;
 }

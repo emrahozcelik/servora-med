@@ -42,6 +42,19 @@ describe('Sales Meeting detail input', () => {
     });
   });
 
+  it('parses görüşülen kişi: uuid assigned, explicit null clears, absence stays omitted', () => {
+    const contactId = '9f1c1f3a-6b2d-4e5f-8a91-2c3d4e5f6a7b';
+    expect(parseMeetingDetailsPatch({
+      clientActionId: 'met-contact', expectedVersion: 2, metContactId: contactId,
+    })).toEqual({ clientActionId: 'met-contact', expectedVersion: 2, metContactId: contactId });
+    expect(parseMeetingDetailsPatch({
+      clientActionId: 'met-clear', expectedVersion: 2, metContactId: null,
+    })).toEqual({ clientActionId: 'met-clear', expectedVersion: 2, metContactId: null });
+    expect(parseMeetingDetailsPatch({
+      clientActionId: 'met-omit', expectedVersion: 2, outcome: 'POSITIVE',
+    })).toEqual({ clientActionId: 'met-omit', expectedVersion: 2, outcome: 'POSITIVE' });
+  });
+
   it.each([
     {},
     { clientActionId: 'save-1', expectedVersion: 1 },
@@ -50,6 +63,9 @@ describe('Sales Meeting detail input', () => {
     { clientActionId: 'save-1', expectedVersion: 1, unsuccessfulReason: 'UNKNOWN' },
     { clientActionId: 'save-1', expectedVersion: 1, unknown: 'field' },
     { clientActionId: 'save-1', expectedVersion: 1, meetingSummary: 'x'.repeat(4_001) },
+    { clientActionId: 'save-1', expectedVersion: 1, metContactId: 'not-a-uuid' },
+    { clientActionId: 'save-1', expectedVersion: 1, metContactId: 42 },
+    { clientActionId: 'save-1', expectedVersion: 1, metContactId: '' },
   ])('rejects invalid PATCH body %#', (input) => {
     expect(() => parseMeetingDetailsPatch(input)).toThrowError(validationError);
   });

@@ -26,6 +26,7 @@ import {
   type JobCardNoteCursor,
   type PaginatedJobCardNotes,
   type MeetingDetailsCandidate,
+  type MeetingDetailsView,
   type MeetingOutcome,
   type UnsuccessfulVisitReasonCode,
   type ReferenceContact,
@@ -589,7 +590,9 @@ export type ActiveManagementRecipient = {
   isActive: boolean;
 };
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
-export type JobContactReference = { id: string; customerId: string; isActive: boolean };
+export type JobContactReference = {
+  id: string; customerId: string; isActive: boolean; name: string; title: string | null;
+};
 
 /**
  * Read-only snapshot of the direct follow-up source card plus the minimal
@@ -1154,7 +1157,7 @@ export interface JobCardRepository extends SubmissionReader {
   findMeetingDetails(
     organizationId: string,
     jobCardId: string,
-  ): Promise<MeetingDetailsCandidate | null>;
+  ): Promise<MeetingDetailsView | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
   listActivity(
@@ -1338,6 +1341,12 @@ type MeetingDetailsRow = {
   unsuccessful_reason_code: UnsuccessfulVisitReasonCode | null;
   meeting_summary: string | null;
   next_follow_up_at: Date | null;
+  met_contact_id: string | null;
+};
+
+type MeetingDetailsJoinedRow = MeetingDetailsRow & {
+  met_contact_name: string | null;
+  met_contact_title: string | null;
 };
 type JobActionLocationRow = {
   id: string;
@@ -1371,6 +1380,17 @@ function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
     unsuccessfulReason: row.unsuccessful_reason_code,
     meetingSummary: row.meeting_summary,
     nextFollowUpAt: row.next_follow_up_at?.toISOString() ?? null,
+    metContactId: row.met_contact_id,
+  };
+}
+function mapMeetingDetailsView(row: MeetingDetailsJoinedRow): MeetingDetailsView {
+  return {
+    ...mapMeetingDetails(row),
+    metContact: row.met_contact_id === null ? null : {
+      id: row.met_contact_id,
+      name: row.met_contact_name ?? '',
+      title: row.met_contact_title,
+    },
   };
 }
 function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecord {
@@ -2681,12 +2701,17 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getContactForUpdate(organizationId: string, contactId: string) {
-    const result = await this.client.query<{ id: string; customer_id: string; is_active: boolean }>(
-      `SELECT id, customer_id, is_active FROM contacts
+    const result = await this.client.query<{
+      id: string; customer_id: string; is_active: boolean; name: string; title: string | null;
+    }>(
+      `SELECT id, customer_id, is_active, name, title FROM contacts
        WHERE organization_id = $1 AND id = $2 FOR UPDATE`, [organizationId, contactId],
     );
     const row = result.rows[0];
-    return row ? { id: row.id, customerId: row.customer_id, isActive: row.is_active } : null;
+    return row ? {
+      id: row.id, customerId: row.customer_id, isActive: row.is_active,
+      name: row.name, title: row.title,
+    } : null;
   }
 
   async createJobCard(input: CreateJobCardRecord) {
@@ -3211,7 +3236,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.client.query<MeetingDetailsRow>(
       `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
-              meeting_summary, next_follow_up_at
+              meeting_summary, next_follow_up_at, met_contact_id
          FROM job_card_meeting_details
         WHERE organization_id = $1 AND job_card_id = $2
         FOR UPDATE`,
@@ -3224,10 +3249,12 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     await this.client.query(
       `UPDATE job_card_meeting_details
           SET meeting_at = $3, outcome = $4, unsuccessful_reason_code = $5,
-              meeting_summary = $6, next_follow_up_at = $7, updated_at = NOW()
+              meeting_summary = $6, next_follow_up_at = $7, met_contact_id = $8,
+              updated_at = NOW()
         WHERE organization_id = $1 AND job_card_id = $2`,
       [input.organizationId, input.jobCardId, input.meetingAt, input.outcome,
-        input.unsuccessfulReason ?? null, input.meetingSummary, input.nextFollowUpAt],
+        input.unsuccessfulReason ?? null, input.meetingSummary, input.nextFollowUpAt,
+        input.metContactId ?? null],
     );
   }
 
@@ -4207,14 +4234,17 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   }
 
   async findMeetingDetails(organizationId: string, jobCardId: string) {
-    const result = await this.pool.query<MeetingDetailsRow>(
-      `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
-              meeting_summary, next_follow_up_at
-         FROM job_card_meeting_details
-        WHERE organization_id = $1 AND job_card_id = $2`,
+    const result = await this.pool.query<MeetingDetailsJoinedRow>(
+      `SELECT m.job_card_id, m.meeting_at, m.outcome, m.unsuccessful_reason_code,
+              m.meeting_summary, m.next_follow_up_at, m.met_contact_id,
+              ct.name AS met_contact_name, ct.title AS met_contact_title
+         FROM job_card_meeting_details m
+         LEFT JOIN contacts ct
+           ON ct.organization_id = m.organization_id AND ct.id = m.met_contact_id
+        WHERE m.organization_id = $1 AND m.job_card_id = $2`,
       [organizationId, jobCardId],
     );
-    return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+    return result.rows[0] ? mapMeetingDetailsView(result.rows[0]) : null;
   }
 
   async getAssignee(organizationId: string, userId: string) {
@@ -4246,7 +4276,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<MeetingDetailsRow>(
       `SELECT job_card_id, meeting_at, outcome, unsuccessful_reason_code,
-              meeting_summary, next_follow_up_at
+              meeting_summary, next_follow_up_at, met_contact_id
          FROM job_card_meeting_details
         WHERE organization_id = $1 AND job_card_id = $2`,
       [organizationId, jobCardId],

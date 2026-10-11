@@ -227,7 +227,7 @@ describe('JobDetail suggestion failure semantics', () => {
   const meeting = {
     jobCardId: 'job-1', meetingAt: '2026-08-01T10:00:00.000Z',
     outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
-    meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
+    meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
   };
 
   const suggestionBox: { mode: 'slot' | 'no-slot' | 'network' | 'forbidden' | 'server' | 'malformed' } = { mode: 'slot' };
@@ -376,7 +376,7 @@ describe('JobDetail Staff AUTO submit integration', () => {
   const meeting = {
     jobCardId: 'job-1', meetingAt: '2026-08-01T10:00:00.000Z',
     outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
-    meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, jobCardVersion: 3,
+    meetingSummary: 'Ziyaret tamamlandı', nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: 3,
   };
 
   function stubFetch(overrides: {

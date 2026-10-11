@@ -13,10 +13,12 @@ import type {
   ContactFilters,
   CrmActor,
   Customer,
+  CustomerCompletenessProjection,
   CustomerFilters,
   CustomerStatus,
   CustomerType,
   EnrichCustomerInput,
+  MissingInfoCode,
 } from './types.js';
 import { CONTACT_CREATE_FIELDS, CUSTOMER_ENRICHMENT_FIELDS, normalizeTaxNumber, normalizeTurkishPhone } from './types.js';
 
@@ -44,6 +46,16 @@ const phoneValidation = () => new AppError(
   'VALIDATION_ERROR', 400, 'Geçerli bir telefon numarası girin.',
   { fieldErrors: { phone: 'Geçerli bir telefon numarası girin.' } },
 );
+
+/**
+ * Slice 3 completeness predicate: a phone is usable only when the existing
+ * normalization contract resolves it to canonical form. Blank and arbitrary
+ * historical text count as missing for the advisory projection; stored values
+ * are never modified by this read.
+ */
+function hasUsablePhone(value: string | null) {
+  return normalizeTurkishPhone(value) !== null;
+}
 const versionConflict = (currentVersion?: number) => new AppError(
   'VERSION_CONFLICT', 409, 'Kayıt başka bir kullanıcı tarafından güncellendi.',
   currentVersion === undefined ? null : { currentVersion },
@@ -247,6 +259,32 @@ export class CrmService {
       const { allowed } = await this.enrichmentScope(tx, actor, customerId);
       return { canEnrich: allowed, canCreateContact: allowed };
     });
+  }
+
+  /**
+   * Canonical customer-completeness projection (Slice 3). One function owns
+   * the missing-field rules so no frontend component re-derives them:
+   * - CUSTOMER_PHONE_MISSING: no usable customer phone.
+   * - ACTIVE_CONTACT_MISSING: no active contact at all (exclusive with the
+   *   contact-phone code).
+   * - CONTACT_PHONE_MISSING: active contacts exist but none has a usable
+   *   phone. Reachability-based; primary-contact absence alone is not a code.
+   * Advisory only: never a submit gate, never a quality score.
+   */
+  async getCustomerCompleteness(
+    actor: CrmActor,
+    customerId: string,
+  ): Promise<CustomerCompletenessProjection> {
+    const facts = await this.repository.getCompletenessFacts(actor.organizationId, customerId);
+    if (!facts) throw customerNotFound();
+    const missingInfo: MissingInfoCode[] = [];
+    if (!hasUsablePhone(facts.phone)) missingInfo.push('CUSTOMER_PHONE_MISSING');
+    if (facts.activeContactPhones.length === 0) {
+      missingInfo.push('ACTIVE_CONTACT_MISSING');
+    } else if (!facts.activeContactPhones.some((phone) => hasUsablePhone(phone))) {
+      missingInfo.push('CONTACT_PHONE_MISSING');
+    }
+    return { missingInfo };
   }
 
   private async enrichmentScope(tx: CrmTransaction, actor: CrmActor, customerId: string) {
