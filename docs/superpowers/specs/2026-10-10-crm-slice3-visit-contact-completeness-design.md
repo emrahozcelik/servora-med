@@ -319,3 +319,32 @@ One PR from `feat/crm-slice3-visit-contact-completeness` containing: this discov
 finding summary, business rules + authorization matrix, source changes, tests,
 browser evidence, exact HEAD SHA/tree, local CI evidence manifest, known
 limitations. Not merged, not deployed.
+
+## 10. Review follow-up (2026-10-11)
+
+Independent review of PR #364 confirmed one P1 and three P2 rollout findings plus
+a projection-consistency gap. The fixes keep the Section 4 data model unchanged:
+
+1. **P1 reader gate** — `metContactId`/`metContact` (meeting GET/PATCH) and the
+   `metContactId` activity chip (MEETING_DETAILS_UPDATED) are serialized only for
+   readers that opt in via `includeMetContactCapability`; previously deployed
+   bundles keep the pre-Slice-3 wire shapes. Mirrors `includeSubmitLocationCapability`.
+2. **P2 unchanged inactive contact** — a resubmitted unchanged `metContactId` is
+   never re-validated, so deactivating a historical reference does not block
+   editing other meeting fields; new/changed references keep the org/customer/active
+   checks.
+3. **P2 inline create gate** — the section's "Yeni ilgili kişi ekle" action is
+   gated by the server-confirmed `canCreateContact` scope (STAFF-only capability);
+   MANAGER/ADMIN edit meeting results but never see the action.
+4. **P2 receipt compatibility** — idempotency receipts always persist the canonical
+   shape; replays are projected to the requesting reader, and a pre-056 receipt
+   served to an opted-in reader reports the met-contact fields as `null`
+   (truthfully not recorded).
+5. **Consistency** — contact `hasOperationHistory` projections (customer detail,
+   contact list, contact detail) now include `met_contact_id` references, matching
+   `contactHasAnyJobs` deletion guard.
+
+Old server + new schema is refused fail-closed (`AHEAD`) by the startup schema
+guard — deployment applies migration 056 together with the new release. Old web
+bundle + new backend was verified end-to-end in Chrome (meeting details, activity
+timeline, and PATCH save all legacy-shaped and functional).
