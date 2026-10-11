@@ -79,11 +79,11 @@ async function main() {
   });
 
   try {
-    // Preserve application order so a reordered history cannot be normalized
-    // into a harmless set comparison. The version tie-breaker is deterministic
-    // for rows written within the same timestamp tick.
+    // Match migration store, startup and readiness: canonical version order.
+    // applied_at is not an execution-order proof; neither reader can establish
+    // actual historical execution order from the current schema.
     const result = await pool.query(
-      'SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC',
+      'SELECT version FROM schema_migrations ORDER BY version ASC',
     );
     const applied = result.rows.map((row) => String(row.version));
     const catalogVersions = catalog.map((entry) => entry.version);

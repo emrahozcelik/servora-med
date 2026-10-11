@@ -32,11 +32,9 @@ export class PostgresMigrationStore implements MigrationStore {
   }
 
   async getAppliedVersions() {
-    // Version order is the canonical migration order (zero-padded identifiers
-    // are validated contiguous by the catalog). Ordering by applied_at made
-    // the list depend on commit timestamps, which are not guaranteed monotone
-    // across separate migration transactions; a CI run observed an
-    // interleaved list that broke the catalog-equality acceptance check.
+    // Zero-padded versions define canonical catalog order. applied_at is a
+    // transaction timestamp, not a reliable execution/commit-order record.
+    // This ordering validates catalog membership/prefix, not historical order.
     const result = await this.pool.query(
       'SELECT version FROM schema_migrations ORDER BY version ASC',
     );

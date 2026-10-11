@@ -28,8 +28,9 @@ function isMissingSchemaMigrationsError(error: unknown): boolean {
 }
 
 export async function fetchAppliedVersions(pool: Pool): Promise<string[]> {
+  // Canonical zero-padded version order; timestamps do not prove execution order.
   const result = await pool.query<{ version: string }>(
-    'SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC',
+    'SELECT version FROM schema_migrations ORDER BY version ASC',
   );
   return result.rows.map((row) => row.version);
 }
