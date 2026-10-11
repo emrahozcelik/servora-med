@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Servora-Med production recovery — destructive restore from a bound predeploy backup.
 #
-# After a partial migration (e.g. 038 applied, 039 fails) the database is ahead
-# of the old release (037). Symlink-only rollback cannot restart the old
-# release (DATABASE_AHEAD). This helper restores the exact predeploy backup
-# (servora-med-*.dump) to the production database (servora_med on loopback)
-# and atomically rolls HEALTH_SCHEMA_VERSION back to the old release head.
+# Only exact same-catalog target/backup/release combinations are supported.
+# An ahead or unverified target is refused before target mutation. Database
+# downgrade after a migration requires a separately accepted new-target recovery
+# plan; this helper is NOT a post-migration rollback mechanism.
 #
 # Safety contract (fail closed):
 # - Requires explicit flags for every destructive dimension. No glob fallback.
@@ -66,6 +65,8 @@ OPS_LOG="${OPS_LOG:-/var/log/servora-med/recovery-ops.log}"
 PG_RESTORE_BIN="${PG_RESTORE_BIN:-pg_restore}"
 PSQL_BIN="${PSQL_BIN:-psql}"
 PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
+NODE_BIN="${NODE_BIN:-node}"
+RECOVERY_PROBE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../server" && pwd -P)/dist/db/recovery-preflight.js"
 
 # Effective env file may be overridden by --env-file (test).
 EFFECTIVE_ENV_FILE="$APP_ENV_FILE"
@@ -100,8 +101,9 @@ Usage:
     [--expected-backup-timestamp TIMESTAMP] \
     [--env-file PATH]
 
-Recovery restores the exact predeploy backup into the production database
-(servora_med on loopback) and atomically restores HEALTH_SCHEMA_VERSION.
+Recovery restores a verified same-catalog backup into the production database
+(servora_med on loopback). Ahead/cross-schema targets are refused. A verified
+root-installed release catalog and temporary CREATEDB privilege are required.
 
 All flags fail closed. Secrets are never logged.
 
@@ -431,10 +433,8 @@ echo "RECOVERY_START backup=${backup_basename} target_db=${TARGET_DB} expected_h
 # In test mode, use TEST_DATABASE_URL directly (secret-safe: not logged).
 # In production, use explicit loopback + servora_med to avoid env drift.
 _restore_args=()
-_psql_args=()
 if [[ "$TEST_MODE" == true ]]; then
   _restore_db_url="$TEST_DATABASE_URL"
-  _psql_db_url="$TEST_DATABASE_URL"
 else
   # Production: explicit host/db, rely on PGPASSFILE/peer auth. Never log URL.
   _restore_host="127.0.0.1"
@@ -446,23 +446,32 @@ else
   # Use PG* env if already set, else inject host/db.
   if [[ -n "${PGHOST:-}" ]]; then _restore_host="$PGHOST"; fi
   _restore_args=(--host "$_restore_host" --dbname "$TARGET_DB")
-  _psql_args=(--host "$_restore_host" --dbname "$TARGET_DB")
+  # The Node preflight and verification must inspect the actual restore endpoint.
+  export PGHOST="$_restore_host"
   _restore_db_url="" # not used
-  _psql_db_url=""    # not used
 fi
 
-# pg_restore with clean+if-exists so the backup fully replaces current DB state
-# (including partial 038/039 migrations). Exit on error.
+# Validate the root-installed release catalog, exact target history and actual
+# dump history in an owned new scratch DB BEFORE any target mutation.
+command -v "$NODE_BIN" >/dev/null 2>&1 || fail HOST_BOOTSTRAP_REQUIRED_node
+[[ -f "$RECOVERY_PROBE" && ! -L "$RECOVERY_PROBE" ]] || fail RECOVERY_PROBE_MISSING
+if ! "$NODE_BIN" "$RECOVERY_PROBE" preflight "$OLD_RELEASE" "$OLD_HEALTH_SCHEMA_VERSION" "$BACKUP_PATH"; then
+  fail_exit 6 SCHEMA_VERIFICATION_FAILED "pre_restore_catalog_or_history_refused"
+fi
+verify_checksum_sidecar "$BACKUP_PATH" "$CHECKSUM_PATH"
+
+# All clean/drop/create/data/constraint operations are one transaction.
+# A restore error rolls back instead of leaving a partially destroyed schema.
 if [[ "$TEST_MODE" == true ]]; then
   if ! "$PG_RESTORE_BIN" \
-    --clean --if-exists --no-owner --no-acl --exit-on-error \
+    --clean --if-exists --single-transaction --no-owner --no-acl --exit-on-error \
     -d "$_restore_db_url" \
     -- "$BACKUP_PATH" 2>&1; then
     fail_exit 5 RESTORE_FAILED "restore_failed"
   fi
 else
   if ! "$PG_RESTORE_BIN" \
-    --clean --if-exists --no-owner --no-acl --exit-on-error \
+    --clean --if-exists --single-transaction --no-owner --no-acl --exit-on-error \
     "${_restore_args[@]}" \
     -- "$BACKUP_PATH" 2>&1; then
     fail_exit 5 RESTORE_FAILED "restore_failed"
@@ -471,45 +480,9 @@ fi
 
 echo "RESTORE=PASS backup=${backup_basename}" >&2
 
-# ---- verify schema head is old (037) ----
-# Query applied_head directly; do not rely on release catalog files which may
-# not exist for the old release on this host.
-_verify_query="SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC;"
-_verify_head_query="SELECT version FROM schema_migrations ORDER BY applied_at ASC, version ASC; SELECT '---HEAD---'; SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1;"
-
-_psql_head=""
-if [[ "$TEST_MODE" == true ]]; then
-  _psql_head="$("$PSQL_BIN" -d "$_psql_db_url" -Atc "SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1;" 2>&1)" || fail_exit 6 SCHEMA_VERIFICATION_FAILED "schema_head_query_failed"
-  _migration_count="$("$PSQL_BIN" -d "$_psql_db_url" -Atc "SELECT COUNT(*) FROM schema_migrations;" 2>&1)" || fail_exit 6 SCHEMA_VERIFICATION_FAILED "schema_count_query_failed"
-else
-  _psql_head="$("$PSQL_BIN" "${_psql_args[@]}" -Atc "SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1;" 2>&1)" || fail_exit 6 SCHEMA_VERIFICATION_FAILED "schema_head_query_failed"
-  _migration_count="$("$PSQL_BIN" "${_psql_args[@]}" -Atc "SELECT COUNT(*) FROM schema_migrations;" 2>&1)" || fail_exit 6 SCHEMA_VERIFICATION_FAILED "schema_count_query_failed"
-fi
-
-# Trim whitespace
-_psql_head="$(printf '%s' "$_psql_head" | tr -d '[:space:]')"
-_migration_count="$(printf '%s' "$_migration_count" | tr -d '[:space:]')"
-
-if [[ -z "$_psql_head" ]]; then
-  fail_exit 6 SCHEMA_HEAD_EMPTY "schema_head_empty"
-fi
-if [[ ! "$_migration_count" =~ ^[0-9]+$ ]] || [[ "$_migration_count" -lt 1 ]]; then
-  fail_exit 6 SCHEMA_MIGRATION_COUNT_INVALID "schema_migration_count_invalid_${_migration_count}"
-fi
-if [[ "$_psql_head" != "$OLD_HEALTH_SCHEMA_VERSION" ]]; then
-  echo "SCHEMA_HEAD_MISMATCH expected=${OLD_HEALTH_SCHEMA_VERSION} actual=${_psql_head} count=${_migration_count}" >&2
-  fail_exit 6 SCHEMA_HEAD_NOT_OLD "schema_head_not_old_expected_${OLD_HEALTH_SCHEMA_VERSION}_actual_${_psql_head}"
-fi
-
-echo "SCHEMA_HEAD_VERIFIED head=${_psql_head} count=${_migration_count}" >&2
-
-# Additional sanity: prove critical relations exist (secret-safe)
-if [[ "$TEST_MODE" == true ]]; then
-  "$PSQL_BIN" -d "$_psql_db_url" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null 2>&1 || fail_exit 6 SCHEMA_RELATION_MISSING "users_relation_missing"
-  "$PSQL_BIN" -d "$_psql_db_url" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null 2>&1 || true
-else
-  "$PSQL_BIN" "${_psql_args[@]}" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null 2>&1 || fail_exit 6 SCHEMA_RELATION_MISSING "users_relation_missing"
-  "$PSQL_BIN" "${_psql_args[@]}" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null 2>&1 || true
+# Full catalog reconciliation; neither timestamp head nor count is a gate.
+if ! "$NODE_BIN" "$RECOVERY_PROBE" verify "$OLD_RELEASE" "$OLD_HEALTH_SCHEMA_VERSION"; then
+  fail_exit 6 SCHEMA_VERIFICATION_FAILED "post_restore_catalog_or_history_refused"
 fi
 
 # ---- atomically restore HEALTH_SCHEMA_VERSION ----
@@ -589,16 +562,11 @@ if [[ "$_final_env_value" != "$OLD_HEALTH_SCHEMA_VERSION" ]]; then
   fail_exit 7 ENV_FINAL_VERIFICATION_FAILED "env_final_verification_expected_${OLD_HEALTH_SCHEMA_VERSION}_actual_${_final_env_value}"
 fi
 
-# Re-verify DB head still equals old after env restore (no race)
-if [[ "$TEST_MODE" == true ]]; then
-  _final_head="$("$PSQL_BIN" -d "$_psql_db_url" -Atc "SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1;" 2>&1)" || fail_exit 6 SCHEMA_REVERIFY_FAILED "schema_reverify_failed"
-else
-  _final_head="$("$PSQL_BIN" "${_psql_args[@]}" -Atc "SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1;" 2>&1)" || fail_exit 6 SCHEMA_REVERIFY_FAILED "schema_reverify_failed"
+# Recheck full history after the environment transition.
+if ! "$NODE_BIN" "$RECOVERY_PROBE" verify "$OLD_RELEASE" "$OLD_HEALTH_SCHEMA_VERSION"; then
+  fail_exit 6 SCHEMA_REVERIFY_FAILED "schema_reverify_failed"
 fi
-_final_head="$(printf '%s' "$_final_head" | tr -d '[:space:]')"
-if [[ "$_final_head" != "$OLD_HEALTH_SCHEMA_VERSION" ]]; then
-  fail_exit 6 SCHEMA_FINAL_MISMATCH "schema_final_mismatch_expected_${OLD_HEALTH_SCHEMA_VERSION}_actual_${_final_head}"
-fi
+_final_head="$OLD_HEALTH_SCHEMA_VERSION"
 
 log_ops "success" "restore_pass_head_${_final_head}"
 echo "RECOVERY=PASS backup=${backup_basename} head=${_final_head} env=${OLD_HEALTH_SCHEMA_VERSION} target_db=${TARGET_DB} host=${EXPECTED_HOST}"

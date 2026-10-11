@@ -576,7 +576,7 @@ describe('TEST-ENV contract — entrypoint and scope invariants', () => {
           'run',
           'tests/production-recovery.test.ts',
           '-t',
-          'restores real disposable DB',
+          'refuses unverified cross-schema real restore',
           '--reporter=json',
           `--outputFile=${reportPath}`,
         ],
@@ -593,7 +593,7 @@ describe('TEST-ENV contract — entrypoint and scope invariants', () => {
       };
       const matches = report.testResults
         .flatMap((suite) => suite.assertionResults)
-        .filter((assertion) => assertion.fullName.includes('restores real disposable DB'));
+        .filter((assertion) => assertion.fullName.includes('refuses unverified cross-schema real restore'));
 
       // The acceptance test must be present exactly once and reported as
       // SKIPPED. The old silent-skip bug (`console.warn(...); return;`) reported

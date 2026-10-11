@@ -11,6 +11,7 @@ export type RestoreCliInvocation = {
   json: boolean;
   archiveOrId?: string;
   targetDatabase?: string;
+  releaseSha?: string;
   mode: RestoreMode;
   identityPath?: string;
   expectedSha256?: string;
@@ -41,6 +42,7 @@ export function parseRestoreCliArgs(argv: readonly string[]): RestoreCliInvocati
   let json = false;
   let archiveOrId: string | undefined;
   let targetDatabase: string | undefined;
+  let releaseSha: string | undefined;
   let mode: RestoreMode = 'REHEARSAL';
   let identityPath: string | undefined;
   let expectedSha256: string | undefined;
@@ -61,6 +63,12 @@ export function parseRestoreCliArgs(argv: readonly string[]): RestoreCliInvocati
       continue;
     }
     switch (token) {
+      case '--release':
+        setOnce('--release');
+        releaseSha = valueAfter(argv, index, token);
+        if (!/^[0-9a-f]{40}$/.test(releaseSha)) throw new RestoreCliUsageError('--release must be a full commit SHA');
+        index += 1;
+        break;
       case '--remote':
         setOnce('--remote');
         remote = true;
@@ -129,7 +137,8 @@ export function parseRestoreCliArgs(argv: readonly string[]): RestoreCliInvocati
     if (!acknowledgeDestructiveRestore) {
       throw new RestoreCliUsageError('restore requires --i-accept-destructive-restore acknowledgement');
     }
-  } else if (targetDatabase || acknowledgeDestructiveRestore || targetFilesRoot || keepFailedTarget || mode !== 'REHEARSAL') {
+    if (!releaseSha) throw new RestoreCliUsageError('restore requires --release for a verified installed catalog');
+  } else if (releaseSha || targetDatabase || acknowledgeDestructiveRestore || targetFilesRoot || keepFailedTarget || mode !== 'REHEARSAL') {
     throw new RestoreCliUsageError('restore-only options were supplied to a read-only command');
   }
   return {
@@ -138,6 +147,7 @@ export function parseRestoreCliArgs(argv: readonly string[]): RestoreCliInvocati
     json,
     archiveOrId,
     targetDatabase,
+    releaseSha,
     mode,
     identityPath,
     expectedSha256,
@@ -177,6 +187,7 @@ function serviceFor(invocation: RestoreCliInvocation, signal: AbortSignal): Rest
   const instanceId = needsRemote ? requiredEnvironment('BACKUP_INSTANCE_ID') : undefined;
   if (instanceId && !validateBackupInstanceId(instanceId)) throw new RestoreOperationError('BACKUP_INSTANCE_ID is invalid');
   return new RestoreService({
+    releaseSha: invocation.releaseSha,
     storage,
     instanceId,
     targetAdminDatabaseUrl: process.env.RESTORE_TARGET_DATABASE_URL,

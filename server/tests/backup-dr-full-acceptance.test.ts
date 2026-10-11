@@ -15,7 +15,7 @@ import path from 'node:path';
 
 import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import { PostgresMigrationStore } from '../src/db/index.js';
@@ -35,6 +35,7 @@ import { BackupService } from '../src/modules/backup/service.js';
 import { BackupWorker } from '../src/modules/backup/worker.js';
 import { buildRemoteObjectKey } from '../src/modules/backup/object-keys.js';
 import { RestoreService } from '../src/modules/backup/restore/service.js';
+import { createRecoveryReleaseFixture } from './helpers/recovery-release-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -315,6 +316,11 @@ describe.skipIf(
     }
 
     const root = await mkdtemp(path.join(os.tmpdir(), 'br7-full-dr-'));
+    const recoveryCatalog = await loadMigrationCatalog(migrationsDirectory);
+    const releaseSha = 'a'.repeat(40);
+    const releasesRoot = path.join(root, 'recovery-releases');
+    createRecoveryReleaseFixture(releasesRoot, releaseSha, recoveryCatalog.entries);
+    vi.stubEnv('RECOVERY_RELEASES_ROOT', releasesRoot);
     const sourceFilesRoot = path.join(root, 'source-files');
     const restoredFilesRoot = path.join(root, 'restored-files');
     if (realR2 && process.env.BACKUP_FILES_ROOT?.trim()) {
@@ -474,6 +480,7 @@ describe.skipIf(
           RESTORE_WORKSPACE_ROOT: path.join(root, 'restore-workspaces'),
           RESTORE_EVIDENCE_DIR: path.join(root, 'restore-evidence'),
           BACKUP_FILES_ROOT: sourceFilesRoot,
+          RECOVERY_RELEASES_ROOT: releasesRoot,
         };
         delete cliEnv.DATABASE_URL;
         delete cliEnv.RESTORE_CONTROL_DATABASE_URL;
@@ -518,6 +525,7 @@ describe.skipIf(
           'restore',
           queued.id,
           '--remote',
+          '--release', releaseSha,
           '--mode', 'disaster-recovery',
           '--target-db', targetDb,
           '--target-files-root', restoredFilesRoot,
@@ -531,6 +539,7 @@ describe.skipIf(
           ...(r2Client ? { client: r2Client } : {}),
         });
         const restoreService = new RestoreService({
+          releaseSha,
           storage: restoreStorage,
           instanceId,
           identityPath,
@@ -659,6 +668,7 @@ describe.skipIf(
       }
       throw error;
     } finally {
+      vi.unstubAllEnvs();
       await app?.close().catch(() => undefined);
       await sourcePool?.end().catch(() => undefined);
       await targetPool?.end().catch(() => undefined);

@@ -177,3 +177,36 @@ On the macOS pilot host, use `ops/launchd/com.servora-med.backup.plist.example` 
 No web-based restore or production database cutover UI is provided. The Admin
 Backup & Recovery UI/API is capability-gated and does not replace the
 operator-controlled restore, rehearsal, or cutover workflow.
+
+## Recovery safety remediation R1–R3
+
+The legacy `production-recovery.sh` supports only target, backup and verified
+installed release catalogs that are exactly the same. It no longer supports
+in-place schema downgrade after a partial or completed migration. In particular,
+055 backup → 056 target is refused before target mutation, and no health-schema
+transition is made. Missing release markers/catalogs also fail closed.
+
+Before target restore, the helper verifies full canonical target history and reads
+the dump ledger with read-only pg_restore output. Unsupported ledger/COPY layouts
+and incompatible histories stop before database creation. It then restores the
+actual dump to a newly created scratch database, verifies its full history
+and critical relations, rechecks the target and checksum, then restores with
+`--clean --if-exists --single-transaction --exit-on-error`. Full history is checked
+again before and after the existing atomic health-schema file transition. Scratch
+cleanup only drops this invocation's new target. CREATEDB permission, capacity
+for the temporary validation database and the built reviewed recovery probe are
+required; standalone copies without the probe are refused.
+
+Run recovery only in a separately authorized maintenance window with writers,
+workers, backup/deployment invocations and schema changes quiescent. These checks
+do not provide an independent proof of historical SQL execution or arbitrary
+manual schema drift. Restoring a backup deliberately rewinds business data to
+that restore point; transaction atomicity is not a promise of zero data loss.
+Backup observation/checksums do not replace actual restore acceptance.
+
+New-target BR7 restore uses an explicit verified installed release catalog and
+full-history validation before `READY_FOR_CUTOVER`; it never mutates the live DB
+or automatically switches configuration. See [BR7 CLI](./backup-recovery/br7-restore-cli.md).
+Migration 056 deployment still requires the separate R4 host forward-recovery
+acceptance. An old 055 application continues to reject a 056 database as AHEAD.
+No production action is authorized by this remediation.

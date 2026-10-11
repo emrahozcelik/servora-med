@@ -1,4 +1,6 @@
 import { Pool } from 'pg';
+import type { MigrationCatalog } from '../../../db/migration-catalog.js';
+import { assertExactRecoveryHistory, assertExactRecoveryVersions } from '../../../db/recovery-catalog.js';
 
 import { parseToolVersion, resolveBinary, runBinary, type ParsedToolVersion } from '../process.js';
 import type { RestoreManifestV1 } from './manifest.js';
@@ -100,8 +102,9 @@ export function postgresConnectionEnv(databaseUrl: string, databaseOverride?: st
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     LANG: process.env.LANG ?? 'C.UTF-8',
-    PGHOST: url.hostname || '127.0.0.1',
+    PGHOST: url.hostname.replace(/^\[(.*)\]$/, '$1') || '127.0.0.1',
     PGDATABASE: databaseOverride ?? databaseNameFromUrl(databaseUrl),
+    PGPASSFILE: process.env.PGPASSFILE,
   };
   if (url.port) env.PGPORT = url.port;
   if (url.username) env.PGUSER = decodeURIComponent(url.username);
@@ -156,6 +159,44 @@ export async function inspectPgDumpArchive(input: {
   }
 }
 
+/** Read the canonical COPY ledger without executing any archive SQL. The
+ * reviewed backup producer uses custom-format pg_dump's default COPY data.
+ * Alternate ledger layouts/INSERT formats are unsupported and fail closed.
+ */
+export async function validateDumpMigrationHistory(input: {
+  dumpPath: string; databaseUrlForEnv: string; catalog: MigrationCatalog;
+  expectedHead: string; pgRestoreBin?: string; signal?: AbortSignal;
+}): Promise<void> {
+  try {
+    const output = await runBinary(resolveBinary(input.pgRestoreBin ?? process.env.PG_RESTORE_BIN, 'pg_restore'),
+      ['--data-only', '--table=schema_migrations', '--file=-', input.dumpPath], {
+        timeoutMs: 60_000, signal: input.signal,
+        env: postgresConnectionEnv(input.databaseUrlForEnv, 'postgres'),
+      });
+    const versions: string[] = [];
+    let started = false, ended = false;
+    for (const line of output.stdout.split('\n')) {
+      if (line.startsWith('COPY ')) {
+        if (started || line !== 'COPY public.schema_migrations (version, applied_at) FROM stdin;') {
+          throw new Error('unsupported ledger COPY');
+        }
+        started = true;
+      } else if (started && !ended) {
+        if (line === '\\.') { ended = true; continue; }
+        const fields = line.split('\t');
+        if (fields.length !== 2) throw new Error('invalid ledger COPY row');
+        versions.push(fields[0]!);
+      }
+    }
+    if (!started || !ended) throw new Error('ledger COPY is missing');
+    assertExactRecoveryVersions(versions.sort(), input.catalog, input.expectedHead);
+  } catch (error) {
+    const reason = error instanceof Error && /^RECOVERY_[A-Z_]+$/.test(error.message)
+      ? error.message : 'backup migration history does not match the verified catalog';
+    throw new RestorePostgresError(reason, 'RESTORE_INTEGRITY_FAILED');
+  }
+}
+
 async function databaseExists(pool: Pool, database: string): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     'SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists',
@@ -177,7 +218,7 @@ export async function restoreDumpIntoNewDatabase(input: {
   adminDatabaseUrl: string;
   targetDatabase: string;
   dumpPath: string;
-  manifest: RestoreManifestV1;
+  sourceServerVersion: string;
   productionDatabaseUrl?: string | null;
   pgRestoreBin?: string;
   keepFailedTarget?: boolean;
@@ -195,7 +236,7 @@ export async function restoreDumpIntoNewDatabase(input: {
     }
     const restoreVersion = await inspectPgDumpArchive({
       dumpPath: input.dumpPath,
-      sourceServerVersion: input.manifest.database.serverVersion,
+      sourceServerVersion: input.sourceServerVersion,
       pgRestoreBin,
       databaseUrlForEnv: input.adminDatabaseUrl,
       signal: input.signal,
@@ -239,7 +280,8 @@ export type RestoredDatabaseEvidence = {
 /** Validate schema and a small set of domain invariants without emitting rows. */
 export async function validateRestoredDatabase(
   databaseUrl: string,
-  manifest: RestoreManifestV1,
+  manifest: Pick<RestoreManifestV1, 'database'>,
+  catalog: MigrationCatalog,
 ): Promise<RestoredDatabaseEvidence> {
   const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5_000 });
   try {
@@ -249,13 +291,7 @@ export async function validateRestoredDatabase(
       if (!result.rows[0]?.relation) throw new RestorePostgresError(`required relation is missing: ${relation}`, 'RESTORE_INTEGRITY_FAILED');
       relations.push(relation);
     }
-    const schema = await pool.query<{ version: string }>(
-      'SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1',
-    );
-    const schemaVersion = schema.rows[0]?.version;
-    if (!schemaVersion || schemaVersion !== manifest.database.schemaVersion) {
-      throw new RestorePostgresError('restored schema version does not match the manifest', 'RESTORE_INTEGRITY_FAILED');
-    }
+    const schemaVersion = await assertExactRecoveryHistory(pool, catalog, manifest.database.schemaVersion);
     const counts = await pool.query<{
       users: string;
       job_cards: string;

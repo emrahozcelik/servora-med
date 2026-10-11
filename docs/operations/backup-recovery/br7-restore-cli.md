@@ -16,6 +16,7 @@ node bin/servora-backup.js inspect <backup-uuid>
 node bin/servora-backup.js verify <backup-uuid>
 node bin/servora-backup.js restore <backup-uuid> \
   --target-db servora_dr_20260823 \
+  --release <full-verified-installed-release-sha> \
   --mode disaster-recovery \
   --identity /secure/operator/servora-age-identity.txt \
   --i-accept-destructive-restore
@@ -30,6 +31,34 @@ before showing safe manifest fields. `verify` additionally runs `pg_restore -l`.
 `restore` reports `READY_FOR_CUTOVER` only after the new target, schema, domain,
 and (when present) files-root checks pass. It never reports production
 cutover or `COMPLETED`.
+
+## Verified release catalog (R1–R3)
+
+Restore requires `--release <40-hex>` selecting an existing immutable release
+under `/opt/servora-med/releases`. Its root-owned mode-0600 artifact/content
+markers and every catalog SQL hash must validate; directories and SQL files
+must be root-owned, non-symlink and group/other non-writable. This uses the
+reviewed host installation contract; it does not invent authenticity from a
+SHA-shaped value. Operator access to the protected markers is required.
+
+The entire restored history is read with `version ASC` and reconciled through
+`MigrationCatalog`/`compareMigrationState`. Only non-empty EXACT compatibility
+is accepted. The actual dump ledger is also extracted read-only before target
+creation; only the reviewed producer's public schema_migrations COPY layout is
+supported. Alternate INSERT/ledger layouts fail closed. No guessed prefix or
+head/count shortcut is used. The manifest
+head must match the verified catalog; a non-null manifest gitCommit must match
+the selected release. A null gitCommit is not a release authentication claim.
+Safe restore evidence records the selected release and installed artifact hash.
+
+`inspect`/`verify` remain package/checksum inspections and accept historical
+backups; neither proves schema compatibility or authorizes cutover. Fresh-host
+DR without a verified installed catalog now stops. Provisioning that trusted
+release on a fresh host is a separate operator acceptance task, not an automatic
+repair or an override. No source metadata database is needed to read the catalog.
+
+Canonical version order proves inventory compatibility, not independent
+historical execution/commit order or cryptographic backup authenticity.
 
 ## Environment contract
 
