@@ -60,6 +60,13 @@ const getCustomerHandler = (payload: unknown): Handler => ({
   match: (url) => url === '/api/customers/c1',
   reply: () => json(payload),
 });
+const getScopeHandler = (canCreateContact: boolean): Handler => ({
+  match: (url) => url === '/api/customers/c1/enrichment',
+  reply: () => json({ canEnrich: canCreateContact, canCreateContact }),
+});
+function findButton(container: HTMLDivElement, text: string) {
+  return Array.from(container.querySelectorAll('button')).find((button) => button.textContent === text);
+}
 
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype
@@ -93,11 +100,14 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
   it('lists only active contacts and saves the selected reference in the patch body', async () => {
-    vi.stubGlobal('fetch', fetchRouter([getCustomerHandler(customerPayload([
-      contactPayload({ id: 'ct-1', name: 'Dr. Deniz' }),
-      contactPayload({ id: 'ct-2', name: 'Sekreter Ece', title: null, isPrimary: false }),
-      contactPayload({ id: 'ct-3', name: 'Eski kişi', isActive: false, isPrimary: false }),
-    ]))]));
+    vi.stubGlobal('fetch', fetchRouter([
+      getCustomerHandler(customerPayload([
+        contactPayload({ id: 'ct-1', name: 'Dr. Deniz' }),
+        contactPayload({ id: 'ct-2', name: 'Sekreter Ece', title: null, isPrimary: false }),
+        contactPayload({ id: 'ct-3', name: 'Eski kişi', isActive: false, isPrimary: false }),
+      ])),
+      getScopeHandler(true),
+    ]));
     const onSave = vi.fn(async (input: PatchMeetingDetailsInput) => ({ ...details, ...input, jobCardVersion: 4 }));
     await renderSection(root, { onSave });
     await settleTwice();
@@ -114,9 +124,12 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
   });
 
   it('keeps a persisted inactive selection visible as a disabled historical option', async () => {
-    vi.stubGlobal('fetch', fetchRouter([getCustomerHandler(customerPayload([
-      contactPayload({ id: 'ct-1', name: 'Dr. Deniz' }),
-    ]))]));
+    vi.stubGlobal('fetch', fetchRouter([
+      getCustomerHandler(customerPayload([
+        contactPayload({ id: 'ct-1', name: 'Dr. Deniz' }),
+      ])),
+      getScopeHandler(true),
+    ]));
     const persisted = {
       ...details, metContactId: 'ct-9',
       metContact: { id: 'ct-9', name: 'Eski kişi', title: 'Uzm.' },
@@ -129,11 +142,16 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
   });
 
   it('shows a retry affordance when the contact list fails to load', async () => {
-    let calls = 0;
+    let customerCalls = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      calls += 1;
-      if (calls === 1) throw new Error('network down');
-      return json(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })]));
+      const url = String(input);
+      if (url === '/api/customers/c1') {
+        customerCalls += 1;
+        if (customerCalls === 1) throw new Error('network down');
+        return json(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })]));
+      }
+      if (url === '/api/customers/c1/enrichment') return json({ canEnrich: true, canCreateContact: true });
+      throw new Error(`unexpected fetch: ${url}`);
     }));
     await renderSection(root);
     await settleTwice();
@@ -147,6 +165,30 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
       { label: 'Kişi seçilmedi', value: '', disabled: false },
       { label: 'Dr. Deniz — Başhekim', value: 'ct-1', disabled: false },
     ]);
+    expect(findButton(container, 'Yeni ilgili kişi ekle')).toBeDefined();
+  });
+
+  it('hides the inline contact create without the scoped capability', async () => {
+    vi.stubGlobal('fetch', fetchRouter([
+      getCustomerHandler(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })])),
+      getScopeHandler(false),
+    ]));
+    await renderSection(root);
+    await settleTwice();
+    expect(optionLabels(container)).toContainEqual(
+      { label: 'Dr. Deniz — Başhekim', value: 'ct-1', disabled: false },
+    );
+    expect(findButton(container, 'Yeni ilgili kişi ekle')).toBeUndefined();
+  });
+
+  it('fails closed when the enrichment scope read fails', async () => {
+    vi.stubGlobal('fetch', fetchRouter([
+      getCustomerHandler(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })])),
+    ]));
+    await renderSection(root);
+    await settleTwice();
+    expect(optionLabels(container).length).toBeGreaterThan(1);
+    expect(findButton(container, 'Yeni ilgili kişi ekle')).toBeUndefined();
   });
 
   it('creates a scoped contact inline, selects it and preserves the meeting draft', async () => {
@@ -154,6 +196,7 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
     const createdCustomer = customerPayload([], { version: 8 });
     vi.stubGlobal('fetch', fetchRouter([
       getCustomerHandler(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })])),
+      getScopeHandler(true),
       {
         match: (url, init) => url === '/api/customers/c1/enrichment/contacts' && init?.method === 'POST',
         reply: (init) => {
@@ -187,6 +230,7 @@ describe('MeetingDetailsSection görüşülen kişi', () => {
   it('fails closed on a forbidden inline creation and keeps the draft', async () => {
     vi.stubGlobal('fetch', fetchRouter([
       getCustomerHandler(customerPayload([contactPayload({ id: 'ct-1', name: 'Dr. Deniz' })])),
+      getScopeHandler(true),
       {
         match: (url, init) => url === '/api/customers/c1/enrichment/contacts' && init?.method === 'POST',
         reply: () => json({ error: 'Bu işlem için yetkiniz yok.', code: 'FORBIDDEN' }, 403),

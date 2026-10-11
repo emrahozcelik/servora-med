@@ -86,6 +86,8 @@ import {
   type MeetingDetails,
   type MeetingDetailsCandidate,
   type MeetingDetailsContact,
+  type MeetingDetailsLegacyResponse,
+  type MeetingDetailsReaderResponse,
   type MeetingDetailsView,
   type PatchMeetingDetailsInput,
   type ApproveFollowUpInput,
@@ -480,6 +482,27 @@ function meetingDetailsResponse(
     metContact: details.metContact ?? null,
     jobCardVersion,
   };
+}
+
+/**
+ * Slice 3 reader projection. The canonical response (persisted in the
+ * idempotency receipt) always carries the met-contact fields; this boundary
+ * maps it to the requested reader shape:
+ * - legacy readers never receive `metContactId`/`metContact`;
+ * - opted-in readers always receive both keys, including replays of pre-056
+ *   receipts that predate the met-contact column (truthfully `null`).
+ */
+function projectMeetingDetailsResponse(
+  response: MeetingDetails | MeetingDetailsLegacyResponse,
+  includeMetContact: boolean,
+): MeetingDetailsReaderResponse {
+  const carriesMetFields = Object.hasOwn(response, 'metContactId');
+  if (includeMetContact === carriesMetFields) return response;
+  if (!includeMetContact) {
+    const { metContactId: _metContactId, metContact: _metContact, ...legacy } = response as MeetingDetails;
+    return legacy;
+  }
+  return { ...response, metContactId: null, metContact: null };
 }
 
 const DELIVERY_FIELDS = [
@@ -2108,7 +2131,11 @@ export class JobCardService {
     return this.presentDetail(this.repository, actor, job, evaluatedAt, undefined, options);
   }
 
-  async getMeetingDetails(actor: JobCardActor, jobCardId: string) {
+  async getMeetingDetails(
+    actor: JobCardActor,
+    jobCardId: string,
+    options?: { includeMetContactCapability?: boolean },
+  ) {
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -2117,13 +2144,17 @@ export class JobCardService {
     assertCanViewMeetingResult(actor, job);
     const details = await this.repository.findMeetingDetails(actor.organizationId, jobCardId);
     if (!details) invariantViolation();
-    return meetingDetailsResponse(jobCardId, job.version, details);
+    return projectMeetingDetailsResponse(
+      meetingDetailsResponse(jobCardId, job.version, details),
+      options?.includeMetContactCapability === true,
+    );
   }
 
   async patchMeetingDetails(
     actor: JobCardActor,
     jobCardId: string,
     input: PatchMeetingDetailsInput,
+    options?: { includeMetContactCapability?: boolean },
   ) {
     const clientActionId = requireActionId(input.clientActionId);
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
@@ -2181,21 +2212,31 @@ export class JobCardService {
         };
         // Görüşülen kişi must belong to this job's customer, live in the same
         // organization and be active; the row lock keeps the check race-free.
+        // A resubmitted unchanged reference is never re-validated: a contact
+        // deactivated after the visit stays a valid historical reference, so
+        // editing other meeting fields must not be blocked by it.
+        const metContactChanged = metContactId !== (current.metContactId ?? null);
         let metContact: MeetingDetailsContact | null = null;
         if (metContactId !== null) {
           const contact = await transaction.getContactForUpdate(actor.organizationId, metContactId);
           if (!contact) {
             throw new AppError('CONTACT_NOT_FOUND', 404, 'İlgili kişi bulunamadı.');
           }
-          if (job.customerId === null || contact.customerId !== job.customerId) {
-            throw new AppError(
-              'CONTACT_NOT_IN_CUSTOMER',
-              409,
-              'İlgili kişi seçilen müşteriye bağlı değil.',
-            );
-          }
-          if (!contact.isActive) {
-            throw new AppError('CONTACT_INACTIVE', 409, 'Pasif ilgili kişi iş kartında kullanılamaz.');
+          if (metContactChanged) {
+            if (job.customerId === null || contact.customerId !== job.customerId) {
+              throw new AppError(
+                'CONTACT_NOT_IN_CUSTOMER',
+                409,
+                'İlgili kişi seçilen müşteriye bağlı değil.',
+              );
+            }
+            if (!contact.isActive) {
+              throw new AppError(
+                'CONTACT_INACTIVE',
+                409,
+                'Pasif ilgili kişi iş kartında kullanılamaz.',
+              );
+            }
           }
           metContact = { id: contact.id, name: contact.name, title: contact.title };
         }
@@ -2262,7 +2303,13 @@ export class JobCardService {
     if (result.kind === 'completed') {
       this.publishRealtime(result.realtimeEvents);
     }
-    return result.response;
+    // The receipt always stores the canonical shape; the reader gate maps it
+    // to the caller's bundle (legacy readers never see the met fields, and an
+    // opted-in replay of a pre-056 receipt reports them as not recorded).
+    return projectMeetingDetailsResponse(
+      result.response,
+      options?.includeMetContactCapability === true,
+    );
   }
 
   async patch(actor: JobCardActor, jobCardId: string, input: PatchInput) {

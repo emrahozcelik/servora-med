@@ -72,6 +72,17 @@ function includeSubmitLocationCapability(raw: unknown) {
   return (raw as Record<string, unknown>).includeSubmitLocationCapability === 'true';
 }
 
+/**
+ * Slice 3 reader gate for the meeting-details met-contact fields. Meeting
+ * detail responses historically ignore unknown query keys, so previous
+ * bundles (which never send this parameter) keep the legacy response shape;
+ * only an explicit opt-in receives `metContactId`/`metContact`.
+ */
+function includeMetContactCapability(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  return (raw as Record<string, unknown>).includeMetContactCapability === 'true';
+}
+
 /** Positive-integer route parameter (e.g. an immutable submission seq). */
 function positiveIntegerParam(raw: unknown, field: string) {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
@@ -199,12 +210,17 @@ export function createJobCardHandlers(service: JobCardService) {
       { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
     ),
     meetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.getMeetingDetails(actor(request), parseMeetingJobCardId(request.params.id)),
+      service.getMeetingDetails(
+        actor(request),
+        parseMeetingJobCardId(request.params.id),
+        { includeMetContactCapability: includeMetContactCapability(request.query) },
+      ),
     patchMeetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patchMeetingDetails(
         actor(request),
         parseMeetingJobCardId(request.params.id),
         parseMeetingDetailsPatch(request.body),
+        { includeMetContactCapability: includeMetContactCapability(request.query) },
       ),
     patch: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patch(actor(request), request.params.id, body(request, PATCH_FIELDS) as never),

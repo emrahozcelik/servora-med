@@ -1078,10 +1078,20 @@ export const patchJobCard = async (id: string, input: PatchJobCardInput): Promis
       : null,
   };
 };
+/**
+ * Slice 3 reader gate: the backend only serializes `metContactId`/`metContact`
+ * for readers that explicitly opt in, so previous bundles (strict response
+ * parsers) keep receiving the shape they understand. This bundle always opts
+ * in on both meeting-details reads and writes.
+ */
 export const getMeetingDetails = async (id: string) =>
-  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`));
+  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details${query({
+    includeMetContactCapability: 'true',
+  })}`));
 export const patchMeetingDetails = async (id: string, input: PatchMeetingDetailsInput) =>
-  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`, json('PATCH', input)));
+  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details${query({
+    includeMetContactCapability: 'true',
+  })}`, json('PATCH', input)));
 
 export const listJobCardNotes = async (
   id: string,

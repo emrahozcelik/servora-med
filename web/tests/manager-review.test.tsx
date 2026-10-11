@@ -350,7 +350,7 @@ describe('Manager review', () => {
           ),
         });
       }
-      if (url.endsWith('/meeting-details')) return Response.json(details);
+      if (url.includes('/meeting-details')) return Response.json(details);
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
       if (url.startsWith('/api/customers?')) {
@@ -596,7 +596,7 @@ describe('Manager review', () => {
           ),
         });
       }
-      if (url.endsWith('/meeting-details')) return Response.json(details);
+      if (url.includes('/meeting-details')) return Response.json(details);
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
       if (url.startsWith('/api/customers?')) {
@@ -735,7 +735,7 @@ describe('Manager review', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith('/delivery-items')) { deliveryReads += 1; return Response.json({ items: [] }); }
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         meetingReads += 1; return Response.json({
           jobCardId: 'job-1', meetingAt: null,
           outcome: null, meetingSummary: null, nextFollowUpAt: null,
@@ -785,7 +785,7 @@ describe('Manager review', () => {
       let meetingReads = 0;
       vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
         if (url.includes('/notes?')) return Response.json(page);
         if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
         if (detailUrlMatches(url, 'job-1')) return Response.json(meeting);
@@ -823,7 +823,7 @@ describe('Manager review', () => {
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         return Response.json({
           jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
           nextFollowUpAt: null, metContactId: null, metContact: null, jobCardVersion: meeting.version,
@@ -911,7 +911,7 @@ describe('Manager review', () => {
     let jobReads = 0; let meetingReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith('/meeting-details')) {
+      if (url.includes('/meeting-details')) {
         meetingReads += 1;
         return Response.json({
           jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,

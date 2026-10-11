@@ -419,7 +419,10 @@ export class PostgresCrmRepository implements CrmRepository {
     if (!row) return null;
     const contacts = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
     );
@@ -446,7 +449,10 @@ export class PostgresCrmRepository implements CrmRepository {
     const pageValues = [...values, limit, filters.offset];
     const items = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE ${condition}
        ORDER BY is_primary DESC, name, id LIMIT $${pageValues.length - 1} OFFSET $${pageValues.length}`,
       pageValues,
@@ -458,7 +464,10 @@ export class PostgresCrmRepository implements CrmRepository {
   async getContact(organizationId: string, customerId: string, contactId: string) {
     const result = await this.pool.query<ContactWithHistoryRow>(
       `SELECT ${CONTACT_COLUMNS},
-         EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id) AS has_operation_history
+         (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_meeting_details m
+                    WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+         ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND id=$3`, [organizationId, customerId, contactId],
     );
     return result.rows[0] ? mapContactDetail(result.rows[0]) : null;

@@ -470,7 +470,10 @@ describe('JobCard workspace transport', () => {
 
     await expect(getMeetingDetails('job-1')).resolves.toEqual(details);
     await expect(patchMeetingDetails('job-1', input)).resolves.toEqual(details);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/meeting-details',
+    expect(fetchMock).toHaveBeenNthCalledWith(1,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true', expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify(input) }));
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...details, unexpected: true })));
@@ -502,11 +505,13 @@ describe('JobCard workspace transport', () => {
     await expect(getMeetingDetails('job-1')).resolves.toEqual(details);
     const input = { clientActionId: 'met-save', expectedVersion: 9, metContactId: 'ct-9' };
     await expect(patchMeetingDetails('job-1', input)).resolves.toEqual(details);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/meeting-details',
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify(input) }));
     const cleared = { clientActionId: 'met-clear', expectedVersion: 9, metContactId: null };
     await expect(patchMeetingDetails('job-1', cleared)).resolves.toEqual(details);
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/job-cards/job-1/meeting-details',
+    expect(fetchMock).toHaveBeenNthCalledWith(3,
+      '/api/job-cards/job-1/meeting-details?includeMetContactCapability=true',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify(cleared) }));
   });
 

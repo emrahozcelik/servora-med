@@ -367,7 +367,9 @@ describe('Sales Meeting detail reads and mutations', () => {
     const repository = new SalesMeetingRepository();
     const job = repository.seedMeeting();
 
-    await expect(new JobCardService(repository).getMeetingDetails(staff, job.id))
+    await expect(new JobCardService(repository).getMeetingDetails(staff, job.id, {
+      includeMetContactCapability: true,
+    }))
       .resolves.toEqual({
         jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',
         outcome: 'NO_DECISION', unsuccessfulReason: null, meetingSummary: 'İlk görüşme yapıldı.',
@@ -428,7 +430,9 @@ describe('Sales Meeting detail reads and mutations', () => {
     const repository = new SalesMeetingRepository();
     const job = repository.seedMeeting();
 
-    const result = await new JobCardService(repository).patchMeetingDetails(staff, job.id, patch);
+    const result = await new JobCardService(repository).patchMeetingDetails(
+      staff, job.id, patch, { includeMetContactCapability: true },
+    );
 
     expect(result).toEqual({
       jobCardId: job.id, meetingAt: '2026-07-15T10:00:00.000Z',

@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { meetingDetailsUpdateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 import { PostgresCrmRepository } from '../src/modules/crm/repository.js';
@@ -148,7 +149,7 @@ async function fixture() {
       outcome: 'POSITIVE',
       meetingSummary: 'Görüşme olumlu geçti.',
       ...(metContactId === undefined ? {} : { metContactId }),
-    });
+    }, { includeMetContactCapability: true });
   }
 
   const state = async (jobId: string) => {
@@ -181,7 +182,7 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     const job = await f.startedMeeting();
     const result = await f.service.patchMeetingDetails(f.staff, job.id, {
       clientActionId: 'met-assign', expectedVersion: job.version, metContactId: f.contactId,
-    });
+    }, { includeMetContactCapability: true });
     expect(result.metContactId).toBe(f.contactId);
     expect(result.metContact).toEqual({ id: f.contactId, name: 'Dr. Deniz', title: 'Başhekim' });
     expect(result.jobCardVersion).toBe(job.version + 1);
@@ -189,7 +190,7 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     expect(after.meeting.met_contact_id).toBe(f.contactId);
     expect(after.activities).toHaveLength(1);
     expect(after.activities[0]!.metadata.changedFields).toEqual(['metContactId']);
-    const read = await f.service.getMeetingDetails(f.staff, job.id);
+    const read = await f.service.getMeetingDetails(f.staff, job.id, { includeMetContactCapability: true });
     expect(read.metContactId).toBe(f.contactId);
     expect(read.metContact).toEqual({ id: f.contactId, name: 'Dr. Deniz', title: 'Başhekim' });
   });
@@ -328,10 +329,10 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     const concurrent = await Promise.allSettled([
       f.service.patchMeetingDetails(f.staff, job.id, {
         clientActionId: 'met-race-a', expectedVersion: job.version, metContactId: f.contactId,
-      }),
+      }, { includeMetContactCapability: true }),
       f.service.patchMeetingDetails(f.staff, job.id, {
         clientActionId: 'met-race-b', expectedVersion: job.version, metContactId: f.secondContactId,
-      }),
+      }, { includeMetContactCapability: true }),
     ]);
     expect(concurrent.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(concurrent.filter((r) => r.status === 'rejected')).toHaveLength(1);
@@ -348,8 +349,12 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     const payload = {
       clientActionId: 'met-idempotent', expectedVersion: job.version, metContactId: f.contactId,
     };
-    const first = await f.service.patchMeetingDetails(f.staff, job.id, payload);
-    const replay = await f.service.patchMeetingDetails(f.staff, job.id, payload);
+    const first = await f.service.patchMeetingDetails(
+      f.staff, job.id, payload, { includeMetContactCapability: true },
+    );
+    const replay = await f.service.patchMeetingDetails(
+      f.staff, job.id, payload, { includeMetContactCapability: true },
+    );
     expect(replay).toEqual(first);
     const afterReplay = await f.state(job.id);
     expect(afterReplay.activities).toHaveLength(1);
@@ -390,7 +395,7 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     expect(assigned.metContactId).toBe(f.contactId);
     const cleared = await f.service.patchMeetingDetails(f.staff, job.id, {
       clientActionId: 'met-clear', expectedVersion: assigned.jobCardVersion, metContactId: null,
-    });
+    }, { includeMetContactCapability: true });
     expect(cleared.metContactId).toBeNull();
     expect(cleared.metContact).toBeNull();
     const after = await f.state(job.id);
@@ -418,7 +423,7 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
     const job = await f.startedMeeting();
     const result = await f.service.patchMeetingDetails(f.manager, job.id, {
       clientActionId: 'met-manager', expectedVersion: job.version, metContactId: f.secondContactId,
-    });
+    }, { includeMetContactCapability: true });
     expect(result.metContact).toEqual({ id: f.secondContactId, name: 'Sekreter Ece', title: null });
     const after = await f.state(job.id);
     expect(after.meeting.met_contact_id).toBe(f.secondContactId);
@@ -445,8 +450,162 @@ describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () 
       f.crmManager, f.customerId, f.contactId, contact.version,
     );
     expect(deactivated.isActive).toBe(false);
-    const read = await f.service.getMeetingDetails(f.staff, job.id);
+    const read = await f.service.getMeetingDetails(f.staff, job.id, { includeMetContactCapability: true });
     expect(read.metContact).toEqual({ id: f.contactId, name: 'Dr. Deniz', title: 'Başhekim' });
     expect((await f.state(job.id)).meeting.met_contact_id).toBe(f.contactId);
+  });
+
+  it('reader gate: legacy shapes exclude met fields and the opt-in always includes them', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const legacyKeys = [
+      'jobCardId', 'jobCardVersion', 'meetingAt', 'meetingSummary', 'nextFollowUpAt',
+      'outcome', 'unsuccessfulReason',
+    ];
+    const legacyRead = await f.service.getMeetingDetails(f.staff, job.id);
+    expect(Object.keys(legacyRead).sort()).toEqual(legacyKeys);
+    expect(legacyRead).not.toHaveProperty('metContactId');
+    expect(legacyRead).not.toHaveProperty('metContact');
+
+    const optInRead = await f.service.getMeetingDetails(f.staff, job.id, {
+      includeMetContactCapability: true,
+    });
+    expect(Object.keys(optInRead).sort()).toEqual(
+      [...legacyKeys, 'metContact', 'metContactId'].sort(),
+    );
+    expect(optInRead).toMatchObject({ metContactId: null, metContact: null });
+
+    const legacyPatch = await f.service.patchMeetingDetails(f.staff, job.id, {
+      clientActionId: 'met-gate-legacy', expectedVersion: job.version,
+      metContactId: f.contactId,
+    });
+    expect(Object.keys(legacyPatch).sort()).toEqual(legacyKeys);
+    expect(legacyPatch).not.toHaveProperty('metContactId');
+    const persistedAfterLegacy = (await pool!.query<{ met_contact_id: string | null }>(
+      'SELECT met_contact_id FROM job_card_meeting_details WHERE job_card_id = $1', [job.id],
+    )).rows[0]!;
+    expect(persistedAfterLegacy.met_contact_id).toBe(f.contactId);
+
+    const optInPatch = await f.service.patchMeetingDetails(f.staff, job.id, {
+      clientActionId: 'met-gate-optin', expectedVersion: job.version + 1,
+      metContactId: f.secondContactId,
+    }, { includeMetContactCapability: true });
+    expect(Object.keys(optInPatch).sort()).toEqual(
+      [...legacyKeys, 'metContact', 'metContactId'].sort(),
+    );
+    expect(optInPatch.metContactId).toBe(f.secondContactId);
+  });
+
+  it('keeps editing other fields when the unchanged met contact was deactivated later', async () => {
+    const f = await fixture();
+    // No planned contact so deactivation only faces the met reference.
+    const job = await f.startedMeeting(f.customerId, f.staff, null);
+    const assigned = await f.readyResult(job.id, job.version, f.contactId);
+    expect(assigned.metContactId).toBe(f.contactId);
+    const contact = (await pool!.query<{ version: number }>(
+      'SELECT version FROM contacts WHERE id = $1', [f.contactId],
+    )).rows[0]!;
+    await f.crmService.deactivateContact(f.crmManager, f.customerId, f.contactId, contact.version);
+
+    const updated = await f.service.patchMeetingDetails(f.staff, job.id, {
+      clientActionId: 'met-inactive-unchanged', expectedVersion: assigned.jobCardVersion,
+      metContactId: f.contactId, meetingSummary: 'Kişi pasifleşti; özet güncellendi.',
+    }, { includeMetContactCapability: true });
+    expect(updated.metContactId).toBe(f.contactId);
+    expect(updated.metContact).toEqual({ id: f.contactId, name: 'Dr. Deniz', title: 'Başhekim' });
+    const after = await f.state(job.id);
+    expect(after.meeting.met_contact_id).toBe(f.contactId);
+    expect(after.meeting.meeting_summary).toBe('Kişi pasifleşti; özet güncellendi.');
+    expect(after.activities.at(-1)!.metadata.changedFields).toEqual(['meetingSummary']);
+
+    // Selecting a different (inactive) contact is still validated and rejected.
+    await expect(f.service.patchMeetingDetails(f.staff, job.id, {
+      clientActionId: 'met-inactive-new', expectedVersion: updated.jobCardVersion,
+      metContactId: f.inactiveContactId,
+    })).rejects.toMatchObject({ code: 'CONTACT_INACTIVE', statusCode: 409 });
+  });
+
+  it('projects canonical and pre-056 receipts to the requesting reader shape', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const payload = {
+      clientActionId: 'met-receipt-canonical', expectedVersion: job.version, metContactId: f.contactId,
+    };
+    const first = await f.service.patchMeetingDetails(
+      f.staff, job.id, payload, { includeMetContactCapability: true },
+    );
+    // The stored receipt is canonical even for an opt-in writer.
+    const stored = (await pool!.query<{ response_body: Record<string, unknown> }>(
+      `SELECT response_body FROM processed_actions
+        WHERE organization_id = $1 AND user_id = $2 AND client_action_id = $3`,
+      [f.organizationId, f.staffId, payload.clientActionId],
+    )).rows[0]!;
+    expect(stored.response_body.metContactId).toBe(f.contactId);
+    expect((stored.response_body.metContact as { id: string }).id).toBe(f.contactId);
+
+    const legacyReplay = await f.service.patchMeetingDetails(f.staff, job.id, payload);
+    expect(Object.keys(legacyReplay).sort()).toEqual([
+      'jobCardId', 'jobCardVersion', 'meetingAt', 'meetingSummary', 'nextFollowUpAt',
+      'outcome', 'unsuccessfulReason',
+    ]);
+    const optInReplay = await f.service.patchMeetingDetails(
+      f.staff, job.id, payload, { includeMetContactCapability: true },
+    );
+    expect(optInReplay).toEqual(first);
+
+    // Pre-056 receipt: completed before the met-contact column existed.
+    const legacyJob = await f.startedMeeting();
+    const legacyActionId = 'met-receipt-legacy';
+    const legacyInput = {
+      clientActionId: legacyActionId, expectedVersion: legacyJob.version,
+      meetingSummary: 'Eski kayıt',
+    };
+    const legacyBody = {
+      jobCardId: legacyJob.id, meetingAt: '2026-07-15T10:30:00.000Z', outcome: 'POSITIVE',
+      unsuccessfulReason: null, meetingSummary: 'Eski kayıt', nextFollowUpAt: null,
+      jobCardVersion: legacyJob.version + 1,
+    };
+    await pool!.query(
+      `INSERT INTO processed_actions
+         (organization_id, user_id, client_action_id, operation_key, request_hash, status,
+          status_code, response_body, completed_at)
+       VALUES ($1, $2, $3, $4, $5, 'completed', 200, $6::jsonb, NOW())`,
+      [f.organizationId, f.staffId, legacyActionId, `MEETING_DETAILS_UPDATE:${legacyJob.id}`,
+        meetingDetailsUpdateRequestHash(legacyJob.id, legacyInput), JSON.stringify(legacyBody)],
+    );
+    const before = await f.state(legacyJob.id);
+    const upgradedReplay = await f.service.patchMeetingDetails(
+      f.staff, legacyJob.id, legacyInput, { includeMetContactCapability: true },
+    );
+    expect(upgradedReplay.jobCardVersion).toBe(legacyBody.jobCardVersion);
+    expect(upgradedReplay.meetingSummary).toBe('Eski kayıt');
+    // The pre-056 operation truthfully reports "not recorded", never a guess.
+    expect(upgradedReplay.metContactId).toBeNull();
+    expect(upgradedReplay.metContact).toBeNull();
+    const legacyShapedReplay = await f.service.patchMeetingDetails(f.staff, legacyJob.id, legacyInput);
+    expect(legacyShapedReplay).not.toHaveProperty('metContactId');
+    expect(legacyShapedReplay).not.toHaveProperty('metContact');
+    // Replays change neither audit nor version.
+    expect(await f.state(legacyJob.id)).toEqual(before);
+    await expect(f.service.patchMeetingDetails(f.staff, legacyJob.id, {
+      ...legacyInput, meetingSummary: 'Farklı içerik',
+    }, { includeMetContactCapability: true })).rejects.toMatchObject({
+      code: 'CLIENT_ACTION_REUSED', statusCode: 409,
+    });
+  });
+
+  it('projects met-contact history into the contact hasOperationHistory reads', async () => {
+    const f = await fixture();
+    // The planned reference stays empty so the met reference is the only link.
+    const job = await f.startedMeeting(f.customerId, f.staff, null);
+    await f.readyResult(job.id, job.version, f.contactId);
+    const contact = await f.crmService.getContact(f.crmAdmin, f.customerId, f.contactId);
+    expect(contact.hasOperationHistory).toBe(true);
+    const list = await f.crmService.listContacts(f.crmAdmin, f.customerId, {
+      q: null, status: 'all', limit: 50, offset: 0,
+    });
+    expect(list.items.find((item) => item.id === f.contactId)?.hasOperationHistory).toBe(true);
+    const detail = await f.crmService.getCustomer(f.crmAdmin, f.customerId);
+    expect(detail.contacts.find((item) => item.id === f.contactId)?.hasOperationHistory).toBe(true);
   });
 });

@@ -337,12 +337,34 @@ describe('JobCard routes', () => {
 
     expect(getResponse.statusCode).toBe(200);
     expect(patchResponse.statusCode).toBe(200);
-    expect(service.getMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId);
+    expect(service.getMeetingDetails).toHaveBeenCalledWith(
+      expect.anything(), jobCardId, { includeMetContactCapability: false },
+    );
     expect(service.patchMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId, {
       clientActionId: 'meeting-save-1', expectedVersion: 1,
       meetingAt: '2026-07-15T10:00:00.000Z',
       outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme',
+    }, { includeMetContactCapability: false });
+
+    const optInGet = await app.inject({
+      method: 'GET',
+      url: `/api/job-cards/${jobCardId}/meeting-details?includeMetContactCapability=true`,
     });
+    const optInPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/job-cards/${jobCardId}/meeting-details?includeMetContactCapability=true`,
+      payload: { clientActionId: 'meeting-save-optin', expectedVersion: 1, outcome: 'POSITIVE' },
+    });
+    expect(optInGet.statusCode).toBe(200);
+    expect(optInPatch.statusCode).toBe(200);
+    expect(service.getMeetingDetails).toHaveBeenLastCalledWith(
+      expect.anything(), jobCardId, { includeMetContactCapability: true },
+    );
+    expect(service.patchMeetingDetails).toHaveBeenLastCalledWith(
+      expect.anything(), jobCardId,
+      { clientActionId: 'meeting-save-optin', expectedVersion: 1, outcome: 'POSITIVE' },
+      { includeMetContactCapability: true },
+    );
   });
 
   it('rejects malformed meeting paths before service and exact-body violations', async () => {

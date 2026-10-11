@@ -219,6 +219,15 @@ export type MeetingDetails = {
   jobCardVersion: number;
 };
 
+/**
+ * Slice 3 reader gate. Previously deployed web bundles parse meeting details
+ * with a strict allowlist, so `metContactId`/`metContact` are only serialized
+ * for readers that explicitly opt in (`includeMetContactCapability`). The
+ * default (absent) keeps the pre-Slice-3 wire shape.
+ */
+export type MeetingDetailsLegacyResponse = Omit<MeetingDetails, 'metContactId' | 'metContact'>;
+export type MeetingDetailsReaderResponse = MeetingDetails | MeetingDetailsLegacyResponse;
+
 /** Contact identity projected with a meeting-result read (display only). */
 export type MeetingDetailsContact = { id: string; name: string; title: string | null };
 

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, type CurrentUser } from '../services/api';
-import { createEnrichmentContact, getCustomer, type Contact } from '../services/crm-api';
+import {
+  createEnrichmentContact, getCustomer, getCustomerEnrichmentScope, type Contact,
+} from '../services/crm-api';
 import { PhoneInput } from '../ui/PhoneInput';
 import type {
   JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
@@ -88,6 +90,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
   const [metContactId, setMetContactId] = useState(details.metContactId ?? '');
   const [contactsState, setContactsState] = useState<ContactOptionState>({ kind: 'loading' });
+  const [canCreateContact, setCanCreateContact] = useState(false);
   const [customerVersion, setCustomerVersion] = useState<number | null>(null);
   const [contactLoadKey, setContactLoadKey] = useState(0);
   const [creatingContact, setCreatingContact] = useState(false);
@@ -137,11 +140,14 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   // Görüşülen kişi options: active contacts of the job's customer, loaded only
   // for the editable branch. A persisted selection that is no longer active
   // stays visible through details.metContact without being offered as a new
-  // choice. The customer version gates the scoped inline creation.
+  // choice. The customer version gates the scoped inline creation, and the
+  // server-confirmed enrichment scope gates whether the inline creation is
+  // offered at all (STAFF-only capability; MANAGER/ADMIN never see it).
   useEffect(() => {
     if (!canEdit || job.customerId === null) return;
     let cancelled = false;
     setContactsState({ kind: 'loading' });
+    setCanCreateContact(false);
     getCustomer(job.customerId)
       .then((customer) => {
         if (cancelled) return;
@@ -152,6 +158,9 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
         });
       })
       .catch(() => { if (!cancelled) setContactsState({ kind: 'error' }); });
+    getCustomerEnrichmentScope(job.customerId)
+      .then((scope) => { if (!cancelled) setCanCreateContact(scope.canCreateContact); })
+      .catch(() => { if (!cancelled) setCanCreateContact(false); });
     return () => { cancelled = true; };
   }, [canEdit, job.customerId, contactLoadKey]);
 
@@ -323,11 +332,11 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
               {details.metContact.name}{details.metContact.title ? ` — ${details.metContact.title}` : ''} (pasif)
             </option>}
         </select>}
-        <button className="secondary-button compact-button" type="button"
+        {canCreateContact && <button className="secondary-button compact-button" type="button"
           disabled={mutationPending || customerVersion === null}
           onClick={() => { setContactCreateError(''); setCreatingContact(true); }}>
           Yeni ilgili kişi ekle
-        </button>
+        </button>}
         {creatingContact && <div className="meeting-contact-create" ref={contactCreateRef}
           role="group" aria-label="Yeni ilgili kişi ekle">
           <fieldset disabled={contactCreatePending}
