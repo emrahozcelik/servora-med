@@ -446,6 +446,8 @@ else
   # Use PG* env if already set, else inject host/db.
   if [[ -n "${PGHOST:-}" ]]; then _restore_host="$PGHOST"; fi
   _restore_args=(--host "$_restore_host" --dbname "$TARGET_DB")
+  # The Node preflight and verification must inspect the actual restore endpoint.
+  export PGHOST="$_restore_host"
   _restore_db_url="" # not used
 fi
 

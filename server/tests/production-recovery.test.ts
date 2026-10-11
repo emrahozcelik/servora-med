@@ -43,6 +43,34 @@ function createBackupFixture(root: string, valid: boolean) {
 }
 
 describe('production-recovery helper — syntax and contract', () => {
+  it('passes the exact selected restore host to preflight before any restore', () => {
+    const root = temporaryDirectory('selected-host');
+    try {
+      const { backup, checksum } = createBackupFixture(root, true);
+      const envFile = join(root, 'servora-med.env');
+      writeFileSync(envFile, `HEALTH_SCHEMA_VERSION=${NEW_VERSION}\n`, { mode: 0o600 });
+      const restore = join(root, 'pg_restore');
+      const psql = join(root, 'psql');
+      const probe = join(root, 'probe');
+      const mutation = join(root, 'mutation');
+      writeFileSync(restore, '#!/bin/sh\nif [ "$1" = "-l" ]; then exit 0; fi\nprintf mutation > "$MUTATION_MARKER"\nexit 1\n', { mode: 0o755 });
+      writeFileSync(psql, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      writeFileSync(probe, '#!/bin/sh\nprintf "PROBE_HOST=%s\\n" "$PGHOST"\nexit 1\n', { mode: 0o755 });
+      const result = runRecovery(['--backup', backup, '--checksum', checksum, '--target-db', 'servora_med',
+        '--expected-host', '::1', '--allow-destructive', '--old-release', TEST_SHA,
+        '--old-health-schema-version', OLD_VERSION, '--env-file', envFile], {
+        TEST_DATABASE_URL: '', PGHOST: '', PGDATABASE: 'servora_med',
+        DATABASE_URL: 'postgresql://synthetic:synthetic@localhost/servora_med',
+        PG_RESTORE_BIN: restore, PSQL_BIN: psql, NODE_BIN: probe,
+        OPS_LOG: join(root, 'ops.log'), MUTATION_MARKER: mutation,
+      });
+      expect(`${result.stdout}${result.stderr}`).toContain('PROBE_HOST=::1');
+      expect(result.status).not.toBe(0);
+      expect(existsSync(mutation)).toBe(false);
+      expect(readFileSync(envFile, 'utf8')).toBe(`HEALTH_SCHEMA_VERSION=${NEW_VERSION}\n`);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('remains syntactically valid', () => {
     execFileSync('bash', ['-n', recoveryHelper], { stdio: 'pipe' });
     execFileSync('bash', ['-n', hostHelper], { stdio: 'pipe' });
