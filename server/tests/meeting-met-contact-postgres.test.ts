@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { meetingDetailsUpdateRequestHash } from '../src/modules/job-cards/critical-action-request-hash.js';
@@ -177,7 +177,147 @@ async function fixture() {
   };
 }
 
-describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () => {  it('assigns an existing active contact with audit, version bump and identity', async () => {
+async function customerChangeState(f: Fixture, jobId: string) {
+  const job = (await pool!.query('SELECT *, xmin::text AS xmin_value FROM job_cards WHERE id = $1', [jobId])).rows;
+  const meeting = (await pool!.query('SELECT *, xmin::text AS xmin_value FROM job_card_meeting_details WHERE job_card_id = $1', [jobId])).rows;
+  const activities = (await pool!.query('SELECT * FROM job_card_activity_logs WHERE job_card_id = $1 ORDER BY id', [jobId])).rows;
+  const audits = (await pool!.query('SELECT * FROM audit_events WHERE organization_id = $1 ORDER BY id', [f.organizationId])).rows;
+  const actions = (await pool!.query('SELECT * FROM processed_actions WHERE organization_id = $1 ORDER BY id', [f.organizationId])).rows;
+  return { job, meeting, activities, audits, actions };
+}
+
+describe.skipIf(!url)('Slice 3 görüşülen kişi — PostgreSQL contract', () => {
+  it('rejects changing an IN_PROGRESS customer with a recorded met contact without writes', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const details = await f.readyResult(job.id, job.version, f.contactId);
+    const before = await customerChangeState(f, job.id);
+    await expect(f.service.patch(f.staff, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER', statusCode: 409 });
+    expect(await customerChangeState(f, job.id)).toEqual(before);
+  });
+
+  it('rejects a customer change during REVISION_REQUESTED without writes', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const details = await f.readyResult(job.id, job.version, f.contactId);
+    const submitted = await f.service.submitForApproval(f.staff, job.id, {
+      clientActionId: 'customer-change-submit', expectedVersion: details.jobCardVersion,
+      note: 'Görüşme tamamlandı.',
+    });
+    const revision = await f.service.requestRevision(f.manager, job.id, {
+      clientActionId: 'customer-change-revision', expectedVersion: submitted.version,
+      revisionReason: 'Görüşme açıklamasını tamamlayın.',
+    });
+    const before = await customerChangeState(f, job.id);
+    await expect(f.service.patch(f.staff, job.id, {
+      expectedVersion: revision.version, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER', statusCode: 409 });
+    expect(await customerChangeState(f, job.id)).toEqual(before);
+  });
+
+  it('preserves customer changes with no met contact and clears only the planned contact', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const updated = await f.service.patch(f.staff, job.id, {
+      expectedVersion: job.version, customerId: f.otherCustomerId,
+    });
+    expect(updated).toMatchObject({ customerId: f.otherCustomerId, contactId: null, version: job.version + 1 });
+    expect((await f.state(job.id)).meeting.met_contact_id).toBeNull();
+  });
+
+  it('allows the same customer and unrelated edits with a historical inactive met contact', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting(f.customerId, f.staff, null);
+    const details = await f.readyResult(job.id, job.version, f.contactId);
+    await pool!.query('UPDATE contacts SET is_active = FALSE WHERE id = $1', [f.contactId]);
+    const before = await customerChangeState(f, job.id);
+    await expect(f.service.patch(f.manager, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER', statusCode: 409 });
+    expect(await customerChangeState(f, job.id)).toEqual(before);
+    const unchanged = await f.service.patch(f.staff, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: f.customerId,
+    });
+    const updated = await f.service.patch(f.admin, job.id, {
+      expectedVersion: unchanged.version, customerId: f.customerId, title: 'Görüşme notları tamamlandı',
+    });
+    expect(updated.customerId).toBe(f.customerId);
+    const meeting = await f.service.patchMeetingDetails(f.staff, job.id, {
+      clientActionId: 'historical-customer-change', expectedVersion: updated.version,
+      meetingSummary: 'Tarihsel kişi korunarak açıklama tamamlandı.',
+    }, { includeMetContactCapability: true });
+    expect(meeting.metContactId).toBe(f.contactId);
+  });
+
+  it('preserves stale-version and existing authorization failures on customer changes', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const details = await f.readyResult(job.id, job.version, f.contactId);
+    const before = await customerChangeState(f, job.id);
+    await expect(f.service.patch(f.staff, job.id, {
+      expectedVersion: job.version, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+    await expect(f.service.patch(f.otherStaff, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(f.service.patch({ ...f.staff, organizationId: randomUUID() }, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: f.otherCustomerId,
+    })).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    const foreign = await fixture();
+    await expect(f.service.patch(f.staff, job.id, {
+      expectedVersion: details.jobCardVersion, customerId: foreign.customerId,
+    })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND', statusCode: 404 });
+    expect(await customerChangeState(f, job.id)).toEqual(before);
+  });
+
+  it('serializes concurrent customer and met-contact writers on the same PostgreSQL job lock', async () => {
+    const f = await fixture();
+    const job = await f.startedMeeting();
+    const applicationName = `customer_met_race_${randomUUID()}`;
+    const racePool = new Pool({ connectionString: url, application_name: applicationName,
+      options: `-c search_path=${schema},public` });
+    const service = new JobCardService(new PostgresJobCardRepository(racePool), () => requestTime);
+    const blocker = await pool!.connect();
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT id FROM job_cards WHERE id = $1 FOR UPDATE', [job.id]);
+    const writers = Promise.allSettled([
+      service.patch(f.staff, job.id, { expectedVersion: job.version, customerId: f.otherCustomerId }),
+      service.patchMeetingDetails(f.staff, job.id, {
+        clientActionId: 'customer-met-race', expectedVersion: job.version, metContactId: f.contactId,
+      }, { includeMetContactCapability: true }),
+    ]);
+    try {
+      await vi.waitFor(async () => {
+        const waiting = await pool!.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM pg_stat_activity
+           WHERE application_name = $1 AND wait_event_type = 'Lock' AND query LIKE '%FROM job_cards%'`,
+          [applicationName],
+        );
+        expect(waiting.rows[0]!.count).toBe(2);
+      }, { timeout: 3_000, interval: 20 });
+    } finally {
+      await blocker.query('ROLLBACK');
+      blocker.release();
+      await writers;
+      await racePool.end();
+    }
+    const results = await writers;
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected?.reason).toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+    const current = (await pool!.query(
+      `SELECT j.customer_id, j.version, m.met_contact_id, c.customer_id AS met_customer_id
+       FROM job_cards j JOIN job_card_meeting_details m ON m.job_card_id = j.id
+       LEFT JOIN contacts c ON c.id = m.met_contact_id WHERE j.id = $1`, [job.id],
+    )).rows[0]!;
+    expect(current.version).toBe(job.version + 1);
+    if (current.met_contact_id === null) expect(current.customer_id).toBe(f.otherCustomerId);
+    else expect(current.customer_id).toBe(current.met_customer_id);
+  });
+
+  it('assigns an existing active contact with audit, version bump and identity', async () => {
     const f = await fixture();
     const job = await f.startedMeeting();
     const result = await f.service.patchMeetingDetails(f.staff, job.id, {

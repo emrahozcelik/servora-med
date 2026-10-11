@@ -2489,6 +2489,12 @@ export class JobCardService {
         : fields.customerId !== undefined && fields.customerId !== job.customerId ? null : job.contactId;
       if (nextCustomerId) await this.validateJobReferences(transaction, actor.organizationId, nextCustomerId, nextContactId);
       else if (nextContactId) throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+      if (job.type === 'SALES_MEETING' && nextCustomerId !== job.customerId) {
+        const meeting = await transaction.getSubmissionMeetingDetails(actor.organizationId, jobCardId);
+        if (meeting?.metContactId != null) {
+          throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+        }
+      }
       if (fields.customerId !== undefined && fields.contactId === undefined && fields.customerId !== job.customerId) {
         fields.contactId = null;
       }

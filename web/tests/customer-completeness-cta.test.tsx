@@ -70,6 +70,170 @@ describe('CustomerCompletenessAction', () => {
     return act(async () => root.render(<CustomerCompletenessAction job={job} user={user} />));
   }
 
+  async function postThenFailedRefresh(action: 'enrichment' | 'contact', canEnrich = true) {
+    let completenessCalls = 0;
+    const posts: Record<string, unknown>[] = [];
+    const fetchMock = fetchRouter([
+      { match: (url, init) => url === '/api/customers/c1/enrichment' && init?.method !== 'POST',
+        reply: () => json({ canEnrich, canCreateContact: true }) },
+      { match: (url) => url === '/api/customers/c1/completeness', reply: () => {
+        completenessCalls += 1;
+        return completenessCalls === 2 ? json({ error: 'Refresh unavailable' }, 500)
+          : json({ missingInfo: completenessCalls === 1 ? ['CUSTOMER_PHONE_MISSING', 'ACTIVE_CONTACT_MISSING'] : [] });
+      } },
+      { match: (url) => url === '/api/customers/c1', reply: () => json(customerPayload([])) },
+      { match: (_url, init) => init?.method === 'POST', reply: (init) => {
+        posts.push(JSON.parse(String(init?.body)));
+        const customer = customerPayload([], { version: 8, phone: '0532 111 22 33' });
+        return action === 'enrichment' ? json(customer)
+          : json({ customer, contact: contactPayload({ isPrimary: false }) }, 201);
+      } },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+    await render();
+    await settleTwice();
+    await act(async () => buttonByText(container, 'Müşteri bilgilerini tamamla').click());
+    await settleTwice();
+    if (action === 'enrichment') {
+      change(container.querySelector('#enrichment-phone')!, '0532 111 22 33');
+      change(container.querySelector('#job-completeness-contact-name')!, 'Kaydedilmemiş kişi taslağı');
+      await act(async () => { (container.querySelector('.record-form') as HTMLFormElement).requestSubmit(); });
+    } else {
+      change(container.querySelector('#job-completeness-contact-name')!, 'Dr. Deniz');
+      await act(async () => buttonByText(container, 'İlgili kişiyi ekle').click());
+    }
+    await settleTwice();
+    return { fetchMock, posts };
+  }
+
+  it('keeps a close control and success notice after a committed enrichment and failed refresh', async () => {
+    const { posts } = await postThenFailedRefresh('enrichment');
+    expect(container.textContent).toContain('İletişim bilgileri kaydedildi.');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Müşteri bilgileri durumu alınamadı.');
+    expect(buttonByText(container, 'Tekrar dene')).toBeDefined();
+    const close = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent === 'Kapat' || button.textContent === 'Vazgeç');
+    expect(close).toBeDefined();
+    await act(async () => close!.click());
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+
+  it('retries only scope/completeness GETs, preserves the contact draft and committed customer version', async () => {
+    const { fetchMock, posts } = await postThenFailedRefresh('enrichment');
+    const draft = container.querySelector<HTMLInputElement>('#job-completeness-contact-name');
+    expect(draft?.value).toBe('Kaydedilmemiş kişi taslağı');
+    expect(buttonByText(container, 'İletişim bilgilerini kaydet').disabled).toBe(true);
+    expect(buttonByText(container, 'İlgili kişiyi ekle').disabled).toBe(true);
+    // Programmatic submission and Enter must also fail closed on unknown scope.
+    await act(async () => {
+      (container.querySelector('.record-form') as HTMLFormElement).requestSubmit();
+      container.querySelector('#job-completeness-contact-name')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(posts).toHaveLength(1);
+    const callsBefore = fetchMock.mock.calls.length;
+    await act(async () => buttonByText(container, 'Tekrar dene').click());
+    await settleTwice();
+    expect(fetchMock.mock.calls.slice(callsBefore).map(([url, init]) => [String(url), init?.method ?? 'GET']))
+      .toEqual([['/api/customers/c1/enrichment', 'GET'], ['/api/customers/c1/completeness', 'GET']]);
+    expect(posts).toHaveLength(1);
+    expect(container.querySelector('#job-completeness-contact-name')).toBe(draft);
+    expect(draft!.value).toBe('Kaydedilmemiş kişi taslağı');
+    expect(container.textContent).not.toContain('Müşterinin telefon numarası eksik.');
+    expect(container.textContent).toContain('İletişim bilgileri kaydedildi.');
+    // A deliberate new save uses the committed version; retry itself never posts.
+    change(container.querySelector('#enrichment-city')!, 'Ankara');
+    await act(async () => { (container.querySelector('.record-form') as HTMLFormElement).requestSubmit(); });
+    await settleTwice();
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toMatchObject({ expectedVersion: 8, city: 'Ankara' });
+  });
+
+  it('recovers from a refresh failure after contact creation without creating a second contact', async () => {
+    const { posts } = await postThenFailedRefresh('contact');
+    expect(container.textContent).toContain('İlgili kişi eklendi.');
+    expect(container.textContent).toContain('Müşteri bilgileri durumu alınamadı.');
+    await act(async () => buttonByText(container, 'Tekrar dene').click());
+    await settleTwice();
+    expect(posts).toHaveLength(1);
+    expect(container.textContent).not.toContain('Müşterinin aktif ilgili kişisi yok.');
+    await act(async () => buttonByText(container, 'Vazgeç').click());
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+
+  it('keeps contact-only editor errors closable without a duplicate close button', async () => {
+    const { posts } = await postThenFailedRefresh('contact', false);
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).filter((button) => button.textContent === 'Kapat')).toHaveLength(1);
+    await act(async () => buttonByText(container, 'Kapat').click());
+    expect(container.querySelector('[aria-label="Yeni ilgili kişi ekle"]')).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+
+  it('preserves draft nodes, disables mutations and permits closing during a pending GET retry', async () => {
+    const { fetchMock, posts } = await postThenFailedRefresh('enrichment');
+    const form = container.querySelector<HTMLFormElement>('.record-form')!;
+    const draft = container.querySelector<HTMLInputElement>('#job-completeness-contact-name')!;
+    let finishRefresh!: (response: Response) => void;
+    const deferred = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    fetchMock.mockImplementation(async (input) => String(input).endsWith('/completeness')
+      ? deferred : json({ canEnrich: true, canCreateContact: true }));
+    await act(async () => buttonByText(container, 'Tekrar dene').click());
+    expect(container.textContent).toContain('Müşteri bilgileri kontrol ediliyor…');
+    expect(container.querySelector('.record-form')).toBe(form);
+    expect(container.querySelector('#job-completeness-contact-name')).toBe(draft);
+    expect(draft.value).toBe('Kaydedilmemiş kişi taslağı');
+    expect(buttonByText(container, 'İletişim bilgilerini kaydet').disabled).toBe(true);
+    await act(async () => form.requestSubmit());
+    expect(posts).toHaveLength(1);
+    await act(async () => buttonByText(container, 'Vazgeç').click());
+    expect(container.querySelector('.record-form')).toBeNull();
+    await act(async () => finishRefresh(json({ missingInfo: [] })));
+    await settleTwice();
+    expect(container.textContent).toBe('');
+    expect(posts).toHaveLength(1);
+  });
+
+  it('fails closed when GET retry confirms revocation and preserves the committed success notice', async () => {
+    const { fetchMock, posts } = await postThenFailedRefresh('enrichment');
+    fetchMock.mockImplementation(async (input) => String(input).endsWith('/completeness')
+      ? json({ missingInfo: ['CUSTOMER_PHONE_MISSING'] })
+      : json({ canEnrich: false, canCreateContact: false }));
+    await act(async () => buttonByText(container, 'Tekrar dene').click());
+    await settleTwice();
+    expect(container.textContent).toContain('İletişim bilgileri kaydedildi.');
+    expect(container.textContent).toContain('Bu işlem için yetkiniz bulunmuyor.');
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(container.querySelector('[aria-label="Yeni ilgili kişi ekle"]')).toBeNull();
+    expect(Array.from(container.querySelectorAll('button')).filter((button) => button.textContent === 'Kapat')).toHaveLength(1);
+    await act(async () => buttonByText(container, 'Kapat').click());
+    expect(posts).toHaveLength(1);
+  });
+
+  it('allows closing while the initial customer GET is still loading', async () => {
+    let finishCustomer!: (response: Response) => void;
+    const customerResponse = new Promise<Response>((resolve) => { finishCustomer = resolve; });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/customers/c1') return customerResponse;
+      if (url.endsWith('/completeness')) return json({ missingInfo: ['CUSTOMER_PHONE_MISSING'] });
+      return json({ canEnrich: true, canCreateContact: false });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await render();
+    await settleTwice();
+    await act(async () => buttonByText(container, 'Müşteri bilgilerini tamamla').click());
+    expect(container.textContent).toContain('Müşteri bilgileri yükleniyor…');
+    await act(async () => buttonByText(container, 'Kapat').click());
+    await act(async () => finishCustomer(json(customerPayload([]))));
+    await settleTwice();
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(buttonByText(container, 'Müşteri bilgilerini tamamla')).toBeDefined();
+    expect(fetchMock.mock.calls).toHaveLength(3);
+  });
+
   it('renders nothing for non-applicable states without fetching', async () => {
     const fetchMock = fetchRouter([]);
     vi.stubGlobal('fetch', fetchMock);

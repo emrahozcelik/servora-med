@@ -202,3 +202,27 @@ Test matrix (each asserts DB values before/after; unauthorized paths assert zero
 - Spec §2 findings are the plan's discovery record; §3 decisions map to Tasks 1/4/7/8; §4→T1, §5.1→T2/T3/T4, §5.2→T5, §6→T6/T7/T8, §7→T4/T5/T6/T7/T8, §8→T9/T10.
 - Type name consistency: `metContactId` (string|null) everywhere; `metContact` identity only in read DTOs; `MissingInfoCode` shared name in server+web.
 - No placeholders other than files whose existence must be re-verified at execution time (`meeting-details-request-hash.test.ts`, contact-guard suite name) — executor greps first.
+
+## Post-merge remediation — 2026-10-11
+
+Base: `e19d4dc8115e64ea2a8239c740f5ff8b7ec00645`. This follow-up is limited to
+the three new PR #364 findings; original implementation tasks above are historical.
+
+- [x] P1-A: reject a changed SALES_MEETING customer with a recorded met contact
+  under the existing JobCard/details transaction locks; preserve null/same-customer
+  paths and historical inactive contacts. PostgreSQL rollback/version/audit and
+  concurrent-writer regressions added.
+- [x] P1-B: align startup, readiness and deploy probe with migration store's
+  canonical `version ASC` history. Real PostgreSQL timestamp-interleave and
+  incompatible-history fixtures exercise all four readers plus CLIs. Actual
+  historical execution order remains unprovable with the existing schema.
+- [x] P2: keep the completeness editor closable in loading/error states, retain
+  drafts during refresh, offer GET-only retry and require fresh scope for writes.
+  Committed enrichment/contact POSTs are not replayed by retry.
+
+All three reproductions failed before their fixes and passed afterward. Focused
+verification uses disposable PostgreSQL 17; exact-head 27-check CI and evidence
+verification are required before the follow-up PR is presented for review.
+Evidence/export paths stay under repository-visible `.worktrees` for Colima.
+No change to migration 056, permissions, dependencies, AUTO fixtures or R2/DR
+contracts; no production operation is part of this remediation.

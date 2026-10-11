@@ -853,7 +853,7 @@ describe('controlled production deployment automation contract', () => {
 
   it('reports only aggregate migration/data state from the protected database', () => {
     const content = readFileSync(migrationState, 'utf8');
-    expect(content).toContain('schema_migrations ORDER BY applied_at');
+    expect(content).toContain('schema_migrations ORDER BY version ASC');
     expect(content).toContain('migration_status=');
     expect(content).toContain('classifyMigrationState');
     expect(content).toContain('COUNT(*) FROM organizations');

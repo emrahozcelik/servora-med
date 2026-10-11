@@ -17,10 +17,12 @@ const missingInfoGuidance: Record<MissingInfoCode, string> = {
   CONTACT_PHONE_MISSING: 'Aktif ilgili kişilerin telefon numarası eksik.',
 };
 
-type CompletenessState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; scope: CustomerEnrichmentScope; missingInfo: MissingInfoCode[] }
-  | { kind: 'error' };
+type ReadyCompletenessState = {
+  kind: 'ready'; customerId: string; scope: CustomerEnrichmentScope; missingInfo: MissingInfoCode[];
+};
+type CompletenessState = ReadyCompletenessState
+  | { kind: 'loading'; previous?: ReadyCompletenessState }
+  | { kind: 'error'; previous?: ReadyCompletenessState };
 
 /**
  * Slice 3: advisory, capability-gated customer-completeness action shown on a
@@ -49,14 +51,21 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
   useEffect(() => {
     if (!applicable || customerId === null) return;
     let cancelled = false;
-    setState({ kind: 'loading' });
+    setState((current) => {
+      const previous = current.kind === 'ready' ? current : current.previous;
+      return { kind: 'loading', previous: previous?.customerId === customerId ? previous : undefined };
+    });
     Promise.all([
       getCustomerEnrichmentScope(customerId),
       getCustomerCompleteness(customerId),
     ]).then(([scope, completeness]) => {
       if (cancelled) return;
-      setState({ kind: 'ready', scope, missingInfo: completeness.missingInfo });
-    }).catch(() => { if (!cancelled) setState({ kind: 'error' }); });
+      setState({ kind: 'ready', customerId, scope, missingInfo: completeness.missingInfo });
+    }).catch(() => {
+      if (!cancelled) setState((current) => ({
+        kind: 'error', previous: current.kind === 'ready' ? current : current.previous,
+      }));
+    });
     return () => { cancelled = true; };
   }, [applicable, customerId, loadKey]);
 
@@ -64,7 +73,7 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
 
   function revokeScope() {
     setState((current) => current.kind === 'ready'
-      ? { kind: 'ready', scope: { canEnrich: false, canCreateContact: false }, missingInfo: current.missingInfo }
+      ? { ...current, scope: { canEnrich: false, canCreateContact: false } }
       : current);
   }
 
@@ -86,7 +95,9 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
 
   async function saveEnrichment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (customerId === null || customer === null || pending) return;
+    if (customerId === null || customer === null || pending
+      || state.kind !== 'ready' || state.customerId !== customerId || customer.id !== customerId
+      || !state.scope.canEnrich) return;
     setPending(true); setEditorError(''); setEditorNotice('');
     try {
       const updated = await enrichCustomer(customerId,
@@ -111,7 +122,9 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
   }
 
   async function createContact() {
-    if (customerId === null || customer === null || contactPending) return;
+    if (customerId === null || customer === null || contactPending
+      || state.kind !== 'ready' || state.customerId !== customerId || customer.id !== customerId
+      || !state.scope.canCreateContact) return;
     const read = (id: string) => contactCreateRef.current
       ?.querySelector<HTMLInputElement>(`#${id}`)?.value.trim() ?? '';
     const name = read('job-completeness-contact-name');
@@ -183,6 +196,9 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
     contact.isActive && !isTrPhoneMaskComplete(formatTrPhone(contact.phone)));
   const showContactList = state.kind === 'ready'
     && state.missingInfo.includes('CONTACT_PHONE_MISSING');
+  // Retain mounted drafts during GET refresh; only fresh ready scope authorizes a POST.
+  const editorScope = state.kind === 'ready' ? state.scope : state.previous?.scope;
+  const showEnrichmentForm = customer !== null && customer.id === customerId && editorScope?.canEnrich;
 
   return <section className="record-section job-completeness" aria-labelledby="job-completeness-title">
     <h2 id="job-completeness-title">Müşteri bilgilerini tamamla</h2>
@@ -190,6 +206,10 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
     {editorLoading && <p className="field-status">Müşteri bilgileri yükleniyor…</p>}
     {editorError && <div className="form-error" role="alert">{editorError}</div>}
     {editorNotice && <div className="detail-feedback" role="status">{editorNotice}</div>}
+    {state.kind === 'loading' && <p className="field-status" role="status">Müşteri bilgileri kontrol ediliyor…</p>}
+    {state.kind === 'error' && <div className="form-error" role="alert">Müşteri bilgileri durumu alınamadı.
+      <button className="secondary-button compact-button" type="button" disabled={disabled}
+        onClick={() => setLoadKey((value) => value + 1)}>Tekrar dene</button></div>}
     {showContactList && activeContactsWithoutPhone.length > 0 && (
       <div className="job-completeness-contacts">
         <h3>Telefonu bulunmayan aktif ilgili kişiler</h3>
@@ -200,21 +220,22 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
         </ul>
       </div>
     )}
-    {customer !== null && state.kind === 'ready' && state.scope.canEnrich && (
+    {customer !== null && showEnrichmentForm && (
       <CustomerEnrichmentForm
         key={`${customer.id}:${customer.version}`}
         customer={customer}
         pending={pending}
-        blocked={false}
+        blocked={state.kind !== 'ready'}
+        unavailable={state.kind !== 'ready'}
         onSave={(event) => { void saveEnrichment(event); }}
         onCancel={closeEditor}
       />
     )}
-    {customer !== null && state.kind === 'ready' && state.scope.canCreateContact && (
+    {customer !== null && customer.id === customerId && editorScope?.canCreateContact && (
       <div className="job-completeness-contact-create" ref={contactCreateRef}
         role="group" aria-label="Yeni ilgili kişi ekle">
         <h3>Yeni ilgili kişi ekle</h3>
-        <fieldset disabled={contactPending}
+        <fieldset disabled={contactPending || state.kind !== 'ready'}
           onKeyDown={(event) => {
             if (event.key === 'Enter') { event.preventDefault(); void createContact(); }
           }}>
@@ -229,7 +250,7 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
         </fieldset>
         {contactError && <div className="form-error" role="alert">{contactError}</div>}
         <div className="form-actions">
-          <button className="secondary-button compact-button" type="button" disabled={contactPending}
+          <button className="secondary-button compact-button" type="button" disabled={contactPending || state.kind !== 'ready'}
             onClick={() => { setContactError(''); void createContact(); }}>
             {contactPending ? 'Ekleniyor…' : 'İlgili kişiyi ekle'}
           </button>
@@ -239,12 +260,7 @@ export function CustomerCompletenessAction({ job, user, disabled = false }: {
     {state.kind === 'ready' && !state.scope.canEnrich && !state.scope.canCreateContact && (
       <div className="form-error" role="alert">Bu işlem için yetkiniz bulunmuyor.</div>
     )}
-    {state.kind === 'ready' && !state.scope.canEnrich && (
-      <div className="form-actions">
-        <button className="secondary-button compact-button" type="button" onClick={closeEditor}>Kapat</button>
-      </div>
-    )}
-    {customer === null && !editorLoading && (
+    {!showEnrichmentForm && (
       <div className="form-actions">
         <button className="secondary-button compact-button" type="button" onClick={closeEditor}>Kapat</button>
       </div>

@@ -102,6 +102,28 @@ anything, so a stale database produces one clear failure instead of dozens of
 missing-table failures inside unrelated test files. Migrating the test database
 remains a separate, explicit operator action.
 
+### Migration history ordering
+
+The migration store, startup/schema-check guard, health readiness and deployment
+probe read history in canonical `version ASC` order. Zero-padded identifiers are
+validated against the contiguous repository catalog. Exact history and a valid
+prefix are evaluated consistently even when `applied_at` timestamps interleave.
+Missing-middle, alternate-branch, duplicate-number, invalid and future versions
+remain incompatible; the deployment probe emits a classification that its caller
+must enforce, while startup/schema-check and readiness refuse incompatible state.
+
+Neither sorted versions nor `applied_at` prove the actual historical execution or
+commit order. The current schema has no independent trustworthy sequence record.
+The PostgreSQL reader regression suite verifies membership/prefix compatibility
+and read-only behavior, including a pre-056 release catalog refusing a 056 DB; it
+does not certify historical execution order. Adding such a record requires a
+separate design and migration approval.
+
+This four-reader acceptance scope excludes restore/recovery. The separate
+`ops/scripts/production-recovery.sh` and backup restore adapter still have
+timestamp-based history/head reads. Their ordering must be assessed in the
+separately approved 056 forward-recovery work; this test is not restore evidence.
+
 ## Build freshness
 
 Some tests execute `server/dist` directly, so build output is part of the test
