@@ -279,16 +279,22 @@ export function createJobCardHandlers(service: JobCardService) {
       ),
     activity: async (request: FastifyRequest<{ Params: Params }>) => {
       // The paginated `page()` contract rejects unknown query keys, so the
-      // gate key is separated before pagination parsing; previous bundles
-      // never send it and keep receiving the ungated shape.
-      const { includeSubmitLocationCapability: _gate, ...pageQuery } =
-        (request.query as Record<string, unknown> | undefined) ?? {};
-      void _gate;
+      // gate keys are separated before pagination parsing; previous bundles
+      // never send them and keep receiving the ungated shape.
+      const {
+        includeSubmitLocationCapability: _gate,
+        includeMetContactCapability: _metGate,
+        ...pageQuery
+      } = (request.query as Record<string, unknown> | undefined) ?? {};
+      void _gate; void _metGate;
       return service.listActivity(
         actor(request),
         request.params.id,
         page(pageQuery, 50),
-        { includeSubmitLocationCapability: includeSubmitLocationCapability(request.query) },
+        {
+          includeSubmitLocationCapability: includeSubmitLocationCapability(request.query),
+          includeMetContactCapability: includeMetContactCapability(request.query),
+        },
       );
     },
     listOverdueIncidents: async (request: FastifyRequest<{ Params: Params }>) =>

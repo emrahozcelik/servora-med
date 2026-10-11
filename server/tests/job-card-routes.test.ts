@@ -640,7 +640,7 @@ describe('JobCard routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
   });
 
   it('forwards an explicit activity page', async () => {
@@ -652,14 +652,24 @@ describe('JobCard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(page);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
   });
 
   it('gates SUBMIT comparison evidence on activity behind the reader opt-in', async () => {
     const { app, service } = await createApp();
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true' });
     expect(service.listActivity).toHaveBeenCalledWith(
-      expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: true },
+      expect.anything(), 'job-1', { limit: 50, offset: 0 },
+      { includeSubmitLocationCapability: true, includeMetContactCapability: false },
+    );
+  });
+
+  it('gates the met-contact activity chip behind its reader opt-in', async () => {
+    const { app, service } = await createApp();
+    await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeMetContactCapability=true' });
+    expect(service.listActivity).toHaveBeenCalledWith(
+      expect.anything(), 'job-1', { limit: 50, offset: 0 },
+      { includeSubmitLocationCapability: false, includeMetContactCapability: true },
     );
   });
 

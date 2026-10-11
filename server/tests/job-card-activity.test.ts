@@ -391,6 +391,30 @@ describe('safe JobCard activity presenter', () => {
     expect(JSON.stringify(result)).not.toMatch(/Eski|Yeni|Metadata|NO_DECISION|POSITIVE/);
   });
 
+  it('gates the met-contact chip on meeting changes behind the reader opt-in', () => {
+    const record = baseRecord('MEETING_DETAILS_UPDATED', {
+      metadata: { changedFields: ['metContactId', 'meetingSummary'] },
+    });
+    // Previous bundles reject unknown changed-field names, so the chip is
+    // stripped while the canonical order of the remaining fields is retained.
+    expect(presentActivity(record).details).toEqual({
+      kind: 'MEETING_DETAILS', changedFields: ['meetingSummary'],
+    });
+    expect(presentActivity(record, { includeMetContactCapability: true }).details).toEqual({
+      kind: 'MEETING_DETAILS', changedFields: ['meetingSummary', 'metContactId'],
+    });
+
+    // An event whose only change was the met contact degrades to a plain fact
+    // for previous bundles instead of an unknown field name.
+    const onlyMet = baseRecord('MEETING_DETAILS_UPDATED', {
+      metadata: { changedFields: ['metContactId'] },
+    });
+    expect(presentActivity(onlyMet).details).toEqual({ kind: 'NONE' });
+    expect(presentActivity(onlyMet, { includeMetContactCapability: true }).details).toEqual({
+      kind: 'MEETING_DETAILS', changedFields: ['metContactId'],
+    });
+  });
+
   it.each([
     ['JOB_STARTED', { status: 'UNKNOWN' }, { status: 'IN_PROGRESS' }, null],
     ['JOB_ASSIGNED', { assignedTo: 4 }, { assignedTo: 'staff-2' }, null],

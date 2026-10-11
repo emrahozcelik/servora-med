@@ -2998,7 +2998,7 @@ export class JobCardService {
     actor: JobCardActor,
     jobCardId: string,
     page: PageQuery,
-    options?: { includeSubmitLocationCapability?: boolean },
+    options?: { includeSubmitLocationCapability?: boolean; includeMetContactCapability?: boolean },
   ) {
     await this.detail(actor, jobCardId);
     const result = await this.repository.listActivity(actor.organizationId, jobCardId, page);

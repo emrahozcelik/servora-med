@@ -327,7 +327,8 @@ describe('JobCard workspace transport', () => {
 
     const plain = await listActivity('job-1');
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true', expect.anything(),
+      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true',
+      expect.anything(),
     );
     expect(plain.items[0]!.details).not.toHaveProperty('submitComparison');
     const gated = await listActivity('job-1');

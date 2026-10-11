@@ -1108,9 +1108,11 @@ export const addJobCardNote = async (id: string, input: {
 export const listActivity = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
   parsePage(await request(`${jobPath(id)}/activity${query({
     ...page,
-    // Slice 2 reader gate: only opted-in readers receive the advisory
-    // SUBMIT comparison evidence; previous bundles keep the old shape.
+    // Slice 2/3 reader gates: only opted-in readers receive the advisory
+    // SUBMIT comparison evidence and the Slice 3 met-contact chip; previous
+    // bundles keep the old shape.
     includeSubmitLocationCapability: 'true',
+    includeMetContactCapability: 'true',
   })}`), parseActivity);
 export const listJobCardActivity = listActivity;
 
