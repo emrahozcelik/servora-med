@@ -1410,12 +1410,26 @@ r4_retain_artifact() {
 
 r4_deploy_attempt() {
   local release="$1"
+  local admit_output admit_phase=""
   r4_controller probe-old "$ATTEMPT_ID"
-  r4_controller admit "$ATTEMPT_ID"
+  admit_output="$(r4_controller admit "$ATTEMPT_ID")"
+  case "$admit_output" in
+    ATTEMPT_ADMITTED) ;;
+    'ATTEMPT_RESUMED phase=ADMITTED') admit_phase=ADMITTED ;;
+    'ATTEMPT_RESUMED phase=BACKED_UP') admit_phase=BACKED_UP ;;
+    *) fail ATTEMPT_ADMISSION_STATE_INVALID ;;
+  esac
   R4_ACTIVE=true
   PHASE=BACKUP
-  run_predeploy_backup
-  r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"
+  if [[ "$admit_phase" == BACKED_UP ]]; then
+    # Same-owner resume after the backup was already sealed and verified;
+    # the retained receipt was re-checked by the controller before resume.
+    echo "PREDEPLOY_BACKUP=PASS"
+    echo "PREDEPLOY_BACKUP_RESUMED=RETAINED_RECEIPT_VERIFIED"
+  else
+    run_predeploy_backup
+    r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"
+  fi
   PHASE=MIGRATION
   read_migration_state "$release"
   local before_applied="$STATE_APPLIED_COUNT"
@@ -1427,7 +1441,9 @@ r4_deploy_attempt() {
   systemctl stop "$SERVICE"
   SERVICE_STOPPED=true
   r4_controller event "$ATTEMPT_ID" FENCED
-  r4_controller event "$ATTEMPT_ID" MIGRATION_INTENT
+  r4_controller migration-intent "$ATTEMPT_ID" \
+    "$BEFORE_ORGANIZATIONS" "$BEFORE_ADMINS" "$BEFORE_STAFF" "$BEFORE_CUSTOMERS" \
+    "$BEFORE_PRODUCTS" "$BEFORE_JOBS" "$BEFORE_DEMO_DATA"
   local migration_log
   migration_log="$(r4_controller migration-log-path "$ATTEMPT_ID")"
   (set -o noclobber; : >"$migration_log") || fail MIGRATION_LOG_ALREADY_EXISTS
@@ -1449,7 +1465,11 @@ r4_deploy_attempt() {
   assert_data_invariants_unchanged
   PHASE=ACTIVATION
   r4_controller recover "$ATTEMPT_ID"
+  # The schema gate must be recorded durably in the journal: recovery re-runs
+  # its own fresh check on every re-entry, and smoke/postdeploy/observation
+  # cannot proceed from a health checkpoint alone.
   run_schema_check "$release" || fail SCHEMA_CHECK_FAILED_FENCED_OPERATOR_REVIEW_REQUIRED
+  r4_controller event "$ATTEMPT_ID" SCHEMA_CHECKED
   write_state "$release" not_run
   echo "SCHEMA_CHECK=PASS"
   echo "MIGRATIONS_APPLIED=$MIGRATIONS_APPLIED"

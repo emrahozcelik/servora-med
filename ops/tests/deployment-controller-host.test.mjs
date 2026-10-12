@@ -6,7 +6,7 @@ import { loadAttempt, admitAttempt, checkpointAttempt, alignAttemptEnvironment, 
   verifyAttemptCatalog } from '../scripts/deployment-controller.mjs';
 import { withSealedFixture } from './r4-root-fixture.mjs';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, statSync, readlinkSync, symlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, statSync, readlinkSync, symlinkSync, mkdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 
 assert.equal(process.getuid(), 0);
@@ -36,20 +36,35 @@ test('effective systemd overrides cannot promote the approved app to root', () =
   } finally { unlinkSync(file); spawnSync('/usr/bin/systemctl',['daemon-reload']); }
 }));
 
-test('durable admission claims one attempt and never resets its journal on retry', () => withSealedFixture(grant => {
+test('durable admission claims one attempt and resumes only the same early owner', () => withSealedFixture(grant => {
+  const root = '/var/lib/servora-med/deploy';
+  const retained = root+'/backups/'+grant.attemptId+'-pre.dump';
   const first = admitAttempt(grant.attemptId);
-  assert.equal(first.record.phase, 'ADMITTED');
-  assert.equal(JSON.parse(readFileSync('/var/lib/servora-med/deploy/active.json','utf8')).attemptId, grant.attemptId);
-  assert.throws(() => admitAttempt(grant.attemptId), /ATTEMPT_ALREADY_ADMITTED/);
+  assert.equal(first.resumed, false);
+  assert.equal(first.checkpoint.record.phase, 'ADMITTED');
+  assert.equal(JSON.parse(readFileSync(root+'/active.json','utf8')).attemptId, grant.attemptId);
+  const resume = admitAttempt(grant.attemptId);
+  assert.equal(resume.resumed, true);
+  assert.equal(resume.checkpoint.record.phase, 'ADMITTED');
+  const payload = Buffer.from('synthetic retained dump');
+  mkdirSync(root+'/backups',{recursive:true,mode:0o700});
+  writeFileSync(retained,payload,{mode:0o600});
+  try {
+    checkpointAttempt(grant.attemptId,{kind:'PREDEPLOY_BACKUP',
+      receipt:{sha256:createHash('sha256').update(payload).digest('hex'),completedAtUTC:new Date().toISOString()}});
+    assert.equal(admitAttempt(grant.attemptId).resumed, true, 'a sealed BACKED_UP owner resumes');
+    checkpointAttempt(grant.attemptId,'FENCED');
+    assert.throws(() => admitAttempt(grant.attemptId), /RECOVERY_OTHER_ATTEMPT_ACTIVE/);
+  } finally { unlinkSync(retained); }
 }));
 
 test('host checkpoints append the hash chain while preserving the committed migration boundary', () => withSealedFixture(grant => {
   admitAttempt(grant.attemptId);
   checkpointAttempt(grant.attemptId, { kind:'PREDEPLOY_BACKUP', receipt:{sha256:'6'.repeat(64),completedAtUTC:new Date().toISOString()} });
   checkpointAttempt(grant.attemptId, 'FENCED');
-  checkpointAttempt(grant.attemptId, 'MIGRATION_INTENT');
+  checkpointAttempt(grant.attemptId, { kind:'MIGRATION_INTENT', baseline:{organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0} });
   const committed = checkpointAttempt(grant.attemptId, 'DB_EXACT');
-  assert.equal(committed.record.sequence,4);
+  assert.equal(committed.record.sequence,5);
   assert.equal(committed.record.migrationCommitted,true);
   assert.throws(() => checkpointAttempt(grant.attemptId,'ABORT_INTENT'), /ATTEMPT_TRANSITION_INVALID/);
 }));
@@ -60,6 +75,7 @@ test('durable env alignment updates the coherent pair and keeps protected non-id
   admitAttempt(grant.attemptId);
   checkpointAttempt(grant.attemptId,{kind:'PREDEPLOY_BACKUP',receipt:{sha256:'6'.repeat(64),completedAtUTC:new Date().toISOString()}});
   checkpointAttempt(grant.attemptId,'FENCED');
+  checkpointAttempt(grant.attemptId,{kind:'MIGRATION_INTENT',baseline:{organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0}});
   checkpointAttempt(grant.attemptId,'DB_EXACT');
   checkpointAttempt(grant.attemptId,'ENV_INTENT');
   try {
@@ -94,6 +110,7 @@ test('activation prepares only an approved pointer and a permit backed by a dura
     unlinkSync(barrier);
     createAttemptBarrier(grant.attemptId);
     checkpointAttempt(grant.attemptId,'FENCED');
+    checkpointAttempt(grant.attemptId,{kind:'MIGRATION_INTENT',baseline:{organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0}});
     checkpointAttempt(grant.attemptId,'DB_EXACT');
     checkpointAttempt(grant.attemptId,'ENV_INTENT');
     checkpointAttempt(grant.attemptId,'ENV_ALIGNED');

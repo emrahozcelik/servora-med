@@ -51,3 +51,33 @@ test('the service-UID guard holds the real migration lock until the root protoco
     await client.query('SELECT pg_advisory_unlock(872014011)');
   } finally { child?.kill(); client.release(); await pool.end(); }
 });
+
+test('the guard reports the aggregate business invariants over the same exact lock', {timeout:10000}, async () => {
+  const pool = new Pool({connectionString:process.env.DATABASE_URL});
+  const client = await pool.connect();
+  let child;
+  try {
+    const identity = (await client.query(`SELECT (pg_control_system()).system_identifier::text AS "clusterId",
+      current_database() AS "databaseName", (SELECT oid::text FROM pg_database WHERE datname=current_database()) AS "databaseOid",
+      current_user AS role, host(inet_server_addr()) AS host, inet_server_port() AS port`)).rows[0];
+    const catalog = (await client.query('SELECT version FROM schema_migrations ORDER BY version ASC')).rows.map(row => row.version);
+    child = spawn('/usr/bin/node',['/usr/local/libexec/servora-med/deployment-db-guard.mjs','--hold'],{stdio:['pipe','pipe','pipe']});
+    const exit = once(child,'exit');
+    const lines = createInterface({input:child.stdout})[Symbol.asyncIterator]();
+    child.stdin.write(JSON.stringify({releaseDirectory,expectedIdentity:identity,expectedCatalog:catalog})+'\n');
+    assert.equal((await lines.next()).value,'READY');
+    child.stdin.write('COUNTS\n');
+    const line = (await lines.next()).value;
+    assert.match(line,/^COUNTS=\{.*\}$/,'counts must be a single canonical JSON line');
+    const counts = JSON.parse(line.slice('COUNTS='.length));
+    for (const key of ['organizations','admins','staff','customers','products','jobs','demo_data']) {
+      assert.ok(Number.isSafeInteger(counts[key]) && counts[key] >= 0, key);
+    }
+    // The read must not widen the lock discipline: the same session still
+    // holds the migration lock while root inspects counts.
+    assert.equal((await client.query('SELECT pg_try_advisory_lock(872014011) AS locked')).rows[0].locked,false);
+    child.stdin.end('RELEASE\n');
+    assert.deepEqual(await exit,[0,null]);
+    console.log('GUARD_COUNTS_PROTOCOL=PASS '+line.trim());
+  } finally { child?.kill(); client.release(); await pool.end(); }
+});

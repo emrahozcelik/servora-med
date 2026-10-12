@@ -788,7 +788,10 @@ deploy_remote() {
       cat "$output_file" >&2
       fail REMOTE_FORWARD_RECOVERY_FAILED
     fi
-    grep -q '^FORWARD_RECOVERY=HEALTH_PASSED_PENDING_ACCEPTANCE$' "$output_file" || fail REMOTE_ACTIVATION_NOT_VERIFIED
+    # A terminal COMPLETED attempt confirms read-only after a lost SSH result:
+    # no activation, migration, backup or ownership claim is created.
+    grep -qE '^FORWARD_RECOVERY=(HEALTH_PASSED_PENDING_ACCEPTANCE|ALREADY_COMPLETED_READ_ONLY|ALREADY_COMPLETED_OWNER_RETIRED)$' "$output_file" \
+      || fail REMOTE_ACTIVATION_NOT_VERIFIED
     OLD_RELEASE="/opt/servora-med/releases/$ATTEMPT_OLD_SHA"
     NEW_RELEASE="/opt/servora-med/releases/$SHA"
     MIGRATIONS_APPLIED=NOT_RUN_RECOVERY

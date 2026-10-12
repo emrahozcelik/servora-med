@@ -18,6 +18,7 @@ const ENV_FILE = '/etc/servora-med/servora-med.env';
 const STATE_ROOT = '/var/lib/servora-med/deploy';
 const PERMIT_DIRECTORY = '/run/servora-med-recovery';
 const PERMIT_FILE = `${PERMIT_DIRECTORY}/start.permit`;
+const PG_RESTORE_BIN = '/usr/bin/pg_restore';
 
 function existsSync(path) {
   // A dangling link is an existing, untrusted resource; never treat it as
@@ -42,12 +43,22 @@ export function attemptLogDirectory(attemptId) {
   return STATE_ROOT+'/logs/'+attemptId;
 }
 
-/** Caller holds the common host lock; an active owner survives process exit. */
+/** Caller holds the common host lock; an active owner survives process exit.
+ * A same-owner retry of an early, unmigrated attempt resumes instead of
+ * stranding: no other attempt phase or owner is ever reclaimed here.
+ */
 export function admitAttempt(attemptId) {
   const context = loadAttempt(attemptId);
   if (existsSync(`${STATE_ROOT}/active.json`)) {
     const active = readProtectedRecord(`${STATE_ROOT}/active.json`).record;
-    throw new Error(active.attemptId === attemptId ? 'ATTEMPT_ALREADY_ADMITTED' : 'RECOVERY_OTHER_ATTEMPT_ACTIVE');
+    const checkpoint = readLatestCheckpoint(attemptId);
+    if (Object.keys(active).length !== 2 || active.attemptId !== attemptId
+      || active.approvalSha256 !== context.approvalSha256
+      || !['ADMITTED','BACKED_UP'].includes(checkpoint.record.phase)) {
+      throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+    }
+    assertRetainedBackups({ approval: context.approval, checkpoint });
+    return { resumed: true, checkpoint };
   }
   if (existsSync(`${STATE_ROOT}/attempts/${attemptId}`)) throw new Error('ATTEMPT_ALREADY_ADMITTED');
   const active = { attemptId, approvalSha256: context.approvalSha256 };
@@ -55,7 +66,7 @@ export function admitAttempt(attemptId) {
   try { writeFileSync(fd, JSON.stringify(active)+'\n'); fsyncSync(fd); }
   finally { closeSync(fd); }
   flushDirectory(STATE_ROOT);
-  return appendRootCheckpoint(attemptId, initialAttempt(context));
+  return { resumed: false, checkpoint: appendRootCheckpoint(attemptId, initialAttempt(context)) };
 }
 
 export function currentAttempt(attemptId) {
@@ -81,10 +92,8 @@ export function checkpointAttempt(attemptId, event) {
   return appendRootCheckpoint(attemptId, next);
 }
 
-export function createAttemptBarrier(attemptId) {
-  const context = currentAttempt(attemptId);
-  if (!context.checkpoint.record.predeployBackup || context.checkpoint.record.phase === 'ADMITTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
-  const owner = { attemptId, approvalSha256: context.approvalSha256 };
+function writeAttemptBarrier(attemptId, approvalSha256) {
+  const owner = { attemptId, approvalSha256 };
   const file = `${STATE_ROOT}/activation.block`;
   if (existsSync(file)) {
     try {
@@ -97,6 +106,12 @@ export function createAttemptBarrier(attemptId) {
   const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try { writeFileSync(fd,JSON.stringify(owner)+'\n'); fsyncSync(fd); } finally { closeSync(fd); }
   flushDirectory(STATE_ROOT);
+}
+
+export function createAttemptBarrier(attemptId) {
+  const context = currentAttempt(attemptId);
+  if (!context.checkpoint.record.predeployBackup || context.checkpoint.record.phase === 'ADMITTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
+  writeAttemptBarrier(attemptId, context.approvalSha256);
 }
 
 function assertBarrier(context) {
@@ -406,6 +421,16 @@ export function sealBackupReceipt(attemptId, kind, file) {
     } finally { closeSync(output); }
     const sha256 = hash.digest('hex');
     if (sha256 !== expected[1]) throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+    // The copied root-private bytes must themselves be a real PostgreSQL
+    // archive: digest agreement with the equally service-writable sidecar is
+    // not proof, and the source pathname may have been swapped between the
+    // helper's verification and this sealed copy.
+    try {
+      execFileSync(PG_RESTORE_BIN,['--list',temporary],{env:COMMAND_ENV,timeout:30000,stdio:['ignore','ignore','ignore']});
+    } catch (error) {
+      if (error.code === 'ENOENT') throw new Error('RECOVERY_BACKUP_VALIDATION_UNAVAILABLE');
+      throw new Error('RECOVERY_BACKUP_ARCHIVE_INVALID');
+    }
     linkSync(temporary,`${directory}/${attemptId}-${kind}.dump`); unlinkSync(temporary); temporary = null; flushDirectory(directory);
     return checkpointAttempt(attemptId,{kind:kind === 'pre' ? 'PREDEPLOY_BACKUP' : 'POSTDEPLOY_BACKUP_PASSED',
       receipt:{sha256,completedAtUTC:new Date().toISOString()}});
@@ -448,13 +473,31 @@ async function withGuard(context, direction, operation) {
       }
     } finally { clearTimeout(timer); }
   };
+  const counts = async () => {
+    let timer;
+    try {
+      child.stdin.write('COUNTS\n');
+      const line = await Promise.race([lines.next(),new Promise((_,reject) => {
+        timer = setTimeout(() => reject(new Error('RECOVERY_DATABASE_PROBE_FAILED')),10000);
+      })]);
+      if (line.done || typeof line.value !== 'string' || !line.value.startsWith('COUNTS=')) {
+        const code = probeError.trim();
+        throw new Error(/^RECOVERY_DATABASE_[A-Z_]+$/.test(code) ? code : 'RECOVERY_DATABASE_PROBE_FAILED');
+      }
+      const parsed = JSON.parse(line.value.slice('COUNTS='.length));
+      for (const key of ['organizations','admins','staff','customers','products','jobs','demo_data']) {
+        if (!Number.isSafeInteger(parsed[key]) || parsed[key] < 0) throw new Error('RECOVERY_DATABASE_PROBE_FAILED');
+      }
+      return parsed;
+    } finally { clearTimeout(timer); }
+  };
   child.stdin.write(JSON.stringify({releaseDirectory:'/opt/servora-med/releases/'+(direction === 'old' ? context.approval.oldReleaseSha : context.approval.releaseSha),
     expectedIdentity:context.profile.databaseIdentity,
     expectedCatalog:(direction === 'old' ? context.approval.oldCatalog : context.approval.targetCatalog).map(entry => entry.version)})+'\n');
   try {
     await expect('READY');
     const check = async () => { child.stdin.write('CHECK\n'); await expect('EXACT'); };
-    return await operation(check);
+    return await operation(check, counts);
   } finally {
     child.stdin.end('RELEASE\n');
     const timer = setTimeout(() => child.kill('SIGTERM'),5000);
@@ -489,6 +532,20 @@ function assertProcessAndHealth(context, direction = 'target') {
   return pid;
 }
 
+/** Fresh schema-check gate. Runs the sealed target release's own
+ * schema-check as the service UID with the protected env file; the root
+ * controller never executes candidate code as root. Any failure fails closed.
+ */
+export function runTargetSchemaCheck(context) {
+  const release = '/opt/servora-med/releases/'+context.approval.releaseSha;
+  try {
+    execFileSync('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/env','-i',
+      'PATH='+COMMAND_ENV.PATH,'NODE_ENV=production','/usr/bin/node','--env-file='+ENV_FILE,
+      release+'/server/dist/db/schema-check.js'],
+      {env:COMMAND_ENV,timeout:120000,stdio:['ignore','ignore','ignore']});
+  } catch { throw new Error('RECOVERY_SCHEMA_CHECK_FAILED'); }
+}
+
 /** DB056 recovery never migrates/restores. Ambiguous start intent is denied;
  * resumable env/pointer intents only replay their exact sealed destinations.
  */
@@ -510,19 +567,43 @@ export async function recoverAttempt(attemptId) {
   if (!['FENCED','MIGRATION_INTENT','DB_EXACT','ENV_INTENT','ENV_ALIGNED','POINTER_INTENT',
     'POINTER_ALIGNED','START_FAILED','HEALTH_PASSED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT',
     'POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ACCEPTED'].includes(phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
-  return withGuard(context,'target',async check => {
+  return withGuard(context,'target',async (check,counts) => {
     if (['HEALTH_PASSED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT','POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ACCEPTED'].includes(phase)) {
       await check();
-      try { assertProcessAndHealth(context); return 'FORWARD_RECOVERY=HEALTH_PASSED_PENDING_ACCEPTANCE'; }
+      try { assertProcessAndHealth(context); }
       catch (error) {
         if (phase !== 'HEALTH_PASSED') throw error;
         phase = checkpointAttempt(attemptId,'HEALTH_LOST').record.phase;
+      }
+      if (phase !== 'START_FAILED') {
+        // Durable schema-check acceptance: a health checkpoint alone must not
+        // satisfy the schema gate. If no durable result exists (interruption
+        // between activation and the wrapper's recorded check), run the
+        // sealed release's own check again before any smoke/postdeploy step.
+        if (!readLatestCheckpoint(attemptId).record.schemaChecked) {
+          await runTargetSchemaCheck(context);
+          checkpointAttempt(attemptId,'SCHEMA_CHECKED');
+        }
+        return 'FORWARD_RECOVERY=HEALTH_PASSED_PENDING_ACCEPTANCE';
       }
     }
     // Deny an exhausted start budget before stopping or changing the host.
     if (context.checkpoint.record.starts >= context.approval.maxStarts) throw new Error('ATTEMPT_START_BUDGET_EXHAUSTED');
     // Only admitted, exact-DB attempts may change policy or stop the service.
     await check();
+    // A committed migration must re-prove the persisted pre-migration business
+    // baseline before the durable DB_EXACT boundary or any activation. A
+    // TARGET-exact ledger alone is not data-integrity proof.
+    if (['FENCED','MIGRATION_INTENT'].includes(phase)) {
+      const baseline = readLatestCheckpoint(attemptId).record.invariantBaseline;
+      if (!baseline) throw new Error('RECOVERY_INVARIANT_BASELINE_MISSING');
+      const fresh = await counts();
+      const pairs = [['organizations','organizations'],['admins','admins'],['staff','staff'],
+        ['customers','customers'],['products','products'],['jobs','jobs'],['demoData','demo_data']];
+      for (const [journalKey,freshKey] of pairs) {
+        if (baseline[journalKey] !== fresh[freshKey]) throw new Error('RECOVERY_BUSINESS_DATA_INVARIANT_CHANGED');
+      }
+    }
     execFileSync('/bin/bash',['--noprofile','--norc','-c',
       'source /usr/local/libexec/servora-med/deploy-production-host; r4_suppress_restarts'],
       {env:COMMAND_ENV,timeout:40000,stdio:['ignore','pipe','pipe']});
@@ -617,18 +698,60 @@ function retireCompletedOwner(context) {
   unlinkSync(STATE_ROOT+'/active.json'); flushDirectory(STATE_ROOT); return true;
 }
 
+/** Read-only confirmation of a terminal attempt. No mutation, no claim, no
+ * service start, no backup. Unknown/malformed/revoked/conflicting terminal
+ * records fail closed through the same validators.
+ */
+async function assertTerminalReadOnly(context, record) {
+  const direction = record.phase === 'COMPLETED' ? 'target' : 'old';
+  if (existsSync(STATE_ROOT+'/activation.block') || existsSync(PERMIT_FILE)
+    || existsSync('/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf')) {
+    throw new Error('RECOVERY_COMPLETION_AMBIGUOUS');
+  }
+  verifyAttemptRelease(context.approval.attemptId,'target');
+  if (record.phase === 'COMPLETED_ABORT') verifyAttemptRelease(context.approval.attemptId,'old');
+  assertRetainedBackups(context);
+  assertApprovedPointer(context.approval);
+  await withGuard(context,direction,async check => {
+    await check(); assertProcessAndHealth(context,direction);
+    if (record.phase === 'COMPLETED') assertBackupHealth(context);
+  });
+}
+
 /** Non-secret projection, validated before any operator artifact transfer. */
 export async function preflightAttempt(attemptId) {
   let context = loadAttempt(attemptId);
   let mode = 'deploy';
   if (existsSync(STATE_ROOT+'/active.json')) {
-    context = currentAttempt(attemptId); mode = 'forward-recovery';
-    verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
-    assertApprovedPointer(context.approval); assertBarrier(context);
-    await withGuard(context,'target',async check => { await check(); });
+    context = currentAttempt(attemptId);
+    const record = context.checkpoint.record;
+    if (['COMPLETED','COMPLETED_ABORT'].includes(record.phase)) {
+      // Crash window: terminal journal fsynced before claim retirement.
+      mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
+      await assertTerminalReadOnly(context, record);
+    } else if (['ADMITTED','BACKED_UP'].includes(record.phase)) {
+      // Same-owner retry of an early, unmigrated attempt: resume as a deploy.
+      verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
+      assertApprovedPointer(context.approval);
+      if (existsSync(STATE_ROOT+'/activation.block')) assertBarrier(context);
+      await withGuard(context,'old',async check => { await check(); });
+    } else {
+      mode = 'forward-recovery';
+      verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
+      assertApprovedPointer(context.approval); assertBarrier(context);
+      await withGuard(context,'target',async check => { await check(); });
+    }
+  } else if (existsSync(STATE_ROOT+'/attempts/'+attemptId)) {
+    const checkpoint = readLatestCheckpoint(attemptId);
+    const record = checkpoint.record;
+    if (!['COMPLETED','COMPLETED_ABORT'].includes(record.phase)) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
+    // Terminal read-only confirmation after successful claim retirement.
+    mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
+    await assertTerminalReadOnly({ approval: context.approval, checkpoint, approvalSha256: context.approvalSha256 }, record);
   } else {
-    if (!context.approval.allowMigration || existsSync(STATE_ROOT+'/activation.block')
-      || existsSync(STATE_ROOT+'/attempts/'+attemptId)) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
+    if (!context.approval.allowMigration || !context.approval.allowForwardRecovery
+      || !context.approval.allowPostdeployBackup
+      || existsSync(STATE_ROOT+'/activation.block')) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
     verifyAttemptRelease(attemptId,'old');
     await withGuard(context,'old',async check => {
       await check(); assertProcessAndHealth(context,'old'); assertBackupHealth(context);
@@ -724,17 +847,20 @@ export async function abortAttempt(attemptId) {
     });
   }
   if (!context.approval.allowPreMigrationAbort || context.checkpoint.record.migrationCommitted
-    || !['FENCED','MIGRATION_INTENT','ABORTED'].includes(context.checkpoint.record.phase)) {
+    || !['ADMITTED','BACKED_UP','FENCED','MIGRATION_INTENT','ABORTED'].includes(context.checkpoint.record.phase)) {
     throw new Error('PRE_MIGRATION_ABORT_NOT_AUTHORIZED');
   }
   verifyAttemptRelease(attemptId,'target'); // trusted pg runtime for the UID probe
   assertApprovedPointer(context.approval);
-  if (context.checkpoint.record.phase !== 'ABORTED') assertBarrier(context);
+  // An early interruption (ADMITTED hello-window) may have no barrier yet;
+  // only a same-owner barrier is ever created or reused below.
+  if (context.checkpoint.record.phase !== 'ABORTED' && existsSync(STATE_ROOT+'/activation.block')) assertBarrier(context);
   return withGuard(context,'old',async check => {
     // DB OLD EXACT precedes every mutation and any barrier removal. Never
     // decide this from a retry's migrations_applied=0 or schema head alone.
     await check(); verifyAttemptRelease(attemptId,'old');
     if (context.checkpoint.record.phase !== 'ABORTED') {
+      if (!existsSync(STATE_ROOT+'/activation.block')) writeAttemptBarrier(attemptId, context.approvalSha256);
       execFileSync('/bin/bash',['--noprofile','--norc','-c',
         'source /usr/local/libexec/servora-med/deploy-production-host; r4_suppress_restarts'],
         {env:COMMAND_ENV,timeout:40000,stdio:['ignore','pipe','pipe']});
@@ -774,13 +900,34 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else if (command === 'inspect' && extra.length === 0) {
       process.stdout.write(JSON.stringify(loadAttempt(attemptId).approval)+'\n');
     } else if (command === 'match-deploy' && extra.length === 3) {
-      const {approval,profile} = loadAttempt(attemptId);
+      const {approval,profile,approvalSha256: contextSha256} = loadAttempt(attemptId);
       const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
-      if (!approval.allowMigration || extra[0] !== approval.releaseSha || extra[1] !== approval.artifactSha256
+      // Every scope the normal deployment path unconditionally needs must be
+      // granted before admission, backup, migration or any service mutation.
+      if (!approval.allowMigration || !approval.allowForwardRecovery || !approval.allowPostdeployBackup) {
+        throw new Error('ATTEMPT_DEPLOYMENT_SCOPES_INCOMPLETE');
+      }
+      if (extra[0] !== approval.releaseSha || extra[1] !== approval.artifactSha256
         || extra[2] !== profile.fqdn || realpathSync('/opt/servora-med/current') !== '/opt/servora-med/releases/'+approval.oldReleaseSha
         || tuple.release !== approval.oldReleaseSha || tuple.schema !== approval.oldCatalog.at(-1).version) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
       validateBackupDatabase(profile);
-      if (existsSync(STATE_ROOT+'/active.json') || existsSync(STATE_ROOT+'/activation.block')) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+      // A same-owner resume of an early, unmigrated attempt is admitted;
+      // any other active owner, later phase or foreign barrier blocks a
+      // fresh deployment binding. No claim is ever silently replaced.
+      if (existsSync(STATE_ROOT+'/active.json')) {
+        const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
+        const phase = readLatestCheckpoint(attemptId).record.phase;
+        if (Object.keys(active).length !== 2 || active.attemptId !== attemptId
+          || active.approvalSha256 !== contextSha256
+          || !['ADMITTED','BACKED_UP'].includes(phase)) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+      }
+      if (existsSync(STATE_ROOT+'/activation.block')) {
+        let barrier;
+        try { barrier = readProtectedRecord(STATE_ROOT+'/activation.block').record; }
+        catch { throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE'); }
+        if (Object.keys(barrier).length !== 2 || barrier.attemptId !== attemptId
+          || barrier.approvalSha256 !== contextSha256) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+      }
       process.stdout.write('ATTEMPT_DEPLOYMENT_BINDING_PASS\n');
     } else if (command === 'probe-old' && extra.length === 0) {
       const context = loadAttempt(attemptId);
@@ -790,9 +937,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else if (command === 'migration-log-path' && extra.length === 0) {
       process.stdout.write(attemptLogDirectory(attemptId)+'/migration.log\n');
     } else if (command === 'admit' && extra.length === 0) {
-      admitAttempt(attemptId); process.stdout.write('ATTEMPT_ADMITTED\n');
+      const admitted = admitAttempt(attemptId);
+      process.stdout.write(admitted.resumed
+        ? 'ATTEMPT_RESUMED phase='+admitted.checkpoint.record.phase+'\n' : 'ATTEMPT_ADMITTED\n');
+    } else if (command === 'migration-intent' && extra.length === 7) {
+      const values = extra.map(value => Number(value));
+      if (values.some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
+      checkpointAttempt(attemptId,{kind:'MIGRATION_INTENT',baseline:{organizations:values[0],admins:values[1],
+        staff:values[2],customers:values[3],products:values[4],jobs:values[5],demoData:values[6]}});
+      process.stdout.write('ATTEMPT_EVENT_RECORDED\n');
     } else if (command === 'event' && extra.length === 1) {
-      if (!['FENCED','MIGRATION_INTENT','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT'].includes(extra[0])) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
+      if (!['FENCED','SCHEMA_CHECKED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT'].includes(extra[0])) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
       checkpointAttempt(attemptId,extra[0]); process.stdout.write('ATTEMPT_EVENT_RECORDED\n');
     } else if (command === 'barrier' && extra.length === 0) {
       createAttemptBarrier(attemptId); process.stdout.write('ATTEMPT_BARRIER_CREATED\n');

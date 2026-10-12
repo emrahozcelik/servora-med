@@ -247,12 +247,13 @@ const JOURNAL_KEYS = Object.freeze([
   'formatVersion', 'attemptId', 'approvalSha256', 'profileSha256', 'sequence',
   'previousHash', 'phase', 'starts', 'abortStarts', 'migrationCommitted',
   'lastStart', 'predeployBackup', 'postdeployBackup', 'smokePassed',
-  'observationPassed', 'updatedAtUTC',
+  'observationPassed', 'invariantBaseline', 'schemaChecked', 'updatedAtUTC',
 ]);
 const JOURNAL_PHASES = new Set(['ADMITTED','BACKED_UP','FENCED','MIGRATION_INTENT','DB_EXACT',
   'ENV_INTENT','ENV_ALIGNED','POINTER_INTENT','POINTER_ALIGNED','START_INTENT','START_FAILED',
   'HEALTH_PASSED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT','POSTDEPLOY_BACKUP_PASSED',
   'OBSERVATION_PASSED','ACCEPTED','ABORT_INTENT','ABORTED','COMPLETED','COMPLETED_ABORT']);
+const INVARIANT_KEYS = Object.freeze(['organizations','admins','staff','customers','products','jobs','demoData']);
 
 function validUTC(value, now) {
   const time = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -265,6 +266,15 @@ function validReceipt(value, now) {
     && /^[0-9a-f]{64}$/.test(value.sha256) && validUTC(value.completedAtUTC,now);
 }
 
+/** Aggregate, non-sensitive business-row counts captured before migration.
+ * Persisted so an interruption after COMMIT cannot lose the comparison base.
+ */
+function validInvariantBaseline(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === INVARIANT_KEYS.length
+    && INVARIANT_KEYS.every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
+}
+
 export function initialAttempt(context, now = Date.now()) {
   const approval = validateApproval(context.approval, now);
   if (typeof context.approvalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(context.approvalSha256)) {
@@ -275,7 +285,7 @@ export function initialAttempt(context, now = Date.now()) {
     sequence: 0, previousHash: null, phase: 'ADMITTED', starts: 0, abortStarts: 0,
     migrationCommitted: false, lastStart: 'none', predeployBackup: null,
     postdeployBackup: null, smokePassed: false, observationPassed: false,
-    updatedAtUTC: new Date(now).toISOString() };
+    invariantBaseline: null, schemaChecked: false, updatedAtUTC: new Date(now).toISOString() };
 }
 
 /** Reserve a start before invoking systemd. Persist the returned checkpoint
@@ -297,7 +307,9 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
     || !JOURNAL_PHASES.has(journal.phase)
     || (journal.predeployBackup !== null && !validReceipt(journal.predeployBackup,now))
     || (journal.postdeployBackup !== null && !validReceipt(journal.postdeployBackup,now))
+    || (journal.invariantBaseline !== null && !validInvariantBaseline(journal.invariantBaseline))
     || typeof journal.migrationCommitted !== 'boolean' || typeof journal.smokePassed !== 'boolean'
+    || typeof journal.schemaChecked !== 'boolean'
     || typeof journal.observationPassed !== 'boolean'
     || !['none', 'intent', 'pass', 'fail'].includes(journal.lastStart)
     || !validUTC(journal.updatedAtUTC,now)) {
@@ -316,8 +328,12 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
     return { ...next, phase: 'FENCED' };
   }
   if (kind === 'MIGRATION_INTENT') {
-    if (journal.phase !== 'FENCED' || !approval.allowMigration) throw new Error('ATTEMPT_TRANSITION_INVALID');
-    return { ...next, phase: 'MIGRATION_INTENT' };
+    const baseline = event?.baseline;
+    if (journal.phase !== 'FENCED' || !approval.allowMigration
+      || !approval.allowForwardRecovery || !approval.allowPostdeployBackup
+      || !validInvariantBaseline(baseline)) throw new Error('ATTEMPT_TRANSITION_INVALID');
+    return { ...next, phase: 'MIGRATION_INTENT',
+      invariantBaseline: Object.fromEntries(INVARIANT_KEYS.map(key => [key, baseline[key]])) };
   }
   const transitions = {
     DB_EXACT: ['FENCED', 'MIGRATION_INTENT'],
@@ -332,7 +348,8 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   if (Object.hasOwn(transitions, kind)) {
     if (!transitions[kind].includes(journal.phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
     if (kind === 'POSTDEPLOY_BACKUP_INTENT' && !approval.allowPostdeployBackup) throw new Error('ATTEMPT_TRANSITION_INVALID');
-    if (kind === 'DB_EXACT' && !journal.predeployBackup) throw new Error('ATTEMPT_TRANSITION_INVALID');
+    if (kind === 'DB_EXACT' && (!journal.predeployBackup || !journal.invariantBaseline)) throw new Error('ATTEMPT_TRANSITION_INVALID');
+    if (kind === 'SMOKE_PASSED' && !journal.schemaChecked) throw new Error('ATTEMPT_TRANSITION_INVALID');
     return { ...next, phase: kind,
       migrationCommitted: kind === 'DB_EXACT' ? true : journal.migrationCommitted,
       lastStart: kind === 'START_FAILED' ? 'fail' : ['HEALTH_PASSED', 'ABORTED'].includes(kind) ? 'pass' : journal.lastStart,
@@ -358,8 +375,14 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
     if (journal.phase !== 'ACCEPTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
     return {...next,phase:kind};
   }
+  if (kind === 'SCHEMA_CHECKED') {
+    // Durable record of a passing schema gate. Only a healthy, activated
+    // candidate may carry it; completion gates read it, never assume it.
+    if (journal.phase !== 'HEALTH_PASSED') throw new Error('ATTEMPT_TRANSITION_INVALID');
+    return { ...next, phase: 'HEALTH_PASSED', schemaChecked: true };
+  }
   if (kind === 'ABORT_INTENT') {
-    if (!['FENCED', 'MIGRATION_INTENT'].includes(journal.phase) || journal.migrationCommitted
+    if (!['ADMITTED', 'BACKED_UP', 'FENCED', 'MIGRATION_INTENT'].includes(journal.phase) || journal.migrationCommitted
       || !approval.allowPreMigrationAbort || journal.abortStarts >= approval.maxAbortStarts) {
       throw new Error('ATTEMPT_TRANSITION_INVALID');
     }

@@ -10,6 +10,40 @@ import { pathToFileURL } from 'node:url';
 const MIGRATION_LOCK = 872_014_011; // Same key as PostgresMigrationStore.
 const IDENTITY_KEYS = ['clusterId', 'databaseName', 'databaseOid', 'role', 'host', 'port'];
 
+/** Aggregate, non-sensitive business invariants used to prove that a
+ * migration did not move business data. Single source of truth shared with
+ * migration-state.mjs; read-only and never selects row contents.
+ */
+export const BUSINESS_INVARIANT_KEYS = Object.freeze(
+  ['organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data']);
+export const BUSINESS_DATA_INVARIANTS_SQL = `
+  SELECT
+    (SELECT COUNT(*) FROM organizations)::bigint AS organizations,
+    (SELECT COUNT(*) FROM users WHERE role = 'ADMIN')::bigint AS admins,
+    (SELECT COUNT(*) FROM staff_profiles)::bigint AS staff,
+    (SELECT COUNT(*) FROM customers)::bigint AS customers,
+    (SELECT COUNT(*) FROM products)::bigint AS products,
+    (SELECT COUNT(*) FROM job_cards)::bigint AS jobs,
+    (
+      (SELECT COUNT(*) FROM demo_datasets WHERE status = 'ACTIVE')
+      + (SELECT COUNT(*) FROM users WHERE data_class = 'DEMO')
+      + (SELECT COUNT(*) FROM customers WHERE data_class = 'DEMO')
+      + (SELECT COUNT(*) FROM products WHERE data_class = 'DEMO')
+      + (SELECT COUNT(*) FROM job_cards WHERE data_class = 'DEMO')
+      + (SELECT COUNT(*) FROM conversations WHERE data_class = 'DEMO')
+      + (SELECT COUNT(*) FROM calendar_events WHERE data_class = 'DEMO')
+    )::bigint AS demo_data`;
+
+export function validateBusinessInvariantCounts(row) {
+  const counts = {};
+  for (const key of BUSINESS_INVARIANT_KEYS) {
+    const value = Number(row?.[key]);
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error('RECOVERY_DATABASE_INVARIANTS_INVALID');
+    counts[key] = value;
+  }
+  return counts;
+}
+
 export function validateDatabaseIdentity(expectedIdentity) {
   if (!expectedIdentity || Object.keys(expectedIdentity).length !== IDENTITY_KEYS.length
     || IDENTITY_KEYS.some(key => !Object.hasOwn(expectedIdentity,key))
@@ -60,15 +94,21 @@ export async function withDeploymentDatabaseLock(options, operation) {
     if (classifyMigrationState(expectedCatalog, applied).status !== 'EXACT') throw new Error('RECOVERY_DATABASE_NOT_EXACT');
     return { identity, applied };
   };
+  const readInvariants = async () => {
+    if (lost) throw new Error('RECOVERY_DATABASE_PROBE_FAILED');
+    const counts = validateBusinessInvariantCounts((await client.query(BUSINESS_DATA_INVARIANTS_SQL)).rows[0]);
+    return Object.fromEntries(BUSINESS_INVARIANT_KEYS.map(key => [key, counts[key]]));
+  };
   try {
     await client.connect();
     locked = (await client.query('SELECT pg_try_advisory_lock($1) AS locked', [MIGRATION_LOCK])).rows[0].locked;
     if (!locked) throw new Error('RECOVERY_DATABASE_LOCK_BUSY');
     const {identity,applied} = await assertExact();
-    return await operation({ identity, applied, assertExact, disconnected });
+    return await operation({ identity, applied, assertExact, readInvariants, disconnected });
   } catch (error) {
     // Do not propagate pg/URL errors with connection details to root logs.
-    if (['RECOVERY_DATABASE_IDENTITY_MISMATCH', 'RECOVERY_DATABASE_LOCK_BUSY', 'RECOVERY_DATABASE_NOT_EXACT'].includes(error.message)) throw error;
+    if (['RECOVERY_DATABASE_IDENTITY_MISMATCH', 'RECOVERY_DATABASE_LOCK_BUSY', 'RECOVERY_DATABASE_NOT_EXACT',
+      'RECOVERY_DATABASE_INVARIANTS_INVALID'].includes(error.message)) throw error;
     throw new Error('RECOVERY_DATABASE_PROBE_FAILED');
   } finally {
     if (locked) {
@@ -89,13 +129,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (Object.keys(options).length !== 3 || !['releaseDirectory','expectedIdentity','expectedCatalog'].every(key => Object.hasOwn(options,key))) {
       throw new Error('RECOVERY_DATABASE_PROTOCOL_INVALID');
     }
-    await withDeploymentDatabaseLock(options, async ({assertExact,disconnected}) => {
+    await withDeploymentDatabaseLock(options, async ({assertExact,readInvariants,disconnected}) => {
       process.stdout.write('READY\n');
       for (let count = 0; count < 1000; count++) {
         const next = await Promise.race([lines.next(), disconnected.then(() => { throw new Error('RECOVERY_DATABASE_PROBE_FAILED'); })]);
         if (next.done || next.value === 'RELEASE') return;
-        if (next.value !== 'CHECK') throw new Error('RECOVERY_DATABASE_PROTOCOL_INVALID');
-        await assertExact(); process.stdout.write('EXACT\n');
+        if (next.value === 'CHECK') { await assertExact(); process.stdout.write('EXACT\n'); continue; }
+        if (next.value === 'COUNTS') {
+          await assertExact();
+          process.stdout.write('COUNTS='+JSON.stringify(await readInvariants())+'\n');
+          continue;
+        }
+        throw new Error('RECOVERY_DATABASE_PROTOCOL_INVALID');
       }
       throw new Error('RECOVERY_DATABASE_PROTOCOL_INVALID');
     });

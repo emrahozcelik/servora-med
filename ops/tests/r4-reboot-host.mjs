@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {hostname} from 'node:os';
 import {readFileSync,writeFileSync,mkdirSync,existsSync,readlinkSync,unlinkSync,symlinkSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import {withRuntimeFixture,prepareRealBackup} from './r4-runtime-fixture.mjs';
+import {withRuntimeFixture,prepareRealBackup,readDatabaseInvariants} from './r4-runtime-fixture.mjs';
 import {admitAttempt,checkpointAttempt,createAttemptBarrier,alignIdentityEnvironment,alignAttemptEnvironment,alignAttemptPointer,grantStartPermit,revokeStartPermit} from '../scripts/deployment-controller.mjs';
 import {readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
 assert.equal(hostname(),'lima-servora-r4-20261012');assert.equal(process.getuid(),0);
@@ -26,7 +26,7 @@ if(command==='prepare') {
   spawnSync('/usr/bin/systemctl',['stop','servora-med.service']);
   writeFileSync(env,alignIdentityEnvironment(readFileSync(env,'utf8'),grant.oldCatalog.at(-1).version,grant.oldReleaseSha));
   unlinkSync(pointer);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,pointer);
-  checkpointAttempt(grant.attemptId,'FENCED');checkpointAttempt(grant.attemptId,'MIGRATION_INTENT');
+  checkpointAttempt(grant.attemptId,'FENCED');checkpointAttempt(grant.attemptId,{kind:'MIGRATION_INTENT',baseline:readDatabaseInvariants()});
   if(kind!=='MIGRATION_INTENT') {
    checkpointAttempt(grant.attemptId,'DB_EXACT');checkpointAttempt(grant.attemptId,'ENV_INTENT');
    alignAttemptEnvironment(grant.attemptId,'target');

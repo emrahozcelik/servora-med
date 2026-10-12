@@ -83,7 +83,8 @@ test('an ambiguous start intent cannot allocate an unused recovery slot', () => 
     profileSha256: record.profileSha256, sequence: 5, previousHash: '5'.repeat(64),
     phase: 'START_INTENT', starts: 1, abortStarts: 0, migrationCommitted: true,
     lastStart: 'intent', predeployBackup: null, postdeployBackup: null,
-    smokePassed: false, observationPassed: false, updatedAtUTC: '2026-10-12T09:20:00.000Z',
+    smokePassed: false, observationPassed: false, invariantBaseline: null,
+    schemaChecked: true, updatedAtUTC: '2026-10-12T09:20:00.000Z',
   };
   assert.throws(() => advanceAttempt(journal, context, 'START_INTENT',
     Date.parse('2026-10-12T09:30:00.000Z')), /ATTEMPT_START_AMBIGUOUS/);
@@ -106,20 +107,21 @@ test('migration intent requires a verified predeploy backup and a stopped fenced
   const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
   const now = Date.parse('2026-10-12T09:30:00.000Z');
   const admitted = initialAttempt(context, now);
-  assert.throws(() => advanceAttempt(admitted, context, 'MIGRATION_INTENT', now), /ATTEMPT_TRANSITION_INVALID/);
+  assert.throws(() => advanceAttempt(admitted, context, { kind:'MIGRATION_INTENT', baseline:INVARIANT_BASELINE }, now), /ATTEMPT_TRANSITION_INVALID/);
   const backup = advanceAttempt(admitted, context, { kind: 'PREDEPLOY_BACKUP',
     receipt: { sha256: '6'.repeat(64), completedAtUTC: '2026-10-12T09:30:00.000Z' } }, now);
   const fenced = advanceAttempt(backup, context, 'FENCED', now);
-  const intent = advanceAttempt(fenced, context, 'MIGRATION_INTENT', now);
+  const intent = advanceAttempt(fenced, context, { kind:'MIGRATION_INTENT', baseline:INVARIANT_BASELINE }, now);
   assert.equal(intent.phase, 'MIGRATION_INTENT');
   assert.equal(intent.migrationCommitted, false);
   assert.equal(intent.predeployBackup.sha256, '6'.repeat(64));
+  assert.deepEqual(intent.invariantBaseline, INVARIANT_BASELINE);
 });
 
 test('exact database admission retains the migration boundary through env, pointer and bounded start', () => {
   const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
   const now = Date.parse('2026-10-12T09:30:00.000Z');
-  let journal = { ...initialAttempt(context, now), phase: 'MIGRATION_INTENT',
+  let journal = { ...initialAttempt(context, now), phase: 'MIGRATION_INTENT', invariantBaseline: INVARIANT_BASELINE,
     predeployBackup: { sha256: '6'.repeat(64), completedAtUTC: '2026-10-12T09:30:00.000Z' } };
   journal = advanceAttempt(journal, context, 'DB_EXACT', now);
   assert.equal(journal.migrationCommitted, true);
@@ -154,6 +156,10 @@ test('health cannot complete an attempt before separate smoke, backup and full o
   let journal = { ...initialAttempt(context, now), phase: 'START_INTENT', starts: 1, lastStart: 'intent', migrationCommitted: true };
   journal = advanceAttempt(journal, context, 'HEALTH_PASSED', now);
   assert.throws(() => advanceAttempt(journal, context, 'ACCEPTED', now), /ATTEMPT_TRANSITION_INVALID/);
+  assert.throws(() => advanceAttempt(journal, context, 'SMOKE_PASSED', now), /ATTEMPT_TRANSITION_INVALID/);
+  journal = advanceAttempt(journal, context, 'SCHEMA_CHECKED', now);
+  assert.equal(journal.phase, 'HEALTH_PASSED');
+  assert.equal(journal.schemaChecked, true);
   journal = advanceAttempt(journal, context, 'SMOKE_PASSED', now);
   journal = advanceAttempt(journal, context, 'POSTDEPLOY_BACKUP_INTENT', now);
   journal = advanceAttempt(journal, context, { kind: 'POSTDEPLOY_BACKUP_PASSED',
@@ -180,6 +186,25 @@ test('backup intent cannot start an operation excluded by the sealed approval', 
   assert.throws(() => advanceAttempt(journal,context,'POSTDEPLOY_BACKUP_INTENT',now),/ATTEMPT_TRANSITION_INVALID/);
 });
 
+test('smoke cannot pass on a health checkpoint without a durable schema-check result', () => {
+  const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const healthy = { ...initialAttempt(context, now), phase: 'HEALTH_PASSED', starts: 1, lastStart: 'pass', migrationCommitted: true };
+  assert.throws(() => advanceAttempt(healthy, context, 'SMOKE_PASSED', now), /ATTEMPT_TRANSITION_INVALID/);
+  const checked = advanceAttempt(healthy, context, 'SCHEMA_CHECKED', now);
+  assert.equal(checked.phase, 'HEALTH_PASSED');
+  assert.equal(checked.schemaChecked, true);
+  assert.equal(advanceAttempt(checked, context, 'SMOKE_PASSED', now).phase, 'SMOKE_PASSED');
+});
+
+test('schema check result can only be recorded from the health checkpoint', () => {
+  const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const started = { ...initialAttempt(context, now), phase: 'START_INTENT', starts: 1, lastStart: 'intent', migrationCommitted: true };
+  assert.throws(() => advanceAttempt(started, context, 'SCHEMA_CHECKED', now), /ATTEMPT_TRANSITION_INVALID/);
+  assert.throws(() => advanceAttempt({ ...started, phase: 'ENV_ALIGNED' }, context, 'SCHEMA_CHECKED', now), /ATTEMPT_TRANSITION_INVALID/);
+});
+
 test('health lost before smoke may reserve only the remaining explicit start, never revive accepted mutations', () => {
   const context = {approval:approval(),approvalSha256:'4'.repeat(64)};
   const now = Date.parse('2026-10-12T09:30:00.000Z');
@@ -189,4 +214,58 @@ test('health lost before smoke may reserve only the remaining explicit start, ne
   assert.equal(advanceAttempt(failed,context,'START_INTENT',now).starts,2);
   assert.throws(() => advanceAttempt({...healthy,phase:'SMOKE_PASSED',smokePassed:true},context,'HEALTH_LOST',now),/ATTEMPT_TRANSITION_INVALID/);
   assert.throws(() => advanceAttempt({...healthy,starts:2},context,'HEALTH_LOST',now),/BUDGET_EXHAUSTED/);
+});
+
+const INVARIANT_BASELINE = { organizations:2, admins:1, staff:3, customers:7, products:11, jobs:5, demoData:0 };
+const fencedFixture = (context, now) => ({ ...initialAttempt(context, now), phase:'FENCED',
+  predeployBackup:{ sha256:'6'.repeat(64), completedAtUTC:'2026-10-12T09:30:00.000Z' } });
+
+test('migration intent persists the verified pre-migration invariant baseline durably', () => {
+  const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const intent = advanceAttempt(fencedFixture(context, now), context,
+    { kind:'MIGRATION_INTENT', baseline:INVARIANT_BASELINE }, now);
+  assert.equal(intent.phase, 'MIGRATION_INTENT');
+  assert.deepEqual(intent.invariantBaseline, INVARIANT_BASELINE);
+});
+
+test('migration intent fails closed without a complete verified invariant baseline', () => {
+  const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const events = [
+    'MIGRATION_INTENT',
+    { kind:'MIGRATION_INTENT' },
+    { kind:'MIGRATION_INTENT', baseline:{ organizations:1 } },
+    { kind:'MIGRATION_INTENT', baseline:{ ...INVARIANT_BASELINE, jobs:-1 } },
+    { kind:'MIGRATION_INTENT', baseline:{ ...INVARIANT_BASELINE, demoData:1.5 } },
+    { kind:'MIGRATION_INTENT', baseline:{ ...INVARIANT_BASELINE, extra:1 } },
+  ];
+  for (const event of events) {
+    assert.throws(() => advanceAttempt(fencedFixture(context, now), context, event, now),
+      /ATTEMPT_TRANSITION_INVALID/);
+  }
+});
+
+test('migration intent requires every downstream deployment scope before any migration', () => {
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  for (const override of [{ allowForwardRecovery:false }, { allowPostdeployBackup:false }]) {
+    const context = { approval:{ ...approval(), ...override }, approvalSha256:'4'.repeat(64) };
+    assert.throws(() => advanceAttempt(fencedFixture(context, now), context,
+      { kind:'MIGRATION_INTENT', baseline:INVARIANT_BASELINE }, now), /ATTEMPT_TRANSITION_INVALID/);
+  }
+});
+
+test('pre-migration abort can cancel an interrupted admitted or backed-up attempt', () => {
+  const context = { approval: approval(), approvalSha256: '4'.repeat(64) };
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const admitted = initialAttempt(context, now);
+  const backedUp = { ...fencedFixture(context, now), phase:'BACKED_UP' };
+  for (const journal of [admitted, backedUp]) {
+    const abort = advanceAttempt(journal, context, 'ABORT_INTENT', now);
+    assert.equal(abort.phase, 'ABORT_INTENT');
+    assert.equal(abort.abortStarts, 1);
+    assert.equal(abort.starts, 0);
+  }
+  assert.throws(() => advanceAttempt({ ...backedUp, migrationCommitted:true }, context, 'ABORT_INTENT', now),
+    /ATTEMPT_TRANSITION_INVALID/);
 });

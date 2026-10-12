@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {hostname} from 'node:os';
 import {readFileSync,writeFileSync,readlinkSync,unlinkSync,symlinkSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import {withRuntimeFixture,prepareRealBackup,LAB_SHA} from './r4-runtime-fixture.mjs';
+import {withRuntimeFixture,prepareRealBackup,LAB_SHA,readDatabaseInvariants} from './r4-runtime-fixture.mjs';
 import {admitAttempt,checkpointAttempt,createAttemptBarrier,alignIdentityEnvironment,revokeStartPermit} from '../scripts/deployment-controller.mjs';
 import {readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
 assert.equal(hostname(),'lima-servora-r4-20261012');assert.equal(process.getuid(),0);
@@ -28,6 +28,7 @@ for(const [name,sql] of Object.entries(faults)) test('full real history '+name+'
  try {
   withRuntimeFixture(grant=>{
    admitAttempt(grant.attemptId);prepareRealBackup(grant);unlinkSync(barrier);createAttemptBarrier(grant.attemptId);checkpointAttempt(grant.attemptId,'FENCED');
+   checkpointAttempt(grant.attemptId,{kind:'MIGRATION_INTENT',baseline:readDatabaseInvariants()});
    writeFileSync(env,alignIdentityEnvironment(readFileSync(env,'utf8'),grant.oldCatalog.at(-1).version,grant.oldReleaseSha));
    unlinkSync(pointer);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,pointer);
    const mutation=spawnSync('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/node','--env-file='+env,'--input-type=module','-e',

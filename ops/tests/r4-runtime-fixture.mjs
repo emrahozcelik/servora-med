@@ -66,3 +66,27 @@ export function prepareRealBackup(grant) {
     sealBackupReceipt(grant.attemptId,'pre',file);
   } finally { writeFileSync(backupEnv,before); }
 }
+
+/** Current aggregate business invariants of the synthetic DB, read through the
+ * release's own migration-state reader so both the comparison paths and the
+ * fixtures share one contract (uses the resolved release tree for LAB_SHA).
+ */
+export function readDatabaseInvariants() {
+  const release = `/opt/servora-med/releases/${LAB_SHA}`;
+  const result = spawnSync('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/node',
+    '--env-file=/etc/servora-med/servora-med.env',release+'/ops/scripts/migration-state.mjs',release],
+    {encoding:'utf8',timeout:30000});
+  assert.equal(result.status,0,'invariant readout must succeed: '+result.stderr);
+  const values = {};
+  for (const line of result.stdout.split('\n')) {
+    const [key,value] = line.split('=');
+    if (key && value !== undefined) values[key] = value;
+  }
+  const counts = {};
+  for (const [key,field] of [['organizations','organizations'],['admins','admins'],['staff','staff'],
+    ['customers','customers'],['products','products'],['jobs','jobs'],['demoData','demo_data']]) {
+    counts[key] = Number(values[field]);
+    assert.ok(Number.isSafeInteger(counts[key]) && counts[key] >= 0, 'invariant '+field+' must be a count');
+  }
+  return counts;
+}

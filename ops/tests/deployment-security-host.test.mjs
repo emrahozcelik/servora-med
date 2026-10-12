@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,readlinkSync,unlinkSync,symlinkSync,renameSync,chmodSync,readdirSync,mkdirSync,rmdirSync,existsSync} from 'node:fs';
-import {spawnSync} from 'node:child_process';
+import {readFileSync,writeFileSync,readlinkSync,unlinkSync,symlinkSync,renameSync,chmodSync,readdirSync,mkdirSync,rmdirSync,existsSync,chownSync} from 'node:fs';
+import {spawnSync,execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {withRuntimeFixture,prepareRealBackup} from './r4-runtime-fixture.mjs';
-import {admitAttempt,checkpointAttempt,createAttemptBarrier,revokeStartPermit,alignIdentityEnvironment} from '../scripts/deployment-controller.mjs';
+import {withRuntimeFixture,prepareRealBackup,readDatabaseInvariants} from './r4-runtime-fixture.mjs';
+import {admitAttempt,checkpointAttempt,createAttemptBarrier,revokeStartPermit,alignIdentityEnvironment,sealBackupReceipt} from '../scripts/deployment-controller.mjs';
 import {readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
 const root='/var/lib/servora-med/deploy',env='/etc/servora-med/servora-med.env',pointer='/opt/servora-med/current',barrier=root+'/activation.block';
 const hash=b=>createHash('sha256').update(b).digest('hex');
@@ -19,6 +19,7 @@ function fenced(action,beforeAdmission=()=>{}) {
   try {
    beforeAdmission(grant);admitAttempt(grant.attemptId);prepareRealBackup(grant);
    unlinkSync(barrier);createAttemptBarrier(grant.attemptId);checkpointAttempt(grant.attemptId,'FENCED');
+   checkpointAttempt(grant.attemptId,{kind:'MIGRATION_INTENT',baseline:readDatabaseInvariants()});
    writeFileSync(env,alignIdentityEnvironment(readFileSync(env,'utf8'),grant.oldCatalog.at(-1).version,grant.oldReleaseSha));
    unlinkSync(pointer);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,pointer);
    await action(grant);
@@ -114,8 +115,30 @@ test('real failed postdeploy unit leaves a live fenced attempt and cannot run a 
     const repeat=run(grant,'postdeploy');assert.notEqual(repeat.status,0);assert.match(repeat.stderr,/POSTDEPLOY_BACKUP_AMBIGUOUS_OPERATOR_REVIEW_REQUIRED/);
     assert.deepEqual(readLatestCheckpoint(grant.attemptId),before);assert.equal(spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout,invocation);
     assert.equal(spawnSync('/usr/bin/systemctl',['is-active','servora-med.service'],{encoding:'utf8'}).stdout.trim(),'active');
-    console.log('REAL_POSTDEPLOY_BACKUP_FAILED=LIVE_FENCED\nSECOND_BACKUP_INVOCATION=DENIED\nFALSE_RECOVERY_PASS=ABSENT');
-   } finally {unlinkSync(policy+'/90-r4-synthetic-failure.conf');rmdirSync(policy);spawnSync('/usr/bin/systemctl',['daemon-reload']);}
-  });
- } finally {writeFileSync(env,prior);}
+     console.log('REAL_POSTDEPLOY_BACKUP_FAILED=LIVE_FENCED\nSECOND_BACKUP_INVOCATION=DENIED\nFALSE_RECOVERY_PASS=ABSENT');
+    } finally {unlinkSync(policy+'/90-r4-synthetic-failure.conf');rmdirSync(policy);spawnSync('/usr/bin/systemctl',['daemon-reload']);}
+   });
+  } finally {writeFileSync(env,prior);}
 });
+
+test('a sealed receipt rejects swapped bytes that are not a real PostgreSQL archive', () => withRuntimeFixture(grant => {
+  admitAttempt(grant.attemptId);
+  const directory='/var/backups/servora-med';
+  const name='servora-med-20261012T000000Z.dump';
+  const file=directory+'/'+name;
+  const uid=Number(execFileSync('/usr/bin/id',['-u','servora-med'],{encoding:'utf8'}));
+  const gid=Number(execFileSync('/usr/bin/id',['-g','servora-med'],{encoding:'utf8'}));
+  assert.equal(existsSync(file),false);
+  // The service account can replace its own dump and sidecar after the helper
+  // verified them; only a real archive may be sealed by the root receipt.
+  const garbage=Buffer.from('not a postgres archive at all');
+  writeFileSync(file,garbage,{mode:0o600});chownSync(file,uid,gid);
+  writeFileSync(file+'.sha256',hash(garbage)+'  '+name+'\n',{mode:0o600});chownSync(file+'.sha256',uid,gid);
+  try {
+    assert.throws(()=>sealBackupReceipt(grant.attemptId,'pre',file),/RECOVERY_BACKUP_ARCHIVE_INVALID/);
+    assert.equal(existsSync('/var/lib/servora-med/deploy/backups/'+grant.attemptId+'-pre.dump'),false,'no receipt may be published for invalid bytes');
+    const journal=readLatestCheckpoint(grant.attemptId).record;
+    assert.equal(journal.phase,'ADMITTED');assert.equal(journal.predeployBackup,null);
+    console.log('SEALED_BYTES_FORMAT_GATE=PASS');
+  } finally {unlinkSync(file);unlinkSync(file+'.sha256');}
+}));
