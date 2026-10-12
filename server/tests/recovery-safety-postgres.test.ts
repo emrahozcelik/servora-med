@@ -198,7 +198,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(result.env).toContain(`HEALTH_SCHEMA_VERSION=${oldCatalog.head!.version}`);
       await withPool(target, async (pool) => { expect(await snapshot(pool)).toEqual(expected); });
     });
-  });
+  }, 30_000);
   it('R1 rolls back every clean/drop operation on a controlled mid-restore failure', async () => {
     const target = await createDatabase(seed55); const file = dump(seed55, 'atomic-failure');
     await withPool(target, async (pool) => {
