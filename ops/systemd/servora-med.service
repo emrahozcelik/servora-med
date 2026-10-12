@@ -2,6 +2,10 @@
 Description=Servora-Med API (Fastify)
 After=network-online.target postgresql.service
 Wants=network-online.target
+# Active recovery keeps the durable barrier. Its one-start permit is volatile:
+# reboot removes it, so a reserved but interrupted activation cannot auto-start.
+ConditionPathExists=|!/var/lib/servora-med/deploy/activation.block
+ConditionPathExists=|/run/servora-med-recovery/start.permit
 
 [Service]
 Type=simple

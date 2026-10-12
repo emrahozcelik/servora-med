@@ -878,3 +878,13 @@ mandatory deployment backup gates:
 
 Docker/K8s, multi-region, HA, auto-deploy from CI, web-based production restore
 or database cutover UI, and automatic database rollback.
+
+### Attempt-bound migration and forward-recovery
+
+For migration deployments on the R4-bootstrap host, see
+[R4 forward-recovery](r4-forward-recovery.md). The existing wrapper now requires
+`--attempt-id UUID` with `--allow-migrations`; root-sealed approval/profile and
+installed modules/unit/lock library are prerequisites. Normal zero-migration
+releases preserve their existing contract when no recovery attempt is pending.
+`--forward-recovery` uses the already sealed candidate without another transfer
+or migration. This documentation does not authorize production bootstrap/deploy.

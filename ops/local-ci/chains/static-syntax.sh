@@ -10,6 +10,7 @@ bash -n \
   ../ops/scripts/deploy-release.sh \
   ../ops/deploy-production.sh \
   ../ops/scripts/deploy-production-host.sh \
+  ../ops/scripts/host-operation-lock.sh \
   ../ops/scripts/predeploy-backup-launcher.sh \
   ../ops/scripts/ensure-macos-service-identity.sh \
   ../ops/ci/verify-caddyfile.sh \
@@ -35,3 +36,7 @@ for script in ../ops/local-ci/*.sh ../ops/local-ci/lib/*.sh ../ops/local-ci/chai
   bash -n "$script"
 done
 node --check ../ops/local-ci/assemble-manifest.mjs
+
+for module in deployment-attempt deployment-controller deployment-db-guard; do
+  node --check "../ops/scripts/${module}.mjs"
+done

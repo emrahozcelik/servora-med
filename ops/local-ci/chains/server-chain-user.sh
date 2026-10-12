@@ -42,6 +42,7 @@ check server-shellcheck -- shellcheck -x \
   ../ops/scripts/deploy-release.sh \
   ../ops/deploy-production.sh \
   ../ops/scripts/deploy-production-host.sh \
+  ../ops/scripts/host-operation-lock.sh \
   ../ops/scripts/predeploy-backup-launcher.sh \
   ../ops/scripts/ensure-macos-service-identity.sh \
   ../ops/ci/verify-caddyfile.sh \
@@ -68,5 +69,5 @@ check server-db-auth-contract -- bash ../ops/ci/verify-db-auth-contract.sh
 check server-build -- bash -c 'npm ci --no-audit --no-fund && npm run build'
 check server-dep-smoke -- bash /work/ops-local-ci-dep-smoke.sh
 check server-migrate-schema -- bash -c 'npx tsx src/db/migrate.ts && npm run schema:check'
-check server-tests -- bash -c 'npm test -- --run'
+check server-tests -- bash -c 'npm test -- --run && node --test ../ops/tests/deployment-attempt.test.mjs ../ops/tests/deployment-controller.test.mjs ../ops/tests/deployment-operator.test.mjs'
 check server-audit -- bash -c 'npm audit --audit-level=high'
