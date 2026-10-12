@@ -82,6 +82,10 @@ test('interrupted post-commit migration cannot activate after protected business
    spawnSync('/usr/bin/systemctl',['daemon-reload']);assert.equal(spawnSync('/usr/bin/systemctl',['start','servora-med.service']).status,0);
    for(let wait=0;wait<20;wait++) {if(spawnSync('/usr/bin/curl',['--fail','--silent','https://r4.synthetic.invalid/api/health']).status===0)break;await delay(1000);}
    const sqlRuntime=`import {createRequire} from 'node:module';import {createInterface} from 'node:readline';const {Client}=createRequire('/opt/servora-med/releases/${LAB_SHA}/server/package.json')('pg');const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();`;
+   const seeded=spawnSync('/usr/bin/sudo',['-u','postgres','--','/usr/bin/psql','-XAt','-d',db,'-c',
+    "INSERT INTO organizations (name) VALUES ('r4-invariant-probe') RETURNING id"],{encoding:'utf8',timeout:30000});
+   assert.equal(seeded.status,0,seeded.stderr);
+   assert.match(seeded.stdout.trim().split('\n')[0],/^[0-9a-f-]{36}$/,'one protected synthetic organization must be seeded before the baseline');
    const actorCode=`await c.query("CREATE FUNCTION r4_test_commit_notification() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_notify('r4_commit',NEW.version); RETURN NEW; END $$");await c.query('CREATE TRIGGER r4_test_commit_notification AFTER INSERT ON schema_migrations FOR EACH ROW EXECUTE FUNCTION r4_test_commit_notification()');await c.query('LISTEN r4_commit');c.on('notification',message=>{if(message.payload.startsWith('056_'))console.log('COMMIT_OBSERVED');});console.log('FAULT_READY');for await(const line of createInterface({input:process.stdin})){if(line==='STOP')break;}await c.query('DROP TRIGGER r4_test_commit_notification ON schema_migrations');await c.query('DROP FUNCTION r4_test_commit_notification()');await c.end();`;
    actor=spawn('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/node','--env-file='+env,'--input-type=module','-e',sqlRuntime+actorCode],{stdio:['pipe','pipe','pipe']});
    let actorOutput='',actorErrors='',deployment;
@@ -101,12 +105,12 @@ test('interrupted post-commit migration cannot activate after protected business
    assert.equal(state.starts,0);
    assert.ok(state.invariantBaseline,'the pre-migration baseline must be durable before any activate path');
    console.log('INTERRUPTED_PHASE='+state.phase+' BASELINE='+JSON.stringify(state.invariantBaseline));
-   // The protected synthetic rows disappear after COMMIT: the durable baseline
+   // The protected synthetic row disappears after COMMIT: the durable baseline
    // must refuse activation instead of trusting the now TARGET-exact ledger.
    const deleted=spawnSync('/usr/bin/sudo',['-u','postgres','--','/usr/bin/psql','-XAt','-d',db,'-c',
-    'WITH victim AS (SELECT ctid FROM customers LIMIT 1) DELETE FROM customers WHERE ctid IN (SELECT ctid FROM victim) RETURNING id']);
+    "DELETE FROM organizations WHERE name='r4-invariant-probe' RETURNING id"],{encoding:'utf8',timeout:30000});
    assert.equal(deleted.status,0,deleted.stderr);
-   assert.match(deleted.stdout.trim(),/^[0-9a-f-]{36}$|^[0-9]+$/,'exactly one protected customer row must be deleted');
+   assert.match(deleted.stdout.trim().split('\n')[0],/^[0-9a-f-]{36}$/,'exactly one protected organization row must be deleted');
    const before=readLatestCheckpoint(grant.attemptId);
    const denied=spawnSync('/usr/bin/sudo',[...sudo,'--phase','forward-recovery','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:90000});
    assert.notEqual(denied.status,0,denied.stdout+denied.stderr);

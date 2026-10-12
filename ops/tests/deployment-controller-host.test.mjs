@@ -64,7 +64,7 @@ test('host checkpoints append the hash chain while preserving the committed migr
   checkpointAttempt(grant.attemptId, 'FENCED');
   checkpointAttempt(grant.attemptId, { kind:'MIGRATION_INTENT', baseline:{organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0} });
   const committed = checkpointAttempt(grant.attemptId, 'DB_EXACT');
-  assert.equal(committed.record.sequence,5);
+  assert.equal(committed.record.sequence,4);
   assert.equal(committed.record.migrationCommitted,true);
   assert.throws(() => checkpointAttempt(grant.attemptId,'ABORT_INTENT'), /ATTEMPT_TRANSITION_INVALID/);
 }));

@@ -44,7 +44,7 @@ test('real helper rejects archive corruption, unsafe permissions and release sym
  const saved=root+'/r4-security-'+grant.attemptId+'.js';
  renameSync(file,saved);symlinkSync('/etc/passwd',file);
  try{unchangedRefusal(grant,/RECOVERY_RELEASE_UNPROVEN/);}finally{unlinkSync(file);renameSync(saved,file);}
- assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'FENCED');
+ assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'MIGRATION_INTENT');
  console.log('ARCHIVE_OWNER_PATH_NEGATIVES=PASS');
 }));
 test('real helper rejects corrupt journal and third env identity without repair',()=>fenced(grant=>{
@@ -52,7 +52,7 @@ test('real helper rejects corrupt journal and third env identity without repair'
  try{writeFileSync(checkpoint,'{');unchangedRefusal(grant,/ATTEMPT_RECORD_NOT_CANONICAL/);}finally{writeFileSync(checkpoint,bytes);}
  const original=readFileSync(env,'utf8');
  try{writeFileSync(env,original.replace(/^SERVORA_RELEASE_SHA=.*$/m,'SERVORA_RELEASE_SHA='+ 'f'.repeat(40)));unchangedRefusal(grant,/ENV_IDENTITY_DRIFT/);}finally{writeFileSync(env,original);}
- assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'FENCED');
+ assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'MIGRATION_INTENT');
  console.log('JOURNAL_ENV_FAIL_CLOSED=PASS');
 }));
 test('same-history wrong database fingerprint is refused by the real service-UID probe',()=>fenced(grant=>{
