@@ -79,6 +79,7 @@ const patchedHostHelper = (() => {
 })();
 const migrationState = fileURLToPath(new URL('../../ops/scripts/migration-state.mjs', import.meta.url));
 const migrationReconciliation = fileURLToPath(new URL('../../ops/scripts/migration-reconciliation.mjs', import.meta.url));
+const dbGuard = fileURLToPath(new URL('../../ops/scripts/deployment-db-guard.mjs', import.meta.url));
 const browserSmoke = fileURLToPath(new URL('../../web/scripts/production-browser-smoke.mjs', import.meta.url));
 const workflow = fileURLToPath(new URL('../../.github/workflows/deploy-production.yml', import.meta.url));
 const deploymentDoc = fileURLToPath(new URL('../../docs/operations/production-deployment.md', import.meta.url));
@@ -853,13 +854,21 @@ describe('controlled production deployment automation contract', () => {
 
   it('reports only aggregate migration/data state from the protected database', () => {
     const content = readFileSync(migrationState, 'utf8');
+    const guardContent = readFileSync(dbGuard, 'utf8');
     expect(content).toContain('schema_migrations ORDER BY version ASC');
     expect(content).toContain('migration_status=');
     expect(content).toContain('classifyMigrationState');
-    expect(content).toContain('COUNT(*) FROM organizations');
-    expect(content).toContain('COUNT(*) FROM demo_datasets');
-    expect(content).toContain("'organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data'");
-    expect(content).not.toMatch(/password_hash|SELECT\s+\*|DATABASE_URL.*console/);
+    // The aggregate invariant SQL is a single source of truth shared by the
+    // deploy state reader and the service-UID recovery guard.
+    expect(content).toContain("from './deployment-db-guard.mjs'");
+    expect(content).toContain('BUSINESS_DATA_INVARIANTS_SQL');
+    expect(content).toContain('validateBusinessInvariantCounts');
+    expect(guardContent).toContain('COUNT(*) FROM organizations');
+    expect(guardContent).toContain('COUNT(*) FROM demo_datasets');
+    expect(guardContent).toContain("'organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data'");
+    for (const source of [content, guardContent]) {
+      expect(source).not.toMatch(/password_hash|SELECT\s+\*|DATABASE_URL.*console/);
+    }
   });
 
   it('keeps browser smoke anonymous and checks the historical blank-page failure', () => {
