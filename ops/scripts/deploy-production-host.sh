@@ -1470,6 +1470,7 @@ postdeploy_phase() {
   validate_fqdn
   assert_env_contract
   if [[ -n "$ATTEMPT_ID" ]]; then
+    assert_host_backup_contract
     local decision
     decision="$(r4_controller prepare-postdeploy "$ATTEMPT_ID" "$SHA" "$FQDN")"
     if [[ "$decision" == BACKUP_ALREADY_VERIFIED ]]; then

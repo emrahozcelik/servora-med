@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,readlinkSync,unlinkSync,symlinkSync,renameSync,chmodSync,readdirSync} from 'node:fs';
+import {readFileSync,writeFileSync,readlinkSync,unlinkSync,symlinkSync,renameSync,chmodSync,readdirSync,mkdirSync,rmdirSync,existsSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {withRuntimeFixture,prepareRealBackup} from './r4-runtime-fixture.mjs';
@@ -64,7 +64,7 @@ test('same-history wrong database fingerprint is refused by the real service-UID
 }));
 test('HTTP200 wrong public release identity cannot pass recovery; healthy target without backup health cannot complete',()=>fenced(grant=>{
  const config='/etc/caddy/Caddyfile',prior=readFileSync(config);
- const bad='r4.synthetic.invalid {\n tls internal\n handle /api/health {\n respond `{"status":"ok","releaseSha":"'+'f'.repeat(40)+'"}` 200\n }\n handle /api/* { reverse_proxy 127.0.0.1:3000 }\n handle {\n root * /opt/servora-med/current/web/dist\n try_files {path} /index.html\n file_server\n }\n}\n';
+ const bad='r4.synthetic.invalid {\n tls internal\n handle /api/health {\n respond `{"status":"ok","releaseSha":"'+'f'.repeat(40)+'"}` 200\n }\n handle /api/* {\n reverse_proxy 127.0.0.1:3000\n }\n handle {\n root * /opt/servora-med/current/web/dist\n try_files {path} /index.html\n file_server\n }\n}\n';
  try {
   writeFileSync(config,bad);assert.equal(spawnSync('/usr/bin/systemctl',['reload','caddy']).status,0);
   const response=spawnSync('/usr/bin/curl',['--fail','--silent','https://r4.synthetic.invalid/api/health'],{encoding:'utf8'});assert.equal(response.status,0);assert.equal(JSON.parse(response.stdout).releaseSha,'f'.repeat(40));
@@ -93,3 +93,29 @@ test('mixed approved env and real health loss consume only the remaining explici
  assert.notEqual(Number(spawnSync('/usr/bin/systemctl',['show','servora-med.service','-p','MainPID','--value'],{encoding:'utf8'}).stdout.trim()),pid);
  console.log('MIXED_APPROVED_TUPLE=ALIGNED\nREAL_HEALTH_LOSS_SECOND_EXPLICIT_START=PASS\nAUTOMATIC_RESTARTS=0');
 }));
+
+test('real failed postdeploy unit leaves a live fenced attempt and cannot run a second backup automatically',async()=>{
+ const prior=readFileSync(env,'utf8'),policy='/etc/systemd/system/servora-med-postdeploy-backup.service.d';
+ assert.equal(existsSync(policy),false);
+ let text=prior.replace(/^BACKUP_PROVIDER=.*$/m,'BACKUP_PROVIDER=host-observation');
+ if(!text.includes('BACKUP_OBSERVATION_PATH='))text+='BACKUP_OBSERVATION_PATH=/var/lib/servora-med-backup/observation-v1.json\n';
+ writeFileSync(env,text);
+ try {
+  await fenced(grant=>{
+   const recovered=run(grant);assert.equal(recovered.status,0,recovered.stdout+recovered.stderr);
+   // Scheduled unit executes the now-verified candidate's backup script.
+   assert.equal(spawnSync('/usr/bin/systemctl',['start','servora-med-backup.service']).status,0);
+   mkdirSync(policy,{mode:0o755});writeFileSync(policy+'/90-r4-synthetic-failure.conf','[Service]\nExecStart=\nExecStart=/bin/false\n',{mode:0o644,flag:'wx'});
+   try {
+    assert.equal(spawnSync('/usr/bin/systemctl',['daemon-reload']).status,0);
+    const failed=run(grant,'postdeploy');assert.equal(failed.status,2,failed.stdout+failed.stderr);assert.match(failed.stderr,/LIVE_BUT_POSTDEPLOY_BACKUP_FAILED/);
+    const before=readLatestCheckpoint(grant.attemptId);assert.equal(before.record.phase,'POSTDEPLOY_BACKUP_INTENT');assert.equal(before.record.postdeployBackup,null);
+    const invocation=spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout;
+    const repeat=run(grant,'postdeploy');assert.notEqual(repeat.status,0);assert.match(repeat.stderr,/POSTDEPLOY_BACKUP_AMBIGUOUS_OPERATOR_REVIEW_REQUIRED/);
+    assert.deepEqual(readLatestCheckpoint(grant.attemptId),before);assert.equal(spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout,invocation);
+    assert.equal(spawnSync('/usr/bin/systemctl',['is-active','servora-med.service'],{encoding:'utf8'}).stdout.trim(),'active');
+    console.log('REAL_POSTDEPLOY_BACKUP_FAILED=LIVE_FENCED\nSECOND_BACKUP_INVOCATION=DENIED\nFALSE_RECOVERY_PASS=ABSENT');
+   } finally {unlinkSync(policy+'/90-r4-synthetic-failure.conf');rmdirSync(policy);spawnSync('/usr/bin/systemctl',['daemon-reload']);}
+  });
+ } finally {writeFileSync(env,prior);}
+});

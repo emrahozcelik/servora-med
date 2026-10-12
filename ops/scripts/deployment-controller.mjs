@@ -586,9 +586,12 @@ function handBackToSystemd(context) {
 }
 
 function assertBackupHealth(context) {
-  const text = execFileSync('/usr/bin/curl',['--fail','--silent','--show-error','--max-time','5',
-    'http://127.0.0.1:3000/api/health/backup'],{env:COMMAND_ENV,encoding:'utf8',timeout:6000,stdio:['ignore','pipe','pipe']});
-  const health = JSON.parse(text);
+  let health;
+  try {
+    const text = execFileSync('/usr/bin/curl',['--fail','--silent','--show-error','--max-time','5',
+      'http://127.0.0.1:3000/api/health/backup'],{env:COMMAND_ENV,encoding:'utf8',timeout:6000,stdio:['ignore','pipe','pipe']});
+    health = JSON.parse(text);
+  } catch { throw new Error('RECOVERY_BACKUP_HEALTH_FAILED'); }
   // Use the existing application projection/freshness SSOT; postdeploy success
   // must not substitute for its separate scheduled heartbeat.
   if (health.status !== 'ok' || health.provider !== 'host-observation') throw new Error('RECOVERY_BACKUP_HEALTH_FAILED');
