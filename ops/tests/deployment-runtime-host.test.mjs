@@ -181,7 +181,7 @@ test('failed candidate starts cannot trigger systemd retries or exceed the two d
   const envFile='/etc/servora-med/servora-med.env', barrier='/var/lib/servora-med/deploy/activation.block', current='/opt/servora-med/current';
   const envBefore=readFileSync(envFile),barrierBefore=readFileSync(barrier),pointerBefore=readlinkSync(current);
   const blocker=spawn('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/python3','-c',
-    'import socket,time; s=socket.socket(); s.bind(("127.0.0.1",3000)); s.listen(); time.sleep(120)'],{stdio:'ignore'});
+    'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("127.0.0.1",3000)); s.listen(); time.sleep(120)'],{stdio:'ignore'});
   try {
     let listening=false;
     for(let count=0;count<10;count++) {
