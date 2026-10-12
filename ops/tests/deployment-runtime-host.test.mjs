@@ -209,9 +209,19 @@ test('failed candidate starts cannot trigger systemd retries or exceed the two d
     assert.deepEqual(readLatestCheckpoint(grant.attemptId),before);
     assert.equal(existsSync('/run/servora-med-recovery/start.permit'),false);
     assert.equal(JSON.parse(readFileSync(barrier)).attemptId,grant.attemptId);
-    const legacy=spawnSync('/opt/servora-med/releases/'+grant.releaseSha+'/ops/scripts/deploy-release.sh',[],
-      {encoding:'utf8',env:{PATH:'/usr/bin:/bin',SHA:grant.releaseSha},timeout:10000});
-    assert.notEqual(legacy.status,0);assert.match(legacy.stderr,/RECOVERY_ATTEMPT_PENDING/);
+    for(const testDatabase of [undefined,'postgres://synthetic:synthetic@127.0.0.1/servora_med_test_r4_never_used']) {
+      const env={PATH:'/usr/bin:/bin',SHA:grant.releaseSha,OPS_LOG:'/var/lib/servora-med/deploy/logs/'+grant.attemptId+'/maintenance.log'};
+      if(testDatabase)env.TEST_DATABASE_URL=testDatabase;
+      for(const [script,args] of [
+        ['deploy-release.sh',[]],
+        ['production-recovery.sh',['--backup','/tmp/r4-missing-never-restore.dump','--checksum','/tmp/r4-missing-never-restore.sha256',
+          '--target-db','servora_med','--expected-host','127.0.0.1','--allow-destructive','--old-release',grant.oldReleaseSha,
+          '--old-health-schema-version',grant.oldCatalog.at(-1).version]],
+      ]) {
+        const legacy=spawnSync('/opt/servora-med/releases/'+grant.releaseSha+'/ops/scripts/'+script,args,{encoding:'utf8',env,timeout:10000});
+        assert.notEqual(legacy.status,0);assert.match(legacy.stderr,/RECOVERY_ATTEMPT_PENDING/,script+' cannot bypass the host fence');
+      }
+    }
   } finally {
     blocker.kill('SIGTERM');spawnSync('/usr/bin/systemctl',['stop','servora-med.service']);revokeStartPermit(grant.attemptId);
     writeFileSync(envFile,envBefore);unlinkSync(current);symlinkSync(pointerBefore,current);writeFileSync(barrier,barrierBefore);

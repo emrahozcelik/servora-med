@@ -151,8 +151,10 @@ operator review; another active attempt is never reclaimed.
 
 The host helper phases share one stable flock inode. On R4-bootstrap hosts,
 legacy deploy-release and production-recovery maintenance paths share it and
-refuse a pending owner/barrier. Existing disposable TEST_DATABASE_URL restore
-regressions remain independent of production host state. Pre-R4 hosts retain
+refuse a pending owner/barrier, including when TEST_DATABASE_URL is present.
+Disposable restore regressions run on separate hosts without an R4 claim;
+a database selector cannot exempt an operation from the physical host lock.
+Pre-R4 hosts retain
 their previous maintenance contract until explicit root bootstrap; R4 cannot be
 used without that bootstrap. R1–R3 exact same-catalog/atomic restore protections
 remain intact. Restore, new-target DR and production cutover are separate

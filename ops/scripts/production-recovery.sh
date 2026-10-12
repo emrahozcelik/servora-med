@@ -319,8 +319,8 @@ if [[ -n "${TEST_DATABASE_URL:-}" ]]; then
 fi
 
 # R4-bootstrap hosts serialize every maintenance operation with deployment.
-# The test-only disposable restore contract remains independent of host state.
-if [[ -d /var/lib/servora-med/deploy && -z "${TEST_DATABASE_URL:-}" ]]; then
+# A test database selector never bypasses the physical host's recovery fence.
+if [[ -d /var/lib/servora-med/deploy ]]; then
   lock_library=/usr/local/libexec/servora-med/host-operation-lock.sh
   [[ "$(realpath -e "$lock_library")" == "$lock_library" && "$(stat -c '%U:%G:%a:%h' "$lock_library")" == root:root:644:1 ]] || { echo HOST_LOCK_BOOTSTRAP_REQUIRED >&2; exit 1; }
   # shellcheck source=host-operation-lock.sh
