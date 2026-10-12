@@ -225,7 +225,7 @@ validate_deploy_key_file() {
   esac
 }
 
-BASE_COMMANDS=(bash git node npm tar ssh scp curl awk sed grep rm mktemp basename dirname od tr tee)
+BASE_COMMANDS=(bash git node npm tar ssh scp curl awk sed grep rm mktemp basename dirname od tr)
 GITHUB_COMMANDS=(gh jq)
 
 check_commands() {
@@ -233,6 +233,9 @@ check_commands() {
   for command_name in "${BASE_COMMANDS[@]}"; do
     command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
   done
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    command -v tee >/dev/null 2>&1 || fail REQUIRED_COMMAND_MISSING_tee
+  fi
   # gh/jq serve only verify_exact_main_ci: local mode (and --check) must not
   # require GitHub CLI tooling.
   if [[ "$CI_MODE" == github && "$CHECK_ONLY" != true ]]; then

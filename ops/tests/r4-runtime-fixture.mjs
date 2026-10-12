@@ -1,11 +1,15 @@
 // Real application/artifact fixture on the authorized disposable host. The
 // all-8 SHA is deliberately synthetic, never a GitHub/production approval.
 import assert from 'node:assert/strict';
+import {hostname} from 'node:os';
 import { withSealedFixture } from './r4-root-fixture.mjs';
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { sealBackupReceipt } from '../scripts/deployment-controller.mjs';
+// Refuse the wrong host/UID at import time, before callers can touch env or DB.
+assert.equal(hostname(),'lima-servora-r4-20261012');
+assert.equal(process.getuid(),0);
 export const LAB_SHA = process.env.SERVORA_R4_TEST_SHA ?? '8'.repeat(40);
 assert.match(LAB_SHA,/^[0-9a-f]{40}$/);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
