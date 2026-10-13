@@ -1,7 +1,7 @@
 /** Trusted fixed-path host operations. No candidate code executes as root. */
 import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
-  readProtectedRecord, readLatestCheckpoint, advanceAttempt } from './deployment-attempt.mjs';
+  readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection } from './deployment-attempt.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
   symlinkSync, mkdirSync, readdirSync, readlinkSync, readSync, writeSync, linkSync } from 'node:fs';
@@ -43,12 +43,98 @@ export function attemptLogDirectory(attemptId) {
   return STATE_ROOT+'/logs/'+attemptId;
 }
 
+const INITIALIZATIONS = STATE_ROOT+'/initializations';
+
+function initializationRecord(context) {
+  if (!existsSync(INITIALIZATIONS)) return null;
+  const directory = lstatSync(INITIALIZATIONS);
+  if (!directory.isDirectory() || directory.isSymbolicLink() || directory.uid !== 0
+    || directory.gid !== 0 || (directory.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_INITIALIZATION_UNTRUSTED');
+  const names = readdirSync(INITIALIZATIONS);
+  const name = context.approval.attemptId+'.json';
+  if (names.some(value => value !== name)) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+  if (!names.includes(name)) return null;
+  const marker = INITIALIZATIONS+'/'+name;
+  const checkpointDirectory = STATE_ROOT+'/attempts/'+context.approval.attemptId;
+  const checkpointFile = checkpointDirectory+'/0000.json';
+  let links = 1;
+  if (existsSync(checkpointDirectory)) {
+    const info = lstatSync(checkpointDirectory);
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || (info.mode & 0o7777) !== 0o700
+      || readdirSync(checkpointDirectory).some(value => value !== '0000.json')) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+    if (existsSync(checkpointFile)) {
+      const first = lstatSync(checkpointFile), pending = lstatSync(marker);
+      if (first.dev !== pending.dev || first.ino !== pending.ino) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+      links = 2; // Only this verified initial-marker/checkpoint inode pair.
+    }
+  }
+  const record = readProtectedRecord(marker,links).record;
+  advanceAttempt(record,context,'VALIDATE');
+  if (JSON.stringify(record) !== JSON.stringify(initialAttempt(context,Date.parse(record.updatedAtUTC)))) {
+    throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+  }
+  if (existsSync(STATE_ROOT+'/active.json')) {
+    const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
+    if (Object.keys(active).length !== 2 || active.attemptId !== context.approval.attemptId
+      || active.approvalSha256 !== context.approvalSha256) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+  }
+  return {marker,record,checkpointDirectory,checkpointFile};
+}
+
+function finishInitialization(context) {
+  const pending = initializationRecord(context);
+  if (!pending) throw new Error('RECOVERY_INITIALIZATION_MISSING');
+  // No backup, migration, budget, barrier, or later checkpoint can exist in
+  // this initialization protocol. Never use it to repair a progressed chain.
+  const id = context.approval.attemptId;
+  if (existsSync(STATE_ROOT+'/backups/'+id+'-pre.dump') || existsSync(STATE_ROOT+'/backups/'+id+'-post.dump')
+    || existsSync(STATE_ROOT+'/logs/'+id)) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+  if (!existsSync(STATE_ROOT+'/active.json')) {
+    const fd = openSync(STATE_ROOT+'/active.json',constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+    try { writeFileSync(fd,JSON.stringify({attemptId:id,approvalSha256:context.approvalSha256})+'\n');fsyncSync(fd); }
+    finally {closeSync(fd);}
+    flushDirectory(STATE_ROOT);
+  }
+  if (!existsSync(pending.checkpointDirectory)) {
+    mkdirSync(pending.checkpointDirectory,{mode:0o700});flushDirectory(STATE_ROOT+'/attempts');
+  }
+  if (!existsSync(pending.checkpointFile)) linkSync(pending.marker,pending.checkpointFile);
+  flushDirectory(pending.checkpointDirectory);
+  initializationRecord(context); // Exact pair and zero-progress proof again.
+  unlinkSync(pending.marker);flushDirectory(INITIALIZATIONS);
+  return readLatestCheckpoint(id);
+}
+
+/** Re-entry into the initial publication window requires fresh OLD identity
+ * and full immutable proofs, under the normal host and PostgreSQL locks.
+ */
+async function reconcileInitialization(context) {
+  if (!initializationRecord(context)) return false;
+  if (existsSync(STATE_ROOT+'/activation.block') || existsSync(PERMIT_FILE)
+    || existsSync('/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf')) {
+    throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+  }
+  verifyAttemptRelease(context.approval.attemptId,'old');verifyAttemptRelease(context.approval.attemptId,'target');
+  const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),context.approval);
+  if (tuple.release !== context.approval.oldReleaseSha || tuple.schema !== context.approval.oldCatalog.at(-1).version
+    || realpathSync('/opt/servora-med/current') !== '/opt/servora-med/releases/'+context.approval.oldReleaseSha
+    || systemctl('show','servora-med.service','-p','Restart','--value') !== 'on-failure') throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+  await withGuard(context,'old',async check => {
+    await check();finishInitialization(context);
+  });
+  return true;
+}
+
 /** Caller holds the common host lock; an active owner survives process exit.
  * A same-owner retry of an early, unmigrated attempt resumes instead of
  * stranding: no other attempt phase or owner is ever reclaimed here.
  */
 export function admitAttempt(attemptId) {
   const context = loadAttempt(attemptId);
+  // The public CLI reconciles pending initialization only after fresh DB and
+  // payload proof. Direct persistence users must not auto-repair that window.
+  if (initializationRecord(context)) throw new Error('RECOVERY_INITIALIZATION_REQUIRES_PROBE');
   if (existsSync(`${STATE_ROOT}/active.json`)) {
     const active = readProtectedRecord(`${STATE_ROOT}/active.json`).record;
     const checkpoint = readLatestCheckpoint(attemptId);
@@ -61,12 +147,13 @@ export function admitAttempt(attemptId) {
     return { resumed: true, checkpoint };
   }
   if (existsSync(`${STATE_ROOT}/attempts/${attemptId}`)) throw new Error('ATTEMPT_ALREADY_ADMITTED');
-  const active = { attemptId, approvalSha256: context.approvalSha256 };
-  const fd = openSync(`${STATE_ROOT}/active.json`, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try { writeFileSync(fd, JSON.stringify(active)+'\n'); fsyncSync(fd); }
-  finally { closeSync(fd); }
-  flushDirectory(STATE_ROOT);
-  return { resumed: false, checkpoint: appendRootCheckpoint(attemptId, initialAttempt(context)) };
+  if (!existsSync(INITIALIZATIONS)) {mkdirSync(INITIALIZATIONS,{mode:0o700});flushDirectory(STATE_ROOT);}
+  if (!existsSync(STATE_ROOT+'/attempts')) {mkdirSync(STATE_ROOT+'/attempts',{mode:0o700});flushDirectory(STATE_ROOT);}
+  const marker = INITIALIZATIONS+'/'+attemptId+'.json';
+  const fd = openSync(marker,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  try {writeFileSync(fd,JSON.stringify(initialAttempt(context))+'\n');fsyncSync(fd);} finally {closeSync(fd);}
+  flushDirectory(INITIALIZATIONS);
+  return {resumed:false,checkpoint:finishInitialization(context)};
 }
 
 export function currentAttempt(attemptId) {
@@ -288,7 +375,7 @@ function trustedFile(path, mode, gid = 0) {
   } finally { closeSync(fd); }
 }
 
-function verifyHostProfile(profile) {
+function verifyHostProfile(profile, context) {
   const files = {
     helperSha256: [`${INSTALLED}/deploy-production-host`, 0o755],
     nodeSha256: [realpathSync('/usr/bin/node'), 0o755],
@@ -309,17 +396,30 @@ function verifyHostProfile(profile) {
     '-p','ExecStart','-p','EnvironmentFiles','-p','NeedDaemonReload','-p','Restart').split('\n')
     .map(line => [line.slice(0,line.indexOf('=')),line.slice(line.indexOf('=')+1)]));
   const policy = '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf';
+  let pendingHandoffReload = false;
+  if (properties.NeedDaemonReload === 'yes' && properties.DropInPaths === policy
+    && properties.Restart === 'no' && !existsSync(policy)) {
+    // Exact interruption after unlinking our owned policy but before reload.
+    // No other drift is tolerated; the sealed acceptance and owned barrier
+    // must still exist. Reload happens only after fresh DB/payload proof.
+    const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
+    const checkpoint = readLatestCheckpoint(context.approval.attemptId);
+    if (Object.keys(active).length !== 2 || active.attemptId !== context.approval.attemptId
+      || active.approvalSha256 !== context.approvalSha256) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+    acceptedHandoffDirection(checkpoint.record,context);
+    assertBarrier({...context,profile,checkpoint});pendingHandoffReload = true;
+  }
   if (properties.User !== 'servora-med' || properties.Group !== 'servora-med'
     || properties.WorkingDirectory !== '/opt/servora-med/current/server'
     || properties.FragmentPath !== '/etc/systemd/system/servora-med.service'
     || properties.EnvironmentFiles !== ENV_FILE+' (ignore_errors=no)'
-    || properties.NeedDaemonReload !== 'no'
+    || (properties.NeedDaemonReload !== 'no' && !pendingHandoffReload)
     || !/^\{ path=\/usr\/bin\/node ; argv\[\]=\/usr\/bin\/node dist\/index\.js ; ignore_errors=no ; [^}]*\}$/.test(properties.ExecStart)
     || !['',policy].includes(properties.DropInPaths)
     || properties.Restart !== (properties.DropInPaths ? 'no' : 'on-failure')) {
     throw new Error('RECOVERY_SERVICE_CONTRACT_MISMATCH');
   }
-  if (properties.DropInPaths && trustedFile(policy,0o600).toString('utf8') !== '[Service]\nRestart=no\n') {
+  if (properties.DropInPaths && !pendingHandoffReload && trustedFile(policy,0o600).toString('utf8') !== '[Service]\nRestart=no\n') {
     throw new Error('RECOVERY_SERVICE_CONTRACT_MISMATCH');
   }
 }
@@ -333,7 +433,7 @@ export function loadAttempt(attemptId) {
   }
   const profile = readRootProfile(context.approval);
   if (readFileSync('/etc/machine-id', 'utf8').trim() !== profile.machineId) throw new Error('RECOVERY_HOST_MACHINE_MISMATCH');
-  verifyHostProfile(profile);
+  verifyHostProfile(profile,context);
   return { ...context, profile };
 }
 
@@ -497,12 +597,54 @@ async function withGuard(context, direction, operation) {
   try {
     await expect('READY');
     const check = async () => { child.stdin.write('CHECK\n'); await expect('EXACT'); };
-    return await operation(check, counts);
+    const quiescence = async () => { child.stdin.write('QUIESCENCE\n'); await expect('QUIESCENT'); };
+    return await operation(check, counts, quiescence);
   } finally {
     child.stdin.end('RELEASE\n');
     const timer = setTimeout(() => child.kill('SIGTERM'),5000);
     try { await finished; } finally { clearTimeout(timer); reader.close(); }
   }
+}
+
+function assertStoppedWriters(context) {
+  assertBarrier(context);
+  if (existsSync(PERMIT_FILE) || systemctl('show','servora-med.service','-p','MainPID','--value') !== '0'
+    || systemctl('show','servora-med.service','-p','ActiveState','--value') !== 'inactive'
+    || systemctl('show','servora-med.service','-p','Restart','--value') !== 'no') {
+    throw new Error('RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT');
+  }
+  const worker = 'servora-med-backup-worker.service';
+  if (systemctl('show',worker,'-p','LoadState','--value') !== 'not-found') {
+    if (systemctl('show',worker,'-p','ActiveState','--value') !== 'inactive'
+      || systemctl('show',worker,'-p','UnitFileState','--value') !== 'disabled') {
+      throw new Error('RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT');
+    }
+  }
+  // A detached application/worker process can reopen DB connections. Reject
+  // it instead of treating systemd's MainPID alone as proof of quiescence.
+  try {
+    execFileSync('/usr/bin/pgrep',['-u','servora-med'],{env:COMMAND_ENV,stdio:'ignore'});
+    throw new Error('RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT');
+  } catch (error) {
+    if (error.status !== 1) throw new Error('RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT');
+  }
+}
+
+export async function recordFreshMigrationIntent(attemptId, expectedCounts) {
+  const context = currentAttempt(attemptId);
+  if (context.checkpoint.record.phase !== 'FENCED') throw new Error('ATTEMPT_TRANSITION_INVALID');
+  verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');assertRetainedBackups(context);
+  assertStoppedWriters(context);
+  return withGuard(context,'old',async (check,counts,quiescence) => {
+    await check();await quiescence();
+    const fresh=await counts();await quiescence();
+    const baseline={organizations:fresh.organizations,admins:fresh.admins,staff:fresh.staff,
+      customers:fresh.customers,products:fresh.products,jobs:fresh.jobs,demoData:fresh.demo_data};
+    if (Object.keys(baseline).some(key=>baseline[key]!==expectedCounts[key])) {
+      throw new Error('RECOVERY_DATABASE_BASELINE_CHANGED');
+    }
+    return checkpointAttempt(attemptId,{kind:'MIGRATION_INTENT',baseline});
+  });
 }
 
 function assertApprovedPointer(approval) {
@@ -536,8 +678,9 @@ function assertProcessAndHealth(context, direction = 'target') {
  * schema-check as the service UID with the protected env file; the root
  * controller never executes candidate code as root. Any failure fails closed.
  */
-export function runTargetSchemaCheck(context) {
-  const release = '/opt/servora-med/releases/'+context.approval.releaseSha;
+export function runTargetSchemaCheck(context, direction = 'target') {
+  if (!['old','target'].includes(direction)) throw new Error('RECOVERY_SCHEMA_CHECK_FAILED');
+  const release = '/opt/servora-med/releases/'+(direction === 'old' ? context.approval.oldReleaseSha : context.approval.releaseSha);
   try {
     execFileSync('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/env','-i',
       'PATH='+COMMAND_ENV.PATH,'NODE_ENV=production','/usr/bin/node','--env-file='+ENV_FILE,
@@ -556,6 +699,10 @@ export async function recoverAttempt(attemptId) {
   assertRetainedBackups(context);
   assertApprovedPointer(context.approval);
   validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),context.approval);
+  if (context.checkpoint.record.phase === 'ACCEPTED') {
+    await completeAcceptedHandoff(context);
+    return 'FORWARD_RECOVERY=ALREADY_COMPLETED_OWNER_RETIRED';
+  }
   if (context.checkpoint.record.phase === 'COMPLETED') {
     return withGuard(context,'target',async check => {
       await check(); assertProcessAndHealth(context); assertBackupHealth(context);
@@ -653,7 +800,7 @@ function handBackToSystemd(context) {
   // Accepted ownership hand-off only. Keep the barrier while reloading the
   // ordinary restart policy; an interruption cannot boot an unaccepted app.
   context = currentAttempt(context.approval.attemptId);
-  if (!['ACCEPTED','ABORTED'].includes(context.checkpoint.record.phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
+  acceptedHandoffDirection(context.checkpoint.record,context);
   if (existsSync(STATE_ROOT+'/activation.block')) assertBarrier(context);
   revokeStartPermit(context.approval.attemptId);
   const policy = '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf';
@@ -664,6 +811,34 @@ function handBackToSystemd(context) {
   systemctl('daemon-reload');
   if (systemctl('show','servora-med.service','-p','Restart','--value') !== 'on-failure') throw new Error('RECOVERY_NORMAL_RESTART_POLICY_MISMATCH');
   if (existsSync(STATE_ROOT+'/activation.block')) { unlinkSync(STATE_ROOT+'/activation.block'); flushDirectory(STATE_ROOT); }
+}
+
+/** Re-entry after acceptance never reactivates, backs up or observes again.
+ * A missing barrier is permitted only after all durable acceptance gates and
+ * an already effective ordinary policy. Earlier missing barriers still fail.
+ */
+async function completeAcceptedHandoff(context) {
+  const direction = acceptedHandoffDirection(context.checkpoint.record,context);
+  const id = context.approval.attemptId;
+  verifyAttemptRelease(id,'target');if (direction === 'old') verifyAttemptRelease(id,'old');
+  assertRetainedBackups(context);assertApprovedPointer(context.approval);
+  if (existsSync(PERMIT_FILE)) throw new Error('RECOVERY_COMPLETION_AMBIGUOUS');
+  const fenced = existsSync(STATE_ROOT+'/activation.block');
+  if (fenced) assertBarrier(context);
+  else if (existsSync('/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf')
+    || systemctl('show','servora-med.service','-p','Restart','--value') !== 'on-failure') {
+    throw new Error('RECOVERY_COMPLETION_AMBIGUOUS');
+  }
+  await withGuard(context,direction,async check => {
+    await check();const pid=assertProcessAndHealth(context,direction);
+    runTargetSchemaCheck(context,direction);
+    if (direction === 'target') assertBackupHealth(context);
+    if (fenced) handBackToSystemd(context);
+    await check();
+    if (assertProcessAndHealth(context,direction) !== pid) throw new Error('RECOVERY_PROCESS_CHANGED');
+    checkpointAttempt(id,direction === 'target' ? 'COMPLETED' : 'COMPLETED_ABORT');
+    retireCompletedOwner(currentAttempt(id));
+  });
 }
 
 function assertBackupHealth(context) {
@@ -721,11 +896,15 @@ async function assertTerminalReadOnly(context, record) {
 /** Non-secret projection, validated before any operator artifact transfer. */
 export async function preflightAttempt(attemptId) {
   let context = loadAttempt(attemptId);
+  await reconcileInitialization(context);
   let mode = 'deploy';
   if (existsSync(STATE_ROOT+'/active.json')) {
     context = currentAttempt(attemptId);
     const record = context.checkpoint.record;
-    if (['COMPLETED','COMPLETED_ABORT'].includes(record.phase)) {
+    if (['ACCEPTED','ABORTED'].includes(record.phase)) {
+      mode = record.phase === 'ACCEPTED' ? 'forward-recovery' : 'pre-migration-abort';
+      await completeAcceptedHandoff(context);
+    } else if (['COMPLETED','COMPLETED_ABORT'].includes(record.phase)) {
       // Crash window: terminal journal fsynced before claim retirement.
       mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
       await assertTerminalReadOnly(context, record);
@@ -783,6 +962,9 @@ export async function preparePostdeploy(attemptId,sha,fqdn) {
  */
 export async function observeAttempt(attemptId) {
   const context = currentAttempt(attemptId);
+  if (context.checkpoint.record.phase === 'ACCEPTED') {
+    await completeAcceptedHandoff(context);return 'OBSERVATION=ALREADY_COMPLETED_OWNER_RETIRED';
+  }
   verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
   if (!['POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ACCEPTED','COMPLETED'].includes(context.checkpoint.record.phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
   return withGuard(context,'target',async check => {
@@ -837,8 +1019,12 @@ export async function observeAttempt(attemptId) {
 }
 
 export async function abortAttempt(attemptId) {
+  await reconcileInitialization(loadAttempt(attemptId));
   const context = currentAttempt(attemptId);
   assertRetainedBackups(context);
+  if (context.checkpoint.record.phase === 'ABORTED') {
+    await completeAcceptedHandoff(context);return 'PRE_MIGRATION_ABORT=ALREADY_COMPLETED_OWNER_RETIRED';
+  }
   if (context.checkpoint.record.phase === 'COMPLETED_ABORT') {
     verifyAttemptRelease(attemptId,'target'); verifyAttemptRelease(attemptId,'old');
     return withGuard(context,'old',async check => {
@@ -900,6 +1086,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else if (command === 'inspect' && extra.length === 0) {
       process.stdout.write(JSON.stringify(loadAttempt(attemptId).approval)+'\n');
     } else if (command === 'match-deploy' && extra.length === 3) {
+      await reconcileInitialization(loadAttempt(attemptId));
       const {approval,profile,approvalSha256: contextSha256} = loadAttempt(attemptId);
       const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
       // Every scope the normal deployment path unconditionally needs must be
@@ -937,14 +1124,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     } else if (command === 'migration-log-path' && extra.length === 0) {
       process.stdout.write(attemptLogDirectory(attemptId)+'/migration.log\n');
     } else if (command === 'admit' && extra.length === 0) {
+      const context = loadAttempt(attemptId);
+      await reconcileInitialization(context);
+      verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');
+      await withGuard(context,'old',async check=>{await check();});
       const admitted = admitAttempt(attemptId);
       process.stdout.write(admitted.resumed
         ? 'ATTEMPT_RESUMED phase='+admitted.checkpoint.record.phase+'\n' : 'ATTEMPT_ADMITTED\n');
     } else if (command === 'migration-intent' && extra.length === 7) {
       const values = extra.map(value => Number(value));
       if (values.some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
-      checkpointAttempt(attemptId,{kind:'MIGRATION_INTENT',baseline:{organizations:values[0],admins:values[1],
-        staff:values[2],customers:values[3],products:values[4],jobs:values[5],demoData:values[6]}});
+      await recordFreshMigrationIntent(attemptId,{organizations:values[0],admins:values[1],
+        staff:values[2],customers:values[3],products:values[4],jobs:values[5],demoData:values[6]});
       process.stdout.write('ATTEMPT_EVENT_RECORDED\n');
     } else if (command === 'event' && extra.length === 1) {
       if (!['FENCED','SCHEMA_CHECKED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT'].includes(extra[0])) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');

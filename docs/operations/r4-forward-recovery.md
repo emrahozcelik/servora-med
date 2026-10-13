@@ -68,7 +68,14 @@ permission, helper and immutable-byte comparison contracts. Recovery rechecks
 all payload contents, markers, retained archive hash, full catalog, and installed
 helper/modules/lock library/unit against the approved TARGET payload.
 
-Admission creates the persistent active owner before starting backup. Every
+Admission first fsyncs a root-private initialization record bound to the sealed
+grant, then publishes the active owner and checkpoint zero as the same verified
+initial record. A matching interrupted initialization may finish only after
+fresh OLD EXACT DB, artifact, identity and ordinary-service checks. It cannot
+repair a missing marker, another owner, a corrupt or progressed journal, a used
+start budget or any backup/migration side effect. The initialization marker and
+checkpoint may temporarily share exactly one inode; ordinary records still
+require one link. Admission creates the active owner before starting backup. Every
 checkpoint is exclusively published and fsynced in a complete hash chain.
 Audit logs live in a **separate** `logs/<UUID>` directory; checkpoint directories
 accept only contiguous numbered JSON records. Unknown files, gaps, torn intent
@@ -77,10 +84,23 @@ or conflicting ownership fail closed. No automatic repair/reset is provided.
 The real candidate-bound predeploy backup must pass checksum/list validation;
 its bytes are copied into a private root-owned dump and hash-bound receipt.
 The persistent `activation.block` is then installed, `Restart=no` is loaded as
-an owned recovery drop-in, the application is stopped, and migration intent is
+an owned recovery drop-in and the application is stopped. Only then does the
+helper re-run the real SQL history/count reader. Before persisting that fresh
+baseline, the service-UID guard independently rechecks OLD EXACT identity and
+all seven counts under the migration advisory lock. It rejects other DB
+sessions (including idle/redacted foreign-role sessions), prepared transactions,
+an enabled/active backup worker, or any remaining service-UID process. A
+changed snapshot fails closed. Migration intent is
 fsynced **before** invoking the existing service-UID migrator. Migration logs,
 UTC start/end and exit are retained privately. Migration failure or unknown
 outcome leaves the host fenced; a retry delta of zero never permits OLD rollback.
+
+This requires exclusive application writers during the maintenance window.
+Independent schedulers, external integrations or operators capable of opening
+new writable sessions must be quiesced through their approved procedure before
+admission; a point-in-time session check cannot prove future external behavior.
+If that prerequisite cannot be established, STOP before migration. R4 does not
+terminate foreign sessions, rewrite DB permissions or disable workers.
 
 ## Database and activation boundary
 
@@ -141,7 +161,13 @@ already receipted backup or start. Root-owned observation logs survive failures.
 
 Only full acceptance restores ordinary `Restart=on-failure`, removes the owned
 barrier and retires active ownership. An interrupted accepted hand-off may be
-revalidated and finished. A terminal checkpoint with a leftover matching claim
+revalidated and finished even after the owned barrier has been removed. Only
+ACCEPTED/ABORTED records with complete durable direction-specific evidence may
+resume that boundary: exact DB/artifact/current/pins, process/health, a fresh
+schema-check and effective ordinary restart policy remain mandatory. TARGET
+also requires sealed PRE/POST backups, smoke and full observation evidence.
+Completing handoff never allocates another start, backup, migration or observation.
+A terminal checkpoint with a leftover matching claim
 may retire only that completed claim after fresh checks; it does not activate
 anything. A completed repeat with no owner is read-only. Changed current,
 unknown owner, corrupt state, expired approval or inconsistent policy requires

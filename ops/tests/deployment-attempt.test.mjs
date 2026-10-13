@@ -169,6 +169,15 @@ test('health cannot complete an attempt before separate smoke, backup and full o
   journal = advanceAttempt(journal, context, 'ACCEPTED', now);
   assert.equal(journal.phase, 'ACCEPTED');
   assert.equal(journal.lastStart, 'pass');
+  // An ACCEPTED label alone cannot authorize an unfenced handoff. The full
+  // durable evidence remains mandatory even if a root journal is malformed.
+  assert.throws(() => advanceAttempt(journal,context,'COMPLETED',now),/RECOVERY_HANDOFF_EVIDENCE_MISSING/);
+  journal.predeployBackup={sha256:'6'.repeat(64),completedAtUTC:'2026-10-12T09:30:00.000Z'};
+  journal.invariantBaseline={organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0};
+  assert.equal(advanceAttempt(journal,context,'COMPLETED',now).phase,'COMPLETED');
+  for(const field of ['schemaChecked','smokePassed','observationPassed','migrationCommitted']){
+    assert.throws(()=>advanceAttempt({...journal,[field]:false},context,'COMPLETED',now),/RECOVERY_HANDOFF_EVIDENCE_MISSING/);
+  }
 });
 
 test('journal readback rejects an unknown phase or malformed receipt instead of emitting shell fields', () => {

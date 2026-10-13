@@ -1431,16 +1431,18 @@ r4_deploy_attempt() {
     r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"
   fi
   PHASE=MIGRATION
-  read_migration_state "$release"
-  local before_applied="$STATE_APPLIED_COUNT"
-  capture_data_invariants
-  [[ "$STATE_MIGRATION_STATUS" == PREFIX_WITH_PENDING || "$STATE_MIGRATION_STATUS" == EXACT ]] \
-    || fail MIGRATION_HISTORY_DIVERGED
   r4_controller barrier "$ATTEMPT_ID"
   r4_suppress_restarts
   systemctl stop "$SERVICE"
   SERVICE_STOPPED=true
   r4_controller event "$ATTEMPT_ID" FENCED
+  # The running application may legitimately write after the live preflight.
+  # Read SQL again after fencing/stopping; never reuse its cached counts.
+  read_migration_state "$release"
+  local before_applied="$STATE_APPLIED_COUNT"
+  capture_data_invariants
+  [[ "$STATE_MIGRATION_STATUS" == PREFIX_WITH_PENDING || "$STATE_MIGRATION_STATUS" == EXACT ]] \
+    || fail MIGRATION_HISTORY_DIVERGED
   r4_controller migration-intent "$ATTEMPT_ID" \
     "$BEFORE_ORGANIZATIONS" "$BEFORE_ADMINS" "$BEFORE_STAFF" "$BEFORE_CUSTOMERS" \
     "$BEFORE_PRODUCTS" "$BEFORE_JOBS" "$BEFORE_DEMO_DATA"

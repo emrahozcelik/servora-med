@@ -35,7 +35,7 @@ export function readRootProfile(approval) {
   return profile;
 }
 
-export function readProtectedRecord(file) {
+export function readProtectedRecord(file, expectedLinks = 1) {
   if (process.getuid?.() !== 0 || !file.startsWith(ATTEMPT_ROOT + '/')) {
     throw new Error('ATTEMPT_FILE_UNTRUSTED');
   }
@@ -51,7 +51,7 @@ export function readProtectedRecord(file) {
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const info = fstatSync(fd);
-    if (!info.isFile() || info.uid !== 0 || info.gid !== 0 || info.nlink !== 1
+    if (![1,2].includes(expectedLinks) || !info.isFile() || info.uid !== 0 || info.gid !== 0 || info.nlink !== expectedLinks
       || (info.mode & 0o7777) !== 0o600 || info.size > 32768) {
       throw new Error('ATTEMPT_FILE_UNTRUSTED');
     }
@@ -288,6 +288,22 @@ export function initialAttempt(context, now = Date.now()) {
     invariantBaseline: null, schemaChecked: false, updatedAtUTC: new Date(now).toISOString() };
 }
 
+/** Only completed acceptance or a successful never-migrated abort may give
+ * ownership back. A phase label alone is not proof of downstream gates.
+ */
+export function acceptedHandoffDirection(journal, context, now = Date.now()) {
+  advanceAttempt(journal,context,'VALIDATE',now);
+  if (journal.phase === 'ACCEPTED' && context.approval.allowForwardRecovery
+    && context.approval.allowPostdeployBackup && journal.migrationCommitted
+    && journal.starts > 0 && journal.lastStart === 'pass' && journal.predeployBackup
+    && journal.postdeployBackup && journal.invariantBaseline && journal.schemaChecked
+    && journal.smokePassed && journal.observationPassed) return 'target';
+  if (journal.phase === 'ABORTED' && context.approval.allowPreMigrationAbort
+    && !journal.migrationCommitted && journal.starts === 0 && journal.abortStarts === 1
+    && journal.lastStart === 'pass') return 'old';
+  throw new Error('RECOVERY_HANDOFF_EVIDENCE_MISSING');
+}
+
 /** Reserve a start before invoking systemd. Persist the returned checkpoint
  * with file+directory fsync before executing any start operation.
  */
@@ -348,6 +364,7 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   if (Object.hasOwn(transitions, kind)) {
     if (!transitions[kind].includes(journal.phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
     if (kind === 'POSTDEPLOY_BACKUP_INTENT' && !approval.allowPostdeployBackup) throw new Error('ATTEMPT_TRANSITION_INVALID');
+    if (kind === 'COMPLETED_ABORT') acceptedHandoffDirection(journal,context,now);
     if (kind === 'DB_EXACT' && (!journal.predeployBackup || !journal.invariantBaseline)) throw new Error('ATTEMPT_TRANSITION_INVALID');
     if (kind === 'SMOKE_PASSED' && !journal.schemaChecked) throw new Error('ATTEMPT_TRANSITION_INVALID');
     return { ...next, phase: kind,
@@ -373,6 +390,7 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   }
   if (kind === 'COMPLETED') {
     if (journal.phase !== 'ACCEPTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
+    acceptedHandoffDirection(journal,context,now);
     return {...next,phase:kind};
   }
   if (kind === 'SCHEMA_CHECKED') {

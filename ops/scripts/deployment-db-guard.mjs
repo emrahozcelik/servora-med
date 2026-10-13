@@ -99,16 +99,26 @@ export async function withDeploymentDatabaseLock(options, operation) {
     const counts = validateBusinessInvariantCounts((await client.query(BUSINESS_DATA_INVARIANTS_SQL)).rows[0]);
     return Object.fromEntries(BUSINESS_INVARIANT_KEYS.map(key => [key, counts[key]]));
   };
+  const assertQuiescent = async () => {
+    // Reject even idle/read-only external sessions: their future writes cannot
+    // be ruled out. Do not hide other roles behind backend_type/state filters,
+    // whose values may be redacted from this non-superuser probe.
+    await client.query('SELECT pg_stat_clear_snapshot()');
+    const row = (await client.query(`SELECT
+      (SELECT COUNT(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid())::int AS sessions,
+      (SELECT COUNT(*) FROM pg_prepared_xacts WHERE database=current_database())::int AS prepared`)).rows[0];
+    if (row.sessions !== 0 || row.prepared !== 0) throw new Error('RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT');
+  };
   try {
     await client.connect();
     locked = (await client.query('SELECT pg_try_advisory_lock($1) AS locked', [MIGRATION_LOCK])).rows[0].locked;
     if (!locked) throw new Error('RECOVERY_DATABASE_LOCK_BUSY');
     const {identity,applied} = await assertExact();
-    return await operation({ identity, applied, assertExact, readInvariants, disconnected });
+    return await operation({ identity, applied, assertExact, readInvariants, assertQuiescent, disconnected });
   } catch (error) {
     // Do not propagate pg/URL errors with connection details to root logs.
     if (['RECOVERY_DATABASE_IDENTITY_MISMATCH', 'RECOVERY_DATABASE_LOCK_BUSY', 'RECOVERY_DATABASE_NOT_EXACT',
-      'RECOVERY_DATABASE_INVARIANTS_INVALID'].includes(error.message)) throw error;
+      'RECOVERY_DATABASE_INVARIANTS_INVALID','RECOVERY_DATABASE_WRITERS_NOT_QUIESCENT'].includes(error.message)) throw error;
     throw new Error('RECOVERY_DATABASE_PROBE_FAILED');
   } finally {
     if (locked) {
@@ -129,12 +139,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (Object.keys(options).length !== 3 || !['releaseDirectory','expectedIdentity','expectedCatalog'].every(key => Object.hasOwn(options,key))) {
       throw new Error('RECOVERY_DATABASE_PROTOCOL_INVALID');
     }
-    await withDeploymentDatabaseLock(options, async ({assertExact,readInvariants,disconnected}) => {
+    await withDeploymentDatabaseLock(options, async ({assertExact,readInvariants,assertQuiescent,disconnected}) => {
       process.stdout.write('READY\n');
       for (let count = 0; count < 1000; count++) {
         const next = await Promise.race([lines.next(), disconnected.then(() => { throw new Error('RECOVERY_DATABASE_PROBE_FAILED'); })]);
         if (next.done || next.value === 'RELEASE') return;
         if (next.value === 'CHECK') { await assertExact(); process.stdout.write('EXACT\n'); continue; }
+        if (next.value === 'QUIESCENCE') { await assertQuiescent(); process.stdout.write('QUIESCENT\n'); continue; }
         if (next.value === 'COUNTS') {
           await assertExact();
           process.stdout.write('COUNTS='+JSON.stringify(await readInvariants())+'\n');
