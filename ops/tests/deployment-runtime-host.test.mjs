@@ -438,7 +438,7 @@ test('no smoke, postdeploy or completion can bypass a durable schema-check resul
       const invocationBefore=spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout.trim();
       const gate=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','postdeploy','--sha',grant.releaseSha,'--fqdn','r4.synthetic.invalid','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:30000});
       assert.notEqual(gate.status,0,gate.stdout+gate.stderr);
-      assert.match(gate.stderr,/ATTEMPT_TRANSITION_INVALID/);
+      assert.match(gate.stderr,/DEPLOYMENT_STATE_INVALID/);
       journal=readLatestCheckpoint(grant.attemptId).record;
       assert.equal(journal.phase,'HEALTH_PASSED','the failed gate must not advance the journal');
       assert.equal(journal.schemaChecked,false);

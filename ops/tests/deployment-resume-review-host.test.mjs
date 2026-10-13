@@ -173,3 +173,51 @@ postdeploy_phase
     console.log('SEPARATE_POSTDEPLOY_STATE=PASS old_release_preserved=PASS migration_count=1');
   } finally {if(saved)writeFileSync(file,saved);else unlinkSync(file);}
 });
+
+test('post-stop BACKED_UP publication survives SIGKILL and resumes only its owned stopped fence',async()=>withOldHost(async (grant,saved)=>{
+ grant.allowPreMigrationAbort=false;grant.maxAbortStarts=0;
+ writeFileSync(state+'/approvals/'+grant.attemptId+'.json',JSON.stringify(grant)+'\n');
+ admitAttempt(grant.attemptId);prepareRealBackup(grant);
+ const child=spawn('/bin/bash',['-c',`source /usr/local/libexec/servora-med/deploy-production-host
+SHA=${grant.releaseSha}; ATTEMPT_ID=${grant.attemptId}; FQDN=r4.synthetic.invalid
+OLD_RELEASE=/opt/servora-med/releases/${grant.oldReleaseSha}
+r4_controller(){
+ if [[ "$1" == event && "$3" == FENCED ]]; then
+  printf 'FAULT_READY=post-stop-pre-fenced\\n'; kill -STOP "$BASHPID"
+ fi
+ "$NODE_BIN" /usr/local/libexec/servora-med/deployment-controller.mjs "$@"
+}
+acquire_host_lock
+r4_deploy_attempt /opt/servora-med/releases/${grant.releaseSha}
+`],{stdio:['ignore','pipe','pipe']});
+ let output='',errors='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>errors+=c);
+ const closed=new Promise(resolve=>child.once('close',resolve));
+ try {
+  for(let i=0;i<200&&!output.includes('FAULT_READY=post-stop-pre-fenced');i++)await delay(50);
+  assert.ok(output.includes('FAULT_READY=post-stop-pre-fenced'),errors);child.kill('SIGKILL');await closed;
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'BACKED_UP');
+  assert.equal(run('/usr/bin/systemctl',['show','servora-med.service','-p','MainPID','--value']).stdout.trim(),'0');
+  assert.equal(run('/usr/bin/systemctl',['show','servora-med.service','-p','Restart','--value']).stdout.trim(),'no');
+  prepareReboot(grant.attemptId,saved,'pre-fenced');
+  const owner=readFileSync(state+'/active.json'),barrier=readFileSync(state+'/activation.block');
+  const before=readdirSync('/var/backups/servora-med').filter(n=>n.endsWith('.dump')).length;
+  const preflight=()=>run('/usr/local/libexec/servora-med/deploy-production-host',['--phase','attempt-preflight','--attempt-id',grant.attemptId]);
+  unlinkSync(state+'/activation.block');const missing=preflight();assert.notEqual(missing.status,0);assert.match(missing.stderr,/RECOVERY_BARRIER_UNTRUSTED/);
+  writeFileSync(state+'/activation.block',barrier,{mode:0o600});
+  writeFileSync(state+'/active.json',JSON.stringify({attemptId:randomUUID(),approvalSha256:'4'.repeat(64)})+'\n');
+  const foreign=preflight();assert.notEqual(foreign.status,0);writeFileSync(state+'/active.json',owner);
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'BACKED_UP','negative probes never promote a fence');
+  const ready=preflight();assert.equal(ready.status,0,ready.stderr);assert.equal(JSON.parse(ready.stdout).mode,'deploy');
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'FENCED');
+  const retry=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','deploy','--sha',grant.releaseSha,
+   '--artifact','/home/emrah.guest/r4-rehearsal/servora-med-'+grant.releaseSha+'.tar.gz','--artifact-sha',grant.artifactSha256,
+   '--fqdn','r4.synthetic.invalid','--allow-migrations','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:180000});
+  assert.equal(retry.status,0,retry.stderr+' '+retry.stdout);
+  const after=readLatestCheckpoint(grant.attemptId).record;
+  assert.equal(after.phase,'HEALTH_PASSED');assert.equal(after.starts,1);assert.equal(after.abortStarts,0);
+  assert.equal(after.migrationCommitted,true);assert.equal(after.schemaChecked,true);assert.ok(after.invariantBaseline);
+  assert.equal(readdirSync('/var/backups/servora-med').filter(n=>n.endsWith('.dump')).length,before);
+  assert.deepEqual(readFileSync(state+'/active.json'),owner);
+  console.log('BACKED_UP_POST_STOP_SIGKILL_RESUME=PASS migration=055_to_056 no_second_prebackup=PASS missing_barrier=DENIED foreign_owner=DENIED');
+ } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
+},true));

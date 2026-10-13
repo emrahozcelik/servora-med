@@ -703,10 +703,10 @@ describe('controlled production deployment automation contract', () => {
     const root = temporaryDirectory('early-restart-mutation');
     const mutatedHelper = join(root, 'deploy-production-host.sh');
     const source = readFileSync(hostHelper, 'utf8');
-    const marker = '  enable_service_for_boot\n\n  PHASE=PREFLIGHT';
+    const marker = '  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi\n\n  PHASE=PREFLIGHT';
     const mutatedSource = source.replace(
       marker,
-      '  enable_service_for_boot\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
+      '  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
     );
     expect(mutatedSource).not.toBe(source);
     writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
@@ -783,7 +783,7 @@ describe('controlled production deployment automation contract', () => {
     const root = temporaryDirectory('boot-enablement-removal');
     const modifiedHelper = join(root, 'deploy-production-host.sh');
     const source = readFileSync(hostHelper, 'utf8');
-    const withoutEnablement = source.replace('  enable_service_for_boot\n', '');
+    const withoutEnablement = source.replace('then enable_service_for_boot; fi', 'then :; fi');
     expect(withoutEnablement).not.toBe(source);
     writeFileSync(modifiedHelper, withoutEnablement, { mode: 0o755 });
 

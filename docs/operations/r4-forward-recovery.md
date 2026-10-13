@@ -272,3 +272,12 @@ retained PRE backup and process/health proof. Writes fsync the file and director
 The migration count cannot become zero merely because a new shell started.
 Postdeploy repeats preserve those fields and still prohibit OLD rollback after
 a nonzero approved catalog delta.
+
+The same proof also reconciles a `BACKED_UP` journal interrupted after the app
+stop but before FENCED publication. Only actual MainPID=0 / inactive, the owned
+barrier, effective `Restart=no`, verified PRE receipt/archive and fresh OLD EXACT
+quiescence may durably publish FENCED under the database guard. A running healthy
+BACKED_UP attempt uses its original deployment path. Missing/foreign barriers,
+failed/transitional service states, untrusted policy or incompatible DB histories
+never receive a stopped-service exception. The fresh SQL baseline is still
+captured only after this reconciliation, before MIGRATION_INTENT and migration.

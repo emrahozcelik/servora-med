@@ -764,20 +764,25 @@ function assertStoppedWriters(context) {
   }
 }
 
-/** The durable fence precedes migration intent. Only its unchanged owner may
- * continue OLD EXACT into migration; this is never TARGET forward recovery.
+/** The stopped, owned fence may precede its FENCED checkpoint. Only its
+ * unchanged owner may finish that publication and continue OLD EXACT into
+ * migration; this is never TARGET forward recovery or generic health bypass.
  */
 export async function proveFencedResume(attemptId) {
   const context = currentAttempt(attemptId);
   const {approval,checkpoint} = context;
   const record = checkpoint.record;
-  if (record.phase !== 'FENCED' || record.migrationCommitted || record.invariantBaseline
+  if (!['BACKED_UP','FENCED'].includes(record.phase) || record.migrationCommitted || record.invariantBaseline
     || record.starts !== 0 || record.abortStarts !== 0 || !record.predeployBackup
     || !approval.allowMigration || !approval.allowForwardRecovery || !approval.allowPostdeployBackup) {
     throw new Error('ATTEMPT_TRANSITION_INVALID');
   }
   verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');
   assertRetainedBackups(context);validateBackupDatabase(context.profile);assertStoppedWriters(context);
+  try {
+    execFileSync(PG_RESTORE_BIN,['--list',`${STATE_ROOT}/backups/${attemptId}-pre.dump`],
+      {env:COMMAND_ENV,timeout:30000,stdio:['ignore','ignore','ignore']});
+  } catch { throw new Error('RECOVERY_BACKUP_ARCHIVE_INVALID'); }
   const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
   if (tuple.release !== approval.oldReleaseSha || tuple.schema !== approval.oldCatalog.at(-1).version
     || realpathSync('/opt/servora-med/current') !== '/opt/servora-med/releases/'+approval.oldReleaseSha) {
@@ -785,6 +790,9 @@ export async function proveFencedResume(attemptId) {
   }
   await withGuard(context,'old',async (check,counts,quiescence) => {
     await check();await quiescence();await counts();await quiescence();
+    if (record.phase === 'BACKED_UP') {
+      await settleGuard();checkpointAttempt(attemptId,'FENCED');
+    }
   });
   return context;
 }
@@ -1069,7 +1077,8 @@ export async function preflightAttempt(attemptId) {
       // Crash window: terminal journal fsynced before claim retirement.
       mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
       await assertTerminalReadOnly(context, record);
-    } else if (record.phase === 'FENCED') {
+    } else if (record.phase === 'FENCED' || (record.phase === 'BACKED_UP'
+      && systemctl('show','servora-med.service','-p','MainPID','--value') === '0')) {
       await proveFencedResume(attemptId);
     } else if (['ADMITTED','BACKED_UP'].includes(record.phase)) {
       // Same-owner retry of an early, unmigrated attempt: resume as a deploy.
@@ -1308,7 +1317,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         if (Object.keys(active).length !== 2 || active.attemptId !== attemptId
           || active.approvalSha256 !== contextSha256
           || !['ADMITTED','BACKED_UP','FENCED'].includes(phase)) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
-        if (phase === 'FENCED') {
+        if (phase === 'FENCED' || (phase === 'BACKED_UP'
+          && systemctl('show','servora-med.service','-p','MainPID','--value') === '0')) {
           await proveFencedResume(attemptId);
           process.stdout.write('ATTEMPT_FENCED_RESUME=YES\n');
         }
@@ -1333,7 +1343,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       await reconcileInitialization(context);
       verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');
       await withGuard(context,'old',async check=>{await check();});
-      if (existsSync(STATE_ROOT+'/active.json') && readLatestCheckpoint(attemptId).record.phase === 'FENCED') {
+      const resumePhase = existsSync(STATE_ROOT+'/active.json') ? readLatestCheckpoint(attemptId).record.phase : null;
+      if (resumePhase === 'FENCED' || (resumePhase === 'BACKED_UP'
+        && systemctl('show','servora-med.service','-p','MainPID','--value') === '0')) {
         await proveFencedResume(attemptId);
         process.stdout.write('ATTEMPT_RESUMED phase=FENCED\n');
         process.exitCode = 0;
