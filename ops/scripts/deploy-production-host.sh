@@ -1089,7 +1089,26 @@ postdeploy=${postdeploy_status}
 EOF
   chown root:root "$temporary"
   chmod 600 "$temporary"
+  sync -f "$temporary"
   mv -- "$temporary" "$STATE_FILE"
+  sync -f "$STATE_DIR"
+}
+
+r4_read_state() {
+  local projection key value missing="" seen=" "
+  projection="$(r4_controller deployment-state "$ATTEMPT_ID" "$SHA" "$FQDN")" || fail DEPLOYMENT_STATE_INVALID
+  while IFS='=' read -r key value; do
+    [[ "$seen" != *" $key "* ]] || fail DEPLOYMENT_STATE_INVALID
+    seen+="$key "
+    case "$key" in
+      OLD_RELEASE) [[ "$value" =~ ^/opt/servora-med/releases/[0-9a-f]{40}$ ]] || fail DEPLOYMENT_STATE_INVALID; OLD_RELEASE="$value" ;;
+      MIGRATIONS_APPLIED) [[ "$value" =~ ^[0-9]+$ ]] || fail DEPLOYMENT_STATE_INVALID; MIGRATIONS_APPLIED="$value" ;;
+      STATE_MISSING) [[ "$value" == true || "$value" == false ]] || fail DEPLOYMENT_STATE_INVALID; missing="$value" ;;
+      *) fail DEPLOYMENT_STATE_INVALID ;;
+    esac
+  done <<<"$projection"
+  [[ "$seen" == ' OLD_RELEASE MIGRATIONS_APPLIED STATE_MISSING ' ]] || fail DEPLOYMENT_STATE_INVALID
+  if [[ "$missing" == true ]]; then write_state "$RELEASE_ROOT/$SHA" not_run; fi
 }
 
 read_state() {
@@ -1202,18 +1221,25 @@ deploy_phase() {
   validate_artifact
   assert_env_contract
   assert_host_backup_contract
+  local fenced_resume=false binding
   if [[ -n "$ATTEMPT_ID" ]]; then
     [[ "$ALLOW_MIGRATIONS" == true ]] || fail ATTEMPT_REQUIRES_EXPLICIT_MIGRATION_SCOPE
-    r4_controller match-deploy "$ATTEMPT_ID" "$SHA" "$ARTIFACT_SHA" "$FQDN"
+    binding="$(r4_controller match-deploy "$ATTEMPT_ID" "$SHA" "$ARTIFACT_SHA" "$FQDN")" || fail ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH
+    case "$binding" in
+      ATTEMPT_DEPLOYMENT_BINDING_PASS) ;;
+      $'ATTEMPT_FENCED_RESUME=YES\nATTEMPT_DEPLOYMENT_BINDING_PASS') fenced_resume=true ;;
+      *) fail ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH ;;
+    esac
+    printf '%s\n' "$binding"
   else
     servora_assert_no_pending_attempt
   fi
   assert_release_dir "$RELEASE_ROOT" || fail RELEASE_ROOT_INVALID
-  enable_service_for_boot
+  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi
 
   PHASE=PREFLIGHT
   OLD_RELEASE="$(current_release)"
-  assert_service_and_health
+  if [[ "$fenced_resume" == false ]]; then assert_service_and_health; fi
 
   PHASE=PACKAGE
   verify_archive_entries
@@ -1415,11 +1441,12 @@ r4_deploy_attempt() {
     ATTEMPT_ADMITTED) ;;
     'ATTEMPT_RESUMED phase=ADMITTED') admit_phase=ADMITTED ;;
     'ATTEMPT_RESUMED phase=BACKED_UP') admit_phase=BACKED_UP ;;
+    'ATTEMPT_RESUMED phase=FENCED') admit_phase=FENCED ;;
     *) fail ATTEMPT_ADMISSION_STATE_INVALID ;;
   esac
   R4_ACTIVE=true
   PHASE=BACKUP
-  if [[ "$admit_phase" == BACKED_UP ]]; then
+  if [[ "$admit_phase" == BACKED_UP || "$admit_phase" == FENCED ]]; then
     # Same-owner resume after the backup was already sealed and verified;
     # the retained receipt was re-checked by the controller before resume.
     echo "PREDEPLOY_BACKUP=PASS"
@@ -1436,11 +1463,13 @@ r4_deploy_attempt() {
     r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"
   fi
   PHASE=MIGRATION
-  r4_controller barrier "$ATTEMPT_ID"
-  r4_suppress_restarts
-  systemctl stop "$SERVICE"
-  SERVICE_STOPPED=true
-  r4_controller event "$ATTEMPT_ID" FENCED
+  if [[ "$admit_phase" != FENCED ]]; then
+    r4_controller barrier "$ATTEMPT_ID"
+    r4_suppress_restarts
+    systemctl stop "$SERVICE"
+    SERVICE_STOPPED=true
+    r4_controller event "$ATTEMPT_ID" FENCED
+  fi
   # The running application may legitimately write after the live preflight.
   # Read SQL again after fencing/stopping; never reuse its cached counts.
   read_migration_state "$release"
@@ -1498,9 +1527,11 @@ postdeploy_phase() {
   assert_env_contract
   if [[ -n "$ATTEMPT_ID" ]]; then
     assert_host_backup_contract
+    r4_read_state
     local decision
     decision="$(r4_controller prepare-postdeploy "$ATTEMPT_ID" "$SHA" "$FQDN")"
     if [[ "$decision" == BACKUP_ALREADY_VERIFIED ]]; then
+      write_state "$RELEASE_ROOT/$SHA" success
       r4_controller observe "$ATTEMPT_ID"
       echo "POSTDEPLOY_BACKUP=PASS"
       echo "DEPLOYMENT=COMPLETE"

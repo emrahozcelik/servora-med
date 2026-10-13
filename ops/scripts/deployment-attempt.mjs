@@ -207,11 +207,37 @@ export function readRootApproval(attemptId, now = Date.now()) {
     throw new Error('ATTEMPT_ID_INVALID');
   }
   const { record, sha256 } = readProtectedRecord(`${ATTEMPT_ROOT}/approvals/${attemptId}.json`);
-  // An attempt whose journal was already published has consumed its grant:
-  // wall-clock expiry no longer aborts the already-authorized transition.
+  // Consumption begins at the sealed initial record, before owner/checkpoint
+  // publication. Existence alone is never authority: validate its exact bytes,
+  // grant digest, original admission window and the only permitted inode pair.
+  const first = `${ATTEMPT_ROOT}/attempts/${attemptId}/0000.json`;
+  const marker = `${ATTEMPT_ROOT}/initializations/${attemptId}.json`;
+  const stat = path => { try { return lstatSync(path); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
+  const firstInfo = stat(first), markerInfo = stat(marker);
   let admitted = false;
-  try { lstatSync(`${ATTEMPT_ROOT}/attempts/${attemptId}/0000.json`); admitted = true; }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (firstInfo || markerInfo) {
+    let links = 1;
+    if (firstInfo && markerInfo) {
+      if (firstInfo.dev !== markerInfo.dev || firstInfo.ino !== markerInfo.ino) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+      links = 2;
+    }
+    const initial = readProtectedRecord(markerInfo ? marker : first, links).record;
+    const admittedAt = Date.parse(initial.updatedAtUTC);
+    if (!Number.isFinite(now) || admittedAt > now
+      || JSON.stringify(initial) !== JSON.stringify(initialAttempt({approval:record,approvalSha256:sha256},admittedAt))) {
+      throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+    }
+    if (markerInfo) {
+      const activeInfo = stat(`${ATTEMPT_ROOT}/active.json`);
+      if (activeInfo) {
+        const active = readProtectedRecord(`${ATTEMPT_ROOT}/active.json`).record;
+        if (Object.keys(active).length !== 2 || active.attemptId !== attemptId || active.approvalSha256 !== sha256) {
+          throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+        }
+      }
+    }
+    admitted = true;
+  }
   const approval = admitted ? consumedApproval(record, now) : validateApproval(record, now);
   if (approval.attemptId !== attemptId) throw new Error('ATTEMPT_APPROVAL_IDENTITY_INVALID');
   return { approval, approvalSha256: sha256 };

@@ -764,6 +764,31 @@ function assertStoppedWriters(context) {
   }
 }
 
+/** The durable fence precedes migration intent. Only its unchanged owner may
+ * continue OLD EXACT into migration; this is never TARGET forward recovery.
+ */
+export async function proveFencedResume(attemptId) {
+  const context = currentAttempt(attemptId);
+  const {approval,checkpoint} = context;
+  const record = checkpoint.record;
+  if (record.phase !== 'FENCED' || record.migrationCommitted || record.invariantBaseline
+    || record.starts !== 0 || record.abortStarts !== 0 || !record.predeployBackup
+    || !approval.allowMigration || !approval.allowForwardRecovery || !approval.allowPostdeployBackup) {
+    throw new Error('ATTEMPT_TRANSITION_INVALID');
+  }
+  verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');
+  assertRetainedBackups(context);validateBackupDatabase(context.profile);assertStoppedWriters(context);
+  const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
+  if (tuple.release !== approval.oldReleaseSha || tuple.schema !== approval.oldCatalog.at(-1).version
+    || realpathSync('/opt/servora-med/current') !== '/opt/servora-med/releases/'+approval.oldReleaseSha) {
+    throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
+  }
+  await withGuard(context,'old',async (check,counts,quiescence) => {
+    await check();await quiescence();await counts();await quiescence();
+  });
+  return context;
+}
+
 export async function recordFreshMigrationIntent(attemptId, expectedCounts) {
   const context = currentAttempt(attemptId);
   if (context.checkpoint.record.phase !== 'FENCED') throw new Error('ATTEMPT_TRANSITION_INVALID');
@@ -1044,6 +1069,8 @@ export async function preflightAttempt(attemptId) {
       // Crash window: terminal journal fsynced before claim retirement.
       mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
       await assertTerminalReadOnly(context, record);
+    } else if (record.phase === 'FENCED') {
+      await proveFencedResume(attemptId);
     } else if (['ADMITTED','BACKED_UP'].includes(record.phase)) {
       // Same-owner retry of an early, unmigrated attempt: resume as a deploy.
       verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
@@ -1091,6 +1118,41 @@ export async function preparePostdeploy(attemptId,sha,fqdn) {
     if (phase === 'SMOKE_PASSED') { checkpointAttempt(attemptId,'POSTDEPLOY_BACKUP_INTENT'); return 'BACKUP_REQUIRED'; }
     if (['POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ACCEPTED','COMPLETED'].includes(phase)) return 'BACKUP_ALREADY_VERIFIED';
     throw new Error('POSTDEPLOY_BACKUP_AMBIGUOUS_OPERATOR_REVIEW_REQUIRED');
+  });
+}
+
+export function validateAttemptDeploymentState(text, approval) {
+  const oldRelease = '/opt/servora-med/releases/'+approval.oldReleaseSha;
+  const migrationsApplied = approval.targetCatalog.length-approval.oldCatalog.length;
+  if (typeof text !== 'string' || !['not_run','success'].some(postdeploy => text ===
+    `sha=${approval.releaseSha}\nold_release=${oldRelease}\nnew_release=/opt/servora-med/releases/${approval.releaseSha}\nmigrations_applied=${migrationsApplied}\npostdeploy=${postdeploy}\n`)) {
+    throw new Error('DEPLOYMENT_STATE_INVALID');
+  }
+  return {oldRelease,migrationsApplied};
+}
+
+/** State may be reconstructed only from committed exact-catalog journal and
+ * sealed approval. Existing contradictory state is never silently repaired.
+ */
+export async function deploymentStateProjection(attemptId, sha, fqdn) {
+  const context = currentAttempt(attemptId);
+  if (sha !== context.approval.releaseSha || fqdn !== context.profile.fqdn) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
+  const record = context.checkpoint.record;
+  if (!record.migrationCommitted || !record.predeployBackup || !record.invariantBaseline
+    || !record.schemaChecked || !['HEALTH_PASSED','SMOKE_PASSED','POSTDEPLOY_BACKUP_INTENT',
+      'POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ACCEPTED','COMPLETED'].includes(record.phase)) {
+    throw new Error('DEPLOYMENT_STATE_INVALID');
+  }
+  verifyAttemptRelease(attemptId,'target');assertRetainedBackups(context);
+  return withGuard(context,'target',async check => {
+    await check();assertProcessAndHealth(context);
+    const file = STATE_ROOT+'/'+context.approval.releaseSha+'.state';
+    const missing = !existsSync(file);
+    const projection = missing ? {
+      oldRelease:'/opt/servora-med/releases/'+context.approval.oldReleaseSha,
+      migrationsApplied:context.approval.targetCatalog.length-context.approval.oldCatalog.length,
+    } : validateAttemptDeploymentState(trustedFile(file,0o600).toString('utf8'),context.approval);
+    return {...projection,missing};
   });
 }
 
@@ -1245,7 +1307,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const phase = readLatestCheckpoint(attemptId).record.phase;
         if (Object.keys(active).length !== 2 || active.attemptId !== attemptId
           || active.approvalSha256 !== contextSha256
-          || !['ADMITTED','BACKED_UP'].includes(phase)) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+          || !['ADMITTED','BACKED_UP','FENCED'].includes(phase)) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+        if (phase === 'FENCED') {
+          await proveFencedResume(attemptId);
+          process.stdout.write('ATTEMPT_FENCED_RESUME=YES\n');
+        }
       }
       if (existsSync(STATE_ROOT+'/activation.block')) {
         let barrier;
@@ -1267,9 +1333,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       await reconcileInitialization(context);
       verifyAttemptRelease(attemptId,'old');verifyAttemptRelease(attemptId,'target');
       await withGuard(context,'old',async check=>{await check();});
+      if (existsSync(STATE_ROOT+'/active.json') && readLatestCheckpoint(attemptId).record.phase === 'FENCED') {
+        await proveFencedResume(attemptId);
+        process.stdout.write('ATTEMPT_RESUMED phase=FENCED\n');
+        process.exitCode = 0;
+      } else {
       const admitted = admitAttempt(attemptId);
       process.stdout.write(admitted.resumed
         ? 'ATTEMPT_RESUMED phase='+admitted.checkpoint.record.phase+'\n' : 'ATTEMPT_ADMITTED\n');
+      }
+    } else if (command === 'deployment-state' && extra.length === 2) {
+      const state = await deploymentStateProjection(attemptId,...extra);
+      process.stdout.write(`OLD_RELEASE=${state.oldRelease}\nMIGRATIONS_APPLIED=${state.migrationsApplied}\nSTATE_MISSING=${state.missing}\n`);
     } else if (command === 'migration-intent' && extra.length === 7) {
       const values = extra.map(value => Number(value));
       if (values.some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');

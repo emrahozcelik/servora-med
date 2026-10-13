@@ -246,3 +246,29 @@ compatibility remains a separate mandatory CI gate and a future production
 artifact requirement. Local host recovery evidence is not production acceptance,
 restore acceptance, or offsite R2/DR proof. Production bootstrap/preflight,
 exact-main Linux/amd64 artifact and migration/deployment approval remain separate.
+
+## Review reconciliation: fence, consumption and shell state
+
+A durable `FENCED` record with no migration intent can resume normal deployment
+only for the same sealed owner with OLD EXACT history/fingerprint, immutable
+OLD/TARGET payloads, OLD env/current identity, retained PRE receipt, stopped
+service, loaded `Restart=no`, owned barrier and proven writer quiescence.
+This narrow resume skips a second PRE backup, stop/start and owner admission;
+it re-reads real SQL and persists fresh MIGRATION_INTENT before the migrator.
+TARGET/ambiguous histories never enter this path. Other deployment admissions
+still require the ordinary healthy OLD service.
+
+Authority consumption starts with the root-sealed initialization record. Both
+marker-only and checkpoint-zero states must prove the original exact initial
+record, approval digest, issue/admission/expiry timeline and sufficient original
+admission window. A filename, expired grant or changed hash is insufficient.
+No approval renewal or budget reset is introduced.
+
+A separate postdeploy helper process derives OLD identity and migration delta
+from the sealed catalog/journal under a fresh TARGET EXACT guard. Existing state
+must match all five canonical fields; contradictory state is rejected. Missing
+state can be reconstructed only after committed migration, durable schema check,
+retained PRE backup and process/health proof. Writes fsync the file and directory.
+The migration count cannot become zero merely because a new shell started.
+Postdeploy repeats preserve those fields and still prohibit OLD rollback after
+a nonzero approved catalog delta.
