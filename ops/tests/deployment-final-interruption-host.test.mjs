@@ -391,25 +391,26 @@ test('a sealed predeploy dump is adopted without forcing any second backup',asyn
 
 test('a lost PostgreSQL guard lock blocks the acceptance checkpoint and the abort retries cleanly',async()=>withOldHost(async grant=>{
   admitAttempt(grant.attemptId);prepareRealBackup(grant);createAttemptBarrier(grant.attemptId);
-  const killer=spawn('/bin/bash',['-c',
-    `for i in $(seq 1 500); do
-       pid="$(/usr/bin/sudo -u postgres /usr/bin/psql -XAt -d postgres -c "SELECT pid FROM pg_stat_activity WHERE application_name='servora-med-recovery-guard' AND state='idle' AND query LIKE 'SELECT version FROM public.schema_migrations%'" | head -1)"
-       if [[ -n "$pid" ]]; then /usr/bin/sudo -u postgres /usr/bin/psql -XAt -d postgres -c "SELECT pg_terminate_backend($pid)" >/dev/null 2>&1; echo TERMINATED; exit 0; fi
-       sleep 0.02
-     done
-     echo NOT_FOUND; exit 1`],{stdio:['ignore','pipe','pipe']});
-  let killed='';killer.stdout.on('data',c=>killed+=c);
-  const closedKiller=new Promise(resolve=>killer.once('close',resolve));
+  // The abort helper writes its owned restart drop-in strictly AFTER the
+  // guarded CHECK. Killing the live guard process at that signal releases the
+  // Migrator advisory lock with the PostgreSQL session immediately and gives
+  // the guard a non-zero terminal state, exactly the object of the finding.
+  const policyFile='/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf';
+  const aborting=abortAttempt(grant.attemptId);
   try {
-    await assert.rejects(abortAttempt(grant.attemptId),/RECOVERY_DATABASE_PROBE_FAILED/);
-    await closedKiller;
-    assert.match(killed,/TERMINATED/);
+    const deadline=Date.now()+30000;
+    while(!existsSync(policyFile)){if(Date.now()>deadline)throw new Error('SUPPRESSION_WINDOW_NOT_REACHED');await delay(10);}
+    assert.equal(run('/usr/bin/pkill',['-9','-f','deployment-db-guard.mjs --hold']).status,0,'the live guard process must be terminated');
+    await assert.rejects(aborting,/RECOVERY_DATABASE_PROBE_FAILED/);
+    const locks=run('/usr/bin/sudo',['-u','postgres','/usr/bin/psql','-XAt','-d','postgres','-c',
+      "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=0 AND objid=872014011"]);
+    assert.equal(locks.stdout.trim(),'0','the migration advisory lock must be gone after process death');
     // Lock loss must never leave an acceptance checkpoint or consume budget.
     const record=readLatestCheckpoint(grant.attemptId).record;
     assert.equal(record.phase,'BACKED_UP');assert.equal(record.abortStarts,0);
     snapshot(grant.attemptId,'guard-lost-before-abort-intent');
-    console.log('GUARD_LOCK_LOSS=DENIED acceptance_checkpoint=ABSENT');
-  } finally {if(killer.exitCode===null&&killer.signalCode===null)killer.kill('SIGKILL');}
+    console.log('GUARD_LOCK_LOSS=DENIED acceptance_checkpoint=ABSENT lock_released=PASS');
+  } finally { /* no killer process */ }
   // The intact, fenced state retries cleanly under a fresh guard.
   const result=await abortAttempt(grant.attemptId);
   assert.equal(result,'PRE_MIGRATION_ABORT=COMPLETE_OLD_EXACT');
