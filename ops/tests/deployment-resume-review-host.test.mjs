@@ -104,7 +104,7 @@ kill -STOP "$BASHPID"
     const preflight=run('/usr/local/libexec/servora-med/deploy-production-host',['--phase','attempt-preflight','--attempt-id',grant.attemptId]);
     assert.equal(preflight.status,0,'FENCED OLD EXACT must be a deploy resume: '+preflight.stderr);
     assert.equal(JSON.parse(preflight.stdout).mode,'deploy');
-    const artifact=state+'/artifacts/'+grant.releaseSha+'.tar.gz';
+    const artifact='/home/emrah.guest/r4-rehearsal/servora-med-'+grant.releaseSha+'.tar.gz';
     const retry=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','deploy','--sha',grant.releaseSha,
       '--artifact',artifact,'--artifact-sha',grant.artifactSha256,'--fqdn','r4.synthetic.invalid','--allow-migrations','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:180000});
     assert.equal(retry.status,0,'actual fixed helper FENCED resume failed: '+retry.stderr+' '+retry.stdout);
@@ -126,10 +126,15 @@ test('a timely sealed marker consumes authority before checkpoint zero and rejec
   writeFileSync(state+'/approvals/'+grant.attemptId+'.json',approvalText);
   const marker=state+'/initializations/'+grant.attemptId+'.json';
   const first=initialAttempt({approval:grant,approvalSha256},admittedAt);
-  mkdirSync(state+'/initializations',{recursive:true,mode:0o700});
-  writeFileSync(marker,JSON.stringify(first)+'\n',{mode:0o600,flag:'wx'});
-  const fd=openSync(marker,'r');fsyncSync(fd);closeSync(fd);
+  const child=spawn('/usr/bin/node',['--import',preload,controller,'admit',grant.attemptId],{
+    env:{...process.env,SERVORA_R4_FAULT_POINT:'initialization-fsync',SERVORA_R4_ADMISSION_CLOCK:String(admittedAt)},stdio:['ignore','pipe','pipe']});
+  let output='',errors='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>errors+=c);
+  const closed=new Promise(resolve=>child.once('close',resolve));
   try {
+    for(let i=0;i<200&&!output.includes('FAULT_READY=initialization-fsync');i++)await delay(50);
+    assert.ok(output.includes('FAULT_READY=initialization-fsync'),errors);child.kill('SIGKILL');await closed;
+    assert.deepEqual(JSON.parse(readFileSync(marker)),first);
+
     assert.equal(existsSync(state+'/attempts/'+grant.attemptId+'/0000.json'),false);
     assert.doesNotThrow(()=>readRootApproval(grant.attemptId,now),'the exact timely marker must count as consumed authority');
     writeFileSync(marker,JSON.stringify({...first,updatedAtUTC:new Date(now).toISOString()})+'\n');
@@ -140,7 +145,7 @@ test('a timely sealed marker consumes authority before checkpoint zero and rejec
     const retry=run('/usr/bin/node',[controller,'admit',grant.attemptId]);assert.equal(retry.status,0,retry.stderr);
     assert.equal(existsSync(marker),false);assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'ADMITTED');
     console.log('TIMELY_MARKER_CONSUMED_AUTHORITY=PASS expiration_clock_fixture=PAST late_marker=DENIED foreign_hash=DENIED');
-  } finally {if(existsSync(marker))unlinkSync(marker);}
+  } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');if(existsSync(marker))unlinkSync(marker);}
 }));
 
 test('a separate postdeploy process preserves old release and applied migration count',()=>{
