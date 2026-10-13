@@ -180,6 +180,13 @@ export function currentAttempt(attemptId) {
  */
 let activeGuard = null;
 
+/** Long synchronous helper blocks (suppression, service stop, schema-check)
+ * can defer the guard's exit callback past the next acceptance checkpoint.
+ * Yield two event-loop turns so a lock loss that already happened is observed
+ * by the checkpoint gate before any journal mutation is written.
+ */
+async function settleGuard() { if (activeGuard) await activeGuard.settle(); }
+
 export function checkpointAttempt(attemptId, event) {
   if (activeGuard) activeGuard.assertAlive();
   const context = currentAttempt(attemptId);
@@ -704,7 +711,8 @@ async function withGuard(context, direction, operation) {
   child.stdin.write(JSON.stringify({releaseDirectory:'/opt/servora-med/releases/'+(direction === 'old' ? context.approval.oldReleaseSha : context.approval.releaseSha),
     expectedIdentity:context.profile.databaseIdentity,
     expectedCatalog:(direction === 'old' ? context.approval.oldCatalog : context.approval.targetCatalog).map(entry => entry.version)})+'\n');
-  const guard = { assertAlive() { if (exit) throw new Error('RECOVERY_DATABASE_PROBE_FAILED'); } };
+  const guard = { assertAlive() { if (exit) throw new Error('RECOVERY_DATABASE_PROBE_FAILED'); },
+    async settle() { if (exit !== null) return; await delay(0); await delay(0); } };
   const previousGuard = activeGuard;
   activeGuard = guard;
   let result = null;
@@ -855,6 +863,7 @@ export async function recoverAttempt(attemptId) {
         // sealed release's own check again before any smoke/postdeploy step.
         if (!readLatestCheckpoint(attemptId).record.schemaChecked) {
           await runTargetSchemaCheck(context);
+          await settleGuard();
           checkpointAttempt(attemptId,'SCHEMA_CHECKED');
         }
         return 'FORWARD_RECOVERY=HEALTH_PASSED_PENDING_ACCEPTANCE';
@@ -882,6 +891,7 @@ export async function recoverAttempt(attemptId) {
       {env:COMMAND_ENV,timeout:40000,stdio:['ignore','pipe','pipe']});
     systemctl('stop','servora-med.service');
     revokeStartPermit(attemptId);
+    await settleGuard();
     const record = event => { phase = checkpointAttempt(attemptId,event).record.phase; };
     if (['FENCED','MIGRATION_INTENT'].includes(phase)) record('DB_EXACT');
     if (phase === 'DB_EXACT') record('ENV_INTENT');
@@ -1073,6 +1083,7 @@ export async function preparePostdeploy(attemptId,sha,fqdn) {
   verifyAttemptRelease(attemptId,'target'); assertRetainedBackups(context);
   return withGuard(context,'target',async check => {
     await check(); assertProcessAndHealth(context); assertBackupHealth(context);
+    await settleGuard();
     let phase = context.checkpoint.record.phase;
     // Calling this fixed phase attests the operator wrapper's completed Mac
     // smoke. It is operator-trusted provenance, not independent authentication.
@@ -1138,6 +1149,7 @@ export async function observeAttempt(attemptId) {
     await check(); assertProcessAndHealth(context); assertBackupHealth(context);
     if (phase !== 'ACCEPTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
     handBackToSystemd(context);
+    await settleGuard();
     checkpointAttempt(attemptId,'COMPLETED');
     unlinkSync(STATE_ROOT+'/active.json'); flushDirectory(STATE_ROOT);
     return 'OBSERVATION=PASS';
@@ -1177,6 +1189,7 @@ export async function abortAttempt(attemptId) {
         'source /usr/local/libexec/servora-med/deploy-production-host; r4_suppress_restarts'],
         {env:COMMAND_ENV,timeout:40000,stdio:['ignore','pipe','pipe']});
       systemctl('stop','servora-med.service'); revokeStartPermit(attemptId);
+      await settleGuard();
       checkpointAttempt(attemptId,'ABORT_INTENT');
       await check(); alignAttemptEnvironment(attemptId,'old');
       await check(); alignAttemptPointer(attemptId,'old');
