@@ -6,7 +6,7 @@ import { verifyAttemptRelease, admitAttempt, checkpointAttempt, createAttemptBar
 import { readLatestCheckpoint } from '../scripts/deployment-attempt.mjs';
 import { readFileSync, writeFileSync, readlinkSync, unlinkSync, symlinkSync, existsSync, mkdirSync, rmdirSync, readdirSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 
 test('a reviewed immutable Linux artifact passes full content and catalog proof', () => withRuntimeFixture(grant => {
   assert.doesNotThrow(() => verifyAttemptRelease(grant.attemptId,'target'));
@@ -338,7 +338,7 @@ test('an interrupted ADMITTED attempt or a failed predeploy backup can still can
       if (scenario==='backup-failure') { mkdirSync(failDropIn,{mode:0o755});writeFileSync(failDropIn+'/90-r4-synthetic-failure.conf','[Service]\nExecStart=\nExecStart=/bin/false\n',{mode:0o644,flag:'wx'});spawnSync('/usr/bin/systemctl',['daemon-reload']); }
       try {
         withRuntimeFixture(grant => {
-          unlinkSync(barrier);if(existsSync(policy))unlinkSync(policy);
+          if(existsSync(barrier))unlinkSync(barrier);if(existsSync(policy))unlinkSync(policy);
           unlinkSync(current);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,current);
           spawnSync('/usr/bin/systemctl',['daemon-reload']);
           assert.equal(spawnSync('/usr/bin/systemctl',['start','servora-med.service']).status,0);
@@ -383,6 +383,8 @@ test('a grant missing downstream scopes is rejected before any backup, mutation 
   const envFile='/etc/servora-med/servora-med.env',backupEnv='/etc/servora-med/servora-med-backup.env';
   const current='/opt/servora-med/current';
   const saved={env:readFileSync(envFile,'utf8'),backup:readFileSync(backupEnv,'utf8'),pointer:readlinkSync(current)};
+  writeFileSync(envFile,alignIdentityEnvironment(saved.env,grant.oldCatalog.at(-1).version,grant.oldReleaseSha));
+  unlinkSync(current);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,current);
   try {
     for (const override of [{allowForwardRecovery:false},{allowPostdeployBackup:false}]) {
       const scoped={...grant,...override};
@@ -433,6 +435,7 @@ test('no smoke, postdeploy or completion can bypass a durable schema-check resul
     writeFileSync(failDropIn+'/90-r4-synthetic-failure.conf','[Service]\nExecStart=\nExecStart=/bin/false\n',{mode:0o644,flag:'wx'});
     spawnSync('/usr/bin/systemctl',['daemon-reload']);
     try {
+      const invocationBefore=spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout.trim();
       const gate=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','postdeploy','--sha',grant.releaseSha,'--fqdn','r4.synthetic.invalid','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:30000});
       assert.notEqual(gate.status,0,gate.stdout+gate.stderr);
       assert.match(gate.stderr,/ATTEMPT_TRANSITION_INVALID/);
@@ -440,7 +443,7 @@ test('no smoke, postdeploy or completion can bypass a durable schema-check resul
       assert.equal(journal.phase,'HEALTH_PASSED','the failed gate must not advance the journal');
       assert.equal(journal.schemaChecked,false);
       assert.equal(journal.postdeployBackup,null);
-      assert.equal(spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout.trim(),'','no postdeploy backup may be invoked');
+      assert.equal(spawnSync('/usr/bin/systemctl',['show','servora-med-postdeploy-backup.service','-p','InvocationID','--value'],{encoding:'utf8'}).stdout.trim(),invocationBefore,'no new postdeploy backup invocation may be made');
     } finally { unlinkSync(failDropIn+'/90-r4-synthetic-failure.conf');rmdirSync(failDropIn);spawnSync('/usr/bin/systemctl',['daemon-reload']); }
     // Re-entry runs the sealed release's own fresh check and records it durably.
     const reentry=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','forward-recovery','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:90000});
@@ -493,7 +496,11 @@ test('a completed attempt confirms read-only through preflight and recovery with
       checkpointAttempt(grant.attemptId,'SCHEMA_CHECKED');
       checkpointAttempt(grant.attemptId,'SMOKE_PASSED');
       checkpointAttempt(grant.attemptId,'POSTDEPLOY_BACKUP_INTENT');
-      checkpointAttempt(grant.attemptId,{kind:'POSTDEPLOY_BACKUP_PASSED',receipt:{sha256:'7'.repeat(64),completedAtUTC:new Date().toISOString()}});
+      const postPayload=Buffer.from('synthetic retained postdeploy receipt');
+      const postSha=createHash('sha256').update(postPayload).digest('hex');
+      mkdirSync('/var/lib/servora-med/deploy/backups',{recursive:true,mode:0o700});
+      writeFileSync('/var/lib/servora-med/deploy/backups/'+grant.attemptId+'-post.dump',postPayload,{mode:0o600});
+      checkpointAttempt(grant.attemptId,{kind:'POSTDEPLOY_BACKUP_PASSED',receipt:{sha256:postSha,completedAtUTC:new Date().toISOString()}});
       checkpointAttempt(grant.attemptId,{kind:'OBSERVATION_PASSED',elapsedSeconds:1800});
       const finished=spawnSync('/usr/local/libexec/servora-med/deploy-production-host',['--phase','postdeploy','--sha',grant.releaseSha,'--fqdn','r4.synthetic.invalid','--attempt-id',grant.attemptId],{encoding:'utf8',timeout:60000});
       assert.equal(finished.status,0,finished.stdout+finished.stderr);

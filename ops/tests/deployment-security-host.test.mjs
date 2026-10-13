@@ -63,21 +63,37 @@ test('same-history wrong database fingerprint is refused by the real service-UID
  const file=root+'/profile.json',profile=JSON.parse(readFileSync(file));profile.databaseIdentity.databaseOid='1';
  const text=JSON.stringify(profile)+'\n';writeFileSync(file,text);grant.profileSha256=hash(text);writeFileSync(root+'/approvals/'+grant.attemptId+'.json',JSON.stringify(grant)+'\n');
 }));
-test('HTTP200 wrong public release identity cannot pass recovery; healthy target without backup health cannot complete',()=>fenced(grant=>{
- const config='/etc/caddy/Caddyfile',prior=readFileSync(config);
- const bad='r4.synthetic.invalid {\n tls internal\n handle /api/health {\n respond `{"status":"ok","releaseSha":"'+'f'.repeat(40)+'"}` 200\n }\n handle /api/* {\n reverse_proxy 127.0.0.1:3000\n }\n handle {\n root * /opt/servora-med/current/web/dist\n try_files {path} /index.html\n file_server\n }\n}\n';
+test('HTTP200 wrong public release identity cannot pass recovery; healthy target without backup health cannot complete',async()=>{
+ const envPrior=readFileSync(env,'utf8');
+ // The lab restore policy is backup-health-dependent; bind an explicit
+ // no-backup-health environment (missing observation source) before the
+ // fixture seals its profile. The app still boots and reports unavailable.
+ const missingPath='BACKUP_OBSERVATION_PATH=/var/lib/servora-med-backup/r4-rev-missing-observation.json';
+ let modifiedEnv=envPrior.includes('BACKUP_OBSERVATION_PATH=')
+   ? envPrior.replace(/^BACKUP_OBSERVATION_PATH=.*$/m,missingPath)
+   : envPrior+(envPrior.endsWith('\n')?'':'\n')+missingPath+'\n';
+ writeFileSync(env,modifiedEnv);
  try {
-  writeFileSync(config,bad);assert.equal(spawnSync('/usr/bin/systemctl',['reload','caddy']).status,0);
-  const response=spawnSync('/usr/bin/curl',['--fail','--silent','https://r4.synthetic.invalid/api/health'],{encoding:'utf8'});assert.equal(response.status,0);assert.equal(JSON.parse(response.stdout).releaseSha,'f'.repeat(40));
-  const result=run(grant);assert.notEqual(result.status,0);assert.match(result.stderr,/RECOVERY_HEALTH_FAILED/);
-  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'START_FAILED');assert.equal(readLatestCheckpoint(grant.attemptId).record.starts,1);
- }finally{writeFileSync(config,prior);assert.equal(spawnSync('/usr/bin/systemctl',['reload','caddy']).status,0);}
- const green=run(grant);assert.equal(green.status,0,green.stdout+green.stderr);assert.equal(readLatestCheckpoint(grant.attemptId).record.starts,2);
- const before=readLatestCheckpoint(grant.attemptId),dumps=readdirSync('/var/backups/servora-med').filter(x=>x.endsWith('.dump')).length;
- const post=run(grant,'postdeploy');assert.notEqual(post.status,0);assert.match(post.stderr,/RECOVERY_BACKUP_HEALTH_FAILED/);
- assert.deepEqual(readLatestCheckpoint(grant.attemptId),before);assert.equal(readdirSync('/var/backups/servora-med').filter(x=>x.endsWith('.dump')).length,dumps);
- console.log('WRONG_HEALTH_IDENTITY=DENIED_REAL_HTTP200\nSECOND_BOUNDED_ACTIVATION=PASS\nHEALTH_WITHOUT_BACKUP_ACCEPTANCE=DENIED');
-}));
+  await fenced(grant=>{
+   const config='/etc/caddy/Caddyfile',prior=readFileSync(config);
+   const bad='r4.synthetic.invalid {\n tls internal\n handle /api/health {\n respond `{"status":"ok","releaseSha":"'+'f'.repeat(40)+'"}` 200\n }\n handle /api/* {\n reverse_proxy 127.0.0.1:3000\n }\n handle {\n root * /opt/servora-med/current/web/dist\n try_files {path} /index.html\n file_server\n }\n}\n';
+   try {
+    writeFileSync(config,bad);assert.equal(spawnSync('/usr/bin/systemctl',['reload','caddy']).status,0);
+    const response=spawnSync('/usr/bin/curl',['--fail','--silent','https://r4.synthetic.invalid/api/health'],{encoding:'utf8'});assert.equal(response.status,0);assert.equal(JSON.parse(response.stdout).releaseSha,'f'.repeat(40));
+    const result=run(grant);assert.notEqual(result.status,0);assert.match(result.stderr,/RECOVERY_HEALTH_FAILED/);
+    assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'START_FAILED');assert.equal(readLatestCheckpoint(grant.attemptId).record.starts,1);
+   }finally{writeFileSync(config,prior);assert.equal(spawnSync('/usr/bin/systemctl',['reload','caddy']).status,0);}
+   const green=run(grant);assert.equal(green.status,0,green.stdout+green.stderr);assert.equal(readLatestCheckpoint(grant.attemptId).record.starts,2);
+   // The production wrapper records the durable schema-check result after a
+   // recovered activation; the postdeploy gate requires it.
+   checkpointAttempt(grant.attemptId,'SCHEMA_CHECKED');
+   const before=readLatestCheckpoint(grant.attemptId),dumps=readdirSync('/var/backups/servora-med').filter(x=>x.endsWith('.dump')).length;
+   const post=run(grant,'postdeploy');assert.notEqual(post.status,0);assert.match(post.stderr,/RECOVERY_BACKUP_HEALTH_FAILED/);
+   assert.deepEqual(readLatestCheckpoint(grant.attemptId),before);assert.equal(readdirSync('/var/backups/servora-med').filter(x=>x.endsWith('.dump')).length,dumps);
+   console.log('WRONG_HEALTH_IDENTITY=DENIED_REAL_HTTP200\nSECOND_BOUNDED_ACTIVATION=PASS\nHEALTH_WITHOUT_BACKUP_ACCEPTANCE=DENIED');
+  });
+ } finally { writeFileSync(env,envPrior); }
+});
 
 test('DB055 EXACT cannot enter TARGET forward recovery, even when migration has not started',async()=>{
  const prior=readFileSync(env);writeFileSync(env,readFileSync('/etc/servora-med/r4-abort-fixture.env'));
@@ -104,6 +120,9 @@ test('real failed postdeploy unit leaves a live fenced attempt and cannot run a 
  try {
   await fenced(grant=>{
    const recovered=run(grant);assert.equal(recovered.status,0,recovered.stdout+recovered.stderr);
+   // The production wrapper records the durable schema-check result after a
+   // recovered activation; the postdeploy gate requires it.
+   checkpointAttempt(grant.attemptId,'SCHEMA_CHECKED');
    // Scheduled unit executes the now-verified candidate's backup script.
    assert.equal(spawnSync('/usr/bin/systemctl',['start','servora-med-backup.service']).status,0);
    mkdirSync(policy,{mode:0o755});writeFileSync(policy+'/90-r4-synthetic-failure.conf','[Service]\nExecStart=\nExecStart=/bin/false\n',{mode:0o644,flag:'wx'});
