@@ -19,6 +19,17 @@ servora_acquire_host_lock() {
 
 
 servora_assert_no_pending_attempt() {
+  [[ "$EUID" -eq 0 ]] || fail ROOT_REQUIRED
   [[ ! -e /var/lib/servora-med/deploy/active.json && ! -L /var/lib/servora-med/deploy/active.json \
     && ! -e /var/lib/servora-med/deploy/activation.block && ! -L /var/lib/servora-med/deploy/activation.block ]] || fail RECOVERY_ATTEMPT_PENDING
+  # A crash may leave the sealed initialization reservation before active.json
+  # is published. Maintenance must not race that same-owner admission window.
+  local initialization=/var/lib/servora-med/deploy/initializations
+  if [[ -e "$initialization" || -L "$initialization" ]]; then
+    [[ -d "$initialization" && ! -L "$initialization" \
+      && "$(stat -c '%U:%G:%a' "$initialization")" == root:root:700 ]] || fail RECOVERY_ATTEMPT_PENDING
+    local reserved
+    reserved="$(find "$initialization" -mindepth 1 -maxdepth 1 -print -quit)" || fail RECOVERY_ATTEMPT_PENDING
+    [[ -z "$reserved" ]] || fail RECOVERY_ATTEMPT_PENDING
+  fi
 }

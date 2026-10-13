@@ -124,7 +124,7 @@ r4_recovery_phase() {
 acquire_host_lock() {
   local library=/usr/local/libexec/servora-med/host-operation-lock.sh
   [[ "$(realpath -e "$library")" == "$library" && "$(stat -c '%U:%G:%a:%h' "$library")" == root:root:644:1 \
-    && "$(sha256sum "$library" | awk '{print $1}')" == 151e42d47a15cb8b883a3d226bfd327148eaa72901709b4db593695a74718836 ]] || fail HOST_LOCK_BOOTSTRAP_REQUIRED
+    && "$(sha256sum "$library" | awk '{print $1}')" == a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e ]] || fail HOST_LOCK_BOOTSTRAP_REQUIRED
   # shellcheck source=host-operation-lock.sh
   source "$library"
   servora_acquire_host_lock
@@ -1206,9 +1206,7 @@ deploy_phase() {
     [[ "$ALLOW_MIGRATIONS" == true ]] || fail ATTEMPT_REQUIRES_EXPLICIT_MIGRATION_SCOPE
     r4_controller match-deploy "$ATTEMPT_ID" "$SHA" "$ARTIFACT_SHA" "$FQDN"
   else
-    [[ ! -e "$STATE_DIR/active.json" && ! -L "$STATE_DIR/active.json" \
-      && ! -e "$STATE_DIR/activation.block" && ! -L "$STATE_DIR/activation.block" ]] \
-      || fail RECOVERY_ATTEMPT_PENDING
+    servora_assert_no_pending_attempt
   fi
   assert_release_dir "$RELEASE_ROOT" || fail RELEASE_ROOT_INVALID
   enable_service_for_boot
@@ -1504,7 +1502,7 @@ postdeploy_phase() {
     [[ "$decision" == BACKUP_REQUIRED ]] || fail POSTDEPLOY_ATTEMPT_INVALID
     R4_ACTIVE=true
   else
-    [[ ! -e "$STATE_DIR/active.json" && ! -L "$STATE_DIR/active.json" ]] || fail RECOVERY_ATTEMPT_PENDING
+    servora_assert_no_pending_attempt
   fi
   if [[ -z "$ATTEMPT_ID" ]]; then read_state; fi
   local release="$RELEASE_ROOT/$SHA"
@@ -1562,8 +1560,8 @@ rollback_phase() {
   require_commands
   validate_sha
   validate_fqdn
-  [[ -z "$ATTEMPT_ID" && ! -e "$STATE_DIR/active.json" && ! -L "$STATE_DIR/active.json" \
-    && ! -e "$STATE_DIR/activation.block" && ! -L "$STATE_DIR/activation.block" ]] || fail RECOVERY_ATTEMPT_PENDING
+  [[ -z "$ATTEMPT_ID" ]] || fail RECOVERY_ATTEMPT_PENDING
+  servora_assert_no_pending_attempt
   read_state
   if [[ "$MIGRATIONS_APPLIED" -ne 0 ]]; then
     fail MIGRATION_APPLIED_MANUAL_ROLLBACK_REQUIRED

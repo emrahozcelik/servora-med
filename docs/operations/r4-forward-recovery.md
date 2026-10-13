@@ -75,7 +75,9 @@ fresh OLD EXACT DB, artifact, identity and ordinary-service checks. It cannot
 repair a missing marker, another owner, a corrupt or progressed journal, a used
 start budget or any backup/migration side effect. The initialization marker and
 checkpoint may temporarily share exactly one inode; ordinary records still
-require one link. Admission creates the active owner before starting backup. Every
+require one link. The shared maintenance fence also treats a marker-only initialization as a
+pending attempt; legacy deploy/postdeploy/rollback and recovery cannot pass it.
+Admission creates the active owner before starting backup. Every
 checkpoint is exclusively published and fsynced in a complete hash chain.
 Audit logs live in a **separate** `logs/<UUID>` directory; checkpoint directories
 accept only contiguous numbered JSON records. Unknown files, gaps, torn intent

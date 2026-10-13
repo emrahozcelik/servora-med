@@ -267,6 +267,10 @@ test('initialization marker supports checkpoint-first publication without promot
     for(let i=0;i<100&&!output.includes('FAULT_READY=initialization-fsync');i++)await delay(100);
     assert.ok(output.includes('FAULT_READY=initialization-fsync'));child.kill('SIGKILL');await closed;
     assert.equal(existsSync(state+'/active.json'),false);
+    const maintenance=run('/bin/bash',['-c',
+      'source /usr/local/libexec/servora-med/host-operation-lock.sh; fail(){ echo "$1" >&2; exit 1; }; servora_assert_no_pending_attempt']);
+    const legacyDecisions=['postdeploy','rollback'].map(phase=>run('/usr/local/libexec/servora-med/deploy-production-host',
+      ['--phase',phase,'--sha',grant.oldReleaseSha,'--fqdn','r4.synthetic.invalid']));
     const marker=state+'/initializations/'+grant.attemptId+'.json',directory=state+'/attempts/'+grant.attemptId;
     mkdirSync(directory,{mode:0o700});linkSync(marker,directory+'/0000.json');const fd=openSync(directory,'r');fsyncSync(fd);closeSync(fd);
     snapshot(grant.attemptId,'checkpoint-first-before-retry');
@@ -278,6 +282,9 @@ test('initialization marker supports checkpoint-first publication without promot
     assert.equal(JSON.parse(readFileSync(state+'/active.json')).attemptId,grant.attemptId);
     assert.equal(JSON.parse(readFileSync(directory+'/0000.json')).starts,0);
     snapshot(grant.attemptId,'checkpoint-first-after-retry');
-    console.log('CHECKPOINT_FIRST_PUBLICATION=PASS foreign_approved_owner=DENIED');
+    assert.notEqual(maintenance.status,0,'marker-only reservation must block unrelated maintenance');
+    assert.match(maintenance.stderr,/RECOVERY_ATTEMPT_PENDING/);
+    for(const decision of legacyDecisions){assert.notEqual(decision.status,0);assert.match(decision.stderr,/RECOVERY_ATTEMPT_PENDING/);}
+    console.log('CHECKPOINT_FIRST_PUBLICATION=PASS foreign_approved_owner=DENIED maintenance=DENIED');
   } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');if(existsSync(otherFile))unlinkSync(otherFile);}
 }));
