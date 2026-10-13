@@ -747,7 +747,7 @@ export async function preflightAttempt(attemptId) {
     if (!['COMPLETED','COMPLETED_ABORT'].includes(record.phase)) throw new Error('ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH');
     // Terminal read-only confirmation after successful claim retirement.
     mode = record.phase === 'COMPLETED' ? 'forward-recovery' : 'pre-migration-abort';
-    await assertTerminalReadOnly({ approval: context.approval, checkpoint, approvalSha256: context.approvalSha256 }, record);
+    await assertTerminalReadOnly({ ...context, checkpoint }, record);
   } else {
     if (!context.approval.allowMigration || !context.approval.allowForwardRecovery
       || !context.approval.allowPostdeployBackup
