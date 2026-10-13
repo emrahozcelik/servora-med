@@ -17,7 +17,9 @@ const approval = () => ({
   oldCatalog: [{ version: '001_baseline', sha256: 'e'.repeat(64) }],
   profileSha256: '3'.repeat(64),
   issuedAtUTC: '2026-10-12T09:00:00.000Z',
-  expiresAtUTC: '2026-10-12T10:00:00.000Z',
+  // Admission must still leave the full mandatory acceptance window (see the
+  // window contract below); fixtures keep a 3-hour grant for that purpose.
+  expiresAtUTC: '2026-10-12T12:00:00.000Z',
   maxStarts: 2,
   maxAbortStarts: 1,
   allowMigration: true,
@@ -42,8 +44,46 @@ test('rejects an unexpected command field in a root approval', () => {
 });
 
 test('rejects expired approval without renewing its activation authority', () => {
-  assert.throws(() => validateApproval(approval(), Date.parse('2026-10-12T10:00:00.000Z')),
-    /ATTEMPT_APPROVAL_TIME_INVALID/);
+  assert.throws(() => validateApproval({
+    ...approval(),
+    issuedAtUTC: '2026-10-12T09:00:00.000Z',
+    expiresAtUTC: '2026-10-12T10:00:00.000Z',
+  }, Date.parse('2026-10-12T10:00:00.000Z')), /ATTEMPT_APPROVAL_TIME_INVALID/);
+});
+
+test('admission proves a remaining authorization window for the mandatory acceptance interval', () => {
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  // The grant must still cover the mandatory 1,800-second observation plus the
+  // transition-phase budget when the FIRST durable mutation happens.
+  for (const remainingSeconds of [1800, 3599]) {
+    const record = { ...approval(), expiresAtUTC: new Date(now + remainingSeconds * 1000).toISOString() };
+    assert.throws(() => initialAttempt({ approval: record, approvalSha256: '4'.repeat(64) }, now),
+      /ATTEMPT_APPROVAL_WINDOW_INSUFFICIENT/);
+  }
+  const boundary = { ...approval(), expiresAtUTC: new Date(now + 3600 * 1000).toISOString() };
+  assert.equal(initialAttempt({ approval: boundary, approvalSha256: '4'.repeat(64) }, now).phase, 'ADMITTED');
+});
+
+test('an admitted attempt keeps its consumed authority after expiry without bypassing structure or budgets', () => {
+  const now = Date.parse('2026-10-12T09:30:00.000Z');
+  const grant = { ...approval(), expiresAtUTC: '2026-10-12T11:30:00.000Z' };
+  const context = { approval: grant, approvalSha256: '4'.repeat(64) };
+  const admitted = initialAttempt(context, now);
+  const later = Date.parse('2026-10-12T10:30:00.000Z'); // Beyond the sealed expiry.
+  const backup = { kind: 'PREDEPLOY_BACKUP',
+    receipt: { sha256: '6'.repeat(64), completedAtUTC: '2026-10-12T09:59:00.000Z' } };
+  // The grant was consumed at admission; the already-authorized transition may
+  // still finish after wall-clock expiry.
+  assert.equal(advanceAttempt(admitted, context, backup, later).phase, 'BACKED_UP');
+  // Structure, scope and budget contracts remain fully enforced after expiry.
+  assert.throws(() => advanceAttempt(admitted,
+    { approval: { ...grant, maxStarts: 100 }, approvalSha256: '4'.repeat(64) }, backup, later),
+  /ATTEMPT_APPROVAL_SCOPE_INVALID/);
+  // A grant issued after the durable journal timeline was never consumed by it.
+  assert.throws(() => advanceAttempt(admitted,
+    { approval: { ...grant, issuedAtUTC: '2026-10-12T10:00:00.000Z', expiresAtUTC: '2026-10-12T12:00:00.000Z' },
+      approvalSha256: '4'.repeat(64) }, backup, later),
+  /ATTEMPT_APPROVAL_TIME_INVALID/);
 });
 
 test('rejects a non-canonical release identity even in otherwise valid approval', () => {

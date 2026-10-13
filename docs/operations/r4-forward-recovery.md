@@ -34,7 +34,14 @@ and tree, approved artifact digest, exact CI manifest digest, OLD release and
 archive digest, full OLD/TARGET migration filenames **and SQL hashes**, profile
 digest, issue/expiry UTC (maximum 24 hours), and explicit operation scopes.
 At most two TOTAL candidate starts (including normal activation) and one
-pre-migration abort start may be authorized. There is no renewal/reset operation.
+pre-migration abort start may be authorized. Admission — the first durable
+journal publication — requires the grant to still cover the mandatory
+1,800-second acceptance interval plus an equal transition-phase budget: at
+least 3,600 seconds must remain. That admission consumes the authority: the
+already-authorized attempt may still be driven to its terminal state after the
+wall-clock expiry, while structure, scopes, budgets and issuance ordering stay
+enforced and no other attempt can start under it. There is no renewal/reset
+operation.
 
 The root administrator must independently verify these operator-attested inputs
 against the reviewed source/artifact/evidence before writing a grant. A SHA
@@ -79,12 +86,22 @@ require one link. The shared maintenance fence also treats a marker-only initial
 pending attempt; legacy deploy/postdeploy/rollback and recovery cannot pass it.
 Admission creates the active owner before starting backup. Every
 checkpoint is exclusively published and fsynced in a complete hash chain.
-Audit logs live in a **separate** `logs/<UUID>` directory; checkpoint directories
-accept only contiguous numbered JSON records. Unknown files, gaps, torn intent
-or conflicting ownership fail closed. No automatic repair/reset is provided.
+Publication links a private temp name to the final name, so an interruption
+between those two steps can leave exactly one same-inode temp link or an
+unlinked pre-link temp. That provably-ours window is reconciled idempotently by
+the next read or append — the record itself is already durable — while any
+other stray artifact stays foreign and fails closed. Audit logs live in a
+**separate** `logs/<UUID>` directory; checkpoint directories accept only
+contiguous numbered JSON records. Unknown files, gaps, torn intent or
+conflicting ownership otherwise fail closed. No automatic repair/reset is
+provided.
 
 The real candidate-bound predeploy backup must pass checksum/list validation;
 its bytes are copied into a private root-owned dump and hash-bound receipt.
+When the copy was already published but its receipt checkpoint was interrupted,
+the resume re-validates that sealed archive (identity, permissions, digest and
+`pg_restore --list`) and adopts it — a second backup is never forced and the
+sealed name can never collide with a duplicate.
 The persistent `activation.block` is then installed, `Restart=no` is loaded as
 an owned recovery drop-in and the application is stopped. Only then does the
 helper re-run the real SQL history/count reader. Before persisting that fresh
@@ -109,7 +126,11 @@ terminate foreign sessions, rewrite DB permissions or disable workers.
 The service-UID probe checks the complete canonical ledger with the existing
 migration comparator and the exact database fingerprint. It holds the Migrator's
 PostgreSQL advisory lock through the host transition and checks again before
-mutations. No candidate code or PostgreSQL package runs as root. The root
+mutations. While an operation runs under the guard, every journal acceptance
+checkpoint asserts that the guard is still alive: after a lost connection or
+lock, no new mutation may produce a checkpoint, and a completed transition
+requires the guard to observe RELEASE and exit zero — an exited guard is never
+a successful lifecycle. No candidate code or PostgreSQL package runs as root. The root
 controller retains the common host kernel lock without passing that descriptor
 to the service-UID probe/application.
 
@@ -174,6 +195,21 @@ may retire only that completed claim after fresh checks; it does not activate
 anything. A completed repeat with no owner is read-only. Changed current,
 unknown owner, corrupt state, expired approval or inconsistent policy requires
 operator review; another active attempt is never reclaimed.
+
+## Interruption matrix
+
+Every durable publication below is exclusive and fsynced; each interruption
+window leaves an observable state that only the same attempt may reconcile.
+Foreign or corrupt states are never repaired.
+
+| Publication | Interrupted window | Durable state after crash | Recovery |
+| --- | --- | --- | --- |
+| Active owner + checkpoint 0 | marker fsynced; link/claim/cleanup pending | sealed initialization marker, optionally linked to `0000.json` | same-owner initialization finishes only after fresh OLD EXACT DB, artifact, identity and service proofs |
+| Checkpoint N | temp linked; temp unlink pending | `000N.json` plus one same-inode `.tmp` link (or an unlinked pre-link temp) | next read/append completes the unlink idempotently; chain stays valid |
+| Sealed backup dump | dump linked; receipt checkpoint pending | `<attempt>-<kind>.dump` with the journal still in its intent phase | plain retry or `adopt-backup` re-validates the sealed archive and journals the receipt; no second backup |
+| Restart-policy drop-in, install | drop-in renamed; daemon-reload pending | drop-in present, loaded `Restart=on-failure`, `NeedDaemonReload=yes` | same-attempt pending install resumes; reload only after fresh DB/payload proofs; unknown drift stays rejected |
+| Restart-policy drop-in, handoff | drop-in unlinked; daemon-reload pending | loaded policy `Restart=no`, file absent, `NeedDaemonReload=yes` | same-acceptance pending-handoff reload (existing contract) |
+| Terminal handoff / owner retirement | policy, barrier, COMPLETED journal and claim between fsyncs | matching partial terminal state | terminal read-only confirmation or same-owner claim retirement; never re-activates, starts, backs up or observes again |
 
 ## Serialization and unsupported operations
 

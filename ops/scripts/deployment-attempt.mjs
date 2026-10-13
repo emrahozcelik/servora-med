@@ -8,6 +8,14 @@ import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
 const ATTEMPT_ROOT = '/var/lib/servora-med/deploy';
 const ATTEMPT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+/** Mandatory acceptance interval and the transition-phase budget that must
+ * still fit inside the grant before admission consumes it. See the approval
+ * contract in docs/operations/r4-forward-recovery.md.
+ */
+export const OBSERVATION_SECONDS = 1800;
+export const TRANSITION_BUDGET_SECONDS = 1800;
+export const REQUIRED_ADMISSION_WINDOW_SECONDS = OBSERVATION_SECONDS + TRANSITION_BUDGET_SECONDS;
+
 const PROFILE_KEYS = ['formatVersion', 'machineId', 'fqdn', 'databaseIdentity', 'envBaselineSha256', 'contracts'];
 const CONTRACT_KEYS = ['helperSha256', 'nodeSha256', 'unitSha256', 'attemptModuleSha256',
   'dbGuardModuleSha256', 'reconciliationModuleSha256', 'controllerModuleSha256'];
@@ -62,6 +70,7 @@ export function readProtectedRecord(file, expectedLinks = 1) {
 
 export function readLatestCheckpoint(attemptId) {
   if (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId)) throw new Error('ATTEMPT_ID_INVALID');
+  reconcileCheckpointResidues(attemptId);
   const files = readdirSync(`${ATTEMPT_ROOT}/attempts/${attemptId}`).sort();
   if (files.length === 0 || files.length >= 1000
     || files.some((file, index) => file !== `${String(index).padStart(4, '0')}.json`)) {
@@ -73,6 +82,50 @@ export function readLatestCheckpoint(attemptId) {
 function flushDirectory(directory) {
   const fd = openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+/** Private temporary names of the exclusive checkpoint publication protocol.
+ * A crash between the final link and the temp unlink leaves exactly this
+ * artifact; it is provably ours (protected per-attempt directory, root owner,
+ * 0600, regular file, single or paired link). Anything else is foreign.
+ */
+const CHECKPOINT_RESIDUE = /^\.[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
+
+function trustedCheckpointDirectory(attemptId) {
+  if (process.getuid?.() !== 0 || typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId)) {
+    throw new Error('ATTEMPT_FILE_UNTRUSTED');
+  }
+  const directory = `${ATTEMPT_ROOT}/attempts/${attemptId}`;
+  let parent = '';
+  for (const component of directory.split('/').slice(1)) {
+    parent += '/' + component;
+    const info = lstatSync(parent);
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || (info.mode & 0o022) !== 0) {
+      throw new Error('ATTEMPT_FILE_UNTRUSTED');
+    }
+  }
+  return directory;
+}
+
+/** Complete an interrupted exclusive publication idempotently. The record is
+ * already durably linked under its final name; only the private temp name of
+ * the same inode (or an unlinked pre-link temp) may linger. Foreign artifacts
+ * are still rejected and never repaired. Readers run this before listing so a
+ * crash inside the link/unlink window cannot present the chain as corrupt.
+ */
+function reconcileCheckpointResidues(attemptId) {
+  const directory = trustedCheckpointDirectory(attemptId);
+  for (const name of readdirSync(directory)) {
+    if (!CHECKPOINT_RESIDUE.test(name)) continue;
+    const path = `${directory}/${name}`;
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || (info.mode & 0o7777) !== 0o600 || info.size > 32768 || ![1, 2].includes(info.nlink)) {
+      throw new Error('ATTEMPT_CHECKPOINT_CHAIN_INVALID');
+    }
+    unlinkSync(path);
+    flushDirectory(directory);
+  }
 }
 
 function ensureCheckpointDirectory(attemptId) {
@@ -104,6 +157,9 @@ function ensureCheckpointDirectory(attemptId) {
  */
 export function appendRootCheckpoint(attemptId, record) {
   const directory = ensureCheckpointDirectory(attemptId);
+  // A previous append may have been killed between its exclusive link and the
+  // temp-name unlink; finish that publication before the chain is re-read.
+  reconcileCheckpointResidues(attemptId);
   if (record?.attemptId !== attemptId || !Number.isSafeInteger(record.sequence)
     || record.sequence < 0 || record.sequence >= 1000) throw new Error('ATTEMPT_CHECKPOINT_INVALID');
   const text = JSON.stringify(record) + '\n';
@@ -151,7 +207,12 @@ export function readRootApproval(attemptId, now = Date.now()) {
     throw new Error('ATTEMPT_ID_INVALID');
   }
   const { record, sha256 } = readProtectedRecord(`${ATTEMPT_ROOT}/approvals/${attemptId}.json`);
-  const approval = validateApproval(record, now);
+  // An attempt whose journal was already published has consumed its grant:
+  // wall-clock expiry no longer aborts the already-authorized transition.
+  let admitted = false;
+  try { lstatSync(`${ATTEMPT_ROOT}/attempts/${attemptId}/0000.json`); admitted = true; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const approval = admitted ? consumedApproval(record, now) : validateApproval(record, now);
   if (approval.attemptId !== attemptId) throw new Error('ATTEMPT_APPROVAL_IDENTITY_INVALID');
   return { approval, approvalSha256: sha256 };
 }
@@ -177,7 +238,7 @@ const APPROVAL_KEYS = Object.freeze([
   'allowPreMigrationAbort', 'allowPostdeployBackup',
 ]);
 
-export function validateApproval(record, now = Date.now()) {
+export function validateApprovalStructure(record) {
   if (record === null || typeof record !== 'object' || Array.isArray(record)
     || Object.keys(record).length !== APPROVAL_KEYS.length
     || APPROVAL_KEYS.some((key) => !Object.hasOwn(record, key))) {
@@ -190,7 +251,6 @@ export function validateApproval(record, now = Date.now()) {
     || !Number.isFinite(issued) || !Number.isFinite(expires)
     || new Date(issued).toISOString() !== record.issuedAtUTC
     || new Date(expires).toISOString() !== record.expiresAtUTC
-    || !Number.isFinite(now) || issued > now || expires <= now
     || expires <= issued || expires - issued > 24 * 60 * 60 * 1000) {
     throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
@@ -230,11 +290,36 @@ export function validateApproval(record, now = Date.now()) {
   return record;
 }
 
+export function validateApproval(record, now = Date.now()) {
+  validateApprovalStructure(record);
+  const issued = Date.parse(record.issuedAtUTC);
+  const expires = Date.parse(record.expiresAtUTC);
+  if (!Number.isFinite(now) || issued > now || expires <= now) {
+    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
+  }
+  return record;
+}
+
+/** Consumed-authority contract: a grant is fully validated before admission
+ * (including the mandatory remaining window). Admission itself is the one
+ * durable consumption of that authority; afterwards the attempt may still be
+ * driven to a terminal state although the wall-clock expiry has passed.
+ * Structure, scopes, budgets and issuance-vs-reference ordering stay enforced.
+ */
+function consumedApproval(record, referenceUTC) {
+  validateApprovalStructure(record);
+  const reference = typeof referenceUTC === 'string' ? Date.parse(referenceUTC) : referenceUTC;
+  if (!Number.isFinite(reference) || Date.parse(record.issuedAtUTC) > reference) {
+    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
+  }
+  return record;
+}
+
 /** Catalog admission only; the host still must prove the same DB identity,
  * migration lock, immutable OLD release and attempt before changing a barrier.
  */
 export function assertPreMigrationAbortCompatibility(approval, appliedVersions, now = Date.now()) {
-  validateApproval(approval, now);
+  consumedApproval(approval, now);
   if (!approval.allowPreMigrationAbort || approval.maxAbortStarts === 0) {
     throw new Error('PRE_MIGRATION_ABORT_NOT_AUTHORIZED');
   }
@@ -277,6 +362,12 @@ function validInvariantBaseline(value) {
 
 export function initialAttempt(context, now = Date.now()) {
   const approval = validateApproval(context.approval, now);
+  // Before the first durable mutation, the grant must still cover the full
+  // mandatory acceptance interval plus the transition-phase budget. This is
+  // the one point where the wall-clock window is proven; admission consumes it.
+  if (Date.parse(approval.expiresAtUTC) - now < REQUIRED_ADMISSION_WINDOW_SECONDS * 1000) {
+    throw new Error('ATTEMPT_APPROVAL_WINDOW_INSUFFICIENT');
+  }
   if (typeof context.approvalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(context.approvalSha256)) {
     throw new Error('ATTEMPT_JOURNAL_INVALID');
   }
@@ -308,7 +399,7 @@ export function acceptedHandoffDirection(journal, context, now = Date.now()) {
  * with file+directory fsync before executing any start operation.
  */
 export function advanceAttempt(journal, context, event, now = Date.now()) {
-  const approval = validateApproval(context.approval, now);
+  const approval = validateApprovalStructure(context.approval);
   if (journal === null || typeof journal !== 'object' || Array.isArray(journal)
     || Object.keys(journal).length !== JOURNAL_KEYS.length
     || JOURNAL_KEYS.some((key) => !Object.hasOwn(journal, key))
@@ -330,6 +421,12 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
     || !['none', 'intent', 'pass', 'fail'].includes(journal.lastStart)
     || !validUTC(journal.updatedAtUTC,now)) {
     throw new Error('ATTEMPT_JOURNAL_INVALID');
+  }
+  // The grant was consumed at admission: wall-clock expiry no longer blocks
+  // the already-authorized transition, but a grant issued after the durable
+  // journal timeline was never the one consumed here.
+  if (Date.parse(approval.issuedAtUTC) > Date.parse(journal.updatedAtUTC)) {
+    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
   if (event === 'VALIDATE') return journal;
   const kind = typeof event === 'string' ? event : event?.kind;
@@ -380,7 +477,7 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   }
   if (kind === 'OBSERVATION_PASSED') {
     if (journal.phase !== 'POSTDEPLOY_BACKUP_PASSED' || !journal.smokePassed || !journal.postdeployBackup
-      || !Number.isSafeInteger(event.elapsedSeconds) || event.elapsedSeconds < 1800) throw new Error('ATTEMPT_TRANSITION_INVALID');
+      || !Number.isSafeInteger(event.elapsedSeconds) || event.elapsedSeconds < OBSERVATION_SECONDS) throw new Error('ATTEMPT_TRANSITION_INVALID');
     return { ...next, phase: kind, observationPassed: true };
   }
   if (kind === 'ACCEPTED') {

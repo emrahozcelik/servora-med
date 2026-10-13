@@ -5,8 +5,9 @@ import { loadAttempt, admitAttempt, checkpointAttempt, alignAttemptEnvironment, 
   createAttemptBarrier, alignAttemptPointer, grantStartPermit, revokeStartPermit,
   verifyAttemptCatalog } from '../scripts/deployment-controller.mjs';
 import { withSealedFixture } from './r4-root-fixture.mjs';
+import { readLatestCheckpoint } from '../scripts/deployment-attempt.mjs';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, statSync, readlinkSync, symlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, statSync, readlinkSync, symlinkSync, mkdirSync, linkSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 
 assert.equal(process.getuid(), 0);
@@ -67,6 +68,39 @@ test('host checkpoints append the hash chain while preserving the committed migr
   assert.equal(committed.record.sequence,4);
   assert.equal(committed.record.migrationCommitted,true);
   assert.throws(() => checkpointAttempt(grant.attemptId,'ABORT_INTENT'), /ATTEMPT_TRANSITION_INVALID/);
+}));
+
+test('a torn checkpoint publication is reconciled idempotently while foreign artifacts fail closed', () => withSealedFixture(grant => {
+  const directory = '/var/lib/servora-med/deploy/attempts/'+grant.attemptId;
+  admitAttempt(grant.attemptId);
+  const file = directory+'/0000.json';
+  // SIGKILL between the exclusive link and the temp unlink: the record IS
+  // published, only the private temp name of the same inode lingers.
+  const paired = directory+'/.'+randomUUID()+'.tmp';
+  linkSync(file,paired);
+  assert.equal(statSync(file).nlink,2);
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'ADMITTED');
+  assert.equal(existsSync(paired),false,'the interrupted publication is completed, not rejected');
+  assert.equal(statSync(file).nlink,1);
+  // SIGKILL before the link: the record was never published; its pre-link
+  // temp is cleaned and the intact chain still reads.
+  const orphaned = directory+'/.'+randomUUID()+'.tmp';
+  writeFileSync(orphaned,Buffer.from('never linked'),{mode:0o600});
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.sequence,0);
+  assert.equal(existsSync(orphaned),false);
+  // A foreign artifact (wrong permissions) is rejected and never repaired.
+  const foreign = directory+'/.'+randomUUID()+'.tmp';
+  writeFileSync(foreign,Buffer.from('foreign'),{mode:0o644});
+  try {
+    assert.throws(() => readLatestCheckpoint(grant.attemptId),/ATTEMPT_CHECKPOINT_CHAIN_INVALID/);
+    assert.equal(existsSync(foreign),true,'foreign artifacts are never auto-repaired');
+  } finally { unlinkSync(foreign); }
+  // Unknown names and gaps still fail closed.
+  const unknown = directory+'/9999.json';
+  writeFileSync(unknown,JSON.stringify({})+'\n',{mode:0o600});
+  try { assert.throws(() => readLatestCheckpoint(grant.attemptId),/ATTEMPT_CHECKPOINT_CHAIN_INVALID/); }
+  finally { unlinkSync(unknown); }
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.sequence,0);
 }));
 
 test('durable env alignment updates the coherent pair and keeps protected non-identity bytes', () => withSealedFixture(grant => {

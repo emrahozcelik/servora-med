@@ -1424,6 +1424,13 @@ r4_deploy_attempt() {
     # the retained receipt was re-checked by the controller before resume.
     echo "PREDEPLOY_BACKUP=PASS"
     echo "PREDEPLOY_BACKUP_RESUMED=RETAINED_RECEIPT_VERIFIED"
+  elif [[ "$admit_phase" == ADMITTED && -e "$STATE_DIR/backups/$ATTEMPT_ID-pre.dump" ]]; then
+    # An interruption published the sealed dump before its checkpoint write.
+    # Adopt the already-sealed bytes after fresh archive validation; a second
+    # predeploy backup is never forced by the resume.
+    r4_controller adopt-backup "$ATTEMPT_ID" pre
+    echo "PREDEPLOY_BACKUP=PASS"
+    echo "PREDEPLOY_BACKUP_RESUMED=SEALED_ARTIFACT_ADOPTED"
   else
     run_predeploy_backup
     r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"

@@ -7,7 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {hostname} from 'node:os';
 import {withRuntimeFixture,prepareRealBackup,readDatabaseInvariants} from './r4-runtime-fixture.mjs';
-import {admitAttempt,checkpointAttempt,createAttemptBarrier,alignIdentityEnvironment,revokeStartPermit,runTargetSchemaCheck,sealBackupReceipt,loadAttempt,recordFreshMigrationIntent} from '../scripts/deployment-controller.mjs';
+import {admitAttempt,checkpointAttempt,createAttemptBarrier,alignIdentityEnvironment,revokeStartPermit,runTargetSchemaCheck,sealBackupReceipt,loadAttempt,recordFreshMigrationIntent,abortAttempt} from '../scripts/deployment-controller.mjs';
 import {readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
 
 assert.equal(process.getuid(),0);
@@ -287,4 +287,133 @@ test('initialization marker supports checkpoint-first publication without promot
     for(const decision of legacyDecisions){assert.notEqual(decision.status,0);assert.match(decision.stderr,/RECOVERY_ATTEMPT_PENDING/);}
     console.log('CHECKPOINT_FIRST_PUBLICATION=PASS foreign_approved_owner=DENIED maintenance=DENIED');
   } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');if(existsSync(otherFile))unlinkSync(otherFile);}
+}));
+
+test('an interrupted restart-policy install resumes only for the verified same attempt',async()=>withOldHost(async grant=>{
+  admitAttempt(grant.attemptId);prepareRealBackup(grant);createAttemptBarrier(grant.attemptId);
+  const policy='/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf';
+  const show=key=>run('/usr/bin/systemctl',['show','servora-med.service','-p',key,'--value']).stdout.trim();
+  writeFileSync(policy,'[Service]\nRestart=no\n',{mode:0o600});
+  // Exact observable state after the drop-in rename but before daemon-reload.
+  assert.equal(show('NeedDaemonReload'),'yes');assert.equal(show('DropInPaths'),'');assert.equal(show('Restart'),'on-failure');
+  snapshot(grant.attemptId,'pending-policy-install');
+  // Unknown content drift in the same window is never reloaded.
+  writeFileSync(policy,'[Service]\nRestart=always\n',{mode:0o600});
+  await assert.rejects(abortAttempt(grant.attemptId),/RECOVERY_SERVICE_CONTRACT_MISMATCH/);
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'BACKED_UP');
+  writeFileSync(policy,'[Service]\nRestart=no\n',{mode:0o600});
+  // A foreign barrier owner is never reloaded either.
+  const barrierFile=state+'/activation.block',barrier=readFileSync(barrierFile);
+  writeFileSync(barrierFile,JSON.stringify({attemptId:randomUUID(),approvalSha256:'4'.repeat(64)})+'\n',{mode:0o600});
+  await assert.rejects(abortAttempt(grant.attemptId),/RECOVERY_BARRIER_UNTRUSTED/);
+  writeFileSync(barrierFile,barrier,{mode:0o600});
+  // The verified same-attempt pending install resumes to a completed abort.
+  const result=await abortAttempt(grant.attemptId);
+  assert.equal(result,'PRE_MIGRATION_ABORT=COMPLETE_OLD_EXACT');
+  const final=readLatestCheckpoint(grant.attemptId).record;
+  assert.equal(final.phase,'COMPLETED_ABORT');assert.equal(final.abortStarts,1);
+  assert.equal(existsSync(policy),false);assert.equal(existsSync(barrierFile),false);assert.equal(existsSync(state+'/active.json'),false);
+  assert.equal(show('Restart'),'on-failure');assert.equal(show('NeedDaemonReload'),'no');
+  snapshot(grant.attemptId,'pending-policy-install-resumed');
+  console.log('PENDING_POLICY_INSTALL_RESUME=PASS foreign_drift=DENIED foreign_barrier=DENIED');
+}));
+
+async function takePredeployDump(grant){
+  // The predeploy unit stamps dumps to the UTC second; never collide with a
+  // dump made moments earlier by another fixture or test.
+  const second=Math.floor(Date.now()/1000);
+  while(Math.floor(Date.now()/1000)===second)await delay(25);
+  const backupEnv='/etc/servora-med/servora-med-backup.env';
+  const before=readFileSync(backupEnv,'utf8');
+  const profile=JSON.parse(readFileSync(state+'/profile.json','utf8'));
+  const names=new Set(readdirSync('/var/backups/servora-med'));
+  writeFileSync(backupEnv,before.replace(/^PGDATABASE=.*$/m,'PGDATABASE='+profile.databaseIdentity.databaseName));
+  try {
+    assert.equal(run('/usr/bin/systemctl',['start','servora-med-predeploy-backup@'+grant.releaseSha+'.service']).status,0);
+    const created=readdirSync('/var/backups/servora-med').filter(n=>!names.has(n)&&n.endsWith('.dump'));
+    assert.equal(created.length,1,'exactly one fresh predeploy dump required');
+    return '/var/backups/servora-med/'+created[0];
+  } finally { writeFileSync(backupEnv,before); }
+}
+
+/** Publishes the sealed copy, then SIGKILLs the controller inside the exact
+ * window between that publication and its receipt checkpoint. */
+async function sealedWithoutReceipt(grant){
+  const dump=await takePredeployDump(grant);
+  const child=spawn('/usr/bin/node',['--import',preload,controller,'backup-receipt',grant.attemptId,'pre',dump],
+    {env:{...process.env,SERVORA_R4_FAULT_POINT:'seal-publish-fsync'},stdio:['ignore','pipe','pipe']});
+  let output='',errors='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>errors+=c);
+  const closed=new Promise(resolve=>child.once('close',resolve));
+  try {
+    for(let i=0;i<200&&!output.includes('FAULT_READY=seal-publish-fsync');i++)await delay(50);
+    assert.ok(output.includes('FAULT_READY=seal-publish-fsync'),errors);
+    child.kill('SIGKILL');await closed;
+  } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
+  const sealed=state+'/backups/'+grant.attemptId+'-pre.dump';
+  assert.equal(existsSync(sealed),true);
+  assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'ADMITTED');
+  snapshot(grant.attemptId,'sealed-before-receipt');
+  return sealed;
+}
+
+test('a sealed predeploy dump published without its receipt is adopted by the plain retry',async()=>withRuntimeFixture(async grant=>{
+  admitAttempt(grant.attemptId);
+  const sealed=await sealedWithoutReceipt(grant);
+  const sealedSha=createHash('sha256').update(readFileSync(sealed)).digest('hex');
+  // The operator retry takes its own fresh dump first; publishing that second
+  // backup is unnecessary and the sealed name already exists. The resume must
+  // adopt the verified sealed bytes instead of colliding with them.
+  const second=Math.floor(Date.now()/1000);while(Math.floor(Date.now()/1000)===second)await delay(25);
+  const dump2=await takePredeployDump(grant);
+  const retry=run('/usr/bin/node',[controller,'backup-receipt',grant.attemptId,'pre',dump2]);
+  assert.equal(retry.status,0,retry.stderr);
+  const receipt=readLatestCheckpoint(grant.attemptId).record;
+  assert.equal(receipt.phase,'BACKED_UP');assert.equal(receipt.predeployBackup.sha256,sealedSha);
+  assert.equal(createHash('sha256').update(readFileSync(sealed)).digest('hex'),sealedSha,'sealed bytes are immutable');
+  snapshot(grant.attemptId,'sealed-after-adoption');
+  console.log('SEALED_RECEIPT_ADOPTION=PASS second_publish=DENIED sealed_bytes_unchanged=PASS');
+}));
+
+test('a sealed predeploy dump is adopted without forcing any second backup',async()=>withRuntimeFixture(async grant=>{
+  admitAttempt(grant.attemptId);
+  const sealed=await sealedWithoutReceipt(grant);
+  const sealedSha=createHash('sha256').update(readFileSync(sealed)).digest('hex');
+  const dumps=()=>readdirSync('/var/backups/servora-med').filter(n=>n.endsWith('.dump')).length;
+  const before=dumps();
+  const adopt=run('/usr/bin/node',[controller,'adopt-backup',grant.attemptId,'pre']);
+  assert.equal(adopt.status,0,adopt.stderr);assert.match(adopt.stdout,/ATTEMPT_BACKUP_ADOPTED/);
+  const receipt=readLatestCheckpoint(grant.attemptId).record;
+  assert.equal(receipt.phase,'BACKED_UP');assert.equal(receipt.predeployBackup.sha256,sealedSha);
+  assert.equal(dumps(),before,'the resume must not force a second backup');
+  snapshot(grant.attemptId,'sealed-adopted-without-dump');
+  console.log('SEALED_ADOPTION_WITHOUT_DUMP=PASS dumps_delta=0');
+}));
+
+test('a lost PostgreSQL guard lock blocks the acceptance checkpoint and the abort retries cleanly',async()=>withOldHost(async grant=>{
+  admitAttempt(grant.attemptId);prepareRealBackup(grant);createAttemptBarrier(grant.attemptId);
+  const killer=spawn('/bin/bash',['-c',
+    `for i in $(seq 1 500); do
+       pid="$(/usr/bin/sudo -u postgres /usr/bin/psql -XAt -d postgres -c "SELECT pid FROM pg_stat_activity WHERE application_name='servora-med-recovery-guard' AND state='idle' AND query LIKE 'SELECT version FROM public.schema_migrations%'" | head -1)"
+       if [[ -n "$pid" ]]; then /usr/bin/sudo -u postgres /usr/bin/psql -XAt -d postgres -c "SELECT pg_terminate_backend($pid)" >/dev/null 2>&1; echo TERMINATED; exit 0; fi
+       sleep 0.02
+     done
+     echo NOT_FOUND; exit 1`],{stdio:['ignore','pipe','pipe']});
+  let killed='';killer.stdout.on('data',c=>killed+=c);
+  const closedKiller=new Promise(resolve=>killer.once('close',resolve));
+  try {
+    await assert.rejects(abortAttempt(grant.attemptId),/RECOVERY_DATABASE_PROBE_FAILED/);
+    await closedKiller;
+    assert.match(killed,/TERMINATED/);
+    // Lock loss must never leave an acceptance checkpoint or consume budget.
+    const record=readLatestCheckpoint(grant.attemptId).record;
+    assert.equal(record.phase,'BACKED_UP');assert.equal(record.abortStarts,0);
+    snapshot(grant.attemptId,'guard-lost-before-abort-intent');
+    console.log('GUARD_LOCK_LOSS=DENIED acceptance_checkpoint=ABSENT');
+  } finally {if(killer.exitCode===null&&killer.signalCode===null)killer.kill('SIGKILL');}
+  // The intact, fenced state retries cleanly under a fresh guard.
+  const result=await abortAttempt(grant.attemptId);
+  assert.equal(result,'PRE_MIGRATION_ABORT=COMPLETE_OLD_EXACT');
+  const final=readLatestCheckpoint(grant.attemptId).record;
+  assert.equal(final.phase,'COMPLETED_ABORT');assert.equal(final.abortStarts,1);
+  console.log('GUARD_LOCK_LOSS_RETRY=PASS abort_slots=1');
 }));

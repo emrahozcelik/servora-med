@@ -37,6 +37,11 @@ fs.fsyncSync = function(fd) {
     && path==='/var/lib/servora-med/deploy' && !fs.existsSync(path+'/active.json')) {
     fs.writeSync(1,'FAULT_READY=owner-retirement-fsync\n');process.kill(process.pid,'SIGSTOP');
   }
+  if(process.env.SERVORA_R4_FAULT_POINT==='seal-publish-fsync'
+    && path==='/var/lib/servora-med/deploy/backups' && owner
+    && fs.readdirSync(path).some(name=>name===owner+'-pre.dump'||name===owner+'-post.dump')) {
+    fs.writeSync(1,'FAULT_READY=seal-publish-fsync\n');process.kill(process.pid,'SIGSTOP');
+  }
   return result;
 };
 syncBuiltinESMExports();

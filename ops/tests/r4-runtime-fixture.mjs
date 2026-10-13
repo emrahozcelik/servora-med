@@ -29,7 +29,7 @@ export function withRuntimeFixture(operation) {
     profile.databaseIdentity = JSON.parse(probe.stdout);
     const text = JSON.stringify(profile)+'\n';
     grant.releaseSha = LAB_SHA;
-    grant.expiresAtUTC = new Date(Date.now()+3600000).toISOString();
+    grant.expiresAtUTC = new Date(Date.now()+7200000).toISOString();
     grant.artifactSha256 = hash(readFileSync(`${root}/artifacts/${LAB_SHA}.tar.gz`));
     if (LAB_SHA !== '8'.repeat(40)) {
       const source = JSON.parse(readFileSync('/var/lib/servora-med/r4-test-source.json','utf8'));

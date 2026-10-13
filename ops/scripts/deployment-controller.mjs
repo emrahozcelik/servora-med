@@ -1,7 +1,8 @@
 /** Trusted fixed-path host operations. No candidate code executes as root. */
 import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
-  readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection } from './deployment-attempt.mjs';
+  readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
+  OBSERVATION_SECONDS } from './deployment-attempt.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
   symlinkSync, mkdirSync, readdirSync, readlinkSync, readSync, writeSync, linkSync } from 'node:fs';
@@ -172,7 +173,15 @@ export function currentAttempt(attemptId) {
   return { ...context, checkpoint };
 }
 
+/** The service-UID guard holds the Migrator advisory lock across the whole
+ * transition. While an operation runs under it, every acceptance checkpoint
+ * proves the guard is still alive: a lost connection/lock must never receive
+ * a journal event, and a non-zero guard exit is never a successful lifecycle.
+ */
+let activeGuard = null;
+
 export function checkpointAttempt(attemptId, event) {
+  if (activeGuard) activeGuard.assertAlive();
   const context = currentAttempt(attemptId);
   const next = advanceAttempt(context.checkpoint.record, context, event);
   next.previousHash = context.checkpoint.sha256;
@@ -409,11 +418,33 @@ function verifyHostProfile(profile, context) {
     acceptedHandoffDirection(checkpoint.record,context);
     assertBarrier({...context,profile,checkpoint});pendingHandoffReload = true;
   }
+  let pendingPolicyInstall = false;
+  if (properties.NeedDaemonReload === 'yes' && properties.DropInPaths === ''
+    && properties.Restart === 'on-failure' && existsSync(policy)) {
+    // Exact interruption after our owned drop-in was renamed into place but
+    // before daemon-reload (the install direction of the same publication
+    // window). Only the verified, same-attempt pending policy may reload;
+    // unknown systemd drift is still rejected. The reload itself happens in
+    // the phase helper after fresh DB/payload proof, never from this check.
+    if (!existsSync(STATE_ROOT+'/active.json')
+      || trustedFile(policy,0o600).toString('utf8') !== '[Service]\nRestart=no\n') {
+      throw new Error('RECOVERY_SERVICE_CONTRACT_MISMATCH');
+    }
+    const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
+    const checkpoint = readLatestCheckpoint(context.approval.attemptId);
+    if (Object.keys(active).length !== 2 || active.attemptId !== context.approval.attemptId
+      || active.approvalSha256 !== context.approvalSha256) throw new Error('RECOVERY_OTHER_ATTEMPT_ACTIVE');
+    if (!['ADMITTED','BACKED_UP','FENCED','MIGRATION_INTENT','DB_EXACT','ENV_INTENT','ENV_ALIGNED',
+      'POINTER_INTENT','POINTER_ALIGNED','START_INTENT','START_FAILED','HEALTH_PASSED','SMOKE_PASSED',
+      'POSTDEPLOY_BACKUP_INTENT','POSTDEPLOY_BACKUP_PASSED','OBSERVATION_PASSED','ABORT_INTENT']
+      .includes(checkpoint.record.phase)) throw new Error('RECOVERY_SERVICE_CONTRACT_MISMATCH');
+    assertBarrier({...context,profile,checkpoint});pendingPolicyInstall = true;
+  }
   if (properties.User !== 'servora-med' || properties.Group !== 'servora-med'
     || properties.WorkingDirectory !== '/opt/servora-med/current/server'
     || properties.FragmentPath !== '/etc/systemd/system/servora-med.service'
     || properties.EnvironmentFiles !== ENV_FILE+' (ignore_errors=no)'
-    || (properties.NeedDaemonReload !== 'no' && !pendingHandoffReload)
+    || (properties.NeedDaemonReload !== 'no' && !pendingHandoffReload && !pendingPolicyInstall)
     || !/^\{ path=\/usr\/bin\/node ; argv\[\]=\/usr\/bin\/node dist\/index\.js ; ignore_errors=no ; [^}]*\}$/.test(properties.ExecStart)
     || !['',policy].includes(properties.DropInPaths)
     || properties.Restart !== (properties.DropInPaths ? 'no' : 'on-failure')) {
@@ -475,14 +506,88 @@ function systemctl(...args) {
   return execFileSync('/usr/bin/systemctl',args,{env:COMMAND_ENV,encoding:'utf8',timeout:40000,stdio:['ignore','pipe','pipe']}).trim();
 }
 
+/** Private temporary names of the sealed-dump publication protocol. A crash
+ * between the exclusive link and the temp unlink, or before the link, leaves
+ * exactly these artifacts; they are provably ours in the protected directory.
+ */
+const SEALED_RESIDUE = /^\.backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function trustedBackupDirectory() {
+  const directory = STATE_ROOT+'/backups';
+  if (!existsSync(directory)) throw new Error('RECOVERY_BACKUP_SEALED_MISSING');
+  const info = lstatSync(directory);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+    || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+  return directory;
+}
+
+function reconcileSealedResidues(directory) {
+  for (const name of readdirSync(directory)) {
+    if (!SEALED_RESIDUE.test(name)) continue;
+    const path = `${directory}/${name}`;
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || (info.mode & 0o7777) !== 0o600 || ![1, 2].includes(info.nlink)) {
+      throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+    }
+    unlinkSync(path);
+    flushDirectory(directory);
+  }
+}
+
+function hashSealedFile(path) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(1024*1024);
+    for (let count; (count = readSync(fd,buffer,0,buffer.length,null)) > 0;) hash.update(buffer.subarray(0,count));
+    return hash.digest('hex');
+  } finally { closeSync(fd); }
+}
+
+/** Adopt an already-published sealed dump for the same attempt and kind.
+ * An interrupted resume must not be forced to produce a second backup, and it
+ * must not trust the retained bytes either: the sealed copy is revalidated as
+ * a real PostgreSQL archive with a coherent identity and hash before the
+ * receipt is journaled. Corrupt or foreign sealed bytes fail closed.
+ */
+function adoptSealedBackup(attemptId, kind, context) {
+  const directory = trustedBackupDirectory();
+  reconcileSealedResidues(directory);
+  const file = `${directory}/${attemptId}-${kind}.dump`;
+  if (!existsSync(file)) throw new Error('RECOVERY_BACKUP_SEALED_MISSING');
+  const info = lstatSync(file);
+  if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+    || info.nlink !== 1 || (info.mode & 0o7777) !== 0o600 || info.size <= 0
+    || info.mtimeMs < Date.parse(context.checkpoint.record.updatedAtUTC)-1000) {
+    throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+  }
+  try {
+    execFileSync(PG_RESTORE_BIN,['--list',file],{env:COMMAND_ENV,timeout:30000,stdio:['ignore','ignore','ignore']});
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('RECOVERY_BACKUP_VALIDATION_UNAVAILABLE');
+    throw new Error('RECOVERY_BACKUP_ARCHIVE_INVALID');
+  }
+  const sha256 = hashSealedFile(file);
+  return checkpointAttempt(attemptId,{kind:kind === 'pre' ? 'PREDEPLOY_BACKUP' : 'POSTDEPLOY_BACKUP_PASSED',
+    receipt:{sha256,completedAtUTC:new Date(info.mtimeMs).toISOString()}});
+}
+
 /** Seal the bytes of a freshly verified fixed-path host backup. Never retain
  * only the service-writable pathname: root retains its own immutable copy.
  */
-export function sealBackupReceipt(attemptId, kind, file) {
+export function sealBackupReceipt(attemptId, kind, file = null) {
   const context = currentAttempt(attemptId);
-  if (!['pre','post'].includes(kind) || !/^\/var\/backups\/servora-med\/servora-med-[0-9]{8}T[0-9]{6}Z\.dump$/.test(file)
-    || context.checkpoint.record.phase !== (kind === 'pre' ? 'ADMITTED' : 'POSTDEPLOY_BACKUP_INTENT')) {
+  if (!['pre','post'].includes(kind)
+    || context.checkpoint.record.phase !== (kind === 'pre' ? 'ADMITTED' : 'POSTDEPLOY_BACKUP_INTENT')
+    || (file !== null && !/^\/var\/backups\/servora-med\/servora-med-[0-9]{8}T[0-9]{6}Z\.dump$/.test(file))) {
     throw new Error('ATTEMPT_TRANSITION_INVALID');
+  }
+  // The root-private copy can be published while the checkpoint write is
+  // interrupted. Convert that verified sealed dump into the receipt instead
+  // of demanding a second backup, which would collide with the sealed name.
+  if (file === null || existsSync(`${STATE_ROOT}/backups/${attemptId}-${kind}.dump`)) {
+    return adoptSealedBackup(attemptId, kind, context);
   }
   const uid = Number(execFileSync('/usr/bin/id',['-u','servora-med'],{encoding:'utf8'}));
   const gid = Number(execFileSync('/usr/bin/id',['-g','servora-med'],{encoding:'utf8'}));
@@ -508,6 +613,7 @@ export function sealBackupReceipt(attemptId, kind, file) {
     if (!existsSync(directory)) { mkdirSync(directory,{mode:0o700}); flushDirectory(STATE_ROOT); }
     const info = lstatSync(directory);
     if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+    reconcileSealedResidues(directory);
     temporary = directory+'/.backup-'+randomUUID();
     const output = openSync(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
     const hash = createHash('sha256');
@@ -555,10 +661,14 @@ async function withGuard(context, direction, operation) {
   const child = spawn('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/env','-i',
     'PATH='+COMMAND_ENV.PATH,'/usr/bin/node','--env-file='+ENV_FILE,
     INSTALLED+'/deployment-db-guard.mjs','--hold'],{env:COMMAND_ENV,stdio:['pipe','pipe','pipe']});
-  child.stdin.on('error',() => {});
+  child.stdin.on('error', () => {});
   let probeError = '';
   child.stderr.on('data',chunk => { if (probeError.length < 1024) probeError += chunk.toString(); });
-  const finished = new Promise(resolve => { child.once('error',() => resolve(-1)); child.once('exit',code => resolve(code)); });
+  let exit = null;
+  const finished = new Promise(resolve => {
+    child.once('error',() => { exit = exit ?? {code:-1,signal:null}; resolve(-1); });
+    child.once('exit',(code,signal) => { exit = {code,signal}; resolve(code); });
+  });
   const reader = createInterface({input:child.stdout,crlfDelay:Infinity});
   const lines = reader[Symbol.asyncIterator]();
   const expect = async value => {
@@ -594,16 +704,32 @@ async function withGuard(context, direction, operation) {
   child.stdin.write(JSON.stringify({releaseDirectory:'/opt/servora-med/releases/'+(direction === 'old' ? context.approval.oldReleaseSha : context.approval.releaseSha),
     expectedIdentity:context.profile.databaseIdentity,
     expectedCatalog:(direction === 'old' ? context.approval.oldCatalog : context.approval.targetCatalog).map(entry => entry.version)})+'\n');
+  const guard = { assertAlive() { if (exit) throw new Error('RECOVERY_DATABASE_PROBE_FAILED'); } };
+  const previousGuard = activeGuard;
+  activeGuard = guard;
+  let result = null;
+  let operationError = null;
   try {
     await expect('READY');
     const check = async () => { child.stdin.write('CHECK\n'); await expect('EXACT'); };
     const quiescence = async () => { child.stdin.write('QUIESCENCE\n'); await expect('QUIESCENT'); };
-    return await operation(check, counts, quiescence);
-  } finally {
-    child.stdin.end('RELEASE\n');
-    const timer = setTimeout(() => child.kill('SIGTERM'),5000);
-    try { await finished; } finally { clearTimeout(timer); reader.close(); }
-  }
+    result = await operation(check, counts, quiescence);
+  } catch (error) { operationError = error; }
+  let shutdownError = null;
+  try {
+    if (exit === null) {
+      // A completed transition requires the guard to observe RELEASE and exit
+      // zero: an exited guard means the advisory lock was lost before the
+      // transition was durably accepted.
+      child.stdin.end('RELEASE\n');
+      const timer = setTimeout(() => child.kill('SIGTERM'),5000);
+      try { await finished; } finally { clearTimeout(timer); }
+    }
+    if (!exit || exit.code !== 0) shutdownError = new Error('RECOVERY_DATABASE_PROBE_FAILED');
+  } finally { activeGuard = previousGuard; reader.close(); }
+  if (operationError) throw operationError;
+  if (shutdownError) throw shutdownError;
+  return result;
 }
 
 function assertStoppedWriters(context) {
@@ -997,11 +1123,11 @@ export async function observeAttempt(attemptId) {
           pid = currentPid; samples++;
           const elapsedSeconds = Number((process.hrtime.bigint()-start)/1000000000n);
           emit(`OBSERVATION_SAMPLE=${samples} UTC=${new Date().toISOString()} elapsed_seconds=${elapsedSeconds} health=PASS release=PASS backup=PASS pid=${pid}`);
-          if (elapsedSeconds >= 1800) {
+          if (elapsedSeconds >= OBSERVATION_SECONDS) {
             phase = checkpointAttempt(attemptId,{kind:'OBSERVATION_PASSED',elapsedSeconds}).record.phase;
             emit('OBSERVATION_END_UTC='+new Date().toISOString()); break;
           }
-          await delay(Math.min(30000,(1800-elapsedSeconds)*1000));
+          await delay(Math.min(30000,(OBSERVATION_SECONDS-elapsedSeconds)*1000));
         }
       } catch (error) {
         emit(`OBSERVATION_STOP_UTC=${new Date().toISOString()} samples=${samples} reason=${/^[A-Z_]+$/.test(error.message)?error.message:'CHECK_FAILED'}`);
@@ -1144,6 +1270,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       createAttemptBarrier(attemptId); process.stdout.write('ATTEMPT_BARRIER_CREATED\n');
     } else if (command === 'backup-receipt' && extra.length === 2) {
       sealBackupReceipt(attemptId,extra[0],extra[1]); process.stdout.write('ATTEMPT_BACKUP_SEALED\n');
+    } else if (command === 'adopt-backup' && extra.length === 1) {
+      sealBackupReceipt(attemptId,extra[0],null); process.stdout.write('ATTEMPT_BACKUP_ADOPTED\n');
     } else if (command === 'prepare-postdeploy' && extra.length === 2) {
       process.stdout.write(await preparePostdeploy(attemptId,...extra)+'\n');
     } else if (command === 'observe' && extra.length === 0) {

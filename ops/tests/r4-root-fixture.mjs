@@ -31,7 +31,7 @@ export function withSealedFixture(operation) {
   const grant = {formatVersion:1,attemptId:id,releaseSha:'e4ca2b19f7865dca3f1e4597dd099ed167667a19',treeSha:'b94bbfb4a7a07249ea4b40ecb1e5c9ebe04ba641',
     artifactSha256:'c'.repeat(64),ciManifestSha256:'d'.repeat(64),targetCatalog:catalog('e4ca2b19f7865dca3f1e4597dd099ed167667a19'),
     oldReleaseSha:'71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa',oldArtifactSha256:'1'.repeat(64),oldCatalog:catalog('71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa'),
-    profileSha256:hash(text),issuedAtUTC:new Date(now-1000).toISOString(),expiresAtUTC:new Date(now+300000).toISOString(),maxStarts:2,maxAbortStarts:1,
+    profileSha256:hash(text),issuedAtUTC:new Date(now-1000).toISOString(),expiresAtUTC:new Date(now+7200000).toISOString(),maxStarts:2,maxAbortStarts:1,
     allowMigration:true,allowForwardRecovery:true,allowPreMigrationAbort:true,allowPostdeployBackup:true};
   writeFileSync(root+'/profile.json',text,{mode:0o600});
   writeFileSync(`${root}/approvals/${id}.json`,JSON.stringify(grant)+'\n',{mode:0o600});
