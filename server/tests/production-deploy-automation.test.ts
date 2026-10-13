@@ -202,6 +202,8 @@ ARTIFACT_SHA="${'a'.repeat(64)}"
 if [[ "${mode}" == pending-allow || "${mode}" == divergent-allow || "${mode}" == ahead-allow ]]; then ALLOW_MIGRATIONS=true; fi
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -268,6 +270,8 @@ SERVICE_STATE="${mode === 'enabled' ? 'enabled' : 'disabled'}"
 SERVICE_STARTED=false
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -373,6 +377,8 @@ SHA="${TEST_SHA}"
 FQDN="fixture.example"
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 assert_env_contract() { :; }
@@ -561,6 +567,8 @@ ARTIFACT_SHA="${'a'.repeat(64)}"
 ALLOW_MIGRATIONS=${opts.allowMigrations ? 'true' : 'false'}
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -1801,6 +1809,8 @@ CURL_MODE="${curlMode}"
 HEALTH_MODE="${healthMode}"
 log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -1935,6 +1945,8 @@ FQDN="fixture.example"
 TEST_LINK="${currentLink}"
 log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 read_state() { MIGRATIONS_APPLIED=0; OLD_RELEASE="${oldRelease}"; }
