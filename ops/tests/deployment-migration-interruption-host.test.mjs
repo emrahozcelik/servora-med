@@ -7,6 +7,34 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {withRuntimeFixture,LAB_SHA} from './r4-runtime-fixture.mjs';
 import {readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
 
+// Pause the real reviewed helper only after its guarded baseline/intent has
+// been published and the service-UID guard has exited. A fault actor present
+// earlier is correctly rejected by the new write-quiescence contract. This
+// source-only fixed-VM harness adds no production flag or helper hook.
+function pausedMigrationDeployment(grant) {
+ const script=`source /usr/local/libexec/servora-med/deploy-production-host
+# Keep the real installed helper identity after source-only dispatch.
+BASH_ARGV0=/usr/local/libexec/servora-med/deploy-production-host
+original="$(declare -f run_release_node)"
+eval "\${original/run_release_node ()/r4_original_release_node ()}"
+run_release_node() {
+ if [[ "$2" == */server/dist/db/migrate.js ]]; then
+  printf 'MIGRATION_ACTOR_BOUNDARY_READY\\n' >&3
+  kill -STOP "$BASHPID"
+ fi
+ r4_original_release_node "$@"
+}
+PHASE=deploy
+SHA="$1"; ARTIFACT="$2"; ARTIFACT_SHA="$3"; FQDN=r4.synthetic.invalid
+ATTEMPT_ID="$4"; ALLOW_MIGRATIONS=true
+acquire_host_lock
+deploy_phase
+`;
+ return spawn('/bin/bash',['-c',script,'isolated-migration-fault',grant.releaseSha,
+  '/home/emrah.guest/r4-rehearsal/servora-med-'+grant.releaseSha+'.tar.gz',grant.artifactSha256,grant.attemptId],
+ {stdio:['ignore','pipe','pipe','pipe'],detached:true});
+}
+
 for(const point of ['before-commit','after-commit']) test('real migration SIGKILL '+point+' preserves the correct abort/forward boundary',async()=>{
  const env='/etc/servora-med/servora-med.env',backup='/etc/servora-med/servora-med-backup.env',barrier='/var/lib/servora-med/deploy/activation.block',pointer='/opt/servora-med/current',policy='/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf';
  const saved={env:readFileSync(env,'utf8'),backup:readFileSync(backup,'utf8'),barrier:readFileSync(barrier),pointer:readlinkSync(pointer),policy:readFileSync(policy)};
@@ -16,7 +44,7 @@ for(const point of ['before-commit','after-commit']) test('real migration SIGKIL
  const url=new URL(text.split('\n').find(line=>line.startsWith('DATABASE_URL=')).slice(13));url.pathname='/'+db;
  writeFileSync(env,text.replace(/^DATABASE_URL=.*$/m,'DATABASE_URL='+url.toString()));
  writeFileSync(backup,saved.backup.replace(/^PGDATABASE=.*$/m,'PGDATABASE='+db));
- let actor;
+ let actor,deployment;
  try {
   await withRuntimeFixture(async grant=>{
    unlinkSync(barrier);unlinkSync(policy);unlinkSync(pointer);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,pointer);
@@ -26,17 +54,23 @@ for(const point of ['before-commit','after-commit']) test('real migration SIGKIL
    const actorCode=point==='before-commit'
     ? `await c.query('BEGIN');await c.query('LOCK TABLE job_card_meeting_details IN ACCESS SHARE MODE');console.log('FAULT_READY');for await(const line of createInterface({input:process.stdin})){if(line==='STATUS'){const r=await c.query("SELECT count(*)::int AS n FROM pg_locks WHERE relation='job_card_meeting_details'::regclass AND NOT granted");console.log('MIGRATION_WAITERS='+r.rows[0].n);}else break;}await c.query('ROLLBACK');await c.end();`
     : `await c.query("CREATE FUNCTION r4_test_commit_notification() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_notify('r4_commit',NEW.version); RETURN NEW; END $$");await c.query('CREATE TRIGGER r4_test_commit_notification AFTER INSERT ON schema_migrations FOR EACH ROW EXECUTE FUNCTION r4_test_commit_notification()');await c.query('LISTEN r4_commit');c.on('notification',message=>{if(message.payload.startsWith('056_'))console.log('COMMIT_OBSERVED');});console.log('FAULT_READY');for await(const line of createInterface({input:process.stdin})){if(line==='STOP')break;}await c.query('DROP TRIGGER r4_test_commit_notification ON schema_migrations');await c.query('DROP FUNCTION r4_test_commit_notification()');await c.end();`;
+   deployment=pausedMigrationDeployment(grant);
+   let actorOutput='',actorErrors='',output='',errors='';
+   deployment.stdio[3].on('data',chunk=>output+=chunk.toString());
+   deployment.stdout.on('data',chunk=>output+=chunk.toString());deployment.stderr.on('data',chunk=>errors+=chunk.toString());
+   let endedResult;
+   const ended=new Promise(resolve=>deployment.once('close',(code,signal)=>{endedResult={code,signal};resolve(endedResult);}));
+   for(let wait=0;wait<300&&!endedResult&&!output.includes('MIGRATION_ACTOR_BOUNDARY_READY');wait++)await delay(100);
+   assert.ok(output.includes('MIGRATION_ACTOR_BOUNDARY_READY'),errors);
+   assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'MIGRATION_INTENT');
    actor=spawn('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/node','--env-file='+env,'--input-type=module','-e',sqlRuntime+actorCode],{stdio:['pipe','pipe','pipe']});
-   let actorOutput='',actorErrors='',deployment;
    const actorClosed=new Promise(resolve=>actor.once('close',resolve));
    actor.stderr.on('data',chunk=>actorErrors+=chunk.toString());
    actor.stdout.on('data',chunk=>{actorOutput+=chunk.toString();if(point==='after-commit'&&actorOutput.includes('COMMIT_OBSERVED')&&deployment){process.kill(-deployment.pid,'SIGKILL');deployment=null;}});
    for(let wait=0;wait<100&&!actorOutput.includes('FAULT_READY');wait++)await delay(100);
    assert.ok(actorOutput.includes('FAULT_READY'),actorErrors);
    const sudo=['-u','servora-deploy','--','/usr/bin/sudo','-n','/usr/local/libexec/servora-med/deploy-production-host'];
-   deployment=spawn('/usr/bin/sudo',[...sudo,'--phase','deploy','--sha',grant.releaseSha,'--artifact','/home/emrah.guest/r4-rehearsal/servora-med-'+grant.releaseSha+'.tar.gz','--artifact-sha',grant.artifactSha256,'--fqdn','r4.synthetic.invalid','--allow-migrations','--attempt-id',grant.attemptId],{stdio:['ignore','pipe','pipe'],detached:true});
-   let output='',errors='';deployment.stdout.on('data',chunk=>output+=chunk.toString());deployment.stderr.on('data',chunk=>errors+=chunk.toString());
-   const ended=new Promise(resolve=>deployment.once('close',(code,signal)=>resolve({code,signal})));
+   process.kill(deployment.pid,'SIGCONT');
    if(point==='before-commit') {
     for(let wait=0;wait<100&&!actorOutput.includes('MIGRATION_WAITERS=1');wait++){actor.stdin.write('STATUS\n');await delay(250);}
     assert.ok(actorOutput.includes('MIGRATION_WAITERS=1'),'real ALTER TABLE must be blocked, not only journal intent');
@@ -60,7 +94,8 @@ for(const point of ['before-commit','after-commit']) test('real migration SIGKIL
    console.log(recovery.stdout.trim());console.log('REAL_TRANSACTION_BOUNDARY_'+point.toUpperCase()+'=PASS');
   });
   } finally {
-   if(actor){actor.stdin.end('STOP\n');actor.kill('SIGTERM');}
+   if(deployment&&deployment.exitCode===null&&deployment.signalCode===null){process.kill(-deployment.pid,'SIGKILL');await new Promise(resolve=>deployment.once('close',resolve));}
+  if(actor){actor.stdin.end('STOP\n');actor.kill('SIGTERM');}
    spawnSync('/usr/bin/systemctl',['stop','servora-med.service']);writeFileSync(env,saved.env);writeFileSync(backup,saved.backup);
    unlinkSync(pointer);symlinkSync(saved.pointer,pointer);writeFileSync(barrier,saved.barrier,{mode:0o600});writeFileSync(policy,saved.policy,{mode:0o600});spawnSync('/usr/bin/systemctl',['daemon-reload']);
   }
@@ -75,7 +110,7 @@ test('interrupted post-commit migration cannot activate after protected business
  const url=new URL(text.split('\n').find(line=>line.startsWith('DATABASE_URL=')).slice(13));url.pathname='/'+db;
  writeFileSync(env,text.replace(/^DATABASE_URL=.*$/m,'DATABASE_URL='+url.toString()));
  writeFileSync(backup,saved.backup.replace(/^PGDATABASE=.*$/m,'PGDATABASE='+db));
- let actor;
+ let actor,deployment;
  try {
   await withRuntimeFixture(async grant=>{
    unlinkSync(barrier);unlinkSync(policy);unlinkSync(pointer);symlinkSync('/opt/servora-med/releases/'+grant.oldReleaseSha,pointer);
@@ -87,17 +122,23 @@ test('interrupted post-commit migration cannot activate after protected business
    assert.equal(seeded.status,0,seeded.stderr);
    assert.match(seeded.stdout.trim().split('\n')[0],/^[0-9a-f-]{36}$/,'one protected synthetic organization must be seeded before the baseline');
    const actorCode=`await c.query("CREATE FUNCTION r4_test_commit_notification() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_notify('r4_commit',NEW.version); RETURN NEW; END $$");await c.query('CREATE TRIGGER r4_test_commit_notification AFTER INSERT ON schema_migrations FOR EACH ROW EXECUTE FUNCTION r4_test_commit_notification()');await c.query('LISTEN r4_commit');c.on('notification',message=>{if(message.payload.startsWith('056_'))console.log('COMMIT_OBSERVED');});console.log('FAULT_READY');for await(const line of createInterface({input:process.stdin})){if(line==='STOP')break;}await c.query('DROP TRIGGER r4_test_commit_notification ON schema_migrations');await c.query('DROP FUNCTION r4_test_commit_notification()');await c.end();`;
+   deployment=pausedMigrationDeployment(grant);
+   let actorOutput='',actorErrors='',output='',errors='';
+   deployment.stdio[3].on('data',chunk=>output+=chunk.toString());
+   deployment.stdout.on('data',chunk=>output+=chunk.toString());deployment.stderr.on('data',chunk=>errors+=chunk.toString());
+   let endedResult;
+   const ended=new Promise(resolve=>deployment.once('close',(code,signal)=>{endedResult={code,signal};resolve(endedResult);}));
+   for(let wait=0;wait<300&&!endedResult&&!output.includes('MIGRATION_ACTOR_BOUNDARY_READY');wait++)await delay(100);
+   assert.ok(output.includes('MIGRATION_ACTOR_BOUNDARY_READY'),errors);
+   assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'MIGRATION_INTENT');
    actor=spawn('/usr/bin/sudo',['-u','servora-med','--','/usr/bin/node','--env-file='+env,'--input-type=module','-e',sqlRuntime+actorCode],{stdio:['pipe','pipe','pipe']});
-   let actorOutput='',actorErrors='',deployment;
    const actorClosed=new Promise(resolve=>actor.once('close',resolve));
    actor.stderr.on('data',chunk=>actorErrors+=chunk.toString());
    actor.stdout.on('data',chunk=>{actorOutput+=chunk.toString();if(actorOutput.includes('COMMIT_OBSERVED')&&deployment){process.kill(-deployment.pid,'SIGKILL');deployment=null;}});
    for(let wait=0;wait<100&&!actorOutput.includes('FAULT_READY');wait++)await delay(100);
    assert.ok(actorOutput.includes('FAULT_READY'),actorErrors);
    const sudo=['-u','servora-deploy','--','/usr/bin/sudo','-n','/usr/local/libexec/servora-med/deploy-production-host'];
-   deployment=spawn('/usr/bin/sudo',[...sudo,'--phase','deploy','--sha',grant.releaseSha,'--artifact','/home/emrah.guest/r4-rehearsal/servora-med-'+grant.releaseSha+'.tar.gz','--artifact-sha',grant.artifactSha256,'--fqdn','r4.synthetic.invalid','--allow-migrations','--attempt-id',grant.attemptId],{stdio:['ignore','pipe','pipe'],detached:true});
-   let output='',errors='';deployment.stdout.on('data',chunk=>output+=chunk.toString());deployment.stderr.on('data',chunk=>errors+=chunk.toString());
-   const ended=new Promise(resolve=>deployment.once('close',(code,signal)=>resolve({code,signal})));
+   process.kill(deployment.pid,'SIGCONT');
    const result=await Promise.race([ended,delay(60000).then(()=>{throw Error('MIGRATION_FAULT_TIMEOUT');})]);
    assert.notEqual(result.code,0,output+errors);actor.stdin.end('STOP\n');assert.equal(await actorClosed,0,actorErrors);actor=null;
    const state=readLatestCheckpoint(grant.attemptId).record;
@@ -125,6 +166,7 @@ test('interrupted post-commit migration cannot activate after protected business
    console.log('INVARIANT_BASELINE_ENFORCED=PASS');
   });
  } finally {
+  if(deployment&&deployment.exitCode===null&&deployment.signalCode===null){process.kill(-deployment.pid,'SIGKILL');await new Promise(resolve=>deployment.once('close',resolve));}
   if(actor){actor.stdin.end('STOP\n');actor.kill('SIGTERM');}
   spawnSync('/usr/bin/systemctl',['stop','servora-med.service']);writeFileSync(env,saved.env);writeFileSync(backup,saved.backup);
   unlinkSync(pointer);symlinkSync(saved.pointer,pointer);writeFileSync(barrier,saved.barrier,{mode:0o600});writeFileSync(policy,saved.policy,{mode:0o600});spawnSync('/usr/bin/systemctl',['daemon-reload']);
