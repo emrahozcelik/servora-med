@@ -601,7 +601,7 @@ export class JobCardService {
     this.saleService = new JobCardSaleService(repository, now,
       (tx, job, activity, event, actorId) => this.appendRealtimeForActivity(tx, {
         activity, organizationId: job.organizationId, jobCardId: job.id, actorUserId: actorId,
-        event, beforeAssigneeId: null, afterAssigneeId: job.assignedTo, customerId: job.customerId,
+        event, jobType: job.type, beforeAssigneeId: null, afterAssigneeId: job.assignedTo, customerId: job.customerId,
       }), (events) => this.publishRealtime(events));
   }
 
@@ -662,6 +662,7 @@ export class JobCardService {
       activity: AppendedActivity;
       organizationId: string;
       jobCardId: string;
+      jobType?: JobCardType;
       actorUserId: string;
       event: JobCardActivityEvent;
       beforeAssigneeId: string | null;
@@ -716,9 +717,8 @@ export class JobCardService {
       }
     }
     // Store one activity-backed event. Replay scopes relation keys and identity per current viewer.
-    const current = await transaction.getJob(input.organizationId, input.jobCardId);
     let audience = mapped.audience;
-    if (current?.type === 'SALE') {
+    if (input.jobType === 'SALE') {
       const snapshot = await transaction.getSubmissionSale(input.organizationId, input.jobCardId);
       const source = snapshot ? await transaction.getJob(input.organizationId, snapshot.sourceVisitId) : null;
       if (source) {
@@ -897,7 +897,7 @@ export class JobCardService {
           organizationId: actor.organizationId,
           jobCardId,
           actorUserId: actor.id,
-          event: 'JOB_INVALIDATED',
+          event: 'JOB_INVALIDATED', jobType: job.type,
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: true,
@@ -2811,7 +2811,7 @@ export class JobCardService {
           organizationId: actor.organizationId,
           jobCardId,
           actorUserId: actor.id,
-          event: 'JOB_ASSIGNED',
+          event: 'JOB_ASSIGNED', jobType: job.type,
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled,
@@ -2836,7 +2836,7 @@ export class JobCardService {
           organizationId: actor.organizationId,
           jobCardId,
           actorUserId: actor.id,
-          event: 'JOB_FIELDS_UPDATED',
+          event: 'JOB_FIELDS_UPDATED', jobType: job.type,
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && scheduleChanged,
@@ -3997,7 +3997,7 @@ export class JobCardService {
           organizationId: actor.organizationId,
           jobCardId,
           actorUserId: actor.id,
-          event: definition.event,
+          event: definition.event, jobType: job.type,
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && calendarTerminal,
