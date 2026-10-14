@@ -53,6 +53,8 @@ describe('Sale read projections', () => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
       await f.service.start(f.staff, sale.jobCardId, { clientActionId: 'report-start', expectedVersion: 1 });
       await f.service.submitForApproval(f.staff, sale.jobCardId, { clientActionId: 'report-submit', expectedVersion: 2, note: 'Ready' });
+      // Pin the creation cohort independently of the day on which CI runs.
+      await f.pool.query('UPDATE job_cards SET created_at=$1 WHERE id=$2', [f.input.soldAt, sale.jobCardId]);
       const reports = new PostgresReportsRepository(f.pool);
       const input = { organizationId: f.organizationId, requestedRange: { from: '2026-10-14', to: '2026-10-14' },
         requestTime: new Date('2026-10-14T23:00:00Z') };
