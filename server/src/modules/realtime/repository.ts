@@ -47,6 +47,9 @@ const SALE_CURRENT_ACCESS = `AND ($2 <> 'STAFF' OR sale_scope.sale_assignee_id I
 function mapEvent(row: EventRow, viewer?: RealtimeViewer): RealtimeEventRecord {
   const sourceOnly = viewer?.role === 'STAFF' && row.sale_assignee_id != null && row.sale_assignee_id !== viewer.userId;
   const restrictedSource = viewer?.role === 'STAFF' && row.sale_source_id != null && row.source_assignee_id !== viewer.userId;
+  const keys = viewer?.role === 'STAFF' && row.sale_assignee_id != null
+    ? row.resource_keys.filter((key) => !key.startsWith('staff-profile:') || key === 'staff-profile:' + viewer.userId)
+    : row.resource_keys;
   return {
     id: BigInt(row.id),
     organizationId: row.organization_id,
@@ -60,9 +63,10 @@ function mapEvent(row: EventRow, viewer?: RealtimeViewer): RealtimeEventRecord {
       roles: row.audience_roles,
       userIds: row.audience_user_ids,
     },
-    resourceKeys: sourceOnly ? ['job-detail:' + row.sale_source_id]
-      : restrictedSource ? row.resource_keys.filter((key) => key !== 'job-detail:' + row.sale_source_id)
-      : row.resource_keys,
+    resourceKeys: sourceOnly
+      ? ['job-detail:' + row.sale_source_id, 'job-list', 'job-board', 'reports', 'overview', 'staff-profile:' + viewer!.userId]
+      : restrictedSource ? keys.filter((key) => key !== 'job-detail:' + row.sale_source_id)
+      : keys,
     occurredAt: row.created_at,
   };
 }

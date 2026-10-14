@@ -30,9 +30,12 @@ describe('Sale scoped invalidation', () => {
       expect(childEvents.some((event) => event.entity.id === sale.jobCardId)).toBe(true);
       expect(JSON.stringify(childEvents)).not.toContain(f.visitId);
       expect(JSON.stringify(childEvents)).not.toContain('Brand A');
+      expect(JSON.stringify(childEvents)).not.toContain('staff-profile:' + f.staff.id);
       const sourceOnly = (await events.replayVisible(viewer, cursor, 100)).map(presentRealtimeEvent);
       expect(JSON.stringify(sourceOnly)).not.toContain(sale.jobCardId);
       expect(sourceOnly.some((event) => event.resourceKeys.includes('job-detail:' + f.visitId))).toBe(true);
+      expect(sourceOnly.some((event) => event.resourceKeys.includes('job-list'))).toBe(true);
+      expect(JSON.stringify(sourceOnly)).not.toContain('staff-profile:' + f.otherStaff.id);
     });
   });
 });

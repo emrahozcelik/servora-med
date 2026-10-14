@@ -90,8 +90,11 @@ implemented using the existing activity-backed realtime mechanism:
   Its relation resource key/audience is projected at replay using current Sale
   and source assignments in a bounded SQL join.
 - A source-only STAFF viewer receives a source job.updated identity and only
-  the source detail key. A Sale-only STAFF viewer receives the Sale identity
+  the source detail key plus bodyless workspace invalidation keys. A Sale-only STAFF viewer receives the Sale identity
   without the source key. Management can invalidate both accessible views.
+- Sale STAFF envelopes contain only the viewer's own staff-profile key. Other
+  assignee profile IDs are removed. Generic list/board/report invalidation keeps
+  revoked cards from remaining in an old assignee's open workspace.
 - Current-access filtering also applies to high-water calculation. Historical
   persisted audience membership cannot restore revoked Sale access.
 - Receipt replay does not append another realtime event or notification.
