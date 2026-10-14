@@ -61,6 +61,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
   '054_job_action_locations_submit_approval.sql',
   '055_job_submit_location_comparison.sql',
   '056_meeting_met_contact.sql',
+  '057_sale_from_visit.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

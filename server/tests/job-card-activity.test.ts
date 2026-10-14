@@ -38,9 +38,9 @@ const lifecycleCases = [
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
-  it('keeps the canonical activity vocabulary at exactly 21 unique events', () => {
-    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(21);
-    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(21);
+  it('keeps the canonical activity vocabulary at exactly 26 unique events', () => {
+    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(26);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(26);
     expect(new Set(JOB_CARD_ACTIVITY_EVENTS)).toEqual(new Set([
       'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
@@ -52,6 +52,7 @@ describe('safe JobCard activity presenter', () => {
       'JOB_SUBMISSION_REMINDER_SENT',
       'JOB_SUBMISSION_AUTO_REMINDER_SENT',
       'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
+      'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
     ]));
   });
 

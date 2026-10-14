@@ -43,6 +43,8 @@ const MIGRATIONS = [
   '047_job_card_overdue_incidents.sql',
   '048_overdue_episode_activation_legacy_first.sql',
   '049_job_card_lifecycle_intents.sql',
+  '056_meeting_met_contact.sql',
+  '057_sale_from_visit.sql',
 ];
 
 function listQuery(overrides: Partial<JobCardListQuery> = {}): JobCardListQuery {

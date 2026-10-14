@@ -248,6 +248,13 @@ function details(
   options?: ActivityPresentationOptions,
 ): JobCardActivityDetails {
   switch (record.eventType) {
+    // Scoped Sale detail/link readers are added in PR2; never expose raw audit JSON here.
+    case 'SALE_FROM_VISIT_CREATED':
+    case 'SALE_DETAILS_UPDATED':
+    case 'SALE_ITEM_ADDED':
+    case 'SALE_ITEM_UPDATED':
+    case 'SALE_ITEM_REMOVED':
+      return { kind: 'NONE' };
     case 'JOB_CREATED': return { kind: 'NONE' };
     // OVR-4 reminder facts carry their semantics in metadata (incident,
     // episode, target, sentAt); the timeline renders them as plain facts.

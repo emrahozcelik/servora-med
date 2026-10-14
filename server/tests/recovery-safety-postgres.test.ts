@@ -86,7 +86,7 @@ function dump(database: string, label: string) {
 }
 function recover(database: string, file: string, label: string) {
   const envFile = path.join(root, `${label}.env`);
-  writeFileSync(envFile, 'HEALTH_SCHEMA_VERSION=056_meeting_met_contact\nOTHER=preserve\n'); chmodSync(envFile, 0o600);
+  writeFileSync(envFile, 'HEALTH_SCHEMA_VERSION=057_sale_from_visit\nOTHER=preserve\n'); chmodSync(envFile, 0o600);
   const result = command('bash', [script, '--backup', file, '--checksum', `${file}.sha256`, '--target-db', 'servora_med',
     '--expected-host', '127.0.0.1', '--allow-destructive', '--old-release', oldSha,
     '--old-health-schema-version', oldCatalog.head!.version, '--env-file', envFile], {
@@ -157,7 +157,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(after).toEqual(before);
       expect(result.status).not.toBe(0); expect(result.output).not.toContain('RECOVERY=PASS');
       expect(result.output).toContain('RECOVERY_HISTORY_AHEAD');
-      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=056_meeting_met_contact');
+      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=057_sale_from_visit');
     });
   });
   it('R2 accepts exact 056 history with deliberately interleaved timestamps', async () => {
@@ -212,7 +212,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(result.output).toContain('RESTORE_FAILED');
       expect(result.output).not.toContain('RECOVERY=PASS');
       expect(await snapshot(pool)).toEqual(before);
-      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=056_meeting_met_contact');
+      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=057_sale_from_visit');
     });
   });
   it('R1 rolls back late post-data failure including sequence values and schema metadata', async () => {
@@ -234,7 +234,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(result.output).toContain('controlled_post_data_failure');
       expect(result.output).not.toContain('RECOVERY=PASS');
       expect(await snapshot(pool)).toEqual(before);
-      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=056_meeting_met_contact');
+      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=057_sale_from_visit');
     });
   });
   it.each(['interleave', 'equal', 'reverse'] as const)('R2 legacy recovery accepts exact 055 with %s timestamps/insertion order', async (mode) => {
@@ -282,7 +282,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       const before = await snapshot(pool); const result = recover(target, dump(source, 'bad-history'), 'bad-history');
       expect(result.status).toBe(6); expect(result.output).toContain('RECOVERY_HISTORY_DIVERGED');
       expect(result.output).not.toContain('RESTORE=PASS'); expect(result.output).not.toContain('RECOVERY=PASS');
-      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=056_meeting_met_contact');
+      expect(result.env).toContain('HEALTH_SCHEMA_VERSION=057_sale_from_visit');
       expect(await snapshot(pool)).toEqual(before);
     });
   });

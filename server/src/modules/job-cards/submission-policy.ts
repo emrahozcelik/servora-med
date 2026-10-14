@@ -1,4 +1,6 @@
 import { AppError } from '../../errors/index.js';
+import { MAX_SALE_ITEMS, saleQuantity } from './sale-input.js';
+import { isSaleTimeValid } from './sale-policy.js';
 import type { SubmissionReader } from './repository.js';
 import {
   mapReport,
@@ -298,6 +300,36 @@ async function evaluateWeeklyReport(
   return readiness(evaluatedAt, items, failure);
 }
 
+async function evaluateSale(
+  reader: SubmissionReader, actor: JobCardActor, job: JobCard, time: Date,
+  assigneeRequirement: SubmissionRequirement,
+): Promise<SubmissionEvaluation> {
+  const customer = job.customerId ? await reader.getSubmissionCustomer(actor.organizationId, job.customerId) : null;
+  const customerState = !job.customerId ? 'missing'
+    : !customer || customer.organizationId !== actor.organizationId || customer.status === 'inactive' ? 'invalid' : 'met';
+  const sale = await reader.getSubmissionSale(actor.organizationId, job.id);
+  const items = sale?.items ?? [];
+  const originValid = Boolean(sale?.sourceVisitId && sale.originValid);
+  const timeValid = Boolean(sale && isSaleTimeValid(sale.soldAt, time));
+  const itemsValid = items.length > 0 && items.length <= MAX_SALE_ITEMS
+    && new Set(items.map((item) => item.productId)).size === items.length
+    && items.every((item) => {
+      try {
+        return Boolean(item.productId && item.productNameSnapshot.trim())
+          && saleQuantity(Number(item.quantity)) === item.quantity;
+      } catch { return false; }
+    });
+  const requirements: SubmissionRequirement[] = [
+    { code: 'CUSTOMER_ELIGIBLE', state: customerState, field: 'customerId' }, assigneeRequirement,
+    { code: 'SALE_ORIGIN_VALID', state: originValid ? 'met' : 'invalid', field: 'saleOrigin' },
+    { code: 'SALE_TIME_VALID', state: timeValid ? 'met' : 'invalid', field: 'soldAt' },
+    { code: 'SALE_ITEM_PRESENT', state: items.length ? 'met' : 'missing', field: 'saleItems' },
+    { code: 'SALE_ITEMS_VALID', state: items.length === 0 ? 'missing' : itemsValid ? 'met' : 'invalid', field: 'saleItems' },
+  ];
+  return readiness(time, requirements, requirements.every((item) => item.state === 'met') ? null
+    : new AppError('SALE_NOT_READY', 400, 'Satış kaydı yönetici kontrolüne gönderilmek için hazır değil.'));
+}
+
 export async function evaluateSubmission(
   reader: SubmissionReader,
   actor: JobCardActor,
@@ -327,6 +359,7 @@ export async function evaluateSubmission(
   if (jobCard.type === 'WEEKLY_REPORT') {
     return evaluateWeeklyReport(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
   }
+  if (jobCard.type === 'SALE') return evaluateSale(reader, actor, jobCard, evaluatedAt, assigneeRequirement);
   return jobCard.type === 'PRODUCT_DELIVERY'
     ? evaluateDelivery(reader, actor, jobCard, evaluatedAt, assigneeRequirement)
     : evaluateMeeting(reader, actor, jobCard, evaluatedAt, assigneeRequirement);

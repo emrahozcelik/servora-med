@@ -90,6 +90,8 @@ class PostgresProductTransaction implements ProductTransaction {
   async productHasDeliveryItems(organizationId: string, productId: string) {
     const result = await this.client.query(
       `SELECT 1 FROM job_card_delivery_items
+       WHERE organization_id=$1 AND product_id=$2
+       UNION ALL SELECT 1 FROM job_card_sale_items
        WHERE organization_id=$1 AND product_id=$2 LIMIT 1`,
       [organizationId, productId],
     );
@@ -164,7 +166,9 @@ export class PostgresProductRepository implements ProductRepository {
   async productHasDeliveryItems(organizationId: string, productId: string) {
     const result = await this.pool.query(
       `SELECT 1 FROM job_card_delivery_items
-        WHERE organization_id=$1 AND product_id=$2 LIMIT 1`,
+        WHERE organization_id=$1 AND product_id=$2
+       UNION ALL SELECT 1 FROM job_card_sale_items
+       WHERE organization_id=$1 AND product_id=$2 LIMIT 1`,
       [organizationId, productId],
     );
     return (result.rowCount ?? 0) > 0;

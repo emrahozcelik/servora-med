@@ -1,6 +1,7 @@
 import { AppError } from '../../errors/index.js';
 import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
+import { JobCardSaleService } from './sale-service.js';
 import {
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
@@ -569,6 +570,7 @@ export type WeeklyReportBulkRequestResult = {
 
 export class JobCardService {
   private readonly notesService: JobCardNotesService;
+  private readonly saleService: JobCardSaleService;
 
   constructor(
     private readonly repository: JobCardRepository,
@@ -593,7 +595,14 @@ export class JobCardService {
     private readonly lifecycle: Readonly<{
       intentTtlMs?: number;
     }> = {},
-  ) { this.notesService = new JobCardNotesService(repository); }
+  ) {
+    this.notesService = new JobCardNotesService(repository);
+    this.saleService = new JobCardSaleService(repository, now,
+      (tx, job, activity, event, actorId) => this.appendRealtimeForActivity(tx, {
+        activity, organizationId: job.organizationId, jobCardId: job.id, actorUserId: actorId,
+        event, beforeAssigneeId: null, afterAssigneeId: job.assignedTo, customerId: job.customerId,
+      }), (events) => this.publishRealtime(events));
+  }
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
     for (const event of events) {
@@ -899,7 +908,30 @@ export class JobCardService {
     return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
   }
 
+  async createSaleFromVisit(actor: JobCardActor, visitId: string, input: unknown) {
+    return this.saleService.createSaleFromVisit(actor, visitId, input);
+  }
+
+  async patchSaleItem(actor: JobCardActor, jobCardId: string, itemId: string, input: unknown) {
+    return this.saleService.patchSaleItem(actor, jobCardId, itemId, input);
+  }
+
+  async removeSaleItem(actor: JobCardActor, jobCardId: string, itemId: string, input: unknown) {
+    return this.saleService.removeSaleItem(actor, jobCardId, itemId, input);
+  }
+
+  async addSaleItem(actor: JobCardActor, jobCardId: string, input: unknown) {
+    return this.saleService.addSaleItem(actor, jobCardId, input);
+  }
+
+  async patchSaleDetails(actor: JobCardActor, jobCardId: string, input: unknown) {
+    return this.saleService.patchSaleDetails(actor, jobCardId, input);
+  }
+
   async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
+    if (!['PRODUCT_DELIVERY', 'SALES_MEETING', 'GENERAL_TASK'].includes(input.type)) {
+      throw new AppError('INVALID_JOB_TYPE', 400, 'Bu iş türü genel oluşturma işlemiyle kullanılamaz.');
+    }
     const title = input.title.trim();
     const priority = input.priority;
     if (input.type === 'PRODUCT_DELIVERY'
@@ -1774,6 +1806,9 @@ export class JobCardService {
     sourceJobCardId: string,
     input: FollowUpCreateInput,
   ) {
+    if (!['PRODUCT_DELIVERY', 'SALES_MEETING', 'GENERAL_TASK'].includes(input.type)) {
+      throw new AppError('INVALID_JOB_TYPE', 400, 'Bu iş türü takip işi olarak oluşturulamaz.');
+    }
     if (input.type === 'PRODUCT_DELIVERY' && input.contactId !== null) {
       throw new AppError(
         'VALIDATION_ERROR',
@@ -1799,6 +1834,9 @@ export class JobCardService {
         );
         if (!sourceSnapshot) {
           throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        if (sourceSnapshot.type === 'SALE') {
+          throw new AppError('INVALID_JOB_TYPE', 400, 'Satış kaydı V1 takip işi kaynağı değildir.');
         }
         const lockedAssignees = await this.lockUsersInOrder(
           transaction,
@@ -2357,6 +2395,10 @@ export class JobCardService {
         throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
       }
       assertCanEdit(actor, snapshot);
+      if (snapshot.type === 'SALE' && ['customerId', 'contactId', 'scheduledAt', 'scheduledEndsAt',
+        'dueDate', 'engagementKind', 'followUpInstructions'].some((field) => Object.hasOwn(fields, field))) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Satışın kaynak müşterisi ve zaman planı genel güncellemeyle değiştirilemez.');
+      }
       const snapshotIsCalendarIntervalJob = snapshot.type === 'SALES_MEETING'
         || snapshot.type === 'PRODUCT_DELIVERY';
       const snapshotScheduleChanged = fields.scheduledAt !== undefined
@@ -4419,7 +4461,7 @@ export class JobCardService {
     }
     // WEEKLY_REPORT stays closed: no public creation path exists yet, so it
     // must never be proposed (or built) as a follow-up child.
-    if (input.type === 'WEEKLY_REPORT'
+    if (input.type === 'WEEKLY_REPORT' || input.type === 'SALE'
       || !(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
     }
@@ -4777,6 +4819,7 @@ export class JobCardService {
     at?: string,
   ): Promise<FollowUpSuggestion> {
     const detail = await this.detail(actor, jobCardId);
+    if (detail.type === 'SALE') throw new AppError('INVALID_JOB_TYPE', 400, 'Satış kaydı V1 takip işi kaynağı değildir.');
     const completedPostHoc = detail.status === 'COMPLETED';
     if (completedPostHoc) {
       // Post-hoc suggestions use the same management authorization as the

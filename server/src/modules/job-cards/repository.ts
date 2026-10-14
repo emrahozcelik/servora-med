@@ -1,3 +1,4 @@
+import { PostgresSaleTransaction, selectSaleSubmission, type SaleTransaction, type SaleSubmissionSnapshot } from './sale-repository.js';
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
 import { canonicalScheduledDurationMs } from './job-card-duration.js';
 import {
@@ -282,6 +283,7 @@ export type CreateJobCardRecord = {
   engagementKind: JobCard['engagementKind'];
   acceptedAt: Date | null; acceptedBy: string | null;
   sourceJobCardId: string | null; followUpInstructions: string | null;
+  saleSourceVisitId?: string | null;
   dataClass?: 'BUSINESS' | 'DEMO';
   demoDatasetId?: string | null;
   historySource: JobCardCreationHistorySource;
@@ -626,6 +628,7 @@ export type PersistedFollowUpListItem = PersistedJobCardListItem & {
 };
 
 export interface SubmissionReader {
+  getSubmissionSale(organizationId: string, jobCardId: string): Promise<SaleSubmissionSnapshot | null>;
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;  getSubmissionCustomer(
     organizationId: string,
     customerId: string,
@@ -662,6 +665,7 @@ export interface SubmissionReader {
 }
 
 export interface JobCardTransaction extends SubmissionReader {
+  readonly sale: SaleTransaction;
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
@@ -2181,14 +2185,20 @@ function mapHistoryItem(row: HistoryRow): JobHistoryItem {
 }
 
 export class PostgresJobCardTransaction implements JobCardTransaction {
+  readonly sale: SaleTransaction;
   private readonly realtime: PostgresRealtimeEventTransaction;
   private readonly notifications: PostgresNotificationTransaction;
   private readonly webPush: PostgresWebPushTransaction;
 
   constructor(private readonly client: PoolClient) {
+    this.sale = new PostgresSaleTransaction(client);
     this.realtime = new PostgresRealtimeEventTransaction(client);
     this.notifications = new PostgresNotificationTransaction(client);
     this.webPush = new PostgresWebPushTransaction(client);
+  }
+
+  getSubmissionSale(organizationId: string, jobCardId: string) {
+    return selectSaleSubmission(this.client, organizationId, jobCardId);
   }
 
   async getJob(organizationId: string, jobCardId: string) {
@@ -2747,13 +2757,13 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,
           assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at,
-          engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions, sale_source_visit_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING ${JOB_CARD_BASE_COLUMNS}`,
       [input.organizationId, input.type, input.status, input.title, input.description,
         input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
         input.dueDate, input.scheduledAt, input.scheduledEndsAt, input.engagementKind,
-        input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions],
+        input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions, input.saleSourceVisitId ?? null],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -3570,6 +3580,10 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
 export class PostgresJobCardRepository
 implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyReportHistoryReadPort {
   constructor(private readonly pool: Pool) {}
+
+  getSubmissionSale(organizationId: string, jobCardId: string) {
+    return selectSaleSubmission(this.pool, organizationId, jobCardId);
+  }
 
   async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
     const result = await this.pool.query<{ response_body: T; request_hash: string | null }>(

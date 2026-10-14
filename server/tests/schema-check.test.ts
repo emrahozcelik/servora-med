@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('056_meeting_met_contact');
+      expect(cmp.pendingVersions).toContain('057_sale_from_visit');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '057_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '058_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('057_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('058_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -300,10 +300,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 56 head 056', async () => {
+  it('produces dist catalog 57 head 057', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(56);
-    expect(distCatalog.head?.version).toBe('056_meeting_met_contact');
+    expect(distCatalog.count).toBe(57);
+    expect(distCatalog.head?.version).toBe('057_sale_from_visit');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {
