@@ -54,7 +54,7 @@ describe('Overview HTTP route', () => {
     expect(response.json()).toMatchObject({ scope: 'staff', openJobCards: 1 });
     expect(repository.getStaffOverview).toHaveBeenCalledWith(
       actor,
-      { requestedRange: { from: '2026-07-01', to: '2026-07-31' } },
+      { requestedRange: { from: '2026-07-01', to: '2026-07-31' }, includeSaleCapability: false },
       expect.any(Date),
     );
     expect((await app.inject({
