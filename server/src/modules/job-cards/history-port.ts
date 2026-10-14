@@ -37,6 +37,7 @@ export type PaginatedJobHistory = {
 };
 
 export type CustomerJobHistoryQuery = {
+  includeSaleCapability?: boolean;
   organizationId: string;
   customerId: string;
   actor: JobCardActor;
@@ -47,6 +48,7 @@ export type CustomerJobHistoryQuery = {
 };
 
 export type StaffJobHistoryQuery = {
+  includeSaleCapability?: boolean;
   organizationId: string;
   targetUserId: string;
   actor: JobCardActor;
@@ -99,6 +101,7 @@ export type CustomerOperationalSummary = {
 };
 
 export type CustomerOperationalSummaryQuery = {
+  includeSaleCapability?: boolean;
   organizationId: string;
   customerId: string;
   actor: JobCardActor;

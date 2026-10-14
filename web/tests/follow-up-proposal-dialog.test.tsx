@@ -1,3 +1,4 @@
+import { withoutSaleCapability } from './fixtures/job-workflow';
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -204,7 +205,7 @@ describe('JobDetail follow-up proposal integration', () => {
     const { card, suggestion, approveResult, approveError, frequency } = overrides;
     let remainingApproveErrors = [...(overrides.approveErrors ?? [])];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       const method = init?.method ?? 'GET';
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json({ items: [], total: 0, limit: 25, nextCursor: null });
@@ -227,7 +228,7 @@ describe('JobDetail follow-up proposal integration', () => {
       if (url.endsWith('/api/calendar/assignees')) {
         return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
       }
-      if (url.endsWith('/approve') && method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/approve') && method === 'POST') {
         const nextApproveError = remainingApproveErrors.shift() ?? approveError;
         if (nextApproveError) {
           return new Response(JSON.stringify({
@@ -316,7 +317,7 @@ describe('JobDetail follow-up proposal integration', () => {
         .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
       await act(async () => { confirm.click(); await flush(); });
       const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+        String(url).split('?')[0]!.endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.followUp).toMatchObject({
@@ -381,7 +382,7 @@ describe('JobDetail follow-up proposal integration', () => {
       await act(async () => { confirm.click(); await flush(); });
       expect(dialog.querySelector('#follow-up-override-reason')).toBeNull();
       const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+        String(url).split('?')[0]!.endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.followUp).not.toHaveProperty('overrideReason');
@@ -409,7 +410,7 @@ describe('JobDetail follow-up proposal integration', () => {
         .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
       await act(async () => { confirm.click(); await flush(); });
       const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+        String(url).split('?')[0]!.endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.followUp).toMatchObject({ priority: 'normal', dueDate: null });
@@ -497,7 +498,7 @@ describe('JobDetail follow-up proposal integration', () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
 
       const firstApproveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+        String(url).split('?')[0]!.endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       expect(firstApproveCall).toBeDefined();
       const firstBody = JSON.parse(String((firstApproveCall?.[1] as RequestInit).body));
@@ -510,7 +511,7 @@ describe('JobDetail follow-up proposal integration', () => {
       });
       await act(async () => { confirm.click(); await flush(); });
       const approveCalls = vi.mocked(fetch).mock.calls.filter(([url, init]) => (
-        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+        String(url).split('?')[0]!.endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
       ));
       expect(approveCalls).toHaveLength(2);
       const secondBody = JSON.parse(String((approveCalls[1][1] as RequestInit).body));

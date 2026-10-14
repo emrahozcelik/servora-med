@@ -229,7 +229,7 @@ export const getOwnStaffProfile = async () => parseProfile(await request('/api/s
 export const getStaffProfile = async (id: string) => parseProfile(await request(`/api/staff/${id}`));
 export const updateStaffProfile = async (id: string, input: StaffProfileFields & { expectedVersion: number }) => parseProfile(await request(`/api/staff/${id}`, json('PATCH', input)));
 
-function historyQuery(filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number }) {
+function historyQuery(filters: { includeSaleCapability?: string; status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined) params.set(key, String(value));
@@ -248,9 +248,9 @@ function parseHistoryPage(value: unknown): Paginated<JobHistoryItem> {
 }
 
 export const listOwnStaffJobs = async (filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number } = {}) =>
-  parseHistoryPage(await apiRequest(`/api/staff/me/jobs${historyQuery(filters)}`));
+  parseHistoryPage(await apiRequest(`/api/staff/me/jobs${historyQuery({ ...filters, includeSaleCapability: 'true' })}`));
 export const listStaffJobs = async (id: string, filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number } = {}) =>
-  parseHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/jobs${historyQuery(filters)}`));
+  parseHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/jobs${historyQuery({ ...filters, includeSaleCapability: 'true' })}`));
 
 /**
  * Personnel-profile Weekly Report history read model.

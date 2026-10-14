@@ -161,6 +161,11 @@ authorized by this PR.
 
 ## PR2 handoff
 
+The PR2 implementation contract, scoped GET routes, bundle compatibility and
+schema-compatible realtime projection are recorded in
+[read-integration.md](read-integration.md). Exact-head execution evidence remains
+outside tracked source; passing that gate is required before independent review.
+
 Build typed, permission-scoped Sale detail/line/contact/origin projections and
 source linked-sale history; finish JobCard/CRM/approval queue/report type dispatch,
 timeline presentation and targeted realtime invalidation. Reports count product

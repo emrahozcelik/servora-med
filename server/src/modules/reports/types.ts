@@ -32,6 +32,7 @@ export type StaffOperationalSummary = Readonly<{
 }>;
 
 export type StaffOperationalSummaryScope = Readonly<{
+  includeSaleCapability?: boolean;
   organizationId: string;
   requestedRange: RequestedReportRange;
   requestTime: Date;
@@ -284,14 +285,14 @@ export type StaffReportResponse = {
   currentWorkload: StaffCurrentWorkload;
 };
 
-export type ReportRangeQuery = { requestedRange: RequestedReportRange };
+export type ReportRangeQuery = { includeSaleCapability?: boolean; requestedRange: RequestedReportRange };
 export type DeliveryReportQuery = ReportRangeQuery & {
   groupBy: 'day' | 'purpose' | 'product' | 'staff';
   staffUserId: string | null;
   limit: number;
   offset: number;
 };
-export type ApprovalReportQuery = { limit: number; offset: number };
+export type ApprovalReportQuery = { includeSaleCapability?: boolean; limit: number; offset: number };
 export type DeliveryReportReadInput = StaffOperationalSummaryScope
   & Omit<DeliveryReportQuery, 'requestedRange'>;
 
@@ -301,6 +302,7 @@ export type WorkTypeDistributionItem = Readonly<{
 }>;
 
 export type WorkTypeDistributionInput = Readonly<{
+  includeSaleCapability?: boolean;
   organizationId: string;
   from: string;
   to: string;
@@ -335,6 +337,7 @@ export type CustomerReportPeriod = Readonly<{
     PRODUCT_DELIVERY: number;
     GENERAL_TASK: number;
     SALES_MEETING: number;
+    SALE?: number;
   }>;
   managerApproved: number;
   followUpChildren: number;

@@ -62,7 +62,7 @@ describe('Customer operational summary transport', () => {
     const fetchMock = vi.fn().mockResolvedValue(json(summary));
     vi.stubGlobal('fetch', fetchMock);
     await expect(getCustomerOperationalSummary('customer-1')).resolves.toEqual(summary);
-    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer-1/operational-summary', expect.objectContaining({}));
+    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer-1/operational-summary?includeSaleCapability=true', expect.objectContaining({}));
   });
 
   it('rejects a summary payload with invalid pending counts', async () => {

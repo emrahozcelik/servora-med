@@ -133,7 +133,7 @@ function historyQuery(request: FastifyRequest) {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçerli sorgu parametreleri gönderin.');
   }
   const record = value as Record<string, unknown>;
-  const unknown = Object.keys(record).find((key) => !['status', 'type', 'limit', 'offset'].includes(key));
+  const unknown = Object.keys(record).find((key) => !['status', 'type', 'limit', 'offset', 'includeSaleCapability'].includes(key));
   if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
   const status = record.status === undefined ? 'all' : record.status;
   if (typeof status !== 'string' || !['open', 'completed', 'all'].includes(status)) {
@@ -158,6 +158,7 @@ function historyQuery(request: FastifyRequest) {
   if (limit === 0) throw new AppError('VALIDATION_ERROR', 400, 'limit geçersizdir.');
   return {
     status: status as 'open' | 'completed' | 'all',
+    includeSaleCapability: record.includeSaleCapability === 'true',
     type: type as never,
     limit,
     offset: integer(record.offset, 'offset', 0),

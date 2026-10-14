@@ -19,6 +19,8 @@ function formatInstant(value: string): string {
 
 function typeAwareSummary(job: JobCard): string {
   switch (job.type) {
+    case 'SALE':
+      return 'Gerçekleşen satış zamanını, ilgili kişiyi ve ürün miktarlarını kontrol edin.';
     case 'PRODUCT_DELIVERY':
       return 'Ürün teslim kalemlerini ve miktarları kontrol edin.';
     case 'SALES_MEETING':

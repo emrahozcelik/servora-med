@@ -302,6 +302,7 @@ describe.skipIf(!databaseUrl)('Reports R2A-1 executive aggregation contract', ()
         { type: 'PRODUCT_DELIVERY', count: 2 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 1 },
+        { type: 'SALE', count: 0 },
       ]);
       expect(dashboard.activeStatusDistribution).toEqual([
         { status: 'NEW', count: 1 },
@@ -346,6 +347,7 @@ describe.skipIf(!databaseUrl)('Reports R2A-1 executive aggregation contract', ()
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 0 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
     } finally {
       await pool?.end();

@@ -10,6 +10,7 @@ const apps: FastifyInstance[] = [];
 
 function serviceDouble() {
   return {
+    assertSaleCapability: vi.fn().mockResolvedValue(undefined),
     listOverdueIncidents: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 }),
   };
 }

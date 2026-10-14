@@ -30,10 +30,10 @@ const snapshot = { active: 4, actionable: 2, waitingApproval: 1,
 const zeroSnapshot = { active: 0, actionable: 0, waitingApproval: 0,
   revisionRequested: 0, overdue: 0 };
 const period = { created: 3,
-  createdWorkTypes: { PRODUCT_DELIVERY: 2, GENERAL_TASK: 1, SALES_MEETING: 0 },
+  createdWorkTypes: { PRODUCT_DELIVERY: 2, GENERAL_TASK: 1, SALES_MEETING: 0, SALE: 0 },
   managerApproved: 2, followUpChildren: 1 };
 const zeroPeriod = { created: 0,
-  createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0, SALES_MEETING: 0 },
+  createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0, SALES_MEETING: 0, SALE: 0 },
   managerApproved: 0, followUpChildren: 0 };
 
 const activeRow = { customer: { id: 'customer-1', name: 'Klinik A',
@@ -105,11 +105,11 @@ describe('Customer report presentation', () => {
     expect(rows[1]?.querySelector('a[href="/customers/customer-2"]')).not.toBeNull();
   });
 
-  it('shows bounded work-type chips for the three canonical types', () => {
+  it('shows bounded work-type chips for the four productive types', () => {
     const view = markup(baseReport());
     const chips = [...view.querySelectorAll('.report-customer-work-types span')]
       .map((chip) => chip.textContent);
-    expect(chips).toEqual(['Ürün teslimi 2', 'Genel görev 1', 'Satış görüşmesi 0']);
+    expect(chips).toEqual(['Ürün teslimi 2', 'Genel görev 1', 'Satış görüşmesi 0', 'Satış kaydı 0']);
   });
 
   it('keeps exactly one identity, one Şu an, and one Seçilen dönem block per card', () => {

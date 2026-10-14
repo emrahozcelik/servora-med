@@ -21,6 +21,9 @@ type EventRow = {
   audience_user_ids: string[];
   resource_keys: string[];
   created_at: Date;
+  sale_assignee_id?: string | null;
+  sale_source_id?: string | null;
+  source_assignee_id?: string | null;
 };
 
 const COLUMNS_NO_MSG = `id, organization_id, source_activity_id, event_type,
@@ -29,21 +32,37 @@ const COLUMNS_NO_MSG = `id, organization_id, source_activity_id, event_type,
 
 const COLUMNS = `${COLUMNS_NO_MSG}, messaging_activity_id`;
 
-function mapEvent(row: EventRow): RealtimeEventRecord {
+// Sale and visit are authorized independently at replay, even after reassignment.
+const SALE_SCOPE_JOIN = `LEFT JOIN LATERAL (
+  SELECT sale.assigned_to AS sale_assignee_id, source.id AS sale_source_id,
+    source.assigned_to AS source_assignee_id
+  FROM job_cards sale LEFT JOIN job_cards source
+    ON source.organization_id=sale.organization_id AND source.id=sale.sale_source_visit_id
+  WHERE sale.organization_id=realtime_events.organization_id AND sale.id=realtime_events.entity_id
+    AND sale.type='SALE' AND realtime_events.entity_type='job-card'
+) sale_scope ON TRUE`;
+const SALE_CURRENT_ACCESS = `AND ($2 <> 'STAFF' OR sale_scope.sale_assignee_id IS NULL
+  OR sale_scope.sale_assignee_id=$3 OR sale_scope.source_assignee_id=$3)`;
+
+function mapEvent(row: EventRow, viewer?: RealtimeViewer): RealtimeEventRecord {
+  const sourceOnly = viewer?.role === 'STAFF' && row.sale_assignee_id != null && row.sale_assignee_id !== viewer.userId;
+  const restrictedSource = viewer?.role === 'STAFF' && row.sale_source_id != null && row.source_assignee_id !== viewer.userId;
   return {
     id: BigInt(row.id),
     organizationId: row.organization_id,
     sourceActivityId: row.source_activity_id,
     messagingActivityId: row.messaging_activity_id,
-    type: row.event_type,
+    type: sourceOnly ? 'job.updated' : row.event_type,
     entityType: row.entity_type,
-    entityId: row.entity_id,
+    entityId: sourceOnly ? row.sale_source_id! : row.entity_id,
     actorUserId: row.actor_user_id,
     audience: {
       roles: row.audience_roles,
       userIds: row.audience_user_ids,
     },
-    resourceKeys: row.resource_keys,
+    resourceKeys: sourceOnly ? ['job-detail:' + row.sale_source_id]
+      : restrictedSource ? row.resource_keys.filter((key) => key !== 'job-detail:' + row.sale_source_id)
+      : row.resource_keys,
     occurredAt: row.created_at,
   };
 }
@@ -106,10 +125,12 @@ implements RealtimeEventRepository {
     limit: number,
   ): Promise<RealtimeEventRecord[]> {
     const result = await this.pool.query<EventRow>(
-      `SELECT ${COLUMNS}
+      `SELECT ${COLUMNS}, sale_scope.sale_assignee_id, sale_scope.sale_source_id, sale_scope.source_assignee_id
          FROM realtime_events
+         ${SALE_SCOPE_JOIN}
         WHERE organization_id = $1
           AND ($2 = ANY(audience_roles) OR $3 = ANY(audience_user_ids))
+          ${SALE_CURRENT_ACCESS}
           AND id > $4
         ORDER BY id ASC
         LIMIT $5`,
@@ -121,15 +142,17 @@ implements RealtimeEventRepository {
         limit,
       ],
     );
-    return result.rows.map(mapEvent);
+    return result.rows.map((row) => mapEvent(row, viewer));
   }
 
   async visibleHighWater(viewer: RealtimeViewer): Promise<bigint> {
     const result = await this.pool.query<{ id: string | null }>(
       `SELECT MAX(id)::text AS id
          FROM realtime_events
+         ${SALE_SCOPE_JOIN}
         WHERE organization_id = $1
-          AND ($2 = ANY(audience_roles) OR $3 = ANY(audience_user_ids))`,
+          AND ($2 = ANY(audience_roles) OR $3 = ANY(audience_user_ids))
+          ${SALE_CURRENT_ACCESS}`,
       [viewer.organizationId, viewer.role, viewer.userId],
     );
     return BigInt(result.rows[0]?.id ?? '0');

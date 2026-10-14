@@ -89,7 +89,7 @@ describe('tracer API client', () => {
     await expect(getJobCard('job-1')).resolves.toMatchObject({ contactId: 'contact-1' });
     await patchJobCard('job-1', { expectedVersion: 1, title: 'Yeni' });
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/job-cards', expect.objectContaining({ method: 'POST', body: JSON.stringify(create) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/job-cards/job-1', expect.objectContaining({ method: 'PATCH' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/job-cards/job-1?includeSaleCapability=true', expect.objectContaining({ method: 'PATCH' }));
   });
 
   it('supports delivery mutations, lifecycle commands, and activity', async () => {
@@ -158,10 +158,10 @@ describe('tracer API client', () => {
     await expect(listActivity('job-1')).resolves.toMatchObject({ items: [expect.objectContaining({ id: 'e1' })] });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/job-cards/job-1/delivery-items', '/api/job-cards/job-1/delivery-items/i1',
-      '/api/job-cards/job-1/delivery-items/i1', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
-      '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', '/api/job-cards/job-1/approve',
-      '/api/job-cards/job-1/request-revision',
-      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true',
+      '/api/job-cards/job-1/delivery-items/i1', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true&includeSaleCapability=true',
+      '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true&includeSaleCapability=true', '/api/job-cards/job-1/approve?includeSaleCapability=true',
+      '/api/job-cards/job-1/request-revision?includeSaleCapability=true',
+      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true&includeSaleCapability=true',
     ]);
   });
 

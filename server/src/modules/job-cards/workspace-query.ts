@@ -14,10 +14,10 @@ import { boundedTrimmedString, isoDate, validation } from './validation.js';
 
 const LIST_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'overdue', 'followUp', 'limit', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'followUp', 'limit', 'offset', 'includeSaleCapability',
 ] as const;
 const BOARD_KEYS = [
-  'q', 'type', 'assignedTo', 'customerId', 'priority', 'dueBefore', 'dueAfter', 'followUp', 'limit',
+  'q', 'type', 'assignedTo', 'customerId', 'priority', 'dueBefore', 'dueAfter', 'followUp', 'limit', 'includeSaleCapability',
 ] as const;
 const STATUS_FILTERS = ['active', 'closed', 'all', ...JOB_CARD_STATUSES] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -82,12 +82,14 @@ function integerQuery(
 }
 
 function baseFilters(value: Record<string, unknown>): JobCardBaseFilters {
+  if (value.includeSaleCapability !== undefined && value.includeSaleCapability !== 'true') throw validation('includeSaleCapability');
   const dueBefore = optionalDate(value.dueBefore, 'dueBefore');
   const dueAfter = optionalDate(value.dueAfter, 'dueAfter');
   if (dueAfter !== null && dueBefore !== null && dueAfter > dueBefore) {
     throw validation('dueAfter');
   }
   return {
+    ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}),
     q: optionalQuery(value.q),
     type: optionalType(value.type),
     assignedTo: optionalUuid(value.assignedTo, 'assignedTo'),

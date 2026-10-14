@@ -43,8 +43,9 @@ function exactScalarQuery(raw: unknown, allowed: readonly string[]) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
   const value = raw as Record<string, unknown>;
   for (const [key, entry] of Object.entries(value)) {
-    if (!allowed.includes(key) || Array.isArray(entry)) throw validation(key);
+    if ((key !== 'includeSaleCapability' && !allowed.includes(key)) || Array.isArray(entry)) throw validation(key);
   }
+  if (value.includeSaleCapability !== undefined && value.includeSaleCapability !== 'true') throw validation('includeSaleCapability');
   return value;
 }
 
@@ -133,18 +134,19 @@ function optionalCustomerType(value: unknown): CustomerType | null {
 
 export function parseDashboardReportQuery(raw: unknown): ReportRangeQuery {
   const value = exactScalarQuery(raw, RANGE_KEYS);
-  return { requestedRange: requestedRange(value) };
+  return { requestedRange: requestedRange(value), ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}) };
 }
 
 export function parseStaffReportQuery(raw: unknown): ReportRangeQuery {
   const value = exactScalarQuery(raw, RANGE_KEYS);
-  return { requestedRange: requestedRange(value) };
+  return { requestedRange: requestedRange(value), ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}) };
 }
 
 export function parseDeliveryReportQuery(raw: unknown): DeliveryReportQuery {
   const value = exactScalarQuery(raw, DELIVERY_KEYS);
   return {
     requestedRange: requestedRange(value),
+    ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}),
     groupBy: deliveryGroup(value.groupBy),
     staffUserId: optionalStaffUserId(value.staffUserId),
     limit: integerQuery(value.limit, 'limit', 50, 1, 200),
@@ -164,6 +166,7 @@ export function parseCustomerReportQuery(raw: unknown): CustomerReportQuery {
   const value = exactScalarQuery(raw, CUSTOMER_KEYS);
   return {
     requestedRange: requestedRange(value),
+    ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}),
     search: optionalSearch(value.search),
     status: optionalCustomerStatus(value.status),
     customerType: optionalCustomerType(value.type),
@@ -176,6 +179,7 @@ export function parseSalesFollowUpReportQuery(raw: unknown): SalesFollowUpReport
   const value = exactScalarQuery(raw, SALES_FOLLOW_UP_KEYS);
   return {
     requestedRange: requestedRange(value),
+    ...(value.includeSaleCapability === 'true' ? { includeSaleCapability: true } : {}),
     limit: integerQuery(value.limit, 'limit', 50, 1, 200),
     offset: integerQuery(value.offset, 'offset', 0, 0),
     proposalLimit: integerQuery(value.proposalLimit, 'proposalLimit', 50, 1, 200),

@@ -1,6 +1,7 @@
 import type { RequestedReportRange, ResolvedReportRange } from '../reports/types.js';
 
 export type OverviewQuery = Readonly<{
+  includeSaleCapability?: boolean;
   requestedRange: RequestedReportRange;
 }>;
 

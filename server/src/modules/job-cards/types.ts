@@ -432,6 +432,7 @@ export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 export type JobCardFollowUpFilter = 'only' | null;
 
 export type JobCardBaseFilters = {
+  includeSaleCapability?: boolean;
   q: string | null;
   type: JobCardType | null;
   assignedTo: string | null;
@@ -715,6 +716,10 @@ export type JobCardActivityLocation =
     };
 
 export type JobCardActivityDetails =
+  | { kind: 'SALE_RELATION' }
+  | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
+  | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string;
+      productName: string; quantity: string; previousQuantity: string | null }
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;

@@ -1031,6 +1031,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     { type: 'PRODUCT_DELIVERY', count: 2 },
     { type: 'GENERAL_TASK', count: 2 },
     { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
   ]);
   expect(staffReport.completionWorkTypes.reduce((total, item) => total + item.count, 0))
     .toBe(staffReport.performance.completedJobs);
@@ -1050,6 +1051,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     { type: 'PRODUCT_DELIVERY', count: 9 },
     { type: 'GENERAL_TASK', count: 9 },
     { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
   ]);
   expect(staffReport.currentWorkloadByType.reduce((total, item) => total + item.count, 0))
     .toBe(staffReport.currentWorkload.openJobCards
@@ -1149,11 +1151,13 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       { type: 'PRODUCT_DELIVERY', count: 2 },
       { type: 'GENERAL_TASK', count: 2 },
       { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
     ],
     currentWorkloadByType: [
       { type: 'PRODUCT_DELIVERY', count: 9 },
       { type: 'GENERAL_TASK', count: 9 },
       { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
     ],
     currentWorkload: {
       openJobCards: 7,
@@ -1206,11 +1210,13 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       { type: 'PRODUCT_DELIVERY', count: 1 },
       { type: 'GENERAL_TASK', count: 0 },
       { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
     ],
     currentWorkloadByType: [
       { type: 'PRODUCT_DELIVERY', count: 0 },
       { type: 'GENERAL_TASK', count: 0 },
       { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
     ],
     currentWorkload: {
       openJobCards: 0,
@@ -1744,11 +1750,13 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 3 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
       expect(staffAReport.currentWorkloadByType).toEqual([
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 0 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
 
       const staffBReport = performance.items.find(({ staff }) => staff.userId === staffB.id)!;
@@ -1776,6 +1784,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
       const inactiveReport = performance.items.find(
         ({ staff }) => staff.userId === inactiveStaff.id,

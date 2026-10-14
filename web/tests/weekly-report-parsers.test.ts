@@ -49,10 +49,10 @@ describe('weekly report web parser safety', () => {
 
   it('keeps the full union for jobs and the productive list for buckets', () => {
     expect([...JOB_CARD_TYPES]).toEqual([
-      'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'WEEKLY_REPORT',
+      'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE', 'WEEKLY_REPORT',
     ]);
     expect([...PRODUCTIVE_JOB_CARD_TYPES]).toEqual([
-      'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
+      'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE',
     ]);
     expect(jobTypeLabels.WEEKLY_REPORT).toBe('Haftalık rapor');
   });

@@ -21,36 +21,36 @@ export function createReportsHandlers(service: ReportsService) {
   return {
     dashboard: (request: FastifyRequest) => service.dashboard(
       request.currentUser!,
-      parseDashboardReportQuery(request.query),
+      { ...parseDashboardReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getOwnStaffReport: (request: FastifyRequest) => service.getOwnStaffReport(
       request.currentUser!,
-      parseStaffReportQuery(request.query),
+      { ...parseStaffReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getStaffPerformance: (request: FastifyRequest) => service.getStaffPerformance(
       request.currentUser!,
-      parseStaffReportQuery(request.query),
+      { ...parseStaffReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getStaffReport: (request: FastifyRequest) => service.getStaffReport(
       request.currentUser!,
       staffUserId(request),
-      parseStaffReportQuery(request.query),
+      { ...parseStaffReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getDeliveries: (request: FastifyRequest) => service.getDeliveries(
       request.currentUser!,
-      parseDeliveryReportQuery(request.query),
+      { ...parseDeliveryReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getApprovals: (request: FastifyRequest) => service.getApprovals(
       request.currentUser!,
-      parseApprovalReportQuery(request.query),
+      { ...parseApprovalReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getCustomers: (request: FastifyRequest) => service.getCustomers(
       request.currentUser!,
-      parseCustomerReportQuery(request.query),
+      { ...parseCustomerReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
     getSalesFollowUp: (request: FastifyRequest) => service.getSalesFollowUp(
       request.currentUser!,
-      parseSalesFollowUpReportQuery(request.query),
+      { ...parseSalesFollowUpReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
   };
 }

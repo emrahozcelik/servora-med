@@ -110,13 +110,14 @@ function contactInput(value: Record<string, unknown>) {
 export function createCrmHandlers(service: CrmService) {
   return {
     listCustomerJobHistory: (request: FastifyRequest) => {
-      const value = query(request, ['status', 'type', 'limit', 'offset']);
+      const value = query(request, ['status', 'type', 'limit', 'offset', 'includeSaleCapability']);
       const status = optionalQueryString(value.status, 'status') ?? 'all';
       if (!['open', 'completed', 'all'].includes(status)) validation('status geçersizdir.');
       const type = optionalQueryString(value.type, 'type');
       if (type !== null && !JOB_CARD_TYPES.includes(type as never)) validation('type geçersizdir.');
       return service.listCustomerJobHistory(actor(request), params(request).customerId, {
         status: status as 'open' | 'completed' | 'all',
+        includeSaleCapability: value.includeSaleCapability === 'true',
         type: type as never,
         limit: integerQuery(value.limit, 'limit', 20, 1, 100),
         offset: integerQuery(value.offset, 'offset', 0, 0),
@@ -144,7 +145,8 @@ export function createCrmHandlers(service: CrmService) {
         customerInput(body(request, CUSTOMER_CREATE_FIELDS)))),
     getCustomer: (request: FastifyRequest) => service.getCustomer(actor(request), params(request).customerId),
   getCustomerOperationalSummary: (request: FastifyRequest) =>
-    service.getCustomerOperationalSummary(actor(request), params(request).customerId),
+    service.getCustomerOperationalSummary(actor(request), params(request).customerId, new Date(),
+      (request.query as Record<string, unknown>).includeSaleCapability === 'true'),
     getEnrichmentScope: (request: FastifyRequest) => {
       query(request, []);
       return service.getEnrichmentScope(actor(request), params(request).customerId);

@@ -93,6 +93,10 @@ export type DeriveJobWorkflowPresentationInput = {
 };
 
 export const requirementLabels: Record<SubmissionRequirement['code'], string> = {
+  SALE_ORIGIN_VALID: 'Geçerli kaynak ziyaret',
+  SALE_TIME_VALID: 'Gerçekleşen satış zamanı',
+  SALE_ITEM_PRESENT: 'En az bir satış ürünü',
+  SALE_ITEMS_VALID: 'Geçerli ürün ve miktar snapshot’ları',
   CUSTOMER_ELIGIBLE: 'Aktif ve geçerli müşteri',
   ASSIGNEE_ELIGIBLE: 'Aktif ve uygun sorumlu personel',
   DELIVERY_ITEM_PRESENT: 'En az bir ürün kalemi',
@@ -282,7 +286,7 @@ function commandCopy(
       };
     case 'WITHDRAW_FROM_APPROVAL':
       return {
-        label: opts.user.role === 'STAFF'
+        label: opts.user.role === 'STAFF' && opts.job.type !== 'SALE'
           ? 'Kontrolden geri çek ve düzenle'
           : 'Kontrolden geri çek',
         consequence: 'Kontrol sona erecek ve iş yeniden “Uygulanıyor” aşamasına alınacaktır; işlem geçmişi korunur.',
@@ -528,6 +532,7 @@ export function scheduleFieldLabel(type: JobCard['type']): string {
       return 'Planlanan görüşme zamanı';
     case 'GENERAL_TASK':
     case 'WEEKLY_REPORT':
+    case 'SALE':
       return 'Planlanan zaman';
   }
 }
@@ -536,6 +541,7 @@ function deriveScheduleEdit(
   job: JobCard,
   workflowContext: JobWorkflowContext,
 ): ScheduleEditPresentation | null {
+  if (job.type === 'SALE') return null;
   // Backend rejects schedule mutations after START (JOB_NOT_EDITABLE).
   // Only offer the form while assignment-stage statuses can still accept them.
   if (!workflowContext.allowedActions.includes('EDIT_JOB_FIELDS')) return null;
@@ -551,6 +557,7 @@ function deriveRecordEditAction(
   user: CurrentUser,
   workflowContext: JobWorkflowContext,
 ): RecordEditPresentation | null {
+  if (job.type === 'SALE') return null;
   const actions = workflowContext.allowedActions;
   if (job.type === 'SALES_MEETING' && actions.includes('WITHDRAW_AND_EDIT_JOB_FIELDS')) {
     const staffWording = user.role === 'STAFF';

@@ -53,7 +53,7 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getStaffMeetingsByOutcome(input: StaffOperationalSummaryOneInput):
     Promise<MeetingOutcomeItem[]>;
   getDeliveryReport(input: DeliveryReportReadInput): Promise<DeliveryReportResponse>;
-  getApprovalSummary(input: { organizationId: string; requestTime: Date }):
+  getApprovalSummary(input: { organizationId: string; requestTime: Date; includeSaleCapability?: boolean }):
     Promise<ApprovalSummary>;
   getWorkTypeDistribution(input: WorkTypeDistributionInput):
     Promise<WorkTypeDistributionItem[]>;
@@ -64,6 +64,7 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
 
 export interface ApprovalQueueItemPort {
   getApprovalItems(input: {
+    includeSaleCapability?: boolean;
     organizationId: string;
     requestTime: Date;
     limit: number;

@@ -1,7 +1,19 @@
 import {
-  ApiError, boolean, items, json, nullableString, number, object, request, string,
+  ApiError, boolean, items, json, nullableString, number, object, request as apiRequest, string,
 } from '../services/api';
 import type { ActionLocationCapture, StartLocationCapture } from './start-location-capture.js';
+
+// Sale capability accompanies every response carrying a JobCard, workflow or activity vocabulary.
+const request: typeof apiRequest = (path, options) => {
+  const pathname = path.split('?')[0]!;
+  const method = options?.method ?? 'GET';
+  const root = /^\/api\/job-cards\/[^/]+$/.test(pathname)
+    && !['board', 'product-deliveries', 'weekly-reports', 'available-slots', 'customer-schedule'].includes(pathname.split('/').at(-1)!);
+  const gated = (pathname === '/api/job-cards' || pathname === '/api/job-cards/board') && method === 'GET'
+    || root || /\/activity$/.test(pathname)
+    || /\/(accept|start|submit-for-approval|approve|request-revision|withdraw-from-approval|resume|cancel|invalidate)$/.test(pathname);
+  return apiRequest(gated ? path + (path.includes('?') ? '&' : '?') + 'includeSaleCapability=true' : path, options);
+};
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
@@ -24,7 +36,7 @@ export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OT
  * displays must use this list (server parity) — never the full union below.
  */
 export const PRODUCTIVE_JOB_CARD_TYPES = [
-  'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
+  'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE',
 ] as const;
 /**
  * Every JobCard type the API can return, including administrative weekly
@@ -77,7 +89,7 @@ export const SUBMISSION_REQUIREMENT_CODES = [
   'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'UNSUCCESSFUL_REASON_PRESENT',
   'FOLLOW_UP_TIME_VALID',
   'WEEKLY_REPORT_FOUND', 'WEEKLY_DRAFT_VALID', 'WEEKLY_ANSWERS_COMPLETE',
-  'WEEKLY_SOURCE_WORK_READY',
+  'WEEKLY_SOURCE_WORK_READY', 'SALE_ORIGIN_VALID', 'SALE_TIME_VALID', 'SALE_ITEM_PRESENT', 'SALE_ITEMS_VALID',
 ] as const;
 
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
@@ -334,6 +346,9 @@ export type JobCardActivityLocation =
     }
   | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
 export type JobCardActivityDetails =
+  | { kind: 'SALE_RELATION' }
+  | { kind: 'SALE_DETAILS'; changedFields: Array<'soldAt' | 'saleContact'> }
+  | { kind: 'SALE_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; productName: string; quantity: string; previousQuantity: string | null }
   | {
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardActivityStatus;
@@ -906,7 +921,9 @@ function parseNotePage(value: unknown): JobCardNotePage {
 }
 function parseDetails(value: unknown): JobCardActivityDetails {
   const v = object(value); const kind = string(v.kind, 'details.kind');
-  if (kind === 'NONE') return { kind };
+  if (kind === 'NONE' || kind === 'SALE_RELATION') return { kind };
+  if (kind === 'SALE_DETAILS') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) => oneOf(field, 'changedFields', ['soldAt', 'saleContact'] as const)) };
+  if (kind === 'SALE_ITEM') return { kind, operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const), itemId: string(v.itemId, 'itemId'), productName: string(v.productName, 'productName'), quantity: string(v.quantity, 'quantity'), previousQuantity: nullableString(v.previousQuantity, 'previousQuantity') };
   if (kind === 'STATUS_TRANSITION') {
     const detail = exactObject(v, 'details', [
       'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation', 'submitLocation',

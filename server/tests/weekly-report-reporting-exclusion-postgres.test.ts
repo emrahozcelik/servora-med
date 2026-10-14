@@ -96,6 +96,7 @@ describe.skipIf(!databaseUrl)('weekly reports excluded from productive-work aggr
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
 
       const completion = (await repository.getStaffCompletionPerformanceMany(input)).get(staffId)!;
@@ -104,6 +105,7 @@ describe.skipIf(!databaseUrl)('weekly reports excluded from productive-work aggr
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 1 },
         { type: 'SALES_MEETING', count: 0 },
+        { type: 'SALE', count: 0 },
       ]);
 
       const execution = (await repository.getStaffExecutionMany(input)).get(staffId)!;

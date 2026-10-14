@@ -1,3 +1,4 @@
+import { withoutSaleCapability } from './fixtures/job-workflow';
 /** @vitest-environment jsdom */
 import { readFileSync } from 'node:fs';
 import { StrictMode, act } from 'react';
@@ -242,7 +243,7 @@ function mockDetailFetch(card: JobCard, options: {
   notes?: typeof emptyPage;
 } = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
+    const url = withoutSaleCapability(String(input));
     if (url.endsWith('/delivery-items')) return Response.json({ items: card.type === 'PRODUCT_DELIVERY' ? [item] : [] });
     if (url.includes('/meeting-details')) {
       if (options.meeting === null) throw new Error('unexpected meeting-details');
@@ -350,6 +351,29 @@ describe('Staff JobCard detail', () => {
     return fetch;
   }
 
+  it('reads Sale snapshots without meeting/delivery calls or create/edit controls', async () => {
+    const card: JobCard = { ...job, type: 'SALE', title: 'Satış anlaşması', scheduledAt: null,
+      scheduledEndsAt: null, status: 'ACCEPTED', workflowContext: staffContext('ACCEPTED') };
+    const base = mockDetailFetch(card);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/sale-details')) return Response.json({
+        jobCardId: card.id, jobCardVersion: card.version, soldAt: '2026-07-17T08:00:00.000Z',
+        saleContact: { id: 'contact-sale', name: 'Satışta görüşülen doktor', title: 'Dr.' },
+        sourceVisit: { access: 'RESTRICTED', kind: 'SALE_FROM_VISIT' },
+        items: [{ id: 'line-1', productId: 'product-1', quantity: '0.001', name: 'Tarihsel ürün',
+          sku: 'OLD-SKU', brand: 'Tarihsel marka', model: 'Eski model', unit: null }],
+      });
+      return base(input);
+    });
+    await renderScreen(card, staffUser, fetch);
+    expect(host.textContent).toContain('Tarihsel ürün');
+    expect(host.textContent).toContain('0.001');
+    expect(host.textContent).toContain('Satışta görüşülen doktor');
+    expect(host.textContent).toContain('Kaynak ziyarete erişiminiz yok');
+    expect(fetch.mock.calls.some(([url]) => /meeting-details|delivery-items|follow-ups/.test(String(url)))).toBe(false);
+    expect([...host.querySelectorAll('button')].some((button) => /düzenle|Satış oluştur|takip işi oluştur/i.test(button.textContent ?? ''))).toBe(false);
+  });
+
   it('loads authorized JobCard detail via canonical REST and does not use push payload as job data', async () => {
     const fetch = await renderScreen(job);
     expect(host.textContent).toContain(job.title);
@@ -360,7 +384,7 @@ describe('Staff JobCard detail', () => {
   it('marks entity notifications read after successful job detail resolution', async () => {
     const base = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/api/notifications/read-by-entity')) {
         expect(String(init?.method ?? 'GET').toUpperCase()).toBe('POST');
         return new Response(null, { status: 204 });
@@ -369,13 +393,13 @@ describe('Staff JobCard detail', () => {
     });
     await renderScreen(job, staffUser, fetch);
     expect(host.textContent).toContain(job.title);
-    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/api/notifications/read-by-entity'))).toBe(true);
+    expect(fetch.mock.calls.some(([input]) => withoutSaleCapability(String(input)).endsWith('/api/notifications/read-by-entity'))).toBe(true);
   });
 
   it('does not reconcile when job detail resolution fails', async () => {
     const base = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
       if (detailUrlMatches(url, job.id)) {
         return new Response(JSON.stringify({ error: 'İş bulunamadı.', code: 'NOT_FOUND' }), {
@@ -386,13 +410,13 @@ describe('Staff JobCard detail', () => {
     });
     await renderScreen(job, staffUser, fetch);
     expect(host.textContent).not.toContain(job.title);
-    expect(fetch.mock.calls.some(([input]) => String(input).endsWith('/api/notifications/read-by-entity'))).toBe(false);
+    expect(fetch.mock.calls.some(([input]) => withoutSaleCapability(String(input)).endsWith('/api/notifications/read-by-entity'))).toBe(false);
   });
 
   it('keeps the job usable when reconciliation fails', async () => {
     const base = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/api/notifications/read-by-entity')) {
         return new Response(JSON.stringify({ error: 'Hata.', code: 'REQUEST_FAILED' }), {
           status: 500, headers: { 'content-type': 'application/json' },
@@ -410,7 +434,7 @@ describe('Staff JobCard detail', () => {
     const base2 = mockDetailFetch(card2);
     let resolveFirst!: (value: Response) => void;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/api/notifications/read-by-entity')) return new Response(null, { status: 204 });
       if (detailUrlMatches(url, 'job-1')) {
         return new Promise<Response>((resolve) => { resolveFirst = resolve; });
@@ -432,7 +456,7 @@ describe('Staff JobCard detail', () => {
     await act(async () => { resolveFirst(Response.json(job)); });
     await act(async () => {});
     const reconciliations = fetch.mock.calls.filter(([input]) =>
-      String(input).endsWith('/api/notifications/read-by-entity'));
+      withoutSaleCapability(String(input)).endsWith('/api/notifications/read-by-entity'));
     expect(reconciliations).toHaveLength(1);
     expect(JSON.parse(String(reconciliations[0]![1]?.body))).toEqual({
       entityType: 'job-card', entityId: 'job-2',
@@ -706,11 +730,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -763,11 +787,11 @@ describe('Staff JobCard detail', () => {
       }, { allowedActions: [] }),
     };
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return Response.json(accepted);
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return Response.json(accepted);
       if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       throw new Error(`Unexpected request: ${url}`);
     });
@@ -803,11 +827,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -864,11 +888,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -915,11 +939,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -966,11 +990,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return Response.json({
           code: 'VERSION_CONFLICT',
@@ -1019,11 +1043,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         if (acceptBodies.length === 1) return acceptGate;
         return Response.json(accepted);
@@ -1100,12 +1124,12 @@ describe('Staff JobCard detail', () => {
     const bodies: Array<Record<string, unknown>> = [];
     let detailRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: refreshed.version });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/request-revision') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/request-revision') && init?.method === 'POST') {
         bodies.push(JSON.parse(String(init.body)));
         if (bodies.length === 1) throw new TypeError('offline');
         return Response.json(resumed);
@@ -1185,7 +1209,7 @@ describe('Staff JobCard detail', () => {
     };
     const bodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -1241,7 +1265,7 @@ describe('Staff JobCard detail', () => {
     };
     const bodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
@@ -1337,11 +1361,11 @@ describe('Staff JobCard detail', () => {
     const drainGetGate = new Promise<Response>((resolve) => { resolveDrainGet = resolve; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -1407,11 +1431,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -1481,7 +1505,7 @@ describe('Staff JobCard detail', () => {
     const patchBodies: Array<Record<string, unknown>> = [];
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items/i1') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
@@ -1555,7 +1579,7 @@ describe('Staff JobCard detail', () => {
     const patchBodies: Array<Record<string, unknown>> = [];
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
@@ -1637,7 +1661,7 @@ describe('Staff JobCard detail', () => {
     const patchBodies: Array<Record<string, unknown>> = [];
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items/i1') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
@@ -1700,7 +1724,7 @@ describe('Staff JobCard detail', () => {
     const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
     const patchBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items/i1') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         return patchGate;
@@ -1745,7 +1769,7 @@ describe('Staff JobCard detail', () => {
     let rejectPatch: (reason?: unknown) => void = () => {};
     const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details') && init?.method === 'PATCH') return patchGate;
       if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -1822,7 +1846,7 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
@@ -1900,7 +1924,7 @@ describe('Staff JobCard detail', () => {
     const startBodies: Array<Record<string, unknown>> = [];
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests === 2 ? started.version : newer.version });
       }
@@ -1962,7 +1986,7 @@ describe('Staff JobCard detail', () => {
     const reloadGetGate = new Promise<Response>((resolve) => { resolveReloadGet = resolve; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
@@ -2032,11 +2056,11 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         return acceptGate;
       }
@@ -2101,7 +2125,7 @@ describe('Staff JobCard detail', () => {
     const gates: Array<{ resolve: (value: Response) => void }> = [];
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -2163,7 +2187,7 @@ describe('Staff JobCard detail', () => {
     const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
     const patchBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -3033,7 +3057,7 @@ describe('Staff JobCard detail', () => {
       element.dispatchEvent(new Event('input', { bubbles: true }));
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         currentItems = [savedItem];
@@ -3176,7 +3200,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -3224,7 +3248,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -3317,14 +3341,14 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     let releaseCancel!: (value: unknown) => void;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.includes('/submit-for-approval') && init?.method === 'POST') {
         return Response.json(waiting);
       }
-      if (url.endsWith('/cancel') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/cancel') && init?.method === 'POST') {
         return new Promise((resolve) => { releaseCancel = resolve; });
       }
       if (detailUrlMatches(url, inProgress.id)) return Response.json(inProgress);
@@ -3423,7 +3447,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const bodies: Array<{ url: string; body: Record<string, unknown> }> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -3513,7 +3537,7 @@ describe('Staff JobCard detail', () => {
     };
     const submitPosts: unknown[] = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -3686,7 +3710,7 @@ describe('Staff JobCard detail', () => {
       element.dispatchEvent(new Event('input', { bubbles: true }));
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
         patchBodies.push(JSON.parse(String(init.body)));
         currentItems = [savedItem];
@@ -3809,7 +3833,7 @@ describe('Staff JobCard detail', () => {
       value: vi.fn(() => 'meeting-save-1'),
     });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details') && init?.method === 'PATCH') {
         currentMeeting = savedMeeting;
         currentCard = refreshedCard;
@@ -4134,7 +4158,7 @@ describe('Staff JobCard detail', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) {
         return Response.json({ items: scenario.card.type === 'PRODUCT_DELIVERY' ? [item] : [] });
       }
@@ -4195,7 +4219,7 @@ describe('Staff JobCard detail', () => {
         });
         expect(dialog.querySelector('[role="alert"]')?.textContent)
           .toContain('Tamamlanma sonucu zorunludur.');
-        expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith(scenario.endpoint)))
+        expect(vi.mocked(fetch).mock.calls.some(([url]) => withoutSaleCapability(String(url)).endsWith(scenario.endpoint)))
           .toBe(false);
       }
       if (command === 'APPROVE') expect(dialog.textContent).toContain('Onay notu');
@@ -4214,7 +4238,7 @@ describe('Staff JobCard detail', () => {
     }
 
     const transitionCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
-      String(url).endsWith(scenario.endpoint) && (init as RequestInit | undefined)?.method === 'POST');
+      withoutSaleCapability(String(url)).endsWith(scenario.endpoint) && (init as RequestInit | undefined)?.method === 'POST');
     const transitionBody = transitionCall
       ? JSON.parse(String((transitionCall[1] as RequestInit).body))
       : null;
@@ -4252,11 +4276,11 @@ describe('Staff JobCard detail', () => {
     const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
@@ -4333,7 +4357,7 @@ describe('Staff JobCard detail', () => {
     let resolveStart: (value: Response) => void = () => {};
     const startGate = new Promise<Response>((resolve) => { resolveStart = resolve; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 3 });
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4395,7 +4419,7 @@ describe('Staff JobCard detail', () => {
     const gates: Record<string, { resolve: (value: Response) => void }> = {};
     const jobGetCounts: Record<string, number> = { 'job-1': 0, 'job-2': 0 };
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -4494,11 +4518,11 @@ describe('Staff JobCard detail', () => {
     const acceptBGate = new Promise<Response>((resolve) => { resolveAcceptB = resolve; });
     const acceptBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
         if (acceptBodies.length === 1) return acceptAGate;
         return acceptBGate;
@@ -4577,7 +4601,7 @@ describe('Staff JobCard detail', () => {
       }),
     };
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) return Response.json({ ...meetingDetails, jobCardVersion: 4 });
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -4649,7 +4673,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -4713,7 +4737,7 @@ describe('Staff JobCard detail', () => {
     const reloadGetGate = new Promise<Response>((resolve) => { resolveReloadGet = resolve; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
@@ -4774,7 +4798,7 @@ describe('Staff JobCard detail', () => {
     const reloadGetGate = new Promise<Response>((resolve) => { resolveReloadGet = resolve; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
@@ -4835,7 +4859,7 @@ describe('Staff JobCard detail', () => {
     const reloadGetGate = new Promise<Response>((resolve) => { resolveReloadGet = resolve; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
@@ -4899,7 +4923,7 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version });
       }
@@ -4970,11 +4994,11 @@ describe('Staff JobCard detail', () => {
     const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
@@ -5023,11 +5047,11 @@ describe('Staff JobCard detail', () => {
     let rejectAccept: (reason: unknown) => void = () => {};
     const acceptGate = new Promise<Response>((resolve, reject) => { rejectAccept = reject; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
@@ -5076,11 +5100,11 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     let job2Requests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         return Response.json(job);
@@ -5136,7 +5160,7 @@ describe('Staff JobCard detail', () => {
     let rejectSave: (reason: unknown) => void = () => {};
     const saveGate = new Promise<Response>((resolve, reject) => { rejectSave = reject; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/api/customers?')) {
         return Response.json({
           items: [{
@@ -5219,7 +5243,7 @@ describe('Staff JobCard detail', () => {
     const drainGetGate = new Promise<Response>((resolve, reject) => { rejectDrainGet = reject; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -5298,7 +5322,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -5373,7 +5397,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -5439,7 +5463,7 @@ describe('Staff JobCard detail', () => {
     let requestsA = 0;
     let requestsB = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         if (url.includes('/job-1')) {
           return Response.json({ ...meetingDetails, jobCardVersion: requestsA >= 3 ? newerA.version : meeting.version });
@@ -5535,7 +5559,7 @@ describe('Staff JobCard detail', () => {
     const reloadGetGate = new Promise<Response>((resolve, reject) => { rejectReloadGet = reject; });
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/meeting-details')) return Response.json(meetingDetails);
       if (url.includes('/notes?')) return Response.json(emptyPage);
@@ -5596,11 +5620,11 @@ describe('Staff JobCard detail', () => {
     let rejectAccept: (reason: unknown) => void = () => {};
     const acceptGate = new Promise<Response>((resolve, reject) => { rejectAccept = reject; });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) return Response.json(job);
       if (detailUrlMatches(url, 'job-2')) return Response.json(jobB);
       throw new Error(`Unexpected request: ${url}`);
@@ -5667,11 +5691,11 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(job);
@@ -5764,7 +5788,7 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
@@ -5839,7 +5863,7 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/api/customers?')) {
         return Response.json({
           items: [{
@@ -5962,7 +5986,7 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         if (url.includes('/job-1')) {
           return Response.json({
@@ -6046,7 +6070,7 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6116,11 +6140,11 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') return acceptGate;
       if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(job);
@@ -6195,13 +6219,13 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({ ...meetingDetails, jobCardVersion: waitingMeeting.version });
       }
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/withdraw-from-approval') && init?.method === 'POST') return withdrawGate;
+      if (url.split('?')[0]!.endsWith('/withdraw-from-approval') && init?.method === 'POST') return withdrawGate;
       if (detailUrlMatches(url, 'job-1')) {
         job1Requests += 1;
         if (job1Requests === 1) return Response.json(waitingMeeting);
@@ -6267,11 +6291,11 @@ describe('Staff JobCard detail', () => {
     let acceptPosts = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptPosts += 1;
         return acceptGate;
       }
@@ -6319,7 +6343,7 @@ describe('Staff JobCard detail', () => {
     };
     let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
@@ -6374,11 +6398,11 @@ describe('Staff JobCard detail', () => {
     let acceptPosts = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
-      if (url.endsWith('/accept') && init?.method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/accept') && init?.method === 'POST') {
         acceptPosts += 1;
         return acceptGate;
       }
@@ -6432,7 +6456,7 @@ describe('Staff JobCard detail', () => {
     let job1Requests = 0;
     const onChanged = vi.fn();
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/api/customers?')) {
         return Response.json({
           items: [{
@@ -6492,7 +6516,7 @@ describe('Staff JobCard detail', () => {
       buttonByName(host, 'Değişiklikleri kaydet')?.click();
       await Promise.resolve();
     });
-    expect(fetch.mock.calls.some((call) => String(call[0]).endsWith('/api/job-cards/job-1')
+    expect(fetch.mock.calls.some((call) => String(call[0]).split('?')[0]!.endsWith('/api/job-cards/job-1')
       && call[1]?.method === 'PATCH')).toBe(true);
     await act(async () => {
       resolveSave(Response.json(updatedMeeting));
@@ -6542,7 +6566,7 @@ describe('Staff JobCard detail', () => {
     // api parser raises ApiError(0, 'INVALID_RESPONSE', retryable=false).
     // The unresolved attempt must stay frozen; retry must resend exactly.
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           ...meetingDetails,
@@ -6731,7 +6755,7 @@ describe('Staff JobCard detail', () => {
         scheduledEndsAt: null,
       });
       const fetch = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = withoutSaleCapability(String(input));
         if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
         if (url.includes('/notes?')) return Response.json(emptyPage);
         if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6769,7 +6793,7 @@ describe('Staff JobCard detail', () => {
         scheduledEndsAt: '2026-09-09T10:00:00.000Z',
       });
       const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
+        const url = withoutSaleCapability(String(input));
         if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
         if (url.includes('/notes?')) return Response.json(emptyPage);
         if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6819,7 +6843,7 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const startBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6873,7 +6897,7 @@ describe('Staff JobCard detail', () => {
     } as GeolocationPosition));
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6921,7 +6945,7 @@ describe('Staff JobCard detail', () => {
     });
     const submitBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
@@ -6992,7 +7016,7 @@ describe('Staff JobCard detail', () => {
     });
     const submitBodies: Array<Record<string, unknown>> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [] });
       if (url.includes('/notes?')) return Response.json(emptyPage);
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });

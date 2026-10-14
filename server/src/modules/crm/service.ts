@@ -36,7 +36,7 @@ export type UpdateContactInput = CreateContactInput & { expectedVersion: number 
 export type PrimaryContactResult = { contact: Contact; previousPrimaryContactId: string | null };
 export type CustomerJobHistoryInput = Pick<
   CustomerJobHistoryQuery,
-  'status' | 'type' | 'limit' | 'offset'
+  'status' | 'type' | 'limit' | 'offset' | 'includeSaleCapability'
 >;
 
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
@@ -182,6 +182,7 @@ export class CrmService {
     actor: CrmActor,
     customerId: string,
     now: Date = new Date(),
+    includeSaleCapability = true,
   ): Promise<CustomerOperationalSummary> {
     const readPort = this.jobHistoryReadPort;
     if (!readPort?.getCustomerOperationalSummary) {
@@ -192,7 +193,7 @@ export class CrmService {
       organizationId: actor.organizationId,
       customerId,
       actor,
-      now,
+      now, includeSaleCapability,
     });
   }
 

@@ -1,3 +1,4 @@
+import { uuidString } from './validation.js';
 import { AppError } from '../../errors/index.js';
 import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
@@ -714,8 +715,19 @@ export class JobCardService {
         resourceKeys.add(`calendar:${input.beforeAssigneeId}`);
       }
     }
+    // Store one activity-backed event. Replay scopes relation keys and identity per current viewer.
+    const current = await transaction.getJob(input.organizationId, input.jobCardId);
+    let audience = mapped.audience;
+    if (current?.type === 'SALE') {
+      const snapshot = await transaction.getSubmissionSale(input.organizationId, input.jobCardId);
+      const source = snapshot ? await transaction.getJob(input.organizationId, snapshot.sourceVisitId) : null;
+      if (source) {
+        resourceKeys.add('job-detail:' + source.id);
+        audience = { roles: mapped.audience.roles, userIds: [...new Set([...mapped.audience.userIds, source.assignedTo])].sort() };
+      }
+    }
     const realtimeEvent = await transaction.appendRealtimeEvent({
-      ...mapped,
+      ...mapped, audience,
       resourceKeys: drafts.length > 0
         ? [...new Set([...resourceKeys, 'notifications'])].sort()
         : [...resourceKeys].sort(),
@@ -1487,7 +1499,7 @@ export class JobCardService {
     return { job, report: mapReport(row) };
   }
 
-  async getWeeklyReport(actor: JobCardActor, jobCardId: string): Promise<WeeklyReportDetail> {
+  async getWeeklyReport(actor: JobCardActor, jobCardId: string, includeSaleCapability = true): Promise<WeeklyReportDetail> {
     const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
     const submissionRows = await this.repository.listWeeklyReportSubmissionRows(
       actor.organizationId, report.id,
@@ -1511,7 +1523,7 @@ export class JobCardService {
       dueDate: job.dueDate,
       assignedTo: job.assignedTo,
       instructions: job.description,
-      liveSourceWork,
+      liveSourceWork: includeSaleCapability ? liveSourceWork : liveSourceWork.filter((item) => item.type !== 'SALE'),
       submissionSummaries: submissionRows.map((row) => ({
         seqNo: row.seq_no,
         submittedAt: row.submitted_at.toISOString(),
@@ -1530,6 +1542,7 @@ export class JobCardService {
     actor: JobCardActor,
     jobCardId: string,
     input: { expectedVersion: number; draft: unknown; answers: unknown },
+    includeSaleCapability = true,
   ): Promise<WeeklyReportDetail> {
     const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
     if (actor.role !== 'STAFF' || actor.id !== report.staffUserId) {
@@ -1554,18 +1567,21 @@ export class JobCardService {
     if (!updated) {
       throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
     }
-    return this.getWeeklyReport(actor, jobCardId);
+    return this.getWeeklyReport(actor, jobCardId, includeSaleCapability);
   }
 
   async listWeeklyReportSubmissions(
     actor: JobCardActor,
     jobCardId: string,
+    includeSaleCapability = true,
   ): Promise<WeeklyReportSubmission[]> {
     const { report } = await this.loadWeeklyReportContext(actor, jobCardId);
     const rows = await this.repository.listWeeklyReportSubmissionRows(
       actor.organizationId, report.id,
     );
-    return rows.map(mapSubmission);
+    return rows.map(mapSubmission).map((submission) => includeSaleCapability ? submission : {
+      ...submission, sourceWork: submission.sourceWork.filter((item) => item.type !== 'SALE'),
+    });
   }
 
   /**
@@ -2155,6 +2171,35 @@ export class JobCardService {
       },
       closedCounts: board.closedCounts,
     };
+  }
+
+  async getSaleDetails(actor: JobCardActor, jobCardId: string) {
+    if (!this.repository.saleReads) throw new Error('Sale readers unavailable');
+    const detail = await this.repository.saleReads.details(actor, uuidString(jobCardId, 'jobCardId'));
+    if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    return detail;
+  }
+
+  async assertSaleCapability(actor: JobCardActor, jobCardId: string, enabled: boolean) {
+    if (enabled) return;
+    const job = await this.repository.findJobCard(actor.organizationId, uuidString(jobCardId, 'jobCardId'));
+    if (job?.type === 'SALE') throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+  }
+
+  async getSaleCreateContext(actor: JobCardActor, visitId: string) {
+    if (!this.repository.saleReads) throw new Error('Sale readers unavailable');
+    const context = await this.repository.saleReads.context(actor, uuidString(visitId, 'visitId'));
+    if (!context) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    return context;
+  }
+
+  async listRelatedSales(actor: JobCardActor, visitId: string, page: PageQuery) {
+    if (!Number.isSafeInteger(page.limit) || page.limit < 1 || page.limit > 100
+      || !Number.isSafeInteger(page.offset) || page.offset < 0) throw new AppError('VALIDATION_ERROR', 400, 'Sayfalama geçersizdir.');
+    if (!this.repository.saleReads) throw new Error('Sale readers unavailable');
+    const result = await this.repository.saleReads.related(actor, uuidString(visitId, 'visitId'), page);
+    if (!result) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    return result;
   }
 
   async detail(actor: JobCardActor, jobCardId: string, options?: { includeSubmitLocationCapability?: boolean }) {
@@ -3046,10 +3091,12 @@ export class JobCardService {
     actor: JobCardActor,
     jobCardId: string,
     page: PageQuery,
-    options?: { includeSubmitLocationCapability?: boolean; includeMetContactCapability?: boolean },
+    options?: { includeSubmitLocationCapability?: boolean; includeMetContactCapability?: boolean; includeSaleCapability?: boolean },
   ) {
     await this.detail(actor, jobCardId);
-    const result = await this.repository.listActivity(actor.organizationId, jobCardId, page);
+    const result = await this.repository.listActivity(actor.organizationId, jobCardId, {
+      ...page, ...(options?.includeSaleCapability === false ? { includeSaleCapability: false } : {}),
+    });
     return {
       items: result.items.map((item) => presentActivity(item, options)),
       total: result.total,

@@ -9,6 +9,7 @@ describe('jobTypeLabel SSOT (overview/report labels)', () => {
       GENERAL_TASK: 'Genel görev',
       SALES_MEETING: 'Satış görüşmesi',
       WEEKLY_REPORT: 'Haftalık rapor',
+      SALE: 'Satış kaydı',
     });
   });
 

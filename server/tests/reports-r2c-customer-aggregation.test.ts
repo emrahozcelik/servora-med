@@ -496,7 +496,7 @@ describe.skipIf(!databaseUrl)('Reports R2C-1 customer operational aggregation co
       expect(alpha.period.createdWorkTypes).toEqual({
         PRODUCT_DELIVERY: 1,
         GENERAL_TASK: 1,
-        SALES_MEETING: 3,
+        SALES_MEETING: 3, SALE: 0
       });
       expect(alpha.period.managerApproved).toBe(1);
       expect(alpha.period.followUpChildren).toBe(1);
@@ -527,7 +527,7 @@ describe.skipIf(!databaseUrl)('Reports R2C-1 customer operational aggregation co
       expect(gamma.activity.period.createdWorkTypes).toEqual({
         PRODUCT_DELIVERY: 0,
         GENERAL_TASK: 0,
-        SALES_MEETING: 1,
+        SALES_MEETING: 1, SALE: 0
       });
 
       const zero = report.items.find((item) => item.customer.name === 'Zero Activity')!;
@@ -553,7 +553,7 @@ describe.skipIf(!databaseUrl)('Reports R2C-1 customer operational aggregation co
       expect(report.unassigned.period.createdWorkTypes).toEqual({
         PRODUCT_DELIVERY: 0,
         GENERAL_TASK: 1,
-        SALES_MEETING: 0,
+        SALES_MEETING: 0, SALE: 0
       });
       expect(report.unassigned.period.managerApproved).toBe(0);
       expect(report.unassigned.period.followUpChildren).toBe(0);

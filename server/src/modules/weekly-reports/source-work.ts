@@ -1,3 +1,4 @@
+import { JOB_CARD_TYPES } from '../job-cards/types.js';
 import { AppError } from '../../errors/index.js';
 import { addCalendarDaysToDateKey, instantFromLocal } from '../job-cards/local-calendar.js';
 import type {
@@ -36,7 +37,7 @@ export function mapSourceWorkRow(row: WeeklySourceWorkRow): SourceWorkSnapshotIt
   if (row.status !== 'WAITING_APPROVAL' && row.status !== 'COMPLETED') {
     throw weeklySourceWorkValidation('sourceWork.statusAtSnapshot');
   }
-  if (row.type === 'WEEKLY_REPORT') {
+  if (!(JOB_CARD_TYPES as readonly string[]).includes(row.type) || row.type === 'WEEKLY_REPORT') {
     throw weeklySourceWorkValidation('sourceWork.type');
   }
   return {

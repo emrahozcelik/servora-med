@@ -62,7 +62,7 @@ describe('CRM HTTP routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/customers/customer-1/jobs?status=completed&type=SALES_MEETING&limit=7&offset=14' });
     expect(response.statusCode).toBe(200);
     expect(service.listCustomerJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'manager-1' }), 'customer-1', {
-      status: 'completed', type: 'SALES_MEETING', limit: 7, offset: 14,
+      status: 'completed', type: 'SALES_MEETING', limit: 7, offset: 14, includeSaleCapability: false,
     });
     for (const url of ['/api/customers/customer-1/jobs?unknown=x', '/api/customers/customer-1/jobs?status=closed',
       '/api/customers/customer-1/jobs?limit=0', '/api/customers/customer-1/jobs?limit=101',
@@ -78,7 +78,7 @@ describe('CRM HTTP routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/customers/customer-1/operational-summary' });
     expect(response.statusCode).toBe(200);
     expect(service.getCustomerOperationalSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'manager-1' }), 'customer-1',
+      expect.objectContaining({ id: 'manager-1' }), 'customer-1', expect.any(Date), false,
     );
   });
 

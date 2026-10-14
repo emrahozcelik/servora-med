@@ -41,6 +41,7 @@ const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, 'SALES_MEETING' | 'GENERAL_TA
   // Mirrors the server neutral default: weekly reports never parent a
   // follow-up; the map stays total without granting follow-up semantics.
   WEEKLY_REPORT: 'GENERAL_TASK',
+  SALE: 'GENERAL_TASK',
 };
 
 /** Canonical follow-up child type for a completed source, mirroring the server

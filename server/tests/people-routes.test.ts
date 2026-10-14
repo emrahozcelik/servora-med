@@ -57,11 +57,11 @@ describe('People HTTP routes', () => {
     const { app, service } = await createApp(actor, true);
     expect((await app.inject({ method: 'GET', url: '/api/staff/me/jobs?status=open&limit=5&offset=10' })).statusCode).toBe(200);
     expect(service.listOwnStaffJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), {
-      status: 'open', type: undefined, limit: 5, offset: 10,
+      status: 'open', type: undefined, limit: 5, offset: 10, includeSaleCapability: false,
     });
     expect((await app.inject({ method: 'GET', url: '/api/staff/staff-1/jobs?status=completed&type=GENERAL_TASK' })).statusCode).toBe(200);
     expect(service.listStaffJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), 'staff-1', {
-      status: 'completed', type: 'GENERAL_TASK', limit: 20, offset: 0,
+      status: 'completed', type: 'GENERAL_TASK', limit: 20, offset: 0, includeSaleCapability: false,
     });
     for (const url of ['/api/staff/me/jobs?unknown=x', '/api/staff/me/jobs?status=closed',
       '/api/staff/me/jobs?limit=0', '/api/staff/me/jobs?limit=101', '/api/staff/me/jobs?offset=-1',

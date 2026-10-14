@@ -96,6 +96,7 @@ export class PostgresOverviewRepository implements OverviewReadModel {
       organizationId: actor.organizationId,
       staffUserId: actor.id,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
     });
     if (!summary) {
@@ -128,11 +129,13 @@ export class PostgresOverviewRepository implements OverviewReadModel {
     const input = {
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
     };
     const [dashboard, approval] = await Promise.all([
       this.reports.getDashboard(input),
       this.reports.getApprovalSummary({
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         organizationId: actor.organizationId,
         requestTime,
       }),

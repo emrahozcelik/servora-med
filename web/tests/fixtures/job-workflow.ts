@@ -22,3 +22,8 @@ export const workflowContext: JobWorkflowContext = {
     items: [{ code: 'DELIVERY_ITEM_PRESENT', state: 'missing', field: 'deliveryItems' }],
   },
 };
+
+/** Behavior mocks match preexisting request fields; transport tests assert the Sale opt-in itself. */
+export function withoutSaleCapability(value: string): string {
+  return value.replace(/[?&]includeSaleCapability=true$/, '');
+}
