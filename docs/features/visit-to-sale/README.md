@@ -31,6 +31,8 @@ Original documents in the ignored discovery worktree must remain unchanged.
 - These are narrow V1 policies. Retrospective recording from completed visits or
   standalone orders needs a later product decision and migration, not a global
   permanent prohibition inferred from this slice.
+- Module boundary for future Warehouse/Accounting/integration: [DECISIONS.md
+  MOD-001](../../../DECISIONS.md).
 
 ## Migration and historical references
 

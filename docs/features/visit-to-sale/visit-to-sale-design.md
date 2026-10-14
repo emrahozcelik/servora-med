@@ -134,6 +134,8 @@ Kabul edilmiş A1–A7 dışındaki şu seçimler öneridir: kaynak alt türleri
 
 Fiyat, para birimi, iskonto, gelir, tahsilat, ödeme, fatura/e-invoice, stok, lot/serial/expiry ile fiziksel teslim izleme, muhasebe ve sale→delivery otomasyonu kapsam dışıdır. Catalog referencePrice sale snapshot/request'ine alınmaz. Aynı ürün farklı ticari koşullarla ayrı satırlar gerektirirse ileride ayrıca line identity/price sözleşmesi tasarlanır; ilk slice product ID başına tek satırdır.
 
+Modül sınırı: Warehouse/Accounting/entegrasyon sınırları için bkz. [DECISIONS.md MOD-001](../../../DECISIONS.md) (`MOD-001 — Warehouse, Accounting and Integration Boundaries`).
+
 ## 9. Design acceptance criteria
 
 - A sale is a separate JobCard with an explicit SALE_FROM_VISIT origin and its own manager approval lifecycle.

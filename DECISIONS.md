@@ -1758,3 +1758,85 @@ behavior changes).
   migration 057. Public Sale write routes remain unregistered until complete
   readers/UI in PR3. See docs/features/visit-to-sale/README.md and adjacent
   approved design/lifecycle/implementation documents for the rollout contract.
+
+## MOD-001 — Warehouse, Accounting and Integration Boundaries
+
+- **Date:** 2026-10-14
+- **Status:** Accepted
+- **Scope:** Future Warehouse/Inventory and Accounting/Commercial-Document
+  modules; Core/JobCard integration boundary
+
+### Context
+
+DOM-001 keeps delivery purpose free of financial tracking, DOM-004 keeps the
+product catalog informational, DOM-006 keeps operational reports free of
+revenue, and SALE-001 keeps the visit-origin sale free of invoice, payment,
+stock and accounting operations. No accepted record yet defines where a future
+Warehouse/Inventory module, a future Accounting/commercial-documents layer, or
+domain integration mechanics would live. External research drafts
+(`02-MODULE-AND-DATA-BOUNDARIES.md`,
+`03-INTEGRATION-AND-EVENT-BOUNDARY.md`,
+`04-CAPABILITY-MATURITY-MATRIX.md`,
+`08-MODULE-AND-VERTICAL-OPPORTUNITY-MAP.md`, Servora Core v1.1 baseline) are
+not present in this repository and are not binding; their proposals must not be
+treated as accepted implementation steps. This record adds the missing boundary
+on top of DOM/SALE without rewriting them.
+
+### Decision
+
+1. **Core / JobCard boundary.** Servora is operations-centric; the modular
+   monolith direction is kept. Core/JobCard owns job identity, staff
+   assignment, lifecycle, manager approval, operational records, audit and
+   authorization. Core never produces stock balances, ledger entries, financial
+   documents or collections. This decision authorizes no Core extraction or
+   repository refactor.
+2. **Warehouse / Inventory (future).** A future Warehouse module will own
+   depots and vehicle stock, physical quantities, reservations where needed,
+   stock in/out movements, transfers, returns and corrections, lot/serial/
+   expiry, and the link between stock movements and their source operation.
+   The same operational stock quantity must not be managed as independent
+   authoritative state in two systems. Servora Warehouse aims to act as the
+   stock authority when enabled; in integration mode where an external ERP is
+   the stock authority, that ownership is defined separately. **The single
+   stock source of truth is set explicitly per deployment/integration mode.**
+   No Warehouse tables or stock balances are created now.
+3. **Accounting / Commercial Documents (future).** A future Accounting module
+   is designed as a light commercial layer for quotes/commercial documents,
+   invoice references and lines, basic current-account/receivable state,
+   collection records, document tax data and external accounting connections.
+   No full general-ledger system is built. In particular Core never gains
+   chart of accounts, journals, e-Defter, payroll, full bank reconciliation or
+   a general posting engine. The official financial authority may later be
+   Logo, Netsis, Mikro or another authorized ERP/accounting system. Concrete
+   integration and document ownership are decided in Accounting A0.
+4. **Integration boundary.** Current realtime/SSE events are not durable
+   domain integration. Without a concrete producer/consumer and
+   reliable-delivery requirement, no generic event bus, persistent global
+   outbox, integration queue, webhook framework or Kafka/Redis-based general
+   architecture is built. When real Warehouse/Accounting integration starts, a
+   narrow durable integration/outbox contract under module ownership may be
+   designed first. Older research examples such as `ProductConsumed` or
+   `JobCard.Completed` are not accepted as finalized event names or migration
+   requirements today. The existing notification-scoped durable delivery
+   outbox for web-push stays unchanged; it is not domain integration.
+5. **SALE compatibility.** The SALE JobCard already carries durable sale
+   identity, durable line identity, product/quantity snapshots, customer and
+   source-visit relation, and approval/audit history; these may later serve as
+   references for Warehouse and Accounting. At this stage no `invoiceNumber`
+   field, warehouse/location link, invoice/payment/stock status, price,
+   discount, VAT or revenue computation is added, and no delivery/reservation
+   is auto-created. Linking one future SALE to several PRODUCT_DELIVERY
+   records and partial delivery stays a research topic; schema and rules are
+   not finalized now.
+
+### Consequences
+
+- DOM-001, DOM-004, DOM-006 and SALE-001 stay unchanged and remain the binding
+  product rules; MOD-001 only adds the module boundary above them.
+- `invoiceNumber` on JobCard notes stays recorded domain debt; its resolution
+  belongs to Accounting A0.
+- Operational agreement counts and approved delivery quantities must not be
+  mixed with revenue; see DOM-006.
+- W0 (Warehouse) and A0 (Accounting) discovery titles are defined in
+  [the reconciliation report](docs/architecture/decision-reconciliation-report.md);
+  they carry no implementation authorization.
