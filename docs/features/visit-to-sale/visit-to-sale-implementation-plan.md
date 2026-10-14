@@ -127,6 +127,8 @@ Suggested title: `feat(web): record visit sales with the shared product selector
 - Sale type-specific correction component; same ProductSelect renderQuantity. Existing rows snapshot identity; additions current catalog. New create/details/item mutations application service/client functions üzerinden; raw backend fetch component'te yok.
 - Frozen create/edit attempts, scoped mutation-owner/pending ve canonical refresh/realtime reconciliation. Product/miktar state ID-keyed; 0.5/0.001. Read-only WAITING_APPROVAL/terminal branch, existing lifecycle dialogs/requirements/review adapters.
 
+**Gelecek modül UX notu (MOD-001):** PR3 ekranında gelecekteki Warehouse/Accounting modüllerine ait bilgilendirici salt-okunur alanlar (ör. stok durumu, fatura referansı) ancak kesin veri kaynağı ve W0/A0 sözleşmesi olmadan gösterilmez. Bu alanlarda sahte buton, uydurma stok bilgisi, finansal toplam veya yanıltıcı işlem durumu olmaz; kararlaştırılmamış öğeler mevcut özellik gibi sunulmaz.
+
 **Yetki sınırı:** STAFF only assigned source/sale; source/customer/assignee overrides backend tarafından reddedilir. Catalog create veya generic contact CRUD UI action'ı yok. Optional sale contact seçimi mevcut active read endpoint'lerinden; scoped enrichment UI'si genişletilmez. Erişim değişirse safe error/restricted detail.
 
 **Migration:** Hayır. PR1 schema kullanılır. Yeni dependency yok. ProductSelect ve existing Servora-owned adapter'lar yeterlidir; direct Ant imports/token changes yok.
