@@ -116,9 +116,10 @@ describe('runMigrations', () => {
       '054_job_action_locations_submit_approval.sql',
       '055_job_submit_location_comparison.sql',
       '056_meeting_met_contact.sql',
+      '057_sale_from_visit.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('056_meeting_met_contact.sql');
-    expect(expectedSchemaVersion).toBe(56);
+    expect(migrations.at(-1)?.name).toBe('057_sale_from_visit.sql');
+    expect(expectedSchemaVersion).toBe(57);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

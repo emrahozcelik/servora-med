@@ -38,6 +38,7 @@ const MIGRATIONS = [
   '049_job_card_lifecycle_intents.sql',
   '050_overdue_incident_scanner_source.sql',
   '056_meeting_met_contact.sql',
+  '057_sale_from_visit.sql',
 ] as const;
 
 describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0 remediation)', () => {

@@ -24,6 +24,7 @@ const EXPECTED_JOB_CARD_TYPES = [
   'GENERAL_TASK',
   'SALES_MEETING',
   'WEEKLY_REPORT',
+  'SALE',
 ] as const;
 const EXPECTED_ACTIVITY_EVENTS = [
   'JOB_CREATED',
@@ -47,6 +48,7 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'JOB_SUBMISSION_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_REMINDER_SENT',
   'JOB_SUBMISSION_AUTO_ESCALATION_SENT',
+  'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
 ] as const;
 const EXPECTED_UNSUCCESSFUL_REASON_CODES = [
   'CONTACT_NOT_AVAILABLE', 'CONTACT_BUSY', 'CUSTOMER_UNREACHABLE', 'REQUESTED_LATER', 'OTHER',
@@ -155,17 +157,17 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(56);
-      expect(firstRun.appliedVersions.at(-1)).toBe('056_meeting_met_contact');
+      expect(firstRun.appliedVersions).toHaveLength(57);
+      expect(firstRun.appliedVersions.at(-1)).toBe('057_sale_from_visit');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
         pool,
         'job_card_activity_logs_event_type_check',
       );
-      expect(jobCardTypes).toHaveLength(4);
+      expect(jobCardTypes).toHaveLength(5);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(21);
+      expect(activityEvents).toHaveLength(26);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
       const reasonColumn = await pool.query<{ is_nullable: string }>(
         `SELECT is_nullable
@@ -251,6 +253,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '054_job_action_locations_submit_approval',
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
+          '057_sale_from_visit',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -275,7 +278,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql')
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -315,6 +318,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '054_job_action_locations_submit_approval',
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
+          '057_sale_from_visit',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

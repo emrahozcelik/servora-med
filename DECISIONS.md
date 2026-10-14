@@ -1735,3 +1735,26 @@ behavior changes).
 - Audits include actor, subject, changed field names, action and server-selected
   JobCard context without contact/address values. No migration or dependency is
   needed. See docs/superpowers/plans/2026-10-10-crm-staff-enrichment.md.
+
+## SALE-001 — Independent visit-origin product agreement (V1)
+
+- A completed sale agreement is its own SALE JobCard with SALE_FROM_VISIT origin
+  in sale_source_visit_id. Meeting POSITIVE, delivery SALE and follow-up origin
+  source_job_card_id remain distinct concepts.
+- V1 sources are BUSINESS, IN_PROGRESS SALES_MEETING jobs with CUSTOMER_VISIT,
+  SALES_MEETING, PRODUCT_DEMO or FOLLOW_UP engagement. Customer and assignee come
+  from the locked source; STAFF creates ACCEPTED, management creates NEW.
+- PostgreSQL permits at most one active Sale per visit. COMPLETED, CANCELLED and
+  INVALIDATED release the slot without removing history. A later independent
+  Sale still requires an eligible source. Standalone/retrospective orders are
+  future product decisions, not permanently forbidden general workflows.
+- Snapshot product name/SKU/brand/model/nullable unit and exact NUMERIC(12,3)
+  quantity; distinguish planned, actually-met and optional Sale contacts.
+- Sale creation/correction never changes the source visit or creates delivery,
+  follow-up, financial, stock or accounting operations. Existing mandatory
+  manager approval and action-scoped authorization apply. STAFF CRM/catalog
+  write permissions do not expand.
+- PR1 implements private transactional create/correction services and additive
+  migration 057. Public Sale write routes remain unregistered until complete
+  readers/UI in PR3. See docs/features/visit-to-sale/README.md and adjacent
+  approved design/lifecycle/implementation documents for the rollout contract.

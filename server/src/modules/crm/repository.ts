@@ -302,7 +302,9 @@ class PostgresCrmTransaction implements CrmTransaction {
       `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2
        UNION ALL
        SELECT 1 FROM job_card_meeting_details
-        WHERE organization_id=$1 AND met_contact_id=$2 LIMIT 1`,
+        WHERE organization_id=$1 AND met_contact_id=$2
+       UNION ALL SELECT 1 FROM job_card_sale_details
+        WHERE organization_id=$1 AND (sale_contact_id=$2 OR source_planned_contact_id=$2 OR source_met_contact_id=$2) LIMIT 1`,
       [organizationId, contactId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -422,6 +424,9 @@ export class PostgresCrmRepository implements CrmRepository {
          (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
           OR EXISTS(SELECT 1 FROM job_card_meeting_details m
                     WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_sale_details s
+                    WHERE s.organization_id=contacts.organization_id
+                    AND (s.sale_contact_id=contacts.id OR s.source_planned_contact_id=contacts.id OR s.source_met_contact_id=contacts.id))
          ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
@@ -452,6 +457,9 @@ export class PostgresCrmRepository implements CrmRepository {
          (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
           OR EXISTS(SELECT 1 FROM job_card_meeting_details m
                     WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_sale_details s
+                    WHERE s.organization_id=contacts.organization_id
+                    AND (s.sale_contact_id=contacts.id OR s.source_planned_contact_id=contacts.id OR s.source_met_contact_id=contacts.id))
          ) AS has_operation_history
        FROM contacts WHERE ${condition}
        ORDER BY is_primary DESC, name, id LIMIT $${pageValues.length - 1} OFFSET $${pageValues.length}`,
@@ -467,6 +475,9 @@ export class PostgresCrmRepository implements CrmRepository {
          (EXISTS(SELECT 1 FROM job_cards WHERE organization_id=contacts.organization_id AND contact_id=contacts.id)
           OR EXISTS(SELECT 1 FROM job_card_meeting_details m
                     WHERE m.organization_id=contacts.organization_id AND m.met_contact_id=contacts.id)
+          OR EXISTS(SELECT 1 FROM job_card_sale_details s
+                    WHERE s.organization_id=contacts.organization_id
+                    AND (s.sale_contact_id=contacts.id OR s.source_planned_contact_id=contacts.id OR s.source_met_contact_id=contacts.id))
          ) AS has_operation_history
        FROM contacts WHERE organization_id=$1 AND customer_id=$2 AND id=$3`, [organizationId, customerId, contactId],
     );
