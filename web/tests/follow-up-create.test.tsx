@@ -171,6 +171,13 @@ describe('Follow-up create page', () => {
     expect(jobs.getJobCard).not.toHaveBeenCalled();
   });
 
+  it('does not offer a generic follow-up form for a completed Sale deep link', async () => {
+    await render(manager, { ...source, type: 'SALE', engagementKind: null });
+    expect(host.textContent).toContain('Satış kaydı takip işi kaynağı değildir.');
+    expect(host.querySelector('form')).toBeNull();
+    expect(jobs.createFollowUp).not.toHaveBeenCalled();
+  });
+
   it('rejects a source that is no longer completed', async () => {
     await render(manager, { ...source, status: 'IN_PROGRESS' });
     expect(host.textContent).toContain('Yalnız tamamlanmış bir işten');
