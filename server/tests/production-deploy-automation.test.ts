@@ -79,6 +79,7 @@ const patchedHostHelper = (() => {
 })();
 const migrationState = fileURLToPath(new URL('../../ops/scripts/migration-state.mjs', import.meta.url));
 const migrationReconciliation = fileURLToPath(new URL('../../ops/scripts/migration-reconciliation.mjs', import.meta.url));
+const dbGuard = fileURLToPath(new URL('../../ops/scripts/deployment-db-guard.mjs', import.meta.url));
 const browserSmoke = fileURLToPath(new URL('../../web/scripts/production-browser-smoke.mjs', import.meta.url));
 const workflow = fileURLToPath(new URL('../../.github/workflows/deploy-production.yml', import.meta.url));
 const deploymentDoc = fileURLToPath(new URL('../../docs/operations/production-deployment.md', import.meta.url));
@@ -201,6 +202,8 @@ ARTIFACT_SHA="${'a'.repeat(64)}"
 if [[ "${mode}" == pending-allow || "${mode}" == divergent-allow || "${mode}" == ahead-allow ]]; then ALLOW_MIGRATIONS=true; fi
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -267,6 +270,8 @@ SERVICE_STATE="${mode === 'enabled' ? 'enabled' : 'disabled'}"
 SERVICE_STARTED=false
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -372,6 +377,8 @@ SHA="${TEST_SHA}"
 FQDN="fixture.example"
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 assert_env_contract() { :; }
@@ -560,6 +567,8 @@ ARTIFACT_SHA="${'a'.repeat(64)}"
 ALLOW_MIGRATIONS=${opts.allowMigrations ? 'true' : 'false'}
 log_event() { printf '%s\\n' "$1" >>"$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { log_event validate_sha; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -694,10 +703,10 @@ describe('controlled production deployment automation contract', () => {
     const root = temporaryDirectory('early-restart-mutation');
     const mutatedHelper = join(root, 'deploy-production-host.sh');
     const source = readFileSync(hostHelper, 'utf8');
-    const marker = '  enable_service_for_boot\n\n  PHASE=PREFLIGHT';
+    const marker = '  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi\n\n  PHASE=PREFLIGHT';
     const mutatedSource = source.replace(
       marker,
-      '  enable_service_for_boot\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
+      '  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi\n  systemctl restart "$SERVICE"\n\n  PHASE=PREFLIGHT',
     );
     expect(mutatedSource).not.toBe(source);
     writeFileSync(mutatedHelper, mutatedSource, { mode: 0o755 });
@@ -774,7 +783,7 @@ describe('controlled production deployment automation contract', () => {
     const root = temporaryDirectory('boot-enablement-removal');
     const modifiedHelper = join(root, 'deploy-production-host.sh');
     const source = readFileSync(hostHelper, 'utf8');
-    const withoutEnablement = source.replace('  enable_service_for_boot\n', '');
+    const withoutEnablement = source.replace('then enable_service_for_boot; fi', 'then :; fi');
     expect(withoutEnablement).not.toBe(source);
     writeFileSync(modifiedHelper, withoutEnablement, { mode: 0o755 });
 
@@ -853,13 +862,21 @@ describe('controlled production deployment automation contract', () => {
 
   it('reports only aggregate migration/data state from the protected database', () => {
     const content = readFileSync(migrationState, 'utf8');
+    const guardContent = readFileSync(dbGuard, 'utf8');
     expect(content).toContain('schema_migrations ORDER BY version ASC');
     expect(content).toContain('migration_status=');
     expect(content).toContain('classifyMigrationState');
-    expect(content).toContain('COUNT(*) FROM organizations');
-    expect(content).toContain('COUNT(*) FROM demo_datasets');
-    expect(content).toContain("'organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data'");
-    expect(content).not.toMatch(/password_hash|SELECT\s+\*|DATABASE_URL.*console/);
+    // The aggregate invariant SQL is a single source of truth shared by the
+    // deploy state reader and the service-UID recovery guard.
+    expect(content).toContain("from './deployment-db-guard.mjs'");
+    expect(content).toContain('BUSINESS_DATA_INVARIANTS_SQL');
+    expect(content).toContain('validateBusinessInvariantCounts');
+    expect(guardContent).toContain('COUNT(*) FROM organizations');
+    expect(guardContent).toContain('COUNT(*) FROM demo_datasets');
+    expect(guardContent).toContain("'organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data'");
+    for (const source of [content, guardContent]) {
+      expect(source).not.toMatch(/password_hash|SELECT\s+\*|DATABASE_URL.*console/);
+    }
   });
 
   it('keeps browser smoke anonymous and checks the historical blank-page failure', () => {
@@ -1792,6 +1809,8 @@ CURL_MODE="${curlMode}"
 HEALTH_MODE="${healthMode}"
 log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 validate_artifact() { :; }
@@ -1926,6 +1945,8 @@ FQDN="fixture.example"
 TEST_LINK="${currentLink}"
 log_event() { printf '%s\\n' "\$1" >>"\$EVENT_LOG"; }
 require_commands() { log_event require; }
+# Host admission is exercised by the real R4 host suite; isolate phase-order tests here.
+servora_assert_no_pending_attempt() { :; }
 validate_sha() { :; }
 validate_fqdn() { :; }
 read_state() { MIGRATIONS_APPLIED=0; OLD_RELEASE="${oldRelease}"; }

@@ -25,6 +25,10 @@ SSH_KEY_FILE="${SERVORA_PROD_SSH_KEY_FILE:-}"
 KNOWN_HOSTS="${SERVORA_PROD_KNOWN_HOSTS:-}"
 KNOWN_HOSTS_PATH="${SERVORA_PROD_KNOWN_HOSTS_FILE:-}"
 ALLOW_MIGRATIONS=false
+ATTEMPT_ID=""
+FORWARD_RECOVERY=false
+CI_MANIFEST_SHA=""
+ATTEMPT_OLD_SHA=""
 CHECK_ONLY=false
 CI_MODE="github"
 EVIDENCE=""
@@ -67,6 +71,7 @@ Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
   ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle>
   ops/deploy-production.sh --check
+  ops/deploy-production.sh --sha SHA --ci-mode local --evidence BUNDLE --artifact ARCHIVE --attempt-id UUID [--allow-migrations|--forward-recovery]
 
 CI mode (default: github):
   github  require a successful exact-main GitHub Actions CI run (ci.yml, push, main)
@@ -228,6 +233,9 @@ check_commands() {
   for command_name in "${BASE_COMMANDS[@]}"; do
     command -v "$command_name" >/dev/null 2>&1 || fail "REQUIRED_COMMAND_MISSING_${command_name}"
   done
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    command -v tee >/dev/null 2>&1 || fail REQUIRED_COMMAND_MISSING_tee
+  fi
   # gh/jq serve only verify_exact_main_ci: local mode (and --check) must not
   # require GitHub CLI tooling.
   if [[ "$CI_MODE" == github && "$CHECK_ONLY" != true ]]; then
@@ -364,7 +372,8 @@ verify_local_evidence() {
   local -a verify_args=(--evidence-root "$evidence_root" --sha "$SHA" --tree "$live_tree")
   "$REPO_ROOT/ops/local-ci/verify-evidence.sh" "${verify_args[@]}" \
     || fail LOCAL_EVIDENCE_NOT_VERIFIED
-  CI_RUN_ID="local:$(sha256_file "$manifest" | cut -c1-16)"
+  CI_MANIFEST_SHA="$(sha256_file "$manifest")"
+  CI_RUN_ID="local:${CI_MANIFEST_SHA:0:16}"
   CI_STATUS=PASS
 }
 
@@ -675,6 +684,31 @@ ssh_run() {
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$PROD_HOST" "$command_line"
 }
 
+validate_attempt_projection() {
+  local tree
+  tree="$(git -C "$REPO_ROOT" rev-parse "${SHA}^{tree}")" || fail COMMIT_NOT_FOUND
+  ATTEMPT_OLD_SHA="$(node --input-type=module -e '
+    const [text,sha,tree,artifact,ci,fqdn,forward]=process.argv.slice(1);
+    let value; try { value=JSON.parse(text); } catch { process.exit(1); }
+    const keys=["mode","releaseSha","treeSha","artifactSha256","ciManifestSha256","fqdn","oldReleaseSha"];
+    if(!value || Object.keys(value).length!==keys.length || keys.some(key=>!Object.hasOwn(value,key))
+      || value.mode!==(forward==="true"?"forward-recovery":"deploy") || value.releaseSha!==sha
+      || value.treeSha!==tree || value.artifactSha256!==artifact || value.ciManifestSha256!==ci
+      || value.fqdn!==fqdn || !/^[0-9a-f]{40}$/.test(value.oldReleaseSha)) process.exit(1);
+    process.stdout.write(value.oldReleaseSha);
+  ' "$1" "$SHA" "$tree" "$ARTIFACT_SHA" "$CI_MANIFEST_SHA" "$FQDN" "$FORWARD_RECOVERY")" || fail ATTEMPT_LOCAL_IDENTITY_MISMATCH
+}
+
+verify_operator_browser() {
+  (cd "$REPO_ROOT/web" && node --input-type=module -e '
+    import {createRequire} from "node:module";
+    import {chromium} from "playwright";
+    const require=createRequire(import.meta.url);
+    if(require("playwright/package.json").version!=="1.55.1") process.exit(1);
+    const browser=await chromium.launch({headless:true}); await browser.close();
+  ') || fail OPERATOR_CHROMIUM_PREREQUISITE_FAILED
+}
+
 prepare_ssh() {
   PHASE=TRANSFER
   validate_fqdn
@@ -697,6 +731,16 @@ prepare_ssh() {
     chmod 600 "$KNOWN_HOSTS_FILE"
   fi
   SSH_OPTS=(-i "$KEY_FILE" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
+  SSH_READY=true
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    local projection
+    projection="$(ssh_run sudo -n "$HOST_HELPER" --phase attempt-preflight --attempt-id "$ATTEMPT_ID")" || fail ATTEMPT_PREFLIGHT_FAILED
+    validate_attempt_projection "$projection"
+  fi
+  if [[ "$FORWARD_RECOVERY" == true ]]; then
+    TRANSFER_STATUS=NOT_RUN_SEALED_RELEASE
+    return
+  fi
   REMOTE_ARTIFACT="/var/tmp/servora-med-${SHA}-$$.tar.gz"
   REMOTE_CHECKSUM="${REMOTE_ARTIFACT}.sha256"
   REMOTE_CHECKSUM_FILE="$(mktemp)"
@@ -717,6 +761,12 @@ prepare_ssh() {
 remote_phase() {
   local output_file="$1"
   shift
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    # pipefail preserves a failed SSH phase while observation samples stay
+    # visible and the complete reviewed helper output remains on disk.
+    ssh_run "$@" 2>&1 | tee "$output_file"
+    return $?
+  fi
   if ! ssh_run "$@" >"$output_file" 2>&1; then
     return 1
   fi
@@ -733,13 +783,31 @@ deploy_remote() {
   local output_file
   output_file="$(mktemp)"
   LOCAL_TEMP_FILES+=("$output_file")
+  if [[ "$FORWARD_RECOVERY" == true ]]; then
+    if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase forward-recovery --attempt-id "$ATTEMPT_ID"; then
+      cat "$output_file" >&2
+      fail REMOTE_FORWARD_RECOVERY_FAILED
+    fi
+    # A terminal COMPLETED attempt confirms read-only after a lost SSH result:
+    # no activation, migration, backup or ownership claim is created.
+    grep -qE '^FORWARD_RECOVERY=(HEALTH_PASSED_PENDING_ACCEPTANCE|ALREADY_COMPLETED_READ_ONLY|ALREADY_COMPLETED_OWNER_RETIRED)$' "$output_file" \
+      || fail REMOTE_ACTIVATION_NOT_VERIFIED
+    OLD_RELEASE="/opt/servora-med/releases/$ATTEMPT_OLD_SHA"
+    NEW_RELEASE="/opt/servora-med/releases/$SHA"
+    MIGRATIONS_APPLIED=NOT_RUN_RECOVERY
+    PREDEPLOY_BACKUP_STATUS=PREVIOUS_RECEIPT_VERIFIED
+    ACTIVATION_STATUS=PASS; HEALTH_STATUS=PASS; DEPLOY_STATUS=PASS
+    return
+  fi
+  local -a attempt_args=()
+  if [[ -n "$ATTEMPT_ID" ]]; then attempt_args=(--attempt-id "$ATTEMPT_ID"); fi
   if [[ "$ALLOW_MIGRATIONS" == true ]]; then
-    if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase deploy --sha "$SHA" --artifact "$REMOTE_ARTIFACT" --artifact-sha "$ARTIFACT_SHA" --fqdn "$FQDN" --allow-migrations; then
+    if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase deploy --sha "$SHA" --artifact "$REMOTE_ARTIFACT" --artifact-sha "$ARTIFACT_SHA" --fqdn "$FQDN" --allow-migrations "${attempt_args[@]}"; then
       cat "$output_file" >&2
       fail REMOTE_DEPLOY_FAILED
     fi
   else
-    if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase deploy --sha "$SHA" --artifact "$REMOTE_ARTIFACT" --artifact-sha "$ARTIFACT_SHA" --fqdn "$FQDN"; then
+    if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase deploy --sha "$SHA" --artifact "$REMOTE_ARTIFACT" --artifact-sha "$ARTIFACT_SHA" --fqdn "$FQDN" "${attempt_args[@]}"; then
       cat "$output_file" >&2
       fail REMOTE_DEPLOY_FAILED
     fi
@@ -795,7 +863,9 @@ postdeploy_remote() {
   local output_file
   output_file="$(mktemp)"
   LOCAL_TEMP_FILES+=("$output_file")
-  if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase postdeploy --sha "$SHA" --fqdn "$FQDN"; then
+  local -a attempt_args=()
+  if [[ -n "$ATTEMPT_ID" ]]; then attempt_args=(--attempt-id "$ATTEMPT_ID"); fi
+  if ! remote_phase "$output_file" sudo -n "$HOST_HELPER" --phase postdeploy --sha "$SHA" --fqdn "$FQDN" "${attempt_args[@]}"; then
     cat "$output_file" >&2
     if grep -q 'LIVE_BUT_POSTDEPLOY_BACKUP_FAILED' "$output_file"; then
       POSTDEPLOY_STATUS=LIVE_BUT_POSTDEPLOY_BACKUP_FAILED
@@ -810,10 +880,15 @@ postdeploy_remote() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+seen_arguments=" "
 while [[ "$#" -gt 0 ]]; do
+  [[ "$seen_arguments" != *" $1 "* ]] || fail DUPLICATE_ARGUMENT
+  seen_arguments+="$1 "
   case "$1" in
     --sha) SHA="${2:-}"; shift 2 ;;
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
+    --attempt-id) ATTEMPT_ID="${2:-}"; shift 2 ;;
+    --forward-recovery) FORWARD_RECOVERY=true; shift ;;
     --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
     --evidence) EVIDENCE_EXPLICIT=true; EVIDENCE="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
@@ -824,6 +899,11 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ "$CI_MODE" == github || "$CI_MODE" == local ]] || fail INVALID_CI_MODE
+if [[ -n "$ATTEMPT_ID" ]]; then
+  [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ && "$CI_MODE" == local && -n "$ARTIFACT_INPUT" ]] || fail ATTEMPT_ARGUMENTS_INVALID
+fi
+[[ "$ALLOW_MIGRATIONS" == false || -n "$ATTEMPT_ID" ]] || fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
+[[ "$FORWARD_RECOVERY" == false || ( -n "$ATTEMPT_ID" && "$ALLOW_MIGRATIONS" == false ) ]] || fail RECOVERY_ARGUMENTS_INVALID
 
 if [[ "$CHECK_ONLY" == true ]]; then
   check_only
@@ -840,11 +920,14 @@ else
   verify_exact_main_ci
 fi
 build_artifact
+if [[ -n "$ATTEMPT_ID" ]]; then verify_operator_browser; fi
 prepare_ssh
 deploy_remote
 
 if ! run_browser_smoke; then
-  if [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    ROLLBACK_STATUS=MANUAL_REQUIRED_ATTEMPT_FENCED
+  elif [[ "$MIGRATIONS_APPLIED" -eq 0 ]]; then
     rollback_remote || fail BROWSER_SMOKE_FAILED_ROLLBACK_FAILED
   else
     ROLLBACK_STATUS=MANUAL_REQUIRED_MIGRATIONS_APPLIED

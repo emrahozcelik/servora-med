@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 # Fail-closed production deploy helper for Servora-Med.
 # Usage:
 #   sudo -E SHA=<git-sha> ENV_FILE=/etc/servora-med/servora-med.env \
@@ -48,6 +49,18 @@ readonly DEPLOY_FQDN="${SERVORA_FQDN:-}"
 if [[ "$REQUESTED_RELEASE" != "$DEPLOY_RELEASE" ]]; then
   echo "NEW_RELEASE must exactly match ${DEPLOY_RELEASE}" >&2
   exit 1
+fi
+
+# R4-bootstrap hosts serialize every maintenance operation with deployment.
+# A test database selector never bypasses the physical host's recovery fence.
+if [[ -d /var/lib/servora-med/deploy ]]; then
+  lock_library=/usr/local/libexec/servora-med/host-operation-lock.sh
+  [[ "$(realpath -e "$lock_library")" == "$lock_library" && "$(stat -c '%U:%G:%a:%h' "$lock_library")" == root:root:644:1 ]] || { echo HOST_LOCK_BOOTSTRAP_REQUIRED >&2; exit 1; }
+  fail() { echo "$1" >&2; exit 1; }
+  # shellcheck source=host-operation-lock.sh
+  source "$lock_library"
+  servora_acquire_host_lock
+  servora_assert_no_pending_attempt
 fi
 
 canonical_dir() {

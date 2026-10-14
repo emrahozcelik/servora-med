@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck source-path=SCRIPTDIR
 # Root-owned fixed-purpose host helper for the controlled production deploy.
 #
 # This file is installed once at
@@ -10,6 +11,7 @@ umask 077
 
 readonly SAFE_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH="$SAFE_PATH"
+unset NODE_OPTIONS NODE_PATH BASH_ENV ENV
 
 if [[ "${BASH_SOURCE[0]}" != "$0" && "${SERVORA_DEPLOY_TEST_MODE:-}" == 1 ]]; then
   # Source-only fixture hook. Direct production execution can never select a
@@ -50,6 +52,8 @@ readonly EXPECTED_POSTDEPLOY_BACKUP_UNIT_SHA256="0407a0edd60ff3be82e15bf587021c2
 readonly EXPECTED_MANUAL_BACKUP_UNIT_SHA256="4d84f77b691fc945197d686286e1233014455fa966ccbc5b175045f0c809f5d0"
 readonly NODE_BIN="/usr/bin/node"
 readonly SERVICE_USER="servora-med"
+readonly R4_RESTART_DROPIN_DIR="/etc/systemd/system/servora-med.service.d"
+readonly R4_RESTART_DROPIN="${R4_RESTART_DROPIN_DIR}/90-servora-recovery.conf"
 # Immutable release-tree evidence for Release Identity V1. The marker file is
 # tracked in source, packaged inside the immutable release artifact (ops/ is
 # included verbatim), and therefore attributable to the TARGET release — never
@@ -58,6 +62,7 @@ readonly RELEASE_IDENTITY_CAPABILITY_MARKER='ops/release-capabilities/release-id
 readonly RELEASE_IDENTITY_V1_SENTINEL='RELEASE_IDENTITY_V1'
 
 PHASE=""
+ATTEMPT_ID=""
 SHA=""
 ARTIFACT=""
 ARTIFACT_SHA=""
@@ -74,6 +79,8 @@ CURRENT_SWITCHED=false
 # candidate SHA in this process. Generic recovery paths must restore the OLD
 # release identity before (re)starting OLD code whenever this is true.
 RELEASE_IDENTITY_TRANSITIONED=false
+R4_ACTIVE=false
+VERIFIED_BACKUP_PATH=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -82,7 +89,83 @@ Usage:
     --artifact-sha SHA256 --fqdn HOST [--allow-migrations]
   deploy-production-host.sh --phase postdeploy --sha SHA --fqdn HOST
   deploy-production-host.sh --phase rollback --sha SHA --fqdn HOST
+  deploy-production-host.sh --phase forward-recovery --attempt-id UUID
+  deploy-production-host.sh --phase pre-migration-abort --attempt-id UUID
 EOF
+}
+
+r4_controller() {
+  local file directory
+  directory=/usr/local/libexec/servora-med
+  [[ -d "$directory" && ! -L "$directory" && "$(stat -c %u "$directory")" == 0 \
+    && $((8#$(stat -c %a "$directory") & 8#022)) -eq 0 ]] || fail RECOVERY_TOOL_UNTRUSTED
+  for file in deployment-controller.mjs deployment-attempt.mjs deployment-db-guard.mjs migration-reconciliation.mjs; do
+    [[ -f "$directory/$file" && ! -L "$directory/$file" \
+      && "$(stat -c '%U:%G:%a:%h' "$directory/$file")" == root:root:644:1 ]] || fail RECOVERY_TOOL_UNTRUSTED
+  done
+  "$NODE_BIN" "$directory/deployment-controller.mjs" "$@"
+}
+
+r4_recovery_phase() {
+  [[ "$EUID" -eq 0 ]] || fail ROOT_REQUIRED
+  require_commands
+  assert_env_contract
+  assert_host_backup_contract
+  r4_controller inspect "$ATTEMPT_ID" >/dev/null
+  if [[ "$PHASE" == forward-recovery ]]; then
+    r4_controller recover "$ATTEMPT_ID"
+  else
+    r4_controller abort "$ATTEMPT_ID"
+  fi
+}
+
+# Stable kernel-lock inode shared by every live host phase. Never unlink,
+# rename or recover it: process death releases flock, not attempt ownership.
+acquire_host_lock() {
+  local library=/usr/local/libexec/servora-med/host-operation-lock.sh
+  [[ "$(realpath -e "$library")" == "$library" && "$(stat -c '%U:%G:%a:%h' "$library")" == root:root:644:1 \
+    && "$(sha256sum "$library" | awk '{print $1}')" == a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e ]] || fail HOST_LOCK_BOOTSTRAP_REQUIRED
+  # shellcheck source=host-operation-lock.sh
+  source "$library"
+  servora_acquire_host_lock
+}
+
+# Internal operation only: phase admission must establish the approved attempt
+# before calling this. A start condition alone cannot bound automatic restarts.
+r4_suppress_restarts() {
+  [[ "$EUID" -eq 0 ]] || fail ROOT_REQUIRED
+  [[ ! -L "$R4_RESTART_DROPIN_DIR" ]] || fail RECOVERY_POLICY_PATH_UNTRUSTED
+  if [[ ! -e "$R4_RESTART_DROPIN_DIR" ]]; then
+    install -d -o root -g root -m 0755 "$R4_RESTART_DROPIN_DIR"
+  fi
+  [[ -d "$R4_RESTART_DROPIN_DIR" \
+    && "$(stat -c %u "$R4_RESTART_DROPIN_DIR")" == 0 \
+    && $((8#$(stat -c %a "$R4_RESTART_DROPIN_DIR") & 8#022)) -eq 0 ]] \
+    || fail RECOVERY_POLICY_PATH_UNTRUSTED
+  if [[ -e "$R4_RESTART_DROPIN" || -L "$R4_RESTART_DROPIN" ]]; then
+    [[ -f "$R4_RESTART_DROPIN" && ! -L "$R4_RESTART_DROPIN" \
+      && "$(stat -c %u "$R4_RESTART_DROPIN")" == 0 \
+      && "$(stat -c %a "$R4_RESTART_DROPIN")" == 600 \
+      && "$(cat "$R4_RESTART_DROPIN")" == $'[Service]\nRestart=no' ]] \
+      || fail RECOVERY_POLICY_FILE_UNTRUSTED
+  else
+    local policy_tmp
+    policy_tmp="$(mktemp "$R4_RESTART_DROPIN_DIR/.recovery-policy.XXXXXX")"
+    TEMP_FILES+=("$policy_tmp")
+    printf '[Service]\nRestart=no\n' > "$policy_tmp"
+    chown root:root "$policy_tmp"
+    chmod 0600 "$policy_tmp"
+    env -i PATH="$SAFE_PATH" "$NODE_BIN" -e \
+      'const fs=require("node:fs"); const fd=fs.openSync(process.argv[1],"r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }' \
+      "$policy_tmp" || fail RECOVERY_POLICY_FLUSH_FAILED
+    mv -Tf -- "$policy_tmp" "$R4_RESTART_DROPIN"
+    env -i PATH="$SAFE_PATH" "$NODE_BIN" -e \
+      'const fs=require("node:fs"); const fd=fs.openSync(process.argv[1],"r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }' \
+      "$R4_RESTART_DROPIN_DIR" || fail RECOVERY_POLICY_FLUSH_FAILED
+  fi
+  systemctl daemon-reload || fail RECOVERY_POLICY_RELOAD_FAILED
+  [[ "$(systemctl show "$SERVICE" -p Restart --value)" == no ]] \
+    || fail RECOVERY_AUTOMATIC_RESTART_NOT_DISABLED
 }
 
 fail() {
@@ -109,7 +192,7 @@ fi
 on_error() {
   local code=$?
   set +e
-  if [[ "$SERVICE_STOPPED" == true && "$MIGRATIONS_APPLIED" -eq 0 && -n "$OLD_RELEASE" ]]; then
+  if [[ "$R4_ACTIVE" == false && "$SERVICE_STOPPED" == true && "$MIGRATIONS_APPLIED" -eq 0 && -n "$OLD_RELEASE" ]]; then
     if [[ "$CURRENT_SWITCHED" == true ]]; then
       atomic_switch "$OLD_RELEASE" >/dev/null 2>&1 || true
       CURRENT_SWITCHED=false
@@ -136,7 +219,7 @@ fi
 require_commands() {
   [[ "$(id -u)" -eq 0 ]] || fail ROOT_REQUIRED
   local command_name
-  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep od sync uname; do
+  for command_name in sha256sum stat readlink tar find mv mkdir chmod chown systemctl curl setfacl getfacl sudo date sleep awk sort cut mktemp id basename dirname tr rm cmp sed grep od sync uname cp ln realpath flock; do
     command -v "$command_name" >/dev/null 2>&1 || fail "HOST_BOOTSTRAP_REQUIRED_${command_name}"
   done
   [[ -x "$NODE_BIN" ]] || fail HOST_BOOTSTRAP_REQUIRED_node
@@ -586,7 +669,7 @@ run_release_node() {
     export PATH="$2"
     shift 2
     exec "$@"
-  ' -- "$APP_ENV_FILE" "$SAFE_PATH" "$NODE_BIN" "$@"
+  ' -- "$APP_ENV_FILE" "$SAFE_PATH" "$NODE_BIN" "$@" 9>&-
 }
 
 STATE_CATALOG_COUNT=""
@@ -958,6 +1041,7 @@ verify_backup_artifact() {
   timestamp="$(stat -c '%y' "$candidate")"
   [[ "$mode" == 600 && "$owner_group" == 'servora-med:servora-med' ]] \
     || fail BACKUP_ARTIFACT_CONTRACT_INVALID
+  VERIFIED_BACKUP_PATH="$candidate"
   echo "BACKUP_ARTIFACT=$candidate_name"
   echo "BACKUP_ARTIFACT_TIMESTAMP=$timestamp"
   echo "BACKUP_ARTIFACT_OWNER_GROUP=$owner_group"
@@ -1005,7 +1089,26 @@ postdeploy=${postdeploy_status}
 EOF
   chown root:root "$temporary"
   chmod 600 "$temporary"
+  sync -f "$temporary"
   mv -- "$temporary" "$STATE_FILE"
+  sync -f "$STATE_DIR"
+}
+
+r4_read_state() {
+  local projection key value missing="" seen=" "
+  projection="$(r4_controller deployment-state "$ATTEMPT_ID" "$SHA" "$FQDN")" || fail DEPLOYMENT_STATE_INVALID
+  while IFS='=' read -r key value; do
+    [[ "$seen" != *" $key "* ]] || fail DEPLOYMENT_STATE_INVALID
+    seen+="$key "
+    case "$key" in
+      OLD_RELEASE) [[ "$value" =~ ^/opt/servora-med/releases/[0-9a-f]{40}$ ]] || fail DEPLOYMENT_STATE_INVALID; OLD_RELEASE="$value" ;;
+      MIGRATIONS_APPLIED) [[ "$value" =~ ^[0-9]+$ ]] || fail DEPLOYMENT_STATE_INVALID; MIGRATIONS_APPLIED="$value" ;;
+      STATE_MISSING) [[ "$value" == true || "$value" == false ]] || fail DEPLOYMENT_STATE_INVALID; missing="$value" ;;
+      *) fail DEPLOYMENT_STATE_INVALID ;;
+    esac
+  done <<<"$projection"
+  [[ "$seen" == ' OLD_RELEASE MIGRATIONS_APPLIED STATE_MISSING ' ]] || fail DEPLOYMENT_STATE_INVALID
+  if [[ "$missing" == true ]]; then write_state "$RELEASE_ROOT/$SHA" not_run; fi
 }
 
 read_state() {
@@ -1118,20 +1221,42 @@ deploy_phase() {
   validate_artifact
   assert_env_contract
   assert_host_backup_contract
+  local fenced_resume=false binding
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    [[ "$ALLOW_MIGRATIONS" == true ]] || fail ATTEMPT_REQUIRES_EXPLICIT_MIGRATION_SCOPE
+    binding="$(r4_controller match-deploy "$ATTEMPT_ID" "$SHA" "$ARTIFACT_SHA" "$FQDN")" || fail ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH
+    case "$binding" in
+      ATTEMPT_DEPLOYMENT_BINDING_PASS) ;;
+      $'ATTEMPT_FENCED_RESUME=YES\nATTEMPT_DEPLOYMENT_BINDING_PASS') fenced_resume=true ;;
+      *) fail ATTEMPT_DEPLOYMENT_IDENTITY_MISMATCH ;;
+    esac
+    printf '%s\n' "$binding"
+  else
+    servora_assert_no_pending_attempt
+  fi
   assert_release_dir "$RELEASE_ROOT" || fail RELEASE_ROOT_INVALID
-  enable_service_for_boot
+  if [[ "$fenced_resume" == false ]]; then enable_service_for_boot; fi
 
   PHASE=PREFLIGHT
   OLD_RELEASE="$(current_release)"
-  assert_service_and_health
+  if [[ "$fenced_resume" == false ]]; then assert_service_and_health; fi
 
   PHASE=PACKAGE
   verify_archive_entries
   verify_artifact_checksum
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    r4_retain_artifact
+    verify_archive_entries
+  fi
   stage_release
   local release="$RELEASE_ROOT/$SHA"
   validate_release_tree "$release"
   assert_candidate_backup_contract "$release"
+
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    r4_deploy_attempt "$release"
+    return
+  fi
 
   PHASE=BACKUP
   run_predeploy_backup
@@ -1286,13 +1411,138 @@ deploy_phase() {
   echo "READY_FOR_BROWSER_SMOKE=YES"
 }
 
+r4_retain_artifact() {
+  local archive_dir="$STATE_DIR/artifacts" retained="$STATE_DIR/artifacts/$SHA.tar.gz"
+  [[ -d "$archive_dir" && ! -L "$archive_dir" \
+    && "$(stat -c '%U:%G:%a' "$archive_dir")" == root:root:700 ]] || fail ATTEMPT_ARCHIVE_BOOTSTRAP_REQUIRED
+  if [[ -e "$retained" || -L "$retained" ]]; then
+    [[ -f "$retained" && ! -L "$retained" && "$(stat -c '%U:%G:%a:%h' "$retained")" == root:root:600:1 \
+      && "$(sha256sum "$retained" | cut -d' ' -f1)" == "$ARTIFACT_SHA" ]] || fail ATTEMPT_ARCHIVE_MISMATCH
+  else
+    local temporary
+    temporary="$(mktemp "$archive_dir/.archive.XXXXXX")"
+    TEMP_FILES+=("$temporary")
+    cp -- "$ARTIFACT" "$temporary"
+    chown root:root "$temporary"; chmod 0600 "$temporary"
+    [[ "$(sha256sum "$temporary" | cut -d' ' -f1)" == "$ARTIFACT_SHA" ]] || fail ATTEMPT_ARCHIVE_MISMATCH
+    sync -f "$temporary"
+    ln -- "$temporary" "$retained" || fail ATTEMPT_ARCHIVE_COLLISION
+    rm -- "$temporary"; sync -f "$archive_dir"
+  fi
+  ARTIFACT="$retained"
+}
+
+r4_deploy_attempt() {
+  local release="$1"
+  local admit_output admit_phase=""
+  r4_controller probe-old "$ATTEMPT_ID"
+  admit_output="$(r4_controller admit "$ATTEMPT_ID")"
+  case "$admit_output" in
+    ATTEMPT_ADMITTED) ;;
+    'ATTEMPT_RESUMED phase=ADMITTED') admit_phase=ADMITTED ;;
+    'ATTEMPT_RESUMED phase=BACKED_UP') admit_phase=BACKED_UP ;;
+    'ATTEMPT_RESUMED phase=FENCED') admit_phase=FENCED ;;
+    *) fail ATTEMPT_ADMISSION_STATE_INVALID ;;
+  esac
+  R4_ACTIVE=true
+  PHASE=BACKUP
+  if [[ "$admit_phase" == BACKED_UP || "$admit_phase" == FENCED ]]; then
+    # Same-owner resume after the backup was already sealed and verified;
+    # the retained receipt was re-checked by the controller before resume.
+    echo "PREDEPLOY_BACKUP=PASS"
+    echo "PREDEPLOY_BACKUP_RESUMED=RETAINED_RECEIPT_VERIFIED"
+  elif [[ "$admit_phase" == ADMITTED && -e "$STATE_DIR/backups/$ATTEMPT_ID-pre.dump" ]]; then
+    # An interruption published the sealed dump before its checkpoint write.
+    # Adopt the already-sealed bytes after fresh archive validation; a second
+    # predeploy backup is never forced by the resume.
+    r4_controller adopt-backup "$ATTEMPT_ID" pre
+    echo "PREDEPLOY_BACKUP=PASS"
+    echo "PREDEPLOY_BACKUP_RESUMED=SEALED_ARTIFACT_ADOPTED"
+  else
+    run_predeploy_backup
+    r4_controller backup-receipt "$ATTEMPT_ID" pre "$VERIFIED_BACKUP_PATH"
+  fi
+  PHASE=MIGRATION
+  if [[ "$admit_phase" != FENCED ]]; then
+    r4_controller barrier "$ATTEMPT_ID"
+    r4_suppress_restarts
+    systemctl stop "$SERVICE"
+    SERVICE_STOPPED=true
+    r4_controller event "$ATTEMPT_ID" FENCED
+  fi
+  # The running application may legitimately write after the live preflight.
+  # Read SQL again after fencing/stopping; never reuse its cached counts.
+  read_migration_state "$release"
+  local before_applied="$STATE_APPLIED_COUNT"
+  capture_data_invariants
+  [[ "$STATE_MIGRATION_STATUS" == PREFIX_WITH_PENDING || "$STATE_MIGRATION_STATUS" == EXACT ]] \
+    || fail MIGRATION_HISTORY_DIVERGED
+  r4_controller migration-intent "$ATTEMPT_ID" \
+    "$BEFORE_ORGANIZATIONS" "$BEFORE_ADMINS" "$BEFORE_STAFF" "$BEFORE_CUSTOMERS" \
+    "$BEFORE_PRODUCTS" "$BEFORE_JOBS" "$BEFORE_DEMO_DATA"
+  local migration_log
+  migration_log="$(r4_controller migration-log-path "$ATTEMPT_ID")"
+  (set -o noclobber; : >"$migration_log") || fail MIGRATION_LOG_ALREADY_EXISTS
+  # Unknown outcomes remain fenced. A fresh exact OLD/TARGET probe chooses
+  # abort versus forward-recovery; never infer rollback from a zero delta.
+  local migration_exit=0
+  printf 'START_UTC=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$migration_log"
+  run_release_node "$release" "$release/server/dist/db/migrate.js" >>"$migration_log" 2>&1 || migration_exit=$?
+  printf 'END_UTC=%s\nEXIT_CODE=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$migration_exit" >>"$migration_log"
+  sync -f "$migration_log"
+  sync -f "$STATE_DIR/logs/$ATTEMPT_ID"
+  if [[ "$migration_exit" -ne 0 ]]; then
+    fail MIGRATION_FAILED_FENCED_OPERATOR_REVIEW_REQUIRED
+  fi
+  read_migration_state "$release"
+  [[ "$STATE_EXACT_CATALOG" == true && "$STATE_MIGRATION_STATUS" == EXACT ]] || fail MIGRATION_RESULT_INCOMPATIBLE
+  MIGRATIONS_APPLIED=$((STATE_APPLIED_COUNT - before_applied))
+  [[ "$MIGRATIONS_APPLIED" -ge 0 ]] || fail MIGRATION_STATE_REGRESSED
+  assert_data_invariants_unchanged
+  PHASE=ACTIVATION
+  r4_controller recover "$ATTEMPT_ID"
+  # The schema gate must be recorded durably in the journal: recovery re-runs
+  # its own fresh check on every re-entry, and smoke/postdeploy/observation
+  # cannot proceed from a health checkpoint alone.
+  run_schema_check "$release" || fail SCHEMA_CHECK_FAILED_FENCED_OPERATOR_REVIEW_REQUIRED
+  r4_controller event "$ATTEMPT_ID" SCHEMA_CHECKED
+  write_state "$release" not_run
+  echo "SCHEMA_CHECK=PASS"
+  echo "MIGRATIONS_APPLIED=$MIGRATIONS_APPLIED"
+  echo "MIGRATION_STATUS=$STATE_MIGRATION_STATUS"
+  echo "MIGRATION_AFTER_COUNT=$STATE_APPLIED_COUNT"
+  echo "MIGRATION_AFTER_HEAD=$STATE_APPLIED_HEAD"
+  echo "OLD_RELEASE=$OLD_RELEASE"
+  echo "NEW_RELEASE=$release"
+  echo "HEALTH=PASS"
+  echo "ACTIVATION=PASS"
+  echo "READY_FOR_BROWSER_SMOKE=YES"
+}
+
 postdeploy_phase() {
   PHASE=POSTDEPLOY_BACKUP
   require_commands
   validate_sha
   validate_fqdn
   assert_env_contract
-  read_state
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    assert_host_backup_contract
+    r4_read_state
+    local decision
+    decision="$(r4_controller prepare-postdeploy "$ATTEMPT_ID" "$SHA" "$FQDN")"
+    if [[ "$decision" == BACKUP_ALREADY_VERIFIED ]]; then
+      write_state "$RELEASE_ROOT/$SHA" success
+      r4_controller observe "$ATTEMPT_ID"
+      echo "POSTDEPLOY_BACKUP=PASS"
+      echo "DEPLOYMENT=COMPLETE"
+      return
+    fi
+    [[ "$decision" == BACKUP_REQUIRED ]] || fail POSTDEPLOY_ATTEMPT_INVALID
+    R4_ACTIVE=true
+  else
+    servora_assert_no_pending_attempt
+  fi
+  if [[ -z "$ATTEMPT_ID" ]]; then read_state; fi
   local release="$RELEASE_ROOT/$SHA"
   [[ "$(current_release)" == "$release" ]] || fail CURRENT_RELEASE_NOT_CANDIDATE
   systemctl is-active --quiet "$SERVICE" || fail CURRENT_SERVICE_NOT_ACTIVE
@@ -1318,6 +1568,8 @@ postdeploy_phase() {
     exit 2
   fi
   printf '%s\n' "$verification_output"
+  local backup_name
+  backup_name="$(awk -F= '$1 == "BACKUP_ARTIFACT" {print $2}' <<<"$verification_output")"
   # The live release must also have published host observation evidence: without
   # it the public backup health projection cannot describe this host's backups.
   if ! verification_output="$(assert_observation_state_contract \
@@ -1327,6 +1579,9 @@ postdeploy_phase() {
     exit 2
   fi
   printf '%s\n' "$verification_output"
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    r4_controller backup-receipt "$ATTEMPT_ID" post "$BACKUP_DIR/$backup_name"
+  fi
   write_state "$release" success
   echo "POSTDEPLOY_BACKUP_UNIT=$backup_unit"
   echo "POSTDEPLOY_BACKUP_STARTED_AT=$backup_started_at"
@@ -1334,6 +1589,7 @@ postdeploy_phase() {
   echo "POSTDEPLOY_BACKUP_RESULT=$backup_result"
   echo "POSTDEPLOY_BACKUP_EXIT=$backup_exit"
   echo "POSTDEPLOY_BACKUP=PASS"
+  if [[ -n "$ATTEMPT_ID" ]]; then r4_controller observe "$ATTEMPT_ID"; fi
   echo "DEPLOYMENT=COMPLETE"
 }
 
@@ -1342,6 +1598,8 @@ rollback_phase() {
   require_commands
   validate_sha
   validate_fqdn
+  [[ -z "$ATTEMPT_ID" ]] || fail RECOVERY_ATTEMPT_PENDING
+  servora_assert_no_pending_attempt
   read_state
   if [[ "$MIGRATIONS_APPLIED" -ne 0 ]]; then
     fail MIGRATION_APPLIED_MANUAL_ROLLBACK_REQUIRED
@@ -1357,9 +1615,13 @@ rollback_phase() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+seen_arguments=" "
 while [[ "$#" -gt 0 ]]; do
+  [[ "$seen_arguments" != *" $1 "* ]] || fail DUPLICATE_ARGUMENT
+  seen_arguments+="$1 "
   case "$1" in
     --phase) PHASE="${2:-}"; shift 2 ;;
+    --attempt-id) ATTEMPT_ID="${2:-}"; shift 2 ;;
     --sha) SHA="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT="${2:-}"; shift 2 ;;
     --artifact-sha) ARTIFACT_SHA="${2:-}"; shift 2 ;;
@@ -1370,7 +1632,34 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$ATTEMPT_ID" ]]; then
+  [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || fail ATTEMPT_ID_INVALID
+fi
+[[ "$PHASE" == deploy || "$ALLOW_MIGRATIONS" == false ]] || fail INVALID_MIGRATION_PHASE
+
+if [[ "$PHASE" == deploy && "$ALLOW_MIGRATIONS" == true && -z "$ATTEMPT_ID" ]]; then
+  fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
+fi
+
 case "$PHASE" in
+  deploy|postdeploy|rollback|forward-recovery|pre-migration-abort|attempt-preflight) acquire_host_lock ;;
+  *) usage; fail INVALID_PHASE ;;
+esac
+
+case "$PHASE" in
+  attempt-preflight)
+    [[ -n "$ATTEMPT_ID" && -z "$SHA$ARTIFACT$ARTIFACT_SHA$FQDN" && "$ALLOW_MIGRATIONS" == false ]] || fail RECOVERY_ARGUMENTS_INVALID
+    require_commands
+    assert_env_contract
+    assert_host_backup_contract
+    r4_controller preflight "$ATTEMPT_ID"
+    ;;
+  forward-recovery|pre-migration-abort)
+    [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ \
+      && -z "$SHA$ARTIFACT$ARTIFACT_SHA$FQDN" && "$ALLOW_MIGRATIONS" == false ]] \
+      || fail RECOVERY_ARGUMENTS_INVALID
+    r4_recovery_phase
+    ;;
   deploy)
     [[ -n "$SHA" && -n "$ARTIFACT" && -n "$ARTIFACT_SHA" && -n "$FQDN" ]] || { usage; fail MISSING_ARGUMENT; }
     deploy_phase

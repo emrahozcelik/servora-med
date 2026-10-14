@@ -15,6 +15,11 @@ import {
   classifyMigrationState,
   formatMigrationVersions,
 } from './migration-reconciliation.mjs';
+import {
+  BUSINESS_DATA_INVARIANTS_SQL,
+  BUSINESS_INVARIANT_KEYS,
+  validateBusinessInvariantCounts,
+} from './deployment-db-guard.mjs';
 
 const releaseDirectory = process.argv[2] ?? '';
 const versionPattern = /^(\d{3})_([A-Za-z0-9_]+)\.sql$/;
@@ -22,14 +27,6 @@ const versionPattern = /^(\d{3})_([A-Za-z0-9_]+)\.sql$/;
 function fail() {
   console.error('Migration state unavailable.');
   process.exitCode = 1;
-}
-
-function countValue(row, key) {
-  const value = Number(row?.[key]);
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`invalid count for ${key}`);
-  }
-  return value;
 }
 
 async function loadCatalog(migrationsDirectory) {
@@ -108,30 +105,13 @@ async function main() {
     console.log(`duplicate_versions=${formatMigrationVersions(reconciliation.duplicateVersions)}`);
     console.log(`exact_catalog=${exactCatalog ? 'true' : 'false'}`);
 
-    // These are aggregate, non-sensitive invariants used to prove that a
-    // deployment did not move business data. Keep this query read-only and
-    // never select names, emails, hashes, tokens, or other row contents.
-    const countsResult = await pool.query(`
-      SELECT
-        (SELECT COUNT(*) FROM organizations)::bigint AS organizations,
-        (SELECT COUNT(*) FROM users WHERE role = 'ADMIN')::bigint AS admins,
-        (SELECT COUNT(*) FROM staff_profiles)::bigint AS staff,
-        (SELECT COUNT(*) FROM customers)::bigint AS customers,
-        (SELECT COUNT(*) FROM products)::bigint AS products,
-        (SELECT COUNT(*) FROM job_cards)::bigint AS jobs,
-        (
-          (SELECT COUNT(*) FROM demo_datasets WHERE status = 'ACTIVE')
-          + (SELECT COUNT(*) FROM users WHERE data_class = 'DEMO')
-          + (SELECT COUNT(*) FROM customers WHERE data_class = 'DEMO')
-          + (SELECT COUNT(*) FROM products WHERE data_class = 'DEMO')
-          + (SELECT COUNT(*) FROM job_cards WHERE data_class = 'DEMO')
-          + (SELECT COUNT(*) FROM conversations WHERE data_class = 'DEMO')
-          + (SELECT COUNT(*) FROM calendar_events WHERE data_class = 'DEMO')
-        )::bigint AS demo_data
-    `);
-    const counts = countsResult.rows[0];
-    for (const key of ['organizations', 'admins', 'staff', 'customers', 'products', 'jobs', 'demo_data']) {
-      console.log(`${key}=${countValue(counts, key)}`);
+    // Aggregate, non-sensitive invariants used to prove that a deployment did
+    // not move business data. The SQL and validator are shared with the
+    // service-UID recovery guard so both comparison paths use one contract.
+    const countsResult = await pool.query(BUSINESS_DATA_INVARIANTS_SQL);
+    const counts = validateBusinessInvariantCounts(countsResult.rows[0]);
+    for (const key of BUSINESS_INVARIANT_KEYS) {
+      console.log(`${key}=${counts[key]}`);
     }
   } finally {
     await pool.end();
