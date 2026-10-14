@@ -70,10 +70,11 @@ araştırma konusu).
 - `docs/features/visit-to-sale/README.md` ürün kuralları sonu: MOD-001'e tek
   satır link. PR1 sözleşme metni değişmedi.
 - `visit-to-sale-implementation-plan.md` §5 (PR3): gelecek Warehouse/Accounting
-  bilgilendirici salt-okunur alanları için UX sözleşmesi notu eklendi —
-  kesin kaynak ve W0/A0 sözleşmesi olmadan gösterim yok; sahte buton, uydurma
-  stok, finansal toplam ve yanıltıcı durum yasak; kararlaştırılmamış öğeler
-  mevcut özellik gibi sunulmaz. PR2/PR3/PR4 kapsamı değişmedi.
+  için UX sözleşmesi notu netleştirildi — yönetici SALE detayında “Ön Muhasebe”
+  ve “Stok/Depo” başlıklı, “Gelecek sürümde” işaretli iki küçük salt-okunur
+  bilgilendirme bölümü bulunabilir; gerçek veri/toplam/durum ve işlem izlenimi
+  veren kontrol yok; veri destekli alanlar W0/A0 tasarımına bağlıdır.
+  PR2/PR3/PR4 kapsamı değişmedi.
 - `visit-to-sale-data-lifecycle.md` (§2.3 satır 91: sale item'da fiyat/stok/
   fatura alanı yoktur), `product-selection-surface-inventory.md` ve
   `product-selection-ui-standardization-plan.md` incelendi; çelişki
