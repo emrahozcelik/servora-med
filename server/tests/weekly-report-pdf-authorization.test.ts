@@ -192,6 +192,7 @@ const apps: FastifyInstance[] = [];
 
 function routesServiceDouble() {
   return {
+    assertSaleCapability: vi.fn().mockResolvedValue(undefined),
     listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
     weeklyReportSubmissionPdf: vi.fn().mockResolvedValue({
       fileName: 'haftalik-rapor-2026-09-21-seq-2.pdf',

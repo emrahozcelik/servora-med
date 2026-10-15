@@ -10,11 +10,6 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   const legacySaleGuard: preHandlerHookHandler = async (request) => {
     const id = (request.params as { id?: string }).id;
     if (!id) return;
-    const pathname = request.url.split('?')[0]!;
-    if (!/\/[^/]+$/.test(pathname)) return;
-    const suffix = pathname.split('/').at(-1)!;
-    if (suffix !== id && !['start', 'accept', 'submit-for-approval', 'approve', 'request-revision',
-      'withdraw-from-approval', 'resume', 'cancel', 'invalidate', 'sale-details'].includes(suffix)) return;
     const user = request.currentUser!;
     await options.service.assertSaleCapability(user, id,
       (request.query as Record<string, unknown>).includeSaleCapability === 'true');

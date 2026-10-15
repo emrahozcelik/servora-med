@@ -3,14 +3,14 @@ import {
 } from '../services/api';
 import type { ActionLocationCapture, StartLocationCapture } from './start-location-capture.js';
 
-// Sale capability accompanies every response carrying a JobCard, workflow or activity vocabulary.
+// Sale-aware root/workflow readers and the operational subresources used by Sale detail opt in.
 const request: typeof apiRequest = (path, options) => {
   const pathname = path.split('?')[0]!;
   const method = options?.method ?? 'GET';
   const root = /^\/api\/job-cards\/[^/]+$/.test(pathname)
     && !['board', 'product-deliveries', 'weekly-reports', 'available-slots', 'customer-schedule'].includes(pathname.split('/').at(-1)!);
   const gated = (pathname === '/api/job-cards' || pathname === '/api/job-cards/board') && method === 'GET'
-    || root || /\/activity$/.test(pathname)
+    || root || /\/(activity|notes|submission-lateness|submission-reminder|overdue-incidents)$/.test(pathname)
     || /\/(accept|start|submit-for-approval|approve|request-revision|withdraw-from-approval|resume|cancel|invalidate)$/.test(pathname);
   return apiRequest(gated ? path + (path.includes('?') ? '&' : '?') + 'includeSaleCapability=true' : path, options);
 };

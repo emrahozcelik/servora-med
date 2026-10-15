@@ -66,6 +66,25 @@ authoritative; opening any referenced live JobCard still rechecks current access
 
 No global API versioning or new configuration system is introduced.
 
+### Independent review remediation — SALE-PR2-P2
+
+All 33 registered JobCard routes with a parent :id now share the authenticated
+Sale visibility guard, including nested weekly PDF and delivery-item paths and
+automatic HEAD handling. The former suffix allowlist left activity, notes and
+lateness/history subresources reachable without Sale capability. Concealment
+now runs before the handler: missing/cross-organization parents and inaccessible
+Sale assignments return the same identity-free 404. A Sale requires explicit
+capability; subsequent role, type, lifecycle and transactional checks still apply.
+The guard performs one organization-scoped parent lookup per :id request.
+
+The new bundle additionally opts in on notes GET/POST, submission-lateness,
+submission-reminder and overdue-incidents. Their DTOs and existing management-only
+permissions remain unchanged. Meeting/delivery/follow-up calls and collection
+creation/scheduling routes do not receive a blanket subresource capability.
+Normal JobCard, meeting, delivery and weekly reader parity is covered with real
+records. Reassignment, source-only STAFF, unrelated STAFF and both cross-org
+roles are tested; concealed writes append no note, receipt or realtime event.
+
 ## Lifecycle, timeline and realtime
 
 Sale has an explicit detail loader and never fetches meeting-details or

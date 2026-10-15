@@ -7,6 +7,7 @@ import {
   listFollowUps, listJobCards, findAvailableSlots, invalidateJobCard, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
+  getSubmissionLateness, listOverdueIncidents, sendSubmissionReminder,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
 import { workflowContext } from './fixtures/job-workflow';
@@ -59,6 +60,27 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('opts into Sale visibility on operational subresources without changing their DTOs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ items: [], limit: 25, nextCursor: null }))
+      .mockResolvedValueOnce(json({ ...note, jobCardId: 'sale-1' }, 201))
+      .mockResolvedValueOnce(json({ open: null }))
+      .mockResolvedValueOnce(json({ items: [], total: 0, limit: 25, offset: 0 }))
+      .mockResolvedValueOnce(json({ jobCardId: 'sale-1', reminderId: 'reminder-1', sentAt: '2026-10-15T08:00:00.000Z' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listJobCardNotes('sale-1')).resolves.toEqual({ items: [], limit: 25, nextCursor: null });
+    await expect(addJobCardNote('sale-1', { clientActionId: 'sale-note', note: 'Agreed' })).resolves.toMatchObject({ jobCardId: 'sale-1' });
+    await expect(getSubmissionLateness('sale-1')).resolves.toEqual({ open: null });
+    await expect(listOverdueIncidents('sale-1')).resolves.toEqual({ items: [], total: 0, limit: 25, offset: 0 });
+    await expect(sendSubmissionReminder('sale-1', { clientActionId: 'sale-reminder', expectedVersion: 1 })).resolves.toMatchObject({ jobCardId: 'sale-1' });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/job-cards/sale-1/notes?includeSaleCapability=true',
+      '/api/job-cards/sale-1/notes?includeSaleCapability=true',
+      '/api/job-cards/sale-1/submission-lateness?includeSaleCapability=true',
+      '/api/job-cards/sale-1/overdue-incidents?includeSaleCapability=true',
+      '/api/job-cards/sale-1/submission-reminder?includeSaleCapability=true',
+    ]);
+  });
   it('posts invalidation with the exact body and validates the authoritative mutation response', async () => {
     const invalidatedAt = '2026-08-18T08:00:00.000Z';
     const fetchMock = vi.fn().mockResolvedValue(json({
@@ -569,7 +591,7 @@ describe('JobCard workspace transport', () => {
     });
     const input = { clientActionId: 'note-action', note: 'Klinik arandı' };
     await expect(addJobCardNote('job-1', input)).resolves.toEqual(note);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/notes', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/notes?includeSaleCapability=true', expect.objectContaining({
       method: 'POST', body: JSON.stringify(input), credentials: 'include',
     }));
   });

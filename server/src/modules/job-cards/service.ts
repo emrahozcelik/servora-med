@@ -2181,9 +2181,10 @@ export class JobCardService {
   }
 
   async assertSaleCapability(actor: JobCardActor, jobCardId: string, enabled: boolean) {
-    if (enabled) return;
     const job = await this.repository.findJobCard(actor.organizationId, uuidString(jobCardId, 'jobCardId'));
-    if (job?.type === 'SALE') throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    if (!job || (job.type === 'SALE' && (!enabled || (actor.role === 'STAFF' && job.assignedTo !== actor.id)))) {
+      throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    }
   }
 
   async getSaleCreateContext(actor: JobCardActor, visitId: string) {
