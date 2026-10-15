@@ -9,7 +9,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale corrections', () => {
       const input = { clientActionId: 'guarded-edit', expectedVersion: 1, quantity: 2 };
       await expect(f.service.patchSaleItem(f.otherStaff, sale.jobCardId, itemId, input)).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
       await expect(f.service.patchSaleItem(f.staff, sale.jobCardId, f.products[0]!, input)).rejects.toMatchObject({ code: 'SALE_ITEM_NOT_FOUND', statusCode: 404 });
-      for (const quantity of [0, -1, NaN, Infinity, 0.0001, 1.2345, 1_000_000_000]) {
+      for (const quantity of [0, -1, NaN, Infinity, 0.001, 0.5, 1.5, 2.75, 0.0001, 1.2345, 1_000_000_000]) {
         await expect(f.service.patchSaleItem(f.staff, sale.jobCardId, itemId, { ...input, quantity })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
       }
       await expect(f.service.patchSaleItem(f.staff, sale.jobCardId, itemId, { ...input, productId: f.products[1] })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
@@ -61,8 +61,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale corrections', () => {
         .rejects.toMatchObject({ code: 'SALE_PRODUCT_DUPLICATE', statusCode: 409 });
       const rows = (await f.pool.query('SELECT product_id,quantity,product_name_snapshot,sort_order FROM job_card_sale_items WHERE job_card_id=$1 ORDER BY sort_order', [sale.jobCardId])).rows;
       expect(rows).toEqual([
-        { product_id: f.products[0], quantity: '0.500', product_name_snapshot: 'Matrix set', sort_order: 0 },
-        { product_id: f.products[1], quantity: '0.001', product_name_snapshot: 'Bonding liquid', sort_order: 1 },
+        { product_id: f.products[0], quantity: '1.000', product_name_snapshot: 'Matrix set', sort_order: 0 },
+        { product_id: f.products[1], quantity: '15.000', product_name_snapshot: 'Bonding liquid', sort_order: 1 },
       ]);
     });
   });
@@ -88,12 +88,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale corrections', () => {
       const item = (await f.pool.query('SELECT * FROM job_card_sale_items WHERE job_card_id=$1 AND product_id=$2',
         [sale.jobCardId, f.products[0]])).rows[0];
       await f.pool.query("UPDATE products SET name='Renamed',brand='Changed',is_active=false WHERE id=$1", [item.product_id]);
-      const input = { clientActionId: 'sale-quantity', expectedVersion: 1, quantity: 0.001 };
+      const input = { clientActionId: 'sale-quantity', expectedVersion: 1, quantity: 2 };
       const result = await f.service.patchSaleItem(f.staff, sale.jobCardId, item.id, input);
       expect(result).toEqual({ jobCardId: sale.jobCardId, version: 2 });
       expect(await f.service.patchSaleItem(f.staff, sale.jobCardId, item.id, input)).toEqual(result);
       const after = (await f.pool.query('SELECT * FROM job_card_sale_items WHERE id=$1', [item.id])).rows[0];
-      expect(after).toMatchObject({ quantity: '0.001', product_id: item.product_id,
+      expect(after).toMatchObject({ quantity: '2.000', product_id: item.product_id,
         product_name_snapshot: item.product_name_snapshot, product_brand_snapshot: item.product_brand_snapshot });
       expect((await f.pool.query("SELECT count(*)::int AS count FROM job_card_activity_logs WHERE job_card_id=$1 AND event_type='SALE_ITEM_UPDATED'", [sale.jobCardId])).rows[0].count).toBe(1);
     });

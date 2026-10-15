@@ -1,5 +1,5 @@
 import { ApiError, boolean, nullableString, number, object, request, string } from '../services/api';
-import { JOB_CARD_STATUSES, type JobCardStatus, type Paginated } from './jobs-api';
+import { JOB_CARD_STATUSES, parseSaleQuantity, type JobCardStatus, type Paginated } from './jobs-api';
 
 export type SaleContact = { id: string; name: string; title: string | null };
 export type SaleLink = { access: 'RESTRICTED' } | { access: 'FULL'; id: string; title: string; status: JobCardStatus };
@@ -35,11 +35,6 @@ function contact(value: unknown): SaleContact | null {
   return { id: string(row.id, 'contact.id'), name: string(row.name, 'contact.name'),
     title: nullableString(row.title, 'contact.title') };
 }
-function quantity(value: unknown) {
-  const q = string(value, 'quantity');
-  if (!/^\d{1,9}\.\d{3}$/.test(q) || Number(q) <= 0) invalid();
-  return q;
-}
 function link(value: unknown): SaleLink {
   const row = object(value);
   if (row.access === 'RESTRICTED') { exact(row, ['access']); return { access: 'RESTRICTED' }; }
@@ -72,7 +67,7 @@ export function parseSaleDetails(value: unknown): SaleDetails {
     const item = exact(value, ['id', 'productId', 'name', 'sku', 'brand', 'model', 'unit', 'quantity']);
     return { id: string(item.id, 'item.id'), productId: string(item.productId, 'productId'),
       name: string(item.name, 'name'), sku: nullableString(item.sku, 'sku'), brand: nullableString(item.brand, 'brand'),
-      model: nullableString(item.model, 'model'), unit: nullableString(item.unit, 'unit'), quantity: quantity(item.quantity) };
+      model: nullableString(item.model, 'model'), unit: nullableString(item.unit, 'unit'), quantity: parseSaleQuantity(item.quantity) };
   });
   if (new Set(items.map((item) => item.productId)).size !== items.length) invalid();
   return { jobCardId: string(row.jobCardId, 'jobCardId'), jobCardVersion: integer(row.jobCardVersion, 1),

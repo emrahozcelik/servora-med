@@ -82,3 +82,10 @@ Tüm anchor'lar [reviewed main](https://github.com/emrahozcelik/servora-med/tree
 - Catalog/reference-price fields and read-only report quantities are separated from operational selection.
 - Missing delivery follow-up item entry is recorded as a functional gap with an explicit deferral.
 - Sale creation/correction reuse ProductSelect; read-only historical records preserve snapshot truth.
+
+## SALE-QTY-001 handoff (2026-10-15)
+
+The fractional examples above remain historical ProductSelect/Delivery evidence.
+Sale quantity now means integer product count (1–999999999); PR3 defaults to 1
+and must adapt selection/add/correction consistently without changing Delivery
+fractional input or ProductForm. No shared selector change is part of SALE-QTY-001.

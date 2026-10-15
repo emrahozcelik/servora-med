@@ -493,6 +493,13 @@ function count(value: unknown, field: string) {
   if (!Number.isInteger(parsed) || parsed < 0) invalid(field);
   return parsed;
 }
+/** SALE-QTY-001 public count, shared by detail and safe activity readers. */
+export function parseSaleQuantity(value: unknown): string {
+  const quantity = string(value, 'quantity');
+  if (!/^[1-9]\d{0,8}$/.test(quantity)) invalid('quantity');
+  return quantity;
+}
+
 function positiveCount(value: unknown, field: string) {
   const parsed = count(value, field);
   if (parsed < 1) invalid(field);
@@ -923,7 +930,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   const v = object(value); const kind = string(v.kind, 'details.kind');
   if (kind === 'NONE' || kind === 'SALE_RELATION') return { kind };
   if (kind === 'SALE_DETAILS') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) => oneOf(field, 'changedFields', ['soldAt', 'saleContact'] as const)) };
-  if (kind === 'SALE_ITEM') return { kind, operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const), itemId: string(v.itemId, 'itemId'), productName: string(v.productName, 'productName'), quantity: string(v.quantity, 'quantity'), previousQuantity: nullableString(v.previousQuantity, 'previousQuantity') };
+  if (kind === 'SALE_ITEM') return { kind, operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const), itemId: string(v.itemId, 'itemId'), productName: string(v.productName, 'productName'), quantity: parseSaleQuantity(v.quantity), previousQuantity: v.previousQuantity === null ? null : parseSaleQuantity(v.previousQuantity) };
   if (kind === 'STATUS_TRANSITION') {
     const detail = exactObject(v, 'details', [
       'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation', 'submitLocation',

@@ -74,6 +74,7 @@ beforeAll(async () => {
   await symlink(path.join(release, 'server/node_modules'), path.join(previousRelease, 'server/node_modules'), 'dir');
   await rm(path.join(previousRelease, 'server/dist/db/migrations/056_meeting_met_contact.sql'));
   await rm(path.join(previousRelease, 'server/dist/db/migrations/057_sale_from_visit.sql'));
+  await rm(path.join(previousRelease, 'server/dist/db/migrations/058_sale_integer_quantity.sql'));
 });
 
 beforeEach(async () => {
@@ -94,7 +95,7 @@ afterAll(async () => {
 });
 
 describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () => {
-  it('accepts the same complete 057 history despite interleaved timestamps in every reader', async () => {
+  it('accepts the same complete 058 history despite interleaved timestamps in every reader', async () => {
     const before = await history();
     const applied = await new PostgresMigrationStore(pool!).getAppliedVersions();
     expect(applied).toEqual(catalog.entries.map((entry) => entry.version));
@@ -116,24 +117,24 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
     expect(deploy.error).toBeUndefined();
     expect(deploy.status).toBe(0);
     expect(deploy.stdout).toContain('migration_status=EXACT\n');
-    expect(deploy.stdout).toContain('applied_count=57\n');
+    expect(deploy.stdout).toContain('applied_count=58\n');
     expect(deploy.stdout).toContain('pending_count=0\n');
     expect(deploy.stdout).toContain('unexpected_count=0\n');
     expect(await history()).toEqual(before);
   });
 
-  it('reports 056 as BEHIND with only 057 pending despite interleaved timestamps', async () => {
+  it('reports 057 as BEHIND with only 058 pending despite interleaved timestamps', async () => {
     await pool!.query('DELETE FROM schema_migrations WHERE version = $1', [catalog.head!.version]);
     const output = await expectIncompatibleReaders('BEHIND', 'PREFIX_WITH_PENDING');
     expect(output).toContain('pending_count=1\n');
-    expect(output).toContain('pending_versions=057_sale_from_visit\n');
-    expect(output).toContain('applied_head=056_meeting_met_contact\n');
+    expect(output).toContain('pending_versions=058_sale_integer_quantity\n');
+    expect(output).toContain('applied_head=057_sale_from_visit\n');
   });
 
   it('reports a synthetic future canonical version as AHEAD in all readers', async () => {
-    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('058_future_feature', '2000-01-01')");
+    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('059_future_feature', '2000-01-01')");
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD');
-    expect(output).toContain('unexpected_versions=058_future_feature\n');
+    expect(output).toContain('unexpected_versions=059_future_feature\n');
   });
 
   it('keeps a missing middle migration DIVERGED', async () => {
@@ -142,7 +143,7 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   });
 
   it('keeps an alternative branch migration DIVERGED', async () => {
-    await pool!.query("UPDATE schema_migrations SET version = '057_alternative_branch' WHERE version = $1", [catalog.head!.version]);
+    await pool!.query("UPDATE schema_migrations SET version = '058_alternative_branch' WHERE version = $1", [catalog.head!.version]);
     await expectIncompatibleReaders('DIVERGED', 'DIVERGENT');
   });
 
@@ -161,13 +162,13 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   it('keeps empty history incompatible and reports every version pending', async () => {
     await pool!.query('DELETE FROM schema_migrations');
     const output = await expectIncompatibleReaders('EMPTY', 'PREFIX_WITH_PENDING');
-    expect(output).toContain('pending_count=57\n');
+    expect(output).toContain('pending_count=58\n');
   });
 
-  it('keeps the pre-056 release catalog AHEAD fail-closed against a 057 database', async () => {
+  it('keeps the pre-056 release catalog AHEAD fail-closed against a 058 database', async () => {
     const previousCatalog = await loadMigrationCatalog(path.join(previousRelease, 'server/dist/db/migrations'));
     expect(previousCatalog.head!.version).toBe('055_job_submit_location_comparison');
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD', previousCatalog, previousRelease);
-    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit\n');
+    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit,058_sale_integer_quantity\n');
   });
 });

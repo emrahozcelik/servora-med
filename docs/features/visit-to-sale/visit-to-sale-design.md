@@ -100,7 +100,7 @@ Mevcut görsel otorite `DESIGN.md`; uygulama değerleri `web/src/ui/servora-visu
 1. Uygun kaynak JobDetail'da ikincil **Satış oluştur** aksiyonu. Ana ziyaret lifecycle komutu yerini korur. Aktif satış varsa erişilebilir kartı açma aksiyonu; erişim yoksa yalnız güvenli “Bu ziyaret için aktif satış kaydı var” bilgisi.
 2. Dedicated route önerisi `/jobs/:visitId/new-sale`; route-identity, paths ve route-access kayıtları üzerinden. Body'de customer/source override yok. Deep link'te backend bağlamı tekrar yüklenir.
 3. Form sırası: kaynak ziyaret ve müşteri özeti → farklı etiketlerle planlanan kişi / ziyaret sonucunda görüşülen kişi → satışta görüşülen kişi (isteğe bağlı) → gerçekleşen satış zamanı → ProductSelect → isteğe bağlı açıklama → **Satış kaydını oluştur** / **Vazgeç**.
-4. ProductSelect: arama → sonuçlar → **Seçilen ürünler**; her selected row **Miktar → Ürün kimliği/metadata → Kaldır**. 0.5 ve 0.001 desteklenir. Satış kendi form state'ini product ID ile tutar.
+4. ProductSelect: arama → sonuçlar → **Seçilen ürünler**; her selected row **Miktar → Ürün kimliği/metadata → Kaldır**. SALE-QTY-001 ile Sale default 1, yalnız pozitif tam sayı; 0.5/0.001 reddedilir (ilk decimal tasarımı superseded). Delivery kesirleri korunur. Satış kendi form state'ini product ID ile tutar.
 5. Başarıda yeni sale detail açılır; kaynak ziyarete güvenli dönüş ve bağımsız lifecycle görünür. Kaynak ziyarette bounded/paginated **Bağlı satışlar** bölümü; yeni kart linki ve durumu. Ziyaretin sonucu/durumu değişmemiştir.
 6. Sale list/board/customer history/staff own history ve yönetici approval kuyruğunda `Satış kaydı` etiketi. Sale detail ürün satırlarını ve origin bağlamını gösterir. Approval review'da ürün/miktar ve gerçekleşme zamanı doğrulanır.
 

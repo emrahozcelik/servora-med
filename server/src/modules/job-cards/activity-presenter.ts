@@ -15,6 +15,12 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+/** Durable v1 audits retain NUMERIC scale; never round historical fractions. */
+function saleCount(value: unknown): string | null {
+  return typeof value === 'string' && /^[1-9]\d{0,8}\.000$/.test(value)
+    ? value.slice(0, -4) : null;
+}
+
 /**
  * Reader gates for response keys that only opted-in bundles understand.
  * `includeSubmitLocationCapability` gates the Slice 2 comparison evidence;
@@ -263,13 +269,14 @@ function details(
     case 'SALE_ITEM_REMOVED': {
       if (!options?.includeSaleCapability) return { kind: 'NONE' };
       const value = jsonRecord(record.eventType === 'SALE_ITEM_REMOVED' ? record.oldValue : record.newValue);
+      const quantity = saleCount(value?.quantity);
       if (!value || typeof value.id !== 'string' || typeof value.productNameSnapshot !== 'string'
-        || typeof value.quantity !== 'string' || !/^\d{1,9}\.\d{3}$/.test(value.quantity)) return { kind: 'NONE' };
+        || quantity === null) return { kind: 'NONE' };
       const previous = jsonRecord(record.oldValue)?.quantity;
       return { kind: 'SALE_ITEM', operation: record.eventType === 'SALE_ITEM_ADDED' ? 'ADDED'
         : record.eventType === 'SALE_ITEM_UPDATED' ? 'UPDATED' : 'REMOVED',
-        itemId: value.id, productName: value.productNameSnapshot, quantity: value.quantity,
-        previousQuantity: typeof previous === 'string' && /^\d{1,9}\.\d{3}$/.test(previous) ? previous : null };
+        itemId: value.id, productName: value.productNameSnapshot, quantity,
+        previousQuantity: saleCount(previous) };
     }
     case 'JOB_CREATED': return { kind: 'NONE' };
     // OVR-4 reminder facts carry their semantics in metadata (incident,
