@@ -718,6 +718,7 @@ export class JobCardService {
     }
     // Store one activity-backed event. Replay scopes relation keys and identity per current viewer.
     let audience = mapped.audience;
+    if (input.jobType === 'SALES_MEETING') resourceKeys.add('sale-origin-context');
     if (input.jobType === 'SALE') {
       const snapshot = await transaction.getSubmissionSale(input.organizationId, input.jobCardId);
       const source = snapshot ? await transaction.getJob(input.organizationId, snapshot.sourceVisitId) : null;

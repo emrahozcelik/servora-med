@@ -8,7 +8,7 @@ import { getSaleCreateContext, listRelatedSales, type SaleContact, type SaleDeta
 function contactText(contact: SaleContact | null) {
   return contact ? [contact.name, contact.title].filter(Boolean).join(' · ') : 'Belirtilmedi';
 }
-export function SaleDetailsSection({ details }: { details: SaleDetails }) {
+export function SaleDetailsSection({ details, originPending = false }: { details: SaleDetails; originPending?: boolean }) {
   const source = details.sourceVisit;
   return <section className="sale-details" aria-labelledby="sale-details-title">
     <h2 id="sale-details-title">Satış anlaşması</h2>
@@ -19,7 +19,8 @@ export function SaleDetailsSection({ details }: { details: SaleDetails }) {
       { key: 'saleContact', label: 'Satışta görüşülen kişi', content: contactText(details.saleContact) },
     ]} />
     <h3>Kaynak ziyaret</h3>
-    {source.access === 'RESTRICTED' ? <p>Kaynak ziyarete erişiminiz yok.</p> : <>
+    {originPending ? <p role="status">Kaynak ziyaret erişimi doğrulanıyor…</p>
+      : source.access === 'RESTRICTED' ? <p>Kaynak ziyarete erişiminiz yok.</p> : <>
       <a href={paths.job(source.id)}>{source.title}</a> · {jobCardStatusLabel(source.status)}
       <RecordDescriptions ariaLabel="Kaynak ziyaret snapshot bilgileri" items={[
         { key: 'title', label: 'Kayıt anındaki ziyaret', content: source.titleSnapshot },

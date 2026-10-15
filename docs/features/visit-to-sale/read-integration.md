@@ -125,6 +125,48 @@ by PostgreSQL during the disposable fixture test; no migration, invented audit
 fact, domain outbox or event bus was added to bypass that constraint.
 The public SSE envelope still uses the existing vocabulary.
 
+### Source-to-Sale current-access reconciliation
+
+Source title, assignment and lifecycle activities also invalidate Sale origins.
+The owning source activity still has exactly one durable realtime event; its
+internal `sale-origin-context` wake-up hint is persisted only when an indexed
+same-organization Sale-history existence probe succeeds. No additional audit
+event, receipt, notification or migration is introduced. The hint itself is
+removed from every public envelope.
+
+Replay and high-water share current-assignment SQL. A history-index probe picks
+at most one accessible related Sale, including terminal Sales. Public projection:
+
+| Current viewer access | Public identity | Origin invalidation |
+| --- | --- | --- |
+| Sale only | One currently accessible Sale | `sale-origin-context:<viewerId>`, own Sale detail key; no source identity/key |
+| Source only | Source | Source keys; no Sale identity/key |
+| Source and Sale, or same-org management | Source | Source keys and personal origin key |
+| Former Sale assignee, now neither | Own notification-center identity on assignment events only | Personal origin/workspace keys; neither card identity |
+| Neither / other organization | None | None |
+
+The personal key intentionally refreshes all open Sale origins for that viewer;
+it never enumerates historical Sale IDs or owners. A source-only viewer receiving
+a Sale event retains the existing source projection and also receives the
+personal key, so an open Sale can recheck revoked access without leaking its ID.
+Every Sale origin screen subscribes to its own personal key. On invalidation it
+conceals the old source link, title and contact snapshots until the authoritative
+reader succeeds, including across failed or superseded refreshes. A concealed
+Sale reader's 404 clears the old Sale screen.
+
+Live admission uses the existing bus only as a wake-up hint. A same-org source
+hint outside the persisted direct audience runs one bounded (`LIMIT 1`),
+current-access replay probe per stream, coalescing bursts before normal catch-up.
+There is no cross-org wake-up, public global fanout, per-Sale query loop or new
+subscription framework. Ordinary events retain their direct-audience path.
+The existing 501-event replay/overflow-to-sync contract remains unchanged.
+
+Regression coverage includes replay/live RED-to-GREEN, independent owners,
+multiple historical Sales, terminal sources, regained/revoked access, high-water,
+cross-org concealment, coalesced probes, unchanged durable-event counts and
+receipt replay. Browser and exact-head CI evidence is kept in the external
+review bundle rather than asserting an untested commit in this document.
+
 ## Operational reports and weekly source work
 
 Sale joins productive work-type buckets and normal approval/operational counts.

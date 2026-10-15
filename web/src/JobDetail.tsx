@@ -1008,6 +1008,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [realtimeStale, setRealtimeStale] = useState(false);
+  const [saleOriginPending, setSaleOriginPending] = useState(false);
   const [realtimeReloadPending, setRealtimeReloadPending] = useState(false);
   const sessionLifetime = useRef({
     jobId,
@@ -1059,6 +1060,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
       setRealtimeStale(false);
+      setSaleOriginPending(false);
     }
   }
 
@@ -1101,6 +1103,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
+    setSaleOriginPending(false);
     setRealtimeReloadPending(false);
     setEditing(false);
     setPending(false);
@@ -1345,9 +1348,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setRealtimeStale(true);
       }
       return false;
-    } catch {
+    } catch (error) {
       if (isOperationCurrent(sessionToken, operationJobId)) {
-        setRealtimeStale(true);
+        if (state.kind === 'ready' && state.detail.kind === 'SALE' && error instanceof ApiError && error.status === 404) {
+          setState({ kind: 'error', message: error.message, retryable: false });
+          setRealtimeStale(false);
+        } else setRealtimeStale(true);
       }
       return true;
     }
@@ -1421,8 +1427,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
     }
   }
-  useRealtimeInvalidation([`job-detail:${jobId}`], () => {
+  useRealtimeInvalidation([`job-detail:${jobId}`,
+    ...(state.kind === 'ready' && state.detail.kind === 'SALE' ? ['sale-origin-context:' + user.id] : []),
+  ], () => {
     realtimeInvalidationGeneration.current += 1;
+    if (state.kind === 'ready' && state.detail.kind === 'SALE') setSaleOriginPending(true);
     void reconcileRealtimeTruth();
   });
   useRealtimeInvalidation([`job-notes:${jobId}`], () => {
@@ -2178,7 +2187,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const invalidationLocked = pending || uncertain || invalidationMutationLocked;
 
   const recordContent = <>
-    {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} />}
+    {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
     {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} />}
     {editing && detail.kind === 'SALES_MEETING'
       ? <SalesMeetingEditForm job={detail.job} user={user}

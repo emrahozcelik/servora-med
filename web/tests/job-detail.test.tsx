@@ -381,6 +381,76 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
   });
 
+  it('revalidates Sale origins on the personal relation key and conceals old FULL data through a failed refresh', async () => {
+    const card: JobCard = { ...job, type: 'SALE', title: 'Satış anlaşması', scheduledAt: null,
+      scheduledEndsAt: null, status: 'ACCEPTED', workflowContext: staffContext('ACCEPTED') };
+    const base = mockDetailFetch(card);
+    let mode: 'full' | 'pending' | 'restricted' | 'restored' = 'full';
+    let failRefresh!: (response: Response) => void;
+    const source = new FakeRealtimeEventSource();
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (!String(input).includes('/sale-details')) return base(input);
+      if (mode === 'pending') return new Promise<Response>((resolve) => { failRefresh = resolve; });
+      return Response.json({ jobCardId: card.id, jobCardVersion: card.version,
+        soldAt: '2026-07-17T08:00:00.000Z', saleContact: null,
+        sourceVisit: mode === 'restricted' ? { access: 'RESTRICTED', kind: 'SALE_FROM_VISIT' } : {
+          access: 'FULL', kind: 'SALE_FROM_VISIT', id: 'private-source',
+          title: mode === 'restored' ? 'Güncel ziyaret' : 'Eski gizli ziyaret', status: 'ACCEPTED',
+          versionAtCreation: 3, titleSnapshot: 'Tarihsel gizli ziyaret', customerNameSnapshot: 'Tarihsel klinik',
+          plannedContact: { id: 'private-contact', name: 'Gizli doktor', title: null }, metContact: null,
+        }, items: [{ id: 'line-1', productId: 'product-1', quantity: '0.001', name: 'Tarihsel ürün',
+          sku: null, brand: null, model: null, unit: null }] });
+    });
+    await renderRealtimeScreen(card, source, fetch);
+    expect(host.textContent).toContain('Eski gizli ziyaret');
+    mode = 'pending';
+    await act(async () => {
+      source.emitJobUpdateFor('1', 'another-owned-historical-sale', 'sale-origin-context:' + staffUser.id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).not.toContain('Eski gizli ziyaret');
+    expect(host.textContent).not.toContain('Gizli doktor');
+    expect(host.querySelector('a[href*="private-source"]')).toBeNull();
+    expect(host.textContent).toContain('Kaynak ziyaret erişimi doğrulanıyor');
+    expect(host.textContent).toContain('Tarihsel ürün');
+    await act(async () => { failRefresh(Response.json({ error: 'Geçici hata', code: 'UNAVAILABLE' }, { status: 503 }));
+      await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).not.toContain('Tarihsel gizli ziyaret');
+    mode = 'restricted';
+    await act(async () => { source.emitJobUpdateFor('2', card.id, 'sale-origin-context:' + staffUser.id);
+      await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).toContain('Kaynak ziyarete erişiminiz yok');
+    mode = 'restored';
+    await act(async () => { source.emitJobUpdateFor('3', card.id, 'sale-origin-context:' + staffUser.id);
+      await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).toContain('Güncel ziyaret');
+  });
+
+  it('clears an open Sale when current-access reconciliation returns 404 after reassignment', async () => {
+    const card: JobCard = { ...job, type: 'SALE', title: 'Private agreement', scheduledAt: null,
+      scheduledEndsAt: null, status: 'ACCEPTED', workflowContext: staffContext('ACCEPTED') };
+    const base = mockDetailFetch(card);
+    let revoked = false;
+    const source = new FakeRealtimeEventSource();
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (revoked && detailUrlMatches(String(input), card.id)) {
+        return Response.json({ code: 'JOB_CARD_NOT_FOUND', error: 'JobCard bulunamadı.' }, { status: 404 });
+      }
+      if (String(input).includes('/sale-details')) return Response.json({
+        jobCardId: card.id, jobCardVersion: card.version, soldAt: '2026-07-17T08:00:00.000Z', saleContact: null,
+        sourceVisit: { access: 'RESTRICTED', kind: 'SALE_FROM_VISIT' }, items: [],
+      });
+      return base(input);
+    });
+    await renderRealtimeScreen(card, source, fetch);
+    expect(host.textContent).toContain('Private agreement');
+    revoked = true;
+    await act(async () => { source.emitJobUpdateFor('1', staffUser.id, 'sale-origin-context:' + staffUser.id);
+      await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).not.toContain('Private agreement');
+    expect(host.textContent).toContain('JobCard bulunamadı.');
+  });
+
   it('marks entity notifications read after successful job detail resolution', async () => {
     const base = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
