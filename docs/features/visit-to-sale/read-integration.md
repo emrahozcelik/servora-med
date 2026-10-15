@@ -85,6 +85,25 @@ Normal JobCard, meeting, delivery and weekly reader parity is covered with real
 records. Reassignment, source-only STAFF, unrelated STAFF and both cross-org
 roles are tested; concealed writes append no note, receipt or realtime event.
 
+### Independent review remediation — final P2 round
+
+Overview recent rows honor the same gate: legacy readers exclude Sale from
+recent completed work and recent notes in SQL before ordering and the fixed
+ten-row window, so Sale rows can neither render as links nor displace
+accessible rows. Opted-in readers keep the full window.
+
+Related-sales pagination recovers when the accessible total shrinks below the
+current offset: the client clamps to the last valid page and keeps the
+previous control reachable whenever the offset is nonzero. Stale responses
+never overwrite newer state. No Sale identity leaks through paging.
+
+Source handover stays visible to the former source owner: assignment events
+keep their persisted before-owner audience through current-access replay and
+high-water, and project as the source assignment (workspace keys) with only
+the viewer's own personal origin key — even when the viewer still owns
+historical Sales, where the origin-only rewrite previously masked the
+handover. No foreign Sale, source-contact or hidden key is exposed.
+
 ## Lifecycle, timeline and realtime
 
 Sale has an explicit detail loader and never fetches meeting-details or
@@ -143,6 +162,7 @@ at most one accessible related Sale, including terminal Sales. Public projection
 | Source only | Source | Source keys; no Sale identity/key |
 | Source and Sale, or same-org management | Source | Source keys and personal origin key |
 | Former Sale assignee, now neither | Own notification-center identity on assignment events only | Personal origin/workspace keys; neither card identity |
+| Former source assignee in handover audience | Source assignment | Source/workspace keys plus own personal origin key; already-known source only |
 | Neither / other organization | None | None |
 
 The personal key intentionally refreshes all open Sale origins for that viewer;

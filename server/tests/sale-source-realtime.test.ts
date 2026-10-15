@@ -56,10 +56,22 @@ describe('Source visit → Sale invalidation', () => {
         expect(await reader.visibleHighWater(viewer)).toBeGreaterThanOrEqual(BigInt(replay[0]!.id));
         expect(query).toHaveBeenCalledTimes(2);
         const ownSale = actor.id === f.staff.id ? [first.jobCardId, third.jobCardId] : [second.jobCardId];
-        if (actor.id === f.staff.id || actor.id === f.otherStaff.id) {
+        if (actor.id === f.otherStaff.id) {
           expect(ownSale).toContain(replay[0]!.entity.id);
           expect(JSON.stringify(replay)).not.toContain(f.visitId);
           expect(replay[0]!.resourceKeys).toContain('sale-origin-context:' + actor.id);
+        } else if (actor.id === f.staff.id) {
+          // P2-C: the before-owner is a handover participant, so it sees the
+          // source assignment itself (workspace invalidation) even though it
+          // still owns historical sales. The personal origin key still wakes
+          // its open Sale screens; no sale identity leaks into the envelope.
+          expect(replay[0]).toMatchObject({ type: 'job.assignment_changed',
+            entity: { type: 'job-card', id: f.visitId } });
+          expect(replay[0]!.resourceKeys).toEqual(expect.arrayContaining(
+            ['job-detail:' + f.visitId, 'job-list', 'sale-origin-context:' + actor.id]));
+          expect(JSON.stringify(replay)).not.toContain(first.jobCardId);
+          expect(JSON.stringify(replay)).not.toContain(second.jobCardId);
+          expect(JSON.stringify(replay)).not.toContain(third.jobCardId);
         } else {
           expect(replay[0]!.entity.id).toBe(f.visitId);
           expect(JSON.stringify(replay)).not.toContain(first.jobCardId);
@@ -158,6 +170,68 @@ describe('Source visit → Sale invalidation', () => {
       const beforeRetry = await counts();
       await f.service.cancel(f.manager, f.visitId, cancelInput);
       expect(await counts()).toEqual(beforeRetry);
+    });
+  });
+  it('delivers the source reassignment to the former source owner without exposing the sale', async () => {
+    await withSaleFixture(async (f) => {
+      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
+      // B owns the sale while A keeps the source visit.
+      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      const c = await f.user('STAFF');
+      await f.pool.query('INSERT INTO staff_profiles(organization_id,user_id,manager_user_id) VALUES($1,$2,$3)',
+        [f.organizationId, c.id, f.manager.id]);
+      const events = new PostgresRealtimeEventRepository(f.pool);
+      const former = { ...f.staff, userId: f.staff.id };
+      const cursor = await events.visibleHighWater(former);
+      await f.pool.query("UPDATE job_cards SET status='ACCEPTED' WHERE id=$1", [f.visitId]);
+      const reassigned = await f.service.patch(f.manager, f.visitId, {
+        expectedVersion: f.input.expectedSourceVersion, assignedTo: c.id,
+      });
+      expect(reassigned.assignedTo).toBe(c.id);
+      const replay = (await events.replayVisible(former, cursor, 100)).map(presentRealtimeEvent);
+      expect(replay).toHaveLength(1);
+      expect(replay[0]).toMatchObject({ type: 'job.assignment_changed',
+        entity: { type: 'job-card', id: f.visitId },
+        resourceKeys: expect.arrayContaining(['job-list', 'job-board']) });
+      expect(JSON.stringify(replay)).not.toContain(sale.jobCardId);
+      expect(JSON.stringify(replay)).not.toContain('sale-origin-context');
+      expect(await events.visibleHighWater(former)).toBe(BigInt(replay[0]!.id));
+    });
+  });
+  it('keeps the handover visible when the former source owner still owns historical sales', async () => {
+    await withSaleFixture(async (f) => {
+      const history = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
+      await f.service.cancel(f.manager, history.jobCardId, { clientActionId: 'history-close',
+        expectedVersion: 1, cancelReason: 'Historical agreement' });
+      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, { ...f.input, clientActionId: 'active-sale' });
+      await f.service.patch(f.manager, sale.jobCardId, { expectedVersion: 1, assignedTo: f.otherStaff.id });
+      const c = await f.user('STAFF');
+      await f.pool.query('INSERT INTO staff_profiles(organization_id,user_id,manager_user_id) VALUES($1,$2,$3)',
+        [f.organizationId, c.id, f.manager.id]);
+      const events = new PostgresRealtimeEventRepository(f.pool);
+      const former = { ...f.staff, userId: f.staff.id };
+      await f.pool.query("UPDATE job_cards SET status='ACCEPTED' WHERE id=$1", [f.visitId]);
+      const cursor = await events.visibleHighWater(former);
+      await f.service.patch(f.manager, f.visitId, {
+        expectedVersion: f.input.expectedSourceVersion, assignedTo: c.id,
+      });
+      // The origin-only rewrite must not mask the handover: the former owner
+      // sees the source assignment (workspace invalidation) plus its own
+      // personal origin key, and no sale identity. The same patch also emits
+      // the fields-update half, which correctly arrives as an origin wake-up
+      // for the owned historical sale.
+      const replay = (await events.replayVisible(former, cursor, 100)).map(presentRealtimeEvent);
+      expect(replay).toHaveLength(2);
+      expect(replay[0]).toMatchObject({ type: 'job.assignment_changed',
+        entity: { type: 'job-card', id: f.visitId },
+        resourceKeys: expect.arrayContaining(
+          ['job-detail:' + f.visitId, 'job-list', 'sale-origin-context:' + f.staff.id]) });
+      expect(replay[1]).toMatchObject({ type: 'job.updated',
+        entity: { type: 'job-card', id: history.jobCardId },
+        resourceKeys: expect.arrayContaining(['sale-origin-context:' + f.staff.id]) });
+      expect(JSON.stringify(replay[1])).not.toContain(f.visitId);
+      expect(JSON.stringify(replay)).not.toContain(sale.jobCardId);
+      expect(await events.visibleHighWater(former)).toBe(BigInt(replay.at(-1)!.id));
     });
   });
 });

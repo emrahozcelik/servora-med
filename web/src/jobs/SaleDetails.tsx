@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { RecordDescriptions } from '../ui/antd';
@@ -46,14 +46,27 @@ export function RelatedSalesSection({ visitId }: { visitId: string }) {
   const [state, setState] = useState<{ kind: 'loading' } | { kind: 'error' } | {
     kind: 'ready'; page: Awaited<ReturnType<typeof listRelatedSales>>; restrictedActive: boolean;
   }>({ kind: 'loading' });
+  const requestRef = useRef(0);
   useRealtimeInvalidation(['job-detail:' + visitId], () => setRefresh((value) => value + 1));
   useEffect(() => {
-    let current = true; setState({ kind: 'loading' });
-    void Promise.all([listRelatedSales(visitId, offset), getSaleCreateContext(visitId)]).then(([page, context]) => {
+    let current = true;
+    const requestOffset = offset;
+    requestRef.current += 1;
+    const requestId = requestRef.current;
+    setState({ kind: 'loading' });
+    void Promise.all([listRelatedSales(visitId, requestOffset), getSaleCreateContext(visitId)]).then(([page, context]) => {
+      // A newer request (offset clamp or refresh) already superseded this one.
+      if (!current || requestRef.current !== requestId) return;
+      const step = page.limit > 0 ? page.limit : 20;
+      if (requestOffset > 0 && page.total <= requestOffset) {
+        setOffset(Math.max(0, Math.floor((page.total - 1) / step) * step));
+        return;
+      }
       if (current) setState({ kind: 'ready', page, restrictedActive: context.activeSale?.access === 'RESTRICTED' });
-    }).catch(() => { if (current) setState({ kind: 'error' }); });
+    }).catch(() => { if (current && requestRef.current === requestId) setState({ kind: 'error' }); });
     return () => { current = false; };
   }, [visitId, offset, refresh]);
+  const pageStep = state.kind === 'ready' && state.page.limit > 0 ? state.page.limit : 20;
   return <section aria-labelledby="related-sales-title" className="related-sales">
     <h2 id="related-sales-title">Bağlı satışlar</h2>
     {state.kind === 'loading' && <p role="status">Satış kayıtları yükleniyor…</p>}
@@ -64,9 +77,9 @@ export function RelatedSalesSection({ visitId }: { visitId: string }) {
       {state.page.items.length === 0 ? <p>Erişilebilir satış kaydı bulunmuyor.</p> : <ul>
         {state.page.items.map((sale) => <li key={sale.id}><a href={paths.job(sale.id)}>{sale.title}</a> · {jobCardStatusLabel(sale.status)}</li>)}
       </ul>}
-      {state.page.total > state.page.limit && <nav aria-label="Bağlı satış sayfaları">
-        <button type="button" className="secondary-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 20))}>Önceki</button>
-        <button type="button" className="secondary-button" disabled={offset + 20 >= state.page.total} onClick={() => setOffset(offset + 20)}>Sonraki</button>
+      {(state.page.total > state.page.limit || offset > 0) && <nav aria-label="Bağlı satış sayfaları">
+        <button type="button" className="secondary-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - pageStep))}>Önceki</button>
+        <button type="button" className="secondary-button" disabled={offset + pageStep >= state.page.total} onClick={() => setOffset(offset + pageStep)}>Sonraki</button>
       </nav>}
     </>}
   </section>;

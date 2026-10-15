@@ -451,6 +451,27 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('JobCard bulunamadı.');
   });
 
+  it('flags a stale open visit when current-access reconciliation returns 404 after reassignment', async () => {
+    const meeting = inProgressMeeting();
+    const base = mockDetailFetch(meeting, { meeting: meetingDetails });
+    let revoked = false;
+    const source = new FakeRealtimeEventSource();
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (revoked && detailUrlMatches(String(input), meeting.id)) {
+        return Response.json({ code: 'JOB_CARD_NOT_FOUND', error: 'JobCard bulunamadı.' }, { status: 404 });
+      }
+      return base(input);
+    });
+    await renderRealtimeScreen(meeting, source, fetch);
+    expect(host.textContent).toContain('Satış görüşmesi detayı');
+    revoked = true;
+    await act(async () => { source.emitJobUpdate('1');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
+    expect(host.textContent).toContain('Satış görüşmesi detayı');
+  });
+
   it('marks entity notifications read after successful job detail resolution', async () => {
     const base = mockDetailFetch(job);
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

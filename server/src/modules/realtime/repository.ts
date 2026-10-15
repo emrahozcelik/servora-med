@@ -61,13 +61,22 @@ const SALE_ORIGIN_JOIN = `LEFT JOIN LATERAL (
     AND 'sale-origin-context'=ANY(realtime_events.resource_keys)
 ) origin_scope ON TRUE`;
 const SALE_ORIGIN_CURRENT_ACCESS = `AND ($2 <> 'STAFF' OR origin_scope.related_source_assignee_id IS NULL
-  OR origin_scope.related_source_assignee_id=$3 OR origin_scope.related_sale_id IS NOT NULL)`;
+  OR origin_scope.related_source_assignee_id=$3 OR origin_scope.related_sale_id IS NOT NULL
+  OR (event_type='job.assignment_changed' AND $3=ANY(audience_user_ids)))`;
 const VISIBLE_AUDIENCE = `($2 = ANY(audience_roles) OR $3 = ANY(audience_user_ids)
   OR origin_scope.related_sale_id IS NOT NULL)`;
 
 function mapEvent(row: EventRow, viewer?: RealtimeViewer): RealtimeEventRecord {
+  // Handover participants (persisted assignment audience) always see the
+  // source assignment itself, even when they still own historical sales:
+  // otherwise the origin-only rewrite would mask the workspace invalidation
+  // and the former owner would keep a stale source card. The personal origin
+  // key below still wakes their open Sale screens; no foreign identity leaks
+  // because every key is either the already-known source or the viewer's own.
+  const handoverParticipant = viewer?.role === 'STAFF' && row.event_type === 'job.assignment_changed'
+    && viewer.userId != null && row.audience_user_ids.includes(viewer.userId);
   const saleOnlyOrigin = viewer?.role === 'STAFF' && row.related_sale_id != null
-    && row.related_source_assignee_id !== viewer.userId;
+    && row.related_source_assignee_id !== viewer.userId && !handoverParticipant;
   const sourceOnly = viewer?.role === 'STAFF' && row.sale_assignee_id != null && row.sale_assignee_id !== viewer.userId;
   const revokedSale = sourceOnly && row.source_assignee_id !== viewer.userId;
   const restrictedSource = viewer?.role === 'STAFF' && row.sale_source_id != null && row.source_assignee_id !== viewer.userId;
