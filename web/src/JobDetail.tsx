@@ -1350,7 +1350,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       return false;
     } catch (error) {
       if (isOperationCurrent(sessionToken, operationJobId)) {
-        if (state.kind === 'ready' && state.detail.kind === 'SALE' && error instanceof ApiError && error.status === 404) {
+        if (state.kind === 'ready' && error instanceof ApiError && error.status === 404) {
           setState({ kind: 'error', message: error.message, retryable: false });
           setRealtimeStale(false);
         } else setRealtimeStale(true);

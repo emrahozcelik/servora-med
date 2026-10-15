@@ -172,7 +172,12 @@ personal key, so an open Sale can recheck revoked access without leaking its ID.
 Every Sale origin screen subscribes to its own personal key. On invalidation it
 conceals the old source link, title and contact snapshots until the authoritative
 reader succeeds, including across failed or superseded refreshes. A concealed
-Sale reader's 404 clears the old Sale screen.
+Sale reader's 404 clears the old Sale screen. The same authoritative-404 rule
+applies to every JobCard type: when the current screen's authorized detail GET
+returns 404 after a realtime invalidation, the old detail state is cleared to a
+non-retryable access-lost state instead of lingering behind a stale banner.
+Transient (5xx/network) failures keep the existing stale/retry path, and the
+clear only applies to the currently open session and job.
 
 Live admission uses the existing bus only as a wake-up hint. A same-org source
 hint outside the persisted direct audience runs one bounded (`LIMIT 1`),

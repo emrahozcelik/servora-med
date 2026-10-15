@@ -451,7 +451,7 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('JobCard bulunamadı.');
   });
 
-  it('flags a stale open visit when current-access reconciliation returns 404 after reassignment', async () => {
+  it('clears an open visit when current-access reconciliation returns 404 after reassignment', async () => {
     const meeting = inProgressMeeting();
     const base = mockDetailFetch(meeting, { meeting: meetingDetails });
     let revoked = false;
@@ -468,8 +468,9 @@ describe('Staff JobCard detail', () => {
     await act(async () => { source.emitJobUpdate('1');
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
-    expect(host.textContent).toContain('Satış görüşmesi detayı');
+    expect(host.textContent).not.toContain('Satış görüşmesi detayı');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(host.textContent).toContain('JobCard bulunamadı.');
   });
 
   it('marks entity notifications read after successful job detail resolution', async () => {
