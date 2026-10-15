@@ -12,6 +12,7 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   GENERAL_TASK: 'Genel görev',
   SALES_MEETING: 'Satış görüşmesi',
   WEEKLY_REPORT: 'Haftalık rapor',
+  SALE: 'Satış kaydı',
 };
 
 /** Neutral label for a job type this client does not recognise. */
@@ -93,6 +94,7 @@ export function jobCardInvalidationReasonLabel(
 }
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
+  'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
@@ -106,6 +108,11 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
 const LABELS: Record<KnownJobCardActivityEvent, string> = {
+  SALE_FROM_VISIT_CREATED: 'Ziyaretten satış kaydı oluşturuldu',
+  SALE_DETAILS_UPDATED: 'Satış bilgileri düzeltildi',
+  SALE_ITEM_ADDED: 'Satış ürünü eklendi',
+  SALE_ITEM_UPDATED: 'Satış miktarı düzeltildi',
+  SALE_ITEM_REMOVED: 'Satış ürünü kaldırıldı',
   JOB_CREATED: 'İş oluşturuldu',
   JOB_ASSIGNED: 'Atanan personel değiştirildi',
   JOB_PLANNED: 'İş planlandı',

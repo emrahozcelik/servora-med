@@ -49,6 +49,7 @@ export class OverviewService {
           from: detailedOverview.range.from,
           to: detailedOverview.range.to,
           staffUserId: null,
+          ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         });
       } catch {
         workTypeDistribution = undefined;

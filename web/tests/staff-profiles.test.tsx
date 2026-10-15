@@ -155,7 +155,7 @@ describe('Staff job history Weekly Report regression', () => {
     await act(async () => completedTab.click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/staff/staff-1/jobs?status=completed&limit=20&offset=0', expect.anything());
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/staff/staff-1/jobs?status=completed&limit=20&offset=0&includeSaleCapability=true', expect.anything());
     expect(container.textContent).toContain('Haftalık Rapor');
     expect(container.querySelector('.form-error')).toBeNull();
   });

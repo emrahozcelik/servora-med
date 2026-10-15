@@ -288,7 +288,7 @@ describe.skipIf(!databaseUrl)('D2 customer operational summary', () => {
     const direct = new PostgresJobCardRepository(pool!);
     const spy = vi.spyOn(pool!, 'query');
     const before = spy.mock.calls.length;
-    await direct.getCustomerOperationalSummary({ organizationId, customerId, actor: manager, now });
+    await direct.getCustomerOperationalSummary({ organizationId, customerId, actor: manager, now, includeSaleCapability: true });
     const summaryQueries = spy.mock.calls.slice(before);
     expect(summaryQueries.length).toBe(1);
     expect(String(summaryQueries[0][0])).toContain('WITH visible AS');
@@ -301,7 +301,7 @@ describe.skipIf(!databaseUrl)('D2 customer operational summary', () => {
     const service = new CrmService(repository as never, port as never);
     await expect(service.getCustomerOperationalSummary(manager, customerId, now)).resolves.toBe('summary');
     expect(port.getCustomerOperationalSummary).toHaveBeenCalledWith(
-      { organizationId, customerId, actor: manager, now });
+      { organizationId, customerId, actor: manager, now, includeSaleCapability: true });
     repository.getCustomerDetail.mockResolvedValueOnce(null);
     await expect(service.getCustomerOperationalSummary(manager, customerId, now))
       .rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });

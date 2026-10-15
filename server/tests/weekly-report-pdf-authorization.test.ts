@@ -192,6 +192,7 @@ const apps: FastifyInstance[] = [];
 
 function routesServiceDouble() {
   return {
+    assertSaleCapability: vi.fn().mockResolvedValue(undefined),
     listWeeklyReportSubmissions: vi.fn().mockResolvedValue([]),
     weeklyReportSubmissionPdf: vi.fn().mockResolvedValue({
       fileName: 'haftalik-rapor-2026-09-21-seq-2.pdf',
@@ -252,7 +253,7 @@ describe('Weekly Report submission PDF — HTTP route', () => {
     const list = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/weekly-report/submissions' });
     expect(list.statusCode).toBe(200);
     expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'manager-1' }), 'job-1',
+      expect.objectContaining({ id: 'manager-1' }), 'job-1', false,
     );
     expect(service.weeklyReportSubmissionPdf).not.toHaveBeenCalled();
     expect((await app.inject({

@@ -4873,3 +4873,21 @@ html a:focus-visible {
 .customer-option-meta { flex: none; color: var(--muted); font-size: 0.8125rem; }
 .customer-search-more { padding: 0.4rem 0.75rem; color: var(--muted); font-size: 0.8125rem; }
 .customer-search-empty { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+
+
+/* Sale agreement snapshots: quantity remains adjacent to its historical product. */
+.sale-product-lines {
+  list-style: none;
+  padding: 0;
+}
+.sale-product-line {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 0.3fr) minmax(0, 1fr);
+  gap: 1rem;
+  padding-block: 0.75rem;
+}
+.sale-product-line p { margin-block: 0.25rem 0; }
+.sale-product-line > div { min-width: 0; overflow-wrap: anywhere; }
+.sale-product-quantity { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sale-details a, .related-sales a { overflow-wrap: anywhere; }
+.related-sales nav { display: flex; flex-wrap: wrap; gap: 0.75rem; }

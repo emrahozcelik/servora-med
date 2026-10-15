@@ -212,7 +212,7 @@ describe('JobCard API filter contract', () => {
     try {
       const page = await listJobCards({ overdue: true });
       expect(page).toEqual({ items: [], total: 0, limit: 25, offset: 0 });
-      expect(captured).toBe('/api/job-cards?overdue=true');
+      expect(captured).toBe('/api/job-cards?overdue=true&includeSaleCapability=true');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -246,7 +246,7 @@ describe('JobCard API filter contract', () => {
     try {
       await listJobCards({ followUp: 'only' });
       await getJobCardBoard({ followUp: 'only' });
-      expect(urls).toEqual(['/api/job-cards?followUp=only', '/api/job-cards/board?followUp=only']);
+      expect(urls).toEqual(['/api/job-cards?followUp=only&includeSaleCapability=true', '/api/job-cards/board?followUp=only&includeSaleCapability=true']);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -7,7 +7,14 @@ export type JobCardRoutesOptions = { service: JobCardService; authenticate: preH
 
 export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (app, options) => {
   const h = createJobCardHandlers(options.service);
-  const secured = { preHandler: options.authenticate };
+  const legacySaleGuard: preHandlerHookHandler = async (request) => {
+    const id = (request.params as { id?: string }).id;
+    if (!id) return;
+    const user = request.currentUser!;
+    await options.service.assertSaleCapability(user, id,
+      (request.query as Record<string, unknown>).includeSaleCapability === 'true');
+  };
+  const secured = { preHandler: [options.authenticate, legacySaleGuard] };
   app.get('/', secured, h.list);
   app.post('/', secured, h.create);
   app.post('/product-deliveries', secured, h.createProductDelivery);
@@ -26,6 +33,9 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post('/available-slots', secured, h.availableSlots);
   app.get('/board', secured, h.board);
   app.get<{ Params: { id: string } }>('/:id', secured, h.detail);
+  app.get<{ Params: { id: string } }>('/:id/sale-create-context', secured, h.saleCreateContext);
+  app.get<{ Params: { id: string } }>('/:id/sales', secured, h.relatedSales);
+  app.get<{ Params: { id: string } }>('/:id/sale-details', secured, h.saleDetails);
   app.get<{ Params: { id: string } }>('/:id/follow-ups', secured, h.listFollowUps);
   app.post<{ Params: { id: string } }>('/:id/follow-ups', secured, h.createFollowUp);
   app.get<{ Params: { id: string } }>('/:id/follow-up-suggestion', secured, h.followUpSuggestion);

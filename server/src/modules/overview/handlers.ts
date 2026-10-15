@@ -7,7 +7,7 @@ export function createOverviewHandlers(service: OverviewService) {
   return {
     get: (request: FastifyRequest) => service.getOverview(
       request.currentUser!,
-      parseOverviewQuery(request.query),
+      { ...parseOverviewQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
     ),
   };
 }

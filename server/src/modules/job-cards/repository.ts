@@ -1,3 +1,4 @@
+import { PostgresSaleReader, type SaleReadPort } from './sale-reader.js';
 import { PostgresSaleTransaction, selectSaleSubmission, type SaleTransaction, type SaleSubmissionSnapshot } from './sale-repository.js';
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
 import { canonicalScheduledDurationMs } from './job-card-duration.js';
@@ -580,7 +581,7 @@ export type StartActionLocationReference = {
   longitude: number;
   accuracyMeters: number;
 };
-export type PageQuery = { limit: number; offset: number };
+export type PageQuery = { limit: number; offset: number; includeSaleCapability?: boolean };
 export type NotePageQuery = {
   limit: number;
   before: JobCardNoteCursor | null;
@@ -1040,6 +1041,7 @@ export async function runCriticalAction<T>(
 }
 
 export interface JobCardRepository extends SubmissionReader {
+  readonly saleReads?: SaleReadPort;
   getCurrentScheduleRevision(
     organizationId: string,
     jobCardId: string,
@@ -1997,6 +1999,7 @@ function workspaceWhere(
   filters: JobCardBaseFilters & { status?: JobCardStatusFilter },
 ): SqlFilter {
   const predicates = ['j.organization_id = $1'];
+  if (filters.includeSaleCapability === false) predicates.push("j.type <> 'SALE'");
   const values: unknown[] = [scope.organizationId];
   const add = (sql: (position: number) => string, value: unknown) => {
     values.push(value);
@@ -2132,6 +2135,7 @@ type HistoryQuery = CustomerJobHistoryQuery | StaffJobHistoryQuery;
 
 function historyWhere(input: HistoryQuery): SqlFilter {
   const predicates = ['j.organization_id = $1'];
+  if (input.includeSaleCapability === false) predicates.push("j.type <> 'SALE'");
   const values: unknown[] = [input.actor.organizationId];
   const add = (sql: (position: number) => string, value: unknown) => {
     values.push(value);
@@ -3579,7 +3583,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
 
 export class PostgresJobCardRepository
 implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyReportHistoryReadPort {
-  constructor(private readonly pool: Pool) {}
+  readonly saleReads: SaleReadPort;
+  constructor(private readonly pool: Pool) { this.saleReads = new PostgresSaleReader(pool); }
 
   getSubmissionSale(organizationId: string, jobCardId: string) {
     return selectSaleSubmission(this.pool, organizationId, jobCardId);
@@ -3806,6 +3811,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
 
   async getApprovalItems(input: {
     organizationId: string;
+    includeSaleCapability?: boolean;
     requestTime: Date;
     limit: number;
     offset: number;
@@ -3816,7 +3822,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
          $2::timestamptz - j.staff_completed_at,
          interval '0 seconds')) / 60)::int AS waiting_minutes
        ${WORKSPACE_ITEM_JOINS}
-       WHERE j.organization_id = $1 AND j.status = 'WAITING_APPROVAL'
+       WHERE j.organization_id = $1 AND j.status = 'WAITING_APPROVAL'${input.includeSaleCapability === false ? " AND j.type <> 'SALE'" : ''}
        ORDER BY j.staff_completed_at ASC, j.id ASC
        LIMIT $3 OFFSET $4`,
       [input.organizationId, input.requestTime, input.limit, input.offset],
@@ -4136,6 +4142,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   ): Promise<CustomerOperationalSummary> {
     const values: unknown[] = [input.actor.organizationId, input.customerId];
     const scope = ['j.organization_id = $1', 'j.customer_id = $2'];
+    if (input.includeSaleCapability === false) scope.push("j.type <> 'SALE'");
     if (input.actor.role === 'STAFF') {
       values.push(input.actor.id);
       scope.push(`j.assigned_to = $${values.length}`);
@@ -4407,9 +4414,10 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
   }
 
   async listActivity(organizationId: string, jobCardId: string, page: PageQuery) {
+    const legacyFilter = page.includeSaleCapability === false ? " AND event_type NOT LIKE 'SALE_%'" : '';
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total FROM job_card_activity_logs
-       WHERE organization_id=$1 AND job_card_id=$2`,
+       WHERE organization_id=$1 AND job_card_id=$2${legacyFilter}`,
       [organizationId, jobCardId],
     );
     const result = await this.pool.query<{
@@ -4441,7 +4449,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
          ON u.organization_id = a.organization_id AND u.id = a.actor_id
        LEFT JOIN job_action_locations l
          ON l.organization_id = a.organization_id AND l.activity_id = a.id
-       WHERE a.organization_id=$1 AND a.job_card_id=$2
+       WHERE a.organization_id=$1 AND a.job_card_id=$2${legacyFilter}
        ORDER BY a.created_at DESC, a.id DESC
        LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
     return {

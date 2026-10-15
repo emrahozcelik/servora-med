@@ -147,6 +147,7 @@ export class ReportsService {
     return this.reports.getDashboard({
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime: this.now(),
     });
   }
@@ -175,6 +176,7 @@ export class ReportsService {
       const scopeInput = {
         organizationId: actor.organizationId,
         requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         requestTime,
         includeInactive: true,
       };
@@ -186,6 +188,7 @@ export class ReportsService {
       const batchInput = {
         organizationId: actor.organizationId,
         requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         requestTime,
         staffUserIds,
       };
@@ -282,6 +285,7 @@ export class ReportsService {
       return reports.getDeliveryReport({
         organizationId: actor.organizationId,
         requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         requestTime,
         groupBy: query.groupBy,
         staffUserId: query.staffUserId,
@@ -299,10 +303,12 @@ export class ReportsService {
         reports.getApprovalSummary({
           organizationId: actor.organizationId,
           requestTime,
+          ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         }),
         approvalItems.getApprovalItems({
           organizationId: actor.organizationId,
           requestTime,
+          ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
           limit: query.limit,
           offset: query.offset,
         }),
@@ -323,6 +329,7 @@ export class ReportsService {
     return this.readSnapshot.run(({ reports }) => reports.getCustomerReport({
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
       search: query.search,
       status: query.status,
@@ -338,6 +345,7 @@ export class ReportsService {
     return this.readSnapshot.run(({ reports }) => reports.getSalesFollowUpReport({
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
       limit: query.limit,
       offset: query.offset,
@@ -356,6 +364,7 @@ export class ReportsService {
       organizationId,
       staffUserId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
     };
     return this.readSnapshot.run(async ({ reports }) => {
@@ -369,6 +378,7 @@ export class ReportsService {
         organizationId,
         staffUserIds: [staffUserId],
         requestedRange: query.requestedRange,
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         requestTime,
       };
       const priorBatchInput = {

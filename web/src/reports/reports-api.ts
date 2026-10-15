@@ -735,6 +735,7 @@ function query(entries: Record<string, string | number | null | undefined>) {
   Object.entries(entries).forEach(([key, value]) => {
     if (value !== null && value !== undefined) search.set(key, String(value));
   });
+  search.set('includeSaleCapability', 'true');
   const encoded = search.toString();
   return encoded ? `?${encoded}` : '';
 }

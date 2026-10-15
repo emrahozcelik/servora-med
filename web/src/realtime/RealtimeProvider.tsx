@@ -37,6 +37,7 @@ const CHANGE_TYPES = new Set([
   'job.approved',
   'job.revision_requested',
   'job.cancelled',
+  'job.invalidated',
   'job.updated',
   'calendar.created',
   'calendar.updated',

@@ -1,3 +1,5 @@
+import { getSaleDetails, type SaleDetails } from './jobs/sale-api';
+import { RelatedSalesSection, SaleDetailsSection } from './jobs/SaleDetails';
 import {
   useEffect, useLayoutEffect, useRef, useState,
   type FormEvent, type ReactNode, type Ref,
@@ -545,10 +547,10 @@ export function JobDetailPanel({
     { key: 'status', label: 'Durum', content: <StatusChip status={job.status} /> },
     { key: 'assignee', label: 'Sorumlu personel', content: job.assignee.name },
     { key: 'priority', label: 'Öncelik', content: <PriorityChip priority={job.priority} /> },
-    {
+    ...(job.type === 'SALE' ? [] : [{
       key: 'schedule', label: scheduleLabel,
       content: scheduleFactContent,
-    },
+    }]),
     ...(job.type === 'PRODUCT_DELIVERY' ? [{
       key: 'submitted-at',
       label: 'Kontrole gönderim zamanı',
@@ -563,7 +565,7 @@ export function JobDetailPanel({
             </time>
           : 'Organizasyon saat dilimi bilgisi bulunamadı',
     }] : []),
-    ...(job.type === 'SALES_MEETING' ? [] : [{
+    ...(job.type === 'SALES_MEETING' || job.type === 'SALE' ? [] : [{
       key: 'due-date', label: 'Son tarih',
       content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',
     }]),
@@ -579,7 +581,7 @@ export function JobDetailPanel({
         label: 'Görüşülecek kişi',
         content: job.contact?.name ?? 'Belirtilmedi',
       },
-    ] : [
+    ] : job.type === 'SALE' ? [] : [
       { key: 'contact', label: 'İlgili kişi', content: job.contact?.name ?? 'Belirtilmedi' },
     ]),
     { key: 'description', label: 'Açıklama', content: job.description ?? 'Belirtilmedi', wide: true },
@@ -593,7 +595,7 @@ export function JobDetailPanel({
     && job.type === 'SALES_MEETING'
     && meetingDetails?.outcome === 'FOLLOW_UP_REQUIRED'
     && onCreateFollowUp !== undefined;
-  const showFollowUpCreateAction = isManagementUser(user)
+  const showFollowUpCreateAction = job.type !== 'SALE' && job.type !== 'WEEKLY_REPORT' && isManagementUser(user)
     && job.status === 'COMPLETED'
     && onCreateFollowUp !== undefined
     && !showFollowUpRecommendation;
@@ -824,6 +826,7 @@ export function JobDetailPanel({
 }
 
 export type LoadedJobDetail =
+  | { kind: 'SALE'; job: JobCard & { type: 'SALE' }; saleDetails: SaleDetails }
   | { kind: 'PRODUCT_DELIVERY'; job: JobCard & { type: 'PRODUCT_DELIVERY' }; deliveryItems: DeliveryItem[] }
   | { kind: 'GENERAL_TASK'; job: JobCard & { type: 'GENERAL_TASK' } }
   | { kind: 'WEEKLY_REPORT'; job: JobCard & { type: 'WEEKLY_REPORT' } }
@@ -846,6 +849,9 @@ async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
   if (job.type === 'WEEKLY_REPORT') {
     return { kind: 'WEEKLY_REPORT' as const, job: { ...job, type: 'WEEKLY_REPORT' as const } };
   }
+  if (job.type === 'SALE') {
+    return { kind: 'SALE', job: { ...job, type: 'SALE' }, saleDetails: await getSaleDetails(jobId) };
+  }
   const viewMeeting = job.workflowContext.allowedActions.includes('VIEW_MEETING_RESULT');
   return {
     kind: job.type,
@@ -855,6 +861,14 @@ async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
 }
 async function loadJobDetail(jobId: string) {
   let detail = await loadJobDetailOnce(jobId);
+  if (detail.kind === 'SALE') {
+    if (detail.job.version === detail.saleDetails.jobCardVersion) return detail;
+    const refreshed = await loadJobDetailOnce(jobId);
+    if (refreshed.kind !== 'SALE' || refreshed.job.version !== refreshed.saleDetails.jobCardVersion) {
+      throw new ApiError(409, 'VERSION_CONFLICT', 'İş ve satış bilgileri eşleşmedi. Tekrar deneyin.', true);
+    }
+    return refreshed;
+  }
   if (detail.kind !== 'SALES_MEETING' || detail.meetingDetails === null
     || detail.job.version === detail.meetingDetails.jobCardVersion) return detail;
   detail = await loadJobDetailOnce(jobId);
@@ -994,6 +1008,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [realtimeStale, setRealtimeStale] = useState(false);
+  const [saleOriginPending, setSaleOriginPending] = useState(false);
   const [realtimeReloadPending, setRealtimeReloadPending] = useState(false);
   const sessionLifetime = useRef({
     jobId,
@@ -1045,6 +1060,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
     if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
       setRealtimeStale(false);
+      setSaleOriginPending(false);
     }
   }
 
@@ -1087,6 +1103,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     dialogTriggerRef.current = null;
     dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
+    setSaleOriginPending(false);
     setRealtimeReloadPending(false);
     setEditing(false);
     setPending(false);
@@ -1331,9 +1348,12 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
         setRealtimeStale(true);
       }
       return false;
-    } catch {
+    } catch (error) {
       if (isOperationCurrent(sessionToken, operationJobId)) {
-        setRealtimeStale(true);
+        if (state.kind === 'ready' && error instanceof ApiError && error.status === 404) {
+          setState({ kind: 'error', message: error.message, retryable: false });
+          setRealtimeStale(false);
+        } else setRealtimeStale(true);
       }
       return true;
     }
@@ -1407,8 +1427,11 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       }
     }
   }
-  useRealtimeInvalidation([`job-detail:${jobId}`], () => {
+  useRealtimeInvalidation([`job-detail:${jobId}`,
+    ...(state.kind === 'ready' && state.detail.kind === 'SALE' ? ['sale-origin-context:' + user.id] : []),
+  ], () => {
     realtimeInvalidationGeneration.current += 1;
+    if (state.kind === 'ready' && state.detail.kind === 'SALE') setSaleOriginPending(true);
     void reconcileRealtimeTruth();
   });
   useRealtimeInvalidation([`job-notes:${jobId}`], () => {
@@ -2164,6 +2187,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const invalidationLocked = pending || uncertain || invalidationMutationLocked;
 
   const recordContent = <>
+    {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
+    {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} />}
     {editing && detail.kind === 'SALES_MEETING'
       ? <SalesMeetingEditForm job={detail.job} user={user}
         pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveJob} />
@@ -2209,7 +2234,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       <button className="secondary-button" type="button" disabled={pending || realtimeReloadPending}
         onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
-    continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
+    continuity={detail.kind !== 'SALE' && isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     submissionLateness={
       detail.job.status === 'IN_PROGRESS' || detail.job.status === 'REVISION_REQUESTED' || isManagementUser(user)
         ? (
@@ -2281,7 +2306,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
       <p>İşlemin sonucu henüz doğrulanamadı. Özgün istek korunuyor; yeni işlemden önce tekrar deneyin.</p>
       <button type="button" className="primary-button" disabled={pending} onClick={retryUncertainAttempt}>Özgün isteği tekrar dene</button>
     </div>}
-    {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} onCountChange={setFollowUpChildrenCount} />}
+    {detail.kind !== 'SALE' && isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} onCountChange={setFollowUpChildrenCount} />}
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}

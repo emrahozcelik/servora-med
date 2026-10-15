@@ -187,6 +187,7 @@ type CustomerReportRow = {
   created_product_delivery: string | number;
   created_general_task: string | number;
   created_sales_meeting: string | number;
+  created_sale: string | number;
   manager_approved: string | number;
   follow_up_children: string | number;
 };
@@ -278,8 +279,9 @@ const ACTIVE_STATUS_BUCKETS_SQL = ACTIVE_JOB_CARD_STATUSES
  * productive-work category, so buckets derive from this explicit list rather
  * than the full `JOB_CARD_TYPES` union.
  */
-const PRODUCTIVE_WORK_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
-const WORK_TYPE_BUCKETS_SQL = PRODUCTIVE_WORK_TYPES
+const PRODUCTIVE_WORK_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'SALE'] as const;
+const workTypeBucketsSql = (includeSaleCapability: boolean) => PRODUCTIVE_WORK_TYPES
+  .filter((type) => includeSaleCapability || type !== 'SALE')
   .map((type, index) => `('${type}', ${index + 1})`)
   .join(',\n    ');
 /**
@@ -290,10 +292,13 @@ const WORK_TYPE_BUCKETS_SQL = PRODUCTIVE_WORK_TYPES
  */
 const productiveWorkOnly = (alias: string) => `${alias}.type <> 'WEEKLY_REPORT'`;
 
-const STAFF_SUMMARY_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+// Closed SQL source selection, shared by list/count/aggregate producers.
+const saleReadableJobsSql = (includeSaleCapability: boolean) => includeSaleCapability
+  ? 'job_cards' : "(SELECT * FROM job_cards WHERE type <> 'SALE')";
+const STAFF_SUMMARY_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), work_types(type, sort_order) AS (
-  VALUES ${WORK_TYPE_BUCKETS_SQL}
+  VALUES ${workTypeBucketsSql(includeSaleCapability)}
 )
 SELECT requested.staff_user_id,
   to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
@@ -318,7 +323,7 @@ SELECT requested.staff_user_id,
   )::int AS overdue_job_cards,
   (
     SELECT COUNT(completed_job.id)::int
-    FROM job_cards completed_job
+    FROM ${saleReadableJobsSql(includeSaleCapability)} completed_job
     WHERE completed_job.organization_id = $1
       AND completed_job.staff_completed_by = requested.staff_user_id
       AND completed_job.status = 'COMPLETED'
@@ -340,7 +345,7 @@ SELECT requested.staff_user_id,
           WHERE typed_job.status IN (${ACTIVE_STATUS_LIST_SQL})
         )::int AS count
       FROM work_types
-      LEFT JOIN job_cards typed_job ON typed_job.organization_id = $1
+      LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} typed_job ON typed_job.organization_id = $1
         AND typed_job.assigned_to = requested.staff_user_id
         AND typed_job.type = work_types.type
       GROUP BY work_types.type, work_types.sort_order
@@ -353,13 +358,13 @@ JOIN users u ON u.id = requested.staff_user_id
 JOIN staff_profiles sp ON sp.organization_id = u.organization_id
   AND sp.user_id = u.id
 CROSS JOIN organization_range
-LEFT JOIN job_cards jc ON jc.organization_id = $1
+LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
   AND jc.assigned_to = requested.staff_user_id
 GROUP BY requested.staff_user_id, organization_range.from_date,
   organization_range.to_date, organization_range.timezone
 ORDER BY requested.staff_user_id`;
 
-const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
+const DASHBOARD_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   SELECT
     COUNT(jc.id) FILTER (
       WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
@@ -393,7 +398,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
           ((organization_range.to_date + 1)::timestamp
             AT TIME ZONE organization_range.timezone)
     )::int AS cancelled_in_period
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
 ), days AS (
@@ -409,7 +414,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
     COUNT(jc.id) FILTER (WHERE jc.status = 'COMPLETED')::int AS count
   FROM days
   CROSS JOIN organization_range
-  LEFT JOIN job_cards jc ON jc.organization_id = $1
+  LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
     AND ${productiveWorkOnly('jc')}
     AND jc.manager_approved_at >=
       (days.day::timestamp AT TIME ZONE organization_range.timezone)
@@ -422,7 +427,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
     COUNT(jc.id)::int AS count
   FROM days
   CROSS JOIN organization_range
-  LEFT JOIN job_cards jc ON jc.organization_id = $1
+  LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
     AND jc.status <> 'INVALIDATED'
     AND jc.created_at >=
       (days.day::timestamp AT TIME ZONE organization_range.timezone)
@@ -437,17 +442,17 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
     COUNT(jc.id)::int AS count
   FROM active_statuses
   CROSS JOIN organization_range
-  LEFT JOIN job_cards jc ON jc.organization_id = $1
+  LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
     AND jc.status = active_statuses.status
   GROUP BY active_statuses.status, active_statuses.sort_order
 ), work_types(type, sort_order) AS (
-  VALUES ${WORK_TYPE_BUCKETS_SQL}
+  VALUES ${workTypeBucketsSql(includeSaleCapability)}
 ), created_work_type_distribution AS (
   SELECT work_types.type, work_types.sort_order,
     COUNT(jc.id)::int AS count
   FROM work_types
   CROSS JOIN organization_range
-  LEFT JOIN job_cards jc ON jc.organization_id = $1
+  LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
     AND jc.type = work_types.type
     AND jc.status <> 'INVALIDATED'
     AND jc.created_at >=
@@ -536,14 +541,14 @@ LEFT JOIN staff_scope ON TRUE
 GROUP BY organization_range.from_date, organization_range.to_date,
   organization_range.timezone`;
 
-const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+const STAFF_COMPLETION_PERFORMANCE_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), completed AS (
   SELECT jc.staff_completed_by AS staff_user_id,
     (jc.manager_approved_at AT TIME ZONE organization_range.timezone)::date
       AS completion_date,
     jc.type
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -558,7 +563,7 @@ const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, reques
   FROM completed
   GROUP BY staff_user_id
 ), work_types(type, sort_order) AS (
-  VALUES ${WORK_TYPE_BUCKETS_SQL}
+  VALUES ${workTypeBucketsSql(includeSaleCapability)}
 ), work_type_counts AS (
   SELECT requested.staff_user_id, work_types.type, work_types.sort_order,
     COUNT(completed.staff_user_id)::int AS count
@@ -585,14 +590,14 @@ LEFT JOIN completion_days USING (staff_user_id)
 LEFT JOIN work_type_lists USING (staff_user_id)
 ORDER BY requested.staff_user_id`;
 
-const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+const STAFF_EXECUTION_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), executed AS (
   SELECT jc.staff_completed_by AS staff_user_id,
     jc.staff_completed_at,
     (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
       AS staff_completion_date
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -605,7 +610,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
 ), approved_missing AS (
   SELECT jc.assigned_to AS staff_user_id
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   JOIN requested ON requested.staff_user_id = jc.assigned_to
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -620,7 +625,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT jc.staff_completed_by AS staff_user_id,
     (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
       AS recorded_submission_date
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -665,7 +670,7 @@ LEFT JOIN approved_missing_counts USING (staff_user_id)
 LEFT JOIN recorded_submission_counts USING (staff_user_id)
 ORDER BY requested.staff_user_id`;
 
-const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+const STAFF_ON_TIME_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), completed AS (
   SELECT jc.staff_completed_by AS staff_user_id, jc.type, jc.staff_completed_at,
@@ -675,7 +680,7 @@ const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
       WHEN jc.type = 'SALES_MEETING' THEN NULL
       ELSE jc.scheduled_at
     END AS effective_deadline_at
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   JOIN requested ON requested.staff_user_id = jc.staff_completed_by
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -710,12 +715,12 @@ LEFT JOIN completed USING (staff_user_id)
 GROUP BY requested.staff_user_id
 ORDER BY requested.staff_user_id`;
 
-const STAFF_CORRECTION_EVENTS_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+const STAFF_CORRECTION_EVENTS_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 )
 SELECT requested.staff_user_id, COUNT(activity.id)::int AS count
 FROM requested
-JOIN job_cards jc ON jc.organization_id = $1
+JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
   AND jc.staff_completed_by = requested.staff_user_id
   AND jc.status <> 'INVALIDATED'
 JOIN job_card_activity_logs activity ON activity.organization_id = jc.organization_id
@@ -729,14 +734,14 @@ WHERE activity.event_type = 'JOB_REVISION_REQUESTED'
 GROUP BY requested.staff_user_id
 ORDER BY requested.staff_user_id`;
 
-const STAFF_AUTHORED_OPERATIONAL_NOTES_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+const STAFF_AUTHORED_OPERATIONAL_NOTES_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 )
 SELECT requested.staff_user_id, COUNT(n.id)::int AS count
 FROM requested
 JOIN job_card_notes n ON n.organization_id = $1
   AND n.author_id = requested.staff_user_id
-JOIN job_cards jc ON jc.organization_id = n.organization_id
+JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = n.organization_id
   AND jc.id = n.job_card_id
   AND jc.status <> 'INVALIDATED'
 CROSS JOIN organization_range
@@ -748,7 +753,7 @@ WHERE (n.record_version = 0 OR n.context = 'GENERAL')
 GROUP BY requested.staff_user_id
 ORDER BY requested.staff_user_id`;
 
-const STAFF_DAILY_COMPLETION_TREND_SQL = `WITH organization_range AS (
+const STAFF_DAILY_COMPLETION_TREND_SQL = (includeSaleCapability: boolean) => `WITH organization_range AS (
   SELECT o.timezone,
     COALESCE($3::date,
       date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
@@ -770,7 +775,7 @@ SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
   COUNT(jc.id)::int AS count
 FROM days
 CROSS JOIN organization_range
-LEFT JOIN job_cards jc ON jc.organization_id = $1
+LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
   AND jc.staff_completed_by = $2
   AND jc.status = 'COMPLETED'
   AND ${productiveWorkOnly('jc')}
@@ -781,7 +786,7 @@ LEFT JOIN job_cards jc ON jc.organization_id = $1
 GROUP BY days.day
 ORDER BY days.day`;
 
-const STAFF_DELIVERIES_BY_PURPOSE_SQL = `WITH organization_range AS (
+const STAFF_DELIVERIES_BY_PURPOSE_SQL = (includeSaleCapability: boolean) => `WITH organization_range AS (
   SELECT o.timezone,
     COALESCE($3::date,
       date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
@@ -794,7 +799,7 @@ const STAFF_DELIVERIES_BY_PURPOSE_SQL = `WITH organization_range AS (
 SELECT di.delivery_purpose, di.unit,
   to_char(SUM(di.quantity), 'FM999999999999999999990.000') AS quantity
 FROM job_card_delivery_items di
-JOIN job_cards jc ON jc.organization_id = di.organization_id
+JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = di.organization_id
   AND jc.id = di.job_card_id
 CROSS JOIN organization_range
 WHERE jc.organization_id = $1
@@ -816,7 +821,7 @@ ORDER BY CASE di.delivery_purpose
 END,
 di.unit COLLATE "C" ASC NULLS LAST`;
 
-const STAFF_MEETINGS_BY_OUTCOME_SQL = `WITH organization_range AS (
+const STAFF_MEETINGS_BY_OUTCOME_SQL = (includeSaleCapability: boolean) => `WITH organization_range AS (
   SELECT o.timezone,
     COALESCE($3::date,
       date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
@@ -834,7 +839,7 @@ const STAFF_MEETINGS_BY_OUTCOME_SQL = `WITH organization_range AS (
 ), outcome_counts AS (
   SELECT md.outcome, COUNT(*)::int AS count
   FROM job_card_meeting_details md
-  JOIN job_cards jc ON jc.organization_id = md.organization_id
+  JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = md.organization_id
     AND jc.id = md.job_card_id
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -903,10 +908,10 @@ SELECT to_char(from_date, 'YYYY-MM-DD') AS "from",
   timezone
 FROM organization_range`;
 
-const APPROVAL_SUMMARY_SQL = `WITH waiting AS (
+const APPROVAL_SUMMARY_SQL = (includeSaleCapability: boolean) => `WITH waiting AS (
   SELECT GREATEST($2::timestamptz - j.staff_completed_at,
     interval '0 seconds') AS elapsed
-  FROM job_cards j
+  FROM ${saleReadableJobsSql(includeSaleCapability)} j
   WHERE j.organization_id = $1 AND j.status = 'WAITING_APPROVAL'
 )
 SELECT COUNT(*)::int AS pending_count,
@@ -964,6 +969,9 @@ const CUSTOMER_REPORT_ACTIVITY_COLUMNS = `
         ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
         AND jc.type = 'SALES_MEETING'
     )::int AS created_sales_meeting,
+    COUNT(jc.id) FILTER (WHERE jc.type = 'SALE' AND jc.created_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+      AND jc.created_at < ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone))::int AS created_sale,
     COUNT(jc.id) FILTER (
       WHERE jc.status = 'COMPLETED'
         AND jc.manager_approved_at >=
@@ -986,7 +994,7 @@ WHERE c.organization_id = $1
   AND ($3::text IS NULL OR c.status = $3)
   AND ($4::text IS NULL OR c.customer_type = $4)`;
 
-const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
+const CUSTOMER_REPORT_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
   SELECT c.id, c.name, c.customer_type, c.status
   FROM customers c
   WHERE c.organization_id = $1
@@ -1001,7 +1009,7 @@ const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
   OFFSET $9
 ), activity AS (
   SELECT jc.customer_id,${CUSTOMER_REPORT_ACTIVITY_COLUMNS}
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status <> 'INVALIDATED'
@@ -1018,15 +1026,16 @@ SELECT customer_page.id, customer_page.name, customer_page.customer_type,
   COALESCE(activity.created_product_delivery, 0)::int AS created_product_delivery,
   COALESCE(activity.created_general_task, 0)::int AS created_general_task,
   COALESCE(activity.created_sales_meeting, 0)::int AS created_sales_meeting,
+  COALESCE(activity.created_sale, 0)::int AS created_sale,
   COALESCE(activity.manager_approved, 0)::int AS manager_approved,
   COALESCE(activity.follow_up_children, 0)::int AS follow_up_children
 FROM customer_page
 LEFT JOIN activity ON activity.customer_id = customer_page.id
 ORDER BY customer_page.name COLLATE "C" ASC, customer_page.id ASC`;
 
-const CUSTOMER_REPORT_UNASSIGNED_SQL = `WITH ${ORGANIZATION_RANGE_CTE}
+const CUSTOMER_REPORT_UNASSIGNED_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}
 SELECT${CUSTOMER_REPORT_ACTIVITY_COLUMNS}
-FROM job_cards jc
+FROM ${saleReadableJobsSql(includeSaleCapability)} jc
 CROSS JOIN organization_range
 WHERE jc.organization_id = $1
   AND jc.status <> 'INVALIDATED'
@@ -1049,10 +1058,10 @@ WHERE jc.organization_id = $1
  * - divergence = child.source_job_card_id IS NOT NULL AND current parent
  *   customer_id IS DISTINCT FROM child.customer_id.
  */
-const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_statuses(status, sort_order) AS (
+const SALES_FOLLOW_UP_AGGREGATE_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, active_statuses(status, sort_order) AS (
   VALUES ${ACTIVE_STATUS_BUCKETS_SQL}
 ), work_types(type, sort_order) AS (
-  VALUES ${WORK_TYPE_BUCKETS_SQL}
+  VALUES ${workTypeBucketsSql(includeSaleCapability)}
 ), outcomes(outcome, sort_order) AS (
   VALUES
     ('POSITIVE', 1),
@@ -1061,15 +1070,15 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
     ('NOT_INTERESTED', 4)
 ), current_sales_meetings AS (
   SELECT jc.id
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
     AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})
 ), follow_up_children AS (
   SELECT jc.id, jc.status, jc.type, jc.due_date, jc.customer_id,
     jc.created_at, parent.customer_id AS parent_customer_id
-  FROM job_cards jc
-  JOIN job_cards parent ON parent.organization_id = jc.organization_id
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
+  JOIN ${saleReadableJobsSql(includeSaleCapability)} parent ON parent.organization_id = jc.organization_id
     AND parent.id = jc.source_job_card_id
   WHERE jc.organization_id = $1
     AND jc.source_job_card_id IS NOT NULL
@@ -1082,7 +1091,7 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
   SELECT active_statuses.status, active_statuses.sort_order,
     COUNT(jc.id)::int AS count
   FROM active_statuses
-  LEFT JOIN job_cards jc ON jc.organization_id = $1
+  LEFT JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
     AND jc.status = active_statuses.status
   GROUP BY active_statuses.status, active_statuses.sort_order
@@ -1112,7 +1121,7 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
 ), outcome_counts AS (
   SELECT md.outcome, COUNT(*)::int AS count
   FROM job_card_meeting_details md
-  JOIN job_cards jc ON jc.organization_id = md.organization_id
+  JOIN ${saleReadableJobsSql(includeSaleCapability)} jc ON jc.organization_id = md.organization_id
     AND jc.id = md.job_card_id
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
@@ -1130,7 +1139,7 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
   LEFT JOIN outcome_counts ON outcome_counts.outcome = outcomes.outcome
 ), period_created AS (
   SELECT COUNT(jc.id)::int AS count
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
@@ -1141,7 +1150,7 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
 ), period_manager_approved AS (
   SELECT COUNT(jc.id)::int AS count
-  FROM job_cards jc
+  FROM ${saleReadableJobsSql(includeSaleCapability)} jc
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
@@ -1222,10 +1231,10 @@ SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
   ), '[]'::json) AS outcome_distribution
 FROM organization_range`;
 
-const SALES_MEETING_QUEUE_SQL = `SELECT jc.id, jc.status, jc.scheduled_at,
+const SALES_MEETING_QUEUE_SQL = (includeSaleCapability: boolean) => `SELECT jc.id, jc.status, jc.scheduled_at,
   c.id AS customer_id, c.name AS customer_name,
   u.id AS assignee_id, u.name AS assignee_name
-FROM job_cards jc
+FROM ${saleReadableJobsSql(includeSaleCapability)} jc
 JOIN users u ON u.organization_id = jc.organization_id
   AND u.id = jc.assigned_to
 LEFT JOIN customers c ON c.organization_id = jc.organization_id
@@ -1237,8 +1246,8 @@ ORDER BY jc.scheduled_at ASC NULLS LAST, jc.id ASC
 LIMIT $2
 OFFSET $3`;
 
-const SALES_MEETING_QUEUE_COUNT_SQL = `SELECT COUNT(*)::int AS total
-FROM job_cards jc
+const SALES_MEETING_QUEUE_COUNT_SQL = (includeSaleCapability: boolean) => `SELECT COUNT(*)::int AS total
+FROM ${saleReadableJobsSql(includeSaleCapability)} jc
 WHERE jc.organization_id = $1
   AND jc.type = 'SALES_MEETING'
   AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})`;
@@ -1248,13 +1257,13 @@ const PROPOSAL_QUEUE_PREDICATE = `jc.organization_id = $1
   AND jc.follow_up_proposed_at IS NOT NULL
   AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')`;
 
-const PROPOSAL_QUEUE_SQL = `SELECT jc.id, jc.status, jc.follow_up_proposed_at,
+const PROPOSAL_QUEUE_SQL = (includeSaleCapability: boolean) => `SELECT jc.id, jc.status, jc.follow_up_proposed_at,
   jc.follow_up_proposed_type, jc.follow_up_proposal_instructions,
   jc.follow_up_proposal_origin,
   c.id AS customer_id, c.name AS customer_name,
   u.id AS assignee_id, u.name AS assignee_name,
   pu.id AS proposed_assignee_id, pu.name AS proposed_assignee_name
-FROM job_cards jc
+FROM ${saleReadableJobsSql(includeSaleCapability)} jc
 JOIN users u ON u.organization_id = jc.organization_id
   AND u.id = jc.assigned_to
 LEFT JOIN customers c ON c.organization_id = jc.organization_id
@@ -1266,8 +1275,8 @@ ORDER BY jc.follow_up_proposed_at ASC NULLS LAST, jc.id ASC
 LIMIT $2
 OFFSET $3`;
 
-const PROPOSAL_QUEUE_COUNT_SQL = `SELECT COUNT(*)::int AS total
-FROM job_cards jc
+const PROPOSAL_QUEUE_COUNT_SQL = (includeSaleCapability: boolean) => `SELECT COUNT(*)::int AS total
+FROM ${saleReadableJobsSql(includeSaleCapability)} jc
 WHERE ${PROPOSAL_QUEUE_PREDICATE}`;
 
 function deliveryGroupedSql(
@@ -1378,9 +1387,10 @@ function mapCustomerReportActivity(row: {
   created_product_delivery: string | number;
   created_general_task: string | number;
   created_sales_meeting: string | number;
+  created_sale: string | number;
   manager_approved: string | number;
   follow_up_children: string | number;
-}): CustomerReportActivity {
+}, includeSaleCapability = true): CustomerReportActivity {
   return {
     snapshot: {
       active: Number(row.active),
@@ -1395,6 +1405,7 @@ function mapCustomerReportActivity(row: {
         PRODUCT_DELIVERY: Number(row.created_product_delivery),
         GENERAL_TASK: Number(row.created_general_task),
         SALES_MEETING: Number(row.created_sales_meeting),
+        ...(includeSaleCapability ? { SALE: Number(row.created_sale) } : {}),
       },
       managerApproved: Number(row.manager_approved),
       followUpChildren: Number(row.follow_up_children),
@@ -1402,7 +1413,7 @@ function mapCustomerReportActivity(row: {
   };
 }
 
-function mapCustomerReportItem(row: CustomerReportRow): CustomerReportItem {
+function mapCustomerReportItem(row: CustomerReportRow, includeSaleCapability = true): CustomerReportItem {
   return {
     customer: {
       id: row.id,
@@ -1410,12 +1421,12 @@ function mapCustomerReportItem(row: CustomerReportRow): CustomerReportItem {
       customerType: row.customer_type as CustomerReportItem['customer']['customerType'],
       status: row.status as CustomerReportItem['customer']['status'],
     },
-    activity: mapCustomerReportActivity(row),
+    activity: mapCustomerReportActivity(row, includeSaleCapability),
   };
 }
 
-function mapCustomerReportUnassigned(row: CustomerReportUnassignedRow): CustomerReportUnassigned {
-  return { ...mapCustomerReportActivity(row) };
+function mapCustomerReportUnassigned(row: CustomerReportUnassignedRow, includeSaleCapability = true): CustomerReportUnassigned {
+  return { ...mapCustomerReportActivity(row, includeSaleCapability) };
 }
 
 function mapSalesFollowUpDistribution(
@@ -1567,6 +1578,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
       organizationId: input.organizationId,
       staffUserIds: [input.staffUserId],
       requestedRange: input.requestedRange,
+      ...(input.includeSaleCapability !== undefined ? { includeSaleCapability: input.includeSaleCapability } : {}),
       requestTime: input.requestTime,
     });
     return summaries.get(input.staffUserId) ?? null;
@@ -1577,7 +1589,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
     if (staffUserIds.length === 0) {
       return new Map<string, StaffOperationalSummary>();
     }
-    const result = await this.executor.query<StaffSummaryRow>(STAFF_SUMMARY_SQL, [
+    const result = await this.executor.query<StaffSummaryRow>(STAFF_SUMMARY_SQL(input.includeSaleCapability !== false), [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1588,7 +1600,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
   }
 
   async getDashboard(input: StaffOperationalSummaryScope) {
-    const result = await this.executor.query<DashboardRow>(DASHBOARD_SQL, [
+    const result = await this.executor.query<DashboardRow>(DASHBOARD_SQL(input.includeSaleCapability !== false), [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1630,7 +1642,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
     const result = await this.executor.query<StaffCompletionPerformanceRow>(
-      STAFF_COMPLETION_PERFORMANCE_SQL,
+      STAFF_COMPLETION_PERFORMANCE_SQL(input.includeSaleCapability !== false),
       [
         input.organizationId,
         input.requestedRange?.from ?? null,
@@ -1657,7 +1669,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
   ): Promise<ReadonlyMap<string, StaffExecutionAggregate>> {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
-    const result = await this.executor.query<StaffExecutionRow>(STAFF_EXECUTION_SQL, [
+    const result = await this.executor.query<StaffExecutionRow>(STAFF_EXECUTION_SQL(input.includeSaleCapability !== false), [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1679,7 +1691,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
   ): Promise<ReadonlyMap<string, StaffOnTimeAggregate>> {
     const staffUserIds = [...new Set(input.staffUserIds)];
     if (staffUserIds.length === 0) return new Map();
-    const result = await this.executor.query<StaffOnTimeRow>(STAFF_ON_TIME_SQL, [
+    const result = await this.executor.query<StaffOnTimeRow>(STAFF_ON_TIME_SQL(input.includeSaleCapability !== false), [
       input.organizationId,
       input.requestedRange?.from ?? null,
       input.requestedRange?.to ?? null,
@@ -1700,18 +1712,18 @@ class PostgresReportsReadModel implements ReportsReadModel {
   async getStaffCorrectionRequestEventsMany(
     input: StaffOperationalSummaryManyInput,
   ): Promise<ReadonlyMap<string, number>> {
-    return this.getStaffGroupedCounts(STAFF_CORRECTION_EVENTS_SQL, input);
+    return this.getStaffGroupedCounts(STAFF_CORRECTION_EVENTS_SQL(input.includeSaleCapability !== false), input);
   }
 
   async getStaffAuthoredOperationalNotesMany(
     input: StaffOperationalSummaryManyInput,
   ): Promise<ReadonlyMap<string, number>> {
-    return this.getStaffGroupedCounts(STAFF_AUTHORED_OPERATIONAL_NOTES_SQL, input);
+    return this.getStaffGroupedCounts(STAFF_AUTHORED_OPERATIONAL_NOTES_SQL(input.includeSaleCapability !== false), input);
   }
 
   async getStaffDailyCompletionTrend(input: StaffOperationalSummaryOneInput) {
     const result = await this.executor.query<DailyCompletionRow>(
-      STAFF_DAILY_COMPLETION_TREND_SQL,
+      STAFF_DAILY_COMPLETION_TREND_SQL(input.includeSaleCapability !== false),
       [
         input.organizationId,
         input.staffUserId,
@@ -1746,7 +1758,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
     input: StaffOperationalSummaryOneInput,
   ): Promise<DeliveryPurposeItem[]> {
     const result = await this.executor.query<DeliveryPurposeRow>(
-      STAFF_DELIVERIES_BY_PURPOSE_SQL,
+      STAFF_DELIVERIES_BY_PURPOSE_SQL(input.includeSaleCapability !== false),
       [
         input.organizationId,
         input.staffUserId,
@@ -1766,7 +1778,7 @@ class PostgresReportsReadModel implements ReportsReadModel {
     input: StaffOperationalSummaryOneInput,
   ): Promise<MeetingOutcomeItem[]> {
     const result = await this.executor.query<MeetingOutcomeRow>(
-      STAFF_MEETINGS_BY_OUTCOME_SQL,
+      STAFF_MEETINGS_BY_OUTCOME_SQL(input.includeSaleCapability !== false),
       [
         input.organizationId,
         input.staffUserId,
@@ -1858,8 +1870,9 @@ OFFSET $${offsetParameter}`;
   async getApprovalSummary(input: {
     organizationId: string;
     requestTime: Date;
+    includeSaleCapability?: boolean;
   }): Promise<ApprovalSummary> {
-    const result = await this.executor.query<ApprovalSummaryRow>(APPROVAL_SUMMARY_SQL, [
+    const result = await this.executor.query<ApprovalSummaryRow>(APPROVAL_SUMMARY_SQL(input.includeSaleCapability !== false), [
       input.organizationId,
       input.requestTime,
     ]);
@@ -1876,7 +1889,7 @@ OFFSET $${offsetParameter}`;
     if (input.staffUserId) values.push(input.staffUserId);
     const result = await this.executor.query<{ type: string; count: string }>(
       `SELECT j.type, COUNT(*)::int AS count
-        FROM job_cards j
+        FROM ${saleReadableJobsSql(input.includeSaleCapability !== false)} j
          JOIN organizations o ON o.id = j.organization_id
         WHERE j.organization_id = $1
           AND j.status <> 'INVALIDATED'
@@ -1919,7 +1932,7 @@ OFFSET $${offsetParameter}`;
         input.status,
         input.customerType,
       ]),
-      this.executor.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
+      this.executor.query<CustomerReportRow>(CUSTOMER_REPORT_SQL(input.includeSaleCapability !== false), [
         ...rangeValues,
         searchPattern,
         input.status,
@@ -1927,7 +1940,7 @@ OFFSET $${offsetParameter}`;
         input.limit,
         input.offset,
       ]),
-      this.executor.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL, rangeValues),
+      this.executor.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL(input.includeSaleCapability !== false), rangeValues),
     ]);
 
     const countRow = countResult.rows[0];
@@ -1943,8 +1956,8 @@ OFFSET $${offsetParameter}`;
       total: Number(countRow.total),
       limit: input.limit,
       offset: input.offset,
-      items: pageResult.rows.map(mapCustomerReportItem),
-      unassigned: mapCustomerReportUnassigned(unassignedRow),
+      items: pageResult.rows.map((row) => mapCustomerReportItem(row, input.includeSaleCapability !== false)),
+      unassigned: mapCustomerReportUnassigned(unassignedRow, input.includeSaleCapability !== false),
     };
   }
 
@@ -1969,21 +1982,21 @@ OFFSET $${offsetParameter}`;
       proposalQueueResult]
       = await Promise.all([
         this.executor.query<SalesFollowUpAggregateRow>(
-          SALES_FOLLOW_UP_AGGREGATE_SQL,
+          SALES_FOLLOW_UP_AGGREGATE_SQL(input.includeSaleCapability !== false),
           rangeValues,
         ),
-        this.executor.query<{ total: string | number }>(SALES_MEETING_QUEUE_COUNT_SQL, [
+        this.executor.query<{ total: string | number }>(SALES_MEETING_QUEUE_COUNT_SQL(input.includeSaleCapability !== false), [
           input.organizationId,
         ]),
-        this.executor.query<SalesMeetingQueueRow>(SALES_MEETING_QUEUE_SQL, [
+        this.executor.query<SalesMeetingQueueRow>(SALES_MEETING_QUEUE_SQL(input.includeSaleCapability !== false), [
           input.organizationId,
           input.limit,
           input.offset,
         ]),
-        this.executor.query<{ total: string | number }>(PROPOSAL_QUEUE_COUNT_SQL, [
+        this.executor.query<{ total: string | number }>(PROPOSAL_QUEUE_COUNT_SQL(input.includeSaleCapability !== false), [
           input.organizationId,
         ]),
-        this.executor.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL, [
+        this.executor.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL(input.includeSaleCapability !== false), [
           input.organizationId,
           input.proposalLimit,
           input.proposalOffset,

@@ -266,6 +266,13 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   }
 
   const { source, staff } = state;
+  if (source.type === 'SALE') {
+    return <main className="task-create"><ResultState status="error"
+      title="Takip işi oluşturulamaz"
+      description="Satış kaydı takip işi kaynağı değildir."
+      action={<button className="secondary-button" type="button" onClick={onCancel}>Kaynak işe dön</button>} />
+    </main>;
+  }
   if (source.status !== 'COMPLETED') {
     return <main className="task-create"><ResultState status="error"
       title="Takip işi oluşturulamaz"

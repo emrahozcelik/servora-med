@@ -73,8 +73,8 @@ describe('People API client', () => {
     await listOwnStaffJobs({ status: 'open', limit: 20, offset: 0 });
     await listStaffJobs('staff/1', { status: 'all' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/staff/me/jobs?status=open&limit=20&offset=0',
-      '/api/staff/staff%2F1/jobs?status=all',
+      '/api/staff/me/jobs?status=open&limit=20&offset=0&includeSaleCapability=true',
+      '/api/staff/staff%2F1/jobs?status=all&includeSaleCapability=true',
     ]);
   });
   it('parses a completed Weekly Report row through the Staff job history route', async () => {
@@ -89,7 +89,7 @@ describe('People API client', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(listStaffJobs('staff/1', { status: 'completed' })).resolves
       .toMatchObject({ items: [{ type: 'WEEKLY_REPORT', completedAt: '2026-10-03T09:00:00Z' }] });
-    expect(fetchMock).toHaveBeenCalledWith('/api/staff/staff%2F1/jobs?status=completed', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/staff/staff%2F1/jobs?status=completed&includeSaleCapability=true', expect.anything());
   });
 
   it('parses user and Staff responses with included credentials', async () => {

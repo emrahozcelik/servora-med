@@ -1,3 +1,4 @@
+import { withoutSaleCapability } from './fixtures/job-workflow';
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -202,7 +203,7 @@ describe('Manager review', () => {
       ),
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input); const method = init?.method ?? 'GET';
+      const url = withoutSaleCapability(String(input)); const method = init?.method ?? 'GET';
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
@@ -221,7 +222,7 @@ describe('Manager review', () => {
       if (url.endsWith('/api/calendar/assignees')) {
         return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
       }
-      if (url.endsWith('/approve') && method === 'POST') {
+      if (url.split('?')[0]!.endsWith('/approve') && method === 'POST') {
         return Response.json({ ...waitingJob, status: 'COMPLETED', version: 5, workflowContext: contextWith([], ['VIEW_NOTES'], {
           ...waitingLifecycle,
           approvedAt: '2026-07-17T11:00:00.000Z',
@@ -245,15 +246,15 @@ describe('Manager review', () => {
       expect(dialog.getAttribute('aria-modal')).toBe('true');
       expect(dialog.querySelector('h2')?.textContent).toBe('İşi tamamlamak üzeresiniz');
       expect(dialog.textContent).toContain('İşi “Tamamlandı” durumuna geçirir');
-      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/approve')
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).split('?')[0]!.endsWith('/approve')
         && (init as RequestInit | undefined)?.method === 'POST')).toBe(false);
       await act(async () => {
         buttonByName(dialog, 'İşi onayla ve takip işini planla')!.click();
         await flush();
       });
-      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/approve')
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).split('?')[0]!.endsWith('/approve')
         && (init as RequestInit | undefined)?.method === 'POST')).toBe(true);
-      const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url).endsWith('/approve')
+      const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url).split('?')[0]!.endsWith('/approve')
         && (init as RequestInit | undefined)?.method === 'POST');
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.expectedVersion).toBe(waitingJob.version);
@@ -268,7 +269,7 @@ describe('Manager review', () => {
       ),
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
@@ -336,8 +337,8 @@ describe('Manager review', () => {
     };
     let withdrawCalls = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input); const method = init?.method ?? 'GET';
-      if (url.endsWith('/withdraw-from-approval') && method === 'POST') {
+      const url = withoutSaleCapability(String(input)); const method = init?.method ?? 'GET';
+      if (url.split('?')[0]!.endsWith('/withdraw-from-approval') && method === 'POST') {
         withdrawCalls += 1;
         return Response.json({
           ...meeting,
@@ -583,8 +584,8 @@ describe('Manager review', () => {
     };
     const requests: Array<{ url: string; method: string }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input); const method = init?.method ?? 'GET'; requests.push({ url, method });
-      if (url.endsWith('/withdraw-from-approval') && method === 'POST') {
+      const url = withoutSaleCapability(String(input)); const method = init?.method ?? 'GET'; requests.push({ url, method });
+      if (url.split('?')[0]!.endsWith('/withdraw-from-approval') && method === 'POST') {
         return Response.json({
           ...meeting,
           status: 'IN_PROGRESS',
@@ -618,13 +619,13 @@ describe('Manager review', () => {
       const edit = buttonByName(host, 'Kontrolden geri çek ve düzenle')!;
       await act(async () => { edit.click(); await flush(); });
       expect(requests.some((request) => request.method === 'POST'
-        && request.url.endsWith('/withdraw-from-approval'))).toBe(false);
+        && request.url.split('?')[0]!.endsWith('/withdraw-from-approval'))).toBe(false);
       await act(async () => {
         buttonByName(host, 'Geri çek ve düzenle')!.click();
         await flush();
       });
       expect(requests.some((request) => request.method === 'POST'
-        && request.url.endsWith('/withdraw-from-approval'))).toBe(true);
+        && request.url.split('?')[0]!.endsWith('/withdraw-from-approval'))).toBe(true);
       expect(host.querySelector('#meeting-edit-title')).not.toBeNull();
       expect((host.querySelector('#meeting-edit-title') as HTMLInputElement).value).toBe(meeting.title);
     } finally { await act(async () => root.unmount()); host.remove(); }
@@ -678,7 +679,7 @@ describe('Manager review', () => {
     let detailReads = 0;
     let deliveryReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) {
         deliveryReads += 1;
         return Response.json({ items: [] });
@@ -733,7 +734,7 @@ describe('Manager review', () => {
     };
     let jobReads = 0; let meetingReads = 0; let deliveryReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) { deliveryReads += 1; return Response.json({ items: [] }); }
       if (url.includes('/meeting-details')) {
         meetingReads += 1; return Response.json({
@@ -784,7 +785,7 @@ describe('Manager review', () => {
       };
       let meetingReads = 0;
       vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = withoutSaleCapability(String(input));
         if (url.includes('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
         if (url.includes('/notes?')) return Response.json(page);
         if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
@@ -822,7 +823,7 @@ describe('Manager review', () => {
       ),
     };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         return Response.json({
           jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
@@ -910,7 +911,7 @@ describe('Manager review', () => {
     };
     let jobReads = 0; let meetingReads = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.includes('/meeting-details')) {
         meetingReads += 1;
         return Response.json({
@@ -961,7 +962,7 @@ describe('Manager review', () => {
     _kind, initialJob, triggerName, confirmName, reasonLabel, endpoint, nextStatus,
   ) => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = withoutSaleCapability(String(input));
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });

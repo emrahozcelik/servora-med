@@ -98,6 +98,8 @@ export class RealtimeService {
     let liveSignalBuffered = false;
     let catchUpRequested = false;
     let liveDrain: Promise<void> | undefined;
+    let originProbe: Promise<void> | undefined;
+    let originProbeRequested = false;
 
     const closeConnection = (error?: unknown) => {
       if (closed) return;
@@ -167,13 +169,33 @@ export class RealtimeService {
       return liveDrain;
     };
 
+    const requestOriginProbe = () => {
+      originProbeRequested = true;
+      if (originProbe) return;
+      originProbe = (async () => {
+        while (!closed && originProbeRequested) {
+          originProbeRequested = false;
+          // Persisted source audiences cannot enumerate future Sale owners.
+          // Admit this wake-up through the same current-access query as replay;
+          // coalesce bursts and never expand one query per historical Sale.
+          const visible = await this.repository.replayVisible(viewer, lastSent, 1);
+          if (!closed && visible.length > 0) await requestCatchUp();
+        }
+      })().catch(() => closeConnection()).finally(() => {
+        originProbe = undefined;
+      });
+    };
+
     const handleLiveEvent = (event: RealtimeEventRecord) => {
-      if (closed || !canViewRealtimeEvent(viewer, event)) return;
+      if (closed || event.organizationId !== viewer.organizationId) return;
+      const directAudience = canViewRealtimeEvent(viewer, event);
+      if (!directAudience && !event.resourceKeys.includes('sale-origin-context')) return;
       if (replaying) {
         liveSignalBuffered = true;
         return;
       }
-      requestCatchUp();
+      if (directAudience) requestCatchUp();
+      else requestOriginProbe();
     };
 
     const unsubscribe = this.bus.subscribe(handleLiveEvent);

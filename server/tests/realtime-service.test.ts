@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   InMemoryRealtimeEventBus,
@@ -29,6 +29,30 @@ function event(id: bigint): RealtimeEventRecord {
 }
 
 describe('RealtimeService', () => {
+  it('coalesces same-org origin hints into bounded current-access probes and sends nothing to unrelated viewers', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const replayVisible = vi.fn(async () => { await gate; return []; });
+    const bus = new InMemoryRealtimeEventBus();
+    const service = new RealtimeService({ visibleHighWater: async () => 0n, replayVisible }, bus);
+    const sent: unknown[] = [];
+    const subscription = await service.open({ organizationId: 'org-1', userId: 'unrelated', role: 'STAFF' }, null,
+      { send: async (value) => { sent.push(value); } });
+    const hint = { ...event(1n), resourceKeys: ['sale-origin-context'] };
+    try {
+      bus.publish({ ...hint, organizationId: 'foreign-org' });
+      bus.publish(event(1n));
+      expect(replayVisible).not.toHaveBeenCalled();
+      for (let index = 0; index < 100; index += 1) bus.publish(hint);
+      expect(replayVisible).toHaveBeenCalledTimes(1);
+      release();
+      await expect.poll(() => replayVisible.mock.calls.length).toBe(2);
+      for (const call of replayVisible.mock.calls) expect(call).toEqual([
+        { organizationId: 'org-1', userId: 'unrelated', role: 'STAFF' }, 0n, 1,
+      ]);
+      expect(sent).toHaveLength(1); // Initial sync only: no hidden source or Sale envelope.
+    } finally { release(); subscription.close(); }
+  });
   it('disconnects only the exact organization and user subscription', async () => {
     const repository = {
       visibleHighWater: async () => 0n,

@@ -236,11 +236,14 @@ export class JobCardSaleService {
             actorId: actor.id, event: 'SALE_ITEM_ADDED', clientActionId,
             newValue: { ...item } });
         }
-        await tx.appendActivity({ organizationId: actor.organizationId, jobCardId: visitId,
+        const sourceActivity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId: visitId,
           actorId: actor.id, event: 'SALE_FROM_VISIT_CREATED', clientActionId,
           newValue: { relationKind: 'SALE_FROM_VISIT', saleJobCardId: job.id } });
-        return { response: { jobCardId: job.id, version: job.version },
-          realtimeEvents: await this.effects(tx, job, activity, 'JOB_CREATED', actor.id) };
+        const sourceJob = await tx.getJob(actor.organizationId, visitId);
+        if (!sourceJob) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        const realtimeEvents = await this.effects(tx, job, activity, 'JOB_CREATED', actor.id);
+        realtimeEvents.push(...await this.effects(tx, sourceJob, sourceActivity, 'SALE_FROM_VISIT_CREATED', actor.id));
+        return { response: { jobCardId: job.id, version: job.version }, realtimeEvents };
       },
     ).catch((error: unknown) => this.integrityError(error));
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');

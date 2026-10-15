@@ -33,7 +33,7 @@ import type {
 
 export type StaffJobHistoryInput = Pick<
   StaffJobHistoryQuery,
-  'status' | 'type' | 'limit' | 'offset'
+  'status' | 'type' | 'limit' | 'offset' | 'includeSaleCapability'
 >;
 
 export type StaffWeeklyReportHistoryInput = Pick<

@@ -45,11 +45,13 @@ const completionWorkTypes = [
   { type: 'PRODUCT_DELIVERY', count: 2 },
   { type: 'GENERAL_TASK', count: 2 },
   { type: 'SALES_MEETING', count: 0 },
+  { type: 'SALE', count: 0 },
 ] as const;
 const currentWorkloadByType = [
   { type: 'PRODUCT_DELIVERY', count: 2 },
   { type: 'GENERAL_TASK', count: 2 },
   { type: 'SALES_MEETING', count: 2 },
+  { type: 'SALE', count: 0 },
 ] as const;
 const completedTrend = [{ date: '2026-07-01', count: 0 },
   { date: '2026-07-02', count: 4 }];
@@ -66,6 +68,7 @@ const createdWorkTypeDistribution = [
   { type: 'PRODUCT_DELIVERY', count: 2 },
   { type: 'GENERAL_TASK', count: 0 },
   { type: 'SALES_MEETING', count: 1 },
+  { type: 'SALE', count: 0 },
 ] as const;
 const listItem = {
   id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 7,
@@ -260,6 +263,7 @@ describe('Reports runtime contract', () => {
         ], createdWorkTypeDistribution: [
           { type: 'PRODUCT_DELIVERY', count: 0 }, { type: 'GENERAL_TASK', count: 0 },
           { type: 'SALES_MEETING', count: 0 },
+  { type: 'SALE', count: 0 },
         ] }))
       .mockResolvedValueOnce(response({ range, items: [{
         staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
@@ -304,13 +308,13 @@ describe('Reports runtime contract', () => {
     });
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/reports/dashboard?from=2026-07-01&to=2026-07-31',
-      '/api/reports/staff?from=2026-07-01&to=2026-07-31',
-      '/api/reports/staff/me',
-      `/api/reports/staff/${STAFF_ID}`,
-      `/api/reports/deliveries?groupBy=staff&staffUserId=${STAFF_ID}&limit=25&offset=10`,
-      '/api/reports/approvals?limit=25&offset=10',
-      '/api/reports/staff/missing',
+      '/api/reports/dashboard?from=2026-07-01&to=2026-07-31&includeSaleCapability=true',
+      '/api/reports/staff?from=2026-07-01&to=2026-07-31&includeSaleCapability=true',
+      '/api/reports/staff/me?includeSaleCapability=true',
+      `/api/reports/staff/${STAFF_ID}?includeSaleCapability=true`,
+      `/api/reports/deliveries?groupBy=staff&staffUserId=${STAFF_ID}&limit=25&offset=10&includeSaleCapability=true`,
+      '/api/reports/approvals?limit=25&offset=10&includeSaleCapability=true',
+      '/api/reports/staff/missing?includeSaleCapability=true',
     ]);
   });
 
@@ -327,7 +331,7 @@ describe('Customer report runtime contract', () => {
   const customerSnapshot = { active: 4, actionable: 2, waitingApproval: 1,
     revisionRequested: 0, overdue: 1 };
   const customerPeriod = { created: 3,
-    createdWorkTypes: { PRODUCT_DELIVERY: 2, GENERAL_TASK: 1, SALES_MEETING: 0 },
+    createdWorkTypes: { PRODUCT_DELIVERY: 2, GENERAL_TASK: 1, SALES_MEETING: 0, SALE: 0 },
     managerApproved: 2, followUpChildren: 1 };
   const customerItem = { customer: { id: 'customer-1', name: 'Klinik A',
     customerType: 'clinic', status: 'active' },
@@ -392,7 +396,7 @@ describe('Customer report runtime contract', () => {
     await getCustomerReport({ search: 'Klinik', status: 'active', customerType: 'clinic',
       requestedRange: null, limit: 25, offset: 10 });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/reports/customers?search=Klinik&status=active&type=clinic&limit=25&offset=10',
+      '/api/reports/customers?search=Klinik&status=active&type=clinic&limit=25&offset=10&includeSaleCapability=true',
     ]);
   });
 

@@ -7,6 +7,7 @@ import {
   listFollowUps, listJobCards, findAvailableSlots, invalidateJobCard, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
+  getSubmissionLateness, listOverdueIncidents, sendSubmissionReminder,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
 import { workflowContext } from './fixtures/job-workflow';
@@ -59,6 +60,27 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('opts into Sale visibility on operational subresources without changing their DTOs', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ items: [], limit: 25, nextCursor: null }))
+      .mockResolvedValueOnce(json({ ...note, jobCardId: 'sale-1' }, 201))
+      .mockResolvedValueOnce(json({ open: null }))
+      .mockResolvedValueOnce(json({ items: [], total: 0, limit: 25, offset: 0 }))
+      .mockResolvedValueOnce(json({ jobCardId: 'sale-1', reminderId: 'reminder-1', sentAt: '2026-10-15T08:00:00.000Z' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listJobCardNotes('sale-1')).resolves.toEqual({ items: [], limit: 25, nextCursor: null });
+    await expect(addJobCardNote('sale-1', { clientActionId: 'sale-note', note: 'Agreed' })).resolves.toMatchObject({ jobCardId: 'sale-1' });
+    await expect(getSubmissionLateness('sale-1')).resolves.toEqual({ open: null });
+    await expect(listOverdueIncidents('sale-1')).resolves.toEqual({ items: [], total: 0, limit: 25, offset: 0 });
+    await expect(sendSubmissionReminder('sale-1', { clientActionId: 'sale-reminder', expectedVersion: 1 })).resolves.toMatchObject({ jobCardId: 'sale-1' });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/job-cards/sale-1/notes?includeSaleCapability=true',
+      '/api/job-cards/sale-1/notes?includeSaleCapability=true',
+      '/api/job-cards/sale-1/submission-lateness?includeSaleCapability=true',
+      '/api/job-cards/sale-1/overdue-incidents?includeSaleCapability=true',
+      '/api/job-cards/sale-1/submission-reminder?includeSaleCapability=true',
+    ]);
+  });
   it('posts invalidation with the exact body and validates the authoritative mutation response', async () => {
     const invalidatedAt = '2026-08-18T08:00:00.000Z';
     const fetchMock = vi.fn().mockResolvedValue(json({
@@ -90,7 +112,7 @@ describe('JobCard workspace transport', () => {
       invalidationReasonCode: 'OTHER', invalidatedAt,
       invalidatedBy: 'admin-1',
     });
-    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/invalidate', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/invalidate?includeSaleCapability=true', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({
         clientActionId: 'invalidate-1', expectedVersion: 7, reasonCode: 'OTHER', note: 'Demo kayıt',
@@ -282,10 +304,10 @@ describe('JobCard workspace transport', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await getJobCard('job-1');
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/job-cards/job-1', expect.anything());
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/job-cards/job-1?includeSaleCapability=true', expect.anything());
     await getJobCard('job-1', { includeSubmitLocationCapability: true });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/job-cards/job-1?includeSubmitLocationCapability=true', expect.anything(),
+      '/api/job-cards/job-1?includeSubmitLocationCapability=true&includeSaleCapability=true', expect.anything(),
     );
   });
 
@@ -327,7 +349,7 @@ describe('JobCard workspace transport', () => {
 
     const plain = await listActivity('job-1');
     expect(fetchMock).toHaveBeenLastCalledWith(
-      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true',
+      '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true&includeMetContactCapability=true&includeSaleCapability=true',
       expect.anything(),
     );
     expect(plain.items[0]!.details).not.toHaveProperty('submitComparison');
@@ -420,7 +442,7 @@ describe('JobCard workspace transport', () => {
       items: [listItem], total: 9, limit: 25, offset: 0,
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/job-cards?status=WAITING_APPROVAL&limit=25&offset=0',
+      '/api/job-cards?status=WAITING_APPROVAL&limit=25&offset=0&includeSaleCapability=true',
       expect.objectContaining({ credentials: 'include' }),
     );
   });
@@ -537,7 +559,7 @@ describe('JobCard workspace transport', () => {
 
     await patchJobCard('job-1', input);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1?includeSaleCapability=true', expect.objectContaining({
       method: 'PATCH', body: JSON.stringify(input),
     }));
   });
@@ -569,7 +591,7 @@ describe('JobCard workspace transport', () => {
     });
     const input = { clientActionId: 'note-action', note: 'Klinik arandı' };
     await expect(addJobCardNote('job-1', input)).resolves.toEqual(note);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/notes', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/notes?includeSaleCapability=true', expect.objectContaining({
       method: 'POST', body: JSON.stringify(input), credentials: 'include',
     }));
   });
@@ -704,7 +726,7 @@ describe('JobCard workspace transport', () => {
     // #347/P2: START opts into the reader-gated SUBMIT capability so the
     // response replacing local state keeps the next SUBMIT capturable.
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
+      '/api/job-cards/job-1/start?includeSubmitLocationCapability=true&includeSaleCapability=true',
       expect.objectContaining({
         method: 'POST', body: JSON.stringify(input), credentials: 'include',
       }),
@@ -724,7 +746,7 @@ describe('JobCard workspace transport', () => {
 
     await submitJobCardForApproval('job-1', input);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true&includeSaleCapability=true', expect.objectContaining({
       method: 'POST', body: JSON.stringify(input), credentials: 'include',
     }));
   });
@@ -874,11 +896,11 @@ describe('JobCard workspace transport', () => {
     await resumeJobCard('job-1', versioned);
     await cancelJobCard('job-1', { ...versioned, cancelReason: 'Müşteri iptal etti' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/job-cards/job-1/accept', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true',
-      '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true', '/api/job-cards/job-1/approve',
-      '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/withdraw-from-approval',
-      '/api/job-cards/job-1/resume',
-      '/api/job-cards/job-1/cancel',
+      '/api/job-cards/job-1/accept?includeSaleCapability=true', '/api/job-cards/job-1/start?includeSubmitLocationCapability=true&includeSaleCapability=true',
+      '/api/job-cards/job-1/submit-for-approval?includeSubmitLocationCapability=true&includeSaleCapability=true', '/api/job-cards/job-1/approve?includeSaleCapability=true',
+      '/api/job-cards/job-1/request-revision?includeSaleCapability=true', '/api/job-cards/job-1/withdraw-from-approval?includeSaleCapability=true',
+      '/api/job-cards/job-1/resume?includeSaleCapability=true',
+      '/api/job-cards/job-1/cancel?includeSaleCapability=true',
     ]);
     expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).toEqual({
       ...versioned, note: 'Bitti',

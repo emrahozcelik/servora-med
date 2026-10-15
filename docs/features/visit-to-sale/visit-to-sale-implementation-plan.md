@@ -72,6 +72,10 @@ Bu PR'da sale UI browser acceptance **N/A — not exposed**; service/SQL doğrul
 
 ## 4. PR 2 — Sale JobCard, CRM and meeting-origin integration
 
+PR2 implementation checkpoint: see [read-integration.md](read-integration.md)
+for the implemented read contract and the evidence-backed realtime storage
+refinement. The original discovery observations below remain historical.
+
 Suggested title: `feat(job-cards): expose sale context and scoped visit links`
 
 **Amaç:** Sale her operasyonel okuyucuda normal, ayrı bir karttır; iki taraflı linkler ve snapshot privacy doğru projekte edilir. Create/correction UI henüz açılmaz; write registration PR3'e kalır.

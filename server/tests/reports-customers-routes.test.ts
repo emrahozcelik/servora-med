@@ -113,6 +113,7 @@ describe('Reports R2C-1 customer report HTTP routes', () => {
       expect(response.statusCode).toBe(200);
       expect(reports.getCustomerReport).toHaveBeenCalledOnce();
       expect(reports.getCustomerReport).toHaveBeenCalledWith({
+        includeSaleCapability: false,
         organizationId: ORG_ONE,
         requestedRange: { from: '2026-07-01', to: '2026-07-31' },
         requestTime,
@@ -132,6 +133,7 @@ describe('Reports R2C-1 customer report HTTP routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(reports.getCustomerReport).toHaveBeenCalledWith({
+      includeSaleCapability: false,
       organizationId: ORG_ONE,
       requestedRange: null,
       requestTime,

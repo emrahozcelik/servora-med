@@ -198,5 +198,5 @@ export function parseOverviewResponse(input: unknown): OverviewResponse {
 }
 
 export async function getOverview(): Promise<OverviewResponse> {
-  return parseOverviewResponse(await request('/api/overview'));
+  return parseOverviewResponse(await request('/api/overview?includeSaleCapability=true'));
 }

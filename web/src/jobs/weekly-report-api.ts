@@ -1,11 +1,15 @@
 import {
-  ApiError, json, nullableString, object, request, requestBinary, string,
+  ApiError, json, nullableString, object, request as apiRequest, requestBinary, string,
 } from '../services/api';
 import {
   JOB_CARD_STATUSES,
   JOB_CARD_TYPES,
   type JobCardStatus,
 } from './jobs-api';
+
+const request: typeof apiRequest = (path, options) => apiRequest(
+  path + (path.includes('?') ? '&' : '?') + 'includeSaleCapability=true', options,
+);
 
 // Local parser helpers mirror the jobs-api convention (each API module owns
 // its exact-object parsing so contract drift fails closed at the call site).

@@ -45,7 +45,8 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
 
 function page(raw: unknown, defaultLimit: number) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
-  const value = raw as Record<string, unknown>;
+  const { includeSaleCapability: _sale, ...value } = raw as Record<string, unknown>;
+  void _sale;
   for (const [key, entry] of Object.entries(value)) {
     if (!['limit', 'offset'].includes(key) || Array.isArray(entry)) throw validation(key);
   }
@@ -83,6 +84,14 @@ function includeMetContactCapability(raw: unknown) {
   return (raw as Record<string, unknown>).includeMetContactCapability === 'true';
 }
 
+function saleCapability(raw: unknown) {
+  return !!raw && typeof raw === 'object' && !Array.isArray(raw)
+    && (raw as Record<string, unknown>).includeSaleCapability === 'true';
+}
+function requireSaleCapability(request: FastifyRequest) {
+  if (!saleCapability(request.query)) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+}
+
 /** Positive-integer route parameter (e.g. an immutable submission seq). */
 function positiveIntegerParam(raw: unknown, field: string) {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw validation(field);
@@ -93,7 +102,8 @@ function positiveIntegerParam(raw: unknown, field: string) {
 
 function notePage(raw: unknown, defaultLimit: number) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
-  const value = raw as Record<string, unknown>;
+  const { includeSaleCapability: _sale, ...value } = raw as Record<string, unknown>;
+  void _sale;
   for (const [key, entry] of Object.entries(value)) {
     if (!['limit', 'beforeCreatedAt', 'beforeId'].includes(key) || Array.isArray(entry)) {
       throw validation(key);
@@ -159,7 +169,7 @@ export function createJobCardHandlers(service: JobCardService) {
         parseWeeklyReportBulkRequestInput(request.body),
       )),
     getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.getWeeklyReport(actor(request), request.params.id),
+      service.getWeeklyReport(actor(request), request.params.id, saleCapability(request.query)),
     getWeeklyReportReference: async (request: FastifyRequest) =>
       service.weeklyReportReference(actor(request)),
     updateWeeklyReportDraft: async (request: FastifyRequest<{ Params: Params }>) =>
@@ -167,9 +177,10 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         request.params.id,
         parseWeeklyReportDraftPatch(request.body),
+        saleCapability(request.query),
       ),
     listWeeklyReportSubmissions: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.listWeeklyReportSubmissions(actor(request), request.params.id),
+      service.listWeeklyReportSubmissions(actor(request), request.params.id, saleCapability(request.query)),
     downloadWeeklyReportSubmissionPdf: async (
       request: FastifyRequest<{ Params: { id: string; seq: string } }>,
       reply: FastifyReply,
@@ -201,9 +212,23 @@ export function createJobCardHandlers(service: JobCardService) {
         page(request.query, 20),
       ),
     list: async (request: FastifyRequest) =>
-      service.list(actor(request), parseJobCardListQuery(request.query)),
+      service.list(actor(request), { ...parseJobCardListQuery(request.query), includeSaleCapability: saleCapability(request.query) }),
     board: async (request: FastifyRequest) =>
-      service.board(actor(request), parseJobCardBoardQuery(request.query)),
+      service.board(actor(request), { ...parseJobCardBoardQuery(request.query), includeSaleCapability: saleCapability(request.query) }),
+    saleDetails: async (request: FastifyRequest<{ Params: Params }>) => {
+      requireSaleCapability(request);
+      return service.getSaleDetails(actor(request), request.params.id);
+    },
+    saleCreateContext: async (request: FastifyRequest<{ Params: Params }>) => {
+      requireSaleCapability(request);
+      return service.getSaleCreateContext(actor(request), request.params.id);
+    },
+    relatedSales: async (request: FastifyRequest<{ Params: Params }>) => {
+      requireSaleCapability(request);
+      const { includeSaleCapability: _gate, ...pagination } = request.query as Record<string, unknown>;
+      void _gate;
+      return service.listRelatedSales(actor(request), request.params.id, page(pagination, 20));
+    },
     detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(
       actor(request),
       request.params.id,
@@ -282,16 +307,18 @@ export function createJobCardHandlers(service: JobCardService) {
       // gate keys are separated before pagination parsing; previous bundles
       // never send them and keep receiving the ungated shape.
       const {
+        includeSaleCapability: _saleGate,
         includeSubmitLocationCapability: _gate,
         includeMetContactCapability: _metGate,
         ...pageQuery
       } = (request.query as Record<string, unknown> | undefined) ?? {};
-      void _gate; void _metGate;
+      void _gate; void _metGate; void _saleGate;
       return service.listActivity(
         actor(request),
         request.params.id,
         page(pageQuery, 50),
         {
+          includeSaleCapability: saleCapability(request.query),
           includeSubmitLocationCapability: includeSubmitLocationCapability(request.query),
           includeMetContactCapability: includeMetContactCapability(request.query),
         },

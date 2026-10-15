@@ -1,3 +1,4 @@
+import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -15,32 +16,9 @@ import type { RealtimeEventRecord, RealtimeViewer } from '../src/modules/realtim
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
-const MIGRATIONS = [
-  '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
-  '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
-  '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
-  '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
-  '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
-  '013_create_job_action_locations.sql', '014_create_web_push.sql',
-  '015_job_card_engagement_kind.sql', '016_google_reverse_geocoding.sql',
-  '017_calendar.sql', '018_messaging.sql',
-  '019_job_card_operational_note_context.sql',
-  '020_job_card_transition_note_contexts.sql',
-  '021_job_card_note_added_notification_kind.sql',
-  '022_job_card_follow_up_links.sql',
-  '023_staff_confidential_notes.sql',
-  '024_job_card_notes_invoice_number.sql',
-  '025_messaging_context_ready.sql',
-  '026_messaging_participant_lifecycle.sql',
-  '029_messaging_conversation_archive.sql',
-  '030_backup_domain_foundation.sql',
-  '031_backup_engine_failure_taxonomy_and_dump_version.sql',
-  '032_backup_r2_failure_taxonomy.sql',
-  '033_backup_worker_runtime.sql',
-  '034_demo_data_foundation.sql',
-  '035_demo_data_purge_foundation.sql',
-  '036_job_card_invalidated.sql',
-] as const;
+const MIGRATIONS = (await loadMigrationCatalog(
+  fileURLToPath(new URL('../src/db/migrations', import.meta.url)),
+)).entries.map((entry) => entry.filename);
 
 type Fixture = {
   pool: Pool;

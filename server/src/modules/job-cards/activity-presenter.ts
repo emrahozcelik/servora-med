@@ -22,6 +22,7 @@ type JsonRecord = Record<string, unknown>;
  * activity, because previous bundles reject unknown changed-field names.
  */
 export type ActivityPresentationOptions = {
+  includeSaleCapability?: boolean;
   includeSubmitLocationCapability?: boolean;
   includeMetContactCapability?: boolean;
 };
@@ -248,13 +249,28 @@ function details(
   options?: ActivityPresentationOptions,
 ): JobCardActivityDetails {
   switch (record.eventType) {
-    // Scoped Sale detail/link readers are added in PR2; never expose raw audit JSON here.
     case 'SALE_FROM_VISIT_CREATED':
+      // Related-card identities are independently scoped by the relation reader.
+      return options?.includeSaleCapability ? { kind: 'SALE_RELATION' } : { kind: 'NONE' };
     case 'SALE_DETAILS_UPDATED':
+      if (!options?.includeSaleCapability) return { kind: 'NONE' };
+      return { kind: 'SALE_DETAILS', changedFields: [
+        ...(jsonRecord(record.oldValue)?.soldAt !== jsonRecord(record.newValue)?.soldAt ? ['soldAt' as const] : []),
+        ...(jsonRecord(record.oldValue)?.saleContactId !== jsonRecord(record.newValue)?.saleContactId ? ['saleContact' as const] : []),
+      ] };
     case 'SALE_ITEM_ADDED':
     case 'SALE_ITEM_UPDATED':
-    case 'SALE_ITEM_REMOVED':
-      return { kind: 'NONE' };
+    case 'SALE_ITEM_REMOVED': {
+      if (!options?.includeSaleCapability) return { kind: 'NONE' };
+      const value = jsonRecord(record.eventType === 'SALE_ITEM_REMOVED' ? record.oldValue : record.newValue);
+      if (!value || typeof value.id !== 'string' || typeof value.productNameSnapshot !== 'string'
+        || typeof value.quantity !== 'string' || !/^\d{1,9}\.\d{3}$/.test(value.quantity)) return { kind: 'NONE' };
+      const previous = jsonRecord(record.oldValue)?.quantity;
+      return { kind: 'SALE_ITEM', operation: record.eventType === 'SALE_ITEM_ADDED' ? 'ADDED'
+        : record.eventType === 'SALE_ITEM_UPDATED' ? 'UPDATED' : 'REMOVED',
+        itemId: value.id, productName: value.productNameSnapshot, quantity: value.quantity,
+        previousQuantity: typeof previous === 'string' && /^\d{1,9}\.\d{3}$/.test(previous) ? previous : null };
+    }
     case 'JOB_CREATED': return { kind: 'NONE' };
     // OVR-4 reminder facts carry their semantics in metadata (incident,
     // episode, target, sentAt); the timeline renders them as plain facts.

@@ -44,7 +44,7 @@ type RecentNoteRow = {
   created_at: Date;
 };
 
-const RECENT_COMPLETED_SQL = `
+const RECENT_COMPLETED_SQL = (includeSaleCapability: boolean) => `
 SELECT j.id, j.title, c.name AS customer_name, assignee.name AS assignee_name,
   j.manager_approved_at AS completed_at
 FROM job_cards j
@@ -58,10 +58,11 @@ WHERE j.organization_id = $1
   AND j.manager_approved_at >= ($2::date AT TIME ZONE o.timezone)
   AND j.manager_approved_at < (($3::date + 1) AT TIME ZONE o.timezone)
   AND ($4::uuid IS NULL OR j.assigned_to = $4)
+  ${includeSaleCapability ? '' : "AND j.type <> 'SALE'"}
 ORDER BY j.manager_approved_at DESC, j.id DESC
 LIMIT 10`;
 
-const RECENT_NOTES_SQL = `
+const RECENT_NOTES_SQL = (includeSaleCapability: boolean) => `
 SELECT n.id, n.job_card_id, j.title AS job_title,
   COALESCE(n.author_name_snapshot, author.name) AS author_name, n.created_at
 FROM job_card_notes n
@@ -75,6 +76,7 @@ WHERE n.organization_id = $1
   AND n.created_at >= ($2::date AT TIME ZONE o.timezone)
   AND n.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
   AND ($4::uuid IS NULL OR j.assigned_to = $4)
+  ${includeSaleCapability ? '' : "AND j.type <> 'SALE'"}
 ORDER BY n.created_at DESC, n.id DESC
 LIMIT 10`;
 
@@ -96,6 +98,7 @@ export class PostgresOverviewRepository implements OverviewReadModel {
       organizationId: actor.organizationId,
       staffUserId: actor.id,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
     });
     if (!summary) {
@@ -106,6 +109,7 @@ export class PostgresOverviewRepository implements OverviewReadModel {
       summary.range.from,
       summary.range.to,
       actor.id,
+      query.includeSaleCapability,
     );
     return {
       scope: 'staff' as const,
@@ -128,11 +132,13 @@ export class PostgresOverviewRepository implements OverviewReadModel {
     const input = {
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
       requestTime,
     };
     const [dashboard, approval] = await Promise.all([
       this.reports.getDashboard(input),
       this.reports.getApprovalSummary({
+        ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
         organizationId: actor.organizationId,
         requestTime,
       }),
@@ -142,6 +148,7 @@ export class PostgresOverviewRepository implements OverviewReadModel {
       dashboard.range.from,
       dashboard.range.to,
       null,
+      query.includeSaleCapability,
     );
     return {
       scope: 'management' as const,
@@ -210,11 +217,16 @@ export class PostgresOverviewRepository implements OverviewReadModel {
     from: string,
     to: string,
     staffUserId: string | null,
+    includeSaleCapability?: boolean,
   ) {
     const values = [organizationId, from, to, staffUserId];
+    // Legacy readers (capability absent or false) never see SALE rows or their
+    // notes; the filter runs before ORDER BY/LIMIT so sales cannot displace
+    // accessible rows from the fixed window.
+    const includeSale = includeSaleCapability !== false;
     const [work, notes] = await Promise.all([
-      this.pool.query<RecentWorkRow>(RECENT_COMPLETED_SQL, values),
-      this.pool.query<RecentNoteRow>(RECENT_NOTES_SQL, values),
+      this.pool.query<RecentWorkRow>(RECENT_COMPLETED_SQL(includeSale), values),
+      this.pool.query<RecentNoteRow>(RECENT_NOTES_SQL(includeSale), values),
     ]);
     return [
       work.rows.map((row) => ({

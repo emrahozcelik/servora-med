@@ -39,7 +39,7 @@ describe('CRM API client', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(listCustomerJobs('customer/1', { status: 'completed', type: 'GENERAL_TASK', limit: 10, offset: 20 }))
       .resolves.toMatchObject({ total: 1, items: [{ followUp: { sourceJobCardId: 'source-1' }, childCount: 2 }] });
-    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1/jobs?status=completed&type=GENERAL_TASK&limit=10&offset=20', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1/jobs?status=completed&type=GENERAL_TASK&limit=10&offset=20&includeSaleCapability=true', expect.anything());
   });
   it('accepts every canonical JobCard type in Customer history, including Weekly Report', async () => {
     for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING', 'WEEKLY_REPORT'] as const) {

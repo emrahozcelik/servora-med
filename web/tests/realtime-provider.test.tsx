@@ -124,6 +124,18 @@ describe('RealtimeProvider', () => {
     expect(view.querySelector('output')?.textContent).toBe('1');
   });
 
+  it('accepts the existing source invalidation vocabulary for a personal Sale origin subscriber', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="sale-origin-context:staff-1" />);
+    await act(async () => {
+      source.emit('servora.change', JSON.stringify({ id: '23', type: 'job.invalidated',
+        entity: { type: 'job-card', id: 'authorized-source' }, resourceKeys: ['sale-origin-context:staff-1'],
+        occurredAt: '2026-07-20T10:00:00.000Z' }));
+      await Promise.resolve();
+    });
+    expect(view.querySelector('output')?.textContent).toBe('1');
+  });
+
   it('coalesces a workspace sync marker and reconciles every mounted resource once', async () => {
     const source = new FakeEventSource();
     const view = await render(source, <>

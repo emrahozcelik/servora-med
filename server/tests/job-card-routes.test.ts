@@ -12,6 +12,7 @@ function serviceDouble() {
   const result = { id: 'job-1', version: 1 };
   const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
+    assertSaleCapability: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
     createProductDelivery: vi.fn().mockResolvedValue({ jobCardId: 'job-1', version: 4 }),
     createWeeklyReport: vi.fn().mockResolvedValue({
@@ -631,7 +632,7 @@ describe('JobCard routes', () => {
     const response = await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload });
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
-    expect(Object.values(service).filter((value) => typeof value === 'function')
+    expect(Object.entries(service).filter(([key]) => key !== 'assertSaleCapability').map(([, value]) => value).filter((value) => typeof value === 'function')
       .every((mock) => !(mock as ReturnType<typeof vi.fn>).mock?.calls.length)).toBe(true);
   });
 
@@ -640,7 +641,7 @@ describe('JobCard routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false, includeSaleCapability: false });
   });
 
   it('forwards an explicit activity page', async () => {
@@ -652,7 +653,7 @@ describe('JobCard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(page);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 }, { includeSubmitLocationCapability: false, includeMetContactCapability: false, includeSaleCapability: false });
   });
 
   it('gates SUBMIT comparison evidence on activity behind the reader opt-in', async () => {
@@ -660,7 +661,7 @@ describe('JobCard routes', () => {
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeSubmitLocationCapability=true' });
     expect(service.listActivity).toHaveBeenCalledWith(
       expect.anything(), 'job-1', { limit: 50, offset: 0 },
-      { includeSubmitLocationCapability: true, includeMetContactCapability: false },
+      { includeSubmitLocationCapability: true, includeMetContactCapability: false, includeSaleCapability: false },
     );
   });
 
@@ -669,7 +670,7 @@ describe('JobCard routes', () => {
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity?includeMetContactCapability=true' });
     expect(service.listActivity).toHaveBeenCalledWith(
       expect.anything(), 'job-1', { limit: 50, offset: 0 },
-      { includeSubmitLocationCapability: false, includeMetContactCapability: true },
+      { includeSubmitLocationCapability: false, includeMetContactCapability: true, includeSaleCapability: false },
     );
   });
 
@@ -850,11 +851,11 @@ describe('JobCard routes', () => {
       payload: { expectedVersion: 1, draft: {}, answers: [] },
     })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/weekly-report/submissions' })).statusCode).toBe(200);
-    expect(service.getWeeklyReport).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    expect(service.getWeeklyReport).toHaveBeenCalledWith(expect.anything(), 'job-1', false);
     expect(service.updateWeeklyReportDraft).toHaveBeenCalledWith(expect.anything(), 'job-1', {
       expectedVersion: 1, draft: {}, answers: [],
-    });
-    expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    }, false);
+    expect(service.listWeeklyReportSubmissions).toHaveBeenCalledWith(expect.anything(), 'job-1', false);
   });
 
   it('serves the canonical weekly report reference with the authenticated actor', async () => {

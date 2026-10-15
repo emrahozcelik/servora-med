@@ -243,11 +243,11 @@ export const listCustomers = async (filters: CustomerFilters = {}) => parsePage(
 );
 export const getCustomer = async (id: string) => parseCustomerDetail(await request(customerPath(id)));
 export const getCustomerOperationalSummary = async (customerId: string) =>
-  parseOperationalSummary(await request(`${customerPath(customerId)}/operational-summary`));
+  parseOperationalSummary(await request(`${customerPath(customerId)}/operational-summary?includeSaleCapability=true`));
 export const listCustomerJobs = async (customerId: string, filters: {
   status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number;
 } = {}) => parsePage(
-  await request(`${customerPath(customerId)}/jobs${query(filters)}`), parseJobHistoryItem,
+  await request(`${customerPath(customerId)}/jobs${query({ ...filters, includeSaleCapability: 'true' })}`), parseJobHistoryItem,
 );
 export const createCustomer = async (input: CreateCustomerInput) =>
   parseCustomer(await request('/api/customers', json('POST', input)));
