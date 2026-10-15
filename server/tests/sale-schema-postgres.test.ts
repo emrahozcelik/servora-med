@@ -49,7 +49,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const item = (await f.pool.query('SELECT id FROM job_card_sale_items WHERE job_card_id=$1', [sale.jobCardId])).rows[0].id;
       for (const quantity of ['0', '-1', '0.001', '0.5', '1.5', '2.75', '999999999.999', 'NaN', 'Infinity', '1000000000']) {
         await expect(f.pool.query('UPDATE job_card_sale_items SET quantity=$2 WHERE id=$1', [item, quantity]))
-          .rejects.toMatchObject({ code: quantity === '1000000000' || quantity === 'Infinity' ? '22003' : '23514' });
+          .rejects.toMatchObject({ code: '23514' });
       }
       await expect(f.pool.query(`INSERT INTO job_card_sale_items(organization_id,job_card_id,product_id,quantity,product_name_snapshot,sort_order)
         VALUES ($1,$2,$3,1,'Duplicate',3)`, [f.organizationId, sale.jobCardId, f.products[0]])).rejects.toMatchObject({ code: '23505' });
@@ -64,14 +64,14 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       expect((await f.pool.query('SELECT quantity::text FROM job_card_sale_items WHERE id=$1', [item])).rows[0].quantity).toMatch(/^(1\.000|15\.000)$/);
     });
   });
-  it('installs separate sale details/items with an exact three-decimal quantity column', async () => {
+  it('installs separate sale details/items with unrestricted numeric and an exact integer CHECK', async () => {
     await withIntentSchema(databaseUrl, async (pool, schema) => {
       const quantity = await pool.query(
         `SELECT numeric_precision, numeric_scale FROM information_schema.columns
          WHERE table_schema=$1 AND table_name='job_card_sale_items' AND column_name='quantity'`,
         [schema],
       );
-      expect(quantity.rows).toEqual([{ numeric_precision: 12, numeric_scale: 3 }]);
+      expect(quantity.rows).toEqual([{ numeric_precision: null, numeric_scale: null }]);
       const tables = await pool.query(
         `SELECT table_name FROM information_schema.tables
          WHERE table_schema=$1 AND table_name IN ('job_card_sale_details','job_card_sale_items')

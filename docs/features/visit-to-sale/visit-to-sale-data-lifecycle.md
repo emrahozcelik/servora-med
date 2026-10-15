@@ -77,7 +77,7 @@ Parent version tek edit/concurrency otoritesi; subtype için ikinci optimistic v
 | `id` | UUID PK. |
 | `organization_id`, `job_card_id` | Organization ve SALE parent composite FK, history koruyan RESTRICT. |
 | `product_id` | Products composite FK; stable identity. |
-| `quantity` | `NUMERIC(12,3) NOT NULL`; `1 ≤ quantity ≤ 999999999` ve `quantity = trunc(quantity)` (SALE-QTY-001, 058). NaN/Infinity, kesir ve sıfır/negatif değer kabul edilmez. |
+| `quantity` | `NUMERIC NOT NULL` (unrestricted); `1 ≤ quantity ≤ 999999999` ve `quantity = trunc(quantity)` (SALE-QTY-001, 058). NaN/Infinity, kesir ve sıfır/negatif değer kabul edilmez. |
 | `product_name_snapshot` | Non-blank VARCHAR(255). |
 | `product_sku_snapshot`, `product_brand_snapshot`, `product_model_snapshot` | Nullable VARCHAR(100). Aynı transaction'da ürünün canonical değerleri. |
 | `unit_snapshot` | Nullable VARCHAR(30); spelling/case korunur; boş varsayılan birim üretilmez. |
@@ -86,9 +86,9 @@ Parent version tek edit/concurrency otoritesi; subtype için ikinci optimistic v
 
 Unique `(organization_id, job_card_id, product_id)` product duplicate'ını DB'de engeller. Parent üzerinde ürün satırı read index'i gerekir. İlk create 1–25 distinct product; aktif draft edit sonrası 0–25 mümkün, fakat empty sale onaya gönderilemez. 25 sınırı mevcut delivery create boyutuyla aynı bounded başlangıç önerisidir; ürün kuralı olarak açıkça uygulanır.
 
-SALE-QTY-001 (2026-10-15) bu bölümün ilk üç ondalıklı Sale sözleşmesini açıkça supersede eder. JSON quantity number pozitif tam sayıdır; create/add/correction ve readiness aynı validator'ı kullanır. Public DTO quantity integer string (`"1"`, `"15"`); birimden bağımsız ürün sayısıdır. V1 hash/persistence/audit normalizasyonu integer receipt replay için `"1.000"` olarak korunur; public sunum hash normalizasyonundan ayrıdır. Orijinal 057 ve audit payload'ları yeniden yazılmaz.
+SALE-QTY-001 (2026-10-15) bu bölümün ilk üç ondalıklı Sale sözleşmesini açıkça supersede eder. JSON quantity number pozitif tam sayıdır; create/add/correction ve readiness aynı validator'ı kullanır. Public DTO quantity integer string (`"1"`, `"15"`); birimden bağımsız ürün sayısıdır. V1 hash/application-write/private-reader/audit normalizasyonu integer receipt replay için `"1.000"` olarak korunur; public sunum hash normalizasyonundan ayrıdır. Orijinal 057 ve audit payload'ları yeniden yazılmaz.
 
-058, historical fractional row varsa fail-closed durur; otomatik yuvarlama/kırpma/silme yoktur. NUMERIC(12,3) typmod'u üç basamaktan fazla raw SQL precision'ını CHECK öncesinde yuvarlayabilir; servis tüm fractional input'u SQL öncesinde reddeder, DB CHECK persisted integer invariant'ını korur. Delivery quantity bu kararla değiştirilmez. Ayrıntı: [integer quantity policy](integer-quantity-policy.md).
+058, historical fractional row varsa fail-closed durur; otomatik yuvarlama/kırpma/silme yoktur. PR #373 incelemesinde ilk unmerged 058 tasarımının NUMERIC(12,3) typmod'u ile CHECK öncesi yuvarlama yaptığı doğrulandı. Düzeltilmiş 058 typmod'u kaldırır; unrestricted NUMERIC ile DB CHECK raw SQL kesirlerini de aynen görüp reddeder. Geçerli integer history ve private `1.000` normalizasyonu korunur; 001–057 değiştirilmez. Delivery quantity bu kararla değiştirilmez. Ayrıntı: [integer quantity policy](integer-quantity-policy.md).
 
 Sale item'ında `delivery_purpose`, `delivered_at`, price, currency, total, stock, invoice, lot/serial/expiry veya payment alanı yoktur. Catalog referencePrice kopyalanmaz.
 

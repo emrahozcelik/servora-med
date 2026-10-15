@@ -20,23 +20,35 @@ migration 057 are not rewritten. Other SALE-001 and MOD-001 rules remain intact.
 
 ## Persistence, request identity and presentation
 
-Migration 058 keeps NUMERIC(12,3), historical metadata and existing constraints.
-It locks the Sale item table, preflights existing stored values and adds a
-validated CHECK: `quantity >= 1 AND quantity = trunc(quantity) AND quantity <= 999999999`.
+Migration 058 locks the Sale item table, preflights existing stored values,
+removes the NUMERIC(12,3) typmod (`ALTER COLUMN quantity TYPE NUMERIC`, no USING
+conversion), and adds a validated CHECK:
+`quantity >= 1 AND quantity = trunc(quantity) AND quantity <= 999999999`.
+Unrestricted NUMERIC preserves the input value until CHECK evaluation, so raw SQL
+fractions including 1.0001, 2.9999, 15.0004 and 999999998.9999 are rejected rather
+than rounded. Existing metadata, foreign keys and other constraints remain.
 Migration SQL and its ledger entry commit together through the existing runner.
 A historical invalid row raises SQLSTATE 23514 with a SALE-QTY-001 remediation
-message; neither data nor migration history is changed. It never converts data.
-The migration is deliberately blocking during table validation; plan maintenance
-accordingly if a future deployment has a large Sale history.
+message; neither data nor migration history is changed. No automatic data UPDATE,
+rounding, truncation, deletion or NUMERIC(12,0) conversion is performed.
 
-PostgreSQL's existing three-decimal typmod can round excess-scale raw SQL before
-a CHECK sees it. The CHECK protects the **stored** integer invariant; it does not
-claim to detect all pre-cast SQL precision. The numeric JSON service validator
-rejects fractional values without passing them to SQL. No NUMERIC(12,0) cast,
-trigger or column rewrite is used.
+This is the accepted PR #373 refinement of **unmerged** 058. The first reviewed
+058 retained NUMERIC(12,3); that approach could round excess-scale SQL before its
+CHECK and is superseded here. Migrations 001–057 remain byte-identical. Precision
+already lost by historical 057 writes cannot be reconstructed by this migration.
 
-Private normalized quantities remain `"1.000"` for storage, readiness, noop
-comparison, v1 request hashes and durable audits. Do not bump operation tags or
+The migration needs AccessExclusiveLock and scans rows for preflight and CHECK
+validation; it blocks concurrent readers/writers until commit. PostgreSQL 17
+integration tests observe the lock waiting behind a reader, verify unchanged heap
+filenode/size and row xmin, and record dependent index filenodes separately.
+They also verify unchanged audit/receipt bytes and xmin, receipt replay, and
+complete rollback on invalid history. This does not imply zero lock or validation
+cost for a large table; future deployment requires an appropriate maintenance window.
+
+Application writes and private repository projections retain `"1.000"` for
+readiness, noop comparison, v1 request hashes and durable audits. Valid direct SQL
+counts may have different storage scales (`1`, `1.0`, `1.0000`); private reads
+normalize them without rounding, independently of public presentation. Do not bump operation tags or
 switch the hash to integer strings. Old successful **integer** create/add/update
 receipts replay with their original `{jobCardId, version}` result and current
 access checks. Different payloads conflict; a same-quantity correction is a
@@ -61,6 +73,12 @@ JobCard type labels/parser exclude SALE (delivery purpose SALE is unrelated).
 The matching release source also lacks Sale-aware JobCard types. This is a
 point-in-time public bundle observation, not a claim about production database
 contents or all cached browser sessions.
+
+Local databases that already recorded the first unmerged 058 will not rerun the
+revised file: the migration runner tracks versions, not an amended-file upgrade.
+Rebuild disposable test databases from the catalog. Do not delete ledger entries
+or silently reapply 058 to an existing database. Any non-disposable environment
+that applied the earlier draft requires a separate, authorized recovery plan.
 
 A pre-Sale bundle remains protected by PR2's capability gate. An intermediate
 PR2 Sale-aware bundle expects decimal strings, so pairing it with integer-only

@@ -59,19 +59,20 @@ removal audit. Duplicate product IDs are forbidden within one Sale.
 SALE-QTY-001 (Accepted 2026-10-15) explicitly supersedes PR1's original
 three-decimal Sale quantity policy. Requests accept only numeric safe integers
 1–999999999; no rounding, truncation or unit conversion. Private request-hash,
-persistence and durable audit quantities retain v1 three-scale strings (`1.000`)
+application-write and durable audit quantities retain v1 three-scale strings (`1.000`)
 for integer receipt replay. Public detail/activity readers return integer strings
 (`"1"`, `"15"`), and the UI presents `15 ürün`, with unit metadata separately.
 
-Forward migration `058_sale_integer_quantity.sql` preserves migration 057 and
-NUMERIC(12,3), preflights historical rows under a table lock and adds the integer
-range CHECK. Fractional historical rows fail the migration without changes; data
-owners must decide remediation separately. NUMERIC's existing typmod may round
-raw SQL values beyond three decimal places before CHECK evaluation, so the
-service validator rejects all fractional input before SQL. The CHECK enforces
-the stored invariant, not recovery of precision already lost by PostgreSQL's
-cast. Delivery's fractional quantity policy is unchanged. See
-[integer quantity policy](integer-quantity-policy.md) for rollout and preflight.
+Forward migration `058_sale_integer_quantity.sql` preserves migrations 001–057,
+preflights historical rows under a table lock, removes the fixed scale to use
+unrestricted NUMERIC and adds the integer/range CHECK. This PR #373 review
+refinement supersedes the initial unmerged 058 design, whose NUMERIC(12,3)
+typmod rounded some raw SQL fractions before CHECK. Fractional historical rows
+fail without changes; data owners must decide remediation separately. Exact raw
+SQL fractions now fail as well. Private reads preserve v1 `1.000` identity across
+valid storage scales; public reads emit `"1"`. Delivery's fractional quantity
+policy is unchanged. See [integer quantity policy](integer-quantity-policy.md)
+for rollout, lock behavior and recovery of local databases on the earlier draft.
 
 Creation requires 1–25 distinct lines. Draft removal may leave zero lines;
 submission rejects an empty Sale. Sale-only product/contact history participates

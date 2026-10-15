@@ -1,5 +1,5 @@
 -- SALE-QTY-001: product count, independent of catalog/physical measurement units.
--- Keep NUMERIC(12,3); changing scale would silently round historical quantities.
+-- Remove the scale typmod so PostgreSQL checks the exact input, before rounding.
 LOCK TABLE job_card_sale_items IN ACCESS EXCLUSIVE MODE;
 
 DO $$
@@ -14,6 +14,9 @@ BEGIN
       HINT = 'Stop the upgrade. Do not round, truncate or delete historical Sale quantities automatically.';
   END IF;
 END $$;
+
+ALTER TABLE job_card_sale_items
+  ALTER COLUMN quantity TYPE NUMERIC;
 
 ALTER TABLE job_card_sale_items
   ADD CONSTRAINT job_card_sale_items_integer_quantity_check

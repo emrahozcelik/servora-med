@@ -31,6 +31,14 @@ async function at057(run: (pool: Pool, store: PostgresMigrationStore) => Promise
   }
 }
 
+async function tableStorage(pool: Pool) {
+  return (await pool.query(`SELECT pg_relation_filenode('job_card_sale_items'::regclass) AS heap,
+    pg_relation_size('job_card_sale_items'::regclass)::text AS bytes,
+    (SELECT atttypmod FROM pg_attribute WHERE attrelid='job_card_sale_items'::regclass AND attname='quantity') AS typmod,
+    (SELECT jsonb_agg(jsonb_build_object('name',c.relname,'file',pg_relation_filenode(c.oid)) ORDER BY c.relname)
+     FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='job_card_sale_items'::regclass) AS indexes`)).rows[0];
+}
+
 describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
   it('upgrades integer history from 057 without rewriting rows or prior receipts and rejects direct fractional writes', async () => {
     await at057(async (pool, store) => {
@@ -38,8 +46,36 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
       const before = (await pool.query('SELECT *,xmin::text FROM job_card_sale_items ORDER BY id')).rows;
       const receipts = (await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows;
-      expect(await runMigrations({ migrationsDirectory: directory, store }))
-        .toEqual({ appliedVersions: ['058_sale_integer_quantity'] });
+      const audit = (await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows;
+      const storageBefore = await tableStorage(pool);
+      // Hold a real reader lock and observe the migration waiting, rather than inferring lock behavior.
+      const blocker = await pool.connect();
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM job_card_sale_items');
+      const upgrade = runMigrations({ migrationsDirectory: directory, store });
+      try {
+        let waiting = false;
+        const deadline = Date.now() + 5000;
+        while (!waiting && Date.now() < deadline) {
+          waiting = (await pool.query(`SELECT EXISTS(SELECT 1 FROM pg_locks
+            WHERE relation='job_card_sale_items'::regclass AND mode='AccessExclusiveLock' AND NOT granted) AS waiting`)).rows[0].waiting;
+          if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(waiting).toBe(true);
+      } finally {
+        await blocker.query('ROLLBACK');
+        blocker.release();
+        await upgrade;
+      }
+      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity'] });
+      const storageAfter = await tableStorage(pool);
+      expect(storageBefore.typmod).toBe(786439); // NUMERIC(12,3)
+      expect(storageAfter.typmod).toBe(-1); // unrestricted NUMERIC
+      expect(storageAfter.heap).toBe(storageBefore.heap);
+      expect(storageAfter.bytes).toBe(storageBefore.bytes);
+      expect(storageAfter.indexes).toEqual(storageBefore.indexes);
+      console.info('SALE_QTY_MIGRATION_STORAGE', JSON.stringify({ before: storageBefore, after: storageAfter, accessExclusiveWaitObserved: true }));
+      expect((await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows).toEqual(audit);
       expect((await pool.query('SELECT *,xmin::text FROM job_card_sale_items ORDER BY id')).rows).toEqual(before);
       expect((await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows).toEqual(receipts);
       expect(await f.service.createSaleFromVisit(f.staff, f.visitId, f.input)).toEqual(sale);
@@ -65,10 +101,16 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
       await pool.query('UPDATE job_card_sale_items SET quantity=0.5 WHERE job_card_id=$1', [sale.jobCardId]);
       const before = (await pool.query('SELECT *,xmin::text FROM job_card_sale_items ORDER BY id')).rows;
       const history = (await pool.query('SELECT *,xmin::text FROM schema_migrations ORDER BY version')).rows;
+      const storage = await tableStorage(pool);
+      const receipts = (await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows;
+      const audit = (await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows;
       await expect(runMigrations({ migrationsDirectory: directory, store }))
         .rejects.toMatchObject({ code: '23514', message: expect.stringContaining('SALE-QTY-001') });
       expect((await pool.query('SELECT *,xmin::text FROM job_card_sale_items ORDER BY id')).rows).toEqual(before);
       expect((await pool.query('SELECT *,xmin::text FROM schema_migrations ORDER BY version')).rows).toEqual(history);
+      expect(await tableStorage(pool)).toEqual(storage);
+      expect((await pool.query('SELECT *,xmin::text FROM processed_actions ORDER BY id')).rows).toEqual(receipts);
+      expect((await pool.query('SELECT *,xmin::text FROM job_card_activity_logs ORDER BY id')).rows).toEqual(audit);
       expect((await pool.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid='job_card_sale_items'::regclass AND conname='job_card_sale_items_integer_quantity_check'")).rows[0].n).toBe(0);
     });
   });

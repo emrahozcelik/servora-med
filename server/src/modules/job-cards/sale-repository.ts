@@ -43,7 +43,7 @@ export async function selectSaleSubmission(executor: SqlExecutor, organizationId
          AND source.type='SALES_MEETING') AS "originValid",
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
          'id',i.id,'organizationId',i.organization_id,'jobCardId',i.job_card_id,'productId',i.product_id,
-         'quantity',i.quantity::text,'productNameSnapshot',i.product_name_snapshot,
+         'quantity',trim_scale(i.quantity)::text || '.000','productNameSnapshot',i.product_name_snapshot,
          'productSkuSnapshot',i.product_sku_snapshot,'productBrandSnapshot',i.product_brand_snapshot,
          'productModelSnapshot',i.product_model_snapshot,'unitSnapshot',i.unit_snapshot,'sortOrder',i.sort_order
        ) ORDER BY i.sort_order,i.id) FROM job_card_sale_items i
@@ -76,8 +76,9 @@ export interface SaleTransaction {
   }): Promise<void>;
 }
 
+// Unrestricted NUMERIC may store valid counts at different scales; retain private v1 identity.
 const ITEM_COLUMNS = `id, organization_id AS "organizationId", job_card_id AS "jobCardId",
-  product_id AS "productId", quantity::text AS quantity, product_name_snapshot AS "productNameSnapshot",
+  product_id AS "productId", trim_scale(quantity)::text || '.000' AS quantity, product_name_snapshot AS "productNameSnapshot",
   product_sku_snapshot AS "productSkuSnapshot", product_brand_snapshot AS "productBrandSnapshot",
   product_model_snapshot AS "productModelSnapshot", unit_snapshot AS "unitSnapshot", sort_order AS "sortOrder"`;
 

@@ -1859,9 +1859,12 @@ on top of DOM/SALE without rewriting them.
   Its private v1 hash representation remains three-scale (`"1.000"`) so existing
   integer receipts replay without a changed hash or duplicate business effects.
   Durable audit payloads retain that representation; safe projections emit counts.
-- Additive migration 058 retains NUMERIC(12,3), validates historical rows under a
-  table lock and adds an integer/range CHECK. Any historical fractional row stops
-  the upgrade without data conversion. Data-owner remediation is a separate decision.
+- Migration 058 validates historical rows under a table lock, removes the
+  NUMERIC(12,3) typmod to use unrestricted NUMERIC, and adds an integer/range
+  CHECK. This accepted PR #373 review refinement replaces the initial unmerged
+  058 approach, whose typmod could round excess-scale SQL input before CHECK.
+  Any historical fractional row stops the upgrade without data conversion.
+  Data-owner remediation is a separate decision; migrations 001–057 are unchanged.
 - PRODUCT_DELIVERY quantities, the catalog and future Warehouse physical
   measurement policies are independent. No delivery, stock or accounting behavior
   changes. PR3 will default Sale quantity to 1 and use integer-only selection,
