@@ -12,7 +12,7 @@ Status: Design ready; UI implementation and acceptance NOT_RUN.
 
 `DESIGN.md` semantic intent/interaction/layout otoritesidir. `web/src/ui/servora-visual-tokens.ts` token değerlerinin canonical implementation kaynağı, `servora-ant-theme.ts` Ant mapping'dir. CSS/feature ekranlarına ikinci renk/font/token sistemi eklenmez. ProductSelect native HTML/CSS bileşeni olarak kalır; raw Ant import veya yeni dependency gerekmiyor. Complex drawer/dialog/result primitives mevcut `web/src/ui/antd` Servora adapter'larından alınır.
 
-PR #362 zaten şu davranışları tamamladı: search results aramanın altında; selected bölüm ayrı; quantity ürünün hemen solunda; ID ile state eşleşmesi; default 1; 0.5/0.001; long metadata wrapping; accessible remove ve focus dönüşü. Bu çalışma bunları yeni Sale consumer'ına taşır; görsel sistemi yeniden yapmaz.
+PR #362 zaten şu davranışları tamamladı: search results aramanın altında; selected bölüm ayrı; quantity ürünün hemen solunda; ID ile state eşleşmesi; default 1; 0.5/0.001; long metadata wrapping; accessible remove ve focus dönüşü. SALE-QTY-001 sonrasında Sale consumer kesirleri reddeder; Delivery davranışı korunur. Bu çalışma ortak yerleşimi yeni Sale consumer'ına taşır; görsel sistemi yeniden yapmaz.
 
 ## 2. Ortak satır ve etkileşim sözleşmesi
 
@@ -24,9 +24,9 @@ Arama sonucu 2 — Ad / SKU / Marka / Model / Birim
 [Önceki] 1–8 / toplam [Sonraki]
 
 Seçilen ürünler
-[Miktar: 0.500]  Ürün adı                         [Kaldır]
+[Sale adedi: 5 ürün]  Ürün adı                         [Kaldır]
                  SKU · Marka · Model · Birim
-[Miktar: 0.001]  Başka ürün adı                   [Kaldır]
+[Sale adedi: 15 ürün]  Başka ürün adı                   [Kaldır]
                  SKU · Marka · Model · Birim
 ```
 
@@ -34,7 +34,7 @@ Order DOM'da ve görselde aynıdır: **Quantity → Product identity → Remove*
 
 Ad, SKU, marka, model ve birim aynı identity grubu içindedir. Null metadata boş placeholder kalabalığı yaratmaz; özellikle unit için uydurma “adet” yoktur. Name zorunlu canonical ürün kimliği, product ID ilişki anahtarıdır; SKU unique değildir. Long name/metadata wrap eder, ellipsis ile kritik identity gizlenmez.
 
-Qty input native `type=number`, `min=0.001`, `step=0.001`, `inputMode=decimal`; accessible label ürün adını içerir. Sale backend üç-decimal/bounded sözleşmeyi ayrıca doğrular. Empty draft boş kalabilir, 0/negative/infinite invalid'dir. Typing sırasında otomatik tam sayıya yuvarlama veya NaN'i 1'e çevirme yoktur. Yeni seçimin quantity default'u 1; remove/re-add fresh selection olarak 1 ile başlar; kalan ürün miktarı değişmez.
+SALE-QTY-001 ilk Sale decimal tasarımını supersede eder. Sale için PR3 adapter native `type=number`, `min=1`, `step=1`, `inputMode=numeric`; backend pozitif tam sayı 1–999999999 doğrular. Delivery için mevcut `min=0.001`, `step=0.001`, `inputMode=decimal` korunur. Accessible label ürün adını içerir. Empty draft boş kalabilir, 0/negative/infinite invalid'dir. Typing sırasında otomatik tam sayıya yuvarlama veya NaN'i 1'e çevirme yoktur. Yeni seçimin quantity default'u 1; remove/re-add fresh selection olarak 1 ile başlar; kalan ürün miktarı değişmez.
 
 Remove `type=button`, ürün adını içeren erişilebilir isim ve mevcut ≥44×44 CSS px hedef. Selection ve remove sonrası focus search input'a döner. Search Enter form submit etmez; input Enter yalnız arama intent'ini tamamlar. Görünür focus ve mantıklı Tab sırası korunur. Loading/error/no-result/pending announcement'ları role/status/alert/live semantics ile anlamlıdır.
 
@@ -46,7 +46,7 @@ Remove `type=button`, ürün adını içeren erişilebilir isim ve mevcut ≥44�
 | DeliveryCreate | ID-keyed product + quantity; existing request builder, existing frozen attempt, pending/ambiguous state ve API submission. |
 | SaleCreate | Verified fixed source/customer/assignee, separate contact semantics, actual soldAt, ID-keyed selected product/quantity, strict sale request builder/frozen attempt. |
 | Sale detail correction | Persisted item ID + product ID + historical identity + quantity draft; per-action parent expectedVersion and frozen request. |
-| Backend | Allowed actions, eligibility, atomic create/edit, snapshots, decimal validity, duplicate/active-sale invariant ve lifecycle. |
+| Backend | Allowed actions, eligibility, atomic create/edit, snapshots, Sale integer validity / Delivery decimal validity, duplicate/active-sale invariant ve lifecycle. |
 
 ProductSelect bir API mutation, quantity business policy veya idempotency receipt owner'ı olmaz. Quantity callback'in mevcut `renderQuantity` modeli yeterlidir. Yeni QuantityProductPicker, generic cart store veya selector framework'ü önerilmez.
 
@@ -99,8 +99,8 @@ PR3: Sale create/correction + shared narrow identity/instance IDs; new backend w
 
 | Case | Component/form test | Browser + persisted evidence |
 | --- | --- | --- |
-| Product/quantity association | IDs after removal/re-add/reordering; distinct products 0.5/0.001 | Rendered matching labels/rows + committed sale/delivery item SQL quantities |
-| Decimal correctness | Empty, 0, negative, infinite invalid; Sale excess scale/range | Native fractional input + no silent truncation; backend rejection and stored three-scale values |
+| Product/quantity association | IDs after removal/re-add/reordering; Sale distinct products 1/15; Delivery 0.5/0.001 | Rendered matching labels/rows + committed sale/delivery item SQL quantities |
+| Quantity correctness | Sale positive integer 1–999999999, fractional rejection; Delivery fractions retained | No rounding/conversion; exact ID pairing and private v1 hash replay |
 | Duplicate | Same product cannot be added twice; Eklendi retains metadata | Repeated search/click; distinct SQL product rows; concurrent Sale index test in backend |
 | Search | Below input, bounded page 8, pagination, stale results, Enter | Real keyboard search, select closes results and restores focus |
 | Metadata | Long name/SKU/brand/model/unit and nulls | 320/390/768/1024/1440, 200% text, 400% reflow |
@@ -128,7 +128,7 @@ cd web && npm test -- --run tests/product-select.test.tsx tests/delivery-create-
 - Search results remain directly below search; selected products remain visibly separate and stable across paging.
 - Name, SKU, brand, model and unit are rendered together when the source contains them; missing historical values are not invented.
 - Remove and keyboard/focus behavior remain accessible, instance-safe and operable at mobile and desktop widths.
-- Quantities 0.5 and 0.001 persist with the correct product IDs; duplicate products and index-based pairing are rejected.
+- Sale quantities 1 and 15 (Delivery 0.5 and 0.001) persist with the correct product IDs; duplicate products and index-based pairing are rejected.
 - Pending and unresolved attempts freeze complete semantic requests and retry the original key/version/body.
 - Catalog forms remain catalog forms and backend permissions/lifecycle remain authoritative.
 

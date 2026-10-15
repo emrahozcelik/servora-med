@@ -137,7 +137,7 @@ describe('Sale capability on public readers', () => {
         expect(current.items.some((item: { type: string }) => item.type === 'SALE')).toBe(true);
         const detail = await app.inject('/api/job-cards/' + sale.jobCardId + '/sale-details?includeSaleCapability=true');
         expect(detail.statusCode).toBe(200);
-        expect(detail.json().items[1].quantity).toBe('0.001');
+        expect(detail.json().items[1].quantity).toBe('15');
         const oldActivity = (await app.inject('/api/job-cards/' + f.visitId + '/activity')).json();
         expect(oldActivity.items.some((item: { eventType: string }) => item.eventType === 'SALE_FROM_VISIT_CREATED')).toBe(false);
         const newActivity = (await app.inject('/api/job-cards/' + f.visitId + '/activity?includeSaleCapability=true')).json();

@@ -51,6 +51,7 @@ async function applyMigrations(pool: Pool) {
   '055_job_submit_location_comparison.sql',
   '056_meeting_met_contact.sql',
   '057_sale_from_visit.sql',
+  '058_sale_integer_quantity.sql',
 
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));

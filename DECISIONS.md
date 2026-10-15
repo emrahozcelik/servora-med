@@ -1840,3 +1840,30 @@ on top of DOM/SALE without rewriting them.
 - W0 (Warehouse) and A0 (Accounting) discovery titles are defined in
   [the reconciliation report](docs/architecture/decision-reconciliation-report.md);
   they carry no implementation authorization.
+
+## SALE-QTY-001 — Integer product counts for Sale agreements
+
+- **Date:** 2026-10-15
+- **Status:** Accepted
+- SALE quantity is the number of products sold: a JSON number that is a safe
+  integer in **1–999999999**. Fractional sales are rejected, never rounded or
+  truncated. Catalog units (ml, mg, litre, etc.) do not convert or qualify this count.
+- This explicitly supersedes the decimal Sale quantity policy in the original
+  SALE-001/PR1 design (0.001–999999999.999 and three-decimal public strings).
+  SALE-001's other rules, DOM-001, DOM-004, DOM-006 and MOD-001 remain unchanged.
+  Historical design and migration 057 remain traceable and are not rewritten.
+- Product identity and name/SKU/brand/model/nullable-unit snapshots remain
+  historical metadata. Public Sale quantities are exact integer strings (`"1"`,
+  `"15"`); the UI describes them as product counts separately from unit metadata.
+- Create, add-item, correction and submission readiness share the Sale validator.
+  Its private v1 hash representation remains three-scale (`"1.000"`) so existing
+  integer receipts replay without a changed hash or duplicate business effects.
+  Durable audit payloads retain that representation; safe projections emit counts.
+- Additive migration 058 retains NUMERIC(12,3), validates historical rows under a
+  table lock and adds an integer/range CHECK. Any historical fractional row stops
+  the upgrade without data conversion. Data-owner remediation is a separate decision.
+- PRODUCT_DELIVERY quantities, the catalog and future Warehouse physical
+  measurement policies are independent. No delivery, stock or accounting behavior
+  changes. PR3 will default Sale quantity to 1 and use integer-only selection,
+  addition and correction; adapting ProductSelect for Sale belongs to that slice.
+- Contract and rollout notes: [Sale integer quantity policy](docs/features/visit-to-sale/integer-quantity-policy.md).

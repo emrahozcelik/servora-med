@@ -24,7 +24,9 @@ Detail authorization, origin projection and all item snapshots share one
 statement. There is no per-line or per-child query.
 
 Items expose stable line/product IDs, name/SKU/brand/model/nullable unit and
-quantity as an exact three-decimal string. Current catalog/contact changes do
+quantity as an exact positive integer string under SALE-QTY-001 (superseding
+the original PR2 three-decimal presentation). Catalog units remain metadata,
+not count suffixes. Current catalog/contact changes do
 not replace snapshot values. soldAt is the agreement time, not submission,
 approval or physical delivery time. Origin title/customer/planned/met snapshots
 are distinct from the Sale contact and the source's current title/status.
@@ -223,6 +225,9 @@ Exact-head results and hashes are recorded outside tracked source to avoid
 self-referential evidence commits. Required final gate: server/web full suites,
 all 27 ops/local-ci/run.sh checks and EVIDENCE_VERIFY_PASS. Four opt-in R2/DR
 tests remain SKIPPED and must not be counted as passed.
+
+Before PR3, SALE-QTY-001 adds forward migration 058 and integer-only Sale
+quantities; see [the policy](integer-quantity-policy.md).
 
 PR3 may now wire the approved context into SaleCreate and reuse ProductSelect.
 It must preserve the private service's source/version, quantity/snapshot,

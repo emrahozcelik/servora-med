@@ -113,7 +113,7 @@ export class PostgresSaleReader implements SaleReadPort {
               'id',d.source_met_contact_id,'name',d.source_met_contact_name_snapshot,'title',d.source_met_contact_title_snapshot) END)
         END AS "sourceVisit",
         COALESCE((SELECT jsonb_agg(jsonb_build_object('id',i.id,'productId',i.product_id,
-          'quantity',i.quantity::text,'name',i.product_name_snapshot,'sku',i.product_sku_snapshot,
+          'quantity',trim_scale(i.quantity)::text,'name',i.product_name_snapshot,'sku',i.product_sku_snapshot,
           'brand',i.product_brand_snapshot,'model',i.product_model_snapshot,'unit',i.unit_snapshot)
           ORDER BY i.sort_order,i.id) FROM job_card_sale_items i
           WHERE i.organization_id=j.organization_id AND i.job_card_id=j.id),'[]'::jsonb) AS items

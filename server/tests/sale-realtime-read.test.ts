@@ -23,7 +23,7 @@ describe('Sale scoped invalidation', () => {
       expect(JSON.stringify(sourceEvents.map((event) => event.resourceKeys))).not.toContain(sale.jobCardId);
       const items = (await f.service.getSaleDetails(f.otherStaff, sale.jobCardId)).items;
       await f.service.patchSaleItem(f.otherStaff, sale.jobCardId, items[0]!.id, {
-        clientActionId: 'realtime-quantity', expectedVersion: 2, quantity: 1,
+        clientActionId: 'realtime-quantity', expectedVersion: 2, quantity: 2,
       });
       const childViewer = { ...f.otherStaff, userId: f.otherStaff.id };
       const childEvents = (await events.replayVisible(childViewer, cursor, 100)).map(presentRealtimeEvent);

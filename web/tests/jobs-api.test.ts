@@ -1112,3 +1112,23 @@ describe('OVR-1 overdue snapshot transport', () => {
     await expect(listJobCards({})).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 });
+
+
+it('parses Sale activity quantities with the integer detail contract', async () => {
+  const activity = {
+    id: 'sale-audit', jobCardId: 'sale', eventType: 'SALE_ITEM_UPDATED', actor: null,
+    createdAt: '2026-10-15T08:00:00.000Z',
+    details: { kind: 'SALE_ITEM', operation: 'UPDATED', itemId: 'line',
+      productName: 'Bonding liquid', quantity: '2', previousQuantity: '1' },
+  };
+  const fetch = vi.fn().mockResolvedValue(Response.json({ items: [activity], total: 1, limit: 50, offset: 0 }));
+  vi.stubGlobal('fetch', fetch);
+  expect((await listActivity('sale')).items[0]?.details).toEqual(activity.details);
+  expect(String(fetch.mock.calls[0]?.[0])).toContain('includeSaleCapability=true');
+  for (const field of ['quantity', 'previousQuantity']) {
+    for (const value of ['0.5', '1.000', '0', '-1', '1000000000', 2]) {
+      fetch.mockResolvedValueOnce(Response.json({ items: [{ ...activity, details: { ...activity.details, [field]: value } }], total: 1, limit: 50, offset: 0 }));
+      await expect(listActivity('sale')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  }
+});

@@ -32,7 +32,7 @@ export function SaleDetailsSection({ details, originPending = false }: { details
     <h3>Satılan ürünler</h3>
     {details.items.length === 0 ? <p>Satış ürünü bulunmuyor.</p> : <ul className="sale-product-lines">
       {details.items.map((item) => <li key={item.id} className="sale-product-line">
-        <span className="sale-product-quantity" aria-label="Miktar">{item.quantity}{item.unit ? ' ' + item.unit : ''}</span>
+        <span className="sale-product-quantity" aria-label="Satış adedi">{item.quantity} ürün</span>
         <div><strong>{item.name}</strong><p>{[
           item.sku ? 'SKU: ' + item.sku : null, item.brand, item.model, item.unit,
         ].filter(Boolean).join(' · ')}</p></div>

@@ -64,7 +64,7 @@ export async function saleFixture(pool: Pool) {
   const input = {
     clientActionId: 'fixture-sale-create', expectedSourceVersion: met.jobCardVersion,
     title: 'Product agreement', soldAt: saleTime.toISOString(), saleContactId: metContactId,
-    items: [{ productId: products[0]!, quantity: 0.5 }, { productId: products[1]!, quantity: 0.001 }],
+    items: [{ productId: products[0]!, quantity: 1 }, { productId: products[1]!, quantity: 15 }],
   };
   return { pool, repository, service, staff, manager, admin, otherStaff, organizationId,
     customerId, plannedContactId, metContactId, products, visitId: created.id, input, user };

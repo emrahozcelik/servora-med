@@ -43,11 +43,11 @@ export function saleVersion(value: unknown, field = 'expectedVersion'): number {
 }
 
 export function saleQuantity(value: unknown): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)
-    || value < 0.001 || value > 999_999_999.999) throw validation('quantity');
-  const quantity = value.toFixed(3);
-  if (Number(quantity) !== value) throw validation('quantity');
-  return quantity;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)
+    || value < 1 || value > 999_999_999) throw validation('quantity');
+  // Keep the v1 request-hash representation for replay of pre-SALE-QTY-001 receipts.
+  // Public readers present counts separately; this is not a measurement unit.
+  return value.toFixed(3);
 }
 
 export type SaleFromVisitCreateInput = {

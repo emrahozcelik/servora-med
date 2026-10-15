@@ -89,7 +89,7 @@ function detailText(details: JobCardActivityDetails) {
   }
   if (details.kind === 'SALE_RELATION') return 'Bağlı satışlar erişim yetkinize göre gösterilir';
   if (details.kind === 'SALE_DETAILS') return details.changedFields.map((field) => field === 'soldAt' ? 'Satış zamanı' : 'Satışta görüşülen kişi').join(', ');
-  if (details.kind === 'SALE_ITEM') return details.productName + ' · ' + (details.previousQuantity && details.operation === 'UPDATED' ? details.previousQuantity + ' → ' : '') + details.quantity;
+  if (details.kind === 'SALE_ITEM') return details.productName + ' · ' + (details.previousQuantity && details.operation === 'UPDATED' ? details.previousQuantity + ' ürün → ' : '') + details.quantity + ' ürün';
   if (details.kind === 'NOTE') return 'Not geçmişe eklendi';
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
     .map((field) => meetingFieldLabels[field]).join(', ');

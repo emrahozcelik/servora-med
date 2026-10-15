@@ -360,14 +360,14 @@ describe('Staff JobCard detail', () => {
         jobCardId: card.id, jobCardVersion: card.version, soldAt: '2026-07-17T08:00:00.000Z',
         saleContact: { id: 'contact-sale', name: 'Satışta görüşülen doktor', title: 'Dr.' },
         sourceVisit: { access: 'RESTRICTED', kind: 'SALE_FROM_VISIT' },
-        items: [{ id: 'line-1', productId: 'product-1', quantity: '0.001', name: 'Tarihsel ürün',
+        items: [{ id: 'line-1', productId: 'product-1', quantity: '15', name: 'Tarihsel ürün',
           sku: 'OLD-SKU', brand: 'Tarihsel marka', model: 'Eski model', unit: null }],
       });
       return base(input);
     });
     await renderScreen(card, staffUser, fetch);
     expect(host.textContent).toContain('Tarihsel ürün');
-    expect(host.textContent).toContain('0.001');
+    expect(host.textContent).toContain('15 ürün');
     expect(host.textContent).toContain('Satışta görüşülen doktor');
     expect(host.textContent).toContain('Kaynak ziyarete erişiminiz yok');
     expect(fetch.mock.calls.some(([url]) => /meeting-details|delivery-items|follow-ups/.test(String(url)))).toBe(false);
@@ -398,7 +398,7 @@ describe('Staff JobCard detail', () => {
           title: mode === 'restored' ? 'Güncel ziyaret' : 'Eski gizli ziyaret', status: 'ACCEPTED',
           versionAtCreation: 3, titleSnapshot: 'Tarihsel gizli ziyaret', customerNameSnapshot: 'Tarihsel klinik',
           plannedContact: { id: 'private-contact', name: 'Gizli doktor', title: null }, metContact: null,
-        }, items: [{ id: 'line-1', productId: 'product-1', quantity: '0.001', name: 'Tarihsel ürün',
+        }, items: [{ id: 'line-1', productId: 'product-1', quantity: '15', name: 'Tarihsel ürün',
           sku: null, brand: null, model: null, unit: null }] });
     });
     await renderRealtimeScreen(card, source, fetch);

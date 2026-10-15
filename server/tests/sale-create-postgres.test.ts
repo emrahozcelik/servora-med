@@ -16,8 +16,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Transactional visit-to-sale cre
          FROM job_card_sale_items WHERE job_card_id=$1 ORDER BY sort_order`, [sale.jobCardId],
       )).rows;
       expect(lines).toEqual([
-        { product_id: f.products[0], quantity: '0.500', product_name_snapshot: 'Matrix set', product_brand_snapshot: 'Brand A', unit_snapshot: null },
-        { product_id: f.products[1], quantity: '0.001', product_name_snapshot: 'Bonding liquid', product_brand_snapshot: null, unit_snapshot: 'ml' },
+        { product_id: f.products[0], quantity: '1.000', product_name_snapshot: 'Matrix set', product_brand_snapshot: 'Brand A', unit_snapshot: null },
+        { product_id: f.products[1], quantity: '15.000', product_name_snapshot: 'Bonding liquid', product_brand_snapshot: null, unit_snapshot: 'ml' },
       ]);
       const details = (await f.pool.query('SELECT * FROM job_card_sale_details WHERE job_card_id=$1', [sale.jobCardId])).rows[0];
       expect(details).toMatchObject({ source_visit_version: f.input.expectedSourceVersion,

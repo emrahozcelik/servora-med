@@ -28,6 +28,17 @@ describe('safe JobCard timeline', () => {
     await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   });
 
+  it('describes Sale corrections as product counts without measurement units', async () => {
+    const activity: JobCardActivity = {
+      id: 'sale-correct', jobCardId: 'sale', eventType: 'SALE_ITEM_UPDATED', actor: null,
+      details: { kind: 'SALE_ITEM', operation: 'UPDATED', itemId: 'line',
+        productName: 'Bonding liquid', quantity: '2', previousQuantity: '1' },
+      createdAt: '2026-10-15T08:00:00.000Z',
+    };
+    await act(async () => root.render(<JobTimeline jobId="sale" load={vi.fn().mockResolvedValue(page([activity]))} />));
+    expect(host.textContent).toContain('Bonding liquid · 1 ürün → 2 ürün');
+  });
+
   it('renders actor names and known details without raw audit fields', async () => {
     const activity: JobCardActivity = {
       id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED',

@@ -56,12 +56,22 @@ Later product rename/deactivation does not rewrite snapshots or prevent quantity
 correction. Removing a draft item preserves its historical snapshot in the
 removal audit. Duplicate product IDs are forbidden within one Sale.
 
-Request quantities are finite numbers, 0.001–999999999.999 with at most three
-decimal places. Inputs such as 0.5 and 0.001 canonicalize to `0.500` and `0.001`
-for hashing, private persistence readers and audit. Excess precision is rejected
-before SQL; PostgreSQL NUMERIC(12,3) itself rounds excess input scale, so the
-service parser remains authoritative for that boundary. Database bounds reject
-zero, negative, NaN, Infinity and overflow.
+SALE-QTY-001 (Accepted 2026-10-15) explicitly supersedes PR1's original
+three-decimal Sale quantity policy. Requests accept only numeric safe integers
+1–999999999; no rounding, truncation or unit conversion. Private request-hash,
+persistence and durable audit quantities retain v1 three-scale strings (`1.000`)
+for integer receipt replay. Public detail/activity readers return integer strings
+(`"1"`, `"15"`), and the UI presents `15 ürün`, with unit metadata separately.
+
+Forward migration `058_sale_integer_quantity.sql` preserves migration 057 and
+NUMERIC(12,3), preflights historical rows under a table lock and adds the integer
+range CHECK. Fractional historical rows fail the migration without changes; data
+owners must decide remediation separately. NUMERIC's existing typmod may round
+raw SQL values beyond three decimal places before CHECK evaluation, so the
+service validator rejects all fractional input before SQL. The CHECK enforces
+the stored invariant, not recovery of precision already lost by PostgreSQL's
+cast. Delivery's fractional quantity policy is unchanged. See
+[integer quantity policy](integer-quantity-policy.md) for rollout and preflight.
 
 Creation requires 1–25 distinct lines. Draft removal may leave zero lines;
 submission rejects an empty Sale. Sale-only product/contact history participates

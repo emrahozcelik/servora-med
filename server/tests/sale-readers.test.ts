@@ -6,6 +6,15 @@ import { mapSourceWorkRow } from '../src/modules/weekly-reports/source-work.js';
 import { validateSourceWorkSnapshot } from '../src/modules/weekly-reports/validation.js';
 
 describe('Sale read projections', () => {
+  it('presents integer counts without NUMERIC storage scale or unit conversion', async () => {
+    await withSaleFixture(async (f) => {
+      const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
+      const detail = await f.service.getSaleDetails(f.staff, sale.jobCardId);
+      expect(detail.items.map(({ quantity, unit }) => ({ quantity, unit }))).toEqual([
+        { quantity: '1', unit: null }, { quantity: '15', unit: 'ml' },
+      ]);
+    });
+  });
   it('preserves product/contact snapshots after rename/deactivation and source closure', async () => {
     await withSaleFixture(async (f) => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
@@ -14,7 +23,7 @@ describe('Sale read projections', () => {
       await f.service.cancel(f.manager, f.visitId, { clientActionId: 'read-source-close',
         expectedVersion: f.input.expectedSourceVersion, cancelReason: 'Independent source closure' });
       const detail = await f.service.getSaleDetails(f.staff, sale.jobCardId);
-      expect(detail.items[0]).toMatchObject({ name: 'Matrix set', brand: 'Brand A', unit: null, quantity: '0.500' });
+      expect(detail.items[0]).toMatchObject({ name: 'Matrix set', brand: 'Brand A', unit: null, quantity: '1' });
       expect(detail.saleContact?.name).toBe('Actual doctor');
       expect(detail.sourceVisit).toMatchObject({ access: 'FULL', status: 'CANCELLED',
         plannedContact: { name: 'Planned doctor' }, metContact: { name: 'Actual doctor' } });
@@ -102,7 +111,7 @@ describe('Sale read projections', () => {
       const detail = await f.service.getSaleDetails(f.staff, sale.jobCardId);
       expect(detail.soldAt).toBe(f.input.soldAt);
       expect(detail.items.map((item) => [item.productId, item.quantity])).toEqual([
-        [f.products[0], '0.500'], [f.products[1], '0.001'],
+        [f.products[0], '1'], [f.products[1], '15'],
       ]);
       expect(detail.items[0]).toMatchObject({ name: 'Matrix set', brand: 'Brand A', unit: null });
       expect(detail.sourceVisit).toMatchObject({ access: 'FULL', id: f.visitId,

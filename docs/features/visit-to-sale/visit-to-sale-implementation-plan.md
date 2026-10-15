@@ -9,6 +9,16 @@ Implementation status: NOT_STARTED for all PRs below.
 
 Bu planın tamamlanan işi source discovery/design'dır. Uygulama, migration, GitHub write ve deploy bu görevde yapılmadı. [Design](visit-to-sale-design.md) ürün önerilerini; [data-lifecycle](visit-to-sale-data-lifecycle.md) transaction/SQL sözleşmesini; [UI plan](product-selection-ui-standardization-plan.md) ortak seçim sözleşmesini tanımlar.
 
+## SALE-QTY-001 update — accepted 2026-10-15
+
+The original decimal Sale expectation is superseded. Before PR3, additive 058
+enforces integer counts 1–999999999; 057 remains byte-identical. Public quantities
+are integer strings; private v1 hashes/audits retain three-scale normalization.
+PR3 defaults to 1, uses min=1, step=1, inputMode=numeric and rejects fractions for
+create, add and correction, without conversion or rounding. A Sale-specific
+adapter may configure the existing ProductSelect in PR3; its Delivery fractional
+behavior and catalog forms remain unchanged. This task does not open write routes.
+
 ## 1. Uygulama öncesi sabitlenecek kararlar
 
 Kabul edilmiş kararlar: ayrı SALE JobCard, dedicated SALE_FROM_VISIT origin, bağımsız approval, en fazla bir aktif satış, ProductSelect reuse, CRM/catalog yetkilerinin korunması. Aktif küme mevcut JobCard constants ile aynıdır.
@@ -38,7 +48,7 @@ Suggested title: `feat(job-cards): add transactional sale domain from visits`
 
 - Yeni migration: job_cards type CHECK + sale_source_visit_id/FK/check/read indexes/partial unique; sale details/items; sale activity vocabulary. Numara current head yeniden okunarak seçilir; bu pakette varsayılan numara yoktur.
 - `server/src/modules/job-cards/types.ts`, focused `sale-input.ts` / `sale-policy.ts` / gerekirse `sale-types.ts`: concrete subtype DTO/input/eligibility/readiness; generic framework oluşturulmaz.
-- `service.ts` ve `repository.ts`: existing critical receipt/hash ile atomic create, source/user/reference locks, item/details corrections, quantity decimal validation ve sale snapshots. Büyük dosyalar unrelated refactor edilmez.
+- `service.ts` ve `repository.ts`: existing critical receipt/hash ile atomic create, source/user/reference locks, item/details corrections, quantity integer validation (SALE-QTY-001 supersedes the original decimal policy) ve sale snapshots. Büyük dosyalar unrelated refactor edilmez.
 - `critical-action-request-hash.ts`, `submission-policy.ts`, `policy.ts`: explicit sale branches, immutable review, safe generic PATCH restrictions, no sale follow-up payload. Existing migration-049 lifecycle intent korunur.
 - `products/repository.ts`/service operation-history ve `crm/repository.ts` contact history projections: new refs korunur; FK error mapping uygun domain conflict verir. BUSINESS-only önerisi kabul edilirse canonical Products read query optional data-class filter alır; default catalog query korunur. Delete/write API izinleri genişlemez.
 - Sale başlangıç assignment history mevcut CREATE source'u ile kaydedilir. Yeni history enum veya clock altyapısı gerekmez; sale origin dedicated field/event'te zaten vardır.
@@ -51,7 +61,7 @@ Suggested title: `feat(job-cards): add transactional sale domain from visits`
 
 | Layer | Required cases |
 | --- | --- |
-| Input/policy unit | Source status/type/engagement matrix; ownership/org matrix; unknown overrides; nullable distinct contacts; zero/negative/NaN/Infinity/excess-scale/overflow; 0.5 and 0.001; 1..25 create items; duplicate product IDs. |
+| Input/policy unit | Source status/type/engagement matrix; ownership/org matrix; unknown overrides; nullable distinct contacts; zero/negative/NaN/Infinity/excess-scale/overflow; 1/2/15 and fractional rejection; 1..25 create items; duplicate product IDs. |
 | Service | Atomic inherited customer/assignee; NEW vs ACCEPTED; exact snapshots including brand/unit null; no visit update/delivery/follow-up; empty draft blocks submit; withdraw/revision correction; sale contact changes do not touch met contact. |
 | PostgreSQL schema | All same-org composite FKs; self-link rejection; SALE-only mandatory origin; one-active partial index; duplicate products; finite/bounded quantity; historical/terminal children coexist. |
 | PostgreSQL races | Two keys same source → one active sale; same key concurrent → replay/in-progress; create vs submit/cancel/source patch/reassign; rename/deactivate refs; approval/cancel vs new create; user offboarding race; deterministic lock order. |
@@ -129,7 +139,7 @@ Suggested title: `feat(web): record visit sales with the shared product selector
 - Customer/source/assignee fixed; source planned/met ayrı labels; sale-contact selector active same-customer; soldAt actual local datetime; 1–25 ProductSelect entries. BUSINESS-only seçilirse ProductSelect load prop'u canonical product read query'nin BUSINESS filter'ını kullanır; uygun olmayan demo ürünler kullanıcıya eklenebilir gibi sunulmaz.
 - `ProductSelect.tsx` dar selected-identity contract ve instance-safe IDs; existing catalog result load/onAdd/single-selection davranışı korunur. Concrete reason: sale edit snapshots full catalog Product değildir. Fake Product fields/referencePrice ile DTO doldurulmaz.
 - Sale type-specific correction component; same ProductSelect renderQuantity. Existing rows snapshot identity; additions current catalog. New create/details/item mutations application service/client functions üzerinden; raw backend fetch component'te yok.
-- Frozen create/edit attempts, scoped mutation-owner/pending ve canonical refresh/realtime reconciliation. Product/miktar state ID-keyed; 0.5/0.001. Read-only WAITING_APPROVAL/terminal branch, existing lifecycle dialogs/requirements/review adapters.
+- Frozen create/edit attempts, scoped mutation-owner/pending ve canonical refresh/realtime reconciliation. Product/miktar state ID-keyed; 1/15; fractional input rejected. Read-only WAITING_APPROVAL/terminal branch, existing lifecycle dialogs/requirements/review adapters.
 
 **Gelecek modül UX notu (MOD-001):** Yönetici SALE detayında “Ön Muhasebe” ve “Stok/Depo” için iki küçük, salt-okunur bilgilendirme bölümü bulunabilir; ikisi de açıkça “Gelecek sürümde” şeklinde işaretlenir. Gerçek muhasebe/stok verisi, belge durumu, finansal toplam veya miktar gösterilmez. Sahte buton, devre dışı bırakılmış işlem simülasyonu veya veri kaynağı olmayan durum göstergesi bulunmaz. Gerçek veriye dayalı alanların etkinleşmesi ilgili W0/A0 modül tasarımına bağlıdır.
 
@@ -142,7 +152,7 @@ Suggested title: `feat(web): record visit sales with the shared product selector
 | Layer | Required cases |
 | --- | --- |
 | Routes/API contract | Dedicated write route exact allowlist/hash/error mapping; generic SALE create rejection; parent version snapshot parity; no customer/assignee overrides; STAFF catalog/CRM mutation denial. |
-| Create form | Verified fixed context; distinct contact semantics; actual soldAt; quantity→identity→remove; bounded active search/pages; default 1; 0.5/0.001; removal/re-add/reordered selections; duplicate ID; long/null metadata. |
+| Create form | Verified fixed context; distinct contact semantics; actual soldAt; quantity→identity→remove; bounded active search/pages; default 1; positive integers only; fractional rejection; removal/re-add/reordered selections; duplicate ID; long/null metadata. |
 | Shared selector | Existing ProductSelect + DeliveryCreate suites; snapshot identity; legacy single mode; two instances unique IDs/focus; no stale search response; accessible remove/search keyboard. |
 | Pending/retry | Double click → one request; all semantic controls/cancel disabled; committed response loss → identical key/version/body; contact/product/context realtime reload does not rebind frozen attempt; ACTION_IN_PROGRESS/5xx/network remain unresolved. |
 | Sale edit | Parent version for each item/details operation; new item active, existing deactivated snapshot retained; quantity edit does not refresh metadata; idempotent remove; empty draft readiness; withdraw/revision/retry; terminal no controls. |
@@ -150,7 +160,7 @@ Suggested title: `feat(web): record visit sales with the shared product selector
 
 **Browser acceptance criteria:**
 
-- STAFF creates a sale from their IN_PROGRESS visit with two distinct products at 0.5 and 0.001; the visit remains IN_PROGRESS and no delivery/follow-up row is created.
+- STAFF creates a sale from their IN_PROGRESS visit with two distinct products at 1 and 15; fractional requests are rejected; the visit remains IN_PROGRESS and no delivery/follow-up row is created.
 - A second independent create is blocked while any sale for the visit is active; the existing reachable sale can be opened.
 - A committed create response is dropped; original retry produces exactly one sale, two correctly paired lines and one completed receipt in SQL.
 - Sale follows its own START/SUBMIT/manager revision or approval path; STAFF cannot directly complete it.
@@ -179,7 +189,7 @@ Suggested title: `fix(web): align operational product identity and quantity pres
 
 | Layer | Required cases |
 | --- | --- |
-| Shared UI | Duplicate search result retains full metadata + Eklendi; ID/focus; quantity pairing; fractions; long/null metadata; search error/pagination; single mode unchanged. |
+| Shared UI | Duplicate search result retains full metadata + Eklendi; ID/focus; quantity pairing; Delivery fractions and Sale integer counts; long/null metadata; search error/pagination; single mode unchanged. |
 | Delivery detail | Multiple siblings retain correct snapshot/model/unit/purpose; read-only quantity left of identity; nullable unit/no invented fallback; actual-time editor only allowed statuses; terminal immutable. |
 | Mutation regression | Actual-time expectedVersion conflict + truth refresh; DeliveryCreate exact frozen retries; SaleCreate/edit frozen retries; no new delivery add/remove/quantity calls. |
 | Accessibility/layout | Semantic labels/44px targets; 320/390/768/1024/1440; 200%/400% reflow; no clipping; keyboard/focus. |
@@ -229,7 +239,7 @@ Browser acceptance disposable local Vite + Fastify + PostgreSQL 17'de gerçek ST
 First-slice acceptance criteria:
 
 - Two concurrent distinct create intents for one eligible visit commit exactly one active sale.
-- A response-loss retry returns the original sale with correct 0.5/0.001 line associations and no duplicate audit events.
+- A response-loss retry returns the original sale with correct 1/15 line associations and no duplicate audit events.
 - A sale carries immutable origin and product snapshots while the visit, delivery and follow-up state stay unchanged.
 - Staff cannot create for another staff member or bypass manager approval.
 - Fresh and upgraded disposable PostgreSQL schemas reach the verified new catalog head without editing applied migrations.

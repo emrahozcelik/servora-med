@@ -14,7 +14,7 @@ import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
-  it('upgrades the real 056 catalog without changing an existing job and never reapplies 057', async () => {
+  it('upgrades the real 056 catalog without changing an existing job and never reapplies 057/058', async () => {
     const directory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const previous = await mkdtemp(path.join(tmpdir(), 'sale-head056-'));
     const admin = new Pool({ connectionString: databaseUrl });
@@ -32,7 +32,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const user = (await pool.query("INSERT INTO users(organization_id,name,email,password_hash,role) VALUES ($1,'Existing staff','existing@test.local','test-hash','STAFF') RETURNING id", [org])).rows[0].id;
       const job = (await pool.query("INSERT INTO job_cards(organization_id,type,status,title,assigned_to,created_by) VALUES ($1,'GENERAL_TASK','NEW','Existing task',$2,$2) RETURNING *", [org, user])).rows[0];
       const upgraded = await runMigrations({ migrationsDirectory: directory, store });
-      expect(upgraded.appliedVersions).toEqual(['057_sale_from_visit']);
+      expect(upgraded.appliedVersions).toEqual(['057_sale_from_visit', '058_sale_integer_quantity']);
       const after = (await pool.query('SELECT * FROM job_cards WHERE id=$1', [job.id])).rows[0];
       const { sale_source_visit_id, ...oldColumns } = after;
       expect(sale_source_visit_id).toBeNull();
@@ -40,14 +40,14 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const history = (await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows;
       expect(await runMigrations({ migrationsDirectory: directory, store })).toEqual({ appliedVersions: [] });
       expect((await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows).toEqual(history);
-      expect(history).toHaveLength(57);
+      expect(history).toHaveLength(58);
     } finally { await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(previous, { recursive: true, force: true }); }
   });
   it('enforces same-org foreign keys, duplicate products and numeric bounds in PostgreSQL', async () => {
     await withSaleFixture(async (f) => {
       const sale = await f.service.createSaleFromVisit(f.staff, f.visitId, f.input);
       const item = (await f.pool.query('SELECT id FROM job_card_sale_items WHERE job_card_id=$1', [sale.jobCardId])).rows[0].id;
-      for (const quantity of ['0', '-1', 'NaN', 'Infinity', '1000000000']) {
+      for (const quantity of ['0', '-1', '0.001', '0.5', '1.5', '2.75', '999999999.999', 'NaN', 'Infinity', '1000000000']) {
         await expect(f.pool.query('UPDATE job_card_sale_items SET quantity=$2 WHERE id=$1', [item, quantity]))
           .rejects.toMatchObject({ code: quantity === '1000000000' || quantity === 'Infinity' ? '22003' : '23514' });
       }
@@ -61,7 +61,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       await expect(f.pool.query('UPDATE job_cards SET sale_source_visit_id=$2 WHERE id=$1', [sale.jobCardId, source])).rejects.toMatchObject({ code: '23503' });
       await expect(f.pool.query('UPDATE job_cards SET sale_source_visit_id=id WHERE id=$1', [sale.jobCardId])).rejects.toMatchObject({ code: '23514' });
       await expect(f.pool.query('DELETE FROM products WHERE id=$1', [f.products[0]])).rejects.toMatchObject({ code: '23503' });
-      expect((await f.pool.query('SELECT quantity::text FROM job_card_sale_items WHERE id=$1', [item])).rows[0].quantity).toMatch(/^(0\.500|0\.001)$/);
+      expect((await f.pool.query('SELECT quantity::text FROM job_card_sale_items WHERE id=$1', [item])).rows[0].quantity).toMatch(/^(1\.000|15\.000)$/);
     });
   });
   it('installs separate sale details/items with an exact three-decimal quantity column', async () => {
