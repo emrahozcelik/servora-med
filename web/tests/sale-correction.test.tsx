@@ -71,3 +71,21 @@ it('does not reset an unsent draft on a same-version realtime projection',async(
  await act(async()=>render({...original,saleContact:{...contact}}));
  expect(input.value).toBe('15');
 });
+
+it('does not duplicate an addition when realtime returns its committed line before the receipt',async()=>{
+ const {listProducts}=await import('../src/services/products-api');const {correctSale}=await import('../src/jobs/sale-api');
+ const product={id:'new-product',name:'New product',sku:null,brand:null,model:null,unit:'ml'};
+ vi.mocked(listProducts).mockResolvedValue({items:[product],total:1,limit:8,offset:0} as never);
+ let resolve!:(value:{jobCardId:string;version:number})=>void;
+ vi.mocked(correctSale).mockImplementationOnce(()=>new Promise((done)=>{resolve=done;}));
+ const render=(value:SaleDetails)=>root.render(<SaleCorrectionSection details={value} customerId="customer" disabled={false} onLockChange={vi.fn()} onChanged={vi.fn().mockResolvedValue(undefined)} />);
+ await act(async()=>render(details));
+ const search=host.querySelector('.product-select input[type="search"]') as HTMLInputElement;
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,'new');search.dispatchEvent(new Event('input',{bubbles:true}));});
+ await act(async()=>{([...host.querySelectorAll('button')].find((b)=>b.textContent==='Ürün ara')!).click();});
+ await act(async()=>{(host.querySelector('[data-product-id="new-product"]') as HTMLButtonElement).click();});
+ await act(async()=>{([...host.querySelectorAll('button')].find((b)=>b.textContent==='Ürünü ekle')!).click();});
+ await act(async()=>render({...details,jobCardVersion:3,items:[...details.items,{...product,id:'stored-new-line',productId:product.id,quantity:'1'}]}));
+ expect(host.querySelectorAll('[data-selected-product-id="new-product"]')).toHaveLength(1);
+ await act(async()=>resolve({jobCardId:'sale',version:3}));
+});

@@ -64,7 +64,7 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   const version = () => ({ clientActionId: crypto.randomUUID(), expectedVersion: details.jobCardVersion });
   const lines = new Map(details.items.map((item) => [item.productId, item]));
   const identities: ProductSelectionIdentity[] = details.items.map((item) => ({ id: item.productId, name: item.name, sku: item.sku, brand: item.brand, model: item.model, unit: item.unit }));
-  if (addition) identities.push(addition);
+  if (addition && !lines.has(addition.id)) identities.push(addition);
   function saveDetails() {
     const input: Extract<SaleCorrection, { kind: 'details' }>['input'] = version();
     if (contact?.id !== details.saleContact?.id) input.saleContactId = contact?.id ?? null;
