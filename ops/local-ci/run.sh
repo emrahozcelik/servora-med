@@ -55,6 +55,13 @@ canonical_repo_identity() {
   fi
 }
 
+ci_finalize_cleanup_evidence() {
+  [[ -n "${BUNDLE:-}" && -f "$BUNDLE/manifest.json" ]] || return 0
+  local mode=remove
+  [[ "${KEEP:-false}" != true ]] || mode=keep-containers
+  node "$SCRIPT_DIR/assemble-manifest.mjs" --finalize-cleanup "$BUNDLE" --cleanup-mode "$mode"
+}
+
 cleanup() {
   local ci_status=$?
   trap - EXIT
@@ -244,4 +251,4 @@ node "$SCRIPT_DIR/assemble-manifest.mjs" \
   --pg-server "$PG_SERVER" --pg-client "$PG_CLIENT" \
   --compat-detail "$COMPAT_DETAIL" \
   --server-chain-exit "$server_chain_code" --web-chain-exit "$web_chain_code"
-echo "EVIDENCE_BUNDLE_READY dir=$BUNDLE"
+echo "EVIDENCE_CHECKS_RECORDED dir=$BUNDLE cleanup=pending"

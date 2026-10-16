@@ -6,6 +6,13 @@
 #     manifest.json   machine-readable result + per-check log hashes
 #     report.md       human-readable summary
 #     logs/           one log file per check (referenced by manifest)
+#     logs/aux/cleanup.{log,status}  hash-bound independent cleanup result
+#
+# Schema 2 keeps the same 27 test gates. The assembler's initial manifest is
+# provisional: under the CI lock, EXIT cleanup binds result/mode and hashes of
+# the two fixed cleanup files into manifest.cleanup. Acceptance requires both
+# the 27-check result and cleanup PASS. Schema-1 evidence remains historical;
+# it cannot satisfy this contract and must be rerun, never silently upgraded.
 #
 # Trust model (explicit; no PKI, no trusted execution environment):
 #   1. Exact Git source identity — the verifier binds the bundle to one exact
@@ -31,7 +38,7 @@
 set -Eeuo pipefail
 
 # shellcheck disable=SC2034 # Public constant consumed by verify-evidence.sh.
-EVIDENCE_SCHEMA_VERSION=1
+EVIDENCE_SCHEMA_VERSION=2
 
 # Required check ids — read from the single source of truth
 # ops/local-ci/required-checks.txt (one id per line; keep in sync with

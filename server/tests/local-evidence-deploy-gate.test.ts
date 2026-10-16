@@ -60,7 +60,7 @@ function makeBundle(root: string, sha: string, tree: string, mutate?: (bundle: s
     };
   });
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     repo: 'git@github.com:example/servora-med.git',
     sha,
     tree,
@@ -72,7 +72,12 @@ function makeBundle(root: string, sha: string, tree: string, mutate?: (bundle: s
     checks,
     result: 'PASS',
   };
-  writeFileSync(join(bundle, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  mkdirSync(join(logs, 'aux'));
+  writeFileSync(join(logs, 'aux', 'cleanup.log'), 'synthetic successful cleanup\n');
+  writeFileSync(join(logs, 'aux', 'cleanup.status'), 'PASS\n');
+  const cleanupEntry = (file: string) => ({ path: file, sha256: sha256File(join(bundle, file)) });
+  const finalized = { ...manifest, cleanup: { result: 'PASS', mode: 'remove', log: cleanupEntry('logs/aux/cleanup.log'), status: cleanupEntry('logs/aux/cleanup.status') } };
+  writeFileSync(join(bundle, 'manifest.json'), `${JSON.stringify(finalized, null, 2)}\n`);
   if (mutate) mutate(bundle);
   return join(bundle, 'manifest.json');
 }

@@ -114,11 +114,35 @@ Cleanup errors are visible on stderr and in `logs/aux/cleanup.log`; status is
 `PASS` or `FAIL` in `logs/aux/cleanup.status`. Unknown lock ownership is reported
 on stderr without modifying the possibly foreign bundle. The original CI exit
 status is retained, including zero: a 27/27 PASS does not by itself prove cleanup
-success. Keep the caller's full stdout/stderr log beside the bundle. Use the
+success. **Evidence acceptance requires both 27/27 PASS and explicit cleanup
+PASS.** Manifest schema 2 includes a separate `cleanup` object with result,
+mode (`remove` or `keep-containers`), and SHA-256 hashes of the fixed
+`logs/aux/cleanup.log` and `logs/aux/cleanup.status` files. The initial test
+manifest is provisional; the EXIT trap finalizes it under the CI lock after
+resource cleanup. Lock-release failure changes the files and invalidates their
+finalized hashes. Cleanup finalization never changes the original test result
+or CI exit code, and does not add or replace any of the 27 mandatory gates.
+
+`verify-evidence.sh` rejects FAIL, missing/invalid status, missing finalization,
+or mismatched cleanup bytes. Production's local-evidence gate invokes that
+same verifier for both explicit and default bundle selection; there is no
+cleanup bypass. Hashes establish operator-attested file integrity, not
+independently authenticated execution (see `ops/local-ci/lib/evidence.sh`).
+
+Schema-1 bundles remain intact as historical evidence, including earlier PR
+review packages. The new verifier refuses them with `SCHEMA_MISMATCH`; do not
+backfill a PASS or upgrade them in place. Run the exact authorized source again
+to obtain schema-2 acceptance evidence.
+
+Keep the caller's full stdout/stderr log beside the bundle. Use the
 recorded run ID, resource IDs and daemon to attribute leftovers before action.
 
 `--keep-containers` intentionally retains container, network and volumes, while
-releasing the run lock and removing only its temporary source export. Named
+releasing the run lock and removing only its temporary source export. This
+retention is recorded as `cleanup.mode=keep-containers` with PASS when those
+requested cleanup operations succeed; the verifier accepts this explicit mode.
+It does not claim that resources were removed. The operator must account for
+the retained resources before another expensive run. Named
 volumes and volumes still referenced by another container are protected by
 Docker's container-removal semantics. See [Docker rm documentation](https://docs.docker.com/reference/cli/docker/container/rm/)
 and [Docker contexts](https://docs.docker.com/engine/manage-resources/contexts/).

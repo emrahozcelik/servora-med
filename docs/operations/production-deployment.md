@@ -296,6 +296,21 @@ bundle to `~/.local/share/servora-med/evidence/<sha>/` containing
 ops/local-ci/verify-evidence.sh --evidence-root <root> --sha <sha> [--tree <tree>]
 ```
 
+Local evidence acceptance requires manifest schema 2: all existing 27 checks
+PASS **and** independent `cleanup.result=PASS`. The EXIT trap finalizes
+`manifest.cleanup` under the CI lock with the mode and SHA-256 hashes of
+`logs/aux/cleanup.log` and `logs/aux/cleanup.status`. Missing, invalid, changed
+or failed cleanup evidence is refused, even if the runner retained test exit
+zero. Intentional `--keep-containers` is accepted as mode `keep-containers`;
+it records deliberate retention rather than claiming removal. The test result
+and gate count remain unchanged. Both explicit and default local-evidence
+selection use this verifier; neither can bypass cleanup acceptance.
+
+Schema-1 bundles are preserved for historical review but refused by the new
+verifier; rerun the exact authorized source for schema-2 evidence. Do not
+retrofit a cleanup PASS into old packages. See the
+[resource recovery runbook](./local-ci-resource-recovery.md).
+
 The server container grants its non-root node group log-directory access
 while retaining the host owner for cleanup. A cross-UID acceptance test covers
 UID 501 and root. The browser container uses a bounded 65536 descriptor budget

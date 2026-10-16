@@ -97,7 +97,7 @@ ci_cleanup_command() {
 # EXIT-trap policy. Never masks the CI status. Cleanup failures and unresolved
 # ownership are retained separately in logs/aux/cleanup.log and cleanup.status.
 ci_cleanup_run_resources() {
-  local owner failed=false
+  local owner failed=false result=PASS
   owner="$(cat -- "${LOCAL_CI_LOCK_DIR:-}/pid" 2>/dev/null || true)"
   if [[ -z "${LOCAL_CI_LOCK_CLAIM:-}" || "$owner" != "$LOCAL_CI_LOCK_CLAIM" ]]; then
     echo 'LOCAL_CI cleanup: ownership unknown; resources left in place' >&2
@@ -128,15 +128,27 @@ ci_cleanup_run_resources() {
   if [[ "${EXPORT_CREATED:-false}" == true ]]; then
     rm -rf -- "${EXPORT_DIR:?}" || { ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=remove-export'; failed=true; }
   fi
+  if [[ -n "${CLEANUP_LOG:-}" ]]; then
+    [[ "$failed" != true ]] || result=FAIL
+    # Finalize while ownership and exclusion still hold. The runner supplies
+    # the callback; early failures without a manifest remain unverifiable.
+    if printf '%s\n' "$result" >"${CLEANUP_LOG%.log}.status"; then
+      if declare -F ci_finalize_cleanup_evidence >/dev/null; then
+        if ! ci_finalize_cleanup_evidence; then
+          ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=finalize-evidence'
+          printf 'FAIL\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
+        fi
+      fi
+    else
+      ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
+    fi
+  fi
   if ! rm -- "$LOCAL_CI_LOCK_DIR/pid" || ! rmdir -- "$LOCAL_CI_LOCK_DIR"; then
     ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=release-lock'
-    failed=true
-  fi
-  if [[ -n "${CLEANUP_LOG:-}" ]]; then
-    if [[ "$failed" == true ]]; then
+    # Invalidate the finalized hashes if lock release fails. A verifier can
+    # never accept the earlier PASS after either file changes.
+    if [[ -n "${CLEANUP_LOG:-}" ]]; then
       printf 'FAIL\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
-    else
-      printf 'PASS\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
     fi
   fi
   return 0

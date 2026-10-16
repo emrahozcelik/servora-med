@@ -9,7 +9,8 @@
 # file, SHA/tree mismatch, result != PASS, any required check not PASS,
 # builder identity missing, linux-compat check did not positively assert
 # compatibility, or manifest provenance is not exactly
-# "local-operator-attested".
+# "local-operator-attested", or schema-2 cleanup result/files are missing,
+# invalid, changed or not explicitly PASS. Legacy schema 1 is refused.
 #
 # Exception policy A (no production exceptions): there is deliberately no
 # --exceptions mechanism. A caller-supplied reason string is not independent
@@ -71,6 +72,20 @@ if [[ -n "$TREE" ]]; then
   [[ "$(mget tree)" == "$TREE" ]] || fail EVIDENCE_TREE_MISMATCH
 fi
 [[ "$(mget result)" == "PASS" ]] || fail EVIDENCE_RESULT_NOT_PASS
+[[ "$(mget cleanup.result)" == "PASS" ]] || fail EVIDENCE_CLEANUP_NOT_PASS
+# Cleanup is a separate acceptance condition, not a 28th test check. Its two
+# fixed-path files must match the post-cleanup manifest; no sidecar-only PASS.
+CLEANUP_JS='import fs from "node:fs"; import path from "node:path"; import { createHash } from "node:crypto";
+const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const root = fs.realpathSync(process.argv[2]); const c = m.cleanup;
+if (!c || c.result !== "PASS" || !["remove", "keep-containers"].includes(c.mode)) process.exit(1);
+for (const [key, name] of [["log", "logs/aux/cleanup.log"], ["status", "logs/aux/cleanup.status"]]) {
+  const entry = c[key]; const file = path.join(root, name);
+  if (!entry || entry.path !== name || !/^[0-9a-f]{64}$/.test(entry.sha256) || !fs.lstatSync(file).isFile() || fs.realpathSync(file) !== file) process.exit(1);
+  const bytes = fs.readFileSync(file);
+  if (createHash("sha256").update(bytes).digest("hex") !== entry.sha256 || (key === "status" && bytes.toString() !== "PASS\n")) process.exit(1);
+}'
+node --input-type=module -e "$CLEANUP_JS" -- "$MANIFEST" "$BUNDLE" \
+  || fail EVIDENCE_CLEANUP_INVALID
 CHECKSET_JS='import fs from "node:fs"; const m = JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const required = process.argv.slice(2); const seen = new Set(); if (!Array.isArray(m.checks)) process.exit(10); for (const c of m.checks) { if (!required.includes(c.id) || seen.has(c.id)) process.exit(10); seen.add(c.id); } if (seen.size !== required.length) process.exit(10);'
 node --input-type=module -e "$CHECKSET_JS" -- "$MANIFEST" "${REQUIRED_EVIDENCE_CHECKS[@]}" \
   || fail EVIDENCE_CHECK_SET_INVALID
