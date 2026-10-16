@@ -9,6 +9,8 @@
 // Reads <bundle>/logs/<id>.{log,exit} for every required check id; a missing
 // exit file means the check never executed (result ABSENT -> overall FAIL).
 // Writes manifest.json and report.md. Exits non-zero unless every check PASS.
+// The EXIT trap subsequently calls --finalize-cleanup <bundle>
+// --cleanup-mode <remove|keep-containers>. Until then evidence is provisional.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -17,6 +19,28 @@ import { fileURLToPath } from 'node:url';
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) {
   args[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
+}
+
+// The test manifest is provisional until the EXIT trap completes resource
+// cleanup under the run lock. Bind its independent result and exact file bytes
+// without changing the original 27-check result or the caller's exit status.
+if (args['finalize-cleanup']) {
+  const bundle = args['finalize-cleanup'];
+  const file = path.join(bundle, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (manifest.schemaVersion !== 2 || !['remove', 'keep-containers'].includes(args['cleanup-mode'])) {
+    throw new Error('CLEANUP_EVIDENCE_INVALID');
+  }
+  const entry = (name) => ({ path: name, sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(bundle, name))).digest('hex') });
+  const status = fs.readFileSync(path.join(bundle, 'logs/aux/cleanup.status'), 'utf8');
+  if (!['PASS\n', 'FAIL\n'].includes(status)) throw new Error('CLEANUP_STATUS_INVALID');
+  manifest.cleanup = { result: status.trim(), mode: args['cleanup-mode'], log: entry('logs/aux/cleanup.log'), status: entry('logs/aux/cleanup.status') };
+  fs.appendFileSync(path.join(bundle, 'report.md'), `\n- cleanup: **${manifest.cleanup.result}** (mode: ${manifest.cleanup.mode}); acceptance also requires all 27 checks PASS.\n`);
+  const temporary = `${file}.cleanup-${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+  fs.renameSync(temporary, file);
+  console.log(`EVIDENCE_CLEANUP_FINALIZED result=${manifest.cleanup.result} mode=${manifest.cleanup.mode}`);
+  process.exit(0);
 }
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -87,7 +111,7 @@ for (const id of REQUIRED) {
 }
 
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   repo: args.repo,
   sha: args.sha,
   tree: args.tree,

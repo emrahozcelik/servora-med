@@ -6,6 +6,9 @@
 # falls back to host docker with a shared TMPDIR; records NOT_RUN when docker
 # is unavailable. Never reports unexecuted checks as passed.
 set -Eeuo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resource-cleanup.sh"
 
 REPO=""
 LOGDIR=""
@@ -18,6 +21,13 @@ while [[ "$#" -gt 0 ]]; do
 done
 [[ -n "$REPO" && -d "$REPO/server" && -n "$LOGDIR" ]] \
   || { echo "DOCKER_GATED_FAILED reason=BAD_ARGS" >&2; exit 1; }
+if [[ -z "${LOCAL_CI_DOCKER_ENDPOINT:-}" ]]; then
+  ci_pin_docker_daemon || exit 1
+else
+  ci_assert_docker_daemon || exit 1
+fi
+export DOCKER_HOST="$LOCAL_CI_DOCKER_ENDPOINT"
+unset DOCKER_CONTEXT
 mkdir -p "$LOGDIR"
 
 run_one() { # id -- command...
@@ -53,9 +63,14 @@ fi
 VM_RUN=false
 VM_NODE=""
 if command -v colima >/dev/null 2>&1 && colima ssh -p true -- true 2>/dev/null; then
+  # Guest-side behavior checks must reach the same engine as host-side checks.
+  vm_daemon="$(colima ssh -p true -- docker info --format '{{.ID}}')" || exit 1
+  [[ "$vm_daemon" == "$LOCAL_CI_DOCKER_DAEMON_ID" ]] \
+    || { echo 'DOCKER_GATED_FAILED reason=DOCKER_DAEMON_MISMATCH' >&2; exit 1; }
   # Probe the VM userspace for node instead of hardcoding a guest home path:
   # guest usernames differ per machine (colima ssh runs as the guest user).
   VM_NODE="$(colima ssh -p true -- command -v node 2>/dev/null || true)"
+  # shellcheck disable=SC2016 # HOME expands inside the guest, not on the host.
   [[ -n "$VM_NODE" ]] || VM_NODE="$(colima ssh -p true -- sh -c 'for c in "$HOME/.local/bin/node" /usr/local/bin/node /usr/bin/node; do [ -x "$c" ] && echo "$c" && break; done' 2>/dev/null || true)"
   [[ -n "$VM_NODE" ]] && VM_RUN=true
 fi
