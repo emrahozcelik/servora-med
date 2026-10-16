@@ -152,7 +152,20 @@ test('an unwritable status file cannot reuse a stale PASS', (t) => {
 
 test('deployment local evidence selection cannot bypass cleanup rejection', (t) => {
   const fx = evidenceFixture(t, 'FAIL');
-  const git = (...args) => spawnSync('git', ['-C', REPO, ...args], { encoding: 'utf8' }).stdout.trim();
+  // CI source is a git archive, so construct the live-repository boundary
+  // explicitly rather than relying on metadata in the checkout under test.
+  const repo = path.join(fx.root, 'source');
+  fs.mkdirSync(path.join(repo, 'ops'), { recursive: true });
+  fs.cpSync(path.join(REPO, 'ops/local-ci'), path.join(repo, 'ops/local-ci'), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'ops/deploy-production.sh'), path.join(repo, 'ops/deploy-production.sh'));
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git('init', '-q', '-b', 'main');
+  git('add', '.');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
   const head = git('rev-parse', 'HEAD');
   fx.manifest.sha = head;
   fx.manifest.tree = git('rev-parse', 'HEAD^{tree}');
@@ -163,7 +176,7 @@ test('deployment local evidence selection cannot bypass cleanup rejection', (t) 
     const result = spawnSync('bash', ['-c', `source "$1"
 SHA="$2"; CI_MODE=local; EVIDENCE_ROOT="$3"; EVIDENCE="$4"
 verify_local_evidence
-echo SHOULD_NOT_ACCEPT`, 'deploy-gate-fixture', path.join(REPO, 'ops/deploy-production.sh'), head, fx.root, selected], { encoding: 'utf8' });
+echo SHOULD_NOT_ACCEPT`, 'deploy-gate-fixture', path.join(repo, 'ops/deploy-production.sh'), head, fx.root, selected], { encoding: 'utf8' });
     assert.notEqual(result.status, 0);
     assert.match(result.stdout + result.stderr, /LOCAL_EVIDENCE_NOT_VERIFIED/);
     assert.match(result.stdout + result.stderr, /EVIDENCE_CLEANUP_NOT_PASS/);
