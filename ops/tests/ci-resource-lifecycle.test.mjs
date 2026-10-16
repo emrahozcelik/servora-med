@@ -200,14 +200,17 @@ test('cleanup failures are recorded without masking the original CI failure', (t
   assert.ok(fx.state().container);
 });
 
-test('daemon identity change fails closed before cleanup mutations', (t) => {
-  const fx = fixture(t, { failure: 'daemon-change' });
-  const result = fx.run();
-  assert.equal(result.status, 86);
-  assert.match(result.stderr, /DOCKER_DAEMON_MISMATCH/);
-  assert.ok(fx.state().container);
-  assert.ok(!fx.calls().some((c) => c.args.includes('rm')));
-});
+for (const keep of [false, true]) {
+  test(`daemon identity change fails closed before cleanup mutations (keep=${keep})`, (t) => {
+    const fx = fixture(t, { failure: 'daemon-change' });
+    const result = fx.run(keep ? ['--keep-containers'] : []);
+    assert.equal(result.status, 86);
+    assert.match(result.stderr, /DOCKER_DAEMON_MISMATCH/);
+    assert.ok(fx.state().container);
+    assert.ok(!fx.calls().some((c) => c.args.includes('rm')));
+    assert.equal(fs.readFileSync(path.join(fx.bundle, 'logs/aux/cleanup.status'), 'utf8'), 'FAIL\n');
+  });
+}
 
 test('partial network with a foreign run label is never removed', (t) => {
   const fx = fixture(t, { failure: 'partial-network', foreignLabel: true });

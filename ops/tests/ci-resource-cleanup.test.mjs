@@ -51,6 +51,8 @@ ci_cleanup_command() { :; }
 if [[ "$5" == resource ]]; then ci_cleanup_command() { return 7; }; fi
 if [[ "$5" == finalize ]]; then node() { return 73; }; fi
 if [[ "$5" == lock ]]; then rmdir() { return 1; }; fi
+if [[ "$5" == status ]]; then ci_write_cleanup_status() { echo 'Permission denied (EACCES)' >&2; return 1; }; fi
+if [[ "$5" == daemon ]]; then ci_assert_docker_daemon() { echo DOCKER_DAEMON_MISMATCH >&2; return 1; }; fi
 trap cleanup EXIT
 exit "$6"`, 'cleanup-fixture', path.join(REPO, 'ops/local-ci/run.sh'), fx.bundle, fx.root, String(keep), failure, String(code)], { encoding: 'utf8' });
 }
@@ -119,6 +121,17 @@ test('intentional --keep-containers is recorded and accepted with PASS', (t) => 
   assert.equal(fx.verify().status, 0);
 });
 
+test('--keep-containers daemon mismatch refuses otherwise passing evidence', (t) => {
+  const fx = evidenceFixture(t);
+  const result = finishCleanup(fx, { keep: true, failure: 'daemon' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /DOCKER_DAEMON_MISMATCH/);
+  const m = JSON.parse(fs.readFileSync(fx.manifestPath));
+  assert.equal(m.cleanup.mode, 'keep-containers');
+  assert.equal(m.cleanup.result, 'FAIL');
+  assert.notEqual(fx.verify().status, 0);
+});
+
 test('resource, finalization and lock-release errors prevent acceptance without masking CI PASS', (t) => {
   for (const failure of ['resource', 'finalize', 'lock']) {
     const fx = evidenceFixture(t);
@@ -143,10 +156,12 @@ test('legacy schema-1 evidence is retained byte-for-byte and refused without a d
 
 test('an unwritable status file cannot reuse a stale PASS', (t) => {
   const fx = evidenceFixture(t);
-  fs.chmodSync(path.join(fx.bundle, 'logs/aux/cleanup.status'), 0o400);
-  const result = finishCleanup(fx);
+  // Stub the write boundary instead of permission bits: UID 0 bypasses chmod.
+  const result = finishCleanup(fx, { failure: 'status' });
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /EACCES/);
   assert.match(result.stderr, /LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED/);
+  assert.equal(fs.readFileSync(path.join(fx.bundle, 'logs/aux/cleanup.status'), 'utf8'), 'PASS\n');
   assert.notEqual(fx.verify().status, 0);
 });
 

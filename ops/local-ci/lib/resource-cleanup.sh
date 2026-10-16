@@ -94,6 +94,10 @@ ci_cleanup_command() {
   fi
 }
 
+ci_write_cleanup_status() {
+  printf '%s\n' "$1" >"${CLEANUP_LOG%.log}.status"
+}
+
 # EXIT-trap policy. Never masks the CI status. Cleanup failures and unresolved
 # ownership are retained separately in logs/aux/cleanup.log and cleanup.status.
 ci_cleanup_run_resources() {
@@ -123,6 +127,7 @@ ci_cleanup_run_resources() {
       failed=true
     fi
   else
+    ci_assert_docker_daemon || failed=true
     ci_resource_log 'LOCAL_CI_CLEANUP_KEPT reason=keep-containers'
   fi
   if [[ "${EXPORT_CREATED:-false}" == true ]]; then
@@ -132,11 +137,11 @@ ci_cleanup_run_resources() {
     [[ "$failed" != true ]] || result=FAIL
     # Finalize while ownership and exclusion still hold. The runner supplies
     # the callback; early failures without a manifest remain unverifiable.
-    if printf '%s\n' "$result" >"${CLEANUP_LOG%.log}.status"; then
+    if ci_write_cleanup_status "$result"; then
       if declare -F ci_finalize_cleanup_evidence >/dev/null; then
         if ! ci_finalize_cleanup_evidence; then
           ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=finalize-evidence'
-          printf 'FAIL\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
+          ci_write_cleanup_status FAIL || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
         fi
       fi
     else
@@ -148,7 +153,7 @@ ci_cleanup_run_resources() {
     # Invalidate the finalized hashes if lock release fails. A verifier can
     # never accept the earlier PASS after either file changes.
     if [[ -n "${CLEANUP_LOG:-}" ]]; then
-      printf 'FAIL\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
+      ci_write_cleanup_status FAIL || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
     fi
   fi
   return 0

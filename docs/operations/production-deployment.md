@@ -302,8 +302,9 @@ PASS **and** independent `cleanup.result=PASS`. The EXIT trap finalizes
 `logs/aux/cleanup.log` and `logs/aux/cleanup.status`. Missing, invalid, changed
 or failed cleanup evidence is refused, even if the runner retained test exit
 zero. Intentional `--keep-containers` is accepted as mode `keep-containers`;
-it records deliberate retention rather than claiming removal. The test result
-and gate count remain unchanged. Both explicit and default local-evidence
+it records deliberate retention rather than claiming removal. A daemon
+identity mismatch blocks evidence acceptance in either mode. The original
+test result and gate count remain unchanged. Both explicit and default local-evidence
 selection use this verifier; neither can bypass cleanup acceptance.
 
 Schema-1 bundles are preserved for historical review but refused by the new

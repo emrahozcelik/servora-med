@@ -142,7 +142,9 @@ releasing the run lock and removing only its temporary source export. This
 retention is recorded as `cleanup.mode=keep-containers` with PASS when those
 requested cleanup operations succeed; the verifier accepts this explicit mode.
 It does not claim that resources were removed. The operator must account for
-the retained resources before another expensive run. Named
+the retained resources before another expensive run. Both removal and retention
+verify the pinned daemon identity; a mismatch records cleanup FAIL while
+preserving resources and the original CI exit. Named
 volumes and volumes still referenced by another container are protected by
 Docker's container-removal semantics. See [Docker rm documentation](https://docs.docker.com/reference/cli/docker/container/rm/)
 and [Docker contexts](https://docs.docker.com/engine/manage-resources/contexts/).
