@@ -1,5 +1,6 @@
 // Exercise the actual run.sh entrypoint in a committed miniature repository.
-// Docker is stateful and fake; archive intentionally exits 86 after provisioning.
+// Docker is stateful and fake. Emit a valid archive before controlled exit 86,
+// so both GNU and BSD tar succeed and pipefail preserves that intentional exit.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -35,7 +36,7 @@ function fixture(t, settings = {}) {
   fs.writeFileSync(stateFile, JSON.stringify({ volumes: { anonymous: false, 'named-db': true }, ...settings }));
   const writeBin = (name, body) => fs.writeFileSync(path.join(bin, name), '#!/bin/bash\n' + body + '\n', { mode: 0o755 });
   writeBin('docker', `exec ${shellQuote(process.execPath)} ${shellQuote(FAKE)} "$@"`);
-  writeBin('git', `for arg in "$@"; do if [[ "$arg" == archive ]]; then exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"`);
+  writeBin('git', `for arg in "$@"; do if [[ "$arg" == archive ]]; then ${shellQuote(realGit)} "$@"; exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"`);
   writeBin('node', `if [[ "$1" == -p ]]; then echo 22; elif [[ "$1" == --version ]]; then echo v22.23.3; else exec ${shellQuote(process.execPath)} "$@"; fi`);
   writeBin('npm', 'echo 10.9.9');
   const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, TMPDIR: root, CI_FIXTURE_STATE: stateFile, DOCKER_CONTEXT: 'colima-true' };
@@ -257,7 +258,7 @@ for (const missing of [false, true]) {
   test(`lost lock ownership protects resources and evidence (missing=${missing})`, (t) => {
     const fx = fixture(t);
     const change = missing ? 'rm -- "$TMPDIR/servora-med-local-ci.lock/pid"' : 'echo "pid=1 nonce=foreign" > "$TMPDIR/servora-med-local-ci.lock/pid"';
-    fs.writeFileSync(path.join(fx.root, 'bin/git'), `#!/bin/bash\nfor arg in "$@"; do if [[ "$arg" == archive ]]; then ${change}; exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"\n`);
+    fs.writeFileSync(path.join(fx.root, 'bin/git'), `#!/bin/bash\nfor arg in "$@"; do if [[ "$arg" == archive ]]; then ${change}; ${shellQuote(realGit)} "$@"; exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"\n`);
     const result = fx.run();
     assert.equal(result.status, 86);
     assert.match(result.stderr, /ownership unknown/);
@@ -290,7 +291,7 @@ exit 0`;
 
 test('an active entrypoint excludes a second process without moving its evidence', async (t) => {
   const fx = fixture(t);
-  fs.writeFileSync(path.join(fx.root, 'bin/git'), `#!/bin/bash\nfor arg in "$@"; do if [[ "$arg" == archive ]]; then touch "$TMPDIR/archive-entered"; while [[ ! -f "$TMPDIR/archive-release" ]]; do sleep 0.02; done; exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"\n`);
+  fs.writeFileSync(path.join(fx.root, 'bin/git'), `#!/bin/bash\nfor arg in "$@"; do if [[ "$arg" == archive ]]; then touch "$TMPDIR/archive-entered"; while [[ ! -f "$TMPDIR/archive-release" ]]; do sleep 0.02; done; ${shellQuote(realGit)} "$@"; exit 86; fi; done\nexec ${shellQuote(realGit)} "$@"\n`);
   const child = spawn('/bin/bash', fx.runArgs, { env: fx.env, stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
