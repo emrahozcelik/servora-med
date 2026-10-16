@@ -34,6 +34,7 @@ check server-shellcheck -- shellcheck -x \
   ../ops/local-ci/load-prod-env.sh \
   ../ops/local-ci/verify-evidence.sh \
   ../ops/local-ci/lib/evidence.sh \
+  ../ops/local-ci/lib/resource-cleanup.sh \
   ../ops/local-ci/lib/ssh-files.sh \
   ../ops/scripts/backup-postgres.sh \
   ../ops/scripts/backup-observation.sh \
@@ -69,5 +70,5 @@ check server-db-auth-contract -- bash ../ops/ci/verify-db-auth-contract.sh
 check server-build -- bash -c 'npm ci --no-audit --no-fund && npm run build'
 check server-dep-smoke -- bash /work/ops-local-ci-dep-smoke.sh
 check server-migrate-schema -- bash -c 'npx tsx src/db/migrate.ts && npm run schema:check'
-check server-tests -- bash -c 'npm test -- --run && node --test ../ops/tests/deployment-attempt.test.mjs ../ops/tests/deployment-controller.test.mjs ../ops/tests/deployment-operator.test.mjs'
+check server-tests -- bash -c 'npm test -- --run && node --test ../ops/tests/deployment-attempt.test.mjs ../ops/tests/deployment-controller.test.mjs ../ops/tests/deployment-operator.test.mjs ../ops/tests/ci-resource-cleanup.test.mjs'
 check server-audit -- bash -c 'npm audit --audit-level=high'

@@ -18,6 +18,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/evidence.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/resource-cleanup.sh"
 
 # Helpers are sourceable for focused tests without executing CI.
 
@@ -54,27 +56,11 @@ canonical_repo_identity() {
 }
 
 cleanup() {
-  # Do not remove resources unless this run's claim is still on disk.
-  # Evidence is deliberately retained on every exit, including setup errors.
-  local owner=""
-  owner="$(cat -- "${LOCAL_CI_LOCK_DIR:-}/pid" 2>/dev/null || true)"
-  if [[ -z "${LOCAL_CI_LOCK_CLAIM:-}" || "$owner" != "$LOCAL_CI_LOCK_CLAIM" ]]; then
-    echo "LOCAL_CI cleanup: ownership unknown; resources left in place" >&2
-    return 0
-  fi
-  if [[ "${KEEP:-false}" != true ]]; then
-    if [[ "${PG_CREATED:-false}" == true ]]; then
-      docker rm -f "$PG" >/dev/null 2>&1 || true
-    fi
-    if [[ "${NET_CREATED:-false}" == true ]]; then
-      docker network rm "$NET" >/dev/null 2>&1 || true
-    fi
-  fi
-  if [[ "${EXPORT_CREATED:-false}" == true ]]; then
-    rm -rf -- "$EXPORT_DIR"
-  fi
-  rm -- "$LOCAL_CI_LOCK_DIR/pid"
-  rmdir -- "$LOCAL_CI_LOCK_DIR"
+  # Ownership, lock release and the per-resource removal policy live in
+  # lib/resource-cleanup.sh (single implementation, unit-tested in
+  # ops/tests/ci-resource-cleanup.test.mjs). Evidence is deliberately
+  # retained on every exit, including setup errors.
+  ci_cleanup_run_resources
 }
 
 # Sourcing exposes helpers only; direct invocations always run the full gate.
@@ -82,10 +68,18 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 0
 fi
 
+# State flags are consumed by lib/resource-cleanup.sh; plain assignments here
+# would read as unused, so the --keep-containers branch goes through this setter.
+set_keep_containers() {
+  # shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
+  KEEP=true
+}
+
 SHA=""
 REPO=""
 EVIDENCE_ROOT="${HOME}/.local/share/servora-med/evidence"
 SKIP_DOCKER_GATED=false
+# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh (see set_keep_containers).
 KEEP=false
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -93,7 +87,7 @@ while [[ "$#" -gt 0 ]]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --evidence-root) EVIDENCE_ROOT="${2:-}"; shift 2 ;;
     --skip-docker-gated) SKIP_DOCKER_GATED=true; shift ;;
-    --keep-containers) KEEP=true; shift ;;
+    --keep-containers) set_keep_containers; shift ;;
     *) echo "LOCAL_CI_FAILED reason=UNKNOWN_ARGUMENT" >&2; exit 1 ;;
   esac
 done
@@ -160,15 +154,23 @@ NET="servora-localci-$RUN_ID"
 PG="servora-localci-pg-$RUN_ID"
 NET_CREATED=false
 PG_CREATED=false
+PG_VOLUMES=""
 docker network create "$NET" >/dev/null
+# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
 NET_CREATED=true
 docker run -d --name "$PG" --network "$NET" --network-alias servora-localci-pg \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=servora_med_test postgres:17-alpine >/dev/null
+# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
 PG_CREATED=true
+# Record this run's anonymous data volumes while the container exists, so the
+# EXIT trap can remove exactly these volumes and never anything else.
+# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
+PG_VOLUMES="$(ci_list_container_volumes "$PG")"
 
 # Temporary export belongs solely to this run; logs remain in the bundle.
 EXPORT_DIR="$(mktemp -d "$BUNDLE/tree-export.XXXXXX")"
+# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
 EXPORT_CREATED=true
 git -C "$REPO" archive "$SHA" | tar -x -C "$EXPORT_DIR"
 
