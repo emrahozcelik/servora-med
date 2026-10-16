@@ -4901,3 +4901,5 @@ html a:focus-visible {
 .sale-contact-search summary { min-height: var(--control-height); padding-block: 0.7rem; cursor: pointer; }
 .sale-contact-search input { margin-bottom: 0.5rem; }
 .sale-contact-search button { width: auto; }
+
+.sale-contact-select { height: var(--control-height); }

@@ -22,7 +22,7 @@ export function SaleContactSelect({ customerId, selected, onChange, disabled }: 
   }, [customerId, query, offset, reload]);
   return <div className="field-group">
     <label htmlFor={id}>Satışta görüşülen kişi (isteğe bağlı)</label>
-    <select id={id} disabled={disabled || !page} value={selected?.id ?? ''} onChange={(event) => {
+    <select className="sale-contact-select" id={id} disabled={disabled || !page} value={selected?.id ?? ''} onChange={(event) => {
       const contact = page?.items.find((item) => item.id === event.target.value);
       onChange(contact ? { id: contact.id, name: contact.name, title: contact.title } : null);
     }}>
