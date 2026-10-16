@@ -56,11 +56,10 @@ canonical_repo_identity() {
 }
 
 cleanup() {
-  # Ownership, lock release and the per-resource removal policy live in
-  # lib/resource-cleanup.sh (single implementation, unit-tested in
-  # ops/tests/ci-resource-cleanup.test.mjs). Evidence is deliberately
-  # retained on every exit, including setup errors.
-  ci_cleanup_run_resources
+  local ci_status=$?
+  trap - EXIT
+  ci_cleanup_run_resources || echo 'LOCAL_CI_CLEANUP_FAILED operation=trap' >&2
+  exit "$ci_status"
 }
 
 # Sourcing exposes helpers only; direct invocations always run the full gate.
@@ -113,7 +112,7 @@ untracked="$(git -C "$REPO" ls-files --others -- server/src server/scripts serve
 [[ -z "$untracked" ]] || { echo "LOCAL_CI_FAILED reason=SOURCE_TREE_NOT_EXACT" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || { echo "LOCAL_CI_FAILED reason=DOCKER_MISSING" >&2; exit 1; }
-docker info >/dev/null 2>&1 || { echo "LOCAL_CI_FAILED reason=DOCKER_UNAVAILABLE (is colima running?)" >&2; exit 1; }
+ci_pin_docker_daemon || { echo "LOCAL_CI_FAILED reason=DOCKER_PREFLIGHT" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "LOCAL_CI_FAILED reason=NODE_MISSING" >&2; exit 1; }
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "$node_major" == 22 ]] || { echo "LOCAL_CI_FAILED reason=NODE_22_REQUIRED_$(node --version)" >&2; exit 1; }
@@ -123,6 +122,10 @@ REPO_IDENTITY="$(canonical_repo_identity "$ORIGIN_URL")"
 unset ORIGIN_URL
 BUNDLE="$EVIDENCE_ROOT/$SHA"
 LOGS="$BUNDLE/logs"
+# Never inherit ownership assertions or cleanup paths from the caller's env.
+# shellcheck disable=SC2034 # State consumed by the sourced lifecycle helpers.
+NET_ID="" PG_ID="" NET_CREATE_ATTEMPTED=false PG_CREATE_ATTEMPTED=false EXPORT_CREATED=false
+CLEANUP_LOG=""
 # Concurrent runs can share a SHA bundle: fail closed on an existing lock.
 # Resources have per-run names; stale lock recovery requires supervised
 # quiescence, as documented in production-deployment.md.
@@ -132,41 +135,34 @@ if ! mkdir "$LOCAL_CI_LOCK_DIR" 2>/dev/null; then
   echo "LOCAL_CI_FAILED reason=LOCAL_CI_ALREADY_RUNNING holder=${holder_pid} recovery=supervised_only" >&2
   exit 1
 fi
-LOCAL_CI_LOCK_CLAIM="pid=$$ nonce=$RANDOM-$RANDOM"
+RUN_ID="$$-$RANDOM-$RANDOM"
+LOCAL_CI_LOCK_CLAIM="pid=$$ nonce=$RUN_ID"
+# shellcheck disable=SC2034 # Names read by lifecycle creation / recovery.
+NET="servora-localci-$RUN_ID" PG="servora-localci-pg-$RUN_ID"
 # Cleanup is armed immediately after lock acquisition so even an early setup
 # failure (node/docker/network/PG provisioning) releases the lock and never
 # strands later invocations.
 trap cleanup EXIT
 printf '%s\n' "$LOCAL_CI_LOCK_CLAIM" >"$LOCAL_CI_LOCK_DIR/pid"
-# Start from an empty logs tree: a rerun must never inherit check results
-# from a previous run (stale PASS beside a new failure, or vice versa).
-rm -rf -- "$LOGS"
-mkdir -p "$LOGS" "$LOGS/aux"
+# Archive the whole previous bundle under this lock; never destroy failed
+# evidence or mix old check results into a retry of the same SHA.
+if [[ -e "$BUNDLE" ]]; then
+  previous="$EVIDENCE_ROOT/previous/$SHA/$RUN_ID"
+  mkdir -p "$(dirname -- "$previous")"
+  mv -- "$BUNDLE" "$previous"
+  echo "LOCAL_CI_PREVIOUS_EVIDENCE dir=$previous"
+fi
+mkdir -p "$LOGS/aux"
+export CLEANUP_LOG="$LOGS/aux/cleanup.log"
+ci_resource_log "LOCAL_CI_DOCKER_PINNED context=colima-true endpoint=$LOCAL_CI_DOCKER_ENDPOINT daemon=$LOCAL_CI_DOCKER_DAEMON_ID run=$RUN_ID"
 STARTED_AT="$(date -u +%FT%TZ)"
 NODE_VERSION="$(node --version)"
 NPM_VERSION="$(npm --version)"
 OS_INFO="$(uname -srm)"
 PG_SERVER="17 (postgres:17-alpine service)"
-PG_CLIENT="$(docker run --rm postgres:17-alpine psql --version 2>/dev/null || echo unknown)"
+PG_CLIENT="$(ci_docker run --rm postgres:17-alpine psql --version 2>/dev/null || echo unknown)"
 
-RUN_ID="$$-$RANDOM-$RANDOM"
-NET="servora-localci-$RUN_ID"
-PG="servora-localci-pg-$RUN_ID"
-NET_CREATED=false
-PG_CREATED=false
-PG_VOLUMES=""
-docker network create "$NET" >/dev/null
-# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
-NET_CREATED=true
-docker run -d --name "$PG" --network "$NET" --network-alias servora-localci-pg \
-  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=servora_med_test postgres:17-alpine >/dev/null
-# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
-PG_CREATED=true
-# Record this run's anonymous data volumes while the container exists, so the
-# EXIT trap can remove exactly these volumes and never anything else.
-# shellcheck disable=SC2034 # Consumed by lib/resource-cleanup.sh.
-PG_VOLUMES="$(ci_list_container_volumes "$PG")"
+ci_create_run_resources
 
 # Temporary export belongs solely to this run; logs remain in the bundle.
 EXPORT_DIR="$(mktemp -d "$BUNDLE/tree-export.XXXXXX")"
@@ -176,7 +172,7 @@ git -C "$REPO" archive "$SHA" | tar -x -C "$EXPORT_DIR"
 
 server_chain_code=0
 echo "=== [1/5] server chain (node:22 + postgres:17) ==="
-docker run --platform linux/amd64 --rm --network "$NET" --name "servora-localci-server-$RUN_ID" \
+ci_docker run --platform linux/amd64 --rm --network "$NET_ID" --name "servora-localci-server-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
@@ -185,7 +181,7 @@ printf '%s\n' "$server_chain_code" >"$LOGS/aux/server-chain.exit"
 
 web_chain_code=0
 echo "=== [2/5] web chain (node:22) ==="
-docker run --rm --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID" \
+ci_docker run --rm --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
@@ -194,7 +190,7 @@ docker run --rm --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID"
 printf '%s\n' "$web_chain_code" >"$LOGS/aux/web-chain.exit"
 
 echo "=== [3/5] benchmark smoke ==="
-docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
+ci_docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
   node /repo/ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke >"$LOGS/benchmark-smoke.log" 2>&1 \
   && echo 0 >"$LOGS/benchmark-smoke.exit" || echo "$?" >"$LOGS/benchmark-smoke.exit"
 

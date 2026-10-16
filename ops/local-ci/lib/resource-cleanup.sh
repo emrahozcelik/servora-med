@@ -1,78 +1,143 @@
 #!/usr/bin/env bash
-# lib/resource-cleanup.sh — ownership-scoped local-CI resource cleanup.
-#
-# Sourceable only; never executes on source. Called by run.sh's EXIT trap via
-# ci_cleanup_run_resources. Unit-tested by ops/tests/ci-resource-cleanup.test.mjs
-# against a fake docker(1); see DOCKER_BIN below.
-#
-# Policy (fail-closed, ownership-scoped):
-#   - Resources are removed only when this run still holds the lock claim.
-#   - Only resources this run created are addressed: the PG container, the
-#     assistant network, the anonymous data volumes recorded from the PG
-#     container at creation time, and the run-owned tree export directory.
-#   - A recorded volume is removed only while it still looks anonymous
-#     (no user labels). Anything else is left in place with a warning.
-#   - --keep-containers keeps containers, networks AND their volumes.
-#   - Evidence bundles and logs are never touched by cleanup.
-#   - Broad operations are forbidden here by design: no `docker system prune`,
-#     no `docker volume prune`, no `colima delete`, no `limactl delete`.
-#     Cross-project or shared resources can never match the ownership gates.
+# Run-owned Docker lifecycle. Source only; callers explicitly pin the daemon.
 set -Eeuo pipefail
 
-# DOCKER_BIN override exists so tests can inject a fake docker(1).
-ci_docker() { "${DOCKER_BIN:-docker}" "$@"; }
-
-# ci_list_container_volumes <container>: print space-separated names of the
-# volumes mounted by the container. Empty (with a warning) on any failure.
-ci_list_container_volumes() {
-  local container="$1" names=""
-  names="$(ci_docker inspect --format '{{ range .Mounts }}{{ .Name }} {{ end }}' "$container" 2>/dev/null || true)"
-  if [[ -z "${names// /}" ]]; then
-    echo "LOCAL_CI cleanup: no recorded volumes for $container; leaving storage in place" >&2
+ci_resource_log() {
+  printf '%s\n' "$*" >&2
+  if [[ -n "${CLEANUP_LOG:-}" ]]; then
+    printf '%s\n' "$*" >>"$CLEANUP_LOG" || printf 'LOCAL_CI_CLEANUP_LOG_FAILED\n' >&2
   fi
-  printf '%s' "$names"
+  return 0
 }
 
-# ci_is_removable_volume <name>: true only while the volume still looks
-# anonymous (docker's anonymous marker label at most, never user labels).
-ci_is_removable_volume() {
-  local name="$1" labels=""
-  labels="$(ci_docker volume inspect --format '{{json .Labels}}' "$name" 2>/dev/null || true)"
-  case "$labels" in
-    'null' | '{}' | '{"com.docker.volume.anonymous":""}') return 0 ;;
-    *) return 1 ;;
-  esac
+# Resolve colima-true once. Pin its local endpoint for every child process so
+# later `docker context use` / context-file edits cannot redirect this run.
+ci_pin_docker_daemon() {
+  local selected endpoint daemon
+  selected="$(command docker context show)" || return 1
+  if [[ "$selected" != colima-true || -n "${DOCKER_HOST:-}" ]]; then
+    echo 'LOCAL_CI_FAILED reason=DOCKER_CONTEXT_MISMATCH expected=colima-true (unset DOCKER_HOST)' >&2
+    return 1
+  fi
+  endpoint="$(command docker context inspect colima-true --format '{{.Endpoints.docker.Host}}')" || return 1
+  [[ "$endpoint" == unix://* ]] || { echo 'LOCAL_CI_FAILED reason=DOCKER_ENDPOINT_NOT_LOCAL' >&2; return 1; }
+  export LOCAL_CI_DOCKER_ENDPOINT="$endpoint" DOCKER_HOST="$endpoint"
+  unset DOCKER_CONTEXT DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+  daemon="$(ci_docker info --format '{{.ID}}')" || return 1
+  [[ -n "$daemon" ]] || { echo 'LOCAL_CI_FAILED reason=DOCKER_DAEMON_ID_MISSING' >&2; return 1; }
+  export LOCAL_CI_DOCKER_DAEMON_ID="$daemon"
 }
 
-# ci_cleanup_run_resources: full trap policy driven by run.sh state variables.
-# Always exits 0 so a trap never masks the run's real outcome.
+ci_docker() { command docker --host "${LOCAL_CI_DOCKER_ENDPOINT:?}" "$@"; }
+
+ci_assert_docker_daemon() {
+  local actual
+  if ! actual="$(ci_docker info --format '{{.ID}}')" || [[ -z "${LOCAL_CI_DOCKER_DAEMON_ID:-}" || "$actual" != "$LOCAL_CI_DOCKER_DAEMON_ID" ]]; then
+    ci_resource_log 'LOCAL_CI_FAILED reason=DOCKER_DAEMON_MISMATCH resources_left_for_supervised_recovery'
+    return 1
+  fi
+}
+
+# Only ambiguous create replies need discovery. Names alone never authorize a
+# removal: require the exact run label and a full immutable Docker resource ID.
+ci_recover_resource_id() {
+  local kind="$1" name="$2" metadata id label format
+  if [[ "$kind" == container ]]; then
+    format='{{.Id}} {{index .Config.Labels "com.servora.local-ci.run"}}'
+  else
+    format='{{.Id}} {{index .Labels "com.servora.local-ci.run"}}'
+  fi
+  if ! metadata="$(ci_docker "$kind" inspect --format "$format" "$name")"; then
+    ci_resource_log "LOCAL_CI_OWNERSHIP_UNKNOWN kind=$kind name=$name inspection_failed"
+    return 1
+  fi
+  read -r id label <<<"$metadata"
+  if [[ ! "$id" =~ ^[0-9a-f]{64}$ || "$label" != "${RUN_ID:?}" ]]; then
+    ci_resource_log "LOCAL_CI_OWNERSHIP_UNKNOWN kind=$kind name=$name label_mismatch"
+    return 1
+  fi
+  ci_resource_log "LOCAL_CI_RESOURCE_RECOVERED kind=$kind id=$id run=$RUN_ID"
+  printf '%s' "$id"
+}
+
+ci_create_run_resources() {
+  local code label="com.servora.local-ci.run=${RUN_ID:?}"
+  NET_CREATE_ATTEMPTED=true
+  if NET_ID="$(ci_docker network create --label "$label" "$NET")"; then
+    [[ "$NET_ID" =~ ^[0-9a-f]{64}$ ]] || { NET_ID=""; return 1; }
+  else
+    code=$?; NET_ID=""; return "$code"
+  fi
+  ci_resource_log "LOCAL_CI_RESOURCE_CREATED kind=network id=$NET_ID run=$RUN_ID"
+  PG_CREATE_ATTEMPTED=true
+  if PG_ID="$(ci_docker create --name "$PG" --label "$label" --network "$NET_ID" --network-alias servora-localci-pg \
+    -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=servora_med_test postgres:17-alpine)"; then
+    [[ "$PG_ID" =~ ^[0-9a-f]{64}$ ]] || { PG_ID=""; return 1; }
+  else
+    code=$?; PG_ID=""; return "$code"
+  fi
+  # A successful create reply proves ownership of this immutable ID even if
+  # later inspection is unavailable. Record before start, which can fail.
+  ci_resource_log "LOCAL_CI_RESOURCE_CREATED kind=container id=$PG_ID run=$RUN_ID"
+  ci_docker start "$PG_ID" >/dev/null
+}
+
+ci_cleanup_command() {
+  local output code
+  if output="$(ci_docker "$@" 2>&1)"; then
+    ci_resource_log "LOCAL_CI_CLEANUP_OK operation=$*${output:+ output=$output}"
+  else
+    code=$?
+    ci_resource_log "LOCAL_CI_CLEANUP_FAILED operation=$* exit=$code${output:+ output=$output}"
+    return 1
+  fi
+}
+
+# EXIT-trap policy. Never masks the CI status. Cleanup failures and unresolved
+# ownership are retained separately in logs/aux/cleanup.log and cleanup.status.
 ci_cleanup_run_resources() {
-  local owner=""
+  local owner failed=false
   owner="$(cat -- "${LOCAL_CI_LOCK_DIR:-}/pid" 2>/dev/null || true)"
-  if [[ -z "${LOCAL_CI_LOCK_CLAIM:-}" || "$owner" != "${LOCAL_CI_LOCK_CLAIM:-}" ]]; then
-    echo "LOCAL_CI cleanup: ownership unknown; resources left in place" >&2
+  if [[ -z "${LOCAL_CI_LOCK_CLAIM:-}" || "$owner" != "$LOCAL_CI_LOCK_CLAIM" ]]; then
+    echo 'LOCAL_CI cleanup: ownership unknown; resources left in place' >&2
     return 0
   fi
-  if [[ "${KEEP:-false}" != "true" ]]; then
-    if [[ "${PG_CREATED:-false}" == "true" ]]; then
-      ci_docker rm -f "${PG:?}" >/dev/null 2>&1 || true
-      local vol
-      # shellcheck disable=SC2086 # PG_VOLUMES is intentionally space-separated.
-      for vol in ${PG_VOLUMES:-}; do
-        if ci_is_removable_volume "$vol"; then
-          ci_docker volume rm "$vol" >/dev/null 2>&1 || true
-        else
-          echo "LOCAL_CI cleanup: keeping non-anonymous volume $vol" >&2
-        fi
-      done
+  if [[ "${KEEP:-false}" != true ]]; then
+    if ci_assert_docker_daemon; then
+      if [[ -z "${PG_ID:-}" && "${PG_CREATE_ATTEMPTED:-false}" == true ]]; then
+        PG_ID="$(ci_recover_resource_id container "$PG")" || failed=true
+      fi
+      if [[ -n "${PG_ID:-}" ]]; then
+        # Docker distinguishes anonymous mounts from named/shared volumes.
+        # No volume-list inspection or label-based anonymity guesses.
+        ci_cleanup_command rm -fv "$PG_ID" || failed=true
+      fi
+      if [[ -z "${NET_ID:-}" && "${NET_CREATE_ATTEMPTED:-false}" == true ]]; then
+        NET_ID="$(ci_recover_resource_id network "$NET")" || failed=true
+      fi
+      if [[ -n "${NET_ID:-}" ]]; then
+        ci_cleanup_command network rm "$NET_ID" || failed=true
+      fi
+    else
+      failed=true
     fi
-    if [[ "${NET_CREATED:-false}" == "true" ]]; then
-      ci_docker network rm "${NET:?}" >/dev/null 2>&1 || true
+  else
+    ci_resource_log 'LOCAL_CI_CLEANUP_KEPT reason=keep-containers'
+  fi
+  if [[ "${EXPORT_CREATED:-false}" == true ]]; then
+    rm -rf -- "${EXPORT_DIR:?}" || { ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=remove-export'; failed=true; }
+  fi
+  if ! rm -- "$LOCAL_CI_LOCK_DIR/pid" || ! rmdir -- "$LOCAL_CI_LOCK_DIR"; then
+    ci_resource_log 'LOCAL_CI_CLEANUP_FAILED operation=release-lock'
+    failed=true
+  fi
+  if [[ -n "${CLEANUP_LOG:-}" ]]; then
+    if [[ "$failed" == true ]]; then
+      printf 'FAIL\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
+    else
+      printf 'PASS\n' >"${CLEANUP_LOG%.log}.status" || ci_resource_log 'LOCAL_CI_CLEANUP_STATUS_WRITE_FAILED'
     fi
   fi
-  if [[ "${EXPORT_CREATED:-false}" == "true" ]]; then
-    rm -rf -- "${EXPORT_DIR:?}"
-  fi
-  rm -- "$LOCAL_CI_LOCK_DIR/pid"
-  rmdir -- "$LOCAL_CI_LOCK_DIR"
+  return 0
 }

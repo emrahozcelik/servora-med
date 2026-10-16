@@ -109,192 +109,57 @@ Frontend:
 
 ---
 
-## 3. Servora-Med Domain Rules
+## 3. Domain Change Protocol
 
-These rules protect the product’s core workflow.
+Domain policy belongs to the accepted documents in §15. Read the latest
+applicable `DECISIONS.md` record, product requirement, and approved feature
+contract before changing a business rule. Backend services, DTOs, migrations,
+and tests show the implemented behavior; they do not authorize new policy.
 
-### 3.1 JobCard Is the Core Domain Object
-
-The central object of the system is `JobCard`.
-
-Canonical types live in code (`JOB_CARD_TYPES` in `server/src/modules/job-cards/types.ts`):
-
-* `PRODUCT_DELIVERY` — product or sample delivery with structured items
-* `GENERAL_TASK` — general tasks, sales follow-ups, reminders
-* `SALES_MEETING` — customer/clinic visits and doctor/contact meetings
-* `WEEKLY_REPORT` — weekly staff reports
-* `SALE` — visit-linked sale agreement (see `DECISIONS.md` SALE-001)
-
-Do not build separate disconnected workflows when a JobCard can model the operation cleanly.
-
-### 3.2 Kanban Uses a State Machine
-
-JobCard status must be an enum/state machine, not free text.
-
-Canonical statuses live in code (`JOB_CARD_STATUSES` in `server/src/modules/job-cards/types.ts`):
-
-* `NEW`
-* `ACCEPTED`
-* `IN_PROGRESS`
-* `WAITING_APPROVAL`
-* `REVISION_REQUESTED`
-* `COMPLETED`
-* `CANCELLED`
-* `INVALIDATED`
-
-`ACTIVE_JOB_CARD_STATUSES` (`NEW` through `REVISION_REQUESTED`) versus
-`TERMINAL_JOB_CARD_STATUSES` (`COMPLETED`, `CANCELLED`, `INVALIDATED`) decide
-whether a card can still move. The transition diagram lives in
-`PRODUCT_REQUIREMENTS.md` ("JobCard Types and Lifecycle"); the backend command
-table in `server/src/modules/job-cards/policy.ts` is authoritative.
-
-`ACCEPTED` is the persisted assignment status. `Planlandı` is a lifecycle presentation phase or historical activity label, not a persisted `PLANNED` status. Do not add a compatibility fallback for `PLANNED`.
-
-Status transitions must be explicit, validated in backend service logic, and tested.
-
-Frontend drag/drop or buttons may request a transition, but the backend decides whether the transition is valid.
-
-### 3.3 Manager Approval Is Mandatory
-
-A staff user may complete their part of a job, but the job is not completed until a manager approves it.
-
-Required model:
-
-* Staff sends job to approval.
-* Job moves to `WAITING_APPROVAL`.
-* Manager approves and moves it to `COMPLETED`.
-* Manager may request revision and move it to `REVISION_REQUESTED`.
-
-Staff users must not directly mark a JobCard as `COMPLETED`.
-
-### 3.4 Product Delivery Requires Structured Data
-
-For `PRODUCT_DELIVERY` JobCards, critical data must be structured.
-
-Required before approval request:
-
-* customer/clinic
-* assigned staff
-* at least one product delivery item
-* product
-* quantity greater than zero
-* delivery note or explanation when required by the workflow
-
-Optional but supported by model when needed:
-
-* doctor/contact
-* product model
-* lot number
-* serial number
-* expiry date
-* attachment/photo
-
-Do not hide these fields inside free-text notes if they need to be reported later.
-
-### 3.5 Activity Log Is Mandatory
-
-The system must not only store the final state.
-
-Every important action must create an activity/audit record:
-
-* job created
-* job assigned
-* status changed
-* product added
-* quantity changed
-* note added
-* approval requested
-* manager approved
-* revision requested
-* job cancelled
-* job completed
-
-Activity logs are required for reporting, dispute resolution, accountability, and future analytics.
-
-### 3.6 Staff Profile Is a First-Class Area
-
-Staff profile pages are part of the MVP.
-
-A staff profile should be able to show:
-
-* open jobs
-* waiting approval jobs
-* revision requested jobs
-* completed jobs
-* product delivery history
-* monthly summary
-* basic performance metrics
-
-Managers may view staff profiles according to permission rules. Staff users may only view their own profile unless explicitly authorized.
-
-### 3.7 Customers and Contacts Are Separate
-
-A customer may be a clinic, hospital, dealer, or company.
-
-A contact may be a doctor, secretary, purchasing officer, or other person related to the customer.
-
-Do not collapse customer and contact into one ambiguous table.
-
-### 3.8 Products Serve Medical/Dental Sales Needs
-
-Products must be modeled for medical/dental sales needs.
-
-Products may include:
-
-* SKU
-* name
-* brand
-* category
-* model
-* unit
-* default price
-* lot tracking flag
-* serial tracking flag
-* expiry tracking flag
-* active/inactive state
+* Keep JobCard operations inside their accepted ownership boundaries. Read
+  `PRODUCT_REQUIREMENTS.md` for workflows and the applicable `docs/features/`
+  contract for later slices; do not introduce a competing workflow or schema.
+* For lifecycle work, inspect `server/src/modules/job-cards/types.ts`,
+  `policy.ts`, and the named command service. Reference their vocabularies
+  instead of maintaining another type/status/transition list here or in UI.
+  Terminal status sets constrain normal lifecycle commands and active-slot
+  occupancy. They do **not** prohibit the separate, authorized ADMIN
+  invalidation command on a completed or cancelled historical card. See the
+  accepted [data lifecycle contract](docs/features/visit-to-sale/visit-to-sale-data-lifecycle.md)
+  and the existing `invalidate()` service; invalidation does not reopen work.
+* Preserve mandatory manager approval and backend role/scoping enforcement.
+  Submission readiness, structured delivery fields, contact/customer
+  relationships, staff profile visibility, and report attribution follow their
+  owning product/API/schema contracts. Do not substitute free-text notes for
+  fields the contract requires to be structured.
+* Critical mutations and their audit/activity records commit together. Preserve
+  historical snapshots and append-only history; do not infer report facts from
+  client state or reinterpret existing business events.
+* Product catalog semantics belong to `DECISIONS.md` DOM-004 and
+  `SERVORA_MED_API_DRAFT.md` §9. Compare the canonical Product DTO in
+  `server/src/modules/products/types.ts` before changing fields. Storage column
+  names do not authorize pricing, inventory, tracking-policy, or financial
+  features. Future module boundaries belong to MOD-001.
+* When implementation and accepted policy disagree, follow §15's drift process;
+  do not silently change either side to make them match.
 
 ---
 
-## 4. MVP Scope Rules
+## 4. Scope and Change Authorization
 
-### 4.1 In Scope for MVP
+`PRODUCT_REQUIREMENTS.md` owns product scope; the latest accepted decisions and
+approved feature plans record explicit extensions and their rollout boundaries.
+`SERVORA_MED_MVP_SLICES.md` owns delivery order and slice acceptance. Do not keep a
+second MVP feature inventory in this contract.
 
-* Auth and roles
-* Admin / Manager / Staff roles
-* Customer management
-* Contact management
-* Product catalog
-* Staff profiles
-* JobCard workflow
-* Product delivery flow
-* Manager approval flow
-* Job notes
-* Job activity timeline
-* Basic Kanban board
-* Basic reports
-* Responsive mobile web
-* VPS-ready deployment assumptions
-* Backup and restore plan
+Read the applicable plan before implementation. Distinguish accepted intent,
+implemented behavior, verified behavior, and deferred work in reports. An approved
+design or a stub is not proof that a feature has shipped.
 
-### 4.2 Out of Scope for MVP
-
-Do not add these unless the user explicitly asks:
-
-* native mobile app
-* full warehouse module
-* full accounting module
-* e-invoice / e-archive integration
-* full ERP integration
-* complex inventory costing
-* full quote/order/invoice chain
-* SMS/WhatsApp integrations
-* AI features
-* multi-tenant SaaS architecture
-* user-defined Notion-style custom tables
-* mandatory drag/drop Kanban
-* advanced BI dashboard
-
-Keep open architectural boundaries for warehouse and accounting, but do not implement empty placeholder modules just to look future-proof.
+Keep changes inside the requested vertical slice. New modules, integrations,
+frameworks, dependencies, or product behavior require concrete authorization;
+§13 and `DECISIONS.md` UI-002 / MOD-001 remain binding. Do not create empty future
+modules or generic infrastructure without a current producer/consumer need.
 
 ---
 
@@ -419,9 +284,11 @@ Local-first CI (when GitHub-hosted runners are unavailable):
 * The production release artifact must be Linux-compatible: `linux-compat`
   evidence requires zero native/platform-restricted production dependencies.
   Do not package a platform-specific `node_modules` into a release.
-* Local CI resource safety: `ops/local-ci/run.sh` removes only resources the
-  run created and recorded (its PG container, network, and anonymous data
-  volumes). Never run broad cleanups (`docker system/volume prune`, `colima
+* Local CI resource safety: `ops/local-ci/run.sh` pins the verified Colima
+  daemon and removes only resources with proven run ownership. Docker removes
+  the owned PG container and its anonymous volumes together; named/shared
+  volumes remain protected. Cleanup diagnostics are preserved separately from
+  the original CI result. Never run broad cleanups (`docker system/volume prune`, `colima
   delete`, `limactl delete`) as part of CI work. Never use `git stash` to
   juggle worktree state; use explicit patch files or commits instead.
   See [docs/operations/local-ci-resource-recovery.md](./docs/operations/local-ci-resource-recovery.md).
@@ -535,23 +402,41 @@ Do not do these unless the user explicitly asks:
 
 ## 15. Document Authority and Reading Map
 
-AGENTS.md is the operating contract. It does not duplicate domain, product,
-or operations rules; it points to the document that owns each rule. When two
-documents disagree, code decides behavior and `DECISIONS.md` decides intent;
-update the stale document instead of working around it.
+AGENTS.md owns engineering discipline and reading responsibilities. The documents
+below own product, domain, design, and operations policy. Do not copy their field
+lists, state machines, or MVP inventories into this contract.
+
+Code and tests describe observed implementation. The latest explicitly accepted
+`DECISIONS.md` records and applicable product/approved feature policy describe
+intended behavior; drafts and historical plans do not grant implementation
+permission. Supersession must be explicit, not inferred from document order.
+
+On disagreement, report concrete drift with file/section references, observed
+behavior, and the conflicting accepted rule. Stop the affected unauthorized
+business-rule or policy rewrite; continue independent work already authorized.
+Do not automatically rewrite policy to match code or change code to match an
+unapproved interpretation. Reconcile through an authorized decision and then
+update the owning document and verification.
+
+For **every UI, UX, interaction, responsive, or accessibility task**, read
+`DECISIONS.md` UI-001, `DESIGN.md`, and `PRODUCT.md` together with the applicable
+workflow/acceptance criteria before implementation or review. UI-001 owns design
+skill precedence and accessibility completion requirements.
 
 | Document | Owns | Read when |
 | -------- | ---- | --------- |
 | `DECISIONS.md` | Accepted architectural and domain decisions (UI/DOM/ARC/SEC/SALE/MOD) | Before changing behavior, scope, or boundaries |
-| `DESIGN.md` | Visual system, components, do's and don'ts | Before touching UI styling or layout |
-| `PRODUCT.md` | Product purpose, users, personality, anti-references | Before product-facing wording or positioning |
+| `DESIGN.md` | Visual system, components, interaction and responsive rules | Before any UI/UX/accessibility implementation or review (with PRODUCT.md and UI-001) |
+| `PRODUCT.md` | Users, product context, UX and accessibility expectations | Before any UI/UX/accessibility implementation or review, and product wording |
 | `PRODUCT_REQUIREMENTS.md` | Workflows, JobCard lifecycle diagram, MVP scope | Before workflow, lifecycle, or scope questions |
 | `SERVORA_MED_ARCHITECTURE_PLAN.md` | Module contracts, topology, ownership boundaries | Before cross-module or infrastructure changes |
 | `SERVORA_MED_SCHEMA_DRAFT.md` | Table design, vocabularies, invariants, migration groups | Before schema, migration, or invariant work |
 | `SERVORA_MED_API_DRAFT.md` | HTTP, idempotency, and concurrency contracts | Before endpoint or client-contract work |
-| `docs/features/` | Feature plans and integration notes | Before working inside a feature area |
+| `docs/features/` | Approved feature contracts, rollout boundaries and integration plans | Before working inside a feature area; distinguish accepted from draft/historical text |
+| `SERVORA_MED_MVP_SLICES.md` | Delivery order and slice acceptance | Before planning or claiming a slice complete |
 | `docs/operations/` | Test env, deployment, backup, CI recovery runbooks | Before test/CI/ops execution or incident recovery |
 | `ops/local-ci/` | Reproducible CI entrypoint, gates, evidence format | Before running or changing local CI |
 
 Task-based reading order: AGENTS.md (contract) → the owning document above →
-the code it cites. Never invent rules that contradict the owning document.
+the code/tests it cites → compare intent with implementation. Report drift; never
+invent policy or treat an implementation defect as an accepted decision.
