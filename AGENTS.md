@@ -30,7 +30,7 @@ Core product goals:
 * Basic reports
 * Backup and restore safety
 
-This project is not a restaurant POS system. Do not carry restaurant domain concepts into Servora-Med.
+Do not import domain concepts from unrelated legacy systems. Model medical/dental B2B sales only.
 
 ---
 
@@ -117,16 +117,13 @@ These rules protect the product’s core workflow.
 
 The central object of the system is `JobCard`.
 
-A JobCard may represent:
+Canonical types live in code (`JOB_CARD_TYPES` in `server/src/modules/job-cards/types.ts`):
 
-* product delivery
-* sample delivery
-* customer/clinic visit
-* doctor/contact meeting
-* general task
-* sales follow-up
-* quote follow-up
-* collection reminder, future scope
+* `PRODUCT_DELIVERY` — product or sample delivery with structured items
+* `GENERAL_TASK` — general tasks, sales follow-ups, reminders
+* `SALES_MEETING` — customer/clinic visits and doctor/contact meetings
+* `WEEKLY_REPORT` — weekly staff reports
+* `SALE` — visit-linked sale agreement (see `DECISIONS.md` SALE-001)
 
 Do not build separate disconnected workflows when a JobCard can model the operation cleanly.
 
@@ -134,7 +131,7 @@ Do not build separate disconnected workflows when a JobCard can model the operat
 
 JobCard status must be an enum/state machine, not free text.
 
-Initial statuses:
+Canonical statuses live in code (`JOB_CARD_STATUSES` in `server/src/modules/job-cards/types.ts`):
 
 * `NEW`
 * `ACCEPTED`
@@ -143,6 +140,13 @@ Initial statuses:
 * `REVISION_REQUESTED`
 * `COMPLETED`
 * `CANCELLED`
+* `INVALIDATED`
+
+`ACTIVE_JOB_CARD_STATUSES` (`NEW` through `REVISION_REQUESTED`) versus
+`TERMINAL_JOB_CARD_STATUSES` (`COMPLETED`, `CANCELLED`, `INVALIDATED`) decide
+whether a card can still move. The transition diagram lives in
+`PRODUCT_REQUIREMENTS.md` ("JobCard Types and Lifecycle"); the backend command
+table in `server/src/modules/job-cards/policy.ts` is authoritative.
 
 `ACCEPTED` is the persisted assignment status. `Planlandı` is a lifecycle presentation phase or historical activity label, not a persisted `PLANNED` status. Do not add a compatibility fallback for `PLANNED`.
 
@@ -231,11 +235,9 @@ A contact may be a doctor, secretary, purchasing officer, or other person relate
 
 Do not collapse customer and contact into one ambiguous table.
 
-### 3.8 Products Are Not Restaurant Menu Items
+### 3.8 Products Serve Medical/Dental Sales Needs
 
 Products must be modeled for medical/dental sales needs.
-
-Do not rename restaurant `menu_items` into products.
 
 Products may include:
 
@@ -417,13 +419,23 @@ Local-first CI (when GitHub-hosted runners are unavailable):
 * The production release artifact must be Linux-compatible: `linux-compat`
   evidence requires zero native/platform-restricted production dependencies.
   Do not package a platform-specific `node_modules` into a release.
+* Local CI resource safety: `ops/local-ci/run.sh` removes only resources the
+  run created and recorded (its PG container, network, and anonymous data
+  volumes). Never run broad cleanups (`docker system/volume prune`, `colima
+  delete`, `limactl delete`) as part of CI work. Never use `git stash` to
+  juggle worktree state; use explicit patch files or commits instead.
+  See [docs/operations/local-ci-resource-recovery.md](./docs/operations/local-ci-resource-recovery.md).
 
-Use additional commands when relevant:
+Use additional commands only when they exist in the touched package:
 
 ```bash
-cd server && npm run lint
-cd web && npm run lint
+node --test ops/tests/ci-resource-cleanup.test.mjs
 ```
+
+There is no `npm run lint` script in `server/` or `web/` and no eslint
+configuration in the repository. Do not present `npm run lint` as an
+available or required command. Static analysis runs through `npm run build`
+(`tsc`) and the CI `server-shellcheck` gate over `ops/` and local-CI tooling.
 
 Testing priorities:
 
@@ -465,7 +477,7 @@ If tests do not exist yet, create the smallest useful test harness for the touch
 * Do not let docs claim a feature exists if the implementation is still a stub.
 * Document verification commands and results.
 * Keep examples realistic for medical/dental B2B sales and product delivery usage.
-* Do not use restaurant POS examples in Servora-Med docs unless explicitly comparing legacy source material.
+* Do not use unrelated-domain examples in Servora-Med docs.
 
 ---
 
@@ -501,7 +513,7 @@ Do not do these unless the user explicitly asks:
 * Replace the React/Vite frontend.
 * Rewrite the whole app without a plan.
 * Reformat the whole repository.
-* Carry restaurant POS domain concepts into Servora-Med.
+* Carry unrelated legacy domain concepts into Servora-Med.
 * Add native mobile app.
 * Add full warehouse module.
 * Add full accounting module.
@@ -518,3 +530,28 @@ Do not do these unless the user explicitly asks:
 * Code, identifiers, commit messages, task names, and acceptance criteria should be in English.
 * User-facing product text may be Turkish.
 * Assistant progress reports and final explanations to the user must be in Turkish.
+
+---
+
+## 15. Document Authority and Reading Map
+
+AGENTS.md is the operating contract. It does not duplicate domain, product,
+or operations rules; it points to the document that owns each rule. When two
+documents disagree, code decides behavior and `DECISIONS.md` decides intent;
+update the stale document instead of working around it.
+
+| Document | Owns | Read when |
+| -------- | ---- | --------- |
+| `DECISIONS.md` | Accepted architectural and domain decisions (UI/DOM/ARC/SEC/SALE/MOD) | Before changing behavior, scope, or boundaries |
+| `DESIGN.md` | Visual system, components, do's and don'ts | Before touching UI styling or layout |
+| `PRODUCT.md` | Product purpose, users, personality, anti-references | Before product-facing wording or positioning |
+| `PRODUCT_REQUIREMENTS.md` | Workflows, JobCard lifecycle diagram, MVP scope | Before workflow, lifecycle, or scope questions |
+| `SERVORA_MED_ARCHITECTURE_PLAN.md` | Module contracts, topology, ownership boundaries | Before cross-module or infrastructure changes |
+| `SERVORA_MED_SCHEMA_DRAFT.md` | Table design, vocabularies, invariants, migration groups | Before schema, migration, or invariant work |
+| `SERVORA_MED_API_DRAFT.md` | HTTP, idempotency, and concurrency contracts | Before endpoint or client-contract work |
+| `docs/features/` | Feature plans and integration notes | Before working inside a feature area |
+| `docs/operations/` | Test env, deployment, backup, CI recovery runbooks | Before test/CI/ops execution or incident recovery |
+| `ops/local-ci/` | Reproducible CI entrypoint, gates, evidence format | Before running or changing local CI |
+
+Task-based reading order: AGENTS.md (contract) → the owning document above →
+the code it cites. Never invent rules that contradict the owning document.
