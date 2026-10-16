@@ -46,6 +46,15 @@ function runnerFixture() {
   binary('npm', 'if [[ "$1" == --version ]]; then [[ ! -e "$FIXTURE_DIR/early-fail" ]] || exit 23; echo 10.0.0; fi');
   binary('docker', `
 printf '%s\\n' "$*" >>"$FIXTURE_DIR/docker-calls"
+# Mirror the pinned-context and create/start CLI boundary, not Docker itself.
+if [[ "$1" == --host ]]; then shift 2; fi
+case "$1 $2" in
+  'context show') echo colima-true; exit 0 ;;
+  'context inspect') echo unix:///fixture/docker.sock; exit 0 ;;
+  'info --format') echo fixture-daemon; exit 0 ;;
+  'network create') echo ${'a'.repeat(64)}; exit 0 ;;
+esac
+if [[ "$1" == create ]]; then echo ${'b'.repeat(64)}; exit 0; fi
 if [[ "$*" == *'psql --version'* ]]; then echo 'psql (PostgreSQL) 17'; exit 0; fi
 logs=''
 for arg in "$@"; do case "$arg" in *:/logs) logs="\${arg%:/logs}" ;; esac; done
@@ -70,7 +79,7 @@ exit 0`);
   const sha = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const evidence = join(dir, 'evidence');
   const invoke = (script = join(ci, 'run.sh')) => spawnSync('bash', [script, '--repo', repo, '--sha', sha, '--evidence-root', evidence], {
-    encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, TMPDIR: dir, FIXTURE_DIR: dir },
+    encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`, TMPDIR: dir, FIXTURE_DIR: dir, DOCKER_CONTEXT: 'colima-true', DOCKER_HOST: undefined, LOCAL_CI_DOCKER_ENDPOINT: undefined, LOCAL_CI_DOCKER_DAEMON_ID: undefined },
   });
   return { dir, repo, sha, evidence, invoke, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }

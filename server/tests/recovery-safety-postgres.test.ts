@@ -286,6 +286,8 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
       expect(await snapshot(pool)).toEqual(before);
     });
   });
+  // A real dump, new database, restore and two catalog checks need the same
+  // emulated-CI allowance as the same-schema restore above; assertions stay intact.
   it('R1/R3 new-target restore validates full history while the live database stays unchanged', async () => {
     const file = dump(seed55, 'new-target');
     const name = `servora_med_test_restore_${randomUUID().replaceAll('-', '')}`;
@@ -300,7 +302,7 @@ describe.skipIf(!url)('recovery safety — actual PostgreSQL and public recovery
         expect(await snapshot(live)).toEqual(before);
       } finally { await dropRestoreTargetIfCreated(url!, name); }
     });
-  });
+  }, 30_000);
   it('R3 accepts exact 055 and 056 catalogs instead of trusting a matching manifest head alone', async () => {
     for (const [seed, expectedCatalog] of [[seed55, oldCatalog], [seed56, catalog]] as const) {
       await withPool(seed, async (pool) => { await pool.query("UPDATE schema_migrations SET applied_at='2020-01-01'::timestamptz"); });
