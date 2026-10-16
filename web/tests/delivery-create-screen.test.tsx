@@ -81,7 +81,7 @@ function changeInput(input: HTMLInputElement | HTMLTextAreaElement, value: strin
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 async function selectProduct(container: HTMLElement, productId = 'product-1', query = 'implant') {
-  const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
+  const search = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
   await act(async () => changeInput(search, query));
   await act(async () => (Array.from(container.querySelectorAll('button'))
     .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement).click());
@@ -324,7 +324,7 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => submit.click());
     expect((container.querySelector('#delivery-quantity-product-1') as HTMLInputElement).disabled).toBe(true);
     expect((container.querySelector('[data-selected-product-id="product-1"] button') as HTMLButtonElement).disabled).toBe(true);
-    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).disabled).toBe(true);
+    expect((container.querySelector('.product-select input[type="search"]') as HTMLInputElement).disabled).toBe(true);
     await act(async () => submit.click());
     expect(api.createProductDelivery).toHaveBeenCalledTimes(1);
     await act(async () => resolve({ jobCardId: 'job-pending', version: 2 }));

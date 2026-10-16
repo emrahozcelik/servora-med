@@ -21,6 +21,9 @@ export function canAccessRoute(
   params: RouteParams = {},
 ): boolean {
   switch (id) {
+    // The page reauthorizes its source through Sale create-context; role alone grants no write.
+    case 'saleCreate':
+      return true;
     case 'overview':
       return user.capabilities?.overviewDashboard === true;
     case 'calendar':

@@ -72,7 +72,7 @@ function changeInput(input: HTMLInputElement, value: string) {
 }
 
 async function selectProduct(host: HTMLElement) {
-  const search = host.querySelector('#delivery-product-search') as HTMLInputElement;
+  const search = host.querySelector('.product-select input[type="search"]') as HTMLInputElement;
   await act(async () => changeInput(search, 'implant'));
   await act(async () => (Array.from(host.querySelectorAll('button'))
     .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement).click());

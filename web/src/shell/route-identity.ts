@@ -11,7 +11,7 @@ import { paths } from '../paths';
  */
 export type RouteId =
   | 'overview' | 'calendar' | 'messages' | 'jobs'
-  | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
+  | 'saleCreate' | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
   | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail'
   | 'products' | 'productCreate' | 'productDetail'
   | 'reports' | 'reportStaff' | 'reportCustomers' | 'reportDeliveries' | 'reportApprovals' | 'reportSalesFollowUp'
@@ -54,6 +54,8 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
   jobCreateMeeting: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   jobCreateWeeklyReport: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
   followUpCreate: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+  saleCreate: { title: 'Satış kaydı oluştur', parentId: 'jobDetail', section: 'Operasyon',
+    parentLocation: (params) => params.jobCardId ? paths.job(params.jobCardId) : null },
   jobDetail: { title: 'İş detayı', parentId: 'jobs', section: 'Operasyon' },
   customers: { title: 'Müşteriler', parentId: null, section: 'Operasyon' },
   customerCreate: { title: 'Yeni müşteri', parentId: 'customers', section: 'Operasyon' },
@@ -153,6 +155,7 @@ const PATTERNS: RoutePattern[] = [
   { id: 'jobCreateMeeting', test: matchExact(paths.newMeeting) },
   { id: 'jobCreateWeeklyReport', test: matchExact(paths.newWeeklyReport) },
   { id: 'followUpCreate', test: matchExact('/jobs/new-follow-up') },
+  { id: 'saleCreate', test: matchParam(/^\/jobs\/([^/]+)\/new-sale\/?$/, ['jobCardId']) },
   { id: 'jobDetail', test: matchParam(/^\/jobs\/([^/]+)\/?$/, ['jobCardId']) },
   { id: 'jobs', test: matchExact(paths.jobs) },
   { id: 'customerCreate', test: matchExact(paths.newCustomer) },
@@ -199,6 +202,7 @@ export function routePathForIdentity(id: RouteId, params: RouteParams): string |
     case 'jobCreateTask': return paths.newTask;
     case 'jobCreateMeeting': return paths.newMeeting;
     case 'followUpCreate': return params.sourceJobCardId ? paths.followUpCreate(params.sourceJobCardId) : null;
+    case 'saleCreate': return params.jobCardId ? paths.newSale(params.jobCardId) : null;
     case 'jobDetail': return params.jobCardId ? paths.job(params.jobCardId) : null;
     case 'customers': return paths.customers;
     case 'customerCreate': return paths.newCustomer;

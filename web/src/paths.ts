@@ -15,6 +15,7 @@ export const paths = {
   settingsDataManagement: '/settings/data-management',
   settingsDemoData: '/settings/data-management/demo-data',
   settingsBackupRecovery: '/settings/data-management/backup-recovery',
+  newSale: (visitId: string) => `/jobs/${encoded(visitId)}/new-sale`,
   newDelivery: '/jobs/new-delivery',
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',

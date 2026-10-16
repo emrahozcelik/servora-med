@@ -40,11 +40,11 @@ export function SaleDetailsSection({ details, originPending = false }: { details
     </ul>}
   </section>;
 }
-export function RelatedSalesSection({ visitId }: { visitId: string }) {
+export function RelatedSalesSection({ visitId, disabled = false }: { visitId: string; disabled?: boolean }) {
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [state, setState] = useState<{ kind: 'loading' } | { kind: 'error' } | {
-    kind: 'ready'; page: Awaited<ReturnType<typeof listRelatedSales>>; restrictedActive: boolean;
+    kind: 'ready'; page: Awaited<ReturnType<typeof listRelatedSales>>; restrictedActive: boolean; canCreate: boolean;
   }>({ kind: 'loading' });
   const requestRef = useRef(0);
   useRealtimeInvalidation(['job-detail:' + visitId], () => setRefresh((value) => value + 1));
@@ -62,7 +62,7 @@ export function RelatedSalesSection({ visitId }: { visitId: string }) {
         setOffset(Math.max(0, Math.floor((page.total - 1) / step) * step));
         return;
       }
-      if (current) setState({ kind: 'ready', page, restrictedActive: context.activeSale?.access === 'RESTRICTED' });
+      if (current) setState({ kind: 'ready', page, restrictedActive: context.activeSale?.access === 'RESTRICTED', canCreate: context.eligible && context.activeSale === null });
     }).catch(() => { if (current && requestRef.current === requestId) setState({ kind: 'error' }); });
     return () => { current = false; };
   }, [visitId, offset, refresh]);
@@ -73,6 +73,7 @@ export function RelatedSalesSection({ visitId }: { visitId: string }) {
     {state.kind === 'error' && <><p role="alert">Satış kayıtları yüklenemedi.</p>
       <button type="button" className="secondary-button" onClick={() => setRefresh((value) => value + 1)}>Tekrar dene</button></>}
     {state.kind === 'ready' && <>
+      {state.canCreate && !disabled && <a className="secondary-button" href={paths.newSale(visitId)}>Satış kaydı oluştur</a>}
       {state.restrictedActive && <p>Bu ziyaret için erişemediğiniz bir aktif satış kaydı var.</p>}
       {state.page.items.length === 0 ? <p>Erişilebilir satış kaydı bulunmuyor.</p> : <ul>
         {state.page.items.map((sale) => <li key={sale.id}><a href={paths.job(sale.id)}>{sale.title}</a> · {jobCardStatusLabel(sale.status)}</li>)}

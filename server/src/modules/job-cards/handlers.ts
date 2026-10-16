@@ -219,6 +219,26 @@ export function createJobCardHandlers(service: JobCardService) {
       requireSaleCapability(request);
       return service.getSaleDetails(actor(request), request.params.id);
     },
+    createSale: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) => {
+      requireSaleCapability(request);
+      return reply.code(201).send(await service.createSaleFromVisit(actor(request), request.params.id, request.body));
+    },
+    patchSaleDetails: async (request: FastifyRequest<{ Params: Params }>) => {
+      requireSaleCapability(request);
+      return service.patchSaleDetails(actor(request), request.params.id, request.body);
+    },
+    addSaleItem: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) => {
+      requireSaleCapability(request);
+      return reply.code(201).send(await service.addSaleItem(actor(request), request.params.id, request.body));
+    },
+    patchSaleItem: async (request: FastifyRequest<{ Params: Params & { itemId: string } }>) => {
+      requireSaleCapability(request);
+      return service.patchSaleItem(actor(request), request.params.id, request.params.itemId, request.body);
+    },
+    removeSaleItem: async (request: FastifyRequest<{ Params: Params & { itemId: string } }>) => {
+      requireSaleCapability(request);
+      return service.removeSaleItem(actor(request), request.params.id, request.params.itemId, request.body);
+    },
     saleCreateContext: async (request: FastifyRequest<{ Params: Params }>) => {
       requireSaleCapability(request);
       return service.getSaleCreateContext(actor(request), request.params.id);

@@ -35,7 +35,12 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.get<{ Params: { id: string } }>('/:id', secured, h.detail);
   app.get<{ Params: { id: string } }>('/:id/sale-create-context', secured, h.saleCreateContext);
   app.get<{ Params: { id: string } }>('/:id/sales', secured, h.relatedSales);
+  app.post<{ Params: { id: string } }>('/:id/sales', secured, h.createSale);
   app.get<{ Params: { id: string } }>('/:id/sale-details', secured, h.saleDetails);
+  app.patch<{ Params: { id: string } }>('/:id/sale-details', secured, h.patchSaleDetails);
+  app.post<{ Params: { id: string } }>('/:id/sale-items', secured, h.addSaleItem);
+  app.patch<{ Params: { id: string; itemId: string } }>('/:id/sale-items/:itemId', secured, h.patchSaleItem);
+  app.delete<{ Params: { id: string; itemId: string } }>('/:id/sale-items/:itemId', secured, h.removeSaleItem);
   app.get<{ Params: { id: string } }>('/:id/follow-ups', secured, h.listFollowUps);
   app.post<{ Params: { id: string } }>('/:id/follow-ups', secured, h.createFollowUp);
   app.get<{ Params: { id: string } }>('/:id/follow-up-suggestion', secured, h.followUpSuggestion);

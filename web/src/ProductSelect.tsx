@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { listProducts, type Paginated, type Product, type ProductFilters } from './services/products-api';
 import { createRequestGate } from './services/request-gate';
@@ -16,11 +16,13 @@ type ProductSelectBaseProps = {
   disabled?: boolean;
 };
 
+export type ProductSelectionIdentity = Pick<Product, 'id' | 'name' | 'sku' | 'brand' | 'model' | 'unit'>;
+
 type MultiProductSelectProps = ProductSelectBaseProps & {
-  selectedProducts: Product[];
+  selectedProducts: ProductSelectionIdentity[];
   onAdd: (product: Product) => void;
   onRemove: (productId: string) => void;
-  renderQuantity?: (product: Product) => ReactNode;
+  renderQuantity?: (product: ProductSelectionIdentity) => ReactNode;
   selected?: never;
   onChange?: never;
 };
@@ -36,7 +38,7 @@ type SingleProductSelectProps = ProductSelectBaseProps & {
 
 export type ProductSelectProps = MultiProductSelectProps | SingleProductSelectProps;
 
-function productMetadata(product: Product) {
+function productMetadata(product: ProductSelectionIdentity) {
   return [
     product.sku ? `SKU ${product.sku}` : null,
     product.brand ? `Marka ${product.brand}` : null,
@@ -50,8 +52,12 @@ export function ProductSelect(props: ProductSelectProps) {
     load = listProducts,
     disabled = false,
   } = props;
+  const instanceId = useId();
+  const labelId = instanceId + '-product-label';
+  const searchId = instanceId + '-product-search';
+  const headingId = instanceId + '-selected-products';
   const isMulti = 'selectedProducts' in props;
-  const selectedProducts: Product[] = isMulti
+  const selectedProducts: ProductSelectionIdentity[] = isMulti
     ? (props as MultiProductSelectProps).selectedProducts
     : props.selected ? [props.selected] : [];
   const addProduct = isMulti
@@ -120,12 +126,12 @@ export function ProductSelect(props: ProductSelectProps) {
     searchInputRef.current?.focus();
   }
 
-  return <section className="product-select" aria-labelledby="delivery-product-label">
+  return <section className="product-select" aria-labelledby={labelId}>
     {!isMulti && <input type="hidden" name="productId" value={selectedProducts[0]?.id ?? ''} />}
     <div className="product-select-search" role="search">
-      <label id="delivery-product-label" htmlFor="delivery-product-search">Ürünler</label>
+      <label id={labelId} htmlFor={searchId}>Ürünler</label>
       <div className="product-select-search-controls">
-        <input ref={searchInputRef} id="delivery-product-search" type="search" value={draftQuery} disabled={disabled}
+        <input ref={searchInputRef} id={searchId} type="search" value={draftQuery} disabled={disabled}
           onChange={(event) => setDraftQuery(event.target.value)} onKeyDown={searchKeyDown}
           placeholder="Ad, SKU, marka veya model" />
         <button className="secondary-button" type="button" disabled={disabled} onClick={submitSearch}>Ürün ara</button>
@@ -157,8 +163,8 @@ export function ProductSelect(props: ProductSelectProps) {
           onClick={() => setOffset(state.page.offset + state.page.limit)}>Sonraki</button>
       </nav>}
     </div>
-    {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby="selected-products-heading">
-      <h2 id="selected-products-heading">Seçilen ürünler</h2>
+    {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby={headingId}>
+      <h2 id={headingId}>Seçilen ürünler</h2>
       <ul className="product-select-selected-list">
         {selectedProducts.map((product) => {
           const metadata = productMetadata(product);

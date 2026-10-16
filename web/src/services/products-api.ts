@@ -10,6 +10,7 @@ export type Product = {
   hasOperationHistory?: boolean;
 };
 export type ProductFilters = {
+  dataClass?: 'BUSINESS';
   q?: string; status?: 'active' | 'inactive' | 'all'; limit?: number; offset?: number;
 };
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
@@ -24,7 +25,7 @@ export type UpdateProductInput = MutableProductFields & { expectedVersion: numbe
 const MUTABLE_FIELDS = [
   'name', 'sku', 'brand', 'category', 'model', 'unit', 'referencePrice',
 ] as const;
-const FILTER_FIELDS = ['q', 'status', 'limit', 'offset'] as const;
+const FILTER_FIELDS = ['q', 'status', 'limit', 'offset', 'dataClass'] as const;
 
 function projectMutableFields(input: MutableProductFields): MutableProductFields {
   const source = input as Record<string, unknown>;

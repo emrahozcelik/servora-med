@@ -6,7 +6,7 @@ import type { ProductActor } from './types.js';
 
 const CREATE_FIELDS = ['name', 'sku', 'brand', 'category', 'model', 'unit', 'referencePrice'] as const;
 const PATCH_FIELDS = ['expectedVersion', ...CREATE_FIELDS] as const;
-const LIST_FIELDS = ['q', 'status', 'limit', 'offset'] as const;
+const LIST_FIELDS = ['q', 'status', 'limit', 'offset', 'dataClass'] as const;
 const OPTIONAL_TEXT_FIELDS = ['sku', 'brand', 'category', 'model', 'unit'] as const;
 
 function validation(message: string): never {
@@ -130,7 +130,9 @@ export function createProductHandlers(service: ProductService) {
       const value = query(request);
       const status = optionalQueryString(value.status, 'status') ?? 'active';
       if (!['active', 'inactive', 'all'].includes(status)) validation('status geçersizdir.');
+      if (value.dataClass !== undefined && value.dataClass !== 'BUSINESS') validation('dataClass geçersizdir.');
       return service.listProducts(actor(request), {
+        ...(value.dataClass === 'BUSINESS' ? { dataClass: 'BUSINESS' as const } : {}),
         q: optionalQueryString(value.q, 'q'),
         status: status as 'active' | 'inactive' | 'all',
         limit: integerQuery(value.limit, 'limit', 50, 1, 200),

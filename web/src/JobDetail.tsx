@@ -1,3 +1,4 @@
+import { SaleCorrectionSection } from './jobs/SaleCorrection';
 import { getSaleDetails, type SaleDetails } from './jobs/sale-api';
 import { RelatedSalesSection, SaleDetailsSection } from './jobs/SaleDetails';
 import {
@@ -993,6 +994,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     reason: string;
   } | null>(null);
   const withdrawEditAttempt = useRef<{ job: JobCard & { type: 'SALES_MEETING' }; clientActionId: string } | null>(null);
+  const [saleCorrectionLocked, setSaleCorrectionLocked] = useState(false);
+  const saleCorrectionLockedRef = useRef(false);
   const [uncertain, setUncertain] = useState(false);
   const startCapture = useRef<{
     clientActionId: string;
@@ -1065,6 +1068,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   }
 
   function startMutationOperation() {
+    if (saleCorrectionLockedRef.current) return null;
     const sessionToken = sessionLifetime.current.token;
     if (!sessionLifetime.current.active) return null;
     if (mutationOwner.current?.sessionToken === sessionToken) return null;
@@ -1098,6 +1102,8 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     lifecycleAttempt.current = null;
     withdrawEditAttempt.current = null;
     setUncertain(false);
+    saleCorrectionLockedRef.current = false;
+    setSaleCorrectionLocked(false);
     startCapture.current = null;
     submitCapture.current = null;
     dialogTriggerRef.current = null;
@@ -1900,7 +1906,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
-    if (state.kind !== 'ready') return;
+    if (state.kind !== 'ready' || saleCorrectionLockedRef.current) return;
     const presentation = presentationFor(state.detail);
     if (commandName === 'APPROVE') {
       const transition = findTransition(presentation, 'APPROVE');
@@ -2184,11 +2190,26 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
   const invalidationMutationLocked = invalidationMutation.kind === 'submitting'
     || invalidationMutation.kind === 'reconciling'
     || invalidationMutation.kind === 'retry-ready';
-  const invalidationLocked = pending || uncertain || invalidationMutationLocked;
+  const invalidationLocked = pending || uncertain || invalidationMutationLocked || saleCorrectionLocked;
 
   const recordContent = <>
     {detail.kind === 'SALE' && <SaleDetailsSection details={detail.saleDetails} originPending={saleOriginPending} />}
-    {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} />}
+    {detail.kind === 'SALE' && detail.job.customerId && (actions.includes('EDIT_JOB_FIELDS') || saleCorrectionLocked)
+      && <SaleCorrectionSection details={detail.saleDetails} customerId={detail.job.customerId}
+        disabled={pending || uncertain || invalidationMutationLocked || !actions.includes('EDIT_JOB_FIELDS')}
+        onLockChange={(locked) => { saleCorrectionLockedRef.current = locked; setSaleCorrectionLocked(locked); }}
+        onChanged={async () => {
+          try { if (!(await refreshTruth())) throw new Error('Güncel kayıt yüklenemedi.'); onChanged(); }
+          catch (caught) {
+            if (caught instanceof ApiError && caught.status === 404) setState({ kind: 'error', message: caught.message, retryable: false });
+            throw caught;
+          }
+        }} />}
+    {detail.kind === 'SALE' && isManagementUser(user) && <section aria-label="Gelecek modüller">
+      <h2>Ön Muhasebe — Gelecek sürümde</h2><p>Satış kaydı finansal işlem oluşturmaz. Muhasebe işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
+      <h2>Stok/Depo — Gelecek sürümde</h2><p>Satış kaydı stok hareketi veya teslimat oluşturmaz. Depo işlemleri gelecekte ayrı bir modülde yönetilecek.</p>
+    </section>}
+    {detail.kind === 'SALES_MEETING' && <RelatedSalesSection visitId={jobId} disabled={invalidationLocked} />}
     {editing && detail.kind === 'SALES_MEETING'
       ? <SalesMeetingEditForm job={detail.job} user={user}
         pending={invalidationLocked} onCancel={() => setEditing(false)} onSave={saveJob} />
@@ -2216,7 +2237,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     job={detail.job}
     items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []}
     user={user}
-    pending={pending}
+    pending={pending || saleCorrectionLocked}
     pendingLabel={startPendingPhase === 'capturing'
       ? 'Konum alınıyor…'
       : startPendingPhase === 'submitting'
@@ -2259,7 +2280,7 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onCreateFollowUp={onCreateFollowUp}
     existingChildrenCount={followUpChildrenCount}
-    mutationLocked={invalidationMutationLocked || uncertain}
+    mutationLocked={invalidationMutationLocked || uncertain || saleCorrectionLocked}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes

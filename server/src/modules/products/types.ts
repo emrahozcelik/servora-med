@@ -49,6 +49,7 @@ export function mapProduct(row: ProductRow): Product {
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 
 export type ProductFilters = {
+  dataClass?: 'BUSINESS';
   q: string | null;
   status: 'active' | 'inactive' | 'all';
   limit: number;
