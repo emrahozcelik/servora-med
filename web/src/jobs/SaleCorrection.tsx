@@ -23,6 +23,18 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   const [message, setMessage] = useState('');
   const attempt = useRef<SaleCorrection | null>(null);
   const sending = useRef(false);
+  const latest = useRef(details); latest.current = details;
+  // Last server values reflected in the untouched form fields. A field that
+  // still matches its base is not a user edit and may follow newer versions;
+  // a diverged field is an unsent user edit and must never be silently lost.
+  const base = useRef({ soldLocal: isoInstantToLocalDateTime(details.soldAt), contactId: details.saleContact?.id ?? null });
+  function synchronize(source: SaleDetails) {
+    const sourceSold = isoInstantToLocalDateTime(source.soldAt);
+    const sourceContactId = source.saleContact?.id ?? null;
+    if (soldLocal === base.current.soldLocal) setSoldLocal(sourceSold);
+    if ((contact?.id ?? null) === base.current.contactId) setContact(source.saleContact);
+    base.current = { soldLocal: sourceSold, contactId: sourceContactId };
+  }
   const lifetime = useRef({ active: true });
   const lockCallback = useRef(onLockChange); lockCallback.current = onLockChange;
   const messageRef = useRef<HTMLDivElement>(null);
@@ -32,7 +44,7 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
   useEffect(() => { if (message) messageRef.current?.focus(); }, [message]);
   useEffect(() => {
     if (attempt.current || sending.current) return;
-    setSoldLocal(isoInstantToLocalDateTime(details.soldAt)); setContact(details.saleContact);
+    synchronize(details);
     setQuantities({}); setAddition(null);
   // Parent version is authoritative; fresh DTO object identities are not edits.
   }, [details.jobCardVersion]);
@@ -48,7 +60,7 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
       if (!owner.active) return;
       await onChanged();
       if (!owner.active) return;
-      release(); setQuantities({}); setAddition(null); setMessage('Satış kaydı güncellendi.');
+      release(); synchronize(latest.current); setQuantities({}); setAddition(null); setMessage('Satış kaydı güncellendi.');
     } catch (caught) {
       if (!owner.active) return;
       if (isDefinitiveMutationError(caught)) {
@@ -114,7 +126,7 @@ export function SaleCorrectionSection({ details, customerId, disabled, onLockCha
     {needsRefresh && <button type="button" className="secondary-button" disabled={pending} onClick={async () => {
       if (sending.current) return;
       sending.current = true; setPending(true);
-      try { await onChanged(); if (lifetime.current.active) { release(); setQuantities({}); setAddition(null); } }
+      try { await onChanged(); if (lifetime.current.active) { release(); synchronize(latest.current); setQuantities({}); setAddition(null); } }
       catch { if (lifetime.current.active) setMessage('Güncel kayıt yüklenemedi. Tekrar deneyin.'); }
       finally { if (lifetime.current.active) { sending.current = false; setPending(false); } }
     }}>Güncel kaydı yükle ve düzeltmeye devam et</button>}
