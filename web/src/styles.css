@@ -4891,3 +4891,15 @@ html a:focus-visible {
 .sale-product-quantity { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .sale-details a, .related-sales a { overflow-wrap: anywhere; }
 .related-sales nav { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+/* Sale-only form controls; Delivery keeps its fractional selection contract. */
+.sale-quantity-field { margin: 0; }
+.sale-correction .product-select-quantity button {
+  width: 100%; min-width: 0; padding-inline: 0.25rem;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.sale-contact-search summary { min-height: var(--control-height); padding-block: 0.7rem; cursor: pointer; }
+.sale-contact-search input { margin-bottom: 0.5rem; }
+.sale-contact-search button { width: auto; }
+
+.sale-contact-select { height: var(--control-height); }

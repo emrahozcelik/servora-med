@@ -109,3 +109,9 @@ describe('route navigation model', () => {
     expect(resolveHierarchyParent(match, {}, 'ADMIN')?.label).toBe('Veri Yönetimi');
   });
 });
+
+it('links the source visit in a Sale creation breadcrumb', () => {
+  const match=matchRouteIdentity('/jobs/visit-1/new-sale');
+  const crumbs=buildBreadcrumb(match,'Satış kaydı oluştur',{},'STAFF');
+  expect(crumbs.find((c)=>c.id==='jobDetail')?.to).toBe('/jobs/visit-1');
+});

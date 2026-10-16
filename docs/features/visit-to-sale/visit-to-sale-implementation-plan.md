@@ -5,7 +5,10 @@
 Date: 2026-10-14 (Europe/Istanbul)
 Reviewed main: `daf5a59692803f9e5acbbef431d12cc32e1c02e3`
 Discovery status: `VISIT_SALE_AND_PRODUCT_UX_DESIGN_READY`
-Implementation status: NOT_STARTED for all PRs below.
+Implementation checkpoint (2026-10-16): PR1, PR2 and SALE-QTY-001 are merged.
+PR3 is implemented in the current branch; acceptance results are recorded in its
+exact-head evidence bundle. See [write-ui-integration.md](write-ui-integration.md).
+PR4 is not started. The original discovery observations below remain historical.
 
 Bu planın tamamlanan işi source discovery/design'dır. Uygulama, migration, GitHub write ve deploy bu görevde yapılmadı. [Design](visit-to-sale-design.md) ürün önerilerini; [data-lifecycle](visit-to-sale-data-lifecycle.md) transaction/SQL sözleşmesini; [UI plan](product-selection-ui-standardization-plan.md) ortak seçim sözleşmesini tanımlar.
 

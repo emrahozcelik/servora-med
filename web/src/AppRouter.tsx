@@ -12,6 +12,8 @@ import { ResultState } from './ui/antd/ResultState';
 
 export { paths } from './paths';
 
+const SaleCreateScreen = lazy(() => import('./SaleCreate').then((module) => ({ default: module.SaleCreateScreen })));
+
 const DeliveryCreateView = lazy(() =>
   import('./DeliveryCreate').then((module) => ({
     default: module.DeliveryCreateView,
@@ -240,6 +242,14 @@ function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
     onOpenMessaging={(conversationId) => navigate(`${paths.messages}?conversation=${encodeURIComponent(conversationId)}`)} />;
 }
 
+function SaleCreateRoute({ user }: Pick<AppRouterProps, 'user'>) {
+  const { jobCardId: visitId } = useParams();
+  const navigate = useNavigate();
+  if (!visitId || !canAccessRoute('saleCreate', user, { visitId })) return <ForbiddenView />;
+  return <SaleCreateScreen key={`${user.organizationId}:${user.id}:${visitId}`} visitId={visitId} user={user}
+    onCancel={() => navigate(paths.job(visitId))} onCreated={(id) => navigate(paths.job(id))} />;
+}
+
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { staffUserId } = useParams();
   const navigate = useNavigate();
@@ -387,6 +397,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           navigate={navigate} />} />
         <Route path="/jobs/new-follow-up" element={<FollowUpCreateRoute user={user}
           navigate={navigate} />} />
+        <Route path="/jobs/:jobCardId/new-sale" element={<SaleCreateRoute user={user} />} />
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={canAccessRoute('users', user) ? <UserListScreen /> : <ForbiddenView />} />
         <Route path={paths.newUser} element={canAccessRoute('userCreate', user) ? <UserCreateScreen /> : <ForbiddenView />} />

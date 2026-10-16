@@ -55,6 +55,21 @@ describe('ProductSelect', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps labels and selected headings unique across snapshot and catalog instances', async () => {
+    const snapshot = { id: 'historical', name: 'Historical bonding', sku: null, brand: 'Snapshot brand', model: null, unit: 'ml' };
+    await act(async () => root.render(<>
+      <ProductSelect selectedProducts={[snapshot]} onAdd={vi.fn()} onRemove={vi.fn()}
+        renderQuantity={(item) => <span>{item.id} 5 ürün</span>} />
+      <ProductSelect selected={productOne} onChange={vi.fn()} />
+    </>));
+    const ids = [...container.querySelectorAll('[id]')].map((node) => node.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const label of container.querySelectorAll('label')) {
+      expect(label.control?.closest('.product-select')).toBe(label.closest('.product-select'));
+    }
+    expect(container.textContent).toContain('Snapshot brand');
+  });
+
   async function renderPicker(
     load: (filters: ProductFilters) => Promise<Paginated<Product>>,
     selectedProducts: Product[] = [],
@@ -68,7 +83,7 @@ describe('ProductSelect', () => {
   }
 
   async function search(value: string) {
-    const field = container.querySelector('#delivery-product-search') as HTMLInputElement;
+    const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
     await act(async () => input(field, value));
     await act(async () => searchButton(container).click());
   }
@@ -113,7 +128,7 @@ describe('ProductSelect', () => {
     remove.focus();
     await act(async () => remove.click());
     expect(onRemove).toHaveBeenCalledExactlyOnceWith(productOne.id);
-    expect(document.activeElement).toBe(container.querySelector('#delivery-product-search'));
+    expect(document.activeElement).toBe(container.querySelector('.product-select input[type="search"]'));
   });
 
   it('preserves full long names, metadata and the actual product unit', async () => {
@@ -173,7 +188,7 @@ describe('ProductSelect', () => {
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
 
     expect(onAdd).toHaveBeenCalledWith(productOne);
-    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).value).toBe('');
+    expect((container.querySelector('.product-select input[type="search"]') as HTMLInputElement).value).toBe('');
     expect(container.querySelector('.product-select-list')).toBeNull();
 
     await act(async () => root.render(
@@ -270,7 +285,7 @@ describe('ProductSelect', () => {
     await act(async () => (container.querySelector('[data-product-id="product-2"]') as HTMLButtonElement).click());
     expect(onAdd).toHaveBeenCalledWith(productTwo);
     expect(container.querySelector('.product-select-list')).toBeNull();
-    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).value).toBe('');
+    expect((container.querySelector('.product-select input[type="search"]') as HTMLInputElement).value).toBe('');
   });
 
   it('keeps loading, error, retry, and no-results states operable', async () => {
@@ -289,7 +304,7 @@ describe('ProductSelect', () => {
   it('submits the same search through the native Enter key', async () => {
     const load = vi.fn().mockResolvedValue(page([productOne]));
     await renderPicker(load);
-    const field = container.querySelector('#delivery-product-search') as HTMLInputElement;
+    const field = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
     await act(async () => {
       input(field, 'implant');
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));

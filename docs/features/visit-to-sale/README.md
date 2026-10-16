@@ -1,3 +1,8 @@
+> PR3 checkpoint: dedicated Sale HTTP writes and create/correction UI are implemented
+> in this slice. See [write-ui-integration.md](write-ui-integration.md) for the current
+> exposure, integer selection, frozen retry and authorization contract. PR1 rollout
+> statements below remain historical. Production deployment is not authorized.
+
 # Visit-to-Sale — approved V1 contract and PR1 handoff
 
 Baseline: `daf5a59692803f9e5acbbef431d12cc32e1c02e3`.

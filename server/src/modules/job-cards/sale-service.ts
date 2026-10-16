@@ -12,7 +12,7 @@ import { assertSaleSourceEligible, assertSaleTimeValid } from './sale-policy.js'
 type SaleEffects = (tx: JobCardTransaction, job: JobCard, activity: AppendedActivity,
   event: JobCardActivityEvent, actorId: string) => Promise<RealtimeEventRecord[]>;
 
-/** Private domain service. Public Sale write routes are intentionally not registered in PR1. */
+/** Transactional Sale domain service; HTTP wiring delegates without changing receipt semantics. */
 export class JobCardSaleService {
   constructor(private readonly repository: JobCardRepository, private readonly now: () => Date,
     private readonly effects: SaleEffects, private readonly publish: (events: readonly RealtimeEventRecord[]) => void) {}

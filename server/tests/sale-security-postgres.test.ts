@@ -8,7 +8,7 @@ import Fastify from 'fastify';
 import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('Sale write boundaries', () => {
-  it('keeps public sale write routes closed and rejects generic HTTP SALE creation', async () => {
+  it('requires Sale capability on dedicated writes and rejects generic HTTP SALE creation', async () => {
     await withSaleFixture(async (f) => {
       const app = Fastify();
       try {

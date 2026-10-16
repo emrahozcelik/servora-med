@@ -1,4 +1,4 @@
-import { ApiError, boolean, nullableString, number, object, request, string } from '../services/api';
+import { ApiError, boolean, json, nullableString, number, object, request, string } from '../services/api';
 import { JOB_CARD_STATUSES, parseSaleQuantity, type JobCardStatus, type Paginated } from './jobs-api';
 
 export type SaleContact = { id: string; name: string; title: string | null };
@@ -99,4 +99,30 @@ export async function getSaleCreateContext(id: string) {
     customer: row.customer === null ? null : identity(row.customer), assignee: identity(row.assignee),
     plannedContact: contact(row.plannedContact), metContact: contact(row.metContact),
     activeSale: row.activeSale === null ? null : link(row.activeSale) };
+}
+
+export type SaleCreateContext = Awaited<ReturnType<typeof getSaleCreateContext>>;
+export type SaleReceipt = { jobCardId: string; version: number };
+export type SaleCreateInput = {
+  clientActionId: string; expectedSourceVersion: number; title: string;
+  description: string | null; soldAt: string; saleContactId: string | null;
+  items: Array<{ productId: string; quantity: number }>;
+};
+export type SaleCorrection =
+  | { kind: 'details'; input: { clientActionId: string; expectedVersion: number; soldAt?: string; saleContactId?: string | null } }
+  | { kind: 'add'; input: { clientActionId: string; expectedVersion: number; productId: string; quantity: number } }
+  | { kind: 'quantity'; itemId: string; input: { clientActionId: string; expectedVersion: number; quantity: number } }
+  | { kind: 'remove'; itemId: string; input: { clientActionId: string; expectedVersion: number } };
+function receipt(value: unknown): SaleReceipt {
+  const row = exact(value, ['jobCardId', 'version']);
+  return { jobCardId: string(row.jobCardId, 'jobCardId'), version: integer(row.version, 1) };
+}
+export async function createSaleFromVisit(id: string, input: SaleCreateInput) {
+  return receipt(await request(salePath(id) + '/sales?includeSaleCapability=true', json('POST', input)));
+}
+export async function correctSale(id: string, attempt: SaleCorrection) {
+  const suffix = attempt.kind === 'details' ? '/sale-details' : '/sale-items'
+    + (attempt.kind === 'quantity' || attempt.kind === 'remove' ? '/' + encodeURIComponent(attempt.itemId) : '');
+  return receipt(await request(salePath(id) + suffix + '?includeSaleCapability=true',
+    json(attempt.kind === 'add' ? 'POST' : attempt.kind === 'remove' ? 'DELETE' : 'PATCH', attempt.input)));
 }

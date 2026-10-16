@@ -11,8 +11,8 @@ import {
 } from '../src/shell/route-identity';
 
 describe('route identity registry', () => {
-  it('contains the actual 39 registered identities', () => {
-    expect(routeIdentityIds()).toHaveLength(39);
+  it('contains the actual 40 registered identities', () => {
+    expect(routeIdentityIds()).toHaveLength(40);
   });
 
   it('resolves every canonical static path to an identity', () => {
@@ -129,4 +129,12 @@ describe('route identity registry', () => {
       expect(matchRouteIdentity(pathname), pathname).toBeNull();
     }
   });
+});
+
+it('resolves Sale creation with its source visit as hierarchy parent and safe context return', () => {
+  const match = matchRouteIdentity('/jobs/visit-1/new-sale');
+  expect(match?.identity.id).toBe('saleCreate');
+  expect(match?.params).toEqual({ jobCardId: 'visit-1' });
+  expect(resolveParentPath(match!.identity, match!.params)).toBe(paths.job('visit-1'));
+  expect(routePathForIdentity('saleCreate', {jobCardId:'visit-1'})).toBe('/jobs/visit-1/new-sale');
 });

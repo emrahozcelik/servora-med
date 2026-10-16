@@ -126,6 +126,7 @@ export class PostgresProductRepository implements ProductRepository {
     const where = ['organization_id=$1'];
     const add = (value: unknown) => { values.push(value); return `$${values.length}`; };
 
+    if (filters.dataClass === 'BUSINESS') where.push(`data_class=${add('BUSINESS')}`);
     if (filters.status === 'active') where.push('is_active=TRUE');
     if (filters.status === 'inactive') where.push('is_active=FALSE');
     if (filters.q?.trim()) {

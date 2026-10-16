@@ -84,7 +84,7 @@ const contact = (customerId: string, id: string, name: string) => ({
 });
 async function settle() { await act(async () => { await Promise.resolve(); }); }
 async function selectProduct(container: HTMLElement) {
-  const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
+  const search = container.querySelector('.product-select input[type="search"]') as HTMLInputElement;
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'implant');
   await act(async () => {
     search.dispatchEvent(new Event('input', { bubbles: true }));

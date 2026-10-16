@@ -187,3 +187,10 @@ describe('RelatedSales pagination recovery', () => {
     expect(host.textContent).toContain('Erişilebilir satış kaydı bulunmuyor.');
   });
 });
+
+it('offers Sale creation only from the server eligibility projection', async () => {
+  vi.mocked(listRelatedSales).mockResolvedValue({items:[],total:0,limit:20,offset:0});
+  vi.mocked(getSaleCreateContext).mockResolvedValue({eligible:true, activeSale:null} as never);
+  await renderSection(new FakeRealtimeEventSource());
+  expect(host.querySelector('a[href="/jobs/visit-1/new-sale"]')?.textContent).toBe('Satış kaydı oluştur');
+});
