@@ -1361,7 +1361,9 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
           setRealtimeStale(false);
         } else setRealtimeStale(true);
       }
-      return true;
+      // A failed read cannot settle queued invalidations. Stop this drain;
+      // a new signal or explicit retry may reconcile it without a hot loop.
+      return false;
     }
   }
   async function requestRealtimeDrain(): Promise<boolean> {

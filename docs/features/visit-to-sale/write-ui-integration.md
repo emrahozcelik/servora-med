@@ -89,7 +89,10 @@ intent. A definitive correction rejection requires a canonical reload before
 editing resumes. A failed post-commit read still permits exact receipt replay.
 Mounted-session checks prevent delayed responses from updating a departed screen.
 The correction lock also blocks competing lifecycle/notes/record controls on the
-same detail surface. A 404 current-access refresh clears old details.
+same detail surface. A 404 current-access refresh clears old details. Failed
+realtime reads stop the current drain, including concurrent queued invalidations;
+a new signal or explicit retry can reconcile later. This prevents a 404/5xx hot
+retry loop while retaining the existing transient-error stale view.
 
 ## Boundaries and acceptance
 

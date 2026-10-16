@@ -451,6 +451,36 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('JobCard bulunamadı.');
   });
 
+  it.each([404, 503])('stops concurrent realtime drain retries after HTTP %s', async (status) => {
+    const card: JobCard = { ...job, type: 'SALE', title: 'Private agreement', scheduledAt: null,
+      scheduledEndsAt: null, status: 'ACCEPTED', workflowContext: staffContext('ACCEPTED') };
+    const base = mockDetailFetch(card);
+    const source = new FakeRealtimeEventSource();
+    let revoked = false, reads = 0;
+    let resolve!: (value: Response) => void;
+    const blocked = new Promise<Response>((done) => { resolve = done; });
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (revoked && detailUrlMatches(String(input), card.id)) {
+        reads += 1;
+        if (reads === 1) return blocked;
+        if (reads > 5) return new Promise<Response>(() => {});
+        return Response.json({code:'JOB_CARD_NOT_FOUND',error:'Read failed'}, {status});
+      }
+      if (String(input).includes('/sale-details')) return Response.json({
+        jobCardId:card.id,jobCardVersion:card.version,soldAt:'2026-07-17T08:00:00.000Z',saleContact:null,
+        sourceVisit:{access:'RESTRICTED',kind:'SALE_FROM_VISIT'},items:[],
+      });
+      return base(input);
+    });
+    await renderRealtimeScreen(card, source, fetch); revoked = true;
+    await act(async () => { source.emitJobUpdateFor('1',card.id); await Promise.resolve(); });
+    await act(async () => { source.emitJobUpdateFor('2',card.id); await Promise.resolve(); });
+    await act(async () => { resolve(Response.json({code:'JOB_CARD_NOT_FOUND',error:'Read failed'}, {status}));
+      await new Promise((done) => setTimeout(done,20)); });
+    expect(reads).toBe(1);
+    expect(host.textContent?.includes('Private agreement')).toBe(status !== 404);
+  });
+
   it('clears an open visit when current-access reconciliation returns 404 after reassignment', async () => {
     const meeting = inProgressMeeting();
     const base = mockDetailFetch(meeting, { meeting: meetingDetails });
