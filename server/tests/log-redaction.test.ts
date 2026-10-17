@@ -60,6 +60,15 @@ describe('buildApp serialized logger redaction', () => {
         },
       }, 'probe');
       const body = request.body as Record<string, unknown>;
+      // Exercise the production redaction paths without Fastify's req serializer,
+      // which normally omits the body before Pino can redact it.
+      request.log.child({}, { serializers: { req: (value: unknown) => value } }).info({
+        req: { headers: request.headers, body: {
+          locationCapture: body.locationCapture, followUpInstructions: body.followUpInstructions,
+        } },
+      }, 'raw-body-probe');
+      // A public duration may share the location accuracy's numeric text.
+      request.log.info({ responseTime: 24.54040699999996 }, 'public-timing-probe');
       request.log.info({
         webPush: {
           endpoint: body.endpoint,
@@ -126,6 +135,14 @@ describe('buildApp serialized logger redaction', () => {
     });
 
     const joined = lines.join('\n');
+    const records = lines.join('').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const rawProbe = records.find((record) => record.msg === 'raw-body-probe');
+    expect(rawProbe?.req.body.locationCapture).toBe('[Redacted]');
+    expect(rawProbe?.req.body.followUpInstructions).toBe('[Redacted]');
+    expect(rawProbe?.req.headers.authorization).toBe('[Redacted]');
+    expect(rawProbe?.req.headers.cookie).toBe('[Redacted]');
+    expect(records.find((record) => record.msg === 'public-timing-probe')?.responseTime)
+      .toBe(24.54040699999996);
     expect(joined).toMatch(/probe/);
     for (const secret of [
       'super-secret-password',
@@ -137,9 +154,6 @@ describe('buildApp serialized logger redaction', () => {
       'raw-token-value',
       'raw-session-token',
       'FOLLOW_UP_LOG_PRIVACY_MARKER_8f62a1',
-      '39.92077',
-      '32.85411',
-      '24.5',
       '2026-07-21T06:15:30.123Z',
       'raw-endpoint-capability',
       'raw-p256dh-key',
