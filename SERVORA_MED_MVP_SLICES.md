@@ -1,5 +1,11 @@
 # Servora-Med MVP Slices
 
+> **Authority scope:** delivery order and acceptance ledger. Completed MVP
+> checkpoints below are historical; later approved feature plans and explicit
+> [DECISIONS.md](DECISIONS.md) amendments must be read alongside them. A deferred
+> slice or old command block is not current implementation authorization, and
+> historical verification does not establish a new head's test result.
+
 > Date: 2026-07-17
 > Status: Living implementation order; repository scope verified through Slice 12 plus Job Lifecycle Clarity
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT

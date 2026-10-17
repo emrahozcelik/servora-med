@@ -1,5 +1,11 @@
 # Servora-Med Phase U Superpowers Package
 
+> **HISTORICAL — retained in place.** This is the Phase T/U delivery and
+> acceptance record, not a current roadmap or instruction to repeat its tasks.
+> Its recorded CI/browser results belong to their named commits. Current UI
+> authority remains [DESIGN.md](DESIGN.md), [PRODUCT.md](PRODUCT.md), and
+> [DECISIONS.md UI-001](DECISIONS.md#ui-001-product-ui-design-direction-and-skill-usage).
+
 This package contains the proposed product/design specification and implementation plan for the role-aware Servora workspace.
 
 ## Files

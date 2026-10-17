@@ -291,9 +291,9 @@ BR7 delivered (operator CLI only; no production cutover):
   ADMIN-only authorization. Restore and production cutover remain outside the
   web UI.
 - Backup/restore is a **disaster recovery domain** and is deliberately
-  separate from business-data export/import; see the deferred
-  `docs/superpowers/plans/2026-08-04-admin-data-management-deferred-plan.md`
-  for the export/import side.
+  separate from business-data export/import. Read the accepted module boundaries
+  in [DECISIONS.md](../../../DECISIONS.md) (MOD-001) before planning that side;
+  a separate export/import implementation still requires explicit authorization.
 
 ## Reading order
 

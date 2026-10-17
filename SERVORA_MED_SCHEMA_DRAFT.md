@@ -1,5 +1,12 @@
 # Servora-Med Schema Draft
 
+> **Authority scope:** retained baseline data-model contract with accepted
+> amendments. This is not an executable schema or a complete current migration
+> inventory. Read the latest [DECISIONS.md](DECISIONS.md) records, especially
+> SALE-QTY-001, and the [Sale quantity amendment](docs/features/visit-to-sale/integer-quantity-policy.md).
+> The exact release's `MigrationCatalog` and migration SQL define the executable
+> schema. Preserve baseline rules unless an accepted decision explicitly amends them.
+
 > Date: 2026-07-10  
 > Status: Living schema contract; implemented incrementally through slice migrations
 > Responsibility: Data model, database constraints, and persisted invariant SSOT
@@ -11,7 +18,8 @@ Product behavior is defined in `PRODUCT_REQUIREMENTS.md`. Architecture boundarie
 - PostgreSQL 16 or newer
 - UUID primary keys generated with `gen_random_uuid()`
 - `TIMESTAMPTZ` for instants; `DATE` only for date-only business values
-- Quantity uses `NUMERIC(12,3)` and must be greater than zero
+- Product-delivery quantity uses `NUMERIC(12,3)` and must be greater than zero;
+  Sale quantity follows the separate accepted SALE-QTY-001 amendment linked above.
 - Money fields do not exist in the MVP delivery model
 - Business history uses status-based deactivation or append-only records instead of hard deletion
 - `organization_id` is an ownership boundary even though V1 runs one organization

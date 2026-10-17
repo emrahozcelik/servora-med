@@ -1,5 +1,10 @@
 # Sale-aware read integration — PR2
 
+> **Checkpoint scope:** the PR2/057 baseline and closed-write statements below
+> describe that delivery stage. Current writes follow the [PR3 contract](write-ui-integration.md),
+> and quantity semantics follow [SALE-QTY-001](integer-quantity-policy.md).
+> These amendments do not change the preserved PR2 authorization/read boundaries.
+
 Base: 54f17a03c4511f451cd0fbc952bc8951bde947f7, tree
 0f7f309209753b045ce22f5090b32c69c779d73a. Migration head remains
 057_sale_from_visit. This slice implements readers and existing lifecycle UI;
