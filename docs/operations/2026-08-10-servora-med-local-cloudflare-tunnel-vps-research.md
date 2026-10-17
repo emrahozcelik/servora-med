@@ -1,9 +1,17 @@
 # Servora-Med — Lokal Cloudflare Tunnel Test Fazı ve VPS Sağlayıcı Araştırması
 
 **Tarih:** 2026-08-10  
-**Durum:** AKTİF KARAR NOTU  
+**Durum:** ARCHIVED — tarihsel karar notu, yerinde arşiv
+
 **Accepted main:** `859b5a33ddd6e6385f782af03aec8e252a3e64ee`  
 **P4-B durumu:** Altyapı kararı yeniden açıldı; VPS satın alma/provisioning şu anda ertelendi.
+
+> Aşağıdaki kararlar ve sağlayıcı bilgileri yalnız 2026-08-10 kapsamını kaydeder.
+> VPS ertelemesi bugünkü ortamın durumu veya yeni bir çalışma emri değildir.
+> Güncel çalışma sözleşmeleri için [production deployment](production-deployment.md),
+> [local macOS pilot](local-macos-cloudflare-tunnel.md) ve
+> [staging contract](staging-contract.md) belgelerini okuyun. Canlı host durumu
+> ayrıca tarihli kabul kanıtıyla doğrulanır; bu nottan çıkarılmaz.
 
 ---
 

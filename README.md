@@ -107,7 +107,7 @@ Historical MVP implementation record (application through Slice 11; pilot docs S
 - In-app messaging (`/messages`, `MESSAGING_ENABLED`, default disabled)
 - Web Push notification support (`WEB_PUSH_ENABLED`, default disabled; operator provides the VAPID key pair)
 - Apple/PWA install guidance (physical-device install remains manual acceptance)
-- Operator alerting tooling (merged, default disabled; host activation not performed, real webhook not configured)
+- Operator alerting tooling (merged, default disabled; host activation and webhook configuration require dated operator evidence)
 - Expanded canonical pilot product catalog (781 products)
 - Disposable Demo lifecycle: create, use, complete purge, and recreate without a product-facing `PURGED` history row
 - Admin-controlled User/Staff lifecycle: pristine BUSINESS users may be permanently deleted; history-bearing Staff users use offboarding
@@ -133,7 +133,13 @@ Historical MVP implementation record (application through Slice 11; pilot docs S
 cd server
 npm ci          # or: npm install
 cp .env.example .env
-# create local DB named in DATABASE_URL
+```
+
+Before running migrations, [configure the development database](#configure-the-development-database):
+create or verify the local PostgreSQL role/database and replace `<DB_PASSWORD>`
+in the ignored `.env` file with the matching URL-safe or percent-encoded password.
+
+```bash
 npm run migrate
 npm run dev
 ```
@@ -172,7 +178,10 @@ npm ci
 cp .env.example .env
 ```
 
-Create the local PostgreSQL database named by `DATABASE_URL`, then run:
+Before running migrations, [configure the development database](#configure-the-development-database):
+create or verify the local PostgreSQL role/database and replace `<DB_PASSWORD>`
+in the ignored `.env` file with the matching URL-safe or percent-encoded password.
+Then run:
 
 ```bash
 npm run migrate
@@ -190,6 +199,34 @@ against that catalog head, not an independent migration authority.
 README does not assert live production schema or release state. Production
 schema and release status come from separately captured deployment/readiness
 evidence.
+
+### Configure the development database
+
+Use a **local development** PostgreSQL instance. For a fresh instance, open
+`psql -d postgres` as its local PostgreSQL administrator and prepare the role and
+database used by the example:
+
+```sql
+CREATE ROLE servora LOGIN;
+\password servora
+CREATE DATABASE servora_med OWNER servora;
+\q
+```
+
+`\password` prompts privately; do not put a real password in SQL, shell history,
+or Git. If this role/database already exists, keep it and use its existing
+credentials instead of rerunning the creation commands or dropping data.
+
+Edit the ignored `server/.env` file before `npm run migrate`. Replace
+`<DB_PASSWORD>` in `DATABASE_URL` with the password for that PostgreSQL role;
+adjust the role, host, port, and development database name if your local setup
+differs. The placeholder is not a usable password.
+
+The password must be URL-safe or **percent-encoded**. Encode only the **password
+component**, once: `#` becomes `%23`, `/` becomes `%2F`, and `?` becomes `%3F`.
+Do not encode the entire connection URL or double-encode an already encoded
+password. See the [PostgreSQL connection URI rules](https://www.postgresql.org/docs/17/libpq-connect.html#LIBPQ-CONNSTRING-URIS).
+Keep the real values only in the ignored `.env`; `.env.example` stays secret-free.
 
 ### First Admin Bootstrap
 
@@ -546,7 +583,7 @@ Backup & Recovery V1 implementation and operations: [docs/operations/backup-reco
 | Admin Backup & Recovery UI/API | implemented, capability-gated by `BACKUP_ENABLED` and ADMIN-only; no web restore/cutover |
 | Local scheduled backup scripts | available |
 | Disposable restore automated tests | available with `TEST_DATABASE_URL` |
-| Production worker/automatic backup schedule | not enabled on any host; legacy manual workflow continues, activation is operator-owned |
+| Production worker/automatic backup schedule | activation is operator-owned; determine enabled/disabled state from dated host evidence |
 | Host restore rehearsal record | pending until executed on pilot host |
 | Real offsite copy | pending destination + credentials |
 

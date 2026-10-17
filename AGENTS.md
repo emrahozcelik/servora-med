@@ -107,6 +107,15 @@ Frontend:
 * Store holds UI/app state only.
 * UI components must not call raw backend endpoints directly when a service function exists.
 
+### 2.5 Repository Discovery
+
+When Codebase Memory is available, agents may use it to discover relevant files,
+directories, symbols, and relationships before broad filesystem searches. Its
+graph is an advisory index; verify paths and behavior against the current Git
+checkout, source files, and tests. Cache updates alone are not source drift.
+If unavailable or stale, use `rg`, `git grep`, or equivalent tools. Do not reset
+or reindex the graph unless the task needs it and the user authorizes it.
+
 ---
 
 ## 3. Domain Change Protocol
@@ -410,6 +419,12 @@ Code and tests describe observed implementation. The latest explicitly accepted
 `DECISIONS.md` records and applicable product/approved feature policy describe
 intended behavior; drafts and historical plans do not grant implementation
 permission. Supersession must be explicit, not inferred from document order.
+
+Historical implementation plans preserve their original execution instructions.
+Those instructions, including tool and sub-agent suggestions, do not override
+this contract or authorize work outside the current task. Use the documentation
+index in [docs/README.md](docs/README.md) to distinguish current owners from
+historical plans and evidence; the index does not create another policy source.
 
 On disagreement, report concrete drift with file/section references, observed
 behavior, and the conflicting accepted rule. Stop the affected unauthorized

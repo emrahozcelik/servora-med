@@ -14,3 +14,7 @@ dünya-dental.png
 .playwright-mcp/
 /server/.codebase-memory/
 /web/.codebase-memory/
+/.codebase-memory/
+/.workbuddy-ai/
+/.freebuff/
+/host.md

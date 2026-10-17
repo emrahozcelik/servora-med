@@ -454,7 +454,7 @@ use the owned Ant Design boundary in later implementation PRs.
 
 The Phase U dashboard reference direction is the SaaS + AI dashboard composition at `demos.shadcndashboard.dev`, translated into Servora's domain and component boundary rather than copied. The target similarity is information architecture—role-aware summary, time controls, metrics, trends, upcoming work, recent work, notes, messages, and direct actions—not Tailwind, shadcn, demo colors, or demo business copy.
 
-Current Phase U visual priorities:
+Phase U delivery priorities recorded on 2026-07-26 (historical checkpoint):
 
 1. complete this Ant visual documentation reconciliation checkpoint,
 2. complete the U2 Calendar post-merge visual correction (branch: `fix/phase-u2-calendar-visual-closeout`),

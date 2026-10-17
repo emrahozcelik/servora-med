@@ -1,5 +1,11 @@
 # Servora UI Implementation Plan
 
+> **HISTORICAL — retained in place.** The Ant/Phase T execution sequence below
+> records completed checkpoints and deferred proposals. It does not authorize a
+> new implementation phase or replace [DESIGN.md](../../DESIGN.md),
+> [PRODUCT.md](../../PRODUCT.md), or [DECISIONS.md UI-001](../../DECISIONS.md#ui-001-product-ui-design-direction-and-skill-usage).
+> Historical commands and test totals must be revalidated for a new task.
+
 Status: **PR A–M merged** — mandatory Ant chain and approved optional UI runtime backlog complete
 Ant optional closeout baseline (historical): `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`
 Phase T code baseline (historical): `e96aaeacce6094c4e36e25e794c55834d7e7f029`

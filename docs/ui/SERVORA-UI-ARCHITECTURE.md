@@ -1,5 +1,11 @@
 # Servora UI Architecture
 
+> **Authority scope:** retained Ant adapter-boundary decision. Program labels
+> such as "Active Phase T" and "P0 OPEN" below are historical checkpoint
+> statements, not today's task queue. Current visual/interaction authority is
+> [DESIGN.md](../../DESIGN.md), [PRODUCT.md](../../PRODUCT.md), and
+> [DECISIONS.md UI-001](../../DECISIONS.md#ui-001-product-ui-design-direction-and-skill-usage).
+
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
 Production impact: **PR A–F (mandatory Ant chain) and PR G–M (approved optional runtime backlog) are merged.** Historical mandatory-chain tip: `0d1ee816212da47b0932492899ba390978b07ffd`. Ant optional closeout: `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`. Further **product-decision** items remain deferred in `docs/ui/SERVORA-IMPLEMENTATION-PLAN.md`. Active visual program is **Phase T — Visual Consistency and Screen Polish** (`docs/superpowers/plans/2026-07-23-phase-t-visual-polish.md`); T0 audit/docs/baseline is complete. Phase T does not reopen the adapter boundary, rebuild the shell with Ant Layout/Menu/Card, or adopt a default Ant admin look.

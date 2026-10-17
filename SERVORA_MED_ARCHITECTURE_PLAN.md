@@ -1,5 +1,10 @@
 # Servora-Med Architecture Plan
 
+> **Authority scope:** retained architectural baseline, not a deployment-status
+> report or permission to implement future modules. Read accepted amendments in
+> [DECISIONS.md](DECISIONS.md), including MOD-001, before boundary changes.
+> Current operations are governed by [the operations runbooks](docs/operations/).
+
 > Date: 2026-07-10  
 > Status: Approved Phase 0 architecture  
 > Responsibility: Technical and architectural decision SSOT

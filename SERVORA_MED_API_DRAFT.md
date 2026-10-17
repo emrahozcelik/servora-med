@@ -1,5 +1,12 @@
 # Servora-Med API Draft
 
+> **Authority scope:** retained baseline HTTP contract with accepted amendments.
+> Read it with the latest applicable [DECISIONS.md](DECISIONS.md) records and
+> approved [feature contracts](docs/features/). Its slice-era endpoint coverage
+> is not an exhaustive inventory of the current API; verify registration in the
+> current source before claiming an endpoint is shipped. Report policy/code
+> disagreements through [AGENTS.md §15](AGENTS.md#15-document-authority-and-reading-map).
+
 > Date: 2026-07-10  
 > Status: Living API contract; implemented and verified through Slice 11 Production Deployment and U3 User/Staff lifecycle reconciliation
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT

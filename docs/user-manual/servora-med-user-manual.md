@@ -30,7 +30,8 @@ Depo, fatura, muhasebe ve stok maliyeti bu kılavuzun kapsamı dışındadır.
 
 1. Tarayıcıda pilot adresinizi açın (ör. `https://app.example.com`).
 2. E-posta ve parolanızı girin.
-3. Başarılı girişte **İşler** (`/jobs`) ekranına yönlendirilirsiniz.
+3. Başarılı girişte Genel Bakış özelliği açıksa **Genel Bakış** (`/overview`),
+   kapalıysa **İşler** (`/jobs`) ekranına yönlendirilirsiniz.
 
 ### İlk girişte parola değiştirme
 
@@ -53,13 +54,19 @@ Sağ üstte (masaüstü) veya menüde **Oturumu kapat**.
 
 | Menü | Yol | Kim görür |
 |------|-----|-----------|
+| **Genel Bakış** | `/overview` | Genel Bakış özelliği açıkken herkes; içerik role göre sınırlı |
 | **İşler** | `/jobs` | Herkes |
 | **Takvim** | `/calendar` | Takvim özelliği açıkken herkes; veri kapsamı role göre sınırlı |
+| **Mesajlar** | `/messages` | Mesajlaşma özelliği açıkken herkes |
 | **Müşteriler** | `/customers` | Herkes (personel kapsamı sınırlı) |
 | **Ürünler** | `/products` | Herkes (personel salt okunur) |
 | **Raporlar** | `/reports` | Yönetici ve sistem yöneticisi |
 | **Kullanıcılar** | `/users` | Yalnız sistem yöneticisi |
 | **Personel** / **Profilim** | `/staff` | Yönetici: personel listesi; personel: kendi profili |
+| **Dokümantasyon** | `/docs` | Herkes |
+| **Yardım Merkezi** | `/help` | Herkes |
+| **Ayarlar** | `/settings` | Herkes; alt alanlar role göre sınırlı |
+| **Yedekleme ve Kurtarma** | `/settings/data-management/backup-recovery` | Yalnız sistem yöneticisi ve backup özelliği açıkken |
 
 Mobilde dar ekranda menü çekmecesi kullanılır; masaüstünde yan/üst navigasyon görünür.
 
