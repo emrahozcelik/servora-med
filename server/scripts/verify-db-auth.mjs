@@ -7,7 +7,7 @@
  *
  * Optional:
  *   EXPECT_USER   default: any non-empty current_user (set to "servora" for pilot)
- *   EXPECT_FAIL   if "1", connection must fail (wrong-password negative test)
+ *   EXPECT_FAIL   if "1", connection must fail with PostgreSQL 28P01 (wrong password)
  *
  * Usage:
  *   env -i PATH=... DATABASE_URL='postgresql://...' node server/scripts/verify-db-auth.mjs
@@ -33,8 +33,10 @@ for (const arg of process.argv.slice(2)) {
 
 const client = new pg.Client({ connectionString: url });
 
+let connected = false;
 try {
   await client.connect();
+  connected = true;
   if (expectFail) {
     console.error('expected connection failure but connected');
     process.exit(1);
@@ -53,8 +55,8 @@ try {
   console.log(`ok db-auth user=${user}`);
   process.exit(0);
 } catch (error) {
-  if (expectFail) {
-    console.log('ok db-auth expected-failure');
+  if (expectFail && !connected && error?.code === '28P01') {
+    console.log('ok db-auth expected-failure code=28P01');
     process.exit(0);
   }
   console.error('db-auth failed');
