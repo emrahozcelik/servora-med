@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -143,6 +145,99 @@ describe('Weekly Report PDF — document model', () => {
 });
 
 describe('Weekly Report PDF — rendering', () => {
+  it('leads with readable report facts and puts complete technical identities after the content', async () => {
+    const frozen = submission({
+      weeklyReportId: '11111111-1111-4111-8111-111111111111',
+      jobCardId: '22222222-2222-4222-8222-222222222222',
+      submittedBy: '33333333-3333-4333-8333-333333333333',
+    });
+    const text = pdfDecodedText(await renderWeeklyReportPdf(
+      buildWeeklyReportPdfDocumentModel({ submission: frozen, staffName: 'Ayşe Çağlar' }),
+    ));
+    const contentStart = text.indexOf('Haftanın özeti');
+    const technicalStart = text.indexOf('Teknik Kayıt Bilgileri');
+    expect(text.slice(0, contentStart)).toContain('Haftalık Çalışma Raporu');
+    expect(text.slice(0, contentStart)).toContain('21 Eylül 2026');
+    expect(text.slice(0, contentStart)).toContain('27 Eylül 2026');
+    expect(text.slice(0, contentStart)).toContain('Ayşe Çağlar');
+    expect(text.slice(0, contentStart)).toContain('25 Eylül 2026');
+    expect(text.slice(0, contentStart)).toContain('UTC');
+    expect(text.slice(0, contentStart)).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27}/);
+    expect(technicalStart).toBeGreaterThan(text.indexOf('Dondurulmuş yanıt'));
+    expect(technicalStart).toBeGreaterThan(text.indexOf('Teslimat'));
+    for (const identity of [frozen.submittedBy, frozen.weeklyReportId, frozen.jobCardId]) {
+      expect(text.indexOf(identity)).toBeGreaterThan(technicalStart);
+      expect(text.split(identity)).toHaveLength(2);
+    }
+    expect(text.slice(technicalStart)).toContain(frozen.submittedAt);
+    expect(text).toContain('Dondurulmuş özet');
+    expect(text).toContain('Dondurulmuş plan');
+    expect(text).toContain('Soru?');
+  });
+
+  it('keeps long prose, questions, table cells and small technical text within the page', async () => {
+    // Observe the actual layout passed to the PDF renderer, including line
+    // widths and page positions; text assertions alone cannot detect clipping.
+    const require = createRequire(import.meta.url);
+    const { default: LayoutBuilder } = require('pdfmake/js/LayoutBuilder.js');
+    const layout = vi.spyOn(LayoutBuilder.prototype, 'layoutDocument');
+    const frozen = submission({
+      weeklyReportId: '11111111-1111-4111-8111-111111111111',
+      jobCardId: '22222222-2222-4222-8222-222222222222',
+      submittedBy: '33333333-3333-4333-8333-333333333333',
+      body: { ...submission().body, summary: 'UzunYanıtÇğİöşü'.repeat(250) },
+      questions: [{ key: 'q1', prompt: 'Uzun yönetici sorusu '.repeat(24) }],
+      answers: [{ questionKey: 'q1', answer: 'Ayrıntılı yanıt ç ğ ı İ ö ş ü. '.repeat(130) }],
+      sourceWork: Array.from({ length: 24 }, (_, index) => ({
+        ...submission().sourceWork[index % 2]!,
+        title: `${index + 1}. ${'UzunBaşlıkÇğİöşü'.repeat(24)}`,
+        customerName: 'Uzun Klinik Adı '.repeat(10),
+      })),
+    });
+    const buffer = await renderWeeklyReportPdf(buildWeeklyReportPdfDocumentModel({
+      submission: frozen, staffName: 'Ayşe Çağlar',
+    }));
+    const pages = layout.mock.results[0]!.value;
+    expect(pages.length).toBeGreaterThan(2);
+    const technicalPages: number[] = [];
+    let tablePages = 0;
+    let smallIdentityLines = 0;
+    pages.forEach((page: { items: { type: string; item: {
+      x: number; y: number; getWidth(): number; getHeight(): number;
+      inlines: { text: string; fontSize: number; color: string }[];
+    } }[]; pageSize: { width: number; height: number } }, index: number) => {
+      const lines = page.items.filter((entry) => entry.type === 'line');
+      const texts = lines.map((entry) => entry.item.inlines.map((inline) => inline.text).join(''));
+      if (texts.includes('Tamamlandı') || texts.includes('Onay bekliyor')) {
+        tablePages += 1;
+        for (const heading of ['Başlık', 'Tür', 'Müşteri', 'Durum', 'Tamamlanma']) {
+          expect(texts).toContain(heading);
+        }
+      }
+      for (const entry of lines) {
+        const line = entry.item;
+        expect(line.x).toBeGreaterThanOrEqual(48 - 1);
+        expect(line.x + line.getWidth(), line.inlines.map((inline) => inline.text).join('')).toBeLessThanOrEqual(page.pageSize.width - 48 + 1);
+        expect(line.y).toBeGreaterThanOrEqual(52 - 1);
+        expect(line.y + line.getHeight()).toBeLessThanOrEqual(page.pageSize.height - 20);
+        const text = line.inlines.map((inline) => inline.text).join('');
+        if (text.includes('Teknik Kayıt Bilgileri')) technicalPages.push(index);
+        if (text.includes(frozen.submittedBy)) {
+          smallIdentityLines += 1;
+          for (const inline of line.inlines) {
+            expect(inline.fontSize).toBeGreaterThanOrEqual(7);
+            expect(inline.fontSize).toBeLessThanOrEqual(8);
+            expect(inline.color).toBe('#666666');
+          }
+        }
+      }
+    });
+    expect(tablePages).toBeGreaterThan(1);
+    expect(technicalPages).toEqual([pages.length - 1]);
+    expect(smallIdentityLines).toBe(1);
+    expect(pdfDecodedText(buffer)).toContain(frozen.submittedBy);
+  });
+
   it('produces a real multi-page PDF for a long frozen body', async () => {
     const model = buildWeeklyReportPdfDocumentModel({
       submission: submission({
@@ -187,7 +282,8 @@ describe('Weekly Report PDF — rendering', () => {
   it('emits no script, launch, URI or embedded-file action', async () => {
     const model = buildWeeklyReportPdfDocumentModel({ submission: submission(), staffName: 'Ayşe' });
     const objects = pdfObjectText(await renderWeeklyReportPdf(model));
-    for (const forbidden of ['/JavaScript', '/JS', '/Launch', '/URI', '/EmbeddedFile', '/OpenAction']) {
+    for (const forbidden of ['/JavaScript', '/JS', '/Launch', '/URI', '/EmbeddedFile', '/OpenAction',
+      '/AA', '/GoToR', '/SubmitForm', '/ImportData', '/RichMedia']) {
       expect(objects.includes(forbidden), forbidden).toBe(false);
     }
   });
@@ -324,10 +420,11 @@ describe('Weekly Report PDF — immutability', () => {
     // metadata: a rename legitimately changes it. The frozen `submitted_by`
     // value is the stable traceability identity and must survive the rename.
     // This is deliberately NOT a byte-for-byte reproducibility claim.
+    const frozenSender = '33333333-3333-4333-8333-333333333333';
     const build = (name: string) => ({
       findJobCard: vi.fn().mockResolvedValue(jobCard()),
       getWeeklyReportByJobId: vi.fn().mockResolvedValue(reportRow()),
-      getWeeklyReportSubmissionBySeq: vi.fn().mockResolvedValue(submissionRow()),
+      getWeeklyReportSubmissionBySeq: vi.fn().mockResolvedValue({ ...submissionRow(), submitted_by: frozenSender }),
       getUserDisplayName: vi.fn().mockResolvedValue(name),
     });
     const before = pdfDecodedText(
@@ -341,8 +438,8 @@ describe('Weekly Report PDF — immutability', () => {
     expect(before).toContain('Ayşe Personel');
     expect(after).toContain('Ayşe Yeni Soyad');
     // The stable identity is unchanged by the rename.
-    expect(before).toContain('staff-1');
-    expect(after).toContain('staff-1');
+    expect(before).toContain(frozenSender);
+    expect(after).toContain(frozenSender);
   });
 });
 

@@ -1200,6 +1200,41 @@ describe('WeeklyReportDetail', () => {
     expect(downloads.saveBlobAs).toHaveBeenCalledWith(payload.blob, payload.fileName);
   });
 
+  it('keeps UUIDs out of report summaries and exposes the selected frozen identities below content', async () => {
+    const sender = '33333333-3333-4333-8333-333333333333';
+    const reportId = '11111111-1111-4111-8111-111111111111';
+    const jobId = '22222222-2222-4222-8222-222222222222';
+    jobsApi.getJobCard.mockResolvedValue(makeJob({ status: 'COMPLETED' }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED' }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([
+      makeSubmission({ seqNo: 1, submittedBy: sender, weeklyReportId: reportId, jobCardId: jobId }),
+      makeSubmission({ seqNo: 2, submittedBy: 'different-frozen-sender' }),
+    ]);
+    await render(managerUser);
+
+    const summary = host.querySelector('.weekly-frozen-report > .form-help')!;
+    expect(normalize(summary.textContent)).toBe(`Gönderim #2 · ${trInstant('2026-08-07T12:00:00.000Z')}`);
+    expect(summary.textContent).not.toContain('different-frozen-sender');
+    const select = host.querySelector('#weekly-history-select') as HTMLSelectElement;
+    act(() => { select.value = '1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await flush();
+    const history = host.querySelector('.weekly-history')!;
+    const facts = history.querySelector('[aria-label="Seçilen gönderim ayrıntısı"]')!;
+    expect(facts.textContent).not.toContain(sender);
+    expect(facts.textContent).toContain('Gönderilen özet.');
+    const details = history.querySelector('details')!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toBe('Teknik bilgiler');
+    for (const identity of [sender, reportId, jobId]) expect(details.textContent).toContain(identity);
+    expect(details.textContent).not.toContain('Ayşe Personel');
+    expect(facts.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The immutable version selector and PDF transport keep their exact seq.
+    weeklyApi.downloadWeeklyReportSubmissionPdf.mockResolvedValue({ blob: pdfBlob(), fileName: 'report.pdf' });
+    click(buttonByText('PDF indir'));
+    await flush();
+    expect(weeklyApi.downloadWeeklyReportSubmissionPdf).toHaveBeenCalledWith('job-1', 1);
+  });
+
   // --- JobCard detail information architecture -------------------------------
   //
   // The weekly report is a JobCard content type, not a standalone form screen.

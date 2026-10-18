@@ -51,20 +51,37 @@ function configurePdfMake(): void {
   configured = true;
 }
 
+// Calendar dates are server-owned DATE values; format without reparsing them
+// through the host timezone or deriving a new period.
+function formatDate(value: string): string {
+  const [year, month, day] = value.split('-');
+  const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  return `${Number(day)} ${months[Number(month) - 1]} ${year}`;
+}
+
+// The frozen model supplies UTC instants, but no organization timezone. Keep
+// UTC explicit rather than inventing an organization or host-local conversion.
+function formatInstant(value: string): string {
+  return `${new Intl.DateTimeFormat('tr-TR', {
+    dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC',
+  }).format(new Date(value)).replace(/[\u00a0\u202f]/g, ' ')} UTC`;
+}
+
 function metadataRow(label: string, value: string): unknown {
   return {
     columns: [
-      { width: 130, text: label, bold: true, color: '#444444' },
+      { width: 130, text: label, bold: true },
       { width: '*', text: value },
     ],
     columnGap: 8,
-    margin: [0, 0, 0, 2],
+    margin: [0, 0, 0, 3],
   };
 }
 
 function sectionBlock(label: string, value: string | null): unknown[] {
   return [
-    { text: label, bold: true, fontSize: 11, margin: [0, 10, 0, 2] },
+    { text: label, headlineLevel: 1, bold: true, fontSize: 11, margin: [0, 10, 0, 4] },
     { text: value ?? '—', preserveLeadingSpaces: true },
   ];
 }
@@ -95,13 +112,16 @@ function sourceWorkTable(model: WeeklyReportPdfDocumentModel): unknown {
     { text: item.customerName ?? '—' },
     // The status recorded when the report was frozen, never the live one.
     { text: SOURCE_WORK_STATUS_LABELS[item.statusAtSnapshot] },
-    { text: item.staffCompletedAt },
+    { text: formatInstant(item.staffCompletedAt).replace(/ (\d{2}:\d{2}) UTC$/, '\n$1 UTC') },
   ]);
   return {
-    margin: [0, 4, 0, 0],
+    margin: [0, 6, 0, 0],
+    fontSize: 9,
     table: {
       headerRows: 1,
-      widths: ['*', 'auto', 'auto', 'auto', 'auto'],
+      // Fixed shares keep long titles/customers/instants inside the A4 body.
+      widths: [164.28, 65, 80, 65, 85],
+      keepWithHeaderRows: 1,
       body: [header, ...rows],
     },
     layout: 'lightHorizontalLines',
@@ -110,24 +130,18 @@ function sourceWorkTable(model: WeeklyReportPdfDocumentModel): unknown {
 
 function documentDefinition(model: WeeklyReportPdfDocumentModel) {
   const content: unknown[] = [
-    { text: 'Haftalık Rapor', fontSize: 18, bold: true },
+    { text: 'Haftalık Çalışma Raporu', fontSize: 20, bold: true },
     {
-      text: `${model.periodStart} – ${model.periodEnd} · Gönderim #${model.seqNo}`,
-      fontSize: 11,
+      text: `${formatDate(model.periodStart)} – ${formatDate(model.periodEnd)}`,
+      fontSize: 12,
       color: '#555555',
-      margin: [0, 2, 0, 10],
+      margin: [0, 4, 0, 10],
     },
-    // Two different guarantees, deliberately both shown: `staffName` is the
-    // current display name (presentation metadata, changes on rename) while
-    // `submittedBy` is the immutable identity captured by the submission and
-    // never changes for a given version.
+    // Current display name is presentation metadata. The immutable submitter
+    // identity remains verbatim in the technical record at the document end.
     metadataRow('Personel', model.staffName),
-    metadataRow('Gönderen kimliği', model.submittedBy),
-    metadataRow('Rapor dönemi', `${model.periodStart} – ${model.periodEnd}`),
-    metadataRow('Gönderim sırası', `#${model.seqNo}`),
-    metadataRow('Gönderim zamanı', model.submittedAt),
-    metadataRow('Rapor kimliği', model.reportId),
-    metadataRow('İş kaydı', model.jobCardId),
+    metadataRow('Gönderim tarihi', formatInstant(model.submittedAt)),
+    metadataRow('Gönderim', `#${model.seqNo}`),
   ];
 
   for (const section of model.sections) {
@@ -135,14 +149,14 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
   }
 
   if (model.answers.length > 0) {
-    content.push({ text: 'Yönetici soruları', fontSize: 13, bold: true, margin: [0, 16, 0, 2] });
+    content.push({ text: 'Yönetici soruları ve cevapları', headlineLevel: 1, fontSize: 13, bold: true, margin: [0, 16, 0, 2] });
     for (const answer of model.answers) {
-      content.push({ text: answer.prompt, bold: true, fontSize: 11, margin: [0, 8, 0, 2] });
+      content.push({ text: answer.prompt, headlineLevel: 1, bold: true, fontSize: 11, margin: [0, 8, 0, 2] });
       content.push({ text: answer.answer, preserveLeadingSpaces: true });
     }
   }
 
-  content.push({ text: 'Gönderimde dondurulan çalışma listesi', fontSize: 13, bold: true, margin: [0, 16, 0, 2] });
+  content.push({ text: 'Gönderimde dondurulan çalışma listesi', headlineLevel: 1, fontSize: 13, bold: true, margin: [0, 16, 0, 2] });
   content.push(sourceWorkTable(model));
 
   content.push({
@@ -151,6 +165,24 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
     fontSize: 8,
     color: '#666666',
     margin: [0, 18, 0, 0],
+  });
+
+  content.push({
+    // Keep this small traceability record together, once, after all content.
+    unbreakable: true,
+    fontSize: 8,
+    color: '#666666',
+    margin: [0, 20, 0, 0],
+    stack: [
+      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 499.28, y2: 0,
+        lineWidth: 0.5, lineColor: '#cccccc' }], margin: [0, 0, 0, 8] },
+      { text: 'Teknik Kayıt Bilgileri', bold: true, margin: [0, 0, 0, 6] },
+      metadataRow('Gönderen kimliği', model.submittedBy),
+      metadataRow('Rapor kimliği', model.reportId),
+      metadataRow('İş kaydı kimliği', model.jobCardId),
+      metadataRow('Gönderim sırası', `#${model.seqNo}`),
+      metadataRow('Kesin gönderim zamanı (UTC)', model.submittedAt),
+    ],
   });
 
   return {
@@ -170,6 +202,8 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
       color: '#888888',
       margin: [0, 12, 0, 0],
     }),
+    pageBreakBefore: (node: { headlineLevel?: number }, container: { getFollowingNodesOnPage(): unknown[] }) =>
+      node.headlineLevel === 1 && container.getFollowingNodesOnPage().length === 0,
     content,
   };
 }

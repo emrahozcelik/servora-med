@@ -69,6 +69,8 @@ const viewports = [
   { name: '1440x900', width: 1440, height: 900 },
   { name: '1024x768', width: 1024, height: 768 },
   { name: '390x844', width: 390, height: 844 },
+  // Equivalent content width to 1280px at 400% browser zoom.
+  { name: '320x800-reflow', width: 320, height: 800 },
 ];
 
 /**
@@ -487,7 +489,7 @@ function checkState(measurement, spec, viewport, failures) {
 }
 
 async function runCase(browser, baseUrl, viewport, spec, failures) {
-  const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+  const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height }, reducedMotion: 'reduce' });
   const diagnostics = { pageErrors: [], consoleErrors: [], requestFailures: [], badResponses: [] };
   attachDiagnostics(page, diagnostics);
   const label = `${spec.name} @ ${viewport.name}`;
@@ -522,6 +524,42 @@ async function runCase(browser, baseUrl, viewport, spec, failures) {
       });
     } catch (error) {
       console.log(JSON.stringify({ case: label, screenshot: `skipped: ${error}` }));
+    }
+
+    if (spec.name === 'WAITING_APPROVAL' || spec.name === 'COMPLETED' || spec.name === 'CANCELLED') {
+      const history = page.locator('.weekly-history');
+      const details = history.locator('details.weekly-technical-information');
+      const summary = details.locator('summary');
+      const sender = '33333333-3333-4333-8333-333333333333';
+      if (await details.getAttribute('open') !== null) failures.push(`${label}: technical details open by default`);
+      if (await history.getByText(sender, { exact: true }).isVisible()) failures.push(`${label}: sender visible before disclosure`);
+      const caption = await page.locator('.weekly-frozen-report > .form-help').allTextContents();
+      if (caption.join('').includes(sender)) failures.push(`${label}: technical identity in report caption`);
+      await summary.focus();
+      await page.keyboard.press('Enter');
+      if (!await history.getByText(sender, { exact: true }).isVisible()) failures.push(`${label}: keyboard did not disclose sender`);
+      const geometry = await summary.evaluate(async (element) => {
+        // Read painted focus state after the reduced-motion transition settles.
+        await new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)));
+        const bounds = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const cells = [...element.parentElement.querySelectorAll('.servora-ant-descriptions-item-content')];
+        return {
+          width: bounds.width, height: bounds.height,
+          focused: document.activeElement === element,
+          outline: parseFloat(style.outlineWidth),
+          overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+          clipped: cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+        };
+      });
+      if (geometry.width < 44 || geometry.height < 44 || !geometry.focused || geometry.outline < 2
+        || geometry.overflowX || geometry.clipped) failures.push(`${label}: technical disclosure geometry ${JSON.stringify(geometry)}`);
+      await page.screenshot({ path: join(tmpdir(), `servora-weekly-detail-${spec.name}-${viewport.name}-technical.png`), fullPage: true });
+      await history.screenshot({ path: join(tmpdir(), `servora-weekly-history-${spec.name}-${viewport.name}-technical.png`) });
+      await page.keyboard.press('Space');
+      if (await details.getAttribute('open') !== null) failures.push(`${label}: Space did not close disclosure`);
+      // Reopen before zoom/reflow so hidden UUIDs cannot mask layout defects.
+      await page.keyboard.press('Enter');
     }
 
     if (viewport.width === 390) {

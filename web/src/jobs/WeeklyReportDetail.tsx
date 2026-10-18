@@ -102,6 +102,22 @@ function formatInstant(value: string): string {
   }).format(instant);
 }
 
+function TechnicalInformation({ submission }: { submission: WeeklyReportSubmission }) {
+  return <details className="weekly-technical-information">
+    <summary>Teknik bilgiler</summary>
+    <RecordDescriptions
+      ariaLabel={`Gönderim #${submission.seqNo} teknik kayıt bilgileri`}
+      maxColumns={1}
+      items={[
+        { key: 'sender', label: 'Gönderen kullanıcı kimliği', content: submission.submittedBy },
+        { key: 'report', label: 'Rapor kimliği', content: submission.weeklyReportId },
+        { key: 'job', label: 'İş kaydı kimliği', content: submission.jobCardId },
+        { key: 'seq', label: 'Gönderim sırası', content: `#${submission.seqNo}` },
+      ]}
+    />
+  </details>;
+}
+
 /**
  * Last successfully loaded/saved server truth. Dirty state is *derived* from a
  * structural comparison against this baseline, never from a sticky "was ever
@@ -638,7 +654,6 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   ];
 
   const historyFacts: RecordDescriptionItem[] = selected === null ? [] : [
-    { key: 'submitted-by', label: 'Gönderen', content: selected.submittedBy },
     { key: 'submitted-at', label: 'Zaman', content: formatInstant(selected.submittedAt) },
     { key: 'summary', label: 'Özet', content: selected.body.summary },
     { key: 'blockers', label: 'Sorunlar', content: selected.body.blockers ?? '—' },
@@ -774,13 +789,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
           >
             <h2 id="weekly-frozen-title">Gönderilen rapor</h2>
             <p className="form-help">
-              {`Gönderim #${latestSubmission.seqNo} · ${formatInstant(latestSubmission.submittedAt)} · ${latestSubmission.submittedBy}`}
+              {`Gönderim #${latestSubmission.seqNo} · ${formatInstant(latestSubmission.submittedAt)}`}
             </p>
             <RecordDescriptions
               ariaLabel="Gönderilen rapor içeriği"
               items={frozenReportFacts}
               maxColumns={hasRail ? 1 : 2}
             />
+            <TechnicalInformation submission={latestSubmission} />
           </section>
         )}
 
@@ -939,11 +955,14 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                 </button>
               </div>
               {pdfError && <p className="form-error" role="alert">{pdfError}</p>}
-              {selected && <RecordDescriptions
-                ariaLabel="Seçilen gönderim ayrıntısı"
-                items={historyFacts}
-                maxColumns={2}
-              />}
+              {selected && <>
+                <RecordDescriptions
+                  ariaLabel="Seçilen gönderim ayrıntısı"
+                  items={historyFacts}
+                  maxColumns={2}
+                />
+                <TechnicalInformation key={selected.seqNo} submission={selected} />
+              </>}
             </>}
       </section>
       {/*

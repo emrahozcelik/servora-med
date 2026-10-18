@@ -17,8 +17,8 @@ import { ServoraAntProvider } from '../src/ui/antd';
  * `?state=` selects the lifecycle status, `?role=` selects STAFF or MANAGER.
  */
 
-const JOB_ID = 'job-1';
-const STAFF_ID = 'staff-1';
+const JOB_ID = '22222222-2222-4222-8222-222222222222';
+const STAFF_ID = '44444444-4444-4444-8444-444444444444';
 const MANAGER_ID = 'manager-1';
 const PERIOD_START = '2026-08-03';
 const PERIOD_END = '2026-08-09';
@@ -196,10 +196,11 @@ function submissionsFor(state: StateName) {
   return [{
     id: 'sub-1',
     organizationId: 'org-1',
-    weeklyReportId: 'report-1',
+    weeklyReportId: '11111111-1111-4111-8111-111111111111',
     jobCardId: JOB_ID,
     seqNo: 1,
-    submittedBy: STAFF_ID,
+    // Deliberately differs from the current assignee; no name may be inferred.
+    submittedBy: '33333333-3333-4333-8333-333333333333',
     submittedAt: SUBMITTED_AT,
     periodStart: PERIOD_START,
     periodEnd: PERIOD_END,
