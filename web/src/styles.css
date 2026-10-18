@@ -2169,6 +2169,25 @@ html a:focus-visible {
 }
 .weekly-history-controls .field-group { flex: 1 1 14rem; margin-top: 0; min-width: 0; }
 .weekly-history-controls .secondary-button { margin-top: 0; }
+.weekly-technical-information {
+  margin-top: 1rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.weekly-technical-information > summary {
+  min-height: var(--control-height);
+  padding-block: 0.75rem;
+  cursor: pointer;
+  font-weight: 650;
+}
+.weekly-technical-information > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.weekly-technical-information .servora-ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+}
 .follow-up-create { min-width: 0; }
 .follow-up-source-summary { margin-bottom: 1.25rem; }
 
