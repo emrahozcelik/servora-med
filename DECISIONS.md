@@ -1870,3 +1870,20 @@ on top of DOM/SALE without rewriting them.
   changes. PR3 will default Sale quantity to 1 and use integer-only selection,
   addition and correction; adapting ProductSelect for Sale belongs to that slice.
 - Contract and rollout notes: [Sale integer quantity policy](docs/features/visit-to-sale/integer-quantity-policy.md).
+
+
+## CRM-S4A-001 — Duplicate customer review design; PR1 read-only rollout
+
+Status: Accepted Design / PR1 Rollout Pending; independent acceptance pending.
+
+The approved D1–D6 and T1–T5 contract is recorded in the
+[CRM duplicate-review owning package](docs/features/crm-duplicate-review/README.md).
+Design is the domain/evidence SSOT; API, data model, tests and implementation
+plan own their named contracts. Their future PR2/PR3 design does not authorize
+implementation or imply shipment. PR #379 implements PR1 candidate/comparison
+GETs only, with no decisions or customer mutation. Existing tax normalization,
+CHECK/unique, Contact primary rules and STAFF CRM rights remain unchanged.
+
+Production rollout remains disabled by default and requires exact-head evidence,
+strict schema compatibility and separately approved secret/migration/deployment
+steps. 4B, WR-01 and Issue #369 are not decided by this record.

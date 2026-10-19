@@ -1,4 +1,5 @@
-import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import type { Client, Pool, PoolClient, QueryResultRow } from 'pg';
+import { performance } from 'node:perf_hooks';
 import { AppError } from '../../errors/index.js';
 import type { DuplicateSource } from './duplicate-candidates.js';
 import { DUPLICATE_LIMITS, type DuplicateCustomerFacts } from './duplicate-types.js';
@@ -22,13 +23,13 @@ export const DUPLICATE_CONTACTS_SQL = `SELECT parent.customer_id,ct.* FROM unnes
 export const duplicateUnavailable = () => new AppError('REVIEW_TEMPORARILY_UNAVAILABLE', 503, 'Karşılaştırma şu anda yüklenemiyor. Yeniden deneyin.');
 export class DuplicateReadSnapshot {
   readonly asOf = new Date().toISOString();
-  constructor(private client: PoolClient, private deadline: number) {}
-  checkpoint = () => { if (Date.now() >= this.deadline) throw duplicateUnavailable(); };
+  constructor(private client: PoolClient, private deadline: number, readonly checkpoint: () => void) {}
   private async query<T extends QueryResultRow>(sql: string, params: unknown[]) {
     this.checkpoint();
     // Integer interpolation only: SET does not accept bind parameters.
-    const timeout = Math.max(1, Math.min(DUPLICATE_LIMITS.statementMs, this.deadline - Date.now()));
+    const timeout = Math.max(1, Math.floor(Math.min(DUPLICATE_LIMITS.statementMs, this.deadline - performance.now())));
     await this.client.query(`SET LOCAL statement_timeout = ${timeout}`);
+    this.checkpoint();
     const result = await this.client.query<T>(sql, params);
     this.checkpoint();
     return result.rows;
@@ -55,29 +56,60 @@ export class DuplicateReadSnapshot {
 export class PostgresDuplicateReadRepository {
   constructor(private pool: Pool) {}
   async snapshot<T>(run: (snapshot: DuplicateReadSnapshot) => Promise<T>): Promise<T> {
-    const deadline = Date.now() + DUPLICATE_LIMITS.requestMs;
-    let timedOut = false; let timer: NodeJS.Timeout | undefined;
-    const acquisition = this.pool.connect().then((client) => {
-      if (timedOut) { client.release(); throw duplicateUnavailable(); }
-      return client;
+    const deadline = performance.now() + DUPLICATE_LIMITS.requestMs;
+    let expired = false;
+    let client: PoolClient | undefined;
+    // This is the sole release owner, including late acquisition and timeout.
+    const release = (destroy: boolean) => {
+      const owned = client;
+      client = undefined;
+      if (!owned) return;
+      try { owned.release(destroy); }
+      finally {
+        // pg's idle Client.end() is graceful and can wait for a stopped peer.
+        // This pool uses pg's default JS Client (PoolClient's interface omits
+        // Client.connection). The pinned Client exposes this Duplex: close locally
+        // after pool removal for BOTH active-query and between-query expiry.
+        if (destroy) (owned as PoolClient & Pick<Client, 'connection'>).connection.stream.destroy();
+      }
+    };
+    const checkpoint = () => {
+      if (expired || performance.now() >= deadline) throw duplicateUnavailable();
+    };
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        expired = true;
+        // pg 8.22/pg-pool 3.14: release(true) removes the client synchronously;
+        // Explicit transport destroy also covers idle clients. Do this
+        // BEFORE settling HTTP; never return a busy connection to the pool.
+        release(true);
+        reject(duplicateUnavailable());
+      }, DUPLICATE_LIMITS.requestMs);
     });
-    let client: PoolClient;
-    try {
-      client = await Promise.race([acquisition, new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => { timedOut = true; reject(duplicateUnavailable()); }, DUPLICATE_LIMITS.requestMs);
-      })]);
-    } catch { throw duplicateUnavailable(); } finally { clearTimeout(timer); }
-    let began = false; let broken = false;
-    try {
-      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); began = true;
-      const snapshot = new DuplicateReadSnapshot(client, deadline);
-      const result = await run(snapshot); snapshot.checkpoint();
-      await client.query('COMMIT'); began = false;
+    const work = async () => {
+      client = await this.pool.connect();
+      checkpoint();
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      checkpoint();
+      const snapshot = new DuplicateReadSnapshot(client, deadline, checkpoint);
+      const result = await run(snapshot);
+      checkpoint();
+      await client!.query('COMMIT');
+      checkpoint();
+      release(false);
       return result;
-    } catch (error) {
-      if (began) try { await client.query('ROLLBACK'); } catch { broken = true; }
+    };
+    // Both branches have rejection handlers, including a late connect/query
+    // failure after the deadline. No late continuation can issue another query.
+    const operation = work().catch((error: unknown) => {
+      // Closing the owned read-only transaction is the error cleanup. Waiting
+      // for ROLLBACK on an unresponsive transport would defeat this deadline.
+      release(true);
       if (error instanceof AppError) throw error;
       throw duplicateUnavailable();
-    } finally { client.release(broken); }
+    });
+    try { return await Promise.race([operation, timeout]); }
+    finally { clearTimeout(timer); }
   }
 }

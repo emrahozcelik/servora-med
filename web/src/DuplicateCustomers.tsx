@@ -11,9 +11,9 @@ import { customerStatusLabels, customerTypeLabels, getCustomerOperationalSummary
 import { useDuplicateRead } from './useDuplicateRead';
 import './duplicate-customers.css';
 
-export function DuplicateReadError({ error, onReload }: { error: Error; onReload: () => void }) {
+export function DuplicateReadError({ error, onReload, retainedData = false }: { error: Error; onReload: () => void; retainedData?: boolean }) {
   const code = error instanceof ApiError ? error.code : '';
-  return <ResultState status={error instanceof ApiError && error.status === 403 ? '403' : 'error'} title={code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi'} description={<>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez.</>}
+  return <ResultState status={error instanceof ApiError && error.status === 403 ? '403' : 'error'} title={code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi'} description={<>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez. {retainedData && <strong>Gösterilen sonuçlar son başarılı okumaya aittir; güncellikleri doğrulanamadı.</strong>}</>}
     action={error instanceof ApiError && [401, 403, 404].includes(error.status) ? undefined : <button type="button" className="secondary-button" onClick={onReload}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
 }
 export function DuplicateReadNotice() {
@@ -28,7 +28,7 @@ export function DuplicateCandidateView({ data, error, busy, onReload, onFirst, o
     <DuplicateReadNotice />
     <p>Yalnız aynı kuruluştaki gerçek iş kayıtları (BUSINESS); aday, aktif ve pasif müşteriler dahildir.</p>
     {busy && !data && <LoadingSkeleton title="Adaylar yükleniyor" rows={4} />}
-    {error && <DuplicateReadError error={error} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
+    {error && <DuplicateReadError error={error} retainedData={data !== null} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
     {data && <>
       <p className="text-muted">Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. {laterPage ? 'Bu sayfa otomatik başa dönmez. Güncel kapsam için ilk sayfayı yenileyin.' : 'Görünürken 60 saniyede bir yenilenir.'}</p>
       {data.scope.anchorCustomerId && <Link to={paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
@@ -139,7 +139,7 @@ export function DuplicateComparisonScreen() {
     <PageHeader fallbackTitle="Müşteri karşılaştırması" actions={<button type="button" className="secondary-button" onClick={state.reload} disabled={state.busy}>Yenile</button>} />
     <Link className="secondary-button" to={returnUrl} state={{ duplicateFocus: entry?.duplicateFocus }}>Aday listesine dön</Link>
     {state.busy && !state.data && <LoadingSkeleton title="Karşılaştırma yükleniyor" rows={6} />}
-    {state.error && <DuplicateReadError error={state.error} onReload={state.reload} />}
+    {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} onReload={state.reload} />}
     {state.data && <DuplicateComparisonView data={state.data} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;

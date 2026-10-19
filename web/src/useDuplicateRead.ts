@@ -14,13 +14,14 @@ export function useDuplicateRead<T>(key: string, load: (signal: AbortSignal) => 
     const run = async (automatic = false) => {
       if (!live || pending || Date.now() < pausedUntil || (automatic && (!autoRefresh || document.visibilityState === 'hidden' || navigator.onLine === false || Date.now() - lastStarted < 1000))) return;
       pending = true; lastStarted = Date.now();
-      setState((old) => ({ ...old, busy: true, error: null }));
+      setState((old) => ({ ...old, busy: true }));
       try { const data = await loader.current(controller.signal); if (live) setState({ data, error: null, busy: false }); }
       catch (error) {
         if (!live) return;
         const failure = error instanceof Error ? error : new Error('Karşılaştırma yüklenemedi.');
         if (error instanceof ApiError && error.status === 429) pausedUntil = Date.now() + (error.retryAfterSeconds ?? 60) * 1000;
-        setState((old) => ({ ...old, busy: false, error: failure }));
+        const discard = error instanceof ApiError && [401, 403, 404].includes(error.status);
+        setState((old) => ({ ...old, data: discard ? null : old.data, busy: false, error: failure }));
       } finally { pending = false; }
     };
     reloadRef.current = () => { void run(); };
