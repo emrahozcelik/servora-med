@@ -1,4 +1,5 @@
 export type AuthenticatedCapabilities = Readonly<{
+  duplicateCustomerComparison?: boolean;
   overviewDashboard: boolean;
   calendar: boolean;
   messaging: boolean;

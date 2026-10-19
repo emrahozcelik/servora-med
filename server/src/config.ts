@@ -1,4 +1,5 @@
 import { createECDH } from 'node:crypto';
+import { parseDuplicateKeyring, type DuplicateKeyring } from './modules/crm/duplicate-evidence.js';
 
 import type {
   AuthenticatedCapabilities,
@@ -105,6 +106,7 @@ export type OverdueReminderConfig = {
 };
 
 export type AppConfig = {
+  duplicateComparison?: { enabled: false } | { enabled: true; keyring: DuplicateKeyring };
   nodeEnv: NodeEnvironment;
   host: string;
   port: number;
@@ -762,6 +764,10 @@ export function resolveTrustProxyOption(trustedProxy: TrustedProxy): boolean | s
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const duplicateEnabled = readBoolean(env.CRM_DUPLICATE_COMPARISON_ENABLED, 'CRM_DUPLICATE_COMPARISON_ENABLED');
+  const duplicateComparison: NonNullable<AppConfig['duplicateComparison']> = duplicateEnabled
+    ? { enabled: true, keyring: parseDuplicateKeyring(env.CRM_DUPLICATE_EVIDENCE_KEYRING ?? '') }
+    : { enabled: false };
   const databaseUrl = readDatabaseUrl(env.DATABASE_URL);
 
   const typedNodeEnv = readNodeEnvironment(env.NODE_ENV);
@@ -775,6 +781,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const hasOverdueReminderConfig = Object.keys(env).some((key) => key.startsWith('OVERDUE_REMINDER_'));
 
   return {
+    duplicateComparison,
     nodeEnv: typedNodeEnv,
     host: readHost(env.HOST, typedNodeEnv),
     port: readPort(env.PORT),
@@ -795,6 +802,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     actionScopedGeolocationEnabled,
     ...geocoding,
     capabilities: {
+      duplicateCustomerComparison: duplicateEnabled,
       overviewDashboard: readBoolean(
         env.OVERVIEW_DASHBOARD_ENABLED,
         'OVERVIEW_DASHBOARD_ENABLED',

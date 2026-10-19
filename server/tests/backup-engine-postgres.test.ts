@@ -166,7 +166,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
       application: { applicationVersion: 'test-0.1.0', gitCommit: 'a'.repeat(40) },
     });
     expect(manifest.database.engine).toBe('postgresql');
-    expect(manifest.database.schemaVersion).toBe('058_sale_integer_quantity');
+    expect(manifest.database.schemaVersion).toBe('059_crm_duplicate_read_indexes');
     expect(manifest.database.dumpVersion).toMatch(/^\d+\.\d+(-\d+)?$/);
     expect(manifest.database.dumpToolVersion).toMatch(/\d+\.\d+/);
     expect(manifest.contents.files).toBeNull();
@@ -222,7 +222,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
         const migrations = await targetPool.query<{ version: string }>(
           'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
         );
-          expect(migrations.rows[0]!.version).toBe('058_sale_integer_quantity');
+          expect(migrations.rows[0]!.version).toBe('059_crm_duplicate_read_indexes');
       } finally {
         await targetPool.end();
       }

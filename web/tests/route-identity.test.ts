@@ -11,8 +11,8 @@ import {
 } from '../src/shell/route-identity';
 
 describe('route identity registry', () => {
-  it('contains the actual 40 registered identities', () => {
-    expect(routeIdentityIds()).toHaveLength(40);
+  it('contains the actual 42 registered identities', () => {
+    expect(routeIdentityIds()).toHaveLength(42);
   });
 
   it('resolves every canonical static path to an identity', () => {

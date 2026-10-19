@@ -28,6 +28,7 @@ export function authenticatedUser(
     ...user,
     capabilities: {
       ...effectiveCapabilities,
+      duplicateCustomerComparison: effectiveCapabilities.duplicateCustomerComparison === true && (user.role === 'ADMIN' || user.role === 'MANAGER'),
       demoDatasetCreation,
     },
     support: support ?? DEFAULT_SUPPORT,

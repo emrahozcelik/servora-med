@@ -22,6 +22,7 @@ export type AuthenticatedCapabilities = {
   messaging: boolean;
   backup?: boolean;
   demoDatasetCreation?: boolean;
+  duplicateCustomerComparison?: boolean;
 };
 export type AuthenticatedSupport = {
   displayLabel: string;
@@ -49,6 +50,7 @@ export type ReferenceCustomer = {
 };
 
 export class ApiError extends Error {
+  retryAfterSeconds?: number;
   constructor(public readonly status: number, public readonly code: string, message: string,
     public readonly retryable = false, public readonly details: Record<string, unknown> | null = null) {
     super(message); this.name = 'ApiError';
@@ -107,7 +109,10 @@ async function failureFrom(response: Response): Promise<ApiError> {
       details = body.details as Record<string, unknown>;
     }
   } catch { /* use safe fallback */ }
-  return new ApiError(response.status, code, error, response.status >= 500, details);
+  const failure = new ApiError(response.status, code, error, response.status >= 500, details);
+  const retryAfter = response.headers.get('Retry-After');
+  if (response.status === 429 && retryAfter && /^\d+$/.test(retryAfter)) failure.retryAfterSeconds = Math.min(3600, Math.max(1, Number(retryAfter)));
+  return failure;
 }
 
 export type BinaryResponse = { blob: Blob; fileName: string | null };
@@ -179,6 +184,7 @@ function parseCurrentUser(value: unknown): CurrentUser {
       overviewDashboard: rawCapabilities.overviewDashboard === true,
       calendar: rawCapabilities.calendar === true,
       messaging: rawCapabilities.messaging === true,
+      ...(typeof rawCapabilities.duplicateCustomerComparison === 'boolean' ? { duplicateCustomerComparison: rawCapabilities.duplicateCustomerComparison } : {}),
       ...(typeof rawCapabilities.backup === 'boolean' ? { backup: rawCapabilities.backup } : {}),
       ...(typeof rawCapabilities.demoDatasetCreation === 'boolean' ? { demoDatasetCreation: rawCapabilities.demoDatasetCreation } : {}),
     },

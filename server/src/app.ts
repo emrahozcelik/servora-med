@@ -37,6 +37,9 @@ import { AuthCredentialAdministration } from './modules/auth/admin-ports.js';
 import type { CrmRepository } from './modules/crm/repository.js';
 import { CrmService } from './modules/crm/service.js';
 import { crmRoutes } from './modules/crm/routes.js';
+import { duplicateRoutes } from './modules/crm/duplicate-routes.js';
+import { DuplicateComparisonService } from './modules/crm/duplicate-service.js';
+import { PostgresDuplicateReadRepository } from './modules/crm/duplicate-repository.js';
 import type { ProductRepository } from './modules/products/repository.js';
 import { ProductService } from './modules/products/service.js';
 import { productRoutes } from './modules/products/routes.js';
@@ -426,6 +429,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         authenticate: authenticateDomain,
         jobHistoryReadPort: dependencies.jobHistoryReadPort,
       });
+      if (config.duplicateComparison?.enabled) {
+        if (!dependencies.pool) throw new Error('Duplicate comparison requires the CRM PostgreSQL pool');
+        await app.register(duplicateRoutes, {
+          prefix: '/api', authenticate: authenticateDomain,
+          service: new DuplicateComparisonService(new PostgresDuplicateReadRepository(dependencies.pool), config.duplicateComparison.keyring),
+        });
+      }
     }
     if (dependencies.productRepository) {
       await app.register(productRoutes, {

@@ -12,7 +12,7 @@ import { paths } from '../paths';
 export type RouteId =
   | 'overview' | 'calendar' | 'messages' | 'jobs'
   | 'saleCreate' | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
-  | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail'
+  | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail' | 'duplicateCustomers' | 'duplicateComparison'
   | 'products' | 'productCreate' | 'productDetail'
   | 'reports' | 'reportStaff' | 'reportCustomers' | 'reportDeliveries' | 'reportApprovals' | 'reportSalesFollowUp'
   | 'users' | 'userCreate' | 'userDetail'
@@ -58,6 +58,8 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
     parentLocation: (params) => params.jobCardId ? paths.job(params.jobCardId) : null },
   jobDetail: { title: 'İş detayı', parentId: 'jobs', section: 'Operasyon' },
   customers: { title: 'Müşteriler', parentId: null, section: 'Operasyon' },
+  duplicateCustomers: { title: 'Olası mükerrerler', parentId: 'customers', section: 'Operasyon' },
+  duplicateComparison: { title: 'Müşteri karşılaştırması', parentId: 'duplicateCustomers', section: 'Operasyon' },
   customerCreate: { title: 'Yeni müşteri', parentId: 'customers', section: 'Operasyon' },
   customerDetail: { title: 'Müşteri', parentId: 'customers', section: 'Operasyon' },
   contactDetail: {
@@ -159,6 +161,8 @@ const PATTERNS: RoutePattern[] = [
   { id: 'jobDetail', test: matchParam(/^\/jobs\/([^/]+)\/?$/, ['jobCardId']) },
   { id: 'jobs', test: matchExact(paths.jobs) },
   { id: 'customerCreate', test: matchExact(paths.newCustomer) },
+  { id: 'duplicateCustomers', test: matchExact(paths.duplicateCustomers) },
+  { id: 'duplicateComparison', test: matchParam(/^\/customers\/duplicate-review-pairs\/([^/]+)\/([^/]+)\/?$/, ['aId', 'bId']) },
   { id: 'contactDetail', test: matchParam(/^\/customers\/([^/]+)\/contacts\/([^/]+)\/?$/, ['customerId', 'contactId']) },
   { id: 'customerDetail', test: matchParam(/^\/customers\/([^/]+)\/?$/, ['customerId']) },
   { id: 'customers', test: matchExact(paths.customers) },
@@ -205,6 +209,8 @@ export function routePathForIdentity(id: RouteId, params: RouteParams): string |
     case 'saleCreate': return params.jobCardId ? paths.newSale(params.jobCardId) : null;
     case 'jobDetail': return params.jobCardId ? paths.job(params.jobCardId) : null;
     case 'customers': return paths.customers;
+    case 'duplicateCustomers': return paths.duplicateCustomers;
+    case 'duplicateComparison': return params.aId && params.bId ? paths.duplicateComparison(params.aId, params.bId) : null;
     case 'customerCreate': return paths.newCustomer;
     case 'customerDetail': return params.customerId ? paths.customer(params.customerId) : null;
     case 'contactDetail':

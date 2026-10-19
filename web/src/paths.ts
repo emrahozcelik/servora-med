@@ -33,6 +33,8 @@ export const paths = {
   approvalReports: '/reports/approvals',
   salesFollowUpReports: '/reports/sales-follow-up',
   customers: '/customers',
+  duplicateCustomers: '/customers/duplicate-candidates',
+  duplicateComparison: (a: string, b: string) => `/customers/duplicate-review-pairs/${encoded(a)}/${encoded(b)}`,
   newCustomer: '/customers/new',
   products: '/products',
   newProduct: '/products/new',

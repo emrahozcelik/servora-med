@@ -1,0 +1,25 @@
+.duplicate-workspace { min-width: 0; overflow-wrap: anywhere; }
+.duplicate-notice { max-width: 75ch; padding: 1rem; background: var(--accent-soft); border-radius: var(--radius); }
+.duplicate-candidates { list-style: none; margin: 1.5rem 0; padding: 0; }
+.duplicate-candidate { padding: 1.5rem 0; border-bottom: 1px solid var(--rule); }
+.duplicate-identities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.duplicate-identities h2 { margin: 0; font-size: 1.125rem; }
+.duplicate-id { font-size: .875rem; color: var(--muted); }
+.duplicate-reasons { padding-inline-start: 1.25rem; }
+.duplicate-warning { color: var(--warning, var(--ink)); font-weight: 600; }
+.duplicate-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; margin-block: 1.5rem; }
+.duplicate-workspace a, .duplicate-workspace button { min-height: 44px; }
+.duplicate-workspace a { display: inline-flex; align-items: center; }
+.duplicate-comparison { margin-block: 1.5rem; }
+.duplicate-field { border-top: 1px solid var(--rule); padding-block: 1rem; }
+.duplicate-field h3 { margin: 0 0 .75rem; font-size: 1rem; }
+.duplicate-field-signal { display: inline-block; margin-inline-start: 1rem; color: var(--info); font-size: .875rem; }
+.duplicate-field-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin: 0; }
+.duplicate-field-values dt { color: var(--muted); font-size: .875rem; }
+.duplicate-field-values dd { margin: .25rem 0 0; white-space: pre-wrap; }
+.duplicate-contacts { padding-inline-start: 1.25rem; }
+.duplicate-contacts li { margin-block-end: 1.5rem; }
+.duplicate-contacts h5 { margin: 0; font-size: 1rem; }
+.duplicate-contacts dd { margin-inline-start: 0; }
+@media (max-width: 48rem) { .duplicate-identities { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 48rem) { .duplicate-field-values { grid-template-columns: minmax(0, 1fr); gap: .75rem; } }

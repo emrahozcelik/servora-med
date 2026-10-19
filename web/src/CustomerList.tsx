@@ -254,7 +254,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
 
   return <main className="workspace customer-workspace">
     <PageHeader fallbackTitle="Müşteriler"
-      actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
+      actions={<>{canManage && user.capabilities?.duplicateCustomerComparison === true && <Link className="secondary-button" to={paths.duplicateCustomers}>Olası mükerrerler</Link>}<button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button></>}
     />
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
