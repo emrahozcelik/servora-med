@@ -57,11 +57,13 @@ it('UI-08: retained results remain labelled while a retry is pending', async () 
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it('RATE-05: 429 retains labelled data, respects Retry-After and recovers', async () => {
+it('RATE-05: 429 explains the wait, blocks manual retry and retries at expiry', async () => {
   vi.useFakeTimers();
   const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
   quota.retryAfterSeconds = 5;
-  const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota).mockResolvedValue(page);
+  let resolveRetry!: (value: typeof page) => void;
+  const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota)
+    .mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve; }));
   let reload = () => {};
   function Harness() {
     const state = useDuplicateRead('quota-scope', load); reload = state.reload;
@@ -72,11 +74,71 @@ it('RATE-05: 429 retains labelled data, respects Retry-After and recovers', asyn
     await act(async () => { root.render(<Harness />); });
     await act(async () => { reload(); });
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('güncellikleri doğrulanamadı');
-    await act(async () => { reload(); await vi.advanceTimersByTimeAsync(4_999); reload(); });
+    expect(host.textContent).toContain('yaklaşık 5 saniye');
+    expect(host.textContent).toContain('otomatik');
+    const retry = host.querySelector('[data-servora-result-state] button') as HTMLButtonElement | null;
+    expect(retry?.disabled).toBe(true);
+    reload();
     expect(load).toHaveBeenCalledTimes(2);
-    await act(async () => { await vi.advanceTimersByTimeAsync(1); reload(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(load).toHaveBeenCalledTimes(3);
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(load).toHaveBeenCalledTimes(3);
+    await act(async () => { resolveRetry(page); await Promise.resolve(); });
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.textContent).toContain('SYNTHETIC OLD CUSTOMER');
   } finally { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); }
+});
+
+it('RATE-05: only one automatic retry is scheduled per pause', async () => {
+  vi.useFakeTimers();
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
+  quota.retryAfterSeconds = 5;
+  const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota).mockRejectedValueOnce(quota).mockResolvedValue(page);
+  let reload = () => {};
+  function Harness() {
+    const state = useDuplicateRead('quota-bounded', load); reload = state.reload;
+    return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
+  }
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    await act(async () => { reload(); });
+    expect(host.textContent).toContain('otomatik');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(host.textContent).toContain('yaklaşık 5 saniye');
+    expect(host.textContent).not.toContain('otomatik');
+    expect(host.textContent).toContain('Tekrar dene');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(load).toHaveBeenCalledTimes(3);
+    const retry = host.querySelector('[data-servora-result-state] button') as HTMLButtonElement | null;
+    expect(retry?.disabled).toBe(false);
+    await act(async () => { retry?.click(); await Promise.resolve(); });
+    expect(load).toHaveBeenCalledTimes(4);
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); }
+});
+
+it('RATE-05: unmount cancels the scheduled retry', async () => {
+  vi.useFakeTimers();
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
+  quota.retryAfterSeconds = 5;
+  const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota);
+  let reload = () => {};
+  function Harness() {
+    const state = useDuplicateRead('quota-unmount', load); reload = state.reload;
+    return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
+  }
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  let mounted = true;
+  try {
+    await act(async () => { root.render(<Harness />); });
+    await act(async () => { reload(); });
+    expect(host.textContent).toContain('yaklaşık 5 saniye');
+    await act(async () => { root.unmount(); mounted = false; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(load).toHaveBeenCalledTimes(2);
+  } finally { if (mounted) await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); }
 });

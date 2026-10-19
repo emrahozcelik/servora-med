@@ -11,24 +11,26 @@ import { customerStatusLabels, customerTypeLabels, getCustomerOperationalSummary
 import { useDuplicateRead } from './useDuplicateRead';
 import './duplicate-customers.css';
 
-export function DuplicateReadError({ error, onReload, retainedData = false }: { error: Error; onReload: () => void; retainedData?: boolean }) {
+export function DuplicateReadError({ error, onReload, retainedData = false, retryAt = null, retryAuto = true, busy = false }: { error: Error; onReload: () => void; retainedData?: boolean; retryAt?: number | null; retryAuto?: boolean; busy?: boolean }) {
   const code = error instanceof ApiError ? error.code : '';
-  return <ResultState status={error instanceof ApiError && error.status === 403 ? '403' : 'error'} title={code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi'} description={<>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez. {retainedData && <strong>Gösterilen sonuçlar son başarılı okumaya aittir; güncellikleri doğrulanamadı.</strong>}</>}
-    action={error instanceof ApiError && [401, 403, 404].includes(error.status) ? undefined : <button type="button" className="secondary-button" onClick={onReload}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
+  const waitingForRetry = retryAt !== null && error instanceof ApiError && error.status === 429;
+  const waitSeconds = waitingForRetry ? Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)) : 0;
+  return <ResultState status={error instanceof ApiError && error.status === 403 ? '403' : 'error'} title={code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi'} description={<>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez. {retainedData && <strong>Gösterilen sonuçlar son başarılı okumaya aittir; güncellikleri doğrulanamadı.</strong>}{waitingForRetry && <span className="duplicate-retry-wait"> Kota sınırı nedeniyle yaklaşık {waitSeconds} saniye bekleniyor. {retryAuto ? 'Süre dolunca görünür ekranda bir kez otomatik olarak yeniden denenecek.' : "Süre dolunca 'Tekrar dene' ile yeniden deneyebilirsiniz."}</span>}</>}
+    action={error instanceof ApiError && [401, 403, 404].includes(error.status) ? undefined : <button type="button" className="secondary-button" onClick={onReload} disabled={busy || waitingForRetry}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
 }
 export function DuplicateReadNotice() {
   return <p className="duplicate-notice">Salt okunur karşılaştırma. Bu ekran müşteri kayıtlarını değiştirmez ve inceleme kararı kaydetmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
 }
-export function DuplicateCandidateView({ data, error, busy, onReload, onFirst, onNext, laterPage = false }: {
-  data: DuplicatePage | null; error: Error | null; busy: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
+export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false }: {
+  data: DuplicatePage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
 }) {
   const location = useLocation();
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
-    <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
+    <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
     <DuplicateReadNotice />
     <p>Yalnız aynı kuruluştaki gerçek iş kayıtları (BUSINESS); aday, aktif ve pasif müşteriler dahildir.</p>
     {busy && !data && <LoadingSkeleton title="Adaylar yükleniyor" rows={4} />}
-    {error && <DuplicateReadError error={error} retainedData={data !== null} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
+    {error && <DuplicateReadError error={error} retainedData={data !== null} retryAt={retryAt} retryAuto={retryAuto} busy={busy} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
     {data && <>
       <p className="text-muted">Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. {laterPage ? 'Bu sayfa otomatik başa dönmez. Güncel kapsam için ilk sayfayı yenileyin.' : 'Görünürken 60 saniyede bir yenilenir.'}</p>
       {data.scope.anchorCustomerId && <Link to={paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
@@ -44,8 +46,8 @@ export function DuplicateCandidateView({ data, error, busy, onReload, onFirst, o
           </div>)}</div>
           <ul className="duplicate-reasons" aria-label="Eşleşme gerekçeleri">{item.matchingCodes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
           {item.warnings.length > 0 && <p className="duplicate-warning">Çelişki: Vergi numaraları farklı.</p>}
-          {item.comparisonStatus !== 'READY' && <p role="status">Kanıt bütünü doğrulanamadı. Gerekçeler eksik olabilir.</p>}
-          <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ duplicateReturn: location.pathname + location.search, duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>
+          {item.comparisonStatus !== 'READY' && <p role="status" className="duplicate-warning">Kanıt bütünü doğrulanamadığı için bu çiftte karşılaştırma açılamaz. Aday çift ve mevcut eşleşme gerekçeleri listede kalır.</p>}
+          {item.comparisonStatus === 'READY' && <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ duplicateReturn: location.pathname + location.search, duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>}
         </article>
       </li>)}</ol>
       <nav className="duplicate-pagination" aria-label="Aday sayfaları">
@@ -136,10 +138,10 @@ export function DuplicateComparisonScreen() {
   const entry = location.state as { duplicateReturn?: unknown; duplicateFocus?: unknown } | null;
   const returnUrl = typeof entry?.duplicateReturn === 'string' && /^\/customers\/duplicate-candidates(?:\?|$)/.test(entry.duplicateReturn) ? entry.duplicateReturn : paths.duplicateCustomers;
   return <main className="workspace duplicate-workspace" aria-busy={state.busy}>
-    <PageHeader fallbackTitle="Müşteri karşılaştırması" actions={<button type="button" className="secondary-button" onClick={state.reload} disabled={state.busy}>Yenile</button>} />
+    <PageHeader fallbackTitle="Müşteri karşılaştırması" actions={<button type="button" className="secondary-button" onClick={state.reload} disabled={state.busy || state.retryAt !== null}>Yenile</button>} />
     <Link className="secondary-button" to={returnUrl} state={{ duplicateFocus: entry?.duplicateFocus }}>Aday listesine dön</Link>
     {state.busy && !state.data && <LoadingSkeleton title="Karşılaştırma yükleniyor" rows={6} />}
-    {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} onReload={state.reload} />}
+    {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} retryAt={state.retryAt} retryAuto={state.retryAuto} busy={state.busy} onReload={state.reload} />}
     {state.data && <DuplicateComparisonView data={state.data} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;
