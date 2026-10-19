@@ -1,22 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { paths } from './paths';
-import { ApiError } from './services/api';
+import { ApiError, type CurrentUser } from './services/api';
 import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
 import { ResultState } from './ui/antd/ResultState';
 import { customerStatusLabels, customerTypeLabels, getCustomerOperationalSummary, type CustomerOperationalSummary } from './services/crm-api';
+import { buildContextState } from './shell/context-return';
+import { useOptionalRouteNavigation } from './shell/route-navigation-provider';
 import { useDuplicateRead } from './useDuplicateRead';
 import './duplicate-customers.css';
 
-export function DuplicateReadError({ error, onReload, retainedData = false, retryAt = null, retryAuto = true, busy = false }: { error: Error; onReload: () => void; retainedData?: boolean; retryAt?: number | null; retryAuto?: boolean; busy?: boolean }) {
+const readPauseScope = (kind: 'LIST' | 'DETAIL', user: CurrentUser) => `CRM_DUPLICATE_${kind}:v1:${user.organizationId}:${user.id}`;
+
+export function DuplicateReadError({ error, onReload, retainedData = false, retryAt = null, retryAuto = true, busy = false, notFoundTitle = 'Aday taraması başlatılamadı', notFoundDescription = 'Seçili müşteri kapsamı kullanılamıyor veya erişim kapsamınızda değil. Aday listesine dönüp yeniden deneyin.' }: {
+  error: Error; onReload: () => void; retainedData?: boolean; retryAt?: number | null; retryAuto?: boolean; busy?: boolean;
+  notFoundTitle?: string; notFoundDescription?: string;
+}) {
   const code = error instanceof ApiError ? error.code : '';
-  const waitingForRetry = retryAt !== null && error instanceof ApiError && error.status === 429;
+  const status = error instanceof ApiError ? error.status : 0;
+  const waitingForRetry = retryAt !== null && status === 429;
   const waitSeconds = waitingForRetry ? Math.max(1, Math.ceil((retryAt - Date.now()) / 1000)) : 0;
-  return <ResultState status={error instanceof ApiError && error.status === 403 ? '403' : 'error'} title={code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi'} description={<>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez. {retainedData && <strong>Gösterilen sonuçlar son başarılı okumaya aittir; güncellikleri doğrulanamadı.</strong>}{waitingForRetry && <span className="duplicate-retry-wait"> Kota sınırı nedeniyle yaklaşık {waitSeconds} saniye bekleniyor. {retryAuto ? 'Süre dolunca görünür ekranda bir kez otomatik olarak yeniden denenecek.' : "Süre dolunca 'Tekrar dene' ile yeniden deneyebilirsiniz."}</span>}</>}
-    action={error instanceof ApiError && [401, 403, 404].includes(error.status) ? undefined : <button type="button" className="secondary-button" onClick={onReload} disabled={busy || waitingForRetry}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
+  const notFound = status === 404;
+  const title = notFound ? notFoundTitle : code === 'CANDIDATE_SCAN_LIMIT' ? 'Tarama kapsam sınırını aştı' : code === 'CURSOR_RESTART_REQUIRED' ? 'Liste değişti' : 'Karşılaştırma yüklenemedi';
+  const description = notFound ? notFoundDescription : <>{error.message} Sonuç tamamlanamadı; aday bulunmadığı anlamına gelmez. {retainedData && <strong>Gösterilen sonuçlar son başarılı okumaya aittir; güncellikleri doğrulanamadı.</strong>}{waitingForRetry && <span className="duplicate-retry-wait"> Kota sınırı nedeniyle yaklaşık {waitSeconds} saniye bekleniyor. {retryAuto ? 'Süre dolunca görünür ekranda bir kez otomatik olarak yeniden denenecek.' : "Süre dolunca 'Tekrar dene' ile yeniden deneyebilirsiniz."}</span>}</>;
+  return <ResultState status={notFound ? '404' : status === 403 ? '403' : 'error'} title={title} description={description}
+    action={[401, 403, 404].includes(status) ? undefined : <button type="button" className="secondary-button" onClick={onReload} disabled={busy || waitingForRetry}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
 }
 export function DuplicateReadNotice() {
   return <p className="duplicate-notice">Salt okunur karşılaştırma. Bu ekran müşteri kayıtlarını değiştirmez ve inceleme kararı kaydetmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
@@ -25,6 +36,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
   data: DuplicatePage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
 }) {
   const location = useLocation();
+  const contextState = buildContextState(location);
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
     <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
     <DuplicateReadNotice />
@@ -47,7 +59,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
           <ul className="duplicate-reasons" aria-label="Eşleşme gerekçeleri">{item.matchingCodes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
           {item.warnings.length > 0 && <p className="duplicate-warning">Çelişki: Vergi numaraları farklı.</p>}
           {item.comparisonStatus !== 'READY' && <p role="status" className="duplicate-warning">Kanıt bütünü doğrulanamadığı için bu çiftte karşılaştırma açılamaz. Aday çift ve mevcut eşleşme gerekçeleri listede kalır.</p>}
-          {item.comparisonStatus === 'READY' && <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ duplicateReturn: location.pathname + location.search, duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>}
+          {item.comparisonStatus === 'READY' && <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ ...(contextState ?? {}), duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>}
         </article>
       </li>)}</ol>
       <nav className="duplicate-pagination" aria-label="Aday sayfaları">
@@ -59,10 +71,10 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
   </main>;
 }
 
-export function DuplicateCustomersScreen() {
+export function DuplicateCustomersScreen({ user }: { user: CurrentUser }) {
   const [params, setParams] = useSearchParams(); const location = useLocation();
   const laterPage = params.has('cursor');
-  const state = useDuplicateRead(params.toString(), (signal) => listDuplicateCandidates(params, signal), !laterPage);
+  const state = useDuplicateRead(params.toString(), (signal) => listDuplicateCandidates(params, signal), !laterPage, readPauseScope('LIST', user));
   const restored = useRef(false);
   useEffect(() => {
     const focus = (location.state as { duplicateFocus?: unknown } | null)?.duplicateFocus;
@@ -132,16 +144,21 @@ export function DuplicateComparisonView({ data }: { data: DuplicateComparison })
   </>;
 }
 
-export function DuplicateComparisonScreen() {
+export function DuplicateComparisonScreen({ user }: { user: CurrentUser }) {
   const { aId = '', bId = '' } = useParams(); const location = useLocation();
-  const state = useDuplicateRead(`${aId}:${bId}`, (signal) => getDuplicateComparison(aId, bId, signal));
-  const entry = location.state as { duplicateReturn?: unknown; duplicateFocus?: unknown } | null;
-  const returnUrl = typeof entry?.duplicateReturn === 'string' && /^\/customers\/duplicate-candidates(?:\?|$)/.test(entry.duplicateReturn) ? entry.duplicateReturn : paths.duplicateCustomers;
+  const state = useDuplicateRead(`${aId}:${bId}`, (signal) => getDuplicateComparison(aId, bId, signal), true, readPauseScope('DETAIL', user));
+  const navigation = useOptionalRouteNavigation();
+  const entry = location.state as { duplicateFocus?: unknown } | null;
+  const returnTarget = navigation?.returnTarget ?? { to: paths.duplicateCustomers, label: 'Olası mükerrerler' };
+  const focusState = typeof entry?.duplicateFocus === 'string' ? { duplicateFocus: entry.duplicateFocus } : undefined;
   return <main className="workspace duplicate-workspace" aria-busy={state.busy}>
-    <PageHeader fallbackTitle="Müşteri karşılaştırması" actions={<button type="button" className="secondary-button" onClick={state.reload} disabled={state.busy || state.retryAt !== null}>Yenile</button>} />
-    <Link className="secondary-button" to={returnUrl} state={{ duplicateFocus: entry?.duplicateFocus }}>Aday listesine dön</Link>
+    <PageHeader fallbackTitle="Müşteri karşılaştırması"
+      returnSlot={<Link className="route-return-link" to={returnTarget.to} state={focusState} aria-label={`${returnTarget.label}'e dön`}>‹ {returnTarget.label}</Link>}
+      actions={<button type="button" className="secondary-button" onClick={state.reload} disabled={state.busy || state.retryAt !== null}>Yenile</button>} />
     {state.busy && !state.data && <LoadingSkeleton title="Karşılaştırma yükleniyor" rows={6} />}
-    {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} retryAt={state.retryAt} retryAuto={state.retryAuto} busy={state.busy} onReload={state.reload} />}
+    {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} retryAt={state.retryAt} retryAuto={state.retryAuto} busy={state.busy} onReload={state.reload}
+      notFoundTitle="Karşılaştırılabilir müşteri çifti bulunamadı"
+      notFoundDescription="Bu çift kullanılamıyor veya erişim kapsamınızda değil. Olası mükerrerler listesine dönüp başka bir çift seçebilirsiniz." />}
     {state.data && <DuplicateComparisonView data={state.data} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;

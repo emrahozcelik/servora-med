@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
@@ -17,7 +17,7 @@ it.each([503, 401, 403, 404])('UI-08: refresh HTTP %s labels retained data stale
   const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(new ApiError(status, status === 403 ? 'FORBIDDEN' : 'REVIEW_TEMPORARILY_UNAVAILABLE', 'Synthetic refresh failed'));
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead('same-scope', load);
+    const state = useDuplicateRead('same-scope', load, true, 'test:list:same-scope');
     reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
@@ -27,7 +27,7 @@ it.each([503, 401, 403, 404])('UI-08: refresh HTTP %s labels retained data stale
     expect(host.textContent).toContain('SYNTHETIC OLD CUSTOMER');
     await act(async () => { reload(); });
     expect(load).toHaveBeenCalledTimes(2);
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Synthetic refresh failed');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(status === 404 ? 'Aday taraması başlatılamadı' : 'Synthetic refresh failed');
     if ([401, 403, 404].includes(status)) expect(host.textContent).not.toContain('SYNTHETIC OLD CUSTOMER');
     else {
       expect(host.textContent).toContain('SYNTHETIC OLD CUSTOMER');
@@ -42,7 +42,7 @@ it('UI-08: retained results remain labelled while a retry is pending', async () 
   const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(new Error('Offline')).mockImplementationOnce(() => new Promise(resolve => { resolveRetry = resolve; }));
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead('retry-scope', load); reload = state.reload;
+    const state = useDuplicateRead('retry-scope', load, true, 'test:list:retry-scope'); reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -66,7 +66,7 @@ it('RATE-05: 429 explains the wait, blocks manual retry and retries at expiry', 
     .mockImplementationOnce(() => new Promise((resolve) => { resolveRetry = resolve; }));
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead('quota-scope', load); reload = state.reload;
+    const state = useDuplicateRead('quota-scope', load, true, 'test:list:quota-scope'); reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -98,7 +98,7 @@ it('RATE-05: only one automatic retry is scheduled per pause', async () => {
   const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota).mockRejectedValueOnce(quota).mockResolvedValue(page);
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead('quota-bounded', load); reload = state.reload;
+    const state = useDuplicateRead('quota-bounded', load, true, 'test:list:quota-bounded'); reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
@@ -121,6 +121,95 @@ it('RATE-05: only one automatic retry is scheduled per pause', async () => {
   } finally { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); }
 });
 
+it('F07: later-page 429 keeps the LIST cooldown after returning to the first page', async () => {
+  vi.useFakeTimers();
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
+  quota.retryAfterSeconds = 5;
+  const laterPage = { ...page, page: { ...page.page, nextCursor: 'synthetic-next', exhausted: false } };
+  const load = vi.fn().mockResolvedValueOnce(laterPage).mockRejectedValueOnce(quota).mockResolvedValueOnce(page);
+  let reload = () => {};
+  function Harness() {
+    const [key, setKey] = useState('cursor=synthetic-next');
+    const state = useDuplicateRead(key, load, true, 'CRM_DUPLICATE_LIST:v1:f07-org:f07-actor');
+    reload = state.reload;
+    return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={() => setKey('')} onNext={() => {}} laterPage={key !== ''} /></MemoryRouter>;
+  }
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => { reload(); });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('yaklaşık 5 saniye');
+    const first = [...host.querySelectorAll('button')].find((button) => button.textContent === 'İlk sayfayı yenile') as HTMLButtonElement | undefined;
+    expect(first?.disabled).toBe(false);
+    await act(async () => { first?.click(); await Promise.resolve(); });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('yaklaşık 5 saniye');
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    reload();
+    expect(load).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(host.textContent).toContain('SYNTHETIC OLD CUSTOMER');
+  } finally { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); }
+});
+
+it('F07: LIST and DETAIL cooldowns are isolated', async () => {
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
+  quota.retryAfterSeconds = 60;
+  const listLoad = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota);
+  const detailLoad = vi.fn().mockResolvedValue(page);
+  let listReload = () => {}; let detailReload = () => {};
+  function Harness() {
+    const list = useDuplicateRead('f07-list', listLoad, true, 'CRM_DUPLICATE_LIST:v1:f07-org:f07-actor');
+    const detail = useDuplicateRead('f07-detail', detailLoad, true, 'CRM_DUPLICATE_DETAIL:v1:f07-org:f07-actor');
+    listReload = list.reload; detailReload = detail.reload;
+    return <MemoryRouter><p>synthetic</p></MemoryRouter>;
+  }
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    expect(listLoad).toHaveBeenCalledTimes(1);
+    expect(detailLoad).toHaveBeenCalledTimes(1);
+    await act(async () => { listReload(); });
+    expect(listLoad).toHaveBeenCalledTimes(2);
+    await act(async () => { detailReload(); });
+    expect(detailLoad).toHaveBeenCalledTimes(2);
+    await act(async () => { listReload(); });
+    expect(listLoad).toHaveBeenCalledTimes(2);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('F07: changing the authenticated actor does not inherit another actor cooldown', async () => {
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
+  quota.retryAfterSeconds = 60;
+  const actorA = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota);
+  const actorB = vi.fn().mockResolvedValue(page);
+  let setScope: (value: string) => void = () => {};
+  let reload = () => {};
+  function Harness() {
+    const [scope, changeScope] = useState('CRM_DUPLICATE_LIST:v1:f07-org:f07-actor-a');
+    setScope = changeScope;
+    const state = useDuplicateRead('f07-actor-key', scope.endsWith('actor-a') ? actorA : actorB, true, scope);
+    reload = state.reload;
+    return <MemoryRouter><p>synthetic</p></MemoryRouter>;
+  }
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => { root.render(<Harness />); });
+    expect(actorA).toHaveBeenCalledTimes(1);
+    await act(async () => { reload(); });
+    expect(actorA).toHaveBeenCalledTimes(2);
+    await act(async () => { setScope('CRM_DUPLICATE_LIST:v1:f07-org:f07-actor-b'); });
+    expect(actorB).toHaveBeenCalledTimes(1);
+    await act(async () => { reload(); });
+    expect(actorB).toHaveBeenCalledTimes(2);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it('RATE-05: unmount cancels the scheduled retry', async () => {
   vi.useFakeTimers();
   const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic quota', true);
@@ -128,7 +217,7 @@ it('RATE-05: unmount cancels the scheduled retry', async () => {
   const load = vi.fn().mockResolvedValueOnce(page).mockRejectedValueOnce(quota);
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead('quota-unmount', load); reload = state.reload;
+    const state = useDuplicateRead('quota-unmount', load, true, 'test:list:quota-unmount'); reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);

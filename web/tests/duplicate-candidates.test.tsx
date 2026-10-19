@@ -37,7 +37,7 @@ async function mount(comparisonStatus: DuplicatePage['items'][number]['compariso
   const load = vi.fn().mockResolvedValue(pageWith(comparisonStatus));
   let reload = () => {};
   function Harness() {
-    const state = useDuplicateRead(`f06-${comparisonStatus}`, load); reload = state.reload;
+    const state = useDuplicateRead(`f06-${comparisonStatus}`, load, true, `test:list:f06-${comparisonStatus}`); reload = state.reload;
     return <MemoryRouter><DuplicateCandidateView {...state} onReload={reload} onFirst={reload} onNext={() => {}} /></MemoryRouter>;
   }
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);

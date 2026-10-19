@@ -17,7 +17,7 @@ const customerA = { id: '10000000-0000-4000-8000-000000000001', name: 'Sentetik 
 const customerB = { ...customerA, id: '10000000-0000-4000-8000-000000000002', status: 'inactive' };
 const pair = { customerAId: customerA.id, customerBId: customerB.id };
 const review = { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', currentDecision: null, lastDecision: null };
-const pageFor = (comparisonStatus) => ({
+const pageFor = (comparisonStatus, nextCursor = null) => ({
   scope: { dataClass: 'BUSINESS', includesInactive: true, anchorCustomerId: null },
   asOf: '2026-10-19T10:00:00.000Z',
   matchingRuleVersion: 'crm-duplicate-v1',
@@ -26,8 +26,12 @@ const pageFor = (comparisonStatus) => ({
   largestNameGroupSize: 2,
   largestPhoneGroupSize: 2,
   items: [{ pair, customerA, customerB, matchingCodes: ['SAME_NAME_AND_PHONE'], warnings: [], comparisonStatus, review }],
-  page: { nextCursor: null, exhausted: true, evaluatedPairs: 1, returnedItems: 1 },
+  page: { nextCursor, exhausted: nextCursor === null, evaluatedPairs: 1, returnedItems: 1 },
 });
+
+const detailCustomerA = { ...customerA, customerType: 'clinic', taxNumber: null, phone: '+905321234567', email: null, address: 'Sentetik adres', version: 1, assignedStaffUserId: null, contacts: [{ id: '10000000-0000-4000-8000-0000000000c1', name: 'Sentetik İlgili Kişi', title: 'Yönetici', phone: '+905321234567', email: null, isPrimary: true, isActive: true, version: 1 }] };
+const detailCustomerB = { ...detailCustomerA, id: customerB.id, name: customerB.name, status: 'inactive' };
+const comparisonFor = { pair, asOf: '2026-10-19T10:00:00.000Z', customerA: detailCustomerA, customerB: detailCustomerB, evidence: { revision: 'synthetic', schemaVersion: 1, matchingRuleVersion: 'crm-duplicate-v1', matchingCodes: ['SAME_NAME_AND_PHONE'], warnings: [] }, review, allowedActions: [] };
 
 const results = [];
 function pass(name, detail = '') {
@@ -119,12 +123,12 @@ try {
     await accessPage.route('**/api/customers/**', async (route) => {
       calls += 1;
       if (calls === 1) return fulfill(route, 200, pageFor('READY'));
-      return fulfill(route, status, { error: `Sentetik ${status}`, code: status === 403 ? 'FORBIDDEN' : 'REVIEW_TEMPORARILY_UNAVAILABLE' });
+      return fulfill(route, status, { error: `Sentetik ${status}`, code: status === 404 ? 'DUPLICATE_PAIR_NOT_FOUND' : status === 403 ? 'FORBIDDEN' : 'REVIEW_TEMPORARILY_UNAVAILABLE' });
     });
     await accessPage.goto(`${origin}/duplicate-browser-test`, { waitUntil: 'domcontentloaded' });
     await accessPage.getByText(customerA.name).first().waitFor({ timeout: 10000 });
     await accessPage.getByRole('button', { name: 'Yenile', exact: true }).click();
-    await accessPage.getByRole('alert').filter({ hasText: `Sentetik ${status}` }).waitFor({ timeout: 5000 });
+    await accessPage.getByRole('alert').filter({ hasText: status === 404 ? 'Aday taraması başlatılamadı' : `Sentetik ${status}` }).waitFor({ timeout: 5000 });
     const text = await accessPage.locator('body').innerText();
     if (status === 503) {
       assert.equal(text.includes(customerA.name), true);
@@ -137,6 +141,100 @@ try {
     pass(`F01 refresh ${status}`, status === 503 ? 'stale data retained' : 'protected data cleared');
     await accessPage.close();
   }
+
+
+  const pagingPage = await context.newPage(); watch(pagingPage);
+  let pagingCalls = 0;
+  await pagingPage.route('**/api/customers/**', async (route) => {
+    const url = new URL(route.request().url());
+    const hasCursor = url.searchParams.has('cursor');
+    pagingCalls += 1;
+    if (!hasCursor && pagingCalls === 1) return fulfill(route, 200, pageFor('READY', 'synthetic-next'));
+    if (hasCursor) return fulfill(route, 429, { error: 'Sentetik kota', code: 'RATE_LIMIT_EXCEEDED' }, { 'Retry-After': '5' });
+    return fulfill(route, 200, pageFor('READY'));
+  });
+  await pagingPage.goto(`${origin}/duplicate-browser-test`, { waitUntil: 'domcontentloaded' });
+  await pagingPage.getByText(customerA.name).first().waitFor({ timeout: 10000 });
+  await pagingPage.getByRole('button', { name: 'Sonraki sayfa' }).click();
+  await pagingPage.getByRole('alert').filter({ hasText: 'Sentetik kota' }).waitFor({ timeout: 5000 });
+  const firstPageButton = pagingPage.getByRole('button', { name: 'İlk sayfayı yenile' });
+  assert.equal(await firstPageButton.isEnabled(), true);
+  assert.equal(pagingCalls, 2);
+  await firstPageButton.click();
+  await pagingPage.getByText(/yaklaşık 5 saniye/).waitFor({ timeout: 5000 });
+  await pagingPage.waitForTimeout(500);
+  assert.equal(pagingCalls, 2);
+  assert.equal(await pagingPage.getByText(/yaklaşık 5 saniye/).isVisible(), true);
+  await pagingPage.getByText(customerA.name).first().waitFor({ timeout: 12000 });
+  assert.equal(pagingCalls, 3);
+  pass('F07 later-page 429 keeps LIST cooldown across first-page navigation', `requests=${pagingCalls}`);
+  await pagingPage.screenshot({ path: join(out, 'f07-pagination-429.png'), fullPage: true });
+  await pagingPage.close();
+
+  const returnPage = await context.newPage(); watch(returnPage);
+  await returnPage.route('**/api/customers/**', async (route) => {
+    if (route.request().url().includes('/duplicate-review-pairs/')) return fulfill(route, 200, comparisonFor);
+    return fulfill(route, 200, pageFor('READY'));
+  });
+  const listUrl = `${origin}/duplicate-browser-test?anchor=${customerA.id}`;
+  await returnPage.goto(listUrl, { waitUntil: 'domcontentloaded' });
+  await returnPage.getByText(customerA.name).first().waitFor({ timeout: 10000 });
+  const compareLink = returnPage.getByRole('link', { name: /İki müşteriyi karşılaştır/ });
+  const focusId = await compareLink.getAttribute('id');
+  await compareLink.click();
+  await returnPage.getByRole('heading', { level: 1, name: 'Müşteri karşılaştırması' }).waitFor({ timeout: 10000 });
+  const returnLinks = await returnPage.locator('a[href*="duplicate-candidates"]').evaluateAll((nodes) => nodes
+    .filter((node) => !node.closest('.route-breadcrumb'))
+    .map((node) => ({ href: node.getAttribute('href'), label: node.getAttribute('aria-label') ?? node.textContent })));
+  assert.equal(returnLinks.length, 1);
+  assert.equal(returnLinks[0].href, `/customers/duplicate-candidates?anchorCustomerId=${customerA.id}`);
+  assert.equal(await returnPage.getByText('Aday listesine dön').count(), 0);
+  await returnPage.getByRole('link', { name: "Olası mükerrerler'e dön" }).click();
+  await returnPage.getByText(customerA.name).first().waitFor({ timeout: 10000 });
+  await returnPage.waitForFunction((id) => document.activeElement?.id === id, focusId, { timeout: 5000 });
+  pass('F08 canonical return preserves list context and focus', returnLinks[0].href);
+
+  await returnPage.setViewportSize({ width: 390, height: 844 });
+  await returnPage.goto(listUrl, { waitUntil: 'domcontentloaded' });
+  await returnPage.getByText(customerA.name).first().waitFor({ timeout: 10000 });
+  await returnPage.getByRole('link', { name: /İki müşteriyi karşılaştır/ }).click();
+  await returnPage.getByRole('heading', { level: 1, name: 'Müşteri karşılaştırması' }).waitFor({ timeout: 10000 });
+  const mobileReturns = await returnPage.locator('a[href*="duplicate-candidates"]').evaluateAll((nodes) => nodes
+    .filter((node) => !node.closest('.route-breadcrumb'))
+    .map((node) => node.getAttribute('href')));
+  assert.deepEqual(mobileReturns, [`/customers/duplicate-candidates?anchorCustomerId=${customerA.id}`]);
+  assert.equal(await returnPage.locator('.page-header .route-return-link').isVisible(), true);
+  pass('F08 mobile has one canonical return target');
+
+  await returnPage.setViewportSize({ width: 1440, height: 900 });
+  await returnPage.goto(`${origin}/duplicate-browser-test?comparison`, { waitUntil: 'domcontentloaded' });
+  await returnPage.getByRole('heading', { level: 1, name: 'Müşteri karşılaştırması' }).waitFor({ timeout: 10000 });
+  const deepReturns = await returnPage.locator('a[href*="duplicate-candidates"]').evaluateAll((nodes) => nodes
+    .filter((node) => !node.closest('.route-breadcrumb'))
+    .map((node) => node.getAttribute('href')));
+  assert.deepEqual(deepReturns, ['/customers/duplicate-candidates']);
+  assert.equal(await returnPage.getByText('Aday listesine dön').count(), 0);
+  pass('F08 deep-link uses the safe parent fallback');
+  await returnPage.screenshot({ path: join(out, 'f08-canonical-return.png'), fullPage: true });
+  await returnPage.close();
+
+  const missingPage = await context.newPage(); watch(missingPage);
+  await missingPage.route('**/api/customers/**', async (route) => {
+    if (route.request().url().includes('/duplicate-review-pairs/')) return fulfill(route, 404, { error: 'Karşılaştırılabilir müşteri çifti bulunamadı.', code: 'DUPLICATE_PAIR_NOT_FOUND' });
+    return fulfill(route, 200, pageFor('READY'));
+  });
+  await missingPage.goto(`${origin}/duplicate-browser-test?comparison`, { waitUntil: 'domcontentloaded' });
+  await missingPage.getByText('Karşılaştırılabilir müşteri çifti bulunamadı').waitFor({ timeout: 10000 });
+  assert.equal(await missingPage.locator('.servora-ant-result-404').count(), 1);
+  assert.equal(await missingPage.getByText('aday bulunmadığı anlamına gelmez').count(), 0);
+  assert.equal(await missingPage.getByText(customerA.name).count(), 0);
+  const missingReturns = await missingPage.locator('a[href*="duplicate-candidates"]').evaluateAll((nodes) => nodes
+    .filter((node) => !node.closest('.route-breadcrumb'))
+    .map((node) => node.getAttribute('href')));
+  assert.deepEqual(missingReturns, ['/customers/duplicate-candidates']);
+  pass('F09 missing pair renders 404 with safe list return');
+  await missingPage.screenshot({ path: join(out, 'f09-not-found.png'), fullPage: true });
+  await missingPage.close();
 
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);
