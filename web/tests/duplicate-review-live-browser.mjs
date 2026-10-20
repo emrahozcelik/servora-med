@@ -98,6 +98,8 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.getByRole('button', { name: 'Yeniden incele', exact: true }).focus();
   await page.keyboard.press('Enter'); await page.getByRole('dialog').waitFor(); await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Yeniden incele', null, { timeout: 3_000 });
   assert.equal(await page.getByRole('button', { name: 'Yeniden incele', exact: true }).evaluate((el) => el === document.activeElement), true);
   await page.screenshot({ path: `${out}/live-mobile.png`, fullPage: true });
   assert.deepEqual(errors, []);
