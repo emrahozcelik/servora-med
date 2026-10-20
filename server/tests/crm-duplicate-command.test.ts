@@ -28,6 +28,13 @@ it('CMD-03/API-5: parses the exact decision allowlist and binds the normalized i
   expect(duplicateDecisionRequestHash(actor, pair, { ...parsed, expectedReviewVersion: 1 })).not.toBe(hash);
   expect(duplicateDecisionRequestHash({ ...actor, id: '50000000-0000-4000-8000-000000000002' }, pair, parsed)).not.toBe(hash);
   expect(duplicateDecisionRequestHash(actor, pair, { ...parsed, reasonCode: 'INSUFFICIENT_EVIDENCE' })).not.toBe(hash);
+  for (const changed of [
+    { ...parsed, expectedEvidenceRevision: `ev1.synthetic.${'B'.repeat(43)}` },
+    { ...parsed, matchingRuleVersion: 'crm-duplicate-v2' },
+    { ...parsed, decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_BRANCH' as const },
+  ]) expect(duplicateDecisionRequestHash(actor, pair, changed)).not.toBe(hash);
+  expect(duplicateDecisionRequestHash({ ...actor, organizationId: pair.customerAId }, pair, parsed)).not.toBe(hash);
+  expect(duplicateDecisionRequestHash(actor, { ...pair, customerBId: actor.id }, parsed)).not.toBe(hash);
 });
 
 it('SEC-04/API-5: rejects unknown keys, free text, bad versions, bad evidence and mismatched reasons', () => {

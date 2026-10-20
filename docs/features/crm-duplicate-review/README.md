@@ -1,6 +1,8 @@
-# CRM Slice 4A — owning contracts and PR1 rollout
+# CRM Slice 4A — owning contracts and rollout
 
-**Status: PR2 Implemented / PR3 Pending Independent Review.**
+**Status: PR1 merged / PR2 implementation-under-review / PR3 pending.**
+
+**Production rollout: NOT DEPLOYED.**
 
 The approved D1–D6 and T1–T5 design inputs are accepted. This records design
 acceptance, not production deployment or completion of the whole Slice 4A.
@@ -25,21 +27,27 @@ remain unchanged.
 
 ## Implemented boundary and release controls
 
-PR #379 implements PR1 only: management-only candidate/comparison GETs and
-virtual pending reviews (id=null, version=0, allowedActions=[]). The same-org
+PR #379 merged PR1: management-only candidate/comparison GETs and virtual pending
+reviews. PR2 in PR #380 adds persistent decisions, explicit reopen, immutable
+history and the manager decision UI; its implementation remains under independent
+review. Virtual pending reviews still use id=null/version=0; PR2 supplies allowed
+actions from backend policy. The same-org
 BUSINESS scope includes prospect, active and inactive customers. GET creates no
 business, review, audit or receipt rows. Existing tax/Contact primary and STAFF
 CRM permissions are unchanged.
 
-PR2/PR3 persistent decisions, reopen and history are not implemented. There is
-no Customer/Contact merge, identity alias, deactivation, deletion or referential
+PR3 register/workbench is pending. PR2 ALL candidate view keeps current matching
+confirmed/dismissed pairs reachable for comparison, history and explicit reopen;
+the independent register for historical pairs that no longer match is PR3 scope.
+There is no Customer/Contact merge, identity alias, deactivation, deletion or referential
 rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
 
 - CRM_DUPLICATE_COMPARISON_ENABLED defaults to false. Disabled startup does not
   require a keyring. Enabling requires strict CRM_DUPLICATE_EVIDENCE_KEYRING
   validation and the key custody/rotation/recovery ownership in Design SD-4.4.
   No real keys are committed or provisioned by this package.
-- Catalog head 059 adds two read-side indexes only. Env examples and the exact
+- Catalog head 060 adds the review aggregate/events and deferred current-event FK;
+  migration 059 retains its two read-side indexes. Env examples and the exact
   startup/schema gate must match the deployed release catalog.
 - Source/evidence limits and query ownership remain Design SD-3/SD-4. The CRM
   read repository enforces a whole-request monotonic deadline and discards a
@@ -52,4 +60,5 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
   required Linux/PG17/browser evidence remain rollout gates. This documentation
   does not replace current test evidence or turn historical NOT_RUN into PASS.
 - Production migration, secret provisioning and deployment have not been performed.
-  Push/PR update, merge and production actions require their own authorization.
+  PR #380 remediation authorizes local commits, push and PR updates; merge and
+  production actions remain outside that authorization.

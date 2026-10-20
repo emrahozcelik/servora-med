@@ -36,20 +36,26 @@ export function DuplicateReadNotice() {
 export function DuplicateComparisonNotice() {
   return <p className="duplicate-notice">İnceleme kararı yalnız bu müşteri çifti için kaydedilir. Müşteriler birleştirilmez, pasifleştirilmez veya silinmez. Ortak iletişim bilgileri tek başına aynı müşteri olduğunu kanıtlamaz.</p>;
 }
-export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false }: {
+export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false, view = 'ATTENTION', onViewChange }: {
   data: DuplicatePage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
+  view?: 'ATTENTION' | 'ALL'; onViewChange?: (view: 'ATTENTION' | 'ALL') => void;
 }) {
   const location = useLocation();
   const contextState = buildContextState(location);
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
     <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
     <DuplicateReadNotice />
+    {onViewChange && <label className="duplicate-reason">İnceleme görünümü
+      <select aria-label="İnceleme görünümü" value={view} onChange={(event) => onViewChange(event.target.value as 'ATTENTION' | 'ALL')} disabled={busy}>
+        <option value="ATTENTION">İlgilenilmesi gerekenler</option><option value="ALL">Tüm aday çiftleri</option>
+      </select>
+    </label>}
     <p>Yalnız aynı kuruluştaki gerçek iş kayıtları (BUSINESS); aday, aktif ve pasif müşteriler dahildir.</p>
     {busy && !data && <LoadingSkeleton title="Adaylar yükleniyor" rows={4} />}
     {error && <DuplicateReadError error={error} retainedData={data !== null} retryAt={retryAt} retryAuto={retryAuto} busy={busy} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
     {data && <>
       <p className="text-muted">Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. {laterPage ? 'Bu sayfa otomatik başa dönmez. Güncel kapsam için ilk sayfayı yenileyin.' : 'Görünürken 60 saniyede bir yenilenir.'}</p>
-      {data.scope.anchorCustomerId && <Link to={paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
+      {data.scope.anchorCustomerId && <Link to={view === 'ALL' ? `${paths.duplicateCustomers}?view=ALL` : paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
       {Math.max(data.largestNameGroupSize, data.largestPhoneGroupSize) > 100 && <p role="status" className="duplicate-warning">Büyük ortak bilgi grubu var. Aynı isim grubunda en fazla {data.largestNameGroupSize}, aynı telefon grubunda en fazla {data.largestPhoneGroupSize} müşteri bulunuyor. Bir müşterinin adaylarını açarak kapsamı daraltabilirsiniz.</p>}
       {!error && data.items.length === 0 && (data.page.exhausted ? <EmptyState title="Bu kapsamda aday bulunamadı" description="Tarama başarıyla tamamlandı. Bu sonuç, kayıtların aynı müşteri olduğuna ilişkin bir karar değildir." /> : <p role="status">Bu ara sayfada gösterilecek aday yok. Taramayı sürdürün.</p>)}
       <ol className="duplicate-candidates">{data.items.map((item) => <li key={`${item.pair.customerAId}:${item.pair.customerBId}`}>
@@ -58,7 +64,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
             <h2><span>Müşteri {index === 0 ? 'A' : 'B'}: </span>{customer.name}</h2>
             <p>{customerStatusLabels[customer.status]} · {[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p>
             <p className="duplicate-id">Kayıt: {customer.id}</p>
-            <Link to={`${paths.duplicateCustomers}?anchorCustomerId=${encodeURIComponent(customer.id)}`}>Bu müşterinin adayları</Link>
+            <Link to={`${paths.duplicateCustomers}?anchorCustomerId=${encodeURIComponent(customer.id)}${view === 'ALL' ? '&view=ALL' : ''}`}>Bu müşterinin adayları</Link>
           </div>)}</div>
           <ul className="duplicate-reasons" aria-label="Eşleşme gerekçeleri">{item.matchingCodes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
           {item.warnings.length > 0 && <p className="duplicate-warning">Çelişki: Vergi numaraları farklı.</p>}
@@ -86,7 +92,7 @@ export function DuplicateCustomersScreen({ user }: { user: CurrentUser }) {
     if (!state.busy && state.data && !restored.current && typeof focus === 'string') { document.getElementById(focus)?.focus(); restored.current = true; }
   }, [state.busy, state.data, location.state]);
   const first = () => { if (!laterPage) state.reload(); else { const next = new URLSearchParams(params); next.delete('cursor'); setParams(next); } };
-  return <DuplicateCandidateView {...state} onReload={state.reload} onFirst={first} laterPage={laterPage} onNext={() => { if (state.data?.page.nextCursor) { const next = new URLSearchParams(params); next.set('cursor', state.data.page.nextCursor); setParams(next); } }} />;
+  return <DuplicateCandidateView {...state} view={params.get('view') === 'ALL' ? 'ALL' : 'ATTENTION'} onViewChange={(view) => { const next = new URLSearchParams(params); next.set('view', view); next.delete('cursor'); setParams(next); }} onReload={state.reload} onFirst={first} laterPage={laterPage} onNext={() => { if (state.data?.page.nextCursor) { const next = new URLSearchParams(params); next.set('cursor', state.data.page.nextCursor); setParams(next); } }} />;
 }
 
 function OperationalSummary({ customerId }: { customerId: string }) {

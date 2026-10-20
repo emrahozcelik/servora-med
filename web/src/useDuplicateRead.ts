@@ -24,7 +24,7 @@ function rememberCooldown(scope: string, cooldown: DuplicateCooldown) {
 export function useDuplicateRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, autoRefresh = true, pauseScope: string) {
   const [state, setState] = useState<{ data: T | null; error: Error | null; busy: boolean; retryAt: number | null; retryAuto: boolean }>({ data: null, error: null, busy: true, retryAt: null, retryAuto: false });
   const loader = useRef(load); loader.current = load;
-  const reloadRef = useRef<() => void>(() => {});
+  const reloadRef = useRef<() => Promise<boolean>>(async () => false);
   const reload = useCallback(() => reloadRef.current(), []);
   useEffect(() => {
     let live = true; let pending = false; let lastStarted = 0; let retryTimer: number | undefined;
@@ -60,18 +60,19 @@ export function useDuplicateRead<T>(key: string, load: (signal: AbortSignal) => 
     }
 
     async function run(automatic = false, scheduled = false) {
-      if (!live || pending || Date.now() < pausedUntil || (automatic && (!autoRefresh || document.visibilityState === 'hidden' || navigator.onLine === false || Date.now() - lastStarted < 1000))) return;
+      if (!live || pending || Date.now() < pausedUntil || (automatic && (!autoRefresh || document.visibilityState === 'hidden' || navigator.onLine === false || Date.now() - lastStarted < 1000))) return false;
       pending = true; lastStarted = Date.now();
       setState((old) => ({ ...old, busy: true }));
       try {
         const data = await loader.current(controller.signal);
-        if (!live) return;
+        if (!live) return false;
         clearRetryTimer();
         cooldowns.delete(pauseScope);
         pausedUntil = 0;
         setState({ data, error: null, busy: false, retryAt: null, retryAuto: false });
+        return true;
       } catch (error) {
-        if (!live) return;
+        if (!live) return false;
         const failure = error instanceof Error ? error : new Error('Karşılaştırma yüklenemedi.');
         let retryAt: number | null = null;
         let retryAuto = false;
@@ -86,10 +87,11 @@ export function useDuplicateRead<T>(key: string, load: (signal: AbortSignal) => 
         }
         const discard = error instanceof ApiError && [401, 403, 404].includes(error.status);
         setState((old) => ({ ...old, data: discard ? null : old.data, busy: false, error: failure, retryAt, retryAuto }));
+        return false;
       } finally { pending = false; }
     }
 
-    reloadRef.current = () => { void run(); };
+    reloadRef.current = () => run();
     const refresh = () => { void run(true); };
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh); window.addEventListener('online', refresh); document.addEventListener('visibilitychange', refresh);

@@ -88,7 +88,12 @@ export async function runCriticalAction<T>(
        ON CONFLICT (organization_id, user_id, client_action_id, operation_key) DO NOTHING
        RETURNING id`,
       [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey, claim.requestHash ?? null],
-    );
+    ).catch((error: unknown) => {
+      if (lockTimeoutMs !== null && (error as { code?: string } | null)?.code === '55P03') {
+        throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem isteği işleniyor. Aynı istekle yeniden deneyin.');
+      }
+      throw error;
+    });
 
     if (claimed.rowCount === 0) {
       const existing = await client.query<{

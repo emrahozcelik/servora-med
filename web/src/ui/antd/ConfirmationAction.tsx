@@ -22,6 +22,7 @@ export type ConfirmationActionProps = {
   confirmLabel: string;
   cancelLabel?: string;
   pending: boolean;
+  confirmDisabled?: boolean;
   pendingLabel?: string;
   destructive?: boolean;
   onConfirm: () => void;
@@ -42,6 +43,7 @@ export function ConfirmationAction({
   confirmLabel,
   cancelLabel = 'Vazgeç',
   pending,
+  confirmDisabled = false,
   pendingLabel = 'İşleniyor…',
   destructive = false,
   onConfirm,
@@ -89,7 +91,7 @@ export function ConfirmationAction({
   }
 
   function handleConfirm() {
-    if (pending) return;
+    if (pending || confirmDisabled) return;
     onConfirm();
   }
 
@@ -137,7 +139,7 @@ export function ConfirmationAction({
             className={destructive ? 'destructive-button' : 'primary-button compact-button'}
             type="button"
             onClick={handleConfirm}
-            disabled={pending}
+            disabled={pending || confirmDisabled}
           >
             {pending ? pendingLabel : confirmLabel}
           </button>

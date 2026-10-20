@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DuplicateComparisonScreen } from '../src/DuplicateCustomers';
+import { MemoryRouter } from 'react-router-dom';
+import { DuplicateComparisonScreen, DuplicateCustomersScreen } from '../src/DuplicateCustomers';
 import type { CurrentUser } from '../src/services/api';
 import { withRoute } from './route-test-helpers';
 
@@ -91,4 +92,30 @@ it('F09: a 404 after a successful comparison clears the old customer and contact
   expect(host.textContent).not.toContain('Sentetik İlgili Kişi');
   expect(host.querySelector('.servora-result-state h2')?.textContent).toBe('Karşılaştırılabilir müşteri çifti bulunamadı');
   expect(host.querySelector('.ant-result-404')).not.toBeNull();
+});
+
+it('F13: ALL deep links reach terminal pairs and switching views resets only the cursor', async () => {
+  const urls: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({
+      scope: { dataClass: 'BUSINESS', includesInactive: true, anchorCustomerId: 'a' }, asOf: comparison.asOf,
+      matchingRuleVersion: 'crm-duplicate-v1', coverage: 'COMPLETE_SOURCE', rawPairCount: '1', largestNameGroupSize: 2, largestPhoneGroupSize: 2,
+      items: [{ pair: comparison.pair, customerA: customer, customerB: { ...customer, id: 'b' }, matchingCodes: ['SAME_NAME'], warnings: [], comparisonStatus: 'READY',
+        review: { ...comparison.review, id: 'review-1', version: 1, reviewStatus: 'DISMISSED', effectiveStatus: 'DISMISSED', freshness: 'CURRENT' } }],
+      page: { nextCursor: null, exhausted: true, evaluatedPairs: 1, returnedItems: 1 },
+    }), { status: 200 });
+  }));
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => { root.render(<MemoryRouter initialEntries={['/customers/duplicate-candidates?view=ALL&cursor=old&anchorCustomerId=a']}><DuplicateCustomersScreen user={manager} /></MemoryRouter>); });
+  expect(new URL(urls[0]!, 'http://localhost').searchParams.get('view')).toBe('ALL');
+  expect(host.textContent).toContain('Eşleşme reddedildi');
+  const view = host.querySelector('select[aria-label="İnceleme görünümü"]') as HTMLSelectElement;
+  expect(view.value).toBe('ALL');
+  expect(host.querySelector('a[href*="duplicate-review-pairs/a/b"]')).not.toBeNull();
+  await act(async () => { view.value = 'ATTENTION'; view.dispatchEvent(new Event('change', { bubbles: true })); });
+  const changed = new URL(urls.at(-1)!, 'http://localhost');
+  expect(changed.searchParams.get('view')).toBe('ATTENTION');
+  expect(changed.searchParams.get('anchorCustomerId')).toBe('a');
+  expect(changed.searchParams.has('cursor')).toBe(false);
 });

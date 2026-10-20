@@ -63,6 +63,7 @@ export const duplicateRoutes: FastifyPluginAsync<Options> = async (app, { servic
   });
   if (reviewService) {
     app.post('/customers/duplicate-review-pairs/:aId/:bId/decisions', { childLoggerFactory: privacyLogger, config: { rateLimit: false }, preHandler: [authenticate, requireManagement, commandLimit] }, async (request, reply) => {
+      query(request, []);
       const params = request.params as { aId: unknown; bId: unknown };
       const a = uuid(params.aId); const b = uuid(params.bId);
       const result = await reviewService.decide(actor(request), a, b, parseDuplicateDecisionCommand(request.body));
@@ -70,6 +71,7 @@ export const duplicateRoutes: FastifyPluginAsync<Options> = async (app, { servic
       return result.receipt;
     });
     app.post('/customers/duplicate-review-pairs/:aId/:bId/reopen', { childLoggerFactory: privacyLogger, config: { rateLimit: false }, preHandler: [authenticate, requireManagement, commandLimit] }, async (request, reply) => {
+      query(request, []);
       const params = request.params as { aId: unknown; bId: unknown };
       const a = uuid(params.aId); const b = uuid(params.bId);
       const result = await reviewService.reopen(actor(request), a, b, parseDuplicateReopenCommand(request.body));

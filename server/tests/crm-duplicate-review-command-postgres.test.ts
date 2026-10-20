@@ -241,6 +241,41 @@ it.skipIf(!databaseUrl)('TX-07: same-key concurrent commands replay or return AC
   expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
 });
 
+it.skipIf(!databaseUrl)('F14/TX-07: a real same-key claim wait times out as ACTION_IN_PROGRESS and the exact retry replays', async () => {
+  const read = await comparison();
+  const body = { clientActionId: randomUUID(), expectedReviewVersion: 0, expectedEvidenceRevision: read.evidence.revision,
+    matchingRuleVersion: 'crm-duplicate-v1', decision: 'CONFIRMED_DUPLICATE' as const, reasonCode: 'SAME_OPERATIONAL_CUSTOMER_VERIFIED' as const };
+  const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+  const client = await pool!.connect(); const rawQuery = client.query.bind(client);
+  const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  let entered!: () => void; let release!: () => void;
+  const gate = new Promise<void>((resolve) => { entered = resolve; });
+  const resume = new Promise<void>((resolve) => { release = resolve; });
+  client.query = (async (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('UPDATE processed_actions')) { entered(); await resume; }
+    return Reflect.apply(rawQuery, client, args);
+  }) as typeof client.query;
+  const held = new DuplicateReviewService(new PostgresDuplicateReviewRepository({ connect: async () => client } as Pool, keys));
+  const normal = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+  const first = held.decide(context, a, b, body);
+  try {
+    await gate;
+    const second = normal.decide(context, a, b, body).then((value) => ({ value }), (error: unknown) => ({ error }));
+    let observed = false;
+    const deadline = performance.now() + 200;
+    while (!observed && performance.now() < deadline) {
+      observed = (await pool!.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))", [pid])).rowCount! > 0;
+      if (!observed) await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(observed).toBe(true);
+    expect(await second).toMatchObject({ error: { code: 'ACTION_IN_PROGRESS', statusCode: 409 } });
+    release();
+    const committed = await first;
+    expect(await normal.decide(context, a, b, body)).toEqual({ ...committed, replayed: true });
+    expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+  } finally { release(); await first.catch(() => {}); client.query = rawQuery; }
+});
+
 it.skipIf(!databaseUrl)('A12-S5/TX-02: a source change after GET is EVIDENCE_CHANGED with zero review writes', async () => {
   const read = await comparison();
   await pool!.query("UPDATE customers SET name='Değişen Klinik' WHERE id=$1", [a]);
@@ -248,6 +283,19 @@ it.skipIf(!databaseUrl)('A12-S5/TX-02: a source change after GET is EVIDENCE_CHA
   expect(response.statusCode, response.body).toBe(409);
   expect(response.json().code).toBe('EVIDENCE_CHANGED');
   expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+});
+
+it.skipIf(!databaseUrl)('A12-S2/S3: version and equivalent formatting changes are recomputed and permit the original semantic decision', async () => {
+  const contact = randomUUID();
+  await pool!.query("INSERT INTO contacts(id,organization_id,customer_id,name,title,phone) VALUES($1,$2,$3,'Sentetik Kişi','Dr.','05321234567')", [contact, org, a]);
+  const read = await comparison();
+  await pool!.query("UPDATE customers SET version=version+1,name=' sentetik klinik ',phone='(0532) 123 45 67' WHERE id=$1", [a]);
+  await pool!.query("UPDATE contacts SET version=version+1,name='sentetik kişi',phone='+905321234567' WHERE id=$1", [contact]);
+  const response = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_BRANCH');
+  expect(response.statusCode, response.body).toBe(200);
+  expect((await comparison()).review).toMatchObject({ freshness: 'CURRENT', version: 1 });
+  expect((await pool!.query('SELECT version FROM customers WHERE id=$1', [a])).rows[0].version).toBe(2);
+  expect((await pool!.query('SELECT version FROM contacts WHERE id=$1', [contact])).rows[0].version).toBe(2);
 });
 
 it.skipIf(!databaseUrl)('EVID-10/KEY-04: a missing expected key is a definitive no-commit 409 after receipt replay lookup', async () => {
@@ -330,4 +378,76 @@ it.skipIf(!databaseUrl)('SEC-01/API-5: STAFF is rejected before the pair lookup 
   expect(malformed.statusCode, malformed.body).toBe(409);
   expect(malformed.json().code).toBe('EVIDENCE_CHANGED');
   expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+});
+
+it.skipIf(!databaseUrl).each(['head insert', 'event append', 'audit', 'FK check', 'receipt completion', 'head update'])(
+  'TX-05/TX-08: %s failure rolls back the real review, event, audit and claim without source changes', async (phase) => {
+    const read = await comparison();
+    const normal = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+    const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+    const body = { clientActionId: randomUUID(), expectedReviewVersion: 0, expectedEvidenceRevision: read.evidence.revision,
+      matchingRuleVersion: 'crm-duplicate-v1', decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_BRANCH' as const };
+    if (phase === 'head update') await normal.decide(context, a, b, body);
+    const before = await counts();
+    const source = (await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows;
+    const client = await pool!.connect(); const rawQuery = client.query.bind(client); let injected = false;
+    client.query = (async (...args: unknown[]) => {
+      const sql = typeof args[0] === 'string' ? args[0] : '';
+      const hit = phase === 'head insert' ? sql.includes('INSERT INTO customer_duplicate_reviews')
+        : phase === 'head update' ? sql.includes('UPDATE customer_duplicate_reviews')
+        : phase === 'event append' ? sql.includes('INSERT INTO customer_duplicate_review_events')
+        : phase === 'audit' ? sql.includes('INSERT INTO audit_events')
+        : phase === 'FK check' ? sql.includes('SET CONSTRAINTS customer_duplicate_reviews_current_event_fk')
+        : sql.startsWith('UPDATE processed_actions');
+      if (hit && !injected) {
+        injected = true;
+        if (phase === 'receipt completion') await rawQuery('DELETE FROM processed_actions WHERE organization_id=$1 AND status=\'processing\'', [org]);
+        else if (phase === 'FK check') await rawQuery('DELETE FROM customer_duplicate_review_events WHERE organization_id=$1', [org]);
+        else await rawQuery('SELECT 1/0');
+      }
+      return Reflect.apply(rawQuery, client, args);
+    }) as typeof client.query;
+    const service = new DuplicateReviewService(new PostgresDuplicateReviewRepository({ connect: async () => client } as Pool, keys));
+    try {
+      const failure = phase === 'head update'
+        ? service.reopen(context, a, b, { ...body, clientActionId: randomUUID(), expectedReviewVersion: 1 })
+        : service.decide(context, a, b, body);
+      await expect(failure).rejects.toMatchObject({ code: 'INTERNAL_ERROR', statusCode: 500 });
+      expect(injected).toBe(true); expect(await counts()).toEqual(before);
+      expect((await pool!.query('SELECT 1 FROM processed_actions WHERE organization_id=$1 AND status=\'processing\'', [org])).rowCount).toBe(0);
+      expect((await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows).toEqual(source);
+    } finally { client.query = rawQuery; }
+  },
+);
+
+it.skipIf(!databaseUrl)('EVID-01/02/03/A12-S1/S4/S5: every semantic Customer and Contact field rejects the old revision without committed writes', async () => {
+  const service = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+  const reads = new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool!), keys);
+  const cases: Array<[string, unknown]> = [
+    ['customer:name', 'Changed clinic'], ['customer:phone', '+902125550101'], ['customer:email', 'changed@example.invalid'],
+    ['customer:city', 'Ankara'], ['customer:district', 'Çankaya'], ['customer:address', 'Changed address'],
+    ['customer:tax_number', 'SYNTHETIC'], ['customer:customer_type', 'hospital'],
+    ['contact:name', 'Changed contact'], ['contact:title', 'Changed title'], ['contact:phone', '+902125550101'],
+    ['contact:email', 'changed@example.invalid'], ['contact:is_primary', true], ['contact:is_active', false], ['contact:id', randomUUID()],
+    ['membership:add', null], ['membership:delete', null],
+  ];
+  for (const [change, value] of cases) {
+    await createPair();
+    const contact = randomUUID();
+    await pool!.query("INSERT INTO contacts(id,organization_id,customer_id,name,is_active) VALUES($1,$2,$3,'Synthetic person',true)", [contact, org, a]);
+    const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+    const read = await reads.comparison(context, a, b);
+    const [kind, field] = change.split(':');
+    if (kind === 'customer') await pool!.query(`UPDATE customers SET ${field}=$2 WHERE id=$1`, [a, value]);
+    else if (kind === 'contact') await pool!.query(`UPDATE contacts SET ${field}=$2 WHERE id=$1`, [contact, value]);
+    else if (field === 'add') await pool!.query("INSERT INTO contacts(organization_id,customer_id,name) VALUES($1,$2,'New synthetic member')", [org, a]);
+    else await pool!.query('DELETE FROM contacts WHERE id=$1', [contact]);
+    expect((await pool!.query('SELECT version FROM customers WHERE id=$1', [a])).rows[0].version).toBe(1);
+    const before = await counts();
+    await expect(service.decide(context, a, b, { clientActionId: randomUUID(), expectedReviewVersion: 0,
+      expectedEvidenceRevision: read.evidence.revision, matchingRuleVersion: read.evidence.matchingRuleVersion,
+      decision: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH' }), change).rejects.toMatchObject({ code: 'EVIDENCE_CHANGED', statusCode: 409 });
+    expect(await counts()).toEqual(before);
+    expect((await pool!.query('SELECT 1 FROM processed_actions WHERE organization_id=$1', [org])).rowCount).toBe(0);
+  }
 });

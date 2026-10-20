@@ -43,23 +43,26 @@ export class DuplicateComparisonService {
         const facts = ids.length ? await snapshot.facts(org, ids) : new Map<string, DuplicateCustomerFacts>();
         const heads = await snapshot.reviewHeads(org, consumed);
         const items: Array<Record<string, unknown>> = [];
+        let evaluatedPairs = 0;
         for (const pair of consumed) {
+          if (items.length >= input.limit) break;
           snapshot.checkpoint();
           const a = facts.get(pair.customerAId); const b = facts.get(pair.customerBId);
           if (!a || !b) throw duplicateUnavailable();
           const projected = this.project(org, a, b, heads.get(`${pair.customerAId}:${pair.customerBId}`) ?? null);
+          evaluatedPairs++;
           if (input.view === 'ATTENTION' && projected.review.freshness === 'CURRENT'
             && (projected.review.effectiveStatus === 'CONFIRMED_DUPLICATE' || projected.review.effectiveStatus === 'DISMISSED')) continue;
-          if (items.length >= input.limit) break;
           items.push({ pair, customerA: header(a), customerB: header(b), matchingCodes: projected.matchingCodes,
             warnings: projected.warnings, comparisonStatus: projected.comparisonStatus, review: projected.review });
         }
+        exhausted = exhausted && evaluatedPairs === consumed.length;
         snapshot.checkpoint();
         return { scope: { dataClass: 'BUSINESS' as const, includesInactive: true as const, anchorCustomerId: input.anchorCustomerId },
           asOf: snapshot.asOf, matchingRuleVersion: DUPLICATE_RULE_VERSION, coverage: 'COMPLETE_SOURCE' as const,
           rawPairCount: index.pairCount(input.anchorCustomerId), largestNameGroupSize: index.largestNameGroupSize, largestPhoneGroupSize: index.largestPhoneGroupSize,
-          items, page: { nextCursor: !exhausted && consumed.length ? encodeDuplicateCursor(context, consumed.at(-1)!, this.keys) : null,
-            exhausted, evaluatedPairs: consumed.length, returnedItems: items.length } };
+          items, page: { nextCursor: !exhausted && evaluatedPairs ? encodeDuplicateCursor(context, consumed[evaluatedPairs - 1]!, this.keys) : null,
+            exhausted, evaluatedPairs, returnedItems: items.length } };
       });
     } finally {
       const remaining = this.inflight.get(org)! - 1;

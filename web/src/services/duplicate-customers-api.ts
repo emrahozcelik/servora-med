@@ -94,7 +94,7 @@ export function parseDuplicatePage(value: unknown) {
 export type DuplicatePage = ReturnType<typeof parseDuplicatePage>;
 export function listDuplicateCandidates(params: URLSearchParams, signal?: AbortSignal) {
   const query = new URLSearchParams();
-  for (const field of ['anchorCustomerId', 'cursor'] as const) if (params.has(field)) query.set(field, params.get(field)!);
+  for (const field of ['view', 'anchorCustomerId', 'cursor'] as const) if (params.has(field)) query.set(field, params.get(field)!);
   return request(`/api/customers/duplicate-candidates?${query}`, { signal }).then(parseDuplicatePage);
 }
 

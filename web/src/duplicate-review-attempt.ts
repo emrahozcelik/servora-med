@@ -15,6 +15,24 @@ export type DuplicateAttempt = {
 
 const keyFor = (organizationId: string, actorId: string, a: string, b: string) =>
   `CRM_DUPLICATE_COMMAND_ATTEMPT:v1:${organizationId}:${actorId}:${a < b ? a : b}:${a < b ? b : a}`;
+const cooldownKey = (organizationId: string, actorId: string) => `CRM_DUPLICATE_COMMAND_COOLDOWN:v1:${organizationId}:${actorId}`;
+const cooldowns = new Map<string, number>();
+
+export function readDuplicateCommandRetryAt(organizationId: string, actorId: string): number | null {
+  const key = cooldownKey(organizationId, actorId);
+  let until = cooldowns.get(key) ?? 0;
+  try { until = Math.max(until, Number(window.sessionStorage.getItem(key)) || 0); } catch { /* retain in-memory cooldown */ }
+  if (Number.isFinite(until) && until > Date.now()) return until;
+  cooldowns.delete(key);
+  try { window.sessionStorage.removeItem(key); } catch { /* expired metadata is optional */ }
+  return null;
+}
+
+export function writeDuplicateCommandRetryAt(organizationId: string, actorId: string, until: number) {
+  const key = cooldownKey(organizationId, actorId);
+  cooldowns.set(key, until);
+  try { window.sessionStorage.setItem(key, String(until)); } catch { /* in-memory cooldown remains enforced */ }
+}
 
 function valid(value: unknown): value is DuplicateAttempt {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -40,7 +58,12 @@ export function readDuplicateAttempt(organizationId: string, actorId: string, a:
 
 export function writeDuplicateAttempt(organizationId: string, actorId: string, a: string, b: string, attempt: DuplicateAttempt) {
   try {
-    window.sessionStorage.setItem(keyFor(organizationId, actorId, a, b), JSON.stringify(attempt));
+    const key = keyFor(organizationId, actorId, a, b);
+    const serialized = JSON.stringify(attempt);
+    const previous = window.sessionStorage.getItem(key);
+    if (previous !== null && previous !== serialized) throw new Error('Unresolved attempt exists');
+    window.sessionStorage.setItem(key, serialized);
+    if (window.sessionStorage.getItem(key) !== serialized) throw new Error('Attempt was not persisted');
   } catch {
     throw new Error('İnceleme taslağı bu tarayıcıda saklanamadı. İşlem gönderilmedi.');
   }
@@ -51,7 +74,7 @@ export function clearDuplicateAttempt(organizationId: string, actorId: string, a
 }
 
 export function attemptMatchesCurrent(
-  attempt: DuplicateAttempt,
+  attempt: Pick<DuplicateAttempt, 'expectedReviewVersion' | 'expectedEvidenceRevision' | 'matchingRuleVersion'>,
   review: { version: number },
   revision: string,
   matchingRuleVersion: string,

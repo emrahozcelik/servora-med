@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { DuplicateReviewPanel } from '../src/DuplicateReviewPanel';
 import { ServoraAntProvider } from '../src/ui/antd/ServoraAntProvider';
 import type { CurrentUser } from '../src/services/api';
+import { readDuplicateAttempt, writeDuplicateAttempt } from '../src/duplicate-review-attempt';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const user: CurrentUser = {
@@ -80,7 +81,7 @@ it('UI-03/UI-04: requires an explicit reason, freezes the attempt and records th
   await act(async () => { reason.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; reason.dispatchEvent(new Event('change', { bubbles: true })); await Promise.resolve(); });
   await act(async () => { click(button('Mükerrer olarak doğrula')); await Promise.resolve(); });
   expect(host.textContent).toContain('Müşteriler birleştirilmez');
-  expect(window.sessionStorage.length).toBe(1);
+  expect(window.sessionStorage.length).toBe(0);
   await confirmDialog();
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(host.textContent).toContain('İnceleme kararı kaydedildi');
@@ -109,6 +110,164 @@ it('UI-06: a lost response keeps the exact frozen attempt and retries the same a
   expect(calls).toHaveLength(2);
   expect(calls[1]!.body.clientActionId).toBe(calls[0]!.body.clientActionId);
   expect(host.textContent).toContain('İnceleme kararı kaydedildi');
+});
+
+it('F11: an uncertain submitted attempt blocks new commands through changed GET and reload, but still permits exact replay', async () => {
+  const posts: Array<Record<string, unknown>> = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (String(url).includes('/history')) return new Response(JSON.stringify(history), { status: 200 });
+    posts.push(JSON.parse(String(init?.body)));
+    if (posts.length === 1) throw new TypeError('lost response');
+    return new Response(JSON.stringify(receipt), { status: 200 });
+  }));
+  await render(pending);
+  await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+  await act(async () => { const select = host.querySelector('select') as HTMLSelectElement; select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => { click(button('Mükerrer olarak doğrula')); });
+  await confirmDialog();
+  const saved = window.sessionStorage.getItem(window.sessionStorage.key(0)!)!;
+  expect((host.querySelector('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { root.unmount(); }); host.remove();
+  await render(terminal);
+  expect((button('Yeniden incele') as HTMLButtonElement).disabled).toBe(true);
+  expect(button('Güncel kanıtı inceledim; yeni istek oluştur')).toBeNull();
+  expect(window.sessionStorage.getItem(window.sessionStorage.key(0)!)).toBe(saved);
+  expect(button('Özgün isteği tekrar dene')).not.toBeNull();
+  await act(async () => { click(button('Özgün isteği tekrar dene')); await flush(); });
+  expect(posts).toHaveLength(2); expect(posts[1]).toEqual(posts[0]);
+  expect(window.sessionStorage.length).toBe(0);
+});
+
+it('F17: reload before confirmation cannot restore a POST retry, and storage failure prevents submission', async () => {
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+  await render(pending);
+  async function prepare() {
+    await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+    await act(async () => { const select = host.querySelector('select') as HTMLSelectElement; select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => { click(button('Mükerrer olarak doğrula')); });
+  }
+  await prepare();
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  expect(window.sessionStorage.length).toBe(0);
+  await act(async () => { root.unmount(); }); host.remove();
+  await render(pending);
+  expect(button('Özgün isteği tekrar dene')).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
+  await prepare();
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable'); });
+  try {
+    await confirmDialog();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('İşlem gönderilmedi');
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  } finally { write.mockRestore(); }
+});
+
+it('F12/A12-S3: draft keeps focus for witness-only refresh and requires explicit inspection after semantic evidence changes', async () => {
+  const posts: Array<Record<string, unknown>> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify(receipt), { status: 200 });
+  }));
+  await render(pending);
+  await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+  const select = host.querySelector('select') as HTMLSelectElement;
+  await act(async () => { select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus(); });
+  async function refresh(data: typeof pending) {
+    await act(async () => { root.render(<ServoraAntProvider><MemoryRouter><DuplicateReviewPanel user={user} aId="a" bId="b" data={data as never} onRefresh={vi.fn()} /></MemoryRouter></ServoraAntProvider>); });
+  }
+  await refresh({ ...pending, customerA: { ...customer, version: 2 } });
+  expect(document.activeElement).toBe(select); expect(select.value).toBe('SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(false);
+  const changed = { ...pending, evidence: { ...evidence, revision: 'ev1.synthetic.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' } };
+  await refresh(changed);
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+  expect(select.value).toBe('SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(posts).toHaveLength(0);
+  await act(async () => { click(button('Güncel kanıtı inceledim')); });
+  await act(async () => { click(button('Mükerrer olarak doğrula')); });
+  await confirmDialog();
+  expect(posts[0]).toMatchObject({ expectedEvidenceRevision: changed.evidence.revision, expectedReviewVersion: 0 });
+});
+
+it('F19: Retry-After survives reload and blocks every command control until exact retry is allowed', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  const posts: Array<Record<string, unknown>> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)));
+    if (posts.length > 1) return new Response(JSON.stringify(receipt), { status: 200 });
+    return new Response(JSON.stringify({ code: 'RATE_LIMIT_EXCEEDED', error: 'Kota dolu' }), { status: 429, headers: { 'Retry-After': '30' } });
+  }));
+  try {
+    await render(pending);
+    await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+    await act(async () => { const select = host.querySelector('select') as HTMLSelectElement; select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => { click(button('Mükerrer olarak doğrula')); });
+    await confirmDialog();
+    expect(posts).toHaveLength(1);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect((button('Özgün isteği tekrar dene') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { root.unmount(); }); host.remove();
+    await render(pending);
+    expect((button('Özgün isteği tekrar dene') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { click(button('Özgün isteği tekrar dene')); await vi.advanceTimersByTimeAsync(29_999); });
+    expect(posts).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    await act(async () => { click(button('Özgün isteği tekrar dene')); await flush(); });
+    expect(posts).toHaveLength(2); expect(posts[1]).toEqual(posts[0]);
+  } finally { vi.useRealTimers(); }
+});
+
+it('F15: immutable receipt success is separate from pending, failed and successful current GET reconciliation', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(receipt), { status: 200 })));
+  let resolve!: (ok: boolean) => void;
+  const refresh = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));
+  await render(pending, refresh as never);
+  await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+  await act(async () => { const select = host.querySelector('select') as HTMLSelectElement; select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  await act(async () => { click(button('Mükerrer olarak doğrula')); });
+  await confirmDialog();
+  expect(host.textContent).toContain('İnceleme kararı kaydedildi');
+  expect(host.textContent).not.toContain('Güncel durum yüklendi');
+  expect(host.textContent).toContain('Güncel durum doğrulanıyor');
+  await act(async () => { resolve(false); await flush(); });
+  expect(host.textContent).toContain('Güncel durum doğrulanamadı');
+  expect(host.textContent).not.toContain('Güncel durum yüklendi');
+  await act(async () => { click(button('Güncel durumu doğrula')); });
+  await act(async () => { resolve(true); await flush(); });
+  expect(host.textContent).toContain('Güncel durum yüklendi');
+});
+
+it('F11/UI-04: storage is actor/org/pair-bound, does not expire unresolved requests or accept overwrite', () => {
+  const frozen = { version: 1 as const, kind: 'REOPEN' as const, clientActionId: 'original', expectedReviewVersion: 1, expectedEvidenceRevision: evidence.revision, matchingRuleVersion: evidence.matchingRuleVersion, createdAt: 0 };
+  writeDuplicateAttempt(user.organizationId, user.id, 'a', 'b', frozen);
+  expect(readDuplicateAttempt(user.organizationId, user.id, 'b', 'a')).toEqual(frozen);
+  expect(readDuplicateAttempt(user.organizationId, 'another-actor', 'a', 'b')).toBeNull();
+  expect(readDuplicateAttempt('another-org', user.id, 'a', 'b')).toBeNull();
+  expect(() => writeDuplicateAttempt(user.organizationId, user.id, 'a', 'b', { ...frozen, clientActionId: 'replacement' })).toThrow('İşlem gönderilmedi');
+  expect(readDuplicateAttempt(user.organizationId, user.id, 'a', 'b')).toEqual(frozen);
+});
+
+it('F12/UI-07: a concurrent manager review version change cannot rebind an unsent draft', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(history), { status: 200 })));
+  await render(pending);
+  await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+  await act(async () => { const select = host.querySelector('select') as HTMLSelectElement; select.value = 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  const changed = { ...pending, review: { ...pending.review, id: 'review-1', version: 2, freshness: 'CURRENT', lastDecision: terminal.review.lastDecision } };
+  await act(async () => { root.render(<ServoraAntProvider><MemoryRouter><DuplicateReviewPanel user={user} aId="a" bId="b" data={changed as never} onRefresh={vi.fn()} /></MemoryRouter></ServoraAntProvider>); });
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+  expect(button('Güncel kanıtı inceledim')).not.toBeNull();
+  expect((host.querySelector('select') as HTMLSelectElement).value).toBe('SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+});
+
+it('UI-09: cancelling reopen restores keyboard focus to its persistent trigger', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(history), { status: 200 })));
+  await render(terminal);
+  const trigger = button('Yeniden incele') as HTMLButtonElement;
+  await act(async () => { trigger.focus(); trigger.click(); });
+  await act(async () => { click(button('Vazgeç')); await flush(); });
+  expect(document.activeElement).toBe(trigger);
+  expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false);
 });
 
 it('UI-05/UI-07: changed evidence marks a frozen attempt stale and requires renewed inspection without rebinding', async () => {

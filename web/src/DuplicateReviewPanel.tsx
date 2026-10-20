@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   attemptMatchesCurrent, clearDuplicateAttempt, readDuplicateAttempt,
-  writeDuplicateAttempt, type DuplicateAttempt,
+  readDuplicateCommandRetryAt, writeDuplicateCommandRetryAt, writeDuplicateAttempt, type DuplicateAttempt,
 } from './duplicate-review-attempt';
 import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import {
@@ -69,15 +69,21 @@ function History({ reviewId, version, reloadKey }: { reviewId: string; version: 
 }
 
 export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
-  user: CurrentUser; aId: string; bId: string; data: DuplicateComparison; onRefresh: () => void;
+  user: CurrentUser; aId: string; bId: string; data: DuplicateComparison; onRefresh: () => void | Promise<boolean>;
 }) {
   const [choice, setChoice] = useState<DuplicateDecision | ''>('');
   const [reason, setReason] = useState<DuplicateDecisionReason | ''>('');
+  const [draftContext, setDraftContext] = useState<Pick<DuplicateAttempt, 'expectedReviewVersion' | 'expectedEvidenceRevision' | 'matchingRuleVersion'> | null>(null);
   const [attempt, setAttempt] = useState<DuplicateAttempt | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const sending = useRef(false);
+  const commandOpener = useRef<HTMLElement | null>(null);
+  const heading = useRef<HTMLHeadingElement | null>(null);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [reconciliation, setReconciliation] = useState<'PENDING' | 'FAILED' | 'CURRENT' | null>(null);
   const [mustReinspect, setMustReinspect] = useState(false);
   const [retryAt, setRetryAt] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -87,11 +93,13 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
   useEffect(() => {
     if (restoredFor.current === identity) return;
     restoredFor.current = identity;
-    setChoice(''); setReason(''); setAttempt(null); setError(''); setFeedback('');
-    setMustReinspect(false); setRetryAt(null);
+    setChoice(''); setReason(''); setDraftContext(null); setAttempt(null); setError(''); setFeedback(''); setSubmitted(false); setConfirmOpen(false);
+    setMustReinspect(false); setRetryAt(readDuplicateCommandRetryAt(user.organizationId, user.id));
+    setReconciliation(null);
     const restored = readDuplicateAttempt(user.organizationId, user.id, aId, bId);
     if (restored) {
       setAttempt(restored);
+      setSubmitted(true);
       setChoice(restored.decision ?? '');
       setReason(restored.reasonCode ?? '');
     }
@@ -104,48 +112,61 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
   }, [retryAt]);
 
   const review = data.review;
+  const reviewedNow = { expectedReviewVersion: review.version, expectedEvidenceRevision: data.evidence.revision, matchingRuleVersion: data.evidence.matchingRuleVersion };
   const attemptStale = attempt ? !attemptMatchesCurrent(attempt, review, data.evidence.revision, data.evidence.matchingRuleVersion) : false;
-  const blockedByChange = mustReinspect || attemptStale;
-  const canDecide = data.allowedActions.includes('DECIDE') && !blockedByChange && !pending;
-  const canReopen = data.allowedActions.includes('REOPEN') && !blockedByChange && !pending;
+  const draftStale = draftContext ? !attemptMatchesCurrent(draftContext, review, data.evidence.revision, data.evidence.matchingRuleVersion) : false;
+  const blockedByChange = mustReinspect || attemptStale || draftStale;
+  const needsReconciliation = reconciliation === 'PENDING' || reconciliation === 'FAILED';
+  const canDecide = data.allowedActions.includes('DECIDE') && !blockedByChange && !pending && attempt === null && !needsReconciliation;
+  const canReopen = data.allowedActions.includes('REOPEN') && !blockedByChange && !pending && attempt === null && !needsReconciliation;
   const isTerminal = terminalStatuses.has(review.effectiveStatus);
   const waitingForRetry = retryAt !== null && Date.now() < retryAt;
   const reasonOptions = useMemo(() => (choice ? duplicateReasonOptions[choice] : []), [choice]);
 
   function beginDecision() {
+    if (!canDecide) return;
     if (!choice || !reason) { setError('Önce bir karar ve gerekçe seçin.'); return; }
     if (blockedByChange) { setError('Güncel kanıtı incelemeden yeni istek oluşturulamaz.'); return; }
+    commandOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : heading.current;
     const next: DuplicateAttempt = {
       version: 1, kind: 'DECIDE', clientActionId: crypto.randomUUID(),
-      expectedReviewVersion: review.version, expectedEvidenceRevision: data.evidence.revision,
-      matchingRuleVersion: data.evidence.matchingRuleVersion, decision: choice, reasonCode: reason,
+      ...(draftContext ?? reviewedNow), decision: choice, reasonCode: reason,
       createdAt: Date.now(),
     };
-    try { writeDuplicateAttempt(user.organizationId, user.id, aId, bId, next); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Taslak saklanamadı.'); return; }
     setAttempt(next); setError(''); setConfirmOpen(true);
   }
 
   function beginReopen() {
+    if (!canReopen) return;
     if (blockedByChange) { setError('Güncel kanıtı incelemeden yeni istek oluşturulamaz.'); return; }
+    commandOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : heading.current;
     const next: DuplicateAttempt = {
       version: 1, kind: 'REOPEN', clientActionId: crypto.randomUUID(),
       expectedReviewVersion: review.version, expectedEvidenceRevision: data.evidence.revision,
       matchingRuleVersion: data.evidence.matchingRuleVersion, createdAt: Date.now(),
     };
-    try { writeDuplicateAttempt(user.organizationId, user.id, aId, bId, next); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Taslak saklanamadı.'); return; }
     setAttempt(next); setError(''); setConfirmOpen(true);
   }
 
   function cancelConfirmation() {
     if (pending) return;
     setConfirmOpen(false);
+    if (submitted) return;
     setAttempt(null);
     clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
   }
 
+  async function reconcile() {
+    setReconciliation('PENDING');
+    try { setReconciliation(await onRefresh() === true ? 'CURRENT' : 'FAILED'); }
+    catch { setReconciliation('FAILED'); }
+  }
+
   async function send(frozen: DuplicateAttempt) {
+    if (sending.current || waitingForRetry || readDuplicateCommandRetryAt(user.organizationId, user.id) !== null || (!submitted && blockedByChange)) return;
+    try { writeDuplicateAttempt(user.organizationId, user.id, aId, bId, frozen); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : 'Taslak saklanamadı. İşlem gönderilmedi.'); return; }
+    sending.current = true; setSubmitted(true);
     setPending(true); setError(''); setFeedback('');
     try {
       if (frozen.kind === 'REOPEN') {
@@ -153,40 +174,46 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
           clientActionId: frozen.clientActionId, expectedReviewVersion: frozen.expectedReviewVersion,
           expectedEvidenceRevision: frozen.expectedEvidenceRevision, matchingRuleVersion: frozen.matchingRuleVersion,
         });
-        setFeedback('İnceleme yeniden açıldı. Güncel durum yüklendi.');
+        setFeedback('İnceleme yeniden açıldı.');
       } else {
         await decideDuplicateReview(aId, bId, {
           clientActionId: frozen.clientActionId, expectedReviewVersion: frozen.expectedReviewVersion,
           expectedEvidenceRevision: frozen.expectedEvidenceRevision, matchingRuleVersion: frozen.matchingRuleVersion,
           decision: frozen.decision!, reasonCode: frozen.reasonCode!,
         });
-        setFeedback('İnceleme kararı kaydedildi. Güncel durum yüklendi.');
+        setFeedback('İnceleme kararı kaydedildi.');
       }
       clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
-      setAttempt(null); setChoice(''); setReason(''); setConfirmOpen(false); setMustReinspect(false);
+      commandOpener.current = heading.current;
+      setAttempt(null); setSubmitted(false); setChoice(''); setReason(''); setDraftContext(null); setConfirmOpen(false); setMustReinspect(false);
       setReloadKey((value) => value + 1);
-      onRefresh();
+      await reconcile();
     } catch (failure) {
+      commandOpener.current = heading.current;
+      setConfirmOpen(false);
       const api = failure instanceof ApiError ? failure : null;
       if (api && conflictCodes.has(api.code)) {
         clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
-        setAttempt(null); setConfirmOpen(false); setMustReinspect(true);
+        setAttempt(null); setSubmitted(false); setConfirmOpen(false); setMustReinspect(true);
         setError(`${api.message} Gerekçeniz korunuyor; güncel kanıtı inceledikten sonra yeni bir istek oluşturun.`);
         setReloadKey((value) => value + 1);
         onRefresh();
       } else if (api && (retryCodes.has(api.code) || api.status === 0 || api.status >= 500)) {
         setError(`${api.message} Aynı istek korunuyor; sonucu doğrulamak için tekrar deneyin.`);
-        if (api.code === 'RATE_LIMIT_EXCEEDED') setRetryAt(Date.now() + (api.retryAfterSeconds ?? 60) * 1000);
+        if (api.code === 'RATE_LIMIT_EXCEEDED') {
+          const until = Date.now() + (api.retryAfterSeconds ?? 60) * 1000;
+          writeDuplicateCommandRetryAt(user.organizationId, user.id, until); setRetryAt(until);
+        }
       } else {
         setError(failure instanceof Error ? failure.message : 'İnceleme kaydedilemedi.');
       }
-    } finally { setPending(false); }
+    } finally { sending.current = false; setPending(false); }
   }
 
   const attemptLabel = attempt?.kind === 'REOPEN' ? 'Yeniden inceleme isteğini tekrar dene' : 'Özgün isteği tekrar dene';
 
   return <section className="duplicate-review" aria-labelledby="duplicate-review-heading" aria-busy={pending}>
-    <h2 id="duplicate-review-heading">İnceleme</h2>
+    <h2 id="duplicate-review-heading" ref={heading} tabIndex={-1}>İnceleme</h2>
     <p className="duplicate-decision-effect">Bu işlem yalnız müşteri çifti için inceleme kararı kaydeder. Müşteriler birleştirilmez, pasifleştirilmez veya silinmez.</p>
     <p role="status" className="duplicate-review-status">
       <strong>{duplicateEffectiveLabels[review.effectiveStatus]}</strong>
@@ -198,29 +225,31 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       ? <p className="duplicate-warning" role="status">Kanıt güncelliği doğrulanamıyor. Eski karar gizlenmez; güncel kanıtı inceleyin.</p>
       : null}
     {feedback && <p className="duplicate-success" role="status">{feedback}</p>}
+    {reconciliation === 'PENDING' && <p role="status">Güncel durum doğrulanıyor… Gösterilen karşılaştırma son başarılı okumaya aittir.</p>}
+    {reconciliation === 'FAILED' && <div role="status" className="duplicate-warning"><p>Güncel durum doğrulanamadı. İşlem makbuzu kaydedildi; gösterilen karşılaştırma son başarılı okumaya aittir.</p><button type="button" className="secondary-button" onClick={() => void reconcile()}>Güncel durumu doğrula</button></div>}
+    {reconciliation === 'CURRENT' && <p role="status">Güncel durum yüklendi.</p>}
     {error && <p className="duplicate-warning" role="alert">{error}</p>}
-    {mustReinspect && !attempt && <button type="button" className="secondary-button" onClick={() => { setMustReinspect(false); setError(''); }}>Güncel kanıtı inceledim</button>}
+    {(mustReinspect || draftStale) && !attempt && <button type="button" className="secondary-button" onClick={() => { setDraftContext(reviewedNow); setMustReinspect(false); setError(''); }}>Güncel kanıtı inceledim</button>}
     {attempt && attemptStale && <div role="status" className="duplicate-warning">
       <p>Kanıt veya inceleme sürümü değişti. Kayıtlı istek otomatik olarak yeni kanıta bağlanmaz.</p>
-      <button type="button" className="secondary-button" onClick={() => {
-        clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
-        setAttempt(null); setMustReinspect(false); setError('');
-      }}>Güncel kanıtı inceledim; yeni istek oluştur</button>
+      {!submitted && <button type="button" className="secondary-button" onClick={() => {
+        setAttempt(null); setConfirmOpen(false); setDraftContext(reviewedNow); setMustReinspect(false); setError('');
+      }}>Güncel kanıtı inceledim; yeni istek oluştur</button>}
     </div>}
-    {attempt && !attemptStale && !pending && !feedback && <div className="duplicate-unresolved" role="status">
+    {attempt && submitted && !pending && !feedback && <div className="duplicate-unresolved" role="status">
       <p>Bekleyen bir inceleme isteği geri yüklendi. Sonuç belirsizse aynı isteği güvenle tekrar deneyebilirsiniz.</p>
       <button type="button" className="secondary-button" onClick={() => void send(attempt)} disabled={waitingForRetry || pending}>{attemptLabel}</button>
     </div>}
     {(isTerminal || canReopen) && <div className="duplicate-terminal">
       <p>Son karar: <strong>{review.currentDecision ? decisionText(review.currentDecision.reasonCode) : '—'}</strong>{review.currentDecision && <> · {formatDate(review.currentDecision.decidedAt)} · Aktör: {review.currentDecision.actorUserId}</>}</p>
-      {canReopen && <button type="button" className="secondary-button" onClick={beginReopen}>Yeniden incele</button>}
+      {data.allowedActions.includes('REOPEN') && <button type="button" className="secondary-button" onClick={beginReopen} disabled={!canReopen || waitingForRetry}>Yeniden incele</button>}
     </div>}
     {!isTerminal && review.effectiveStatus !== 'BLOCKED' && review.effectiveStatus !== 'UNAVAILABLE' && data.allowedActions.includes('DECIDE') && <div className="duplicate-decision">
       <fieldset disabled={!canDecide || pending || waitingForRetry}>
         <legend>İnceleme kararı</legend>
         <p>Gerekçe zorunludur. Karar yalnız bu müşteri çifti için geçerlidir.</p>
         {decisionOptions.map(([value, label]) => <label key={value} className="duplicate-radio">
-          <input type="radio" name="duplicate-decision" value={value} checked={choice === value} onChange={() => { setChoice(value); setReason(''); }} />
+          <input type="radio" name="duplicate-decision" value={value} checked={choice === value} onChange={() => { setDraftContext((old) => old ?? reviewedNow); setChoice(value); setReason(''); }} />
           <span>{label}</span>
         </label>)}
         <label className="duplicate-reason">Gerekçe
@@ -235,7 +264,7 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       <button type="button" className="primary-button compact-button" onClick={beginDecision} disabled={!canDecide || !choice || !reason || waitingForRetry}>
         {choice === 'DISMISSED' ? 'Eşleşmeyi reddet' : 'Mükerrer olarak doğrula'}
       </button>
-      <button type="button" className="secondary-button" onClick={() => { setChoice(''); setReason(''); setError(''); }} disabled={pending}>Daha sonra</button>
+      <button type="button" className="secondary-button" onClick={() => { setChoice(''); setReason(''); setDraftContext(null); setError(''); }} disabled={pending || attempt !== null}>Daha sonra</button>
     </div>}
     {review.effectiveStatus === 'BLOCKED' || review.effectiveStatus === 'UNAVAILABLE' ? <p role="status" className="duplicate-warning">Bu çift için karar verilemiyor. Kaynak veya kanıt bütünü doğrulanamıyor; mevcut geçmiş korunuyor.</p> : null}
     {review.id && <History reviewId={review.id} version={review.version} reloadKey={reloadKey} />}
@@ -248,6 +277,9 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       details={attempt && attempt.kind === 'DECIDE' && attempt.decision ? [`Karar: ${duplicateDecisionLabels[attempt.decision]}`, `Gerekçe: ${attempt.reasonCode ? decisionText(attempt.reasonCode) : ''}`] : []}
       confirmLabel={attempt?.kind === 'REOPEN' ? 'Yeniden incelemeye aç' : 'Kararı kaydet'}
       pending={pending}
+      confirmDisabled={waitingForRetry || (!submitted && blockedByChange)}
+      returnFocusRef={commandOpener}
+      fallbackFocusRef={heading}
       onConfirm={() => { if (attempt) void send(attempt); }}
       onCancel={cancelConfirmation}
     />

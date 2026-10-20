@@ -55,7 +55,7 @@ function validation(field: string, message: string): never {
 }
 
 function mapError(error: unknown): unknown {
-  if (error instanceof AppError) return error;
+  if (error instanceof AppError && error.code !== 'CRITICAL_ACTION_RECEIPT_INCOMPLETE') return error;
   const code = (error as { code?: string } | null)?.code;
   if (code === '55P03' || code === '40P01') return new AppError('REVIEW_BUSY', 409, 'İnceleme şu anda başka bir işlem tarafından kullanılıyor. Aynı istekle yeniden deneyin.');
   if (code === '57014') return new AppError('REVIEW_TEMPORARILY_UNAVAILABLE', 503, 'İnceleme işlemi zaman aşımına uğradı. Sonucu doğrulamak için yeniden deneyin.');
