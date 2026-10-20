@@ -55,6 +55,9 @@ function validation(field: string, message: string): never {
 }
 
 function mapError(error: unknown): unknown {
+  if (error instanceof AppError && error.code === 'CRITICAL_ACTION_TEMPORARILY_UNAVAILABLE') {
+    return new AppError('REVIEW_TEMPORARILY_UNAVAILABLE', 503, 'İnceleme sonucu doğrulanamıyor. Aynı istekle yeniden deneyin.');
+  }
   if (error instanceof AppError && error.code !== 'CRITICAL_ACTION_RECEIPT_INCOMPLETE') return error;
   const code = (error as { code?: string } | null)?.code;
   if (code === '55P03' || code === '40P01') return new AppError('REVIEW_BUSY', 409, 'İnceleme şu anda başka bir işlem tarafından kullanılıyor. Aynı istekle yeniden deneyin.');
@@ -119,7 +122,7 @@ export class PostgresDuplicateReviewRepository {
           response: await this.execute(client, actor, pair, command, intent),
           realtimeEvents: [],
         }),
-        { statementTimeoutMs: DUPLICATE_LIMITS.commandStatementMs, lockTimeoutMs: DUPLICATE_LIMITS.commandLockMs },
+        { statementTimeoutMs: DUPLICATE_LIMITS.commandStatementMs, lockTimeoutMs: DUPLICATE_LIMITS.commandLockMs, requestTimeoutMs: DUPLICATE_LIMITS.requestMs },
       );
       if (result.kind === 'processing') {
         throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı inceleme isteği işleniyor. Aynı istekle yeniden deneyin.');
