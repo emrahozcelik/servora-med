@@ -98,7 +98,6 @@ beforeAll(async () => {
   app = Fastify();
   await app.register(rateLimit, { global: false });
   app.setErrorHandler((error, _request, reply) => {
-    if (!(error instanceof AppError)) error = new AppError('INTERNAL_ERROR', 500, 'Synthetic failure');
     const result = toErrorResponse(error);
     reply.code(result.statusCode).send(result.body);
   });
@@ -288,6 +287,34 @@ it.skipIf(!databaseUrl)('TX-01/TX-05: concurrent opposite decisions have one win
     await pool!.query('DROP TRIGGER synthetic_audit_failure_trigger ON audit_events');
     await pool!.query('DROP FUNCTION synthetic_audit_failure()');
   }
+});
+
+it.skipIf(!databaseUrl)('RATE-03/05: the COMMAND class limiter is actor/org scoped and returns no-store 429', async () => {
+  const manager = await createActor();
+  for (let index = 0; index < 10; index++) {
+    const response = await app.inject({
+      method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+      headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+      payload: {},
+    });
+    expect(response.statusCode, response.body).toBe(400);
+  }
+  const limited = await app.inject({
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: {},
+  });
+  expect(limited.statusCode, limited.body).toBe(429);
+  expect(limited.json().code).toBe('RATE_LIMIT_EXCEEDED');
+  expect(Number(limited.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+  expect(limited.headers['cache-control']).toBe('no-store');
+  const other = await createActor();
+  const fresh = await app.inject({
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    headers: { 'x-test-actor': other, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: {},
+  });
+  expect(fresh.statusCode, fresh.body).toBe(400);
 });
 
 it.skipIf(!databaseUrl)('SEC-01/API-5: STAFF is rejected before the pair lookup and malformed bodies add no writes', async () => {
