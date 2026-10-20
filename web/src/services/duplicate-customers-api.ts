@@ -169,7 +169,7 @@ export function parseDuplicateHistoryPage(value: unknown): DuplicateHistoryPage 
     nextCursor: nullableString(v.nextCursor, 'nextCursor'),
   };
 }
-export function getDuplicateReviewHistory(reviewId: string, cursor?: string | null) {
+export function getDuplicateReviewHistory(reviewId: string, cursor?: string | null, signal?: AbortSignal) {
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-  return request(`/api/customers/duplicate-reviews/${encodeURIComponent(reviewId)}/history${query}`).then(parseDuplicateHistoryPage);
+  return request(`/api/customers/duplicate-reviews/${encodeURIComponent(reviewId)}/history${query}`, { signal }).then(parseDuplicateHistoryPage);
 }

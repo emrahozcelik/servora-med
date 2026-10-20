@@ -11,10 +11,8 @@ import { ResultState } from './ui/antd/ResultState';
 import { customerStatusLabels, customerTypeLabels, getCustomerOperationalSummary, type CustomerOperationalSummary } from './services/crm-api';
 import { buildContextState } from './shell/context-return';
 import { useOptionalRouteNavigation } from './shell/route-navigation-provider';
-import { useDuplicateRead } from './useDuplicateRead';
+import { useDuplicateRead, duplicateReadPauseScope as readPauseScope } from './useDuplicateRead';
 import './duplicate-customers.css';
-
-const readPauseScope = (kind: 'LIST' | 'DETAIL', user: CurrentUser) => `CRM_DUPLICATE_${kind}:v1:${user.organizationId}:${user.id}`;
 
 export function DuplicateReadError({ error, onReload, retainedData = false, retryAt = null, retryAuto = true, busy = false, notFoundTitle = 'Aday taraması başlatılamadı', notFoundDescription = 'Seçili müşteri kapsamı kullanılamıyor veya erişim kapsamınızda değil. Aday listesine dönüp yeniden deneyin.' }: {
   error: Error; onReload: () => void; retainedData?: boolean; retryAt?: number | null; retryAuto?: boolean; busy?: boolean;

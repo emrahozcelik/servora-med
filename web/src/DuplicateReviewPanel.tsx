@@ -5,6 +5,7 @@ import {
   readDuplicateCommandRetryAt, writeDuplicateCommandRetryAt, writeDuplicateAttempt, type DuplicateAttempt,
 } from './duplicate-review-attempt';
 import { ConfirmationAction } from './ui/antd/ConfirmationAction';
+import { duplicateReadPauseScope, useDuplicateRead } from './useDuplicateRead';
 import {
   decideDuplicateReview, duplicateDecisionLabels, duplicateDecisionReasonLabels,
   duplicateEffectiveLabels, duplicateFreshnessLabels, duplicateFreshnessReasonLabels,
@@ -29,32 +30,39 @@ function decisionText(reasonCode: string) {
   return duplicateDecisionReasonLabels[reasonCode as DuplicateDecisionReason] ?? reasonCode;
 }
 
-function History({ reviewId, version, reloadKey }: { reviewId: string; version: number; reloadKey: number }) {
-  const [page, setPage] = useState<DuplicateHistoryPage | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    let live = true;
-    setLoading(true); setError(''); setPage(null);
-    getDuplicateReviewHistory(reviewId).then((result) => { if (live) setPage(result); })
-      .catch((failure) => { if (live) setError(failure instanceof Error ? failure.message : 'Karar geçmişi yüklenemedi.'); })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; };
-  }, [reviewId, version, reloadKey]);
-  async function more() {
-    if (!page?.nextCursor) return;
-    setLoading(true); setError('');
+function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: string }) {
+  const cursor = useRef<string | null>(null);
+  const loaded = useRef<DuplicateHistoryPage | null>(null);
+  const read = useDuplicateRead(reviewId, async (signal) => {
     try {
-      const next = await getDuplicateReviewHistory(reviewId, page.nextCursor);
-      setPage({ ...next, items: [...page.items, ...next.items] });
+      const previous = loaded.current;
+      const next = await getDuplicateReviewHistory(reviewId, cursor.current, signal);
+      if (signal.aborted) return next;
+      const seen = new Set(previous?.items.map(item => item.eventId));
+      const result = cursor.current && previous
+        ? { ...next, items: [...previous.items, ...next.items.filter(item => !seen.has(item.eventId))] }
+        : next;
+      loaded.current = result;
+      return result;
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Karar geçmişi yüklenemedi.');
-    } finally { setLoading(false); }
+      if (failure instanceof ApiError && [401, 403, 404].includes(failure.status)) { loaded.current = null; cursor.current = null; }
+      throw failure;
+    }
+  }, false, pauseScope);
+  const { data: page, busy: loading, error, retryAt, retryAuto } = read;
+  const waiting = retryAt !== null;
+  const accessLost = error instanceof ApiError && [401, 403, 404].includes(error.status);
+  function more() {
+    if (!page?.nextCursor || loading || waiting) return;
+    cursor.current = page.nextCursor;
+    void read.reload();
   }
   return <section className="duplicate-history" aria-label="Karar geçmişi">
     <h2>Karar geçmişi</h2>
     {loading && !page && <p role="status">Geçmiş yükleniyor…</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p role="alert">{error.message} {page && 'Gösterilen geçmiş son başarılı okumaya aittir; güncelliği doğrulanamadı.'}</p>}
+    {waiting && <p role="status">Karar geçmişi ve karşılaştırma kotası nedeniyle yaklaşık {Math.max(1, Math.ceil((retryAt - Date.now()) / 1000))} saniye bekleyin. {retryAuto ? 'Süre dolunca görünür ekranda bir kez otomatik olarak yeniden denenecek.' : 'Süre dolunca geçmişi tekrar deneyin.'}</p>}
+    {error && !accessLost && <button type="button" className="secondary-button" onClick={() => void read.reload()} disabled={loading || waiting}>Geçmişi tekrar dene</button>}
     {page && page.items.length === 0 && <p>Henüz karar geçmişi yok.</p>}
     {page && page.items.length > 0 && <ol className="duplicate-history-list">
       {page.items.map((item) => <li key={item.eventId}>
@@ -64,7 +72,7 @@ function History({ reviewId, version, reloadKey }: { reviewId: string; version: 
         {item.warnings.length > 0 && <p className="duplicate-warning">Vergi numaraları çelişiyor.</p>}
       </li>)}
     </ol>}
-    {page?.nextCursor && <button type="button" className="secondary-button" onClick={more} disabled={loading}>{loading ? 'Yükleniyor…' : 'Daha eski kararlar'}</button>}
+    {page?.nextCursor && <button type="button" className="secondary-button" onClick={more} disabled={loading || waiting}>{loading ? 'Yükleniyor…' : 'Daha eski kararlar'}</button>}
   </section>;
 }
 
@@ -267,7 +275,7 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       <button type="button" className="secondary-button" onClick={() => { setChoice(''); setReason(''); setDraftContext(null); setError(''); }} disabled={pending || attempt !== null}>Daha sonra</button>
     </div>}
     {review.effectiveStatus === 'BLOCKED' || review.effectiveStatus === 'UNAVAILABLE' ? <p role="status" className="duplicate-warning">Bu çift için karar verilemiyor. Kaynak veya kanıt bütünü doğrulanamıyor; mevcut geçmiş korunuyor.</p> : null}
-    {review.id && <History reviewId={review.id} version={review.version} reloadKey={reloadKey} />}
+    {review.id && <History key={`${identity}:${review.id}:${review.version}:${reloadKey}`} reviewId={review.id} pauseScope={duplicateReadPauseScope('DETAIL', user)} />}
     <ConfirmationAction
       open={confirmOpen}
       title={attempt?.kind === 'REOPEN' ? 'Yeniden incelemeye aç' : attempt?.decision === 'DISMISSED' ? 'Eşleşmeyi reddet' : 'Mükerrer olarak doğrula'}

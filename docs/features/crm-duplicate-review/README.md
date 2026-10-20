@@ -56,6 +56,9 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
   no-store and visible-page 60-second refresh remain the accepted API contract.
   Retained results after temporary refresh failure are labelled stale; definitive
   access/source loss clears cached comparison data.
+  History reads use the same actor/organization DETAIL cooldown as comparison;
+  review/version/command refresh changes isolate history request generations.
+  Late prior-page responses cannot replace the current immutable history window.
 - Independent acceptance, final SHA/tree-bound 27/27 Local CI, verifier and the
   required Linux/PG17/browser evidence remain rollout gates. This documentation
   does not replace current test evidence or turn historical NOT_RUN into PASS.
