@@ -55,6 +55,7 @@ const baseConfig = {
     messaging: false,
     backup: false,
     demoDatasetCreation: false,
+    duplicateCustomerComparison: false,
   },
   support: {
     displayLabel: 'Operasyon desteği',

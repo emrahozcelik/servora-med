@@ -99,7 +99,7 @@ describe('052 weekly report recurrence migration', () => {
       '055_job_submit_location_comparison.sql',
       '056_meeting_met_contact.sql',
       '057_sale_from_visit.sql',
-      '058_sale_integer_quantity.sql',
+      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql',
     ]);
     expect(files).not.toContain('053_weekly_report_recurrence_due.sql');
   });
@@ -114,7 +114,7 @@ describe.skipIf(!databaseUrl)('052 schema behaviour (PostgreSQL)', () => {
       const versions = applied.rows.map((row) => row.version);
       expect(versions).toContain('051_weekly_report_foundation');
       expect(versions).toContain('052_weekly_report_recurrence');
-      expect(versions[versions.length - 1]).toBe('058_sale_integer_quantity');
+      expect(versions[versions.length - 1]).toBe('059_crm_duplicate_read_indexes');
       const columns = await pool.query<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema = current_schema() AND table_name = 'weekly_report_recurrences'

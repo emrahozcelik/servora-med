@@ -1,0 +1,167 @@
+{
+  "status": "Accepted Design / PR1 Rollout Pending",
+  "sourcePolicy": "Original approved documents remain external and unchanged. Repository contains portable Markdown only; no duplicate archive. Only recorded machine-specific links are changed.",
+  "files": [
+    {
+      "file": "CRM_SLICE4A_API_CONTRACT.md",
+      "originalSha256": "ed0c7cf61d596d2c28580cf9b24bf63bccbee26959d78cb2fcc4c84a31562502",
+      "portableSha256": "ed0c7cf61d596d2c28580cf9b24bf63bccbee26959d78cb2fcc4c84a31562502",
+      "linkChanges": []
+    },
+    {
+      "file": "CRM_SLICE4A_DATA_MODEL.md",
+      "originalSha256": "9bf4a113d8bb922c156cadcc82fd55469f500fc274a4b8c580aff0c6659a79f8",
+      "portableSha256": "9bf4a113d8bb922c156cadcc82fd55469f500fc274a4b8c580aff0c6659a79f8",
+      "linkChanges": []
+    },
+    {
+      "file": "CRM_SLICE4A_DESIGN.md",
+      "originalSha256": "21fc68219c800dc76320f16ed2f53328f7533f783dd084d4ca54e38bec68c8d0",
+      "portableSha256": "0302cbbbc9e4844022c62540c4b70e81d671f63daedcd4025313bdf173d74cea",
+      "linkChanges": [
+        {
+          "from": "[Orijinal kullanıcı artifact'i](/private/tmp/servora-med-crm-slice4-discovery.mrqbkc/CRM_SLICE4_DISCOVERY.md)",
+          "to": "Orijinal kullanıcı artifact'i (harici kaynak: `CRM_SLICE4_DISCOVERY.md`; repository içinde dağıtılmıyor)",
+          "kind": "external-provenance"
+        },
+        {
+          "from": "[AGENTS.md](/Users/emrah/Documents/Servora-Med/AGENTS.md)",
+          "to": "[AGENTS.md](../../../AGENTS.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[DECISIONS.md](/Users/emrah/Documents/Servora-Med/DECISIONS.md)",
+          "to": "[DECISIONS.md](../../../DECISIONS.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[PRODUCT.md](/Users/emrah/Documents/Servora-Med/PRODUCT.md)",
+          "to": "[PRODUCT.md](../../../PRODUCT.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[DESIGN.md](/Users/emrah/Documents/Servora-Med/DESIGN.md)",
+          "to": "[DESIGN.md](../../../DESIGN.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[CRM temel sözleşmesi](/Users/emrah/Documents/Servora-Med/docs/superpowers/specs/2026-07-12-customers-contacts-design.md)",
+          "to": "[CRM temel sözleşmesi](../../../docs/superpowers/specs/2026-07-12-customers-contacts-design.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Slice 2](/Users/emrah/Documents/Servora-Med/docs/superpowers/plans/2026-10-10-crm-staff-enrichment.md)",
+          "to": "[Slice 2](../../../docs/superpowers/plans/2026-10-10-crm-staff-enrichment.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Slice 3](/Users/emrah/Documents/Servora-Med/docs/superpowers/specs/2026-10-10-crm-slice3-visit-contact-completeness-design.md)",
+          "to": "[Slice 3](../../../docs/superpowers/specs/2026-10-10-crm-slice3-visit-contact-completeness-design.md)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Normalizer'lar](/Users/emrah/Documents/Servora-Med/server/src/modules/crm/types.ts:189)",
+          "to": "[Normalizer'lar](../../../server/src/modules/crm/types.ts#L189)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[CRM locks/queries](/Users/emrah/Documents/Servora-Med/server/src/modules/crm/repository.ts:95)",
+          "to": "[CRM locks/queries](../../../server/src/modules/crm/repository.ts#L95)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Contact writers](/Users/emrah/Documents/Servora-Med/server/src/modules/crm/service.ts:440)",
+          "to": "[Contact writers](../../../server/src/modules/crm/service.ts#L440)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Critical helper](/Users/emrah/Documents/Servora-Med/server/src/modules/job-cards/repository.ts:985)",
+          "to": "[Critical helper](../../../server/src/modules/job-cards/repository.ts#L985)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Sale lock yolu](/Users/emrah/Documents/Servora-Med/server/src/modules/job-cards/sale-service.ts:151)",
+          "to": "[Sale lock yolu](../../../server/src/modules/job-cards/sale-service.ts#L151)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Realtime sözlüğü](/Users/emrah/Documents/Servora-Med/server/src/modules/realtime/types.ts:3)",
+          "to": "[Realtime sözlüğü](../../../server/src/modules/realtime/types.ts#L3)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[web reconciliation](/Users/emrah/Documents/Servora-Med/web/src/realtime/RealtimeProvider.tsx:192)",
+          "to": "[web reconciliation](../../../web/src/realtime/RealtimeProvider.tsx#L192)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Local CI gate SSOT](/Users/emrah/Documents/Servora-Med/ops/local-ci/required-checks.txt)",
+          "to": "[Local CI gate SSOT](../../../ops/local-ci/required-checks.txt)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[catalog loader](/Users/emrah/Documents/Servora-Med/server/src/db/migration-catalog.ts:75)",
+          "to": "[catalog loader](../../../server/src/db/migration-catalog.ts#L75)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Plugin registration](/Users/emrah/Documents/Servora-Med/server/src/app.ts:210)",
+          "to": "[Plugin registration](../../../server/src/app.ts#L210)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[auth hook/cookie key notu](/Users/emrah/Documents/Servora-Med/server/src/modules/auth/routes.ts:14)",
+          "to": "[auth hook/cookie key notu](../../../server/src/modules/auth/routes.ts#L14)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[auth middleware](/Users/emrah/Documents/Servora-Med/server/src/modules/auth/middleware.ts:8)",
+          "to": "[auth middleware](../../../server/src/modules/auth/middleware.ts#L8)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[CRM routes](/Users/emrah/Documents/Servora-Med/server/src/modules/crm/routes.ts:16)",
+          "to": "[CRM routes](../../../server/src/modules/crm/routes.ts#L16)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Contact deletion](/Users/emrah/Documents/Servora-Med/server/src/modules/crm/service.ts:484)",
+          "to": "[Contact deletion](../../../server/src/modules/crm/service.ts#L484)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[Contact FK](/Users/emrah/Documents/Servora-Med/server/src/db/migrations/004_crm_contacts.sql:17)",
+          "to": "[Contact FK](../../../server/src/db/migrations/004_crm_contacts.sql#L17)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[receipt helper](/Users/emrah/Documents/Servora-Med/server/src/modules/job-cards/repository.ts:985)",
+          "to": "[receipt helper](../../../server/src/modules/job-cards/repository.ts#L985)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[error serializer](/Users/emrah/Documents/Servora-Med/server/src/errors/index.ts:22)",
+          "to": "[error serializer](../../../server/src/errors/index.ts#L22)",
+          "kind": "repository-relative"
+        },
+        {
+          "from": "[operator environment](/Users/emrah/Documents/Servora-Med/docs/operations/production-deployment.md:24)",
+          "to": "[operator environment](../../../docs/operations/production-deployment.md#L24)",
+          "kind": "repository-relative"
+        }
+      ]
+    },
+    {
+      "file": "CRM_SLICE4A_IMPLEMENTATION_PLAN.md",
+      "originalSha256": "7d3208d84068d1df657619d26b43fb903226aa8edd7c858fc2544c29f44236c9",
+      "portableSha256": "7d3208d84068d1df657619d26b43fb903226aa8edd7c858fc2544c29f44236c9",
+      "linkChanges": []
+    },
+    {
+      "file": "CRM_SLICE4A_TEST_MATRIX.md",
+      "originalSha256": "42550a0b0a261a7a05163e8593112cd450ecd01d37b6d693b58bd35873cafc5c",
+      "portableSha256": "42550a0b0a261a7a05163e8593112cd450ecd01d37b6d693b58bd35873cafc5c",
+      "linkChanges": []
+    }
+  ]
+}

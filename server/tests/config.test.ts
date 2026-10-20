@@ -59,6 +59,7 @@ describe('loadConfig', () => {
       messaging: false,
       backup: false,
       demoDatasetCreation: false,
+      duplicateCustomerComparison: false,
     });
   });
 
@@ -106,6 +107,7 @@ describe('loadConfig', () => {
         BACKUP_FILES_ROOT: '',
       }),
     ).toEqual({
+      duplicateComparison: { enabled: false },
       nodeEnv: 'test',
       host: '0.0.0.0',
       port: 4100,
@@ -139,6 +141,7 @@ describe('loadConfig', () => {
         messaging: false,
         backup: false,
         demoDatasetCreation: false,
+        duplicateCustomerComparison: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',
@@ -161,6 +164,7 @@ describe('loadConfig', () => {
 
   it('uses safe development defaults', () => {
     expect(loadConfig(validEnvironment)).toEqual({
+      duplicateComparison: { enabled: false },
       nodeEnv: 'development',
       host: '127.0.0.1',
       port: 3000,
@@ -191,6 +195,7 @@ describe('loadConfig', () => {
         messaging: false,
         backup: false,
         demoDatasetCreation: false,
+        duplicateCustomerComparison: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',

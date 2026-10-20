@@ -45,7 +45,7 @@ const MIGRATIONS = [
   '049_job_card_lifecycle_intents.sql',
   '056_meeting_met_contact.sql',
   '057_sale_from_visit.sql',
-  '058_sale_integer_quantity.sql',
+  '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql',
 ];
 
 function listQuery(overrides: Partial<JobCardListQuery> = {}): JobCardListQuery {

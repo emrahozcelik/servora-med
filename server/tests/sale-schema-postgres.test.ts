@@ -14,7 +14,7 @@ import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
-  it('upgrades the real 056 catalog without changing an existing job and never reapplies 057/058', async () => {
+  it('upgrades the real 056 catalog without changing an existing job and never reapplies 057/058/059', async () => {
     const directory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
     const previous = await mkdtemp(path.join(tmpdir(), 'sale-head056-'));
     const admin = new Pool({ connectionString: databaseUrl });
@@ -32,7 +32,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const user = (await pool.query("INSERT INTO users(organization_id,name,email,password_hash,role) VALUES ($1,'Existing staff','existing@test.local','test-hash','STAFF') RETURNING id", [org])).rows[0].id;
       const job = (await pool.query("INSERT INTO job_cards(organization_id,type,status,title,assigned_to,created_by) VALUES ($1,'GENERAL_TASK','NEW','Existing task',$2,$2) RETURNING *", [org, user])).rows[0];
       const upgraded = await runMigrations({ migrationsDirectory: directory, store });
-      expect(upgraded.appliedVersions).toEqual(['057_sale_from_visit', '058_sale_integer_quantity']);
+      expect(upgraded.appliedVersions).toEqual(['057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes']);
       const after = (await pool.query('SELECT * FROM job_cards WHERE id=$1', [job.id])).rows[0];
       const { sale_source_visit_id, ...oldColumns } = after;
       expect(sale_source_visit_id).toBeNull();
@@ -40,7 +40,7 @@ describe.skipIf(!databaseUrl)('Sale PostgreSQL schema', () => {
       const history = (await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows;
       expect(await runMigrations({ migrationsDirectory: directory, store })).toEqual({ appliedVersions: [] });
       expect((await pool.query('SELECT version,applied_at,xmin::text FROM schema_migrations ORDER BY version')).rows).toEqual(history);
-      expect(history).toHaveLength(58);
+      expect(history).toHaveLength(59);
     } finally { await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(previous, { recursive: true, force: true }); }
   });
   it('enforces same-org foreign keys, duplicate products and numeric bounds in PostgreSQL', async () => {

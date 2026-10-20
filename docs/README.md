@@ -16,6 +16,7 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | Data model and API contracts | [Schema baseline](../SERVORA_MED_SCHEMA_DRAFT.md), [API baseline](../SERVORA_MED_API_DRAFT.md), with accepted decision/feature amendments |
 | Delivery order and recorded acceptance | [MVP slice ledger](../SERVORA_MED_MVP_SLICES.md); completed checkpoints are historical |
 | Visit-origin Sale, lifecycle, and quantity amendments | [Visit-to-Sale](features/visit-to-sale/README.md), [integer quantity policy](features/visit-to-sale/integer-quantity-policy.md), and [write/UI contract](features/visit-to-sale/write-ui-integration.md) |
+| Duplicate customer detection/review and PR1 rollout | [CRM Slice 4A owning package](features/crm-duplicate-review/README.md) |
 | Local setup | [README](../README.md#configure-the-development-database) and [isolated test environment](operations/local-test-environment.md) |
 | Deploy and CI recovery | [Production deployment](operations/production-deployment.md), [local CI recovery](operations/local-ci-resource-recovery.md), and [local CI source](../ops/local-ci/) |
 | Restore, offsite DR, and forward recovery | [Backup/recovery](operations/backup-recovery/README.md), [backup/restore](operations/backup-restore.md), and [R4](operations/r4-forward-recovery.md) |

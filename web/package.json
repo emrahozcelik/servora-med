@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
+    "acceptance:duplicate-review": "node tests/duplicate-review-browser-regression.mjs",
     "acceptance:r2b-demo-data": "node scripts/r2b-demo-data-acceptance.mjs",
     "acceptance:r3b-invalidation": "node scripts/r3b-jobcard-invalidation-acceptance.mjs",
     "acceptance:r4b-offboarding": "node scripts/r4b-staff-offboarding-acceptance.mjs",
