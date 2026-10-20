@@ -270,6 +270,30 @@ it('UI-09: cancelling reopen restores keyboard focus to its persistent trigger',
   expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false);
 });
 
+it.each([500, 503, 'invalid'] as const)('F11/UI-06: POST %s retains the original payload through reload without generating another UUID', async (status) => {
+  const frozen = { version: 1 as const, kind: 'DECIDE' as const, clientActionId: 'confirmed-original-action', expectedReviewVersion: 0,
+    expectedEvidenceRevision: evidence.revision, matchingRuleVersion: evidence.matchingRuleVersion,
+    decision: 'CONFIRMED_DUPLICATE' as const, reasonCode: 'SAME_OPERATIONAL_CUSTOMER_VERIFIED' as const, createdAt: 0 };
+  writeDuplicateAttempt(user.organizationId, user.id, 'a', 'b', frozen);
+  const posts: unknown[] = []; const uuid = vi.spyOn(crypto, 'randomUUID');
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)));
+    if (posts.length > 1) return new Response(JSON.stringify(receipt), { status: 200 });
+    return status === 'invalid' ? new Response('{}', { status: 200 })
+      : new Response(JSON.stringify({ error: 'Synthetic uncertain outcome', code: 'INTERNAL_ERROR' }), { status });
+  }));
+  try {
+    await render(pending);
+    await act(async () => { click(button('Özgün isteği tekrar dene')); await flush(); });
+    expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+    expect(readDuplicateAttempt(user.organizationId, user.id, 'a', 'b')).toEqual(frozen);
+    await act(async () => { root.unmount(); }); host.remove();
+    await render(pending);
+    await act(async () => { click(button('Özgün isteği tekrar dene')); await flush(); });
+    expect(posts).toHaveLength(2); expect(posts[1]).toEqual(posts[0]); expect(uuid).not.toHaveBeenCalled();
+  } finally { uuid.mockRestore(); }
+});
+
 it('UI-05/UI-07: changed evidence marks a frozen attempt stale and requires renewed inspection without rebinding', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(history), { status: 200 })));
   await render(pending);

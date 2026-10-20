@@ -341,14 +341,14 @@ it.skipIf(!databaseUrl)('RATE-03/05: the COMMAND class limiter is actor/org scop
   const manager = await createActor();
   for (let index = 0; index < 10; index++) {
     const response = await app.inject({
-      method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+      method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/${index % 2 ? 'reopen' : 'decisions'}`,
       headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
       payload: {},
     });
     expect(response.statusCode, response.body).toBe(400);
   }
   const limited = await app.inject({
-    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/reopen`,
     headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
     payload: {},
   });
