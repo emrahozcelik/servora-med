@@ -29,6 +29,6 @@ it('F02: owning portable documents preserve approved bytes except recorded machi
   }
   expect(readFileSync(path.join(root, 'DECISIONS.md'), 'utf8')).toContain('docs/features/crm-duplicate-review/README.md');
   expect(readFileSync(path.join(root, 'docs/README.md'), 'utf8')).toContain('features/crm-duplicate-review/README.md');
-  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('Accepted Design / PR1 Rollout Pending');
+  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('PR2 Implemented / PR3 Pending Independent Review');
   expect(existsSync(path.join(folder, 'approved-design-originals.zip'))).toBe(false);
 });

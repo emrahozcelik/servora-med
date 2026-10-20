@@ -76,6 +76,7 @@ beforeAll(async () => {
   await rm(path.join(previousRelease, 'server/dist/db/migrations/057_sale_from_visit.sql'));
   await rm(path.join(previousRelease, 'server/dist/db/migrations/058_sale_integer_quantity.sql'));
   await rm(path.join(previousRelease, 'server/dist/db/migrations/059_crm_duplicate_read_indexes.sql'));
+  await rm(path.join(previousRelease, 'server/dist/db/migrations/060_crm_duplicate_review_decisions.sql'));
 });
 
 beforeEach(async () => {
@@ -96,7 +97,7 @@ afterAll(async () => {
 });
 
 describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () => {
-  it('accepts the same complete 059 history despite interleaved timestamps in every reader', async () => {
+  it('accepts the same complete 060 history despite interleaved timestamps in every reader', async () => {
     const before = await history();
     const applied = await new PostgresMigrationStore(pool!).getAppliedVersions();
     expect(applied).toEqual(catalog.entries.map((entry) => entry.version));
@@ -118,24 +119,24 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
     expect(deploy.error).toBeUndefined();
     expect(deploy.status).toBe(0);
     expect(deploy.stdout).toContain('migration_status=EXACT\n');
-    expect(deploy.stdout).toContain('applied_count=59\n');
+    expect(deploy.stdout).toContain('applied_count=60\n');
     expect(deploy.stdout).toContain('pending_count=0\n');
     expect(deploy.stdout).toContain('unexpected_count=0\n');
     expect(await history()).toEqual(before);
   });
 
-  it('reports 058 as BEHIND with only 059 pending despite interleaved timestamps', async () => {
+  it('reports 059 as BEHIND with only 060 pending despite interleaved timestamps', async () => {
     await pool!.query('DELETE FROM schema_migrations WHERE version = $1', [catalog.head!.version]);
     const output = await expectIncompatibleReaders('BEHIND', 'PREFIX_WITH_PENDING');
     expect(output).toContain('pending_count=1\n');
-    expect(output).toContain('pending_versions=059_crm_duplicate_read_indexes\n');
-    expect(output).toContain('applied_head=058_sale_integer_quantity\n');
+    expect(output).toContain('pending_versions=060_crm_duplicate_review_decisions\n');
+    expect(output).toContain('applied_head=059_crm_duplicate_read_indexes\n');
   });
 
   it('reports a synthetic future canonical version as AHEAD in all readers', async () => {
-    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('060_future_feature', '2000-01-01')");
+    await pool!.query("INSERT INTO schema_migrations (version, applied_at) VALUES ('061_future_feature', '2000-01-01')");
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD');
-    expect(output).toContain('unexpected_versions=060_future_feature\n');
+    expect(output).toContain('unexpected_versions=061_future_feature\n');
   });
 
   it('keeps a missing middle migration DIVERGED', async () => {
@@ -144,7 +145,7 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   });
 
   it('keeps an alternative branch migration DIVERGED', async () => {
-    await pool!.query("UPDATE schema_migrations SET version = '059_alternative_branch' WHERE version = $1", [catalog.head!.version]);
+    await pool!.query("UPDATE schema_migrations SET version = '060_alternative_branch' WHERE version = $1", [catalog.head!.version]);
     await expectIncompatibleReaders('DIVERGED', 'DIVERGENT');
   });
 
@@ -163,13 +164,13 @@ describe.skipIf(!url)('migration reader ordering — disposable PostgreSQL', () 
   it('keeps empty history incompatible and reports every version pending', async () => {
     await pool!.query('DELETE FROM schema_migrations');
     const output = await expectIncompatibleReaders('EMPTY', 'PREFIX_WITH_PENDING');
-    expect(output).toContain('pending_count=59\n');
+    expect(output).toContain('pending_count=60\n');
   });
 
-  it('keeps the pre-056 release catalog AHEAD fail-closed against a 059 database', async () => {
+  it('keeps the pre-056 release catalog AHEAD fail-closed against a 060 database', async () => {
     const previousCatalog = await loadMigrationCatalog(path.join(previousRelease, 'server/dist/db/migrations'));
     expect(previousCatalog.head!.version).toBe('055_job_submit_location_comparison');
     const output = await expectIncompatibleReaders('AHEAD', 'DATABASE_AHEAD', previousCatalog, previousRelease);
-    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit,058_sale_integer_quantity,059_crm_duplicate_read_indexes\n');
+    expect(output).toContain('unexpected_versions=056_meeting_met_contact,057_sale_from_visit,058_sale_integer_quantity,059_crm_duplicate_read_indexes,060_crm_duplicate_review_decisions\n');
   });
 });

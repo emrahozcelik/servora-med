@@ -33,6 +33,6 @@ it('UI-02/09: comparison keeps distinct A/B values per field and exposes no revi
   const html = renderToStaticMarkup(<MemoryRouter><DuplicateComparisonView data={data} /></MemoryRouter>);
   expect(html).toContain('Müşteri A'); expect(html).toContain('Müşteri B');
   expect(html).toContain('Alan: Telefon'); expect(html).toContain('Eşleşen bilgi');
-  expect(html).toContain('Salt okunur'); expect(html).not.toContain('Mükerrer olarak doğrula');
+  expect(html).toContain('Müşteriler birleştirilmez'); expect(html).not.toContain('Mükerrer olarak doğrula');
   expect(html).toContain('/customers/a'); expect(html).toContain('/customers/b');
 });

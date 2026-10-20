@@ -23,3 +23,36 @@
 .duplicate-contacts dd { margin-inline-start: 0; }
 @media (max-width: 48rem) { .duplicate-identities { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 48rem) { .duplicate-field-values { grid-template-columns: minmax(0, 1fr); gap: .75rem; } }
+
+.duplicate-review { margin-block: 2rem; padding-block-start: 1.5rem; border-top: 2px solid var(--rule); }
+.duplicate-review h2 { margin: 0 0 .75rem; }
+.duplicate-decision-effect { max-width: 75ch; padding: .75rem 1rem; background: var(--accent-soft); border-radius: var(--radius); }
+.duplicate-review-status { display: flex; flex-wrap: wrap; gap: .25rem .5rem; }
+.duplicate-decision fieldset { border: 1px solid var(--rule); border-radius: var(--radius); padding: 1rem; }
+.duplicate-decision legend { font-weight: 700; padding-inline: .25rem; }
+.duplicate-radio { display: flex; align-items: center; gap: .75rem; min-height: 44px; }
+.duplicate-radio input { inline-size: 1.25rem; block-size: 1.25rem; }
+.duplicate-reason { display: grid; gap: .5rem; margin-block: 1rem; max-width: 36rem; }
+.duplicate-reason select { min-height: 44px; padding: .5rem; font: inherit; }
+.duplicate-terminal, .duplicate-unresolved { margin-block: 1rem; padding: 1rem; border: 1px solid var(--rule); border-radius: var(--radius); }
+.duplicate-history { margin-block: 2rem; }
+.duplicate-history-list { list-style: none; margin: 1rem 0; padding: 0; }
+.duplicate-history-list li { padding-block: .75rem; border-bottom: 1px solid var(--rule); }
+.duplicate-history-list h3 { margin: 0; font-size: 1rem; }
+.duplicate-history-list p { margin: .25rem 0; }
+.duplicate-success { color: var(--success, var(--ink)); font-weight: 600; }
+.duplicate-review-summary { font-weight: 600; }
+.duplicate-review button, .duplicate-review select { min-height: 44px; }
+@media (max-width: 48rem) {
+  .duplicate-review { margin-block: 1.5rem; }
+  .duplicate-review-status { display: block; }
+  .duplicate-review-status span { display: block; margin-block-start: .25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .duplicate-review *, .duplicate-history * { scroll-behavior: auto; transition: none !important; animation: none !important; }
+}
+.duplicate-decision { min-width: 0; }
+.duplicate-decision fieldset { min-width: 0; }
+.duplicate-radio span { min-width: 0; overflow-wrap: anywhere; }
+.duplicate-reason { min-width: 0; }
+.duplicate-reason select { width: 100%; min-width: 0; }

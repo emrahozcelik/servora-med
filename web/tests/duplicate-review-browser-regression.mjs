@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const customerA = { id: '10000000-0000-4000-8000-000000000001', name: 'Sentetik Eski Müşteri — İstanbul Ağız ve Diş Sağlığı Kliniği', status: 'active', city: 'İstanbul', district: 'Merkez' };
 const customerB = { ...customerA, id: '10000000-0000-4000-8000-000000000002', status: 'inactive' };
 const pair = { customerAId: customerA.id, customerBId: customerB.id };
-const review = { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', currentDecision: null, lastDecision: null };
+const review = { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', freshnessReason: null, currentDecision: null, lastDecision: null };
 const pageFor = (comparisonStatus, nextCursor = null) => ({
   scope: { dataClass: 'BUSINESS', includesInactive: true, anchorCustomerId: null },
   asOf: '2026-10-19T10:00:00.000Z',

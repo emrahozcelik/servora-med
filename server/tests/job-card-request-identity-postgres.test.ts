@@ -39,7 +39,7 @@ const MIGRATIONS = [
   '050_overdue_incident_scanner_source.sql',
   '056_meeting_met_contact.sql',
   '057_sale_from_visit.sql',
-  '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql',
+  '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql',
 ] as const;
 
 describe.skipIf(!databaseUrl)('JobCard critical-action request identity (AUDIT-0 remediation)', () => {

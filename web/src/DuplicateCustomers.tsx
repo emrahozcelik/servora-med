@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
-import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
+import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, duplicateEffectiveLabels, duplicateFreshnessLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
+import { DuplicateReviewPanel } from './DuplicateReviewPanel';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
@@ -30,7 +31,10 @@ export function DuplicateReadError({ error, onReload, retainedData = false, retr
     action={[401, 403, 404].includes(status) ? undefined : <button type="button" className="secondary-button" onClick={onReload} disabled={busy || waitingForRetry}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
 }
 export function DuplicateReadNotice() {
-  return <p className="duplicate-notice">Salt okunur karşılaştırma. Bu ekran müşteri kayıtlarını değiştirmez ve inceleme kararı kaydetmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
+  return <p className="duplicate-notice">Salt okunur aday listesi. Bu ekran müşteri kayıtlarını değiştirmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
+}
+export function DuplicateComparisonNotice() {
+  return <p className="duplicate-notice">İnceleme kararı yalnız bu müşteri çifti için kaydedilir. Müşteriler birleştirilmez, pasifleştirilmez veya silinmez. Ortak iletişim bilgileri tek başına aynı müşteri olduğunu kanıtlamaz.</p>;
 }
 export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false }: {
   data: DuplicatePage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
@@ -58,6 +62,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
           </div>)}</div>
           <ul className="duplicate-reasons" aria-label="Eşleşme gerekçeleri">{item.matchingCodes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
           {item.warnings.length > 0 && <p className="duplicate-warning">Çelişki: Vergi numaraları farklı.</p>}
+          {item.review?.id && <p role="status" className="duplicate-review-summary">İnceleme: {duplicateEffectiveLabels[item.review.effectiveStatus]} · {duplicateFreshnessLabels[item.review.freshness]}</p>}
           {item.comparisonStatus !== 'READY' && <p role="status" className="duplicate-warning">Kanıt bütünü doğrulanamadığı için bu çiftte karşılaştırma açılamaz. Aday çift ve mevcut eşleşme gerekçeleri listede kalır.</p>}
           {item.comparisonStatus === 'READY' && <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ ...(contextState ?? {}), duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>}
         </article>
@@ -103,7 +108,7 @@ function OperationalSummary({ customerId }: { customerId: string }) {
   </section>;
 }
 
-export function DuplicateComparisonView({ data }: { data: DuplicateComparison }) {
+export function DuplicateComparisonView({ data, reviewPanel }: { data: DuplicateComparison; reviewPanel?: ReactNode }) {
   const { customerA: a, customerB: b, evidence } = data;
   const codes = evidence.matchingCodes;
   const fields: { key: keyof Pick<typeof a, 'name' | 'taxNumber' | 'phone' | 'email' | 'city' | 'district' | 'address'>; label: string; match: boolean; conflict?: boolean }[] = [
@@ -114,7 +119,7 @@ export function DuplicateComparisonView({ data }: { data: DuplicateComparison })
     ...(['city', 'district', 'address'] as const).map((key, i) => ({ key, label: ['Şehir', 'İlçe', 'Adres'][i]!, match: codes.includes('SAME_NAME_AND_ADDRESS') })),
   ];
   return <>
-    <DuplicateReadNotice />
+    <DuplicateComparisonNotice />
     <p>Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. Görünürken 60 saniyede bir yenilenir.</p>
     <ul aria-label="Eşleşme gerekçeleri">{codes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
     {evidence.warnings.length > 0 && <p className="duplicate-warning" role="status">Çelişki: İki dolu vergi numarası farklı. Ortak bilgiler kesin kimlik kanıtı değildir.</p>}
@@ -141,6 +146,7 @@ export function DuplicateComparisonView({ data }: { data: DuplicateComparison })
         </section>)}</div>
       </section>
     </section>
+    {reviewPanel}
   </>;
 }
 
@@ -159,7 +165,7 @@ export function DuplicateComparisonScreen({ user }: { user: CurrentUser }) {
     {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} retryAt={state.retryAt} retryAuto={state.retryAuto} busy={state.busy} onReload={state.reload}
       notFoundTitle="Karşılaştırılabilir müşteri çifti bulunamadı"
       notFoundDescription="Bu çift kullanılamıyor veya erişim kapsamınızda değil. Olası mükerrerler listesine dönüp başka bir çift seçebilirsiniz." />}
-    {state.data && <DuplicateComparisonView data={state.data} />}
+    {state.data && <DuplicateComparisonView data={state.data} reviewPanel={<DuplicateReviewPanel user={user} aId={aId} bId={bId} data={state.data} onRefresh={state.reload} />} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;
 }

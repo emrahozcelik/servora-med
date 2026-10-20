@@ -32,7 +32,7 @@ describe('schema-check compatibility classifications', () => {
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('BEHIND');
     if (cmp.status === 'BEHIND') {
-      expect(cmp.pendingVersions).toContain('059_crm_duplicate_read_indexes');
+      expect(cmp.pendingVersions).toContain('060_crm_duplicate_review_decisions');
     }
   });
 
@@ -44,7 +44,7 @@ describe('schema-check compatibility classifications', () => {
 
   it('classifies AHEAD for valid future version', async () => {
     const catalog = await loadMigrationCatalog(migrationsDirectory);
-    const applied = [...catalog.entries.map((e) => e.version), '060_future_feature'];
+    const applied = [...catalog.entries.map((e) => e.version), '061_future_feature'];
     const cmp = compareMigrationState(catalog, applied);
     expect(cmp.status).toBe('AHEAD');
   });
@@ -217,7 +217,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
       const migrPool = new Pool({ connectionString: dbUrl });
       try {
         await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(migrPool) });
-        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('060_future_feature')");
+        await migrPool.query("INSERT INTO schema_migrations (version) VALUES ('061_future_feature')");
       } finally {
         await migrPool.end();
       }
@@ -300,10 +300,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('schema-check disposable postgre
     });
   });
 
-  it('produces dist catalog 59 head 059', async () => {
+  it('produces dist catalog 60 head 060', async () => {
     const distCatalog = await loadMigrationCatalog(fileURLToPath(new URL('../dist/db/migrations', import.meta.url)));
-    expect(distCatalog.count).toBe(59);
-    expect(distCatalog.head?.version).toBe('059_crm_duplicate_read_indexes');
+    expect(distCatalog.count).toBe(60);
+    expect(distCatalog.head?.version).toBe('060_crm_duplicate_review_decisions');
   });
 
   it('resource cleanup: pool closed after success and failure', async () => {

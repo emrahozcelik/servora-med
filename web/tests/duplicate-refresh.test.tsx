@@ -10,7 +10,7 @@ import { ApiError } from '../src/services/api';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const a = { id: 'a', name: 'SYNTHETIC OLD CUSTOMER', status: 'active', city: null, district: null };
 const page = { scope: { dataClass: 'BUSINESS', includesInactive: true, anchorCustomerId: null }, asOf: '2026-10-19T10:00:00.000Z', matchingRuleVersion: 'crm-duplicate-v1', coverage: 'COMPLETE_SOURCE', rawPairCount: '1', largestNameGroupSize: 2, largestPhoneGroupSize: 2,
-  items: [{ pair: { customerAId: 'a', customerBId: 'b' }, customerA: a, customerB: { ...a, id: 'b' }, matchingCodes: ['SAME_NAME'], warnings: [], comparisonStatus: 'READY' }],
+  items: [{ pair: { customerAId: 'a', customerBId: 'b' }, customerA: a, customerB: { ...a, id: 'b' }, matchingCodes: ['SAME_NAME'], warnings: [], comparisonStatus: 'READY', review: { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', freshnessReason: null, currentDecision: null, lastDecision: null } }],
   page: { nextCursor: null, exhausted: true, evaluatedPairs: 1, returnedItems: 1 } };
 
 it.each([503, 401, 403, 404])('UI-08: refresh HTTP %s labels retained data stale and discards it after access loss', async (status) => {

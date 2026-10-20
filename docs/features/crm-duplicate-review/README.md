@@ -1,6 +1,6 @@
 # CRM Slice 4A — owning contracts and PR1 rollout
 
-**Status: Accepted Design / PR1 Rollout Pending.**
+**Status: PR2 Implemented / PR3 Pending Independent Review.**
 
 The approved D1–D6 and T1–T5 design inputs are accepted. This records design
 acceptance, not production deployment or completion of the whole Slice 4A.

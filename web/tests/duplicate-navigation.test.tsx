@@ -17,7 +17,7 @@ const manager: CurrentUser = {
 
 const pairPath = '/customers/duplicate-review-pairs/a/b';
 const customer = { id: 'a', name: 'Sentetik Eski Müşteri', status: 'active', city: null, district: null, customerType: 'clinic', taxNumber: null, phone: '+905321234567', email: null, address: null, version: 1, assignedStaffUserId: null, contacts: [{ id: 'c1', name: 'Sentetik İlgili Kişi', title: null, phone: null, email: null, isPrimary: true, isActive: true, version: 1 }] };
-const comparison = { pair: { customerAId: 'a', customerBId: 'b' }, asOf: '2026-10-19T10:00:00.000Z', customerA: customer, customerB: { ...customer, id: 'b' }, evidence: { revision: 'synthetic', schemaVersion: 1, matchingRuleVersion: 'crm-duplicate-v1', matchingCodes: ['SAME_NAME'], warnings: [] }, review: { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', currentDecision: null, lastDecision: null }, allowedActions: [] };
+const comparison = { pair: { customerAId: 'a', customerBId: 'b' }, asOf: '2026-10-19T10:00:00.000Z', customerA: customer, customerB: { ...customer, id: 'b' }, evidence: { revision: 'synthetic', schemaVersion: 1, matchingRuleVersion: 'crm-duplicate-v1', matchingCodes: ['SAME_NAME'], warnings: [] }, review: { id: null, version: 0, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', freshness: 'NOT_APPLICABLE', freshnessReason: null, currentDecision: null, lastDecision: null }, allowedActions: [] };
 
 const listState = { from: { pathname: '/customers/duplicate-candidates', search: '?cursor=abc&anchorCustomerId=a', hash: '' }, duplicateFocus: 'duplicate-a-b' };
 let host: HTMLDivElement;

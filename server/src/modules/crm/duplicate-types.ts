@@ -5,7 +5,8 @@ export const DUPLICATE_LIMITS = Object.freeze({
   sourceCustomers: 20_000, page: 20, pairs: 32, contacts: 200,
   addressBytes: 16 * 1024, evidenceBytes: 2 * 1024 * 1024,
   statementMs: 2_000, requestMs: 5_000, cursorMs: 15 * 60_000,
-  listPerMinute: 6, detailPerMinute: 20, inflightPerOrg: 2,
+  commandLockMs: 250, commandStatementMs: 2_000,
+  listPerMinute: 6, detailPerMinute: 20, commandPerMinute: 10, inflightPerOrg: 2,
 });
 export const DUPLICATE_MATCH_CODES = [
   'SAME_NAME_AND_PHONE', 'SAME_NAME_AND_EMAIL', 'SAME_NAME_AND_ADDRESS', 'SAME_PHONE', 'SAME_NAME',

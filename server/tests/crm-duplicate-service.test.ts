@@ -12,7 +12,7 @@ function blockedRepository(release: Promise<void>) {
     snapshot: async (run: (snapshot: unknown) => Promise<unknown>) => {
       await release;
       return run({
-        asOf: new Date().toISOString(), checkpoint: () => {}, source: async () => [], facts: async () => new Map(),
+        asOf: new Date().toISOString(), checkpoint: () => {}, source: async () => [], facts: async () => new Map(), reviewHeads: async () => new Map(),
       });
     },
   } as never;
