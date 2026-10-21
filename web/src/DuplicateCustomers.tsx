@@ -4,6 +4,7 @@ import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, duplicateEffectiveLabels, duplicateFreshnessLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
 import { DuplicateReviewPanel } from './DuplicateReviewPanel';
+import { DuplicateAttemptRecovery } from './DuplicateAttemptRecovery';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
@@ -41,7 +42,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
   const location = useLocation();
   const contextState = buildContextState(location);
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
-    <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
+    <PageHeader fallbackTitle="Olası mükerrerler" actions={<><Link className="secondary-button" to={paths.duplicateReviewRegister}>İnceleme kayıtları</Link><button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button></>} />
     <DuplicateReadNotice />
     {onViewChange && <label className="duplicate-reason">İnceleme görünümü
       <select aria-label="İnceleme görünümü" value={view} onChange={(event) => onViewChange(event.target.value as 'ATTENTION' | 'ALL')} disabled={busy}>
@@ -170,6 +171,7 @@ export function DuplicateComparisonScreen({ user }: { user: CurrentUser }) {
       notFoundTitle="Karşılaştırılabilir müşteri çifti bulunamadı"
       notFoundDescription="Bu çift kullanılamıyor veya erişim kapsamınızda değil. Olası mükerrerler listesine dönüp başka bir çift seçebilirsiniz." />}
     {state.data && <DuplicateComparisonView data={state.data} reviewPanel={<DuplicateReviewPanel user={user} aId={aId} bId={bId} data={state.data} onRefresh={state.reload} />} />}
+    {state.error && <DuplicateAttemptRecovery user={user} aId={aId} bId={bId} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;
 }

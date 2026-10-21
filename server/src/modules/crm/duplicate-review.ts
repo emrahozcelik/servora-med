@@ -1,11 +1,13 @@
 import { AppError } from '../../errors/index.js';
 import {
+  compareDuplicateFacts,
+  createDuplicateEvidenceDetails,
   duplicateEvidenceDigest,
   duplicateEvidenceMatches,
   type DuplicateEvidenceDetails,
   type DuplicateKeyring,
 } from './duplicate-evidence.js';
-import { DUPLICATE_RULE_VERSION } from './duplicate-types.js';
+import { DUPLICATE_RULE_VERSION, type DuplicateCustomerFacts } from './duplicate-types.js';
 
 export const DUPLICATE_REVIEW_STATUSES = ['PENDING_REVIEW', 'CONFIRMED_DUPLICATE', 'DISMISSED'] as const;
 export type DuplicateReviewStatus = typeof DUPLICATE_REVIEW_STATUSES[number];
@@ -166,6 +168,46 @@ export function projectDuplicateReview(input: {
   return {
     review: { ...summary, effectiveStatus: head.resultingStatus, freshness: 'CURRENT', freshnessReason: null },
     allowedActions: head.eventKind === 'DECISION_RECORDED' ? ['REOPEN'] : ['DECIDE'],
+  };
+}
+
+export type DuplicatePairProjection = {
+  review: DuplicateReviewSummary;
+  allowedActions: DuplicateAction[];
+  details: DuplicateEvidenceDetails | null;
+  comparisonStatus: 'READY' | 'OVER_BUDGET';
+  matchingCodes: readonly string[];
+  warnings: readonly string[];
+};
+
+/**
+ * Single projection of a pair's current evidence against its persisted head.
+ * Candidate, comparison and register reads must not fork freshness semantics.
+ */
+export function projectDuplicatePair(input: {
+  organizationId: string;
+  customerA: DuplicateCustomerFacts;
+  customerB: DuplicateCustomerFacts;
+  head: DuplicateReviewHead | null;
+  keyring: DuplicateKeyring;
+}): DuplicatePairProjection {
+  const { organizationId, customerA, customerB, head, keyring } = input;
+  let details: DuplicateEvidenceDetails | null = null;
+  let overBudget = false;
+  try {
+    details = createDuplicateEvidenceDetails(organizationId, customerA, customerB, keyring);
+  } catch (error) {
+    if (!(error instanceof AppError) || error.code !== 'EVIDENCE_LIMIT_EXCEEDED') throw error;
+    overBudget = true;
+  }
+  const projected = projectDuplicateReview({ head, current: details, keyring, sourceAvailable: true, overBudget });
+  const fallback = overBudget ? compareDuplicateFacts(customerA, customerB) : null;
+  return {
+    ...projected,
+    details,
+    comparisonStatus: overBudget ? 'OVER_BUDGET' : 'READY',
+    matchingCodes: details?.matchingCodes ?? fallback?.matchingCodes ?? [],
+    warnings: details?.warnings ?? fallback?.warnings ?? [],
   };
 }
 

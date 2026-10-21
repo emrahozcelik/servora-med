@@ -17,6 +17,29 @@ const keyFor = (organizationId: string, actorId: string, a: string, b: string) =
   `CRM_DUPLICATE_COMMAND_ATTEMPT:v1:${organizationId}:${actorId}:${a < b ? a : b}:${a < b ? b : a}`;
 const cooldownKey = (organizationId: string, actorId: string) => `CRM_DUPLICATE_COMMAND_COOLDOWN:v1:${organizationId}:${actorId}`;
 const cooldowns = new Map<string, number>();
+type CommandCooldownListener = (until: number | null) => void;
+const commandCooldownListeners = new Map<string, Set<CommandCooldownListener>>();
+
+/**
+ * Same-tab sessionStorage writes do not emit storage events, so mounted sibling
+ * recovery surfaces subscribe here instead of polling storage.
+ */
+export function subscribeDuplicateCommandCooldown(
+  organizationId: string, actorId: string, listener: CommandCooldownListener,
+) {
+  const key = cooldownKey(organizationId, actorId);
+  const set = commandCooldownListeners.get(key) ?? new Set<CommandCooldownListener>();
+  set.add(listener);
+  commandCooldownListeners.set(key, set);
+  return () => {
+    set.delete(listener);
+    if (!set.size) commandCooldownListeners.delete(key);
+  };
+}
+
+function notifyCommandCooldown(key: string, until: number | null) {
+  commandCooldownListeners.get(key)?.forEach((listener) => listener(until));
+}
 
 export function readDuplicateCommandRetryAt(organizationId: string, actorId: string): number | null {
   const key = cooldownKey(organizationId, actorId);
@@ -32,6 +55,14 @@ export function writeDuplicateCommandRetryAt(organizationId: string, actorId: st
   const key = cooldownKey(organizationId, actorId);
   cooldowns.set(key, until);
   try { window.sessionStorage.setItem(key, String(until)); } catch { /* in-memory cooldown remains enforced */ }
+  notifyCommandCooldown(key, until);
+}
+
+export function clearDuplicateCommandRetryAt(organizationId: string, actorId: string) {
+  const key = cooldownKey(organizationId, actorId);
+  cooldowns.delete(key);
+  try { window.sessionStorage.removeItem(key); } catch { /* storage is optional */ }
+  notifyCommandCooldown(key, null);
 }
 
 function valid(value: unknown): value is DuplicateAttempt {

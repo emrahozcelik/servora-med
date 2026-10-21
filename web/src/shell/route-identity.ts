@@ -12,7 +12,7 @@ import { paths } from '../paths';
 export type RouteId =
   | 'overview' | 'calendar' | 'messages' | 'jobs'
   | 'saleCreate' | 'jobCreateDelivery' | 'jobCreateTask' | 'jobCreateMeeting' | 'jobCreateWeeklyReport' | 'followUpCreate' | 'jobDetail'
-  | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail' | 'duplicateCustomers' | 'duplicateComparison'
+  | 'customers' | 'customerCreate' | 'customerDetail' | 'contactDetail' | 'duplicateCustomers' | 'duplicateReviewRegister' | 'duplicateComparison'
   | 'products' | 'productCreate' | 'productDetail'
   | 'reports' | 'reportStaff' | 'reportCustomers' | 'reportDeliveries' | 'reportApprovals' | 'reportSalesFollowUp'
   | 'users' | 'userCreate' | 'userDetail'
@@ -59,6 +59,7 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
   jobDetail: { title: 'İş detayı', parentId: 'jobs', section: 'Operasyon' },
   customers: { title: 'Müşteriler', parentId: null, section: 'Operasyon' },
   duplicateCustomers: { title: 'Olası mükerrerler', parentId: 'customers', section: 'Operasyon' },
+  duplicateReviewRegister: { title: 'İnceleme kayıtları', parentId: 'duplicateCustomers', section: 'Operasyon' },
   duplicateComparison: { title: 'Müşteri karşılaştırması', parentId: 'duplicateCustomers', section: 'Operasyon' },
   customerCreate: { title: 'Yeni müşteri', parentId: 'customers', section: 'Operasyon' },
   customerDetail: { title: 'Müşteri', parentId: 'customers', section: 'Operasyon' },
@@ -162,6 +163,7 @@ const PATTERNS: RoutePattern[] = [
   { id: 'jobs', test: matchExact(paths.jobs) },
   { id: 'customerCreate', test: matchExact(paths.newCustomer) },
   { id: 'duplicateCustomers', test: matchExact(paths.duplicateCustomers) },
+  { id: 'duplicateReviewRegister', test: matchExact(paths.duplicateReviewRegister) },
   { id: 'duplicateComparison', test: matchParam(/^\/customers\/duplicate-review-pairs\/([^/]+)\/([^/]+)\/?$/, ['aId', 'bId']) },
   { id: 'contactDetail', test: matchParam(/^\/customers\/([^/]+)\/contacts\/([^/]+)\/?$/, ['customerId', 'contactId']) },
   { id: 'customerDetail', test: matchParam(/^\/customers\/([^/]+)\/?$/, ['customerId']) },
@@ -210,6 +212,7 @@ export function routePathForIdentity(id: RouteId, params: RouteParams): string |
     case 'jobDetail': return params.jobCardId ? paths.job(params.jobCardId) : null;
     case 'customers': return paths.customers;
     case 'duplicateCustomers': return paths.duplicateCustomers;
+    case 'duplicateReviewRegister': return paths.duplicateReviewRegister;
     case 'duplicateComparison': return params.aId && params.bId ? paths.duplicateComparison(params.aId, params.bId) : null;
     case 'customerCreate': return paths.newCustomer;
     case 'customerDetail': return params.customerId ? paths.customer(params.customerId) : null;

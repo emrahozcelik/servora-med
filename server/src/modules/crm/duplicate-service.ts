@@ -1,8 +1,8 @@
 import { AppError } from '../../errors/index.js';
 import { createCandidateIndex, type CustomerPair } from './duplicate-candidates.js';
 import { decodeDuplicateCursor, encodeDuplicateCursor } from './duplicate-cursor.js';
-import { compareDuplicateFacts, createDuplicateEvidenceDetails, duplicateHmac, type DuplicateKeyring } from './duplicate-evidence.js';
-import { projectDuplicateReview, type DuplicateReviewHead } from './duplicate-review.js';
+import { compareDuplicateFacts, duplicateHmac, type DuplicateKeyring } from './duplicate-evidence.js';
+import { projectDuplicatePair, type DuplicateReviewHead } from './duplicate-review.js';
 import { duplicateUnavailable, PostgresDuplicateReadRepository } from './duplicate-repository.js';
 import { DUPLICATE_LIMITS, DUPLICATE_RULE_VERSION, type DuplicateCustomerFacts } from './duplicate-types.js';
 import type { CrmActor } from './types.js';
@@ -90,16 +90,6 @@ export class DuplicateComparisonService {
   }
 
   private project(org: string, a: DuplicateCustomerFacts, b: DuplicateCustomerFacts, head: DuplicateReviewHead | null) {
-    let details = null as ReturnType<typeof createDuplicateEvidenceDetails> | null;
-    let overBudget = false;
-    try { details = createDuplicateEvidenceDetails(org, a, b, this.keys); }
-    catch (error) {
-      if (!(error instanceof AppError) || error.code !== 'EVIDENCE_LIMIT_EXCEEDED') throw error;
-      overBudget = true;
-    }
-    const projected = projectDuplicateReview({ head, current: details, keyring: this.keys, sourceAvailable: true, overBudget });
-    return { ...projected, details, comparisonStatus: overBudget ? 'OVER_BUDGET' as const : 'READY' as const,
-      matchingCodes: details?.matchingCodes ?? compareDuplicateFacts(a, b).matchingCodes,
-      warnings: details?.warnings ?? compareDuplicateFacts(a, b).warnings };
+    return projectDuplicatePair({ organizationId: org, customerA: a, customerB: b, head, keyring: this.keys });
   }
 }

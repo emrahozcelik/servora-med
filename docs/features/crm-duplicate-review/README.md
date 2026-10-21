@@ -1,6 +1,6 @@
 # CRM Slice 4A — owning contracts and rollout
 
-**Status: PR1 merged / PR2 implementation-under-review / PR3 pending.**
+**Status: PR1 merged / PR2 merged / PR3 implemented-under-independent-review.**
 
 **Production rollout: NOT DEPLOYED.**
 
@@ -28,19 +28,40 @@ remain unchanged.
 ## Implemented boundary and release controls
 
 PR #379 merged PR1: management-only candidate/comparison GETs and virtual pending
-reviews. PR2 in PR #380 adds persistent decisions, explicit reopen, immutable
-history and the manager decision UI; its implementation remains under independent
-review. Virtual pending reviews still use id=null/version=0; PR2 supplies allowed
+reviews. PR #380 merged PR2: persistent decisions, explicit reopen, immutable
+history and the manager decision UI. Virtual pending reviews still use
+id=null/version=0; the backend supplies allowed
 actions from backend policy. The same-org
 BUSINESS scope includes prospect, active and inactive customers. GET creates no
 business, review, audit or receipt rows. Existing tax/Contact primary and STAFF
 CRM permissions are unchanged.
 
-PR3 register/workbench is pending. PR2 ALL candidate view keeps current matching
-confirmed/dismissed pairs reachable for comparison, history and explicit reopen;
-the independent register for historical pairs that no longer match is PR3 scope.
+PR3 adds the independent review register (`GET /api/customers/duplicate-reviews`)
+and the dedicated registry workbench, so historical pairs that no longer match —
+or whose source is deleted, converted to DEMO, or otherwise unavailable — remain
+reviewable without a global candidate scan. Register paging is bounded by the
+canonical pair cursor (at most 32 evaluated heads and 20 returned items per page)
+and uses a domain-separated authenticated cursor. ATTENTION suppresses only
+current decisions; stale, unverifiable, over-budget, pending and unavailable rows
+stay visible. PR2 ALL candidate view keeps current matching
+confirmed/dismissed pairs reachable for comparison, history and explicit reopen.
 There is no Customer/Contact merge, identity alias, deactivation, deletion or referential
 rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
+
+A lost command response is recoverable without a new intent: the comparison and
+register surfaces expose a narrow replay of the actor-bound frozen attempt, which
+resends the original `clientActionId` and payload and shows the stored immutable
+receipt as a receipt, not as current review state. The replay is offered on every register row whose comparison cannot be shown
+(unavailable source or over-budget evidence), shares the actor/org COMMAND cooldown
+across all mounted recovery surfaces, and cannot be retried before the server
+window expires. Only the reviewed no-commit codes close the attempt; unknown
+404/422 outcomes, 429/5xx and transport failures keep it, and authorization
+failures retain it without disclosing review data.
+
+The registry also opens the safe review history for rows whose comparison cannot
+be shown (unavailable source, DEMO conversion, deleted source or over-budget
+evidence). History stays read-only, keeps the bounded cursor and DETAIL cooldown
+semantics, and grants no new decide/reopen authority.
 
 - CRM_DUPLICATE_COMPARISON_ENABLED defaults to false. Disabled startup does not
   require a keyring. Enabling requires strict CRM_DUPLICATE_EVIDENCE_KEYRING
