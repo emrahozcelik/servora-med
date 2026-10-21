@@ -8,6 +8,7 @@ import {
 } from './services/duplicate-customers-api';
 import { customerStatusLabels } from './services/crm-api';
 import { DuplicateReadError } from './DuplicateCustomers';
+import { DuplicateAttemptRecovery } from './DuplicateAttemptRecovery';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
@@ -15,7 +16,7 @@ import { buildContextState } from './shell/context-return';
 import { useDuplicateRead, duplicateReadPauseScope as readPauseScope } from './useDuplicateRead';
 import './duplicate-customers.css';
 
-function RegisterReviewRow({ item, contextState }: { item: DuplicateRegisterItem; contextState: Record<string, unknown> | null }) {
+function RegisterReviewRow({ item, contextState, user }: { item: DuplicateRegisterItem; contextState: Record<string, unknown> | null; user?: CurrentUser }) {
   const { review } = item;
   const decision = review.currentDecision ?? review.lastDecision;
   const identities = [
@@ -33,6 +34,7 @@ function RegisterReviewRow({ item, contextState }: { item: DuplicateRegisterItem
         <p>{customerStatusLabels[customer.status]} · {[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p>
         <p className="duplicate-id">Kayıt: {customer.id}</p>
       </div>)}</div>}
+    {item.sourceAvailability === 'UNAVAILABLE' && user && <DuplicateAttemptRecovery user={user} aId={item.pair.customerAId} bId={item.pair.customerBId} />}
     <p role="status" className="duplicate-review-summary">
       <strong>{duplicateEffectiveLabels[review.effectiveStatus]}</strong>
       <span> · {duplicateFreshnessLabels[review.freshness]}</span>
@@ -51,10 +53,10 @@ function RegisterReviewRow({ item, contextState }: { item: DuplicateRegisterItem
   </article>;
 }
 
-export function DuplicateRegisterView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false, view = 'ATTENTION', onViewChange }: {
+export function DuplicateRegisterView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false, view = 'ATTENTION', onViewChange, user }: {
   data: DuplicateRegisterPage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean;
   onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
-  view?: 'ATTENTION' | 'ALL'; onViewChange?: (view: 'ATTENTION' | 'ALL') => void;
+  view?: 'ATTENTION' | 'ALL'; onViewChange?: (view: 'ATTENTION' | 'ALL') => void; user?: CurrentUser;
 }) {
   const location = useLocation();
   const contextState = buildContextState(location);
@@ -77,7 +79,7 @@ export function DuplicateRegisterView({ data, error, busy, retryAt = null, retry
         ? <EmptyState title={view === 'ATTENTION' ? 'İlgilenilmesi gereken inceleme kaydı yok' : 'İnceleme kaydı yok'} description="Bu sonuç, kayıtların aynı müşteri olduğuna ilişkin bir karar değildir." />
         : <p role="status">Bu ara sayfada gösterilecek kayıt yok. Kayıtları sürdürün.</p>)}
       <ol className="duplicate-candidates">{data.items.map((item) => <li key={item.reviewId}>
-        <RegisterReviewRow item={item} contextState={contextState} />
+        <RegisterReviewRow item={item} contextState={contextState} user={user} />
       </li>)}</ol>
       <nav className="duplicate-pagination" aria-label="İnceleme kaydı sayfaları">
         {laterPage && <button className="secondary-button" type="button" onClick={onFirst} disabled={busy}>İlk sayfa</button>}
@@ -96,7 +98,7 @@ export function DuplicateReviewRegisterScreen({ user }: { user: CurrentUser }) {
     if (!laterPage) { state.reload(); return; }
     const next = new URLSearchParams(params); next.delete('cursor'); setParams(next);
   };
-  return <DuplicateRegisterView {...state} view={params.get('view') === 'ALL' ? 'ALL' : 'ATTENTION'}
+  return <DuplicateRegisterView {...state} user={user} view={params.get('view') === 'ALL' ? 'ALL' : 'ATTENTION'}
     onViewChange={(view) => { const next = new URLSearchParams(params); next.set('view', view); next.delete('cursor'); setParams(next); }}
     onReload={state.reload} onFirst={first} laterPage={laterPage}
     onNext={() => { if (state.data?.page.nextCursor) { const next = new URLSearchParams(params); next.set('cursor', state.data.page.nextCursor); setParams(next); } }} />;
