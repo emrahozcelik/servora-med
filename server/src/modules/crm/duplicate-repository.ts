@@ -1,7 +1,7 @@
 import type { Client, Pool, PoolClient, QueryResultRow } from 'pg';
 import { performance } from 'node:perf_hooks';
 import { AppError } from '../../errors/index.js';
-import type { DuplicateSource } from './duplicate-candidates.js';
+import type { CustomerPair, DuplicateSource } from './duplicate-candidates.js';
 import { DUPLICATE_LIMITS, type DuplicateCustomerFacts } from './duplicate-types.js';
 import { reviewHeadFromRow, type DuplicateReviewHead } from './duplicate-review.js';
 import { mapContact, mapCustomer, type ContactRow, type CustomerRow } from './types.js';
@@ -40,6 +40,30 @@ LEFT JOIN customer_duplicate_review_events previous_decision
  AND e.event_kind='REVIEW_REOPENED'
 ORDER BY wanted.customer_a_id, wanted.customer_b_id`;
 
+export const DUPLICATE_REGISTER_HEADS_SQL = `SELECT r.customer_a_id, r.customer_b_id,
+  r.id, r.version, e.id AS event_id, e.seq, e.event_kind, e.resulting_status, e.reason_code,
+  e.actor_user_id, e.occurred_at, e.evidence_schema_version, e.matching_rule_version,
+  e.evidence_key_id, e.evidence_digest, e.matching_codes, e.conflicting_tax_numbers,
+  previous_decision.id AS previous_decision_id, previous_decision.seq AS previous_decision_seq,
+  previous_decision.resulting_status AS previous_decision_status,
+  previous_decision.reason_code AS previous_decision_reason,
+  previous_decision.actor_user_id AS previous_decision_actor_id,
+  previous_decision.occurred_at AS previous_decision_at
+FROM customer_duplicate_reviews r
+JOIN customer_duplicate_review_events e
+  ON e.organization_id = r.organization_id
+ AND e.review_id = r.id AND e.seq = r.version
+LEFT JOIN customer_duplicate_review_events previous_decision
+  ON previous_decision.organization_id = r.organization_id
+ AND previous_decision.review_id = r.id
+ AND previous_decision.seq = r.version - 1
+ AND previous_decision.event_kind = 'DECISION_RECORDED'
+ AND e.event_kind = 'REVIEW_REOPENED'
+WHERE r.organization_id = $1
+  AND ($2::uuid IS NULL OR (r.customer_a_id, r.customer_b_id) > ($2::uuid, $3::uuid))
+ORDER BY r.customer_a_id, r.customer_b_id
+LIMIT $4`;
+
 export const duplicateUnavailable = () => new AppError('REVIEW_TEMPORARILY_UNAVAILABLE', 503, 'Karşılaştırma şu anda yüklenemiyor. Yeniden deneyin.');
 export class DuplicateReadSnapshot {
   readonly asOf = new Date().toISOString();
@@ -69,6 +93,18 @@ export class DuplicateReadSnapshot {
       heads.set(`${row.customer_a_id}:${row.customer_b_id}`, reviewHeadFromRow(row));
     }
     return heads;
+  }
+  async registerHeads(org: string, after: { customerAId: string; customerBId: string } | null, limit: number): Promise<Array<{ pair: CustomerPair; head: DuplicateReviewHead }>> {
+    const rows = await this.query<Parameters<typeof reviewHeadFromRow>[0]>(DUPLICATE_REGISTER_HEADS_SQL, [
+      org, after?.customerAId ?? null, after?.customerBId ?? null, limit,
+    ]);
+    return rows.map((row) => {
+      if (!row.event_id) throw duplicateUnavailable();
+      return {
+        pair: { customerAId: row.customer_a_id, customerBId: row.customer_b_id },
+        head: reviewHeadFromRow(row),
+      };
+    });
   }
   async facts(org: string, ids: string[]): Promise<Map<string, DuplicateCustomerFacts>> {
     const rows = await this.query<CustomerRow & { address_overflow: boolean }>(DUPLICATE_FACTS_SQL, [org, ids, DUPLICATE_LIMITS.addressBytes]);

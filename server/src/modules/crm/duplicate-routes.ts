@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest, FastifyRepl
 import { AppError } from '../../errors/index.js';
 import { duplicateUuidPattern } from './duplicate-cursor.js';
 import type { DuplicateComparisonService, DuplicateListInput } from './duplicate-service.js';
+import type { DuplicateRegisterService } from './duplicate-register-service.js';
 import type { DuplicateReviewService } from './duplicate-review-service.js';
 import { parseDuplicateDecisionCommand, parseDuplicateReopenCommand } from './duplicate-command.js';
 import { DUPLICATE_LIMITS } from './duplicate-types.js';
@@ -9,6 +10,7 @@ import { DUPLICATE_LIMITS } from './duplicate-types.js';
 type Options = {
   service: DuplicateComparisonService;
   reviewService?: DuplicateReviewService;
+  registerService?: DuplicateRegisterService;
   authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 const invalid = (): never => { throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz karşılaştırma parametreleri.'); };
@@ -23,7 +25,7 @@ function query(request: FastifyRequest, allowed: string[]) {
 }
 const actor = (request: FastifyRequest) => request.currentUser!;
 
-export const duplicateRoutes: FastifyPluginAsync<Options> = async (app, { service, reviewService, authenticate }) => {
+export const duplicateRoutes: FastifyPluginAsync<Options> = async (app, { service, reviewService, registerService, authenticate }) => {
   type ChildLoggerArgs = Parameters<FastifyBaseLogger['child']>;
   const privacyLogger = (logger: FastifyBaseLogger, bindings: ChildLoggerArgs[0], options: ChildLoggerArgs[1]) => {
     const childOptions = options ?? {};
@@ -85,6 +87,18 @@ export const duplicateRoutes: FastifyPluginAsync<Options> = async (app, { servic
       if (fields.limit !== undefined && (!/^[1-9]\d*$/.test(fields.limit) || !Number.isInteger(limit) || limit < 1 || limit > 50)) invalid();
       if (fields.cursor !== undefined && (!fields.cursor.length || fields.cursor.length > 2048)) invalid();
       return reviewService.history(actor(request), reviewId, fields.cursor ?? null, limit);
+    });
+  }
+  if (registerService) {
+    app.get('/customers/duplicate-reviews', { childLoggerFactory: privacyLogger, config: { rateLimit: false }, preHandler: [authenticate, requireManagement, listLimit] }, async (request) => {
+      const fields = query(request, ['view', 'cursor', 'limit']);
+      if (fields.view !== undefined && fields.view !== 'ALL' && fields.view !== 'ATTENTION') invalid();
+      const limit = fields.limit === undefined ? DUPLICATE_LIMITS.page : Number(fields.limit);
+      if (fields.limit !== undefined && !/^[1-9]\d*$/.test(fields.limit) || !Number.isInteger(limit) || limit < 1 || limit > DUPLICATE_LIMITS.page) invalid();
+      if (fields.cursor !== undefined && (!fields.cursor.length || fields.cursor.length > 2048)) invalid();
+      return registerService.register(actor(request), {
+        view: (fields.view ?? 'ATTENTION') as 'ALL' | 'ATTENTION', cursor: fields.cursor ?? null, limit,
+      });
     });
   }
 };

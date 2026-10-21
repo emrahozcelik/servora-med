@@ -38,6 +38,7 @@ import type { CrmRepository } from './modules/crm/repository.js';
 import { CrmService } from './modules/crm/service.js';
 import { crmRoutes } from './modules/crm/routes.js';
 import { duplicateRoutes } from './modules/crm/duplicate-routes.js';
+import { DuplicateRegisterService } from './modules/crm/duplicate-register-service.js';
 import { DuplicateComparisonService } from './modules/crm/duplicate-service.js';
 import { PostgresDuplicateReadRepository } from './modules/crm/duplicate-repository.js';
 import { PostgresDuplicateReviewRepository } from './modules/crm/duplicate-review-repository.js';
@@ -437,6 +438,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           prefix: '/api', authenticate: authenticateDomain,
           service: new DuplicateComparisonService(new PostgresDuplicateReadRepository(dependencies.pool), config.duplicateComparison.keyring),
           reviewService: new DuplicateReviewService(new PostgresDuplicateReviewRepository(dependencies.pool, config.duplicateComparison.keyring)),
+          registerService: new DuplicateRegisterService(new PostgresDuplicateReadRepository(dependencies.pool), config.duplicateComparison.keyring),
         });
       }
     }
