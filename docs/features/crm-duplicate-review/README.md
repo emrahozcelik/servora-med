@@ -61,8 +61,10 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
   Late prior-page responses cannot replace the current immutable history window.
   History uses the bounded read-only snapshot deadline and per-query timeout.
   Expired history cursors discard the prior window and restart at a fresh first page.
-  Definitive conflict/source-missing commands require successful GET reconciliation
-  and renewed inspection before new intent; uncertain attempts retain exact retry.
+  Definitive conflict/source-missing/evidence-limit commands require successful
+  GET reconciliation and renewed inspection before new intent; uncertain attempts retain exact retry.
+  Reopened pending cycles remain actionable through a fresh current GET after their
+  head evidence key is retired; unavailable sources or incomplete evidence still block commands.
 - Independent acceptance, final SHA/tree-bound 27/27 Local CI, verifier and the
   required Linux/PG17/browser evidence remain rollout gates. This documentation
   does not replace current test evidence or turn historical NOT_RUN into PASS.

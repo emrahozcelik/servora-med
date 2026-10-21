@@ -347,6 +347,17 @@ it('Definitive source recovery: definitive POST source 404 must not remain an un
   expect(readDuplicateAttempt(user.organizationId,user.id,'a','b')).toBeNull();
 });
 
+it('Evidence overflow recovery: definitive POST 422 clears the attempt and requires successful current GET', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code: 'EVIDENCE_LIMIT_EXCEEDED', error: 'Synthetic evidence overflow' }), { status: 422 })));
+  const refresh = vi.fn().mockResolvedValue(false);
+  await render(pending, refresh); await prepareRecoveryDecision();
+  expect(readDuplicateAttempt(user.organizationId, user.id, 'a', 'b')).toBeNull();
+  expect(refresh).toHaveBeenCalledTimes(1);
+  expect(button('Özgün isteği tekrar dene')).toBeNull();
+  expect((button('Güncel kanıtı inceledim') as HTMLButtonElement).disabled).toBe(true);
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+});
+
 it('Conflict recovery: pending and failed GET cannot acknowledge; successful GET still requires explicit inspection and a fresh confirmed intent', async () => {
   const posts: Array<Record<string, unknown>> = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
@@ -379,9 +390,9 @@ it('Conflict recovery: pending and failed GET cannot acknowledge; successful GET
   expect(posts[1]!.expectedEvidenceRevision).toBe(fresh.evidence.revision);
 });
 
-it('Definitive source recovery: REOPEN 404 clears only the known no-commit attempt and blocks stale retry/new intent', async () => {
+it.each([[404, 'DUPLICATE_PAIR_NOT_FOUND'], [422, 'EVIDENCE_LIMIT_EXCEEDED']] as const)('Definitive recovery: REOPEN %s/%s clears only the known no-commit attempt and blocks stale retry/new intent', async (status, code) => {
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => init?.method === 'POST'
-    ? new Response(JSON.stringify({ code: 'DUPLICATE_PAIR_NOT_FOUND', error: 'Synthetic deleted source' }), { status: 404 })
+    ? new Response(JSON.stringify({ code, error: 'Synthetic no-commit outcome' }), { status })
     : new Response(JSON.stringify(history), { status: 200 })));
   const refresh = vi.fn().mockResolvedValue(false);
   await render(terminal, refresh);
@@ -393,7 +404,7 @@ it('Definitive source recovery: REOPEN 404 clears only the known no-commit attem
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 
-it.each([[401, 'UNAUTHENTICATED'], [403, 'FORBIDDEN'], [404, 'UNKNOWN_NOT_FOUND']] as const)(
+it.each([[401, 'UNAUTHENTICATED'], [403, 'FORBIDDEN'], [404, 'UNKNOWN_NOT_FOUND'], [422, 'UNKNOWN_VALIDATION'], [503, 'EVIDENCE_LIMIT_EXCEEDED']] as const)(
   'Definitive source recovery: HTTP %s/%s cannot prove a prior uncertain command did not commit', async (status, code) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code, error: 'Synthetic access failure' }), { status })));
     await render(pending); await prepareRecoveryDecision();

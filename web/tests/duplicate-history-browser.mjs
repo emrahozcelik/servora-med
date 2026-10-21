@@ -21,7 +21,7 @@ const history = (upper, items, nextCursor = null) => ({ reviewId, upperSeq: uppe
 function comparison(state) {
   const decision = { ...event(state.version), status: 'DISMISSED', decidedAt: '2026-10-20T10:00:00Z' };
   return { pair, asOf: '2026-10-20T10:00:00Z', customerA: customer, customerB: { ...customer, id: pair.customerBId }, evidence: state.evidence ?? evidence,
-    review: { id: reviewId, version: state.version, reviewStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', effectiveStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', freshness: 'CURRENT', freshnessReason: null, currentDecision: state.pending ? null : decision, lastDecision: decision }, allowedActions: [state.pending ? 'DECIDE' : 'REOPEN'] };
+    review: { id: reviewId, version: state.version, reviewStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', effectiveStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', freshness: 'CURRENT', freshnessReason: null, currentDecision: state.pending ? null : decision, lastDecision: decision, ...state.reviewOverride }, allowedActions: [state.pending ? 'DECIDE' : 'REOPEN'] };
 }
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const results = [];
@@ -50,7 +50,7 @@ try {
       const send = (body, status = 200, headers = {}) => route.fulfill({ status, headers, contentType: 'application/json', body: JSON.stringify(body) });
       if (route.request().method() === 'POST') {
         if (state.postFailure) { const failure = state.postFailure; state.postFailure = null; state.commandFailed = true; return send({ code: failure.code, error: 'Synthetic command failure' }, failure.status); }
-        const reopen = url.pathname.endsWith('/reopen'); state.version++; state.pending = reopen;
+        const reopen = url.pathname.endsWith('/reopen'); state.version++; state.pending = reopen; state.reviewOverride = undefined;
         return send({ reviewId, pair, reviewVersion: state.version, eventId: `event-${state.version}`, eventKind: reopen ? 'REVIEW_REOPENED' : 'DECISION_RECORDED', resultingStatus: reopen ? 'PENDING_REVIEW' : 'DISMISSED', reasonCode: reopen ? 'RECHECK_REQUESTED' : 'DISTINCT_CUSTOMER', actorUserId, occurredAt: '2026-10-20T12:00:00Z' });
       }
       if (url.pathname.endsWith('/history')) {
@@ -62,7 +62,7 @@ try {
       }
       if (state.commandFailed && state.comparisonFailure) {
         if (state.comparisonFailure === 'network') return route.abort('failed');
-        const status = state.comparisonFailure; return send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : status === 404 ? 'DUPLICATE_PAIR_NOT_FOUND' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic reconciliation failure' }, status, { 'Retry-After': '65' });
+        const status = state.comparisonFailure; return send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : status === 404 ? 'DUPLICATE_PAIR_NOT_FOUND' : status === 422 ? 'EVIDENCE_LIMIT_EXCEEDED' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic reconciliation failure' }, status, { 'Retry-After': '65' });
       }
       return send(comparison(state));
     });
@@ -225,6 +225,62 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: join(out, `source-404-${kind.toLowerCase()}-mobile.png`), fullPage: true });
+    await context.close();
+  }
+  for (const kind of ['DECIDE', 'REOPEN']) {
+    const { page, context, state } = await setup({ pending: kind === 'DECIDE', postFailure: { status: 422, code: 'EVIDENCE_LIMIT_EXCEEDED' }, comparisonFailure: 422 });
+    await until(page, async () => (await readSeqs(page)).length === 20);
+    if (kind === 'DECIDE') await submitDecision(page);
+    else { await page.getByRole('button', { name: 'Yeniden incele', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Yeniden incelemeye aç' }).click(); }
+    await page.getByText('Güncel durum doğrulanamadı.', { exact: false }).waitFor();
+    const first = state.requests.find(r => r.method === 'POST').body;
+    assert.equal(await page.evaluate(id => Object.values(sessionStorage).some(value => value.includes(id)), first.clientActionId), false);
+    assert.equal(await page.getByRole('button', { name: /^(Özgün isteği|Yeniden inceleme isteğini) tekrar dene$/ }).count(), 0);
+    const acknowledge = page.getByRole('button', { name: 'Güncel kanıtı inceledim', exact: true });
+    assert.equal(await acknowledge.isDisabled(), true);
+    const action = page.getByRole('button', { name: kind === 'DECIDE' ? 'Eşleşmeyi reddet' : 'Yeniden incele', exact: true });
+    assert.equal(await action.isDisabled(), true);
+    await page.getByRole('button', { name: 'Güncel durumu doğrula', exact: true }).click();
+    assert.equal(await acknowledge.isDisabled(), true);
+    assert.equal(state.requests.filter(r => r.method === 'POST').length, 1);
+    if (kind === 'DECIDE') {
+      await page.locator('.duplicate-review').screenshot({ path: join(out, 'overflow-recovery-desktop.png') });
+      await page.setViewportSize({ width: 320, height: 844 });
+      await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.locator('.duplicate-review').screenshot({ path: join(out, 'overflow-recovery-mobile-200pct.png') });
+      await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    }
+    state.comparisonFailure = null; state.evidence = { ...evidence, revision: 'ev1.synthetic.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC' };
+    await page.getByRole('button', { name: 'Güncel durumu doğrula', exact: true }).click();
+    await until(page, async () => !(await acknowledge.isDisabled()));
+    assert.equal(await action.isDisabled(), true);
+    await acknowledge.focus(); await page.keyboard.press('Enter');
+    await action.click(); assert.equal(state.requests.filter(r => r.method === 'POST').length, 1);
+    await page.getByRole('dialog').getByRole('button', { name: kind === 'DECIDE' ? 'Kararı kaydet' : 'Yeniden incelemeye aç', exact: true }).click();
+    await until(page, () => state.requests.filter(r => r.method === 'POST').length === 2);
+    const second = state.requests.filter(r => r.method === 'POST')[1].body;
+    assert.notEqual(second.clientActionId, first.clientActionId); assert.equal(second.expectedEvidenceRevision, state.evidence.revision);
+    assert.deepEqual(state.errors, []);
+    results.push({ name: `Definitive ${kind} evidence overflow422 reconciles before a fresh explicit intent`, status: 'PASS', requests: state.requests });
+    await context.close();
+  }
+  {
+    const { page, context, state } = await setup({ version: 2, pending: true, reviewOverride: { freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE', lastDecision: { ...event(1), status: 'DISMISSED', decidedAt: '2026-10-20T10:00:00Z' } } });
+    await until(page, async () => (await readSeqs(page)).length === 2);
+    await page.getByText('Kanıt güncelliği doğrulanamıyor.', { exact: false }).waitFor();
+    await page.locator('.duplicate-review').screenshot({ path: join(out, 'pending-retired-key-desktop.png') });
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('.duplicate-review').screenshot({ path: join(out, 'pending-retired-key-mobile-200pct.png') });
+    await submitDecision(page);
+    await until(page, () => state.requests.some(r => r.method === 'POST'));
+    const posted = state.requests.find(r => r.method === 'POST');
+    assert.equal(posted.path.endsWith('/decisions'), true); assert.equal(posted.body.expectedReviewVersion, 2);
+    assert.equal(posted.body.expectedEvidenceRevision, evidence.revision); assert.equal(state.version, 3);
+    assert.deepEqual(state.errors, []);
+    results.push({ name: 'Retired reopened-head key keeps pending fresh-GET decision explicitly actionable', status: 'PASS', requests: state.requests });
     await context.close();
   }
   writeFileSync(join(out, 'results.json'), JSON.stringify({ status: 'PASS', browser: browser.version(), node: process.version, transport: 'controlled synthetic HTTP; abort ignored for F20 pagination', results }, null, 2));

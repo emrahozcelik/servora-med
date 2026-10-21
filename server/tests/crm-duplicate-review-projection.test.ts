@@ -95,6 +95,21 @@ it('READ-02/UI-08: an unavailable or over-budget current evidence blocks every c
     .toMatchObject({ review: { id: null, version: 0, effectiveStatus: 'BLOCKED', freshness: 'STALE', freshnessReason: 'OVER_BUDGET' }, allowedActions: [] });
 });
 
+it('SD-5: a reopened head with a retired evidence key stays pending and accepts a fresh current GET', () => {
+  const old = createDuplicateEvidenceDetails(org, a, b, keyring, 'old');
+  const reopened = head({
+    version: 2, eventId: id(31), seq: 2, eventKind: 'REVIEW_REOPENED', resultingStatus: 'PENDING_REVIEW',
+    reasonCode: 'RECHECK_REQUESTED', evidenceKeyId: 'old', evidenceDigest: old.digest,
+    previousDecision: { eventId: id(30), seq: 1, status: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH',
+      actorUserId: id(40), decidedAt: new Date('2026-10-19T10:00:00.000Z') },
+  });
+  const retired = parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'new', keys: { new: Buffer.alloc(32, 7).toString('base64') } }));
+  expect(projectDuplicateReview({ head: reopened, current: evidence, keyring: retired, sourceAvailable: true }))
+    .toMatchObject({ review: { reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW',
+      freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE', currentDecision: null,
+      lastDecision: reopened.previousDecision }, allowedActions: ['DECIDE'] });
+});
+
 it('SD-5: a reopened chain without its previous decision fails closed', () => {
   expect(() => projectDuplicateReview({
     head: head({ eventKind: 'REVIEW_REOPENED', resultingStatus: 'PENDING_REVIEW', reasonCode: 'RECHECK_REQUESTED' }),

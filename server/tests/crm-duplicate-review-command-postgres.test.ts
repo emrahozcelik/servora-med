@@ -129,6 +129,84 @@ afterAll(async () => {
   if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
 });
 
+it.skipIf(!databaseUrl)('SD-5/KEY: emergency retirement of a reopened head key preserves fresh decision and immutable receipt replay', async () => {
+  const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+  const service = (ring: typeof keys) => ({
+    read: new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool!), ring),
+    write: new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, ring)),
+  });
+  const initial = service(keys);
+  const firstRead = await initial.read.comparison(context, a, b);
+  await initial.write.decide(context, a, b, { clientActionId: randomUUID(), expectedReviewVersion: 0,
+    expectedEvidenceRevision: firstRead.evidence.revision, matchingRuleVersion: firstRead.evidence.matchingRuleVersion,
+    decision: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH' });
+  const middleKey = Buffer.alloc(32, 12).toString('base64');
+  const middle = service(parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'middle',
+    keys: { synthetic: Buffer.alloc(32, 11).toString('base64'), middle: middleKey } })));
+  const middleRead = await middle.read.comparison(context, a, b);
+  const reopenCommand = { clientActionId: randomUUID(), expectedReviewVersion: 1,
+    expectedEvidenceRevision: middleRead.evidence.revision, matchingRuleVersion: middleRead.evidence.matchingRuleVersion };
+  const reopened = await middle.write.reopen(context, a, b, reopenCommand);
+  const retired = service(parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'fresh',
+    keys: { synthetic: Buffer.alloc(32, 11).toString('base64'), fresh: Buffer.alloc(32, 13).toString('base64') } })));
+  const fresh = await retired.read.comparison(context, a, b);
+  expect(fresh.review).toMatchObject({ version: 2, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW',
+    freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE', currentDecision: null, lastDecision: { seq: 1 } });
+  expect(fresh.allowedActions).toEqual(['DECIDE']);
+  expect(fresh.evidence.revision).toMatch(/^ev1\.fresh\./);
+  const decisionCommand = { clientActionId: randomUUID(), expectedReviewVersion: 2,
+    expectedEvidenceRevision: fresh.evidence.revision, matchingRuleVersion: fresh.evidence.matchingRuleVersion,
+    decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_BRANCH' as const };
+  const decided = await retired.write.decide(context, a, b, decisionCommand);
+  expect(decided.receipt).toMatchObject({ reviewVersion: 3, eventKind: 'DECISION_RECORDED' });
+  expect(await retired.write.reopen(context, a, b, reopenCommand)).toEqual({ receipt: reopened.receipt, replayed: true });
+  expect(await retired.write.decide(context, a, b, decisionCommand)).toEqual({ receipt: decided.receipt, replayed: true });
+  expect(await counts()).toEqual({ reviews: '1', events: '3', audit: '3', receipts: '3' });
+  const history = await retired.write.history(context, decided.receipt.reviewId, null, 20);
+  expect(history.items.map(event => [event.seq, event.eventKind])).toEqual([[3, 'DECISION_RECORDED'], [2, 'REVIEW_REOPENED'], [1, 'DECISION_RECORDED']]);
+});
+
+it.skipIf(!databaseUrl).each(['DECIDE', 'REOPEN'] as const)('EVID overflow %s: contact and canonical-size failures roll back the claim; completed receipts still replay', async kind => {
+  for (const overflow of ['contacts', 'canonical'] as const) {
+    if (overflow === 'canonical') await createPair();
+    const initial = await comparison();
+    const committedAction = randomUUID();
+    let committedReceipt: unknown;
+    if (kind === 'REOPEN') {
+      const committed = await command(actor, committedAction, 'DISMISSED', initial.evidence.revision, 0, 'DISTINCT_BRANCH');
+      expect(committed.statusCode).toBe(200); committedReceipt = committed.json();
+    }
+    const reviewed = await comparison();
+    if (overflow === 'contacts') {
+      await pool!.query(`INSERT INTO contacts(organization_id,customer_id,name)
+        SELECT $1,$2,'Synthetic contact' FROM generate_series(1,201)`, [org, a]);
+    } else {
+      // Legal column lengths with JSON-escaped characters exceed the complete
+      // canonical budget without exceeding either per-customer source limit.
+      await pool!.query('UPDATE customers SET address=repeat(chr(1),16384) WHERE id=ANY($1::uuid[])', [[a, b]]);
+      await pool!.query(`INSERT INTO contacts(organization_id,customer_id,name,title,phone,email)
+        SELECT $1,wanted.customer_id,repeat(chr(1),255),repeat(chr(1),255),repeat(chr(1),50),repeat(chr(1),255)
+        FROM unnest($2::uuid[]) AS wanted(customer_id) CROSS JOIN generate_series(1,200)`, [org, [a, b]]);
+    }
+    const before = await counts();
+    const action = randomUUID();
+    const response = kind === 'DECIDE'
+      ? await command(actor, action, 'DISMISSED', reviewed.evidence.revision, 0, 'DISTINCT_BRANCH')
+      : await reopen(actor, action, reviewed.evidence.revision, 1);
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json().code).toBe('EVIDENCE_LIMIT_EXCEEDED');
+    expect(await counts()).toEqual(before);
+    expect((await pool!.query('SELECT count(*) FROM processed_actions WHERE organization_id=$1 AND client_action_id=$2', [org, action])).rows[0].count).toBe('0');
+    const fresh = await app.inject({ url: `/api/customers/duplicate-review-pairs/${a}/${b}`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+    expect(fresh.statusCode).toBe(422); expect(fresh.json().code).toBe('EVIDENCE_LIMIT_EXCEEDED');
+    if (kind === 'REOPEN') {
+      const replay = await command(actor, committedAction, 'DISMISSED', initial.evidence.revision, 0, 'DISTINCT_BRANCH');
+      expect(replay.statusCode).toBe(200); expect(replay.headers['idempotency-replayed']).toBe('true');
+      expect(replay.json()).toEqual(committedReceipt); expect(await counts()).toEqual(before);
+    }
+  }
+});
+
 it.skipIf(!databaseUrl)('CMD-01/CMD-02/CURRENT: first decision is atomic, replays immutably and updates the read projection', async () => {
   const before = (await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows;
   const read = await comparison();

@@ -209,11 +209,12 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       commandOpener.current = heading.current;
       setConfirmOpen(false);
       const api = failure instanceof ApiError ? failure : null;
-      const sourceMissing = api?.status === 404 && api.code === 'DUPLICATE_PAIR_NOT_FOUND';
-      if (api && (conflictCodes.has(api.code) || sourceMissing)) {
+      const definitiveNoCommit = (api?.status === 404 && api.code === 'DUPLICATE_PAIR_NOT_FOUND')
+        || (api?.status === 422 && api.code === 'EVIDENCE_LIMIT_EXCEEDED');
+      if (api && (conflictCodes.has(api.code) || definitiveNoCommit)) {
         clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
         setAttempt(null); setSubmitted(false); setConfirmOpen(false); setMustReinspect(true);
-        setError(sourceMissing
+        setError(definitiveNoCommit
           ? `${api.message} İstek uygulanmadı. Yeni bir istekten önce müşteri kapsamı ve güncel kanıt yeniden doğrulanmalı.`
           : `${api.message} Gerekçeniz korunuyor; güncel kanıtı inceledikten sonra yeni bir istek oluşturun.`);
         setReloadKey((value) => value + 1);

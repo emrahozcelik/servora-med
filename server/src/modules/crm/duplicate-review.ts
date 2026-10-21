@@ -147,8 +147,8 @@ export function projectDuplicateReview(input: {
   const storedDigest = duplicateEvidenceDigest(keyring, current.canonical, head.evidenceKeyId);
   if (!storedDigest) {
     return {
-      review: { ...summary, effectiveStatus: 'BLOCKED', freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE' },
-      allowedActions: head.eventKind === 'DECISION_RECORDED' ? ['REOPEN'] : [],
+      review: { ...summary, effectiveStatus: head.eventKind === 'REVIEW_REOPENED' ? 'PENDING_REVIEW' : 'BLOCKED', freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE' },
+      allowedActions: head.eventKind === 'DECISION_RECORDED' ? ['REOPEN'] : ['DECIDE'],
     };
   }
   if (head.matchingRuleVersion !== DUPLICATE_RULE_VERSION) {
