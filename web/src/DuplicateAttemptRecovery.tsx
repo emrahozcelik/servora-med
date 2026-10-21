@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, type CurrentUser } from './services/api';
 import {
@@ -6,9 +6,10 @@ import {
   duplicateDecisionReasonLabels,
 } from './services/duplicate-customers-api';
 import {
-  clearDuplicateAttempt, readDuplicateAttempt, type DuplicateAttempt,
+  clearDuplicateAttempt, readDuplicateAttempt, readDuplicateCommandRetryAt,
+  writeDuplicateCommandRetryAt, type DuplicateAttempt,
 } from './duplicate-review-attempt';
-import { classifyDuplicateRecoveryFailure, duplicateRecoveryRequest, duplicateRecoveryRetryable } from './duplicate-recovery';
+import { classifyDuplicateRecoveryFailure, duplicateRecoveryRequest, duplicateRecoveryRetryable, duplicateRecoveryRetryDelay } from './duplicate-recovery';
 
 type RecoveryState = 'idle' | 'sending' | 'receipt' | 'no-commit' | 'uncertain' | 'forbidden';
 
@@ -24,10 +25,28 @@ export function DuplicateAttemptRecovery({ user, aId, bId }: {
   const [state, setState] = useState<RecoveryState>('idle');
   const [receipt, setReceipt] = useState<DuplicateCommandReceipt | null>(null);
   const [error, setError] = useState('');
+  const [retryAt, setRetryAt] = useState<number | null>(() => readDuplicateCommandRetryAt(user.organizationId, user.id));
+  const sending = useRef(false);
+
+  useEffect(() => {
+    setAttempt(readDuplicateAttempt(user.organizationId, user.id, aId, bId));
+    setRetryAt(readDuplicateCommandRetryAt(user.organizationId, user.id));
+    setState('idle'); setReceipt(null); setError('');
+  }, [aId, bId, user.id, user.organizationId]);
+
+  useEffect(() => {
+    if (retryAt === null) return;
+    const timer = window.setTimeout(() => setRetryAt(null), Math.max(0, retryAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [retryAt]);
+
+  const waitingForRetry = retryAt !== null && Date.now() < retryAt;
   // A settled receipt or a definitive no-commit must stay visible after the frozen attempt is cleared.
   if (!attempt && state === 'idle') return null;
 
   async function replay(frozen: DuplicateAttempt) {
+    if (sending.current || waitingForRetry) return;
+    sending.current = true;
     setState('sending'); setError('');
     try {
       const request = duplicateRecoveryRequest(frozen, aId, bId);
@@ -50,10 +69,18 @@ export function DuplicateAttemptRecovery({ user, aId, bId }: {
         setError(`${api!.message} İstek uygulanmadı; kayıtlı taslak kapatıldı. Yeni bir karar için güncel kaydı inceleyin.`);
         return;
       }
+      const delay = duplicateRecoveryRetryDelay(failure);
+      if (delay !== null) {
+        const until = Date.now() + delay;
+        writeDuplicateCommandRetryAt(user.organizationId, user.id, until);
+        setRetryAt(until);
+      }
       setState('uncertain');
-      setError(api && duplicateRecoveryRetryable(failure)
-        ? `${api.message} Sonuç hâlâ belirsiz; kayıtlı istek korunuyor.`
+      setError(api
+        ? `${api.message} ${duplicateRecoveryRetryable(failure) ? 'Sonuç hâlâ belirsiz' : 'Sonuç doğrulanamadı'}; kayıtlı istek korunuyor.`
         : 'İsteğin sonucu doğrulanamadı. Kayıtlı istek korunuyor.');
+    } finally {
+      sending.current = false;
     }
   }
 
@@ -62,9 +89,10 @@ export function DuplicateAttemptRecovery({ user, aId, bId }: {
     <p>Bu çift için bu tarayıcıda saklanmış, sonucu doğrulanmamış bir istek var. Yalnız özgün istek kimliği ve yükü yeniden gönderilir; yeni bir karar oluşturulmaz.</p>
     {attempt && <p className="duplicate-id">İstek: {attempt.kind === 'REOPEN' ? 'Yeniden inceleme' : attempt.decision === 'CONFIRMED_DUPLICATE' ? 'Mükerrer doğrulama' : 'Eşleşmeyi reddetme'}
       {attempt.reasonCode && ` · ${duplicateDecisionReasonLabels[attempt.reasonCode]}`} · <time dateTime={new Date(attempt.createdAt).toISOString()}>{new Date(attempt.createdAt).toLocaleString('tr-TR')}</time></p>}
-    {state === 'idle' && attempt && <button type="button" className="secondary-button" onClick={() => void replay(attempt)}>Özgün isteği tekrar dene</button>}
+    {waitingForRetry && <p role="status">Kota sınırı nedeniyle yaklaşık {Math.max(1, Math.ceil((retryAt! - Date.now()) / 1000))} saniye bekleyin. Süre dolunca yalnız özgün istek yeniden gönderilebilir.</p>}
+    {state === 'idle' && attempt && <button type="button" className="secondary-button" onClick={() => void replay(attempt)} disabled={waitingForRetry}>Özgün isteği tekrar dene</button>}
     {state === 'sending' && <p role="status">Özgün istek doğrulanıyor…</p>}
-    {state === 'uncertain' && attempt && <button type="button" className="secondary-button" onClick={() => void replay(attempt)}>Özgün isteği tekrar dene</button>}
+    {state === 'uncertain' && attempt && <button type="button" className="secondary-button" onClick={() => void replay(attempt)} disabled={waitingForRetry}>Özgün isteği tekrar dene</button>}
     {state === 'forbidden' && <p className="duplicate-warning" role="alert">{error}</p>}
     {state === 'no-commit' && <p className="duplicate-warning" role="status">{error}</p>}
     {error && state !== 'forbidden' && state !== 'no-commit' && <p className="duplicate-warning" role="alert">{error}</p>}

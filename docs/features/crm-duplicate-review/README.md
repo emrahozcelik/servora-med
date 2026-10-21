@@ -51,9 +51,16 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
 A lost command response is recoverable without a new intent: the comparison and
 register surfaces expose a narrow replay of the actor-bound frozen attempt, which
 resends the original `clientActionId` and payload and shows the stored immutable
-receipt as a receipt, not as current review state. Definitive no-commit failures
-close the attempt; uncertain failures keep it; authorization failures retain it
-without disclosing review data.
+receipt as a receipt, not as current review state. The replay shares the actor/org
+COMMAND cooldown, so a rate-limited attempt cannot be retried before the server
+window expires. Only the reviewed no-commit codes close the attempt; unknown
+404/422 outcomes, 429/5xx and transport failures keep it, and authorization
+failures retain it without disclosing review data.
+
+The registry also opens the safe review history for rows whose comparison cannot
+be shown (unavailable source, DEMO conversion, deleted source or over-budget
+evidence). History stays read-only, keeps the bounded cursor and DETAIL cooldown
+semantics, and grants no new decide/reopen authority.
 
 - CRM_DUPLICATE_COMPARISON_ENABLED defaults to false. Disabled startup does not
   require a keyring. Enabling requires strict CRM_DUPLICATE_EVIDENCE_KEYRING

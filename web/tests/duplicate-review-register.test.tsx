@@ -75,3 +75,24 @@ it('UI-01: the register route is management-only and resolves its own identity',
   expect(canAccessRoute('duplicateReviewRegister', { ...user, capabilities: {} } as never)).toBe(false);
   expect(matchRouteIdentity('/customers/duplicate-reviews')?.identity).toMatchObject({ id: 'duplicateReviewRegister', parentId: 'duplicateCustomers' });
 });
+
+it('F22: unavailable and over-budget rows expose safe history access without a comparison link', () => {
+  const user = { id: '40000000-0000-4000-8000-000000000001', organizationId: '20000000-0000-4000-8000-0000000000aa' } as never;
+  const render = (data: ReturnType<typeof parseDuplicateRegisterPage>) => renderToStaticMarkup(
+    <MemoryRouter><DuplicateRegisterView data={data} error={null} busy={false} onReload={() => {}} onFirst={() => {}} onNext={() => {}} user={user} /></MemoryRouter>,
+  );
+  const unavailableRow = render(parseDuplicateRegisterPage(page([row({
+    sourceAvailability: 'UNAVAILABLE', customerA: null, customerB: null, matchingCodes: [], comparisonStatus: 'UNAVAILABLE',
+    review: { ...review, effectiveStatus: 'UNAVAILABLE', freshness: 'STALE', freshnessReason: 'SOURCE_UNAVAILABLE' },
+  })])));
+  expect(unavailableRow).toContain('Karar geçmişini aç');
+  expect(unavailableRow).not.toContain('İncelemeyi aç');
+
+  const overBudget = render(parseDuplicateRegisterPage(page([row({ comparisonStatus: 'OVER_BUDGET' })])));
+  expect(overBudget).toContain('Karar geçmişini aç');
+  expect(overBudget).not.toContain('İncelemeyi aç');
+
+  const ready = render(parseDuplicateRegisterPage(page([row()])));
+  expect(ready).not.toContain('Karar geçmişini aç');
+  expect(ready).toContain('İncelemeyi aç');
+});

@@ -199,6 +199,137 @@ try {
     await errorPage.close();
   }
 
+
+  // 8. F22: unavailable source still opens the full safe history, incl. pagination.
+  const historyPage = await context.newPage(); watch(historyPage);
+  const historyItem = (seq) => ({
+    eventId: `30000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    eventKind: 'DECISION_RECORDED', resultingStatus: 'DISMISSED', reasonCode: 'DISTINCT_CUSTOMER',
+    actorUserId: actorId, occurredAt: '2026-10-20T10:00:00.000Z', matchingRuleVersion: 'crm-duplicate-v1',
+    matchingCodes: [], warnings: [],
+  });
+  let historyCalls = 0;
+  await historyPage.route('**/api/customers/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('/history')) {
+      historyCalls += 1;
+      const first = Array.from({ length: 20 }, (_, index) => historyItem(21 - index));
+      return fulfill(route, 200, historyCalls === 1
+        ? { reviewId, upperSeq: 21, items: first, nextCursor: 'history-cursor-2' }
+        : { reviewId, upperSeq: 21, items: [historyItem(1)], nextCursor: null });
+    }
+    return fulfill(route, 200, page([unavailable]));
+  });
+  await historyPage.goto(`${origin}/duplicate-browser-test?register`, { waitUntil: 'domcontentloaded' });
+  await historyPage.getByRole('button', { name: 'Karar geçmişini aç' }).click();
+  await historyPage.getByRole('heading', { name: 'Karar geçmişi' }).waitFor({ timeout: 10000 });
+  await historyPage.locator('.duplicate-history-list > li').first().waitFor({ timeout: 10000 });
+  assert.equal(await historyPage.locator('.duplicate-history-list > li').count(), 20);
+  await historyPage.getByRole('button', { name: 'Daha eski kararlar' }).click();
+  await historyPage.locator('.duplicate-history-list > li').nth(20).waitFor({ timeout: 10000 });
+  assert.equal(await historyPage.locator('.duplicate-history-list > li').count(), 21);
+  assert.equal(await historyPage.getByRole('button', { name: 'Mükerrer olarak doğrula' }).count(), 0);
+  assert.equal(await historyPage.getByRole('button', { name: 'Yeniden incele' }).count(), 0);
+  pass('F22 unavailable source opens the full safe history with pagination and no commands', `historyCalls=${historyCalls}`);
+  await historyPage.screenshot({ path: join(out, 'f22-history.png'), fullPage: true });
+  await historyPage.close();
+
+  const foreignHistory = await context.newPage(); watch(foreignHistory);
+  await foreignHistory.route('**/api/customers/**', (route) => route.request().url().includes('/history')
+    ? fulfill(route, 404, { error: 'İnceleme kaydı bulunamadı.', code: 'DUPLICATE_REVIEW_NOT_FOUND' })
+    : fulfill(route, 200, page([unavailable])));
+  await foreignHistory.goto(`${origin}/duplicate-browser-test?register`, { waitUntil: 'domcontentloaded' });
+  await foreignHistory.getByRole('button', { name: 'Karar geçmişini aç' }).click();
+  await foreignHistory.getByRole('alert').filter({ hasText: 'İnceleme kaydı bulunamadı.' }).waitFor({ timeout: 10000 });
+  assert.equal(await foreignHistory.getByRole('button', { name: 'Geçmişi tekrar dene' }).count(), 0);
+  pass('F22 foreign/unknown review history stays concealed with no retry affordance');
+  await foreignHistory.close();
+
+  // 9. F23: a rate-limited replay honours the shared COMMAND cooldown.
+  const cooldownContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await cooldownContext.addInitScript(([key, attempt]) => {
+    window.sessionStorage.setItem(key, JSON.stringify(attempt));
+  }, [attemptKey, frozenAttempt]);
+  const cooldownPage = await cooldownContext.newPage(); watch(cooldownPage);
+  let cooldownPosts = 0;
+  await cooldownPage.route('**/api/customers/**', async (route) => {
+    if (route.request().method() === 'POST') {
+      cooldownPosts += 1;
+      return fulfill(route, 429, { error: 'Kota aşıldı.', code: 'RATE_LIMIT_EXCEEDED' }, { 'Retry-After': '5' });
+    }
+    return fulfill(route, 404, { error: 'Karşılaştırılabilir müşteri çifti bulunamadı.', code: 'DUPLICATE_PAIR_NOT_FOUND' });
+  });
+  await cooldownPage.goto(`${origin}/duplicate-browser-test?comparison`, { waitUntil: 'domcontentloaded' });
+  await cooldownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).click();
+  await cooldownPage.getByText(/yaklaşık 5 saniye bekleyin/).waitFor({ timeout: 10000 });
+  assert.equal(await cooldownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).isDisabled(), true);
+  const storedCooldown = await cooldownPage.evaluate(([org, actor]) => window.sessionStorage.getItem(`CRM_DUPLICATE_COMMAND_COOLDOWN:v1:${org}:${actor}`), [orgId, actorId]);
+  assert.equal(Number(storedCooldown) > Date.now(), true);
+  await cooldownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).click({ force: true }).catch(() => undefined);
+  await cooldownPage.waitForTimeout(500);
+  assert.equal(cooldownPosts, 1);
+  pass('F23 recovery respects the shared COMMAND cooldown before the next replay', `posts=${cooldownPosts}`);
+  await cooldownPage.screenshot({ path: join(out, 'f23-cooldown.png'), fullPage: true });
+  await cooldownPage.close();
+  await cooldownContext.close();
+
+  // 10. F24: an expired register cursor restarts from a clean first page.
+  const cursorPage = await context.newPage(); watch(cursorPage);
+  const registerRequests = [];
+  await cursorPage.route('**/api/customers/**', async (route) => {
+    const url = new URL(route.request().url());
+    registerRequests.push(url.search);
+    if (url.searchParams.get('cursor') === 'expired-cursor') {
+      return fulfill(route, 409, { error: 'Kayıt listesi değişti. İlk sayfadan yeniden başlayın.', code: 'CURSOR_RESTART_REQUIRED' });
+    }
+    return fulfill(route, 200, url.searchParams.has('cursor')
+      ? page([{ ...item(), reviewId: '20000000-0000-4000-8000-000000000002' }])
+      : page([item()], { nextCursor: 'expired-cursor', exhausted: false, evaluatedReviews: 2 }));
+  });
+  await cursorPage.goto(`${origin}/duplicate-browser-test?register&view=ALL`, { waitUntil: 'domcontentloaded' });
+  await cursorPage.getByRole('button', { name: 'Sonraki sayfa' }).click();
+  await cursorPage.getByRole('button', { name: 'İlk sayfadan başlat' }).waitFor({ timeout: 10000 });
+  await cursorPage.getByRole('button', { name: 'İlk sayfadan başlat' }).click();
+  await cursorPage.getByRole('button', { name: 'Sonraki sayfa' }).waitFor({ timeout: 10000 });
+  const lastSearch = registerRequests.at(-1);
+  assert.equal(lastSearch.includes('cursor='), false);
+  assert.equal(lastSearch.includes('view=ALL'), true);
+  pass('F24 expired register cursor restarts without cursor and keeps the view', `requests=${registerRequests.length}`);
+  await cursorPage.screenshot({ path: join(out, 'f24-cursor-restart.png'), fullPage: true });
+  await cursorPage.close();
+
+
+  // 11. F25: an unknown 404 code is unresolved; the frozen attempt survives untouched.
+  const unknownContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await unknownContext.addInitScript(([key, attempt]) => {
+    window.sessionStorage.setItem(key, JSON.stringify(attempt));
+  }, [attemptKey, frozenAttempt]);
+  const unknownPage = await unknownContext.newPage(); watch(unknownPage);
+  const unknownBodies = [];
+  await unknownPage.route('**/api/customers/**', async (route) => {
+    if (route.request().method() === 'POST') {
+      unknownBodies.push(route.request().postDataJSON());
+      return fulfill(route, 404, { error: 'Beklenmeyen bir kayıt hatası.', code: 'UNKNOWN_REVIEW_LOOKUP' });
+    }
+    return fulfill(route, 404, { error: 'Karşılaştırılabilir müşteri çifti bulunamadı.', code: 'DUPLICATE_PAIR_NOT_FOUND' });
+  });
+  await unknownPage.goto(`${origin}/duplicate-browser-test?comparison`, { waitUntil: 'domcontentloaded' });
+  await unknownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).click();
+  await unknownPage.getByText('Beklenmeyen bir kayıt hatası.').waitFor({ timeout: 10000 });
+  const retained = await unknownPage.evaluate((key) => window.sessionStorage.getItem(key), attemptKey);
+  assert.notEqual(retained, null);
+  assert.equal(JSON.parse(retained).clientActionId, frozenAttempt.clientActionId);
+  assert.equal(await unknownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).isEnabled(), true);
+  await unknownPage.getByRole('button', { name: 'Özgün isteği tekrar dene' }).click();
+  await unknownPage.waitForTimeout(500);
+  assert.equal(unknownBodies.length, 2);
+  assert.equal(unknownBodies[1].clientActionId, frozenAttempt.clientActionId);
+  assert.equal(unknownBodies[1].expectedEvidenceRevision, frozenAttempt.expectedEvidenceRevision);
+  pass('F25 unknown 404 keeps the frozen attempt and replays the exact clientActionId', `posts=${unknownBodies.length}`);
+  await unknownPage.screenshot({ path: join(out, 'f25-unknown-404.png'), fullPage: true });
+  await unknownPage.close();
+  await unknownContext.close();
+
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);
   pass('REG-07 no page or console errors during the register acceptance flow');

@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { paths } from './paths';
-import { type CurrentUser } from './services/api';
+import { ApiError, type CurrentUser } from './services/api';
 import {
   duplicateDecisionReasonLabels, duplicateEffectiveLabels, duplicateFreshnessLabels,
   duplicateFreshnessReasonLabels, duplicateReasonLabels, listDuplicateReviewRegister,
@@ -9,14 +10,16 @@ import {
 import { customerStatusLabels } from './services/crm-api';
 import { DuplicateReadError } from './DuplicateCustomers';
 import { DuplicateAttemptRecovery } from './DuplicateAttemptRecovery';
+import { DuplicateReviewHistory } from './DuplicateReviewHistory';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
 import { buildContextState } from './shell/context-return';
-import { useDuplicateRead, duplicateReadPauseScope as readPauseScope } from './useDuplicateRead';
+import { useDuplicateRead, duplicateReadPauseScope } from './useDuplicateRead';
 import './duplicate-customers.css';
 
 function RegisterReviewRow({ item, contextState, user }: { item: DuplicateRegisterItem; contextState: Record<string, unknown> | null; user?: CurrentUser }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const { review } = item;
   const decision = review.currentDecision ?? review.lastDecision;
   const identities = [
@@ -35,6 +38,15 @@ function RegisterReviewRow({ item, contextState, user }: { item: DuplicateRegist
         <p className="duplicate-id">Kayıt: {customer.id}</p>
       </div>)}</div>}
     {item.sourceAvailability === 'UNAVAILABLE' && user && <DuplicateAttemptRecovery user={user} aId={item.pair.customerAId} bId={item.pair.customerBId} />}
+    {!comparable && user && <div className="duplicate-history-access">
+      <button type="button" className="secondary-button" aria-expanded={historyOpen} aria-controls={`register-history-${item.reviewId}`}
+        onClick={() => setHistoryOpen((open) => !open)}>
+        {historyOpen ? 'Karar geçmişini kapat' : 'Karar geçmişini aç'}
+      </button>
+      {historyOpen && <div id={`register-history-${item.reviewId}`}>
+        <DuplicateReviewHistory reviewId={item.reviewId} pauseScope={duplicateReadPauseScope('DETAIL', user)} />
+      </div>}
+    </div>}
     <p role="status" className="duplicate-review-summary">
       <strong>{duplicateEffectiveLabels[review.effectiveStatus]}</strong>
       <span> · {duplicateFreshnessLabels[review.freshness]}</span>
@@ -71,7 +83,7 @@ export function DuplicateRegisterView({ data, error, busy, retryAt = null, retry
     </label>}
     {busy && !data && <LoadingSkeleton title="İnceleme kayıtları yükleniyor" rows={4} />}
     {error && <DuplicateReadError error={error} retainedData={data !== null} retryAt={retryAt} retryAuto={retryAuto} busy={busy}
-      onReload={onReload} notFoundTitle="İnceleme kaydı bulunamadı"
+      onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} notFoundTitle="İnceleme kaydı bulunamadı"
       notFoundDescription="Bu kayıt kullanılamıyor veya erişim kapsamınızda değil." />}
     {data && <>
       <p className="text-muted">Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. {laterPage ? 'Bu sayfa otomatik başa dönmez. Güncel kapsam için ilk sayfayı yenileyin.' : 'Görünürken 60 saniyede bir yenilenir.'}</p>
@@ -93,7 +105,7 @@ export function DuplicateRegisterView({ data, error, busy, retryAt = null, retry
 export function DuplicateReviewRegisterScreen({ user }: { user: CurrentUser }) {
   const [params, setParams] = useSearchParams();
   const laterPage = params.has('cursor');
-  const state = useDuplicateRead(params.toString(), (signal) => listDuplicateReviewRegister(params, signal), !laterPage, readPauseScope('LIST', user));
+  const state = useDuplicateRead(params.toString(), (signal) => listDuplicateReviewRegister(params, signal), !laterPage, duplicateReadPauseScope('LIST', user));
   const first = () => {
     if (!laterPage) { state.reload(); return; }
     const next = new URLSearchParams(params); next.delete('cursor'); setParams(next);

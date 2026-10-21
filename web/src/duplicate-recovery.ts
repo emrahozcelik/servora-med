@@ -27,18 +27,30 @@ export function duplicateRecoveryRequest(frozen: DuplicateAttempt, aId: string, 
 
 export type DuplicateRecoveryOutcome = 'definitive-no-commit' | 'uncertain' | 'forbidden';
 
+const definitiveNoCommit = new Set([
+  '404:DUPLICATE_PAIR_NOT_FOUND',
+  '422:EVIDENCE_LIMIT_EXCEEDED',
+]);
+
 /**
  * Classifies a replay failure without issuing a new intent.
- * - 404/422 and known conflicts prove the original request did not commit.
+ * Only the reviewed status+code pairs prove the original request did not commit;
+ * an unknown 404/422 keeps the frozen attempt because the outcome is unresolved.
  * - 401/403 are authorization failures; the attempt is retained and nothing leaks.
- * - Anything else (429, 5xx, transport) stays unresolved.
+ * - Anything else (429, 5xx, transport, unknown codes) stays unresolved.
  */
 export function classifyDuplicateRecoveryFailure(error: unknown): DuplicateRecoveryOutcome {
   if (!(error instanceof ApiError)) return 'uncertain';
   if (error.status === 401 || error.status === 403) return 'forbidden';
-  if (error.status === 404 || error.status === 422) return 'definitive-no-commit';
+  if (definitiveNoCommit.has(`${error.status}:${error.code}`)) return 'definitive-no-commit';
   if (error.status === 409 && conflictCodes.has(error.code)) return 'definitive-no-commit';
   return 'uncertain';
+}
+
+/** Server-provided Retry-After window for a rate-limited replay, in milliseconds. */
+export function duplicateRecoveryRetryDelay(error: unknown): number | null {
+  if (!(error instanceof ApiError) || error.code !== 'RATE_LIMIT_EXCEEDED') return null;
+  return Math.max(1, error.retryAfterSeconds ?? 60) * 1000;
 }
 
 export function duplicateRecoveryRetryable(error: unknown) {
