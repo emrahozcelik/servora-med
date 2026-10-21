@@ -40,6 +40,8 @@ import { crmRoutes } from './modules/crm/routes.js';
 import { duplicateRoutes } from './modules/crm/duplicate-routes.js';
 import { DuplicateComparisonService } from './modules/crm/duplicate-service.js';
 import { PostgresDuplicateReadRepository } from './modules/crm/duplicate-repository.js';
+import { PostgresDuplicateReviewRepository } from './modules/crm/duplicate-review-repository.js';
+import { DuplicateReviewService } from './modules/crm/duplicate-review-service.js';
 import type { ProductRepository } from './modules/products/repository.js';
 import { ProductService } from './modules/products/service.js';
 import { productRoutes } from './modules/products/routes.js';
@@ -434,6 +436,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         await app.register(duplicateRoutes, {
           prefix: '/api', authenticate: authenticateDomain,
           service: new DuplicateComparisonService(new PostgresDuplicateReadRepository(dependencies.pool), config.duplicateComparison.keyring),
+          reviewService: new DuplicateReviewService(new PostgresDuplicateReviewRepository(dependencies.pool, config.duplicateComparison.keyring)),
         });
       }
     }

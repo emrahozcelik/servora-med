@@ -1,0 +1,575 @@
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+import Fastify, { type FastifyInstance } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+import { Pool } from 'pg';
+import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
+
+import { PostgresMigrationStore } from '../src/db/index.js';
+import { runMigrations } from '../src/db/migrate-runner.js';
+import { AppError, toErrorResponse } from '../src/errors/index.js';
+import { parseDuplicateKeyring } from '../src/modules/crm/duplicate-evidence.js';
+import { PostgresDuplicateReadRepository } from '../src/modules/crm/duplicate-repository.js';
+import { PostgresDuplicateReviewRepository } from '../src/modules/crm/duplicate-review-repository.js';
+import { DuplicateReviewService } from '../src/modules/crm/duplicate-review-service.js';
+import { duplicateRoutes } from '../src/modules/crm/duplicate-routes.js';
+import { DuplicateComparisonService } from '../src/modules/crm/duplicate-service.js';
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const admin = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
+const schema = `dupcmd_${randomUUID().replaceAll('-', '')}`;
+const pool = databaseUrl ? new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public` }) : null;
+const keys = parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'synthetic', keys: { synthetic: Buffer.alloc(32, 11).toString('base64') } }));
+let app: FastifyInstance;
+let org: string;
+let actor: string;
+let a: string;
+let b: string;
+
+async function createActor(role = 'MANAGER') {
+  const id = randomUUID();
+  await pool!.query(
+    `INSERT INTO users(id,organization_id,name,email,password_hash,role)
+     VALUES($1,$2,'Synthetic manager',$3,'unused',$4)`,
+    [id, org, `${id}@example.invalid`, role],
+  );
+  return id;
+}
+
+async function createPair() {
+  a = randomUUID(); b = randomUUID();
+  await pool!.query(
+    `INSERT INTO customers(id,organization_id,name,customer_type,status,data_class,phone,email,city,district,address)
+     VALUES($1,$2,'Sentetik Klinik','clinic','active','BUSINESS','+905321234567','test@example.invalid','İstanbul','Merkez','Test adres'),
+            ($3,$2,'SENTETİK KLİNİK','clinic','inactive','BUSINESS','(0532) 123 45 67','test@example.invalid','İstanbul','Merkez','Test adres')`,
+    [a, org, b],
+  );
+  actor = await createActor();
+}
+
+async function comparison(actorId = actor) {
+  const response = await app.inject({
+    url: `/api/customers/duplicate-review-pairs/${a}/${b}`,
+    headers: { 'x-test-actor': actorId, 'x-test-role': 'MANAGER' },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json() as {
+    evidence: { revision: string; matchingRuleVersion: string };
+    review: { id: string | null; version: number; effectiveStatus: string };
+  };
+}
+
+async function command(actorId: string, actionId: string, decision: 'CONFIRMED_DUPLICATE' | 'DISMISSED', revision: string, version: number, reasonCode: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    headers: { 'x-test-actor': actorId, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: { clientActionId: actionId, expectedReviewVersion: version, expectedEvidenceRevision: revision,
+      matchingRuleVersion: 'crm-duplicate-v1', decision, reasonCode },
+  });
+}
+
+async function reopen(actorId: string, actionId: string, revision: string, version: number) {
+  return app.inject({
+    method: 'POST',
+    url: `/api/customers/duplicate-review-pairs/${a}/${b}/reopen`,
+    headers: { 'x-test-actor': actorId, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: { clientActionId: actionId, expectedReviewVersion: version, expectedEvidenceRevision: revision, matchingRuleVersion: 'crm-duplicate-v1' },
+  });
+}
+
+async function counts() {
+  const result = await pool!.query<{ reviews: string; events: string; audit: string; receipts: string }>(
+    `SELECT
+      (SELECT count(*) FROM customer_duplicate_reviews WHERE organization_id=$1)::text AS reviews,
+      (SELECT count(*) FROM customer_duplicate_review_events WHERE organization_id=$1)::text AS events,
+      (SELECT count(*) FROM audit_events WHERE organization_id=$1 AND subject_type='CUSTOMER_DUPLICATE_REVIEW')::text AS audit,
+      (SELECT count(*) FROM processed_actions WHERE organization_id=$1 AND operation_key IN ('CRM_DUPLICATE_DECISION','CRM_DUPLICATE_REOPEN') AND status='completed')::text AS receipts`,
+    [org],
+  );
+  return result.rows[0]!;
+}
+
+beforeAll(async () => {
+  if (!pool || !admin) return;
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  await runMigrations({ migrationsDirectory: fileURLToPath(new URL('../src/db/migrations', import.meta.url)), store: new PostgresMigrationStore(pool) });
+  app = Fastify();
+  await app.register(rateLimit, { global: false });
+  app.setErrorHandler((error, _request, reply) => {
+    const result = toErrorResponse(error);
+    reply.code(result.statusCode).send(result.body);
+  });
+  await app.register(duplicateRoutes, {
+    prefix: '/api',
+    service: new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool), keys),
+    reviewService: new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool, keys)),
+    authenticate: async (request) => {
+      const id = request.headers['x-test-actor'];
+      if (typeof id !== 'string') throw new AppError('UNAUTHENTICATED', 401, 'Oturum açın.');
+      request.currentUser = {
+        id, organizationId: org, name: 'Synthetic manager', email: 'test@example.invalid',
+        role: request.headers['x-test-role'] as 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
+      };
+    },
+  });
+});
+
+beforeEach(async () => {
+  if (!pool) return;
+  org = randomUUID();
+  await pool.query("INSERT INTO organizations(id,name) VALUES($1,'Synthetic org')", [org]);
+  await createPair();
+});
+
+afterAll(async () => {
+  await app?.close();
+  await pool?.end();
+  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+});
+
+it.skipIf(!databaseUrl)('SD-5/KEY: emergency retirement of a reopened head key preserves fresh decision and immutable receipt replay', async () => {
+  const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+  const service = (ring: typeof keys) => ({
+    read: new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool!), ring),
+    write: new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, ring)),
+  });
+  const initial = service(keys);
+  const firstRead = await initial.read.comparison(context, a, b);
+  await initial.write.decide(context, a, b, { clientActionId: randomUUID(), expectedReviewVersion: 0,
+    expectedEvidenceRevision: firstRead.evidence.revision, matchingRuleVersion: firstRead.evidence.matchingRuleVersion,
+    decision: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH' });
+  const middleKey = Buffer.alloc(32, 12).toString('base64');
+  const middle = service(parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'middle',
+    keys: { synthetic: Buffer.alloc(32, 11).toString('base64'), middle: middleKey } })));
+  const middleRead = await middle.read.comparison(context, a, b);
+  const reopenCommand = { clientActionId: randomUUID(), expectedReviewVersion: 1,
+    expectedEvidenceRevision: middleRead.evidence.revision, matchingRuleVersion: middleRead.evidence.matchingRuleVersion };
+  const reopened = await middle.write.reopen(context, a, b, reopenCommand);
+  const retired = service(parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'fresh',
+    keys: { synthetic: Buffer.alloc(32, 11).toString('base64'), fresh: Buffer.alloc(32, 13).toString('base64') } })));
+  const fresh = await retired.read.comparison(context, a, b);
+  expect(fresh.review).toMatchObject({ version: 2, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW',
+    freshness: 'UNVERIFIABLE', freshnessReason: 'KEY_UNAVAILABLE', currentDecision: null, lastDecision: { seq: 1 } });
+  expect(fresh.allowedActions).toEqual(['DECIDE']);
+  expect(fresh.evidence.revision).toMatch(/^ev1\.fresh\./);
+  const decisionCommand = { clientActionId: randomUUID(), expectedReviewVersion: 2,
+    expectedEvidenceRevision: fresh.evidence.revision, matchingRuleVersion: fresh.evidence.matchingRuleVersion,
+    decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_BRANCH' as const };
+  const decided = await retired.write.decide(context, a, b, decisionCommand);
+  expect(decided.receipt).toMatchObject({ reviewVersion: 3, eventKind: 'DECISION_RECORDED' });
+  expect(await retired.write.reopen(context, a, b, reopenCommand)).toEqual({ receipt: reopened.receipt, replayed: true });
+  expect(await retired.write.decide(context, a, b, decisionCommand)).toEqual({ receipt: decided.receipt, replayed: true });
+  expect(await counts()).toEqual({ reviews: '1', events: '3', audit: '3', receipts: '3' });
+  const history = await retired.write.history(context, decided.receipt.reviewId, null, 20);
+  expect(history.items.map(event => [event.seq, event.eventKind])).toEqual([[3, 'DECISION_RECORDED'], [2, 'REVIEW_REOPENED'], [1, 'DECISION_RECORDED']]);
+});
+
+it.skipIf(!databaseUrl).each(['DECIDE', 'REOPEN'] as const)('EVID overflow %s: contact and canonical-size failures roll back the claim; completed receipts still replay', async kind => {
+  for (const overflow of ['contacts', 'canonical'] as const) {
+    if (overflow === 'canonical') await createPair();
+    const initial = await comparison();
+    const committedAction = randomUUID();
+    let committedReceipt: unknown;
+    if (kind === 'REOPEN') {
+      const committed = await command(actor, committedAction, 'DISMISSED', initial.evidence.revision, 0, 'DISTINCT_BRANCH');
+      expect(committed.statusCode).toBe(200); committedReceipt = committed.json();
+    }
+    const reviewed = await comparison();
+    if (overflow === 'contacts') {
+      await pool!.query(`INSERT INTO contacts(organization_id,customer_id,name)
+        SELECT $1,$2,'Synthetic contact' FROM generate_series(1,201)`, [org, a]);
+    } else {
+      // Legal column lengths with JSON-escaped characters exceed the complete
+      // canonical budget without exceeding either per-customer source limit.
+      await pool!.query('UPDATE customers SET address=repeat(chr(1),16384) WHERE id=ANY($1::uuid[])', [[a, b]]);
+      await pool!.query(`INSERT INTO contacts(organization_id,customer_id,name,title,phone,email)
+        SELECT $1,wanted.customer_id,repeat(chr(1),255),repeat(chr(1),255),repeat(chr(1),50),repeat(chr(1),255)
+        FROM unnest($2::uuid[]) AS wanted(customer_id) CROSS JOIN generate_series(1,200)`, [org, [a, b]]);
+    }
+    const before = await counts();
+    const action = randomUUID();
+    const response = kind === 'DECIDE'
+      ? await command(actor, action, 'DISMISSED', reviewed.evidence.revision, 0, 'DISTINCT_BRANCH')
+      : await reopen(actor, action, reviewed.evidence.revision, 1);
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json().code).toBe('EVIDENCE_LIMIT_EXCEEDED');
+    expect(await counts()).toEqual(before);
+    expect((await pool!.query('SELECT count(*) FROM processed_actions WHERE organization_id=$1 AND client_action_id=$2', [org, action])).rows[0].count).toBe('0');
+    const fresh = await app.inject({ url: `/api/customers/duplicate-review-pairs/${a}/${b}`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+    expect(fresh.statusCode).toBe(422); expect(fresh.json().code).toBe('EVIDENCE_LIMIT_EXCEEDED');
+    if (kind === 'REOPEN') {
+      const replay = await command(actor, committedAction, 'DISMISSED', initial.evidence.revision, 0, 'DISTINCT_BRANCH');
+      expect(replay.statusCode).toBe(200); expect(replay.headers['idempotency-replayed']).toBe('true');
+      expect(replay.json()).toEqual(committedReceipt); expect(await counts()).toEqual(before);
+    }
+  }
+});
+
+it.skipIf(!databaseUrl)('CMD-01/CMD-02/CURRENT: first decision is atomic, replays immutably and updates the read projection', async () => {
+  const before = (await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows;
+  const read = await comparison();
+  expect(read.review).toMatchObject({ id: null, version: 0, effectiveStatus: 'PENDING_REVIEW' });
+  const action = randomUUID();
+  const first = await command(actor, action, 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(first.statusCode, first.body).toBe(200);
+  const receipt = first.json();
+  expect(receipt).toMatchObject({ reviewVersion: 1, eventKind: 'DECISION_RECORDED', resultingStatus: 'CONFIRMED_DUPLICATE', reasonCode: 'SAME_OPERATIONAL_CUSTOMER_VERIFIED' });
+  expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+  expect((await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows).toEqual(before);
+  const audit = (await pool!.query('SELECT old_value,new_value,metadata FROM audit_events WHERE organization_id=$1 AND subject_type=$2', [org, 'CUSTOMER_DUPLICATE_REVIEW'])).rows[0]!;
+  const canonical = [a, b].sort();
+  expect(audit.metadata).toMatchObject({ reviewVersion: 1, customerAId: canonical[0], customerBId: canonical[1], matchingRuleVersion: 'crm-duplicate-v1' });
+  expect(JSON.stringify(audit)).not.toContain('+905321234567');
+  expect(JSON.stringify(audit)).not.toContain('Sentetik Klinik');
+
+  const replay = await command(actor, action, 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(replay.statusCode, replay.body).toBe(200);
+  expect(replay.headers['idempotency-replayed']).toBe('true');
+  expect(replay.json()).toEqual(receipt);
+  expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+
+  const changed = await command(actor, action, 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(changed.statusCode, changed.body).toBe(409);
+  expect(changed.json().code).toBe('CLIENT_ACTION_REUSED');
+  expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+
+  const current = await comparison();
+  expect(current.review).toMatchObject({ id: receipt.reviewId, version: 1, reviewStatus: 'CONFIRMED_DUPLICATE', effectiveStatus: 'CONFIRMED_DUPLICATE', freshness: 'CURRENT' });
+  const attention = await app.inject({ url: '/api/customers/duplicate-candidates?view=ATTENTION', headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(attention.statusCode, attention.body).toBe(200);
+  expect(attention.json().items).toEqual([]);
+});
+
+it.skipIf(!databaseUrl)('CMD-04/CMD-11/READ-05: reopen appends history, keeps the previous decision and permits a new current decision', async () => {
+  const read = await comparison();
+  const decided = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_BRANCH');
+  expect(decided.statusCode, decided.body).toBe(200);
+  const receipt = decided.json();
+  const direct = await command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', read.evidence.revision, receipt.reviewVersion, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(direct.statusCode, direct.body).toBe(409);
+  expect(direct.json().code).toBe('REVIEW_REOPEN_REQUIRED');
+
+  const current = await comparison();
+  const reopened = await reopen(actor, randomUUID(), current.evidence.revision, receipt.reviewVersion);
+  expect(reopened.statusCode, reopened.body).toBe(200);
+  expect(reopened.json()).toMatchObject({ reviewVersion: 2, eventKind: 'REVIEW_REOPENED', resultingStatus: 'PENDING_REVIEW', reasonCode: 'RECHECK_REQUESTED' });
+  const reopenedRead = await comparison();
+  expect(reopenedRead.review).toMatchObject({ version: 2, reviewStatus: 'PENDING_REVIEW', effectiveStatus: 'PENDING_REVIEW', currentDecision: null,
+    lastDecision: { seq: 1, status: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH' } });
+
+  const history = await app.inject({ url: `/api/customers/duplicate-reviews/${receipt.reviewId}/history?limit=1`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(history.statusCode, history.body).toBe(200);
+  expect(history.json()).toMatchObject({ reviewId: receipt.reviewId, upperSeq: 2, items: [{ seq: 2, eventKind: 'REVIEW_REOPENED', resultingStatus: 'PENDING_REVIEW' }] });
+  const next = history.json().nextCursor;
+  expect(next).toBeTruthy();
+  const page2 = await app.inject({ url: `/api/customers/duplicate-reviews/${receipt.reviewId}/history?limit=1&cursor=${encodeURIComponent(next)}`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(page2.statusCode, page2.body).toBe(200);
+  expect(page2.json()).toMatchObject({ upperSeq: 2, items: [{ seq: 1, eventKind: 'DECISION_RECORDED', resultingStatus: 'DISMISSED' }], nextCursor: null });
+
+  const newDecision = await command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', reopenedRead.evidence.revision, 2, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(newDecision.statusCode, newDecision.body).toBe(200);
+  expect(newDecision.json()).toMatchObject({ reviewVersion: 3, resultingStatus: 'CONFIRMED_DUPLICATE' });
+  const finalRead = await comparison();
+  expect(finalRead.review).toMatchObject({ version: 3, reviewStatus: 'CONFIRMED_DUPLICATE', currentDecision: { seq: 3 }, lastDecision: { seq: 3 } });
+});
+
+it.skipIf(!databaseUrl)('READ-03: a stale terminal decision resurfaces in ATTENTION instead of being suppressed', async () => {
+  const read = await comparison();
+  const decided = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(decided.statusCode, decided.body).toBe(200);
+  await pool!.query("UPDATE customers SET name='Kaynak değişti' WHERE id=$1", [a]);
+  const list = await app.inject({ url: '/api/customers/duplicate-candidates?view=ATTENTION', headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(list.statusCode, list.body).toBe(200);
+  expect(list.json().items[0].review).toMatchObject({ version: 1, reviewStatus: 'DISMISSED', effectiveStatus: 'REVIEW_REQUIRED', freshness: 'STALE', freshnessReason: 'SOURCE_CHANGED' });
+});
+
+it.skipIf(!databaseUrl)('READ-05: missing/foreign review history is 404 and a tampered cursor is 409; a deleted source keeps history', async () => {
+  const read = await comparison();
+  const decided = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(decided.statusCode, decided.body).toBe(200);
+  const receipt = decided.json();
+  const missing = await app.inject({ url: `/api/customers/duplicate-reviews/${randomUUID()}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(missing.statusCode, missing.body).toBe(404);
+  expect(missing.json().code).toBe('DUPLICATE_REVIEW_NOT_FOUND');
+  const cursor = (await app.inject({ url: `/api/customers/duplicate-reviews/${receipt.reviewId}/history?limit=1`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } })).json().nextCursor;
+  expect(cursor).toBeNull();
+  const malformed = await app.inject({ url: `/api/customers/duplicate-reviews/${receipt.reviewId}/history?cursor=dh1.synthetic.invalid.invalid`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(malformed.statusCode, malformed.body).toBe(409);
+  expect(malformed.json().code).toBe('CURSOR_RESTART_REQUIRED');
+  await pool!.query('DELETE FROM customers WHERE id=$1', [a]);
+  const history = await app.inject({ url: `/api/customers/duplicate-reviews/${receipt.reviewId}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(history.statusCode, history.body).toBe(200);
+  expect(history.json().items[0]).toMatchObject({ eventKind: 'DECISION_RECORDED', resultingStatus: 'DISMISSED' });
+  const gone = await app.inject({ url: `/api/customers/duplicate-review-pairs/${a}/${b}`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+  expect(gone.statusCode, gone.body).toBe(404);
+});
+
+it.skipIf(!databaseUrl)('TX-07: same-key concurrent commands replay or return ACTION_IN_PROGRESS with one event', async () => {
+  const read = await comparison();
+  const action = randomUUID();
+  const [one, two] = await Promise.all([
+    command(actor, action, 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'),
+    command(actor, action, 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'),
+  ]);
+  expect(one.statusCode, one.body).toBe(200);
+  expect([200, 409]).toContain(two.statusCode);
+  if (two.statusCode === 409) expect(two.json().code).toBe('ACTION_IN_PROGRESS');
+  expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+});
+
+it.skipIf(!databaseUrl)('F14/TX-07: a real same-key claim wait times out as ACTION_IN_PROGRESS and the exact retry replays', async () => {
+  const read = await comparison();
+  const body = { clientActionId: randomUUID(), expectedReviewVersion: 0, expectedEvidenceRevision: read.evidence.revision,
+    matchingRuleVersion: 'crm-duplicate-v1', decision: 'CONFIRMED_DUPLICATE' as const, reasonCode: 'SAME_OPERATIONAL_CUSTOMER_VERIFIED' as const };
+  const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+  const client = await pool!.connect(); const rawQuery = client.query.bind(client);
+  const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  let entered!: () => void; let release!: () => void;
+  const gate = new Promise<void>((resolve) => { entered = resolve; });
+  const resume = new Promise<void>((resolve) => { release = resolve; });
+  client.query = (async (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('UPDATE processed_actions')) { entered(); await resume; }
+    return Reflect.apply(rawQuery, client, args);
+  }) as typeof client.query;
+  const held = new DuplicateReviewService(new PostgresDuplicateReviewRepository({ connect: async () => client } as Pool, keys));
+  const normal = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+  const first = held.decide(context, a, b, body);
+  try {
+    await gate;
+    const second = normal.decide(context, a, b, body).then((value) => ({ value }), (error: unknown) => ({ error }));
+    let observed = false;
+    const deadline = performance.now() + 200;
+    while (!observed && performance.now() < deadline) {
+      observed = (await pool!.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))", [pid])).rowCount! > 0;
+      if (!observed) await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(observed).toBe(true);
+    expect(await second).toMatchObject({ error: { code: 'ACTION_IN_PROGRESS', statusCode: 409 } });
+    release();
+    const committed = await first;
+    expect(await normal.decide(context, a, b, body)).toEqual({ ...committed, replayed: true });
+    expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+  } finally { release(); await first.catch(() => {}); client.query = rawQuery; }
+});
+
+it.skipIf(!databaseUrl)('A12-S5/TX-02: a source change after GET is EVIDENCE_CHANGED with zero review writes', async () => {
+  const read = await comparison();
+  await pool!.query("UPDATE customers SET name='Değişen Klinik' WHERE id=$1", [a]);
+  const response = await command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(response.statusCode, response.body).toBe(409);
+  expect(response.json().code).toBe('EVIDENCE_CHANGED');
+  expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+});
+
+it.skipIf(!databaseUrl)('A12-S2/S3: version and equivalent formatting changes are recomputed and permit the original semantic decision', async () => {
+  const contact = randomUUID();
+  await pool!.query("INSERT INTO contacts(id,organization_id,customer_id,name,title,phone) VALUES($1,$2,$3,'Sentetik Kişi','Dr.','05321234567')", [contact, org, a]);
+  const read = await comparison();
+  await pool!.query("UPDATE customers SET version=version+1,name=' sentetik klinik ',phone='(0532) 123 45 67' WHERE id=$1", [a]);
+  await pool!.query("UPDATE contacts SET version=version+1,name='sentetik kişi',phone='+905321234567' WHERE id=$1", [contact]);
+  const response = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_BRANCH');
+  expect(response.statusCode, response.body).toBe(200);
+  expect((await comparison()).review).toMatchObject({ freshness: 'CURRENT', version: 1 });
+  expect((await pool!.query('SELECT version FROM customers WHERE id=$1', [a])).rows[0].version).toBe(2);
+  expect((await pool!.query('SELECT version FROM contacts WHERE id=$1', [contact])).rows[0].version).toBe(2);
+});
+
+it.skipIf(!databaseUrl)('EVID-10/KEY-04: a missing expected key is a definitive no-commit 409 after receipt replay lookup', async () => {
+  const read = await comparison();
+  const revision = `ev1.retired.${read.evidence.revision.split('.')[2]}`;
+  const response = await command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+  expect(response.statusCode, response.body).toBe(409);
+  expect(response.json().code).toBe('EVIDENCE_KEY_UNAVAILABLE');
+  expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+});
+
+it.skipIf(!databaseUrl)('TX-01/TX-05: concurrent opposite decisions have one winner and no partial receipt; audit failure rolls back', async () => {
+  const read = await comparison();
+  const actor2 = await createActor();
+  const [one, two] = await Promise.all([
+    command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', read.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED'),
+    command(actor2, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER'),
+  ]);
+  expect([one.statusCode, two.statusCode].sort()).toEqual([200, 409]);
+  expect(await counts()).toEqual({ reviews: '1', events: '1', audit: '1', receipts: '1' });
+
+  org = randomUUID();
+  await pool!.query("INSERT INTO organizations(id,name) VALUES($1,'Synthetic rollback org')", [org]);
+  await createPair();
+  const rollbackRead = await comparison();
+  await pool!.query(`CREATE OR REPLACE FUNCTION synthetic_audit_failure() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.subject_type = 'CUSTOMER_DUPLICATE_REVIEW' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql`);
+  await pool!.query('CREATE TRIGGER synthetic_audit_failure_trigger BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION synthetic_audit_failure()');
+  try {
+    const failed = await command(actor, randomUUID(), 'CONFIRMED_DUPLICATE', rollbackRead.evidence.revision, 0, 'SAME_OPERATIONAL_CUSTOMER_VERIFIED');
+    expect(failed.statusCode, failed.body).toBe(500);
+    expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+  } finally {
+    await pool!.query('DROP TRIGGER synthetic_audit_failure_trigger ON audit_events');
+    await pool!.query('DROP FUNCTION synthetic_audit_failure()');
+  }
+});
+
+it.skipIf(!databaseUrl)('RATE-03/05: the COMMAND class limiter is actor/org scoped and returns no-store 429', async () => {
+  const manager = await createActor();
+  for (let index = 0; index < 10; index++) {
+    const response = await app.inject({
+      method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/${index % 2 ? 'reopen' : 'decisions'}`,
+      headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+      payload: {},
+    });
+    expect(response.statusCode, response.body).toBe(400);
+  }
+  const limited = await app.inject({
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/reopen`,
+    headers: { 'x-test-actor': manager, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: {},
+  });
+  expect(limited.statusCode, limited.body).toBe(429);
+  expect(limited.json().code).toBe('RATE_LIMIT_EXCEEDED');
+  expect(Number(limited.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+  expect(limited.headers['cache-control']).toBe('no-store');
+  const other = await createActor();
+  const fresh = await app.inject({
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    headers: { 'x-test-actor': other, 'x-test-role': 'MANAGER', 'content-type': 'application/json' },
+    payload: {},
+  });
+  expect(fresh.statusCode, fresh.body).toBe(400);
+});
+
+it.skipIf(!databaseUrl)('SEC-01/API-5: STAFF is rejected before the pair lookup and malformed bodies add no writes', async () => {
+  const staff = await createActor('STAFF');
+  const response = await app.inject({
+    method: 'POST', url: `/api/customers/duplicate-review-pairs/${a}/${b}/decisions`,
+    headers: { 'x-test-actor': staff, 'x-test-role': 'STAFF', 'content-type': 'application/json' },
+    payload: { clientActionId: randomUUID(), expectedReviewVersion: 0, expectedEvidenceRevision: 'ev1.synthetic.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', matchingRuleVersion: 'crm-duplicate-v1', decision: 'CONFIRMED_DUPLICATE', reasonCode: 'SAME_OPERATIONAL_CUSTOMER_VERIFIED' },
+  });
+  expect(response.statusCode, response.body).toBe(403);
+  expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+  const malformed = await command(actor, randomUUID(), 'DISMISSED', 'ev1.synthetic.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 0, 'DISTINCT_CUSTOMER');
+  expect(malformed.statusCode, malformed.body).toBe(409);
+  expect(malformed.json().code).toBe('EVIDENCE_CHANGED');
+  expect(await counts()).toEqual({ reviews: '0', events: '0', audit: '0', receipts: '0' });
+});
+
+it.skipIf(!databaseUrl).each(['head insert', 'event append', 'audit', 'FK check', 'receipt completion', 'head update'])(
+  'TX-05/TX-08: %s failure rolls back the real review, event, audit and claim without source changes', async (phase) => {
+    const read = await comparison();
+    const normal = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+    const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+    const body = { clientActionId: randomUUID(), expectedReviewVersion: 0, expectedEvidenceRevision: read.evidence.revision,
+      matchingRuleVersion: 'crm-duplicate-v1', decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_BRANCH' as const };
+    if (phase === 'head update') await normal.decide(context, a, b, body);
+    const before = await counts();
+    const source = (await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows;
+    const client = await pool!.connect(); const rawQuery = client.query.bind(client); let injected = false;
+    client.query = (async (...args: unknown[]) => {
+      const sql = typeof args[0] === 'string' ? args[0] : '';
+      const hit = phase === 'head insert' ? sql.includes('INSERT INTO customer_duplicate_reviews')
+        : phase === 'head update' ? sql.includes('UPDATE customer_duplicate_reviews')
+        : phase === 'event append' ? sql.includes('INSERT INTO customer_duplicate_review_events')
+        : phase === 'audit' ? sql.includes('INSERT INTO audit_events')
+        : phase === 'FK check' ? sql.includes('SET CONSTRAINTS customer_duplicate_reviews_current_event_fk')
+        : sql.startsWith('UPDATE processed_actions');
+      if (hit && !injected) {
+        injected = true;
+        if (phase === 'receipt completion') await rawQuery('DELETE FROM processed_actions WHERE organization_id=$1 AND status=\'processing\'', [org]);
+        else if (phase === 'FK check') await rawQuery('DELETE FROM customer_duplicate_review_events WHERE organization_id=$1', [org]);
+        else await rawQuery('SELECT 1/0');
+      }
+      return Reflect.apply(rawQuery, client, args);
+    }) as typeof client.query;
+    const service = new DuplicateReviewService(new PostgresDuplicateReviewRepository({ connect: async () => client } as Pool, keys));
+    try {
+      const failure = phase === 'head update'
+        ? service.reopen(context, a, b, { ...body, clientActionId: randomUUID(), expectedReviewVersion: 1 })
+        : service.decide(context, a, b, body);
+      await expect(failure).rejects.toMatchObject({ code: 'INTERNAL_ERROR', statusCode: 500 });
+      expect(injected).toBe(true); expect(await counts()).toEqual(before);
+      expect((await pool!.query('SELECT 1 FROM processed_actions WHERE organization_id=$1 AND status=\'processing\'', [org])).rowCount).toBe(0);
+      expect((await pool!.query('SELECT row_to_json(c) AS value FROM customers c ORDER BY id')).rows).toEqual(source);
+    } finally { client.query = rawQuery; }
+  },
+);
+
+it.skipIf(!databaseUrl)('EVID-01/02/03/A12-S1/S4/S5: every semantic Customer and Contact field rejects the old revision without committed writes', async () => {
+  const service = new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool!, keys));
+  const reads = new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool!), keys);
+  const cases: Array<[string, unknown]> = [
+    ['customer:name', 'Changed clinic'], ['customer:phone', '+902125550101'], ['customer:email', 'changed@example.invalid'],
+    ['customer:city', 'Ankara'], ['customer:district', 'Çankaya'], ['customer:address', 'Changed address'],
+    ['customer:tax_number', 'SYNTHETIC'], ['customer:customer_type', 'hospital'],
+    ['contact:name', 'Changed contact'], ['contact:title', 'Changed title'], ['contact:phone', '+902125550101'],
+    ['contact:email', 'changed@example.invalid'], ['contact:is_primary', true], ['contact:is_active', false], ['contact:id', randomUUID()],
+    ['membership:add', null], ['membership:delete', null],
+  ];
+  for (const [change, value] of cases) {
+    await createPair();
+    const contact = randomUUID();
+    await pool!.query("INSERT INTO contacts(id,organization_id,customer_id,name,is_active) VALUES($1,$2,$3,'Synthetic person',true)", [contact, org, a]);
+    const context = { id: actor, organizationId: org, role: 'MANAGER' as const };
+    const read = await reads.comparison(context, a, b);
+    const [kind, field] = change.split(':');
+    if (kind === 'customer') await pool!.query(`UPDATE customers SET ${field}=$2 WHERE id=$1`, [a, value]);
+    else if (kind === 'contact') await pool!.query(`UPDATE contacts SET ${field}=$2 WHERE id=$1`, [contact, value]);
+    else if (field === 'add') await pool!.query("INSERT INTO contacts(organization_id,customer_id,name) VALUES($1,$2,'New synthetic member')", [org, a]);
+    else await pool!.query('DELETE FROM contacts WHERE id=$1', [contact]);
+    expect((await pool!.query('SELECT version FROM customers WHERE id=$1', [a])).rows[0].version).toBe(1);
+    const before = await counts();
+    await expect(service.decide(context, a, b, { clientActionId: randomUUID(), expectedReviewVersion: 0,
+      expectedEvidenceRevision: read.evidence.revision, matchingRuleVersion: read.evidence.matchingRuleVersion,
+      decision: 'DISMISSED', reasonCode: 'DISTINCT_BRANCH' }), change).rejects.toMatchObject({ code: 'EVIDENCE_CHANGED', statusCode: 409 });
+    expect(await counts()).toEqual(before);
+    expect((await pool!.query('SELECT 1 FROM processed_actions WHERE organization_id=$1', [org])).rowCount).toBe(0);
+  }
+});
+
+it.skipIf(!databaseUrl).each(['customer_duplicate_reviews', 'customer_duplicate_review_events'])(
+  'history timeout: a real PG17 lock on %s is bounded and the next read recovers without writes', async table => {
+    const read = await comparison();
+    const decided = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+    expect(decided.statusCode, decided.body).toBe(200);
+    const before = await counts();
+    const blocker = await pool!.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`);
+      const started = Date.now();
+      const result = await app.inject({ url: `/api/customers/duplicate-reviews/${decided.json().reviewId}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+      expect(result.statusCode, result.body).toBe(503);
+      expect(result.json().code).toBe('REVIEW_TEMPORARILY_UNAVAILABLE');
+      expect(result.headers['cache-control']).toBe('no-store');
+      expect(Date.now() - started).toBeLessThan(4_500);
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); }
+    const recovered = await app.inject({ url: `/api/customers/duplicate-reviews/${decided.json().reviewId}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+    expect(recovered.statusCode, recovered.body).toBe(200);
+    expect(recovered.json()).toMatchObject({ upperSeq: 1, items: [{ eventId: decided.json().eventId, seq: 1 }] });
+    expect(await counts()).toEqual(before);
+  },
+);
+
+it.skipIf(!databaseUrl)('definitive source 404 leaves no claim, while a completed receipt still replays after deletion', async () => {
+  const read = await comparison();
+  const completedAction = randomUUID();
+  const done = await command(actor, completedAction, 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(done.statusCode, done.body).toBe(200);
+  await pool!.query('DELETE FROM customers WHERE id=$1', [a]);
+  const before = await counts();
+  const newAction = randomUUID();
+  const missing = await command(actor, newAction, 'DISMISSED', read.evidence.revision, 1, 'DISTINCT_CUSTOMER');
+  expect(missing.statusCode, missing.body).toBe(404);
+  expect(missing.json().code).toBe('DUPLICATE_PAIR_NOT_FOUND');
+  expect(await counts()).toEqual(before);
+  expect((await pool!.query('SELECT count(*)::int AS count FROM processed_actions WHERE organization_id=$1', [org])).rows[0].count).toBe(1);
+  const replay = await command(actor, completedAction, 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(replay.statusCode, replay.body).toBe(200);
+  expect(replay.headers['idempotency-replayed']).toBe('true');
+  expect(replay.json()).toEqual(done.json());
+  expect(await counts()).toEqual(before);
+});

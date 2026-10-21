@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { AppError } from '../../errors/index.js';
 import type { DuplicateSource } from './duplicate-candidates.js';
 import { DUPLICATE_LIMITS, type DuplicateCustomerFacts } from './duplicate-types.js';
+import { reviewHeadFromRow, type DuplicateReviewHead } from './duplicate-review.js';
 import { mapContact, mapCustomer, type ContactRow, type CustomerRow } from './types.js';
 
 export const DUPLICATE_SOURCE_SQL = `SELECT id,name,phone,status FROM customers
@@ -19,12 +20,31 @@ export const DUPLICATE_CONTACTS_SQL = `SELECT parent.customer_id,ct.* FROM unnes
     WHERE organization_id=$1 AND customer_id BETWEEN parent.customer_id AND parent.customer_id
     ORDER BY customer_id,id LIMIT $3) ct
   ORDER BY parent.customer_id,ct.id`;
+export const DUPLICATE_REVIEW_HEADS_SQL = `SELECT wanted.customer_a_id, wanted.customer_b_id,
+  r.id, r.version, e.id AS event_id, e.seq, e.event_kind, e.resulting_status, e.reason_code,
+  e.actor_user_id, e.occurred_at, e.evidence_schema_version, e.matching_rule_version,
+  e.evidence_key_id, e.evidence_digest, e.matching_codes, e.conflicting_tax_numbers,
+  previous_decision.id AS previous_decision_id, previous_decision.seq AS previous_decision_seq,
+  previous_decision.resulting_status AS previous_decision_status,
+  previous_decision.reason_code AS previous_decision_reason,
+  previous_decision.actor_user_id AS previous_decision_actor_id,
+  previous_decision.occurred_at AS previous_decision_at
+FROM unnest($2::uuid[], $3::uuid[]) AS wanted(customer_a_id, customer_b_id)
+LEFT JOIN customer_duplicate_reviews r
+  ON r.organization_id=$1 AND r.customer_a_id=wanted.customer_a_id AND r.customer_b_id=wanted.customer_b_id
+LEFT JOIN customer_duplicate_review_events e
+  ON e.organization_id=r.organization_id AND e.review_id=r.id AND e.seq=r.version
+LEFT JOIN customer_duplicate_review_events previous_decision
+  ON previous_decision.organization_id=r.organization_id AND previous_decision.review_id=r.id
+ AND previous_decision.seq=r.version-1 AND previous_decision.event_kind='DECISION_RECORDED'
+ AND e.event_kind='REVIEW_REOPENED'
+ORDER BY wanted.customer_a_id, wanted.customer_b_id`;
 
 export const duplicateUnavailable = () => new AppError('REVIEW_TEMPORARILY_UNAVAILABLE', 503, 'Karşılaştırma şu anda yüklenemiyor. Yeniden deneyin.');
 export class DuplicateReadSnapshot {
   readonly asOf = new Date().toISOString();
   constructor(private client: PoolClient, private deadline: number, readonly checkpoint: () => void) {}
-  private async query<T extends QueryResultRow>(sql: string, params: unknown[]) {
+  async query<T extends QueryResultRow>(sql: string, params: unknown[]) {
     this.checkpoint();
     // Integer interpolation only: SET does not accept bind parameters.
     const timeout = Math.max(1, Math.floor(Math.min(DUPLICATE_LIMITS.statementMs, this.deadline - performance.now())));
@@ -36,6 +56,19 @@ export class DuplicateReadSnapshot {
   }
   source(org: string, anchor: string | null) {
     return this.query<DuplicateSource>(DUPLICATE_SOURCE_SQL, [org, DUPLICATE_LIMITS.sourceCustomers + 1, anchor]);
+  }
+  async reviewHeads(org: string, pairs: { customerAId: string; customerBId: string }[]): Promise<Map<string, DuplicateReviewHead>> {
+    if (!pairs.length) return new Map();
+    const a = pairs.map((pair) => pair.customerAId);
+    const b = pairs.map((pair) => pair.customerBId);
+    const rows = await this.query<Parameters<typeof reviewHeadFromRow>[0]>(DUPLICATE_REVIEW_HEADS_SQL, [org, a, b]);
+    const heads = new Map<string, DuplicateReviewHead>();
+    for (const row of rows) {
+      if (!row.id) continue;
+      if (!row.event_id) throw duplicateUnavailable();
+      heads.set(`${row.customer_a_id}:${row.customer_b_id}`, reviewHeadFromRow(row));
+    }
+    return heads;
   }
   async facts(org: string, ids: string[]): Promise<Map<string, DuplicateCustomerFacts>> {
     const rows = await this.query<CustomerRow & { address_overflow: boolean }>(DUPLICATE_FACTS_SQL, [org, ids, DUPLICATE_LIMITS.addressBytes]);

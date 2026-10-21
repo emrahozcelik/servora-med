@@ -44,13 +44,13 @@ beforeAll(async () => {
   });
 });
 
-it('PERF-03/04: installs the two scoped ordered read-side indexes without review tables', async () => {
+it('PERF-03/04: installs the scoped read-side indexes and PR2 review tables', async () => {
   const indexes = (await pool.query('SELECT indexname,indexdef FROM pg_indexes WHERE schemaname=$1', [schema])).rows;
   expect(indexes).toEqual(expect.arrayContaining([
     expect.objectContaining({ indexname: 'customers_duplicate_source_idx', indexdef: expect.stringContaining('(organization_id, id)') }),
     expect.objectContaining({ indexname: 'contacts_duplicate_membership_idx', indexdef: expect.stringContaining('(organization_id, customer_id, id)') }),
   ]));
-  expect((await pool.query("SELECT tablename FROM pg_tables WHERE schemaname=$1 AND tablename LIKE 'customer_duplicate%'", [schema])).rows).toEqual([]);
+  expect((await pool.query("SELECT tablename FROM pg_tables WHERE schemaname=$1 AND tablename LIKE 'customer_duplicate%' ORDER BY tablename", [schema])).rows.map((row) => row.tablename)).toEqual(['customer_duplicate_review_events', 'customer_duplicate_reviews']);
 });
 
 it('RATE-01–05: guards run before one authenticated actor/org class limiter and path changes cannot reset quota', async () => {
@@ -105,7 +105,7 @@ it('READ-02, SEC-02: 20,001 sources fail explicitly, invalid anchors conceal bef
   await expect(service.candidates(context, input)).rejects.toMatchObject({ code: 'CANDIDATE_SCAN_LIMIT', statusCode: 422 });
   await expect(service.candidates(context, { ...input, anchorCustomerId: ids[0]! })).rejects.toMatchObject({ code: 'DUPLICATE_PAIR_NOT_FOUND', statusCode: 404 });
   const pair = (await pool.query('SELECT id FROM customers WHERE organization_id=$1 ORDER BY id LIMIT 2', [overflowOrg])).rows;
-  await expect(service.comparison(context, pair[0].id, pair[1].id)).resolves.toMatchObject({ allowedActions: [] });
+  await expect(service.comparison(context, pair[0].id, pair[1].id)).resolves.toMatchObject({ allowedActions: ['DECIDE'] });
 });
 
 it('PERF-05: contact membership probe uses the ordered composite index instead of scanning the group', async () => {
@@ -156,7 +156,7 @@ it('SEC-01/02/03, READ-01, PAIR-01: reads only same-org BUSINESS candidates and 
   expect(list.json()).toMatchObject({ coverage: 'COMPLETE_SOURCE', rawPairCount: '1', items: [{ pair: { customerAId: ids[0], customerBId: ids[1] }, matchingCodes: ['SAME_NAME_AND_PHONE'], review: { id: null, version: 0 } }], page: { exhausted: true, returnedItems: 1 } });
   const detail = await app.inject({ url: `/api/customers/duplicate-review-pairs/${ids[1]}/${ids[0]}`, headers: { 'x-test-role': 'ADMIN' } });
   expect(detail.statusCode, detail.body).toBe(200);
-  expect(detail.json()).toMatchObject({ pair: { customerAId: ids[0], customerBId: ids[1] }, allowedActions: [], customerB: { status: 'inactive', contacts: [] } });
+  expect(detail.json()).toMatchObject({ pair: { customerAId: ids[0], customerBId: ids[1] }, allowedActions: ['DECIDE'], customerB: { status: 'inactive', contacts: [] } });
   for (const role of [undefined, 'STAFF']) {
     const response = await app.inject({ url: '/api/customers/duplicate-candidates', headers: role ? { 'x-test-role': role } : {} });
     expect(response.statusCode).toBe(role ? 403 : 401);

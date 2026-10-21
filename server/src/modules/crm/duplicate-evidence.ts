@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { AppError } from '../../errors/index.js';
 import { foldDuplicateText } from './duplicate-candidates.js';
@@ -62,7 +62,13 @@ export function compareDuplicateFacts(a: DuplicateCustomerFacts, b: DuplicateCus
   return { matchingCodes, warnings };
 }
 
-export function createDuplicateEvidence(org: string, first: DuplicateCustomerFacts, second: DuplicateCustomerFacts, keyring: DuplicateKeyring) {
+export type DuplicateEvidenceDetails = {
+  revision: string; keyId: string; digest: Buffer; canonical: string;
+  schemaVersion: 1; matchingRuleVersion: string;
+  matchingCodes: DuplicateMatchCode[]; warnings: DuplicateWarning[];
+};
+
+function canonicalEvidence(org: string, first: DuplicateCustomerFacts, second: DuplicateCustomerFacts) {
   const [a, b] = first.id < second.id ? [first, second] : [second, first];
   const tuple = (customer: DuplicateCustomerFacts) => [
     customer.id, foldDuplicateText(customer.name), phoneTuple(customer.phone), emailKey(customer.email),
@@ -78,6 +84,40 @@ export function createDuplicateEvidence(org: string, first: DuplicateCustomerFac
   }
   const canonical = JSON.stringify(['CRM_DUPLICATE_EVIDENCE', 1, DUPLICATE_RULE_VERSION, org, a.id, b.id, tuple(a), tuple(b)]);
   if (Buffer.byteLength(canonical) > DUPLICATE_LIMITS.evidenceBytes) throw new AppError('EVIDENCE_LIMIT_EXCEEDED', 422, 'Karşılaştırma kanıtı sınırı aşıldı.');
-  const key = keyring.keys.get(keyring.activeKeyId)!;
-  return `ev1.${keyring.activeKeyId}.${createHmac('sha256', key).update(canonical, 'utf8').digest('base64url')}`;
+  return { canonical, ...compareDuplicateFacts(a, b) };
+}
+
+export function duplicateEvidenceDigest(keyring: DuplicateKeyring, canonical: string, keyId: string): Buffer | null {
+  const key = keyring.keys.get(keyId);
+  if (!key) return null;
+  return createHmac('sha256', key).update(canonical, 'utf8').digest();
+}
+
+export function createDuplicateEvidenceDetails(
+  org: string, first: DuplicateCustomerFacts, second: DuplicateCustomerFacts,
+  keyring: DuplicateKeyring, keyId = keyring.activeKeyId,
+): DuplicateEvidenceDetails {
+  const { canonical, matchingCodes, warnings } = canonicalEvidence(org, first, second);
+  const digest = duplicateEvidenceDigest(keyring, canonical, keyId);
+  if (!digest) throw new AppError('EVIDENCE_KEY_UNAVAILABLE', 409, 'Karşılaştırma kanıtı anahtarı artık kullanılamıyor. Güncel bilgileri yeniden inceleyin.');
+  return {
+    revision: `ev1.${keyId}.${digest.toString('base64url')}`, keyId, digest, canonical,
+    schemaVersion: 1, matchingRuleVersion: DUPLICATE_RULE_VERSION, matchingCodes, warnings,
+  };
+}
+
+export function createDuplicateEvidence(org: string, first: DuplicateCustomerFacts, second: DuplicateCustomerFacts, keyring: DuplicateKeyring) {
+  return createDuplicateEvidenceDetails(org, first, second, keyring).revision;
+}
+
+export function parseDuplicateEvidenceRevision(revision: string): { keyId: string; digest: Buffer } | null {
+  const match = /^ev1\.([A-Za-z0-9_-]{1,32})\.([A-Za-z0-9_-]{43})$/.exec(revision);
+  if (!match) return null;
+  const digest = Buffer.from(match[2]!, 'base64url');
+  if (digest.length !== 32 || digest.toString('base64url') !== match[2]) return null;
+  return { keyId: match[1]!, digest };
+}
+
+export function duplicateEvidenceMatches(expected: Buffer, actual: Buffer | null) {
+  return actual !== null && actual.length === expected.length && timingSafeEqual(actual, expected);
 }

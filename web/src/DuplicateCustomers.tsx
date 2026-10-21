@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
-import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
+import { getDuplicateComparison, listDuplicateCandidates, duplicateReasonLabels, duplicateEffectiveLabels, duplicateFreshnessLabels, type DuplicatePage, type DuplicateComparison } from './services/duplicate-customers-api';
+import { DuplicateReviewPanel } from './DuplicateReviewPanel';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
@@ -10,10 +11,8 @@ import { ResultState } from './ui/antd/ResultState';
 import { customerStatusLabels, customerTypeLabels, getCustomerOperationalSummary, type CustomerOperationalSummary } from './services/crm-api';
 import { buildContextState } from './shell/context-return';
 import { useOptionalRouteNavigation } from './shell/route-navigation-provider';
-import { useDuplicateRead } from './useDuplicateRead';
+import { useDuplicateRead, duplicateReadPauseScope as readPauseScope } from './useDuplicateRead';
 import './duplicate-customers.css';
-
-const readPauseScope = (kind: 'LIST' | 'DETAIL', user: CurrentUser) => `CRM_DUPLICATE_${kind}:v1:${user.organizationId}:${user.id}`;
 
 export function DuplicateReadError({ error, onReload, retainedData = false, retryAt = null, retryAuto = true, busy = false, notFoundTitle = 'Aday taraması başlatılamadı', notFoundDescription = 'Seçili müşteri kapsamı kullanılamıyor veya erişim kapsamınızda değil. Aday listesine dönüp yeniden deneyin.' }: {
   error: Error; onReload: () => void; retainedData?: boolean; retryAt?: number | null; retryAuto?: boolean; busy?: boolean;
@@ -30,22 +29,31 @@ export function DuplicateReadError({ error, onReload, retainedData = false, retr
     action={[401, 403, 404].includes(status) ? undefined : <button type="button" className="secondary-button" onClick={onReload} disabled={busy || waitingForRetry}>{code === 'CURSOR_RESTART_REQUIRED' ? 'İlk sayfadan başlat' : 'Tekrar dene'}</button>} />;
 }
 export function DuplicateReadNotice() {
-  return <p className="duplicate-notice">Salt okunur karşılaştırma. Bu ekran müşteri kayıtlarını değiştirmez ve inceleme kararı kaydetmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
+  return <p className="duplicate-notice">Salt okunur aday listesi. Bu ekran müşteri kayıtlarını değiştirmez. Ortak iletişim bilgileri aynı müşteri olunduğunu kanıtlamaz; farklı şubeler ayrı kabul edilir.</p>;
 }
-export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false }: {
+export function DuplicateComparisonNotice() {
+  return <p className="duplicate-notice">İnceleme kararı yalnız bu müşteri çifti için kaydedilir. Müşteriler birleştirilmez, pasifleştirilmez veya silinmez. Ortak iletişim bilgileri tek başına aynı müşteri olduğunu kanıtlamaz.</p>;
+}
+export function DuplicateCandidateView({ data, error, busy, retryAt = null, retryAuto = true, onReload, onFirst, onNext, laterPage = false, view = 'ATTENTION', onViewChange }: {
   data: DuplicatePage | null; error: Error | null; busy: boolean; retryAt?: number | null; retryAuto?: boolean; onReload: () => void; onFirst: () => void; onNext: () => void; laterPage?: boolean;
+  view?: 'ATTENTION' | 'ALL'; onViewChange?: (view: 'ATTENTION' | 'ALL') => void;
 }) {
   const location = useLocation();
   const contextState = buildContextState(location);
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
     <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
     <DuplicateReadNotice />
+    {onViewChange && <label className="duplicate-reason">İnceleme görünümü
+      <select aria-label="İnceleme görünümü" value={view} onChange={(event) => onViewChange(event.target.value as 'ATTENTION' | 'ALL')} disabled={busy}>
+        <option value="ATTENTION">İlgilenilmesi gerekenler</option><option value="ALL">Tüm aday çiftleri</option>
+      </select>
+    </label>}
     <p>Yalnız aynı kuruluştaki gerçek iş kayıtları (BUSINESS); aday, aktif ve pasif müşteriler dahildir.</p>
     {busy && !data && <LoadingSkeleton title="Adaylar yükleniyor" rows={4} />}
     {error && <DuplicateReadError error={error} retainedData={data !== null} retryAt={retryAt} retryAuto={retryAuto} busy={busy} onReload={error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED' ? onFirst : onReload} />}
     {data && <>
       <p className="text-muted">Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. {laterPage ? 'Bu sayfa otomatik başa dönmez. Güncel kapsam için ilk sayfayı yenileyin.' : 'Görünürken 60 saniyede bir yenilenir.'}</p>
-      {data.scope.anchorCustomerId && <Link to={paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
+      {data.scope.anchorCustomerId && <Link to={view === 'ALL' ? `${paths.duplicateCustomers}?view=ALL` : paths.duplicateCustomers}>Müşteri filtresini kaldır</Link>}
       {Math.max(data.largestNameGroupSize, data.largestPhoneGroupSize) > 100 && <p role="status" className="duplicate-warning">Büyük ortak bilgi grubu var. Aynı isim grubunda en fazla {data.largestNameGroupSize}, aynı telefon grubunda en fazla {data.largestPhoneGroupSize} müşteri bulunuyor. Bir müşterinin adaylarını açarak kapsamı daraltabilirsiniz.</p>}
       {!error && data.items.length === 0 && (data.page.exhausted ? <EmptyState title="Bu kapsamda aday bulunamadı" description="Tarama başarıyla tamamlandı. Bu sonuç, kayıtların aynı müşteri olduğuna ilişkin bir karar değildir." /> : <p role="status">Bu ara sayfada gösterilecek aday yok. Taramayı sürdürün.</p>)}
       <ol className="duplicate-candidates">{data.items.map((item) => <li key={`${item.pair.customerAId}:${item.pair.customerBId}`}>
@@ -54,10 +62,11 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
             <h2><span>Müşteri {index === 0 ? 'A' : 'B'}: </span>{customer.name}</h2>
             <p>{customerStatusLabels[customer.status]} · {[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p>
             <p className="duplicate-id">Kayıt: {customer.id}</p>
-            <Link to={`${paths.duplicateCustomers}?anchorCustomerId=${encodeURIComponent(customer.id)}`}>Bu müşterinin adayları</Link>
+            <Link to={`${paths.duplicateCustomers}?anchorCustomerId=${encodeURIComponent(customer.id)}${view === 'ALL' ? '&view=ALL' : ''}`}>Bu müşterinin adayları</Link>
           </div>)}</div>
           <ul className="duplicate-reasons" aria-label="Eşleşme gerekçeleri">{item.matchingCodes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
           {item.warnings.length > 0 && <p className="duplicate-warning">Çelişki: Vergi numaraları farklı.</p>}
+          {item.review?.id && <p role="status" className="duplicate-review-summary">İnceleme: {duplicateEffectiveLabels[item.review.effectiveStatus]} · {duplicateFreshnessLabels[item.review.freshness]}</p>}
           {item.comparisonStatus !== 'READY' && <p role="status" className="duplicate-warning">Kanıt bütünü doğrulanamadığı için bu çiftte karşılaştırma açılamaz. Aday çift ve mevcut eşleşme gerekçeleri listede kalır.</p>}
           {item.comparisonStatus === 'READY' && <Link id={`duplicate-${item.pair.customerAId}-${item.pair.customerBId}`} className="secondary-button" to={paths.duplicateComparison(item.pair.customerAId, item.pair.customerBId)} state={{ ...(contextState ?? {}), duplicateFocus: `duplicate-${item.pair.customerAId}-${item.pair.customerBId}` }}>İki müşteriyi karşılaştır<span className="sr-only">: {item.customerA.name} / {item.customerB.name}</span></Link>}
         </article>
@@ -81,7 +90,7 @@ export function DuplicateCustomersScreen({ user }: { user: CurrentUser }) {
     if (!state.busy && state.data && !restored.current && typeof focus === 'string') { document.getElementById(focus)?.focus(); restored.current = true; }
   }, [state.busy, state.data, location.state]);
   const first = () => { if (!laterPage) state.reload(); else { const next = new URLSearchParams(params); next.delete('cursor'); setParams(next); } };
-  return <DuplicateCandidateView {...state} onReload={state.reload} onFirst={first} laterPage={laterPage} onNext={() => { if (state.data?.page.nextCursor) { const next = new URLSearchParams(params); next.set('cursor', state.data.page.nextCursor); setParams(next); } }} />;
+  return <DuplicateCandidateView {...state} view={params.get('view') === 'ALL' ? 'ALL' : 'ATTENTION'} onViewChange={(view) => { const next = new URLSearchParams(params); next.set('view', view); next.delete('cursor'); setParams(next); }} onReload={state.reload} onFirst={first} laterPage={laterPage} onNext={() => { if (state.data?.page.nextCursor) { const next = new URLSearchParams(params); next.set('cursor', state.data.page.nextCursor); setParams(next); } }} />;
 }
 
 function OperationalSummary({ customerId }: { customerId: string }) {
@@ -103,7 +112,7 @@ function OperationalSummary({ customerId }: { customerId: string }) {
   </section>;
 }
 
-export function DuplicateComparisonView({ data }: { data: DuplicateComparison }) {
+export function DuplicateComparisonView({ data, reviewPanel }: { data: DuplicateComparison; reviewPanel?: ReactNode }) {
   const { customerA: a, customerB: b, evidence } = data;
   const codes = evidence.matchingCodes;
   const fields: { key: keyof Pick<typeof a, 'name' | 'taxNumber' | 'phone' | 'email' | 'city' | 'district' | 'address'>; label: string; match: boolean; conflict?: boolean }[] = [
@@ -114,7 +123,7 @@ export function DuplicateComparisonView({ data }: { data: DuplicateComparison })
     ...(['city', 'district', 'address'] as const).map((key, i) => ({ key, label: ['Şehir', 'İlçe', 'Adres'][i]!, match: codes.includes('SAME_NAME_AND_ADDRESS') })),
   ];
   return <>
-    <DuplicateReadNotice />
+    <DuplicateComparisonNotice />
     <p>Son okuma: <time dateTime={data.asOf}>{new Date(data.asOf).toLocaleString('tr-TR')}</time>. Görünürken 60 saniyede bir yenilenir.</p>
     <ul aria-label="Eşleşme gerekçeleri">{codes.map((code) => <li key={code}>{duplicateReasonLabels[code]}</li>)}</ul>
     {evidence.warnings.length > 0 && <p className="duplicate-warning" role="status">Çelişki: İki dolu vergi numarası farklı. Ortak bilgiler kesin kimlik kanıtı değildir.</p>}
@@ -141,6 +150,7 @@ export function DuplicateComparisonView({ data }: { data: DuplicateComparison })
         </section>)}</div>
       </section>
     </section>
+    {reviewPanel}
   </>;
 }
 
@@ -159,7 +169,7 @@ export function DuplicateComparisonScreen({ user }: { user: CurrentUser }) {
     {state.error && <DuplicateReadError error={state.error} retainedData={state.data !== null} retryAt={state.retryAt} retryAuto={state.retryAuto} busy={state.busy} onReload={state.reload}
       notFoundTitle="Karşılaştırılabilir müşteri çifti bulunamadı"
       notFoundDescription="Bu çift kullanılamıyor veya erişim kapsamınızda değil. Olası mükerrerler listesine dönüp başka bir çift seçebilirsiniz." />}
-    {state.data && <DuplicateComparisonView data={state.data} />}
+    {state.data && <DuplicateComparisonView data={state.data} reviewPanel={<DuplicateReviewPanel user={user} aId={aId} bId={bId} data={state.data} onRefresh={state.reload} />} />}
     {state.busy && state.data && <p role="status">Karşılaştırma güncelleniyor…</p>}
   </main>;
 }

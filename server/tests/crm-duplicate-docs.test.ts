@@ -29,6 +29,16 @@ it('F02: owning portable documents preserve approved bytes except recorded machi
   }
   expect(readFileSync(path.join(root, 'DECISIONS.md'), 'utf8')).toContain('docs/features/crm-duplicate-review/README.md');
   expect(readFileSync(path.join(root, 'docs/README.md'), 'utf8')).toContain('features/crm-duplicate-review/README.md');
-  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('Accepted Design / PR1 Rollout Pending');
+  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('PR1 merged / PR2 implementation-under-review / PR3 pending');
   expect(existsSync(path.join(folder, 'approved-design-originals.zip'))).toBe(false);
+});
+
+it('F16: rollout entry point distinguishes merged PR1, PR2 under review, pending PR3 and undeployed catalog 060', () => {
+  const readme = readFileSync(path.join(folder, 'README.md'), 'utf8');
+  expect(readme).toContain('PR1 merged / PR2 implementation-under-review / PR3 pending');
+  expect(readme).toContain('Catalog head 060');
+  expect(readme).toContain('Production rollout: NOT DEPLOYED');
+  expect(readme).not.toContain('PR2/PR3 persistent decisions, reopen and history are not implemented');
+  expect(readme).not.toContain('Catalog head 059');
+  expect(readme).toContain('PR3 register/workbench');
 });

@@ -24,8 +24,8 @@ const pair = '/customers/duplicate-review-pairs/10000000-0000-4000-8000-00000000
 const params = new URLSearchParams(location.search);
 const anchor = params.get('anchor');
 const initialPath = params.has('comparison') ? pair : anchor
-  ? `/customers/duplicate-candidates?anchorCustomerId=${encodeURIComponent(anchor)}`
-  : '/customers/duplicate-candidates';
+  ? `/customers/duplicate-candidates?anchorCustomerId=${encodeURIComponent(anchor)}${params.get('view') === 'ALL' ? '&view=ALL' : ''}`
+  : `/customers/duplicate-candidates${params.get('view') === 'ALL' ? '?view=ALL' : ''}`;
 
 function Routed() {
   const current = useLocation();
