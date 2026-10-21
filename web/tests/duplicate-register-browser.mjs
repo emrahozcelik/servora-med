@@ -330,6 +330,77 @@ try {
   await unknownPage.close();
   await unknownContext.close();
 
+
+  // 12. F26: over-budget rows keep the frozen-attempt recovery next to the history disclosure.
+  const overBudgetContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await overBudgetContext.addInitScript(([key, attempt]) => {
+    window.sessionStorage.setItem(key, JSON.stringify(attempt));
+  }, [attemptKey, frozenAttempt]);
+  const overBudgetPage = await overBudgetContext.newPage(); watch(overBudgetPage);
+  await overBudgetPage.route('**/api/customers/**', (route) => fulfill(route, 200, page([item({ comparisonStatus: 'OVER_BUDGET' })])));
+  await overBudgetPage.goto(`${origin}/duplicate-browser-test?register&view=ALL`, { waitUntil: 'domcontentloaded' });
+  await overBudgetPage.getByRole('heading', { name: 'Yanıtı alınamamış inceleme isteği' }).waitFor({ timeout: 10000 });
+  assert.equal(await overBudgetPage.getByRole('button', { name: 'Karar geçmişini aç' }).count(), 1);
+  assert.equal(await overBudgetPage.getByRole('link', { name: /İncelemeyi aç/ }).count(), 0);
+  assert.equal(await overBudgetPage.getByRole('button', { name: 'Mükerrer olarak doğrula' }).count(), 0);
+  pass('F26 over-budget row keeps recovery and history while comparison stays closed');
+  await overBudgetPage.screenshot({ path: join(out, 'f26-over-budget-recovery.png'), fullPage: true });
+  await overBudgetPage.close();
+  await overBudgetContext.close();
+
+  // 13. F27: two frozen attempts share one COMMAND cooldown across sibling rows.
+  const pairTwo = { customerAId: '10000000-0000-4000-8000-000000000003', customerBId: '10000000-0000-4000-8000-000000000004' };
+  const attemptTwo = { ...frozenAttempt, clientActionId: '6f1f0d1e-0000-4000-8000-00000000000d', expectedReviewVersion: 4 };
+  const attemptKeyTwo = `CRM_DUPLICATE_COMMAND_ATTEMPT:v1:${orgId}:${actorId}:${pairTwo.customerAId}:${pairTwo.customerBId}`;
+  const secondRow = {
+    ...unavailable, pair: pairTwo, reviewId: '20000000-0000-4000-8000-000000000002',
+    review: { ...unavailable.review, id: '20000000-0000-4000-8000-000000000002' },
+  };
+  const sharedContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await sharedContext.addInitScript(([first, second, one, two]) => {
+    window.sessionStorage.setItem(first, JSON.stringify(one));
+    window.sessionStorage.setItem(second, JSON.stringify(two));
+  }, [attemptKey, attemptKeyTwo, frozenAttempt, attemptTwo]);
+  const sharedPage = await sharedContext.newPage(); watch(sharedPage);
+  const sharedPosts = [];
+  await sharedPage.route('**/api/customers/**', async (route) => {
+    const request = route.request();
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON();
+      sharedPosts.push(body);
+      if (sharedPosts.length === 1) return fulfill(route, 429, { error: 'Kota aşıldı.', code: 'RATE_LIMIT_EXCEEDED' }, { 'Retry-After': '3' });
+      return fulfill(route, 200, {
+        reviewId: secondRow.reviewId, pair: pairTwo, reviewVersion: 4, eventId: decision.eventId,
+        eventKind: 'DECISION_RECORDED', resultingStatus: 'DISMISSED', reasonCode: 'DISTINCT_CUSTOMER',
+        actorUserId: actorId, occurredAt: decision.decidedAt,
+      });
+    }
+    return fulfill(route, 200, page([unavailable, secondRow]));
+  });
+  await sharedPage.goto(`${origin}/duplicate-browser-test?register`, { waitUntil: 'domcontentloaded' });
+  const replayButtons = sharedPage.getByRole('button', { name: 'Özgün isteği tekrar dene' });
+  await replayButtons.nth(1).waitFor({ timeout: 10000 });
+  assert.equal(await replayButtons.count(), 2);
+  await replayButtons.nth(0).click();
+  await sharedPage.getByText(/yaklaşık 3 saniye bekleyin/).first().waitFor({ timeout: 10000 });
+  assert.equal(await sharedPage.getByText(/yaklaşık 3 saniye bekleyin/).count(), 2);
+  assert.equal(await replayButtons.nth(1).isDisabled(), true, 'sibling recovery must inherit the shared cooldown');
+  await replayButtons.nth(1).click({ force: true }).catch(() => undefined);
+  await sharedPage.waitForTimeout(400);
+  assert.equal(sharedPosts.length, 1, 'no sibling POST before the cooldown expires');
+  await sharedPage.waitForTimeout(3_200);
+  await replayButtons.nth(1).waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await replayButtons.nth(1).isDisabled(), false);
+  await replayButtons.nth(1).click();
+  await sharedPage.getByText('İstek daha önce kaydedilmiş: makbuz doğrulandı.').waitFor({ timeout: 10000 });
+  assert.equal(sharedPosts.length, 2);
+  assert.equal(sharedPosts[1].clientActionId, attemptTwo.clientActionId);
+  assert.equal(sharedPosts[1].expectedReviewVersion, attemptTwo.expectedReviewVersion);
+  pass('F27 sibling recovery rows share one COMMAND cooldown and replay only their own frozen payload', `posts=${sharedPosts.length}`);
+  await sharedPage.screenshot({ path: join(out, 'f27-shared-cooldown.png'), fullPage: true });
+  await sharedPage.close();
+  await sharedContext.close();
+
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(consoleErrors, []);
   pass('REG-07 no page or console errors during the register acceptance flow');

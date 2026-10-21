@@ -51,8 +51,9 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
 A lost command response is recoverable without a new intent: the comparison and
 register surfaces expose a narrow replay of the actor-bound frozen attempt, which
 resends the original `clientActionId` and payload and shows the stored immutable
-receipt as a receipt, not as current review state. The replay shares the actor/org
-COMMAND cooldown, so a rate-limited attempt cannot be retried before the server
+receipt as a receipt, not as current review state. The replay is offered on every register row whose comparison cannot be shown
+(unavailable source or over-budget evidence), shares the actor/org COMMAND cooldown
+across all mounted recovery surfaces, and cannot be retried before the server
 window expires. Only the reviewed no-commit codes close the attempt; unknown
 404/422 outcomes, 429/5xx and transport failures keep it, and authorization
 failures retain it without disclosing review data.

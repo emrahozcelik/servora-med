@@ -4,7 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it } from 'vitest';
 import { DuplicateAttemptRecovery } from '../src/DuplicateAttemptRecovery';
 import { classifyDuplicateRecoveryFailure, duplicateRecoveryRequest, duplicateRecoveryRetryable, duplicateRecoveryRetryDelay } from '../src/duplicate-recovery';
-import { clearDuplicateAttempt, writeDuplicateAttempt, type DuplicateAttempt } from '../src/duplicate-review-attempt';
+import {
+  clearDuplicateAttempt, clearDuplicateCommandRetryAt, readDuplicateCommandRetryAt,
+  subscribeDuplicateCommandCooldown, writeDuplicateAttempt, writeDuplicateCommandRetryAt, type DuplicateAttempt,
+} from '../src/duplicate-review-attempt';
 import { ApiError } from '../src/services/api';
 
 const organizationId = '20000000-0000-4000-8000-0000000000aa';
@@ -78,4 +81,25 @@ it('F23: a rate-limited replay exposes the shared server retry window', () => {
   expect(duplicateRecoveryRetryDelay(noHeader)).toBe(60_000);
   expect(duplicateRecoveryRetryDelay(new ApiError(503, 'REVIEW_TEMPORARILY_UNAVAILABLE', 'geçici'))).toBeNull();
   expect(duplicateRecoveryRetryDelay(new Error('ağ'))).toBeNull();
+});
+
+it('F27: a command cooldown is shared with every mounted recovery surface for the actor', () => {
+  const organizationId = '20000000-0000-4000-8000-0000000000aa';
+  const actorId = '40000000-0000-4000-8000-000000000001';
+  const seen: Array<number | null> = [];
+  const until = Date.now() + 5_000;
+  const unsubscribe = subscribeDuplicateCommandCooldown(organizationId, actorId, (value) => seen.push(value));
+  try {
+    writeDuplicateCommandRetryAt(organizationId, actorId, until);
+    expect(seen).toEqual([until]);
+    expect(readDuplicateCommandRetryAt(organizationId, actorId)).toBe(until);
+    clearDuplicateCommandRetryAt(organizationId, actorId);
+    expect(seen).toEqual([until, null]);
+    expect(readDuplicateCommandRetryAt(organizationId, actorId)).toBeNull();
+  } finally {
+    unsubscribe();
+  }
+  writeDuplicateCommandRetryAt(organizationId, actorId, Date.now() + 5_000);
+  expect(seen).toEqual([until, null]);
+  clearDuplicateCommandRetryAt(organizationId, actorId);
 });

@@ -6,8 +6,8 @@ import {
   duplicateDecisionReasonLabels,
 } from './services/duplicate-customers-api';
 import {
-  clearDuplicateAttempt, readDuplicateAttempt, readDuplicateCommandRetryAt,
-  writeDuplicateCommandRetryAt, type DuplicateAttempt,
+  clearDuplicateAttempt, clearDuplicateCommandRetryAt, readDuplicateAttempt, readDuplicateCommandRetryAt,
+  subscribeDuplicateCommandCooldown, writeDuplicateCommandRetryAt, type DuplicateAttempt,
 } from './duplicate-review-attempt';
 import { classifyDuplicateRecoveryFailure, duplicateRecoveryRequest, duplicateRecoveryRetryable, duplicateRecoveryRetryDelay } from './duplicate-recovery';
 
@@ -36,9 +36,17 @@ export function DuplicateAttemptRecovery({ user, aId, bId }: {
 
   useEffect(() => {
     if (retryAt === null) return;
-    const timer = window.setTimeout(() => setRetryAt(null), Math.max(0, retryAt - Date.now()));
+    const timer = window.setTimeout(() => {
+      clearDuplicateCommandRetryAt(user.organizationId, user.id);
+      setRetryAt(null);
+    }, Math.max(0, retryAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [retryAt]);
+  }, [retryAt, user.id, user.organizationId]);
+
+  // Sibling recovery rows share the same actor/org COMMAND cooldown.
+  useEffect(() => subscribeDuplicateCommandCooldown(user.organizationId, user.id, (until) => {
+    setRetryAt(until !== null && until > Date.now() ? until : null);
+  }), [user.id, user.organizationId]);
 
   const waitingForRetry = retryAt !== null && Date.now() < retryAt;
   // A settled receipt or a definitive no-commit must stay visible after the frozen attempt is cleared.
@@ -46,6 +54,9 @@ export function DuplicateAttemptRecovery({ user, aId, bId }: {
 
   async function replay(frozen: DuplicateAttempt) {
     if (sending.current || waitingForRetry) return;
+    // Re-read the shared cooldown at send time; a sibling may have set it since render.
+    const shared = readDuplicateCommandRetryAt(user.organizationId, user.id);
+    if (shared !== null && Date.now() < shared) { setRetryAt(shared); return; }
     sending.current = true;
     setState('sending'); setError('');
     try {

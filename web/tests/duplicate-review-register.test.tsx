@@ -96,3 +96,35 @@ it('F22: unavailable and over-budget rows expose safe history access without a c
   expect(ready).not.toContain('Karar geçmişini aç');
   expect(ready).toContain('İncelemeyi aç');
 });
+
+it('F26: an over-budget row still exposes the frozen-attempt recovery while comparison is closed', async () => {
+  const { writeDuplicateAttempt, clearDuplicateAttempt } = await import('../src/duplicate-review-attempt');
+  const { MemoryRouter: Router } = await import('react-router-dom');
+  const user = { id: '40000000-0000-4000-8000-000000000001', organizationId: '20000000-0000-4000-8000-0000000000aa' } as never;
+  const attempt = {
+    version: 1 as const, kind: 'DECIDE' as const, clientActionId: '6f1f0d1e-0000-4000-8000-00000000000c',
+    expectedReviewVersion: 2, expectedEvidenceRevision: 'ev1.synthetic.digest',
+    matchingRuleVersion: 'crm-duplicate-v1', decision: 'DISMISSED' as const, reasonCode: 'DISTINCT_CUSTOMER' as const,
+    createdAt: 1_760_000_000_000,
+  };
+  const render = (data: ReturnType<typeof parseDuplicateRegisterPage>) => renderToStaticMarkup(
+    <Router><DuplicateRegisterView data={data} error={null} busy={false} onReload={() => {}} onFirst={() => {}} onNext={() => {}} user={user} /></Router>,
+  );
+  const overBudget = parseDuplicateRegisterPage(page([row({ comparisonStatus: 'OVER_BUDGET' })]));
+  expect(render(overBudget)).not.toContain('Yanıtı alınamamış inceleme isteği');
+
+  writeDuplicateAttempt(user.organizationId, user.id, pair.customerAId, pair.customerBId, attempt);
+  try {
+    const html = render(overBudget);
+    expect(html).toContain('Yanıtı alınamamış inceleme isteği');
+    expect(html).toContain('Özgün isteği tekrar dene');
+    expect(html).toContain('Karar geçmişini aç');
+    expect(html).not.toContain('Mükerrer olarak doğrula');
+    expect(html).not.toContain('İncelemeyi aç');
+
+    // A comparable row keeps recovery on the comparison surface only.
+    expect(render(parseDuplicateRegisterPage(page([row()])))).not.toContain('Yanıtı alınamamış inceleme isteği');
+  } finally {
+    clearDuplicateAttempt(user.organizationId, user.id, pair.customerAId, pair.customerBId);
+  }
+});

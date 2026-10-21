@@ -37,7 +37,7 @@ function RegisterReviewRow({ item, contextState, user }: { item: DuplicateRegist
         <p>{customerStatusLabels[customer.status]} · {[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p>
         <p className="duplicate-id">Kayıt: {customer.id}</p>
       </div>)}</div>}
-    {item.sourceAvailability === 'UNAVAILABLE' && user && <DuplicateAttemptRecovery user={user} aId={item.pair.customerAId} bId={item.pair.customerBId} />}
+    {!comparable && user && <DuplicateAttemptRecovery user={user} aId={item.pair.customerAId} bId={item.pair.customerBId} />}
     {!comparable && user && <div className="duplicate-history-access">
       <button type="button" className="secondary-button" aria-expanded={historyOpen} aria-controls={`register-history-${item.reviewId}`}
         onClick={() => setHistoryOpen((open) => !open)}>
