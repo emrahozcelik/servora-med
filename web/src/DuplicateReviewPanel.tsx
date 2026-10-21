@@ -32,6 +32,7 @@ function decisionText(reasonCode: string) {
 
 function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: string }) {
   const [windowRevision, setWindowRevision] = useState(0);
+  const restartRequired = useRef(false);
   const cursor = useRef<string | null>(null);
   const loaded = useRef<DuplicateHistoryPage | null>(null);
   const read = useDuplicateRead(`${reviewId}:${windowRevision}`, async (signal) => {
@@ -44,15 +45,19 @@ function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: strin
         ? { ...next, items: [...previous.items, ...next.items.filter(item => !seen.has(item.eventId))] }
         : next;
       loaded.current = result;
+      restartRequired.current = false;
       return result;
     } catch (failure) {
-      if (!signal.aborted && failure instanceof ApiError && ([401, 403, 404].includes(failure.status) || failure.code === 'CURSOR_RESTART_REQUIRED')) { loaded.current = null; cursor.current = null; }
+      if (!signal.aborted && failure instanceof ApiError && ([401, 403, 404].includes(failure.status) || failure.code === 'CURSOR_RESTART_REQUIRED')) {
+        loaded.current = null; cursor.current = null;
+        restartRequired.current = failure.code === 'CURSOR_RESTART_REQUIRED';
+      }
       throw failure;
     }
   }, false, pauseScope);
   const { busy: loading, error, retryAt, retryAuto } = read;
-  const cursorRestartRequired = error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED';
-  const page = cursorRestartRequired ? null : read.data;
+  const cursorRestartRequired = restartRequired.current;
+  const page = loaded.current === read.data ? read.data : null;
   const waiting = retryAt !== null;
   const accessLost = error instanceof ApiError && [401, 403, 404].includes(error.status);
   function more() {

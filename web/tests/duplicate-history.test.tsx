@@ -231,3 +231,29 @@ it('History cursor recovery: a failed fresh page never resurrects the discarded 
   expect(historySeqs()).toEqual([22]);
   for (const call of fetch.mock.calls.slice(2)) expect(new URL(call[0], 'https://example.invalid').searchParams.has('cursor')).toBe(false);
 });
+
+it('History cursor recovery: a shared DETAIL 429 cannot resurrect a discarded cursor window', async () => {
+  vi.useFakeTimers();
+  const quota = new ApiError(429, 'RATE_LIMIT_EXCEEDED', 'Synthetic shared detail quota'); quota.retryAfterSeconds = 5;
+  const comparisonLoad = vi.fn().mockResolvedValueOnce({ ready: true }).mockRejectedValueOnce(quota).mockResolvedValue({ ready: true });
+  const fetch = vi.fn().mockResolvedValueOnce(response(history(21, Array.from({ length: 20 }, (_, i) => 21-i), 'expired-cursor')))
+    .mockResolvedValueOnce(response({ code: 'CURSOR_RESTART_REQUIRED', error: 'Expired history cursor' }, 409))
+    .mockResolvedValue(response(history(22, [22])));
+  vi.stubGlobal('fetch', fetch);
+  let reloadComparison = async () => false;
+  function Harness() {
+    const read = useDuplicateRead('cursor-cooldown-comparison', comparisonLoad, true, `CRM_DUPLICATE_DETAIL:v1:${user.organizationId}:${user.id}`);
+    reloadComparison = read.reload;
+    return <ServoraAntProvider><MemoryRouter><DuplicateReviewPanel user={user} aId="a" bId="b" data={comparison()} onRefresh={async () => true} /></MemoryRouter></ServoraAntProvider>;
+  }
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => { root.render(<Harness />); }); await flush();
+  await act(async () => { button('Daha eski kararlar').click(); }); await flush();
+  expect(historySeqs()).toEqual([]);
+  await act(async () => { await reloadComparison(); }); await flush();
+  expect(historySeqs()).toEqual([]);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(5_000); }); await flush();
+  expect(historySeqs()).toEqual([22]);
+  expect(new URL(fetch.mock.calls[2]![0], 'https://example.invalid').searchParams.has('cursor')).toBe(false);
+});
