@@ -35,16 +35,16 @@ const sample = setInterval(() => { peakRss = Math.max(peakRss, process.memoryUsa
 const results = [];
 const keys = parseDuplicateKeyring(JSON.stringify({ activeKeyId: 'synthetic', keys: { synthetic: Buffer.alloc(32, 81).toString('base64') } }));
 let origin; let sourceCount = 0; let pairIndex = 0; let commandCount = 0;
-let quotaStart = Date.now(); let quotaUsed = 0;
+let lastCommandAt = Date.now(); let quotaUsed = 0;
 const customers = [];
 const managers = [];
 const bodies = [];
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
 async function budget(count) {
   if (quotaUsed + count > 100) {
-    const wait = Math.max(0, quotaStart + 61_000 - Date.now());
+    const wait = Math.max(0, lastCommandAt + 61_000 - Date.now());
     console.log(JSON.stringify({ stage: 'shared-command-quota-wait', milliseconds: wait }));
-    await new Promise((resolve) => setTimeout(resolve, wait)); quotaStart = Date.now(); quotaUsed = 0;
+    await new Promise((resolve) => setTimeout(resolve, wait)); quotaUsed = 0;
   }
   quotaUsed += count;
 }
@@ -54,6 +54,7 @@ async function post(manager, pair, body) {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-synthetic-manager': manager.id }, body: JSON.stringify(body), signal: AbortSignal.timeout(5_000),
   });
   const receipt = await response.json();
+  lastCommandAt = Date.now();
   return { status: response.status, receipt, ms: performance.now() - start, replayed: response.headers.get('Idempotency-Replayed') };
 }
 async function decision(manager) {
@@ -82,7 +83,6 @@ try {
   await app.register(duplicateRoutes, { prefix: '/api', service: new DuplicateComparisonService(new PostgresDuplicateReadRepository(pool), keys), reviewService: new DuplicateReviewService(new PostgresDuplicateReviewRepository(pool, keys)),
     authenticate: async (request) => { const actor = managers.find((manager) => manager.id === request.headers['x-synthetic-manager']); if (!actor) throw new AppError('FORBIDDEN', 403, 'Synthetic actor required'); request.currentUser = actor; } });
   origin = await app.listen({ host: '127.0.0.1', port: 0 });
-  quotaStart = Date.now();
   for (const count of [5_000, 20_000]) {
     const added = await pool.query("INSERT INTO customers(organization_id,name,customer_type,status) SELECT $1,'Synthetic clinic','clinic','active' FROM generate_series(1,$2::int) RETURNING id", [org, count - sourceCount]);
     customers.push(...added.rows.map((row) => row.id)); sourceCount = count;
