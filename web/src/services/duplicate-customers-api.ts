@@ -173,3 +173,51 @@ export function getDuplicateReviewHistory(reviewId: string, cursor?: string | nu
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
   return request(`/api/customers/duplicate-reviews/${encodeURIComponent(reviewId)}/history${query}`, { signal }).then(parseDuplicateHistoryPage);
 }
+
+export type DuplicateRegisterItem = {
+  reviewId: string;
+  pair: { customerAId: string; customerBId: string };
+  sourceAvailability: 'AVAILABLE' | 'UNAVAILABLE';
+  customerA: ReturnType<typeof summary> | null;
+  customerB: ReturnType<typeof summary> | null;
+  matchingCodes: DuplicateMatchCode[];
+  warnings: ReturnType<typeof warnings>;
+  comparisonStatus: 'READY' | 'OVER_BUDGET' | 'UNAVAILABLE';
+  review: DuplicateReviewSummary;
+};
+export type DuplicateRegisterPage = {
+  asOf: string; matchingRuleVersion: string; items: DuplicateRegisterItem[];
+  page: { nextCursor: string | null; exhausted: boolean; evaluatedReviews: number; returnedItems: number };
+};
+export function parseDuplicateRegisterPage(value: unknown): DuplicateRegisterPage {
+  const v = object(value); const page = object(v.page);
+  const items = list(v.items).map((item) => {
+    const row = object(item);
+    const availability = oneOf(row.sourceAvailability, ['AVAILABLE', 'UNAVAILABLE'] as const);
+    const customerA = row.customerA === null ? null : summary(row.customerA);
+    const customerB = row.customerB === null ? null : summary(row.customerB);
+    if (availability === 'UNAVAILABLE' && (customerA !== null || customerB !== null)) invalid();
+    return {
+      reviewId: string(row.reviewId, 'reviewId'), pair: pair(row.pair), sourceAvailability: availability,
+      customerA, customerB, matchingCodes: matching(row.matchingCodes), warnings: warnings(row.warnings),
+      comparisonStatus: oneOf(row.comparisonStatus, ['READY', 'OVER_BUDGET', 'UNAVAILABLE'] as const),
+      review: parseReview(row.review),
+    };
+  });
+  const result = {
+    asOf: string(v.asOf, 'asOf'), matchingRuleVersion: string(v.matchingRuleVersion, 'matchingRuleVersion'),
+    items,
+    page: {
+      nextCursor: nullableString(page.nextCursor, 'nextCursor'), exhausted: boolean(page.exhausted, 'exhausted'),
+      evaluatedReviews: number(page.evaluatedReviews, 'evaluatedReviews'), returnedItems: number(page.returnedItems, 'returnedItems'),
+    },
+  };
+  if (result.items.length > 20 || result.page.returnedItems !== result.items.length
+    || result.page.evaluatedReviews > 32 || (!result.page.exhausted && !result.page.nextCursor)) invalid();
+  return result;
+}
+export function listDuplicateReviewRegister(params: URLSearchParams, signal?: AbortSignal) {
+  const query = new URLSearchParams();
+  for (const field of ['view', 'cursor'] as const) if (params.has(field)) query.set(field, params.get(field)!);
+  return request(`/api/customers/duplicate-reviews?${query}`, { signal }).then(parseDuplicateRegisterPage);
+}

@@ -22,6 +22,7 @@ export function canAccessRoute(
 ): boolean {
   switch (id) {
     case 'duplicateCustomers':
+    case 'duplicateReviewRegister':
     case 'duplicateComparison':
       return user.role !== 'STAFF' && user.capabilities?.duplicateCustomerComparison === true;
     // The page reauthorizes its source through Sale create-context; role alone grants no write.

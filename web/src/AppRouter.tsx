@@ -51,6 +51,7 @@ const CustomerListScreen = lazy(() =>
 );
 const DuplicateCustomersScreen = lazy(() => import('./DuplicateCustomers').then((module) => ({ default: module.DuplicateCustomersScreen })));
 const DuplicateComparisonScreen = lazy(() => import('./DuplicateCustomers').then((module) => ({ default: module.DuplicateComparisonScreen })));
+const DuplicateReviewRegisterScreen = lazy(() => import('./DuplicateReviewRegister').then((module) => ({ default: module.DuplicateReviewRegisterScreen })));
 
 const CustomerCreateScreen = lazy(() =>
   import('./CustomerList').then((module) => ({
@@ -417,6 +418,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.salesFollowUpReports} element={canAccessRoute('reportSalesFollowUp', user) ? <SalesFollowUpReport /> : <ForbiddenView />} />
         <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
         <Route path={paths.duplicateCustomers} element={canAccessRoute('duplicateCustomers', user) ? <DuplicateCustomersScreen user={user} /> : <ForbiddenView />} />
+        <Route path={paths.duplicateReviewRegister} element={canAccessRoute('duplicateReviewRegister', user) ? <DuplicateReviewRegisterScreen user={user} /> : <ForbiddenView />} />
         <Route path="/customers/duplicate-review-pairs/:aId/:bId" element={canAccessRoute('duplicateComparison', user) ? <DuplicateComparisonScreen user={user} /> : <ForbiddenView />} />
         <Route path={paths.newCustomer} element={<CustomerCreateScreen user={user} />} />
         <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />

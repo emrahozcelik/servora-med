@@ -41,7 +41,7 @@ export function DuplicateCandidateView({ data, error, busy, retryAt = null, retr
   const location = useLocation();
   const contextState = buildContextState(location);
   return <main className="workspace duplicate-workspace" aria-busy={busy}>
-    <PageHeader fallbackTitle="Olası mükerrerler" actions={<button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button>} />
+    <PageHeader fallbackTitle="Olası mükerrerler" actions={<><Link className="secondary-button" to={paths.duplicateReviewRegister}>İnceleme kayıtları</Link><button className="secondary-button" type="button" onClick={laterPage ? onFirst : onReload} disabled={busy || (!laterPage && retryAt !== null)}>{laterPage ? 'İlk sayfayı yenile' : 'Yenile'}</button></>} />
     <DuplicateReadNotice />
     {onViewChange && <label className="duplicate-reason">İnceleme görünümü
       <select aria-label="İnceleme görünümü" value={view} onChange={(event) => onViewChange(event.target.value as 'ATTENTION' | 'ALL')} disabled={busy}>
