@@ -204,3 +204,30 @@ it('F21: hidden scope has no polling/retry timers and resumes once when visible;
   await act(async () => { root.unmount(); }); root = undefined as never;
   expect(vi.getTimerCount()).toBe(0); expect(await reload()).toBe(false);
 });
+
+it('History cursor recovery: expired history cursor must restart with a fresh first-page request', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(response(history(21, Array.from({ length: 20 }, (_, i) => 21-i), 'expired-cursor')))
+    .mockResolvedValueOnce(response({ code: 'CURSOR_RESTART_REQUIRED', error: 'Expired history cursor' }, 409))
+    .mockResolvedValue(response(history(22, Array.from({ length: 20 }, (_, i) => 22-i), 'fresh-cursor')));
+  vi.stubGlobal('fetch', fetch); await render();
+  await act(async () => { button('Daha eski kararlar').click(); }); await flush();
+  expect(historySeqs()).toEqual([]);
+  await act(async () => { button('Geçmişi tekrar dene').click(); }); await flush();
+  expect(new URL(fetch.mock.calls[2]![0], 'https://example.invalid').searchParams.has('cursor')).toBe(false);
+  expect(historySeqs()).toEqual(Array.from({ length: 20 }, (_, i) => 22-i));
+});
+
+it('History cursor recovery: a failed fresh page never resurrects the discarded immutable window', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(response(history(21, Array.from({ length: 20 }, (_, i) => 21-i), 'expired-cursor')))
+    .mockResolvedValueOnce(response({ code: 'CURSOR_RESTART_REQUIRED', error: 'Expired history cursor' }, 409))
+    .mockResolvedValueOnce(response({ code: 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Fresh first page unavailable' }, 503))
+    .mockResolvedValue(response(history(22, [22], null)));
+  vi.stubGlobal('fetch', fetch); await render();
+  await act(async () => { button('Daha eski kararlar').click(); }); await flush();
+  expect(historySeqs()).toEqual([]);
+  await act(async () => { button('Geçmişi tekrar dene').click(); }); await flush();
+  expect(historySeqs()).toEqual([]); expect(historyText()).toContain('Fresh first page unavailable');
+  await act(async () => { button('Geçmişi tekrar dene').click(); }); await flush();
+  expect(historySeqs()).toEqual([22]);
+  for (const call of fetch.mock.calls.slice(2)) expect(new URL(call[0], 'https://example.invalid').searchParams.has('cursor')).toBe(false);
+});

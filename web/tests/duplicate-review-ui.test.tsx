@@ -327,3 +327,79 @@ it('UI-03/CMD-04: reopen is an explicit confirmed command and history is visible
   expect(posts[0]).toMatchObject({ expectedReviewVersion: 1, expectedEvidenceRevision: evidence.revision });
   expect(host.textContent).toContain('İnceleme yeniden açıldı');
 });
+
+async function prepareRecoveryDecision() {
+  await act(async () => { (host.querySelector('input[value="CONFIRMED_DUPLICATE"]') as HTMLInputElement).click(); });
+  await act(async () => { const select=host.querySelector('select') as HTMLSelectElement; select.value='SAME_OPERATIONAL_CUSTOMER_VERIFIED';select.dispatchEvent(new Event('change',{bubbles:true})); });
+  await act(async () => { click(button('Mükerrer olarak doğrula')); }); await confirmDialog();
+}
+it('Conflict recovery: failed conflict reconciliation must keep renewed inspection disabled', async () => {
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:'EVIDENCE_CHANGED',error:'Synthetic conflict'}),{status:409})));
+  const refresh=vi.fn().mockResolvedValue(false); await render(pending,refresh); await prepareRecoveryDecision();
+  expect(refresh).toHaveBeenCalledTimes(1);
+  expect(button('Güncel kanıtı inceledim')).toBeTruthy();
+  expect((button('Güncel kanıtı inceledim') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('Definitive source recovery: definitive POST source 404 must not remain an uncertain submitted attempt', async () => {
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:'DUPLICATE_PAIR_NOT_FOUND',error:'Synthetic deleted source'}),{status:404})));
+  await render(pending,vi.fn().mockResolvedValue(false)); await prepareRecoveryDecision();
+  expect(readDuplicateAttempt(user.organizationId,user.id,'a','b')).toBeNull();
+});
+
+it('Conflict recovery: pending and failed GET cannot acknowledge; successful GET still requires explicit inspection and a fresh confirmed intent', async () => {
+  const posts: Array<Record<string, unknown>> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)));
+    return posts.length === 1
+      ? new Response(JSON.stringify({ code: 'EVIDENCE_CHANGED', error: 'Synthetic conflict' }), { status: 409 })
+      : new Response(JSON.stringify(receipt), { status: 200 });
+  }));
+  let resolveRefresh!: (value: boolean) => void;
+  const refresh = vi.fn().mockReturnValueOnce(new Promise<boolean>(resolve => { resolveRefresh = resolve; })).mockResolvedValue(false);
+  await render(pending, refresh); await prepareRecoveryDecision();
+  expect((button('Güncel kanıtı inceledim') as HTMLButtonElement).disabled).toBe(true);
+  expect(posts).toHaveLength(1);
+  await act(async () => { resolveRefresh(false); }); await flush();
+  expect(host.textContent).not.toContain('İşlem makbuzu kaydedildi');
+  expect((button('Güncel kanıtı inceledim') as HTMLButtonElement).disabled).toBe(true);
+  click(button('Güncel kanıtı inceledim')); await flush(); expect(posts).toHaveLength(1);
+  let resolveRetry!: (value: boolean) => void;
+  refresh.mockImplementationOnce(() => new Promise<boolean>(resolve => { resolveRetry = resolve; }));
+  await act(async () => { click(button('Güncel durumu doğrula')); });
+  const fresh = { ...pending, evidence: { ...pending.evidence, revision: 'ev1.synthetic.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' } };
+  await act(async () => { root.render(<ServoraAntProvider><MemoryRouter><DuplicateReviewPanel user={user} aId="a" bId="b" data={fresh} onRefresh={refresh} /></MemoryRouter></ServoraAntProvider>); resolveRetry(true); }); await flush();
+  expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+  await act(async () => { click(button('Güncel kanıtı inceledim')); });
+  await act(async () => { click(button('Mükerrer olarak doğrula')); });
+  expect(posts).toHaveLength(1);
+  await confirmDialog();
+  expect(posts).toHaveLength(2);
+  expect(posts[1]!.clientActionId).not.toBe(posts[0]!.clientActionId);
+  expect(posts[1]!.expectedEvidenceRevision).toBe(fresh.evidence.revision);
+});
+
+it('Definitive source recovery: REOPEN 404 clears only the known no-commit attempt and blocks stale retry/new intent', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => init?.method === 'POST'
+    ? new Response(JSON.stringify({ code: 'DUPLICATE_PAIR_NOT_FOUND', error: 'Synthetic deleted source' }), { status: 404 })
+    : new Response(JSON.stringify(history), { status: 200 })));
+  const refresh = vi.fn().mockResolvedValue(false);
+  await render(terminal, refresh);
+  await act(async () => { click(button('Yeniden incele')); }); await confirmDialog();
+  expect(readDuplicateAttempt(user.organizationId, user.id, 'a', 'b')).toBeNull();
+  expect(button('Yeniden inceleme isteğini tekrar dene')).toBeNull();
+  expect((button('Yeniden incele') as HTMLButtonElement).disabled).toBe(true);
+  expect((button('Güncel kanıtı inceledim') as HTMLButtonElement).disabled).toBe(true);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+it.each([[401, 'UNAUTHENTICATED'], [403, 'FORBIDDEN'], [404, 'UNKNOWN_NOT_FOUND']] as const)(
+  'Definitive source recovery: HTTP %s/%s cannot prove a prior uncertain command did not commit', async (status, code) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code, error: 'Synthetic access failure' }), { status })));
+    await render(pending); await prepareRecoveryDecision();
+    const stored = readDuplicateAttempt(user.organizationId, user.id, 'a', 'b');
+    expect(stored?.clientActionId).toBeTruthy();
+    expect(button('Özgün isteği tekrar dene')).not.toBeNull();
+    expect((button('Mükerrer olarak doğrula') as HTMLButtonElement).disabled).toBe(true);
+  },
+);

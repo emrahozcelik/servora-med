@@ -20,7 +20,7 @@ const event = seq => ({ eventId: `event-${seq}`, seq, eventKind: 'DECISION_RECOR
 const history = (upper, items, nextCursor = null) => ({ reviewId, upperSeq: upper, items: items.map(event), nextCursor });
 function comparison(state) {
   const decision = { ...event(state.version), status: 'DISMISSED', decidedAt: '2026-10-20T10:00:00Z' };
-  return { pair, asOf: '2026-10-20T10:00:00Z', customerA: customer, customerB: { ...customer, id: pair.customerBId }, evidence,
+  return { pair, asOf: '2026-10-20T10:00:00Z', customerA: customer, customerB: { ...customer, id: pair.customerBId }, evidence: state.evidence ?? evidence,
     review: { id: reviewId, version: state.version, reviewStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', effectiveStatus: state.pending ? 'PENDING_REVIEW' : 'DISMISSED', freshness: 'CURRENT', freshnessReason: null, currentDecision: state.pending ? null : decision, lastDecision: decision }, allowedActions: [state.pending ? 'DECIDE' : 'REOPEN'] };
 }
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
@@ -37,7 +37,7 @@ try {
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true });
   async function setup(extra = {}) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
     const page = await context.newPage();
     const state = { version: 21, pending: false, requests: [], errors: [], ...extra };
     page.on('pageerror', error => state.errors.push(error.message));
@@ -46,18 +46,23 @@ try {
     await page.addInitScript(() => { const fetch = window.fetch; window.fetch = (input, init) => fetch(input, String(input).includes('/history?') ? { ...init, signal: undefined } : init); });
     await page.route('**/api/customers/**', async route => {
       const url = new URL(route.request().url());
-      state.requests.push({ method: route.request().method(), path: url.pathname, cursor: url.searchParams.get('cursor') });
+      state.requests.push({ method: route.request().method(), path: url.pathname, cursor: url.searchParams.get('cursor'), body: route.request().method() === 'POST' ? route.request().postDataJSON() : undefined });
       const send = (body, status = 200, headers = {}) => route.fulfill({ status, headers, contentType: 'application/json', body: JSON.stringify(body) });
       if (route.request().method() === 'POST') {
+        if (state.postFailure) { const failure = state.postFailure; state.postFailure = null; state.commandFailed = true; return send({ code: failure.code, error: 'Synthetic command failure' }, failure.status); }
         const reopen = url.pathname.endsWith('/reopen'); state.version++; state.pending = reopen;
         return send({ reviewId, pair, reviewVersion: state.version, eventId: `event-${state.version}`, eventKind: reopen ? 'REVIEW_REOPENED' : 'DECISION_RECORDED', resultingStatus: reopen ? 'PENDING_REVIEW' : 'DISMISSED', reasonCode: reopen ? 'RECHECK_REQUESTED' : 'DISTINCT_CUSTOMER', actorUserId, occurredAt: '2026-10-20T12:00:00Z' });
       }
       if (url.pathname.endsWith('/history')) {
         const cursor = url.searchParams.get('cursor');
         if (cursor && state.hold) { const gate = state.hold; state.hold = null; state.held = true; const status = await gate.promise; return status === 200 ? send(history(21, [1])) : send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic old page error' }, status, { 'Retry-After': '65' }); }
-        if (cursor && state.pageFailure) { const status = state.pageFailure; state.pageFailure = null; return send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic current page error' }, status, { 'Retry-After': '65' }); }
+        if (cursor && state.pageFailure) { const status = state.pageFailure; state.pageFailure = null; if (status === 409) state.version = 22; return send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : status === 409 ? 'CURSOR_RESTART_REQUIRED' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic current page error' }, status, { 'Retry-After': '65' }); }
         if (!cursor && state.initialQuota) { state.initialQuota = false; return send({ code: 'RATE_LIMIT_EXCEEDED', error: 'Synthetic initial quota' }, 429, { 'Retry-After': '65' }); }
         return send(cursor ? history(state.version, seqs(state.version - 20)) : history(state.version, seqs(state.version), `upper${state.version}.before${state.version - 19}`));
+      }
+      if (state.commandFailed && state.comparisonFailure) {
+        if (state.comparisonFailure === 'network') return route.abort('failed');
+        const status = state.comparisonFailure; return send({ code: status === 429 ? 'RATE_LIMIT_EXCEEDED' : status === 404 ? 'DUPLICATE_PAIR_NOT_FOUND' : 'REVIEW_TEMPORARILY_UNAVAILABLE', error: 'Synthetic reconciliation failure' }, status, { 'Retry-After': '65' });
       }
       return send(comparison(state));
     });
@@ -134,6 +139,94 @@ try {
   await until(page, async () => (await readSeqs(page)).length === 20);
   results.push({ name: 'F21 initial history quota shares comparison polling/focus cooldown; bounded expiry retry', status: 'PASS', requests: state.requests });
   await context.close();
+  {
+    const { page, context, state } = await setup({ pageFailure: 409 });
+    await until(page, async () => (await readSeqs(page)).length === 20);
+    await page.clock.runFor(16 * 60_000);
+    await page.getByRole('button', { name: 'Daha eski kararlar' }).click();
+    await page.getByText(/Önceki geçmiş sayfaları temizlendi/).waitFor();
+    assert.deepEqual(await readSeqs(page), []);
+    const restart = page.getByRole('button', { name: 'Geçmişi tekrar dene' });
+    assert.ok((await restart.boundingBox()).height >= 44);
+    await page.locator('.duplicate-history').screenshot({ path: join(out, 'cursor-restart-desktop.png') });
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('.duplicate-history').screenshot({ path: join(out, 'cursor-restart-mobile-200pct.png') });
+    await restart.focus(); assert.equal(await restart.evaluate(el => el === document.activeElement), true);
+    await page.keyboard.press('Enter');
+    await until(page, async () => (await readSeqs(page))[0] === 22);
+    assert.deepEqual(await readSeqs(page), seqs(22));
+    const historyRequests = state.requests.filter(r => r.path.endsWith('/history'));
+    assert.equal(historyRequests.at(-1).cursor, null);
+    assert.deepEqual(state.errors, []);
+    results.push({ name: 'Expired history cursor discards old window and explicitly restarts at fresh upperSeq', status: 'PASS', requests: state.requests });
+    await context.close();
+  }
+  async function submitDecision(page) {
+    await page.getByRole('radio', { name: 'Eşleşmeyi reddet' }).check();
+    await page.locator('.duplicate-reason select').selectOption('DISTINCT_CUSTOMER');
+    await page.getByRole('button', { name: 'Eşleşmeyi reddet', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Kararı kaydet' }).click();
+  }
+  for (const failure of [503, 429, 'network']) {
+    const { page, context, state } = await setup({ pending: true, postFailure: { status: 409, code: 'EVIDENCE_CHANGED' }, comparisonFailure: failure });
+    await until(page, async () => (await readSeqs(page)).length === 20);
+    await submitDecision(page);
+    await page.getByText('Güncel durum doğrulanamadı.', { exact: false }).waitFor();
+    const acknowledge = page.getByRole('button', { name: 'Güncel kanıtı inceledim', exact: true });
+    assert.equal(await acknowledge.isDisabled(), true);
+    assert.equal(await page.getByText('İşlem makbuzu kaydedildi.', { exact: false }).count(), 0);
+    if (failure === 503) {
+      await page.locator('.duplicate-review').evaluate(el => el.scrollIntoView({ block: 'start' }));
+      await page.screenshot({ path: join(out, 'conflict-refresh-desktop.png') });
+      await page.setViewportSize({ width: 320, height: 844 });
+      await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.locator('.duplicate-review').evaluate(el => el.scrollIntoView({ block: 'start' }));
+      await page.locator('.duplicate-review > .duplicate-warning').first().screenshot({ path: join(out, 'conflict-refresh-mobile-200pct.png') });
+      await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    }
+    const firstBody = state.requests.find(r => r.method === 'POST').body;
+    state.comparisonFailure = null;
+    state.evidence = { ...evidence, revision: 'ev1.synthetic.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' };
+    if (failure === 429) {
+      const before = state.requests.length;
+      await page.getByRole('button', { name: 'Güncel durumu doğrula', exact: true }).click();
+      assert.equal(state.requests.length, before);
+      await page.clock.runFor(65_000);
+    }
+    await page.getByRole('button', { name: 'Güncel durumu doğrula', exact: true }).click();
+    await until(page, async () => !(await acknowledge.isDisabled()));
+    assert.equal(await page.getByRole('button', { name: 'Eşleşmeyi reddet', exact: true }).isDisabled(), true);
+    await acknowledge.focus(); await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: 'Eşleşmeyi reddet', exact: true }).click();
+    assert.equal(state.requests.filter(r => r.method === 'POST').length, 1);
+    await page.getByRole('dialog').getByRole('button', { name: 'Kararı kaydet' }).click();
+    await until(page, () => state.requests.filter(r => r.method === 'POST').length === 2);
+    const secondBody = state.requests.filter(r => r.method === 'POST')[1].body;
+    assert.notEqual(firstBody.clientActionId, secondBody.clientActionId);
+    assert.equal(secondBody.expectedEvidenceRevision, state.evidence.revision);
+    assert.deepEqual(state.errors, []);
+    results.push({ name: `Conflict reconciliation ${failure}: no acknowledgment before successful GET and explicit new confirmed intent`, status: 'PASS', requests: state.requests });
+    await context.close();
+  }
+  for (const kind of ['DECIDE', 'REOPEN']) {
+    const { page, context, state } = await setup({ pending: kind === 'DECIDE', postFailure: { status: 404, code: 'DUPLICATE_PAIR_NOT_FOUND' }, comparisonFailure: 404 });
+    await until(page, async () => (await readSeqs(page)).length === 20);
+    if (kind === 'DECIDE') await submitDecision(page);
+    else { await page.getByRole('button', { name: 'Yeniden incele', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: 'Yeniden incelemeye aç' }).click(); }
+    await until(page, async () => (await page.locator('.duplicate-review').count()) === 0);
+    const action = state.requests.find(r => r.method === 'POST').body.clientActionId;
+    assert.equal(await page.evaluate(id => Object.values(sessionStorage).some(value => value.includes(id)), action), false);
+    assert.equal(await page.locator('.duplicate-history-list li').count(), 0);
+    assert.deepEqual(state.errors, []);
+    results.push({ name: `Definitive ${kind} source 404 clears known no-commit attempt and unavailable comparison`, status: 'PASS', requests: state.requests });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: join(out, `source-404-${kind.toLowerCase()}-mobile.png`), fullPage: true });
+    await context.close();
+  }
   writeFileSync(join(out, 'results.json'), JSON.stringify({ status: 'PASS', browser: browser.version(), node: process.version, transport: 'controlled synthetic HTTP; abort ignored for F20 pagination', results }, null, 2));
   console.log(`PASS ${results.length}/${results.length} history Chromium acceptance`);
 } finally { await browser?.close(); await server.close(); }

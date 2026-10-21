@@ -31,9 +31,10 @@ function decisionText(reasonCode: string) {
 }
 
 function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: string }) {
+  const [windowRevision, setWindowRevision] = useState(0);
   const cursor = useRef<string | null>(null);
   const loaded = useRef<DuplicateHistoryPage | null>(null);
-  const read = useDuplicateRead(reviewId, async (signal) => {
+  const read = useDuplicateRead(`${reviewId}:${windowRevision}`, async (signal) => {
     try {
       const previous = loaded.current;
       const next = await getDuplicateReviewHistory(reviewId, cursor.current, signal);
@@ -45,11 +46,13 @@ function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: strin
       loaded.current = result;
       return result;
     } catch (failure) {
-      if (failure instanceof ApiError && [401, 403, 404].includes(failure.status)) { loaded.current = null; cursor.current = null; }
+      if (!signal.aborted && failure instanceof ApiError && ([401, 403, 404].includes(failure.status) || failure.code === 'CURSOR_RESTART_REQUIRED')) { loaded.current = null; cursor.current = null; }
       throw failure;
     }
   }, false, pauseScope);
-  const { data: page, busy: loading, error, retryAt, retryAuto } = read;
+  const { busy: loading, error, retryAt, retryAuto } = read;
+  const cursorRestartRequired = error instanceof ApiError && error.code === 'CURSOR_RESTART_REQUIRED';
+  const page = cursorRestartRequired ? null : read.data;
   const waiting = retryAt !== null;
   const accessLost = error instanceof ApiError && [401, 403, 404].includes(error.status);
   function more() {
@@ -62,7 +65,8 @@ function History({ reviewId, pauseScope }: { reviewId: string; pauseScope: strin
     {loading && !page && <p role="status">Geçmiş yükleniyor…</p>}
     {error && <p role="alert">{error.message} {page && 'Gösterilen geçmiş son başarılı okumaya aittir; güncelliği doğrulanamadı.'}</p>}
     {waiting && <p role="status">Karar geçmişi ve karşılaştırma kotası nedeniyle yaklaşık {Math.max(1, Math.ceil((retryAt - Date.now()) / 1000))} saniye bekleyin. {retryAuto ? 'Süre dolunca görünür ekranda bir kez otomatik olarak yeniden denenecek.' : 'Süre dolunca geçmişi tekrar deneyin.'}</p>}
-    {error && !accessLost && <button type="button" className="secondary-button" onClick={() => void read.reload()} disabled={loading || waiting}>Geçmişi tekrar dene</button>}
+    {cursorRestartRequired && <p role="status">Önceki geçmiş sayfaları temizlendi. Tekrar denediğinizde güncel ilk sayfa yüklenecek.</p>}
+    {error && !accessLost && <button type="button" className="secondary-button" onClick={() => { if (cursorRestartRequired) setWindowRevision(value => value + 1); else void read.reload(); }} disabled={loading || waiting}>Geçmişi tekrar dene</button>}
     {page && page.items.length === 0 && <p>Henüz karar geçmişi yok.</p>}
     {page && page.items.length > 0 && <ol className="duplicate-history-list">
       {page.items.map((item) => <li key={item.eventId}>
@@ -200,12 +204,15 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       commandOpener.current = heading.current;
       setConfirmOpen(false);
       const api = failure instanceof ApiError ? failure : null;
-      if (api && conflictCodes.has(api.code)) {
+      const sourceMissing = api?.status === 404 && api.code === 'DUPLICATE_PAIR_NOT_FOUND';
+      if (api && (conflictCodes.has(api.code) || sourceMissing)) {
         clearDuplicateAttempt(user.organizationId, user.id, aId, bId);
         setAttempt(null); setSubmitted(false); setConfirmOpen(false); setMustReinspect(true);
-        setError(`${api.message} Gerekçeniz korunuyor; güncel kanıtı inceledikten sonra yeni bir istek oluşturun.`);
+        setError(sourceMissing
+          ? `${api.message} İstek uygulanmadı. Yeni bir istekten önce müşteri kapsamı ve güncel kanıt yeniden doğrulanmalı.`
+          : `${api.message} Gerekçeniz korunuyor; güncel kanıtı inceledikten sonra yeni bir istek oluşturun.`);
         setReloadKey((value) => value + 1);
-        onRefresh();
+        await reconcile();
       } else if (api && (retryCodes.has(api.code) || api.status === 0 || api.status >= 500)) {
         setError(`${api.message} Aynı istek korunuyor; sonucu doğrulamak için tekrar deneyin.`);
         if (api.code === 'RATE_LIMIT_EXCEEDED') {
@@ -234,10 +241,10 @@ export function DuplicateReviewPanel({ user, aId, bId, data, onRefresh }: {
       : null}
     {feedback && <p className="duplicate-success" role="status">{feedback}</p>}
     {reconciliation === 'PENDING' && <p role="status">Güncel durum doğrulanıyor… Gösterilen karşılaştırma son başarılı okumaya aittir.</p>}
-    {reconciliation === 'FAILED' && <div role="status" className="duplicate-warning"><p>Güncel durum doğrulanamadı. İşlem makbuzu kaydedildi; gösterilen karşılaştırma son başarılı okumaya aittir.</p><button type="button" className="secondary-button" onClick={() => void reconcile()}>Güncel durumu doğrula</button></div>}
+    {reconciliation === 'FAILED' && <div role="status" className="duplicate-warning"><p>Güncel durum doğrulanamadı. {feedback && 'İşlem makbuzu kaydedildi. '}Gösterilen karşılaştırma son başarılı okumaya aittir.</p><button type="button" className="secondary-button" onClick={() => void reconcile()}>Güncel durumu doğrula</button></div>}
     {reconciliation === 'CURRENT' && <p role="status">Güncel durum yüklendi.</p>}
     {error && <p className="duplicate-warning" role="alert">{error}</p>}
-    {(mustReinspect || draftStale) && !attempt && <button type="button" className="secondary-button" onClick={() => { setDraftContext(reviewedNow); setMustReinspect(false); setError(''); }}>Güncel kanıtı inceledim</button>}
+    {(mustReinspect || draftStale) && !attempt && <button type="button" className="secondary-button" onClick={() => { if (needsReconciliation) return; setDraftContext(reviewedNow); setMustReinspect(false); setError(''); }} disabled={needsReconciliation}>Güncel kanıtı inceledim</button>}
     {attempt && attemptStale && <div role="status" className="duplicate-warning">
       <p>Kanıt veya inceleme sürümü değişti. Kayıtlı istek otomatik olarak yeni kanıta bağlanmaz.</p>
       {!submitted && <button type="button" className="secondary-button" onClick={() => {

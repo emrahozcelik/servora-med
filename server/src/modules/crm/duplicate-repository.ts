@@ -44,7 +44,7 @@ export const duplicateUnavailable = () => new AppError('REVIEW_TEMPORARILY_UNAVA
 export class DuplicateReadSnapshot {
   readonly asOf = new Date().toISOString();
   constructor(private client: PoolClient, private deadline: number, readonly checkpoint: () => void) {}
-  private async query<T extends QueryResultRow>(sql: string, params: unknown[]) {
+  async query<T extends QueryResultRow>(sql: string, params: unknown[]) {
     this.checkpoint();
     // Integer interpolation only: SET does not accept bind parameters.
     const timeout = Math.max(1, Math.floor(Math.min(DUPLICATE_LIMITS.statementMs, this.deadline - performance.now())));

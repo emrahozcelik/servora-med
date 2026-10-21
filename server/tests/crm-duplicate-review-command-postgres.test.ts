@@ -451,3 +451,47 @@ it.skipIf(!databaseUrl)('EVID-01/02/03/A12-S1/S4/S5: every semantic Customer and
     expect((await pool!.query('SELECT 1 FROM processed_actions WHERE organization_id=$1', [org])).rowCount).toBe(0);
   }
 });
+
+it.skipIf(!databaseUrl).each(['customer_duplicate_reviews', 'customer_duplicate_review_events'])(
+  'history timeout: a real PG17 lock on %s is bounded and the next read recovers without writes', async table => {
+    const read = await comparison();
+    const decided = await command(actor, randomUUID(), 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+    expect(decided.statusCode, decided.body).toBe(200);
+    const before = await counts();
+    const blocker = await pool!.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`);
+      const started = Date.now();
+      const result = await app.inject({ url: `/api/customers/duplicate-reviews/${decided.json().reviewId}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+      expect(result.statusCode, result.body).toBe(503);
+      expect(result.json().code).toBe('REVIEW_TEMPORARILY_UNAVAILABLE');
+      expect(result.headers['cache-control']).toBe('no-store');
+      expect(Date.now() - started).toBeLessThan(4_500);
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); }
+    const recovered = await app.inject({ url: `/api/customers/duplicate-reviews/${decided.json().reviewId}/history`, headers: { 'x-test-actor': actor, 'x-test-role': 'MANAGER' } });
+    expect(recovered.statusCode, recovered.body).toBe(200);
+    expect(recovered.json()).toMatchObject({ upperSeq: 1, items: [{ eventId: decided.json().eventId, seq: 1 }] });
+    expect(await counts()).toEqual(before);
+  },
+);
+
+it.skipIf(!databaseUrl)('definitive source 404 leaves no claim, while a completed receipt still replays after deletion', async () => {
+  const read = await comparison();
+  const completedAction = randomUUID();
+  const done = await command(actor, completedAction, 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(done.statusCode, done.body).toBe(200);
+  await pool!.query('DELETE FROM customers WHERE id=$1', [a]);
+  const before = await counts();
+  const newAction = randomUUID();
+  const missing = await command(actor, newAction, 'DISMISSED', read.evidence.revision, 1, 'DISTINCT_CUSTOMER');
+  expect(missing.statusCode, missing.body).toBe(404);
+  expect(missing.json().code).toBe('DUPLICATE_PAIR_NOT_FOUND');
+  expect(await counts()).toEqual(before);
+  expect((await pool!.query('SELECT count(*)::int AS count FROM processed_actions WHERE organization_id=$1', [org])).rows[0].count).toBe(1);
+  const replay = await command(actor, completedAction, 'DISMISSED', read.evidence.revision, 0, 'DISTINCT_CUSTOMER');
+  expect(replay.statusCode, replay.body).toBe(200);
+  expect(replay.headers['idempotency-replayed']).toBe('true');
+  expect(replay.json()).toEqual(done.json());
+  expect(await counts()).toEqual(before);
+});

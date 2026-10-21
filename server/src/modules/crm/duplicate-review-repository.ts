@@ -16,7 +16,7 @@ import {
   DUPLICATE_REOPEN_REASON, type DuplicateCommandReceipt,
   type DuplicateHistoryPage, type DuplicateReviewTimelineItem,
 } from './duplicate-review.js';
-import { DUPLICATE_CONTACTS_SQL, duplicateUnavailable } from './duplicate-repository.js';
+import { DUPLICATE_CONTACTS_SQL, PostgresDuplicateReadRepository, duplicateUnavailable } from './duplicate-repository.js';
 import { DUPLICATE_LIMITS, DUPLICATE_RULE_VERSION, type DuplicateContact, type DuplicateCustomerFacts } from './duplicate-types.js';
 import type { ContactRow, CrmActor, CustomerRow } from './types.js';
 
@@ -265,22 +265,20 @@ export class PostgresDuplicateReviewRepository {
   }
 
   async history(actor: CrmActor, reviewId: string, cursor: string | null, limit: number): Promise<DuplicateHistoryPage> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    return new PostgresDuplicateReadRepository(this.pool).snapshot(async (snapshot) => {
       const normalizedLimit = Math.max(1, Math.min(50, Math.floor(limit)));
-      const head = await client.query<HeadRow>(
+      const head = await snapshot.query<HeadRow>(
         'SELECT id,version FROM customer_duplicate_reviews WHERE organization_id=$1 AND id=$2',
         [actor.organizationId, reviewId],
       );
-      if (!head.rows[0]) reviewNotFound();
+      if (!head[0]) reviewNotFound();
       const decoded = cursor
         ? decodeHistoryCursor(cursor, this.keys, actor.organizationId, reviewId)
-        : { upperSeq: head.rows[0].version, beforeSeq: null };
-      if (decoded.upperSeq > head.rows[0].version) {
+        : { upperSeq: head[0].version, beforeSeq: null };
+      if (decoded.upperSeq > head[0].version) {
         throw new AppError('CURSOR_RESTART_REQUIRED', 409, 'Geçmiş imleci kullanılamıyor. İlk sayfadan başlayın.');
       }
-      const rows = await client.query<HistoryRow>(
+      const rows = await snapshot.query<HistoryRow>(
         `SELECT id,seq,event_kind,resulting_status,reason_code,actor_user_id,occurred_at,
                 matching_rule_version,matching_codes,conflicting_tax_numbers
          FROM customer_duplicate_review_events
@@ -289,9 +287,8 @@ export class PostgresDuplicateReviewRepository {
          ORDER BY seq DESC LIMIT $5`,
         [actor.organizationId, reviewId, decoded.upperSeq, decoded.beforeSeq, normalizedLimit + 1],
       );
-      await client.query('COMMIT');
-      const hasMore = rows.rows.length > normalizedLimit;
-      const pageRows = hasMore ? rows.rows.slice(0, normalizedLimit) : rows.rows;
+      const hasMore = rows.length > normalizedLimit;
+      const pageRows = hasMore ? rows.slice(0, normalizedLimit) : rows;
       const items: DuplicateReviewTimelineItem[] = pageRows.map((row) => ({
         eventId: row.id, seq: row.seq, eventKind: row.event_kind as DuplicateReviewTimelineItem['eventKind'],
         resultingStatus: row.resulting_status as DuplicateReviewTimelineItem['resultingStatus'],
@@ -305,12 +302,7 @@ export class PostgresDuplicateReviewRepository {
           ? encodeHistoryCursor(this.keys, actor.organizationId, reviewId, decoded.upperSeq, pageRows.at(-1)!.seq)
           : null,
       };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw mapError(error);
-    } finally {
-      client.release();
-    }
+    });
   }
 }
 

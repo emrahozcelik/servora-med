@@ -59,6 +59,10 @@ rewrite. 4B, WR-01 and Issue #369 are outside this rollout.
   History reads use the same actor/organization DETAIL cooldown as comparison;
   review/version/command refresh changes isolate history request generations.
   Late prior-page responses cannot replace the current immutable history window.
+  History uses the bounded read-only snapshot deadline and per-query timeout.
+  Expired history cursors discard the prior window and restart at a fresh first page.
+  Definitive conflict/source-missing commands require successful GET reconciliation
+  and renewed inspection before new intent; uncertain attempts retain exact retry.
 - Independent acceptance, final SHA/tree-bound 27/27 Local CI, verifier and the
   required Linux/PG17/browser evidence remain rollout gates. This documentation
   does not replace current test evidence or turn historical NOT_RUN into PASS.
