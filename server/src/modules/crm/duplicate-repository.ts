@@ -50,15 +50,21 @@ export const DUPLICATE_REGISTER_HEADS_SQL = `SELECT r.customer_a_id, r.customer_
   previous_decision.actor_user_id AS previous_decision_actor_id,
   previous_decision.occurred_at AS previous_decision_at
 FROM customer_duplicate_reviews r
-JOIN customer_duplicate_review_events e
-  ON e.organization_id = r.organization_id
- AND e.review_id = r.id AND e.seq = r.version
-LEFT JOIN customer_duplicate_review_events previous_decision
-  ON previous_decision.organization_id = r.organization_id
- AND previous_decision.review_id = r.id
- AND previous_decision.seq = r.version - 1
- AND previous_decision.event_kind = 'DECISION_RECORDED'
- AND e.event_kind = 'REVIEW_REOPENED'
+JOIN LATERAL (
+  SELECT e.id, e.seq, e.event_kind, e.resulting_status, e.reason_code, e.actor_user_id, e.occurred_at,
+         e.evidence_schema_version, e.matching_rule_version, e.evidence_key_id, e.evidence_digest,
+         e.matching_codes, e.conflicting_tax_numbers
+  FROM customer_duplicate_review_events e
+  WHERE e.organization_id = r.organization_id AND e.review_id = r.id AND e.seq = r.version
+) e ON true
+LEFT JOIN LATERAL (
+  SELECT pd.id, pd.seq, pd.resulting_status, pd.reason_code, pd.actor_user_id, pd.occurred_at
+  FROM customer_duplicate_review_events pd
+  WHERE pd.organization_id = r.organization_id AND pd.review_id = r.id
+    AND pd.seq = r.version - 1 AND pd.event_kind = 'DECISION_RECORDED'
+    AND e.event_kind = 'REVIEW_REOPENED'
+  LIMIT 1
+) previous_decision ON true
 WHERE r.organization_id = $1
   AND ($2::uuid IS NULL OR (r.customer_a_id, r.customer_b_id) > ($2::uuid, $3::uuid))
 ORDER BY r.customer_a_id, r.customer_b_id

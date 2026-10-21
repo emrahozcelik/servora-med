@@ -90,3 +90,51 @@ it('READ-03: available sources keep bounded headers and projected freshness', ()
   expect(item.review.freshnessReason).toBe('SOURCE_CHANGED');
   expect(item.review.effectiveStatus).toBe('REVIEW_REQUIRED');
 });
+
+it('READ-03: a page evaluates at most 32 heads, returns 20 and carries the last consumed pair', async () => {
+  const { createDuplicateEvidenceDetails } = await import('../src/modules/crm/duplicate-evidence.js');
+  const { DuplicateRegisterService } = await import('../src/modules/crm/duplicate-register-service.js');
+  const { DUPLICATE_RULE_VERSION } = await import('../src/modules/crm/duplicate-types.js');
+
+  const org = '50000000-0000-4000-8000-000000000001';
+  const heads: Array<{ pair: { customerAId: string; customerBId: string }; head: DuplicateReviewHead }> = [];
+  const allFacts = new Map<string, DuplicateCustomerFacts>();
+  const uuid = (index: number) => `60000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+
+  for (let index = 0; index < 33; index++) {
+    const a = uuid(index * 2 + 1); const b = uuid(index * 2 + 2);
+    const customerA = facts(a); const customerB = facts(b, { name: 'SENTETİK KLİNİK' });
+    allFacts.set(a, customerA); allFacts.set(b, customerB);
+    // The first 12 heads are current decisions, so ATTENTION filters them out.
+    const details = createDuplicateEvidenceDetails(org, customerA, customerB, keys);
+    heads.push({
+      pair: { customerAId: a, customerBId: b },
+      head: {
+        ...head({ id: uuid(100 + index) }),
+        evidenceDigest: index < 12 ? details.digest : Buffer.alloc(32, index),
+        evidenceKeyId: keys.activeKeyId,
+        matchingRuleVersion: DUPLICATE_RULE_VERSION,
+        resultingStatus: 'DISMISSED', eventKind: 'DECISION_RECORDED',
+      },
+    });
+  }
+
+  const snapshot = {
+    asOf: new Date().toISOString(),
+    checkpoint: () => undefined,
+    registerHeads: async (_org: string, _after: unknown, limit: number) => heads.slice(0, limit),
+    facts: async () => new Map(allFacts),
+  };
+  const repository = { snapshot: async (run: (value: typeof snapshot) => Promise<unknown>) => run(snapshot) };
+  const service = new DuplicateRegisterService(repository as never, keys);
+  const page = await service.register(
+    { id: '70000000-0000-4000-8000-000000000001', organizationId: org, role: 'MANAGER' } as never,
+    { view: 'ATTENTION', cursor: null, limit: 20 },
+  );
+
+  expect(page.page.evaluatedReviews).toBe(32);
+  expect(page.page.returnedItems).toBe(20);
+  expect(page.page.exhausted).toBe(false);
+  expect(page.page.nextCursor).not.toBeNull();
+  expect(decodeRegisterCursor(page.page.nextCursor!, { organizationId: org, view: 'ATTENTION', limit: 20 }, keys)).toEqual(heads[31]!.pair);
+});
