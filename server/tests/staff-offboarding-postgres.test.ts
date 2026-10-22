@@ -719,3 +719,223 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
     });
   });
 });
+
+async function snapshotJobHistory(pool: Pick<Pool, 'query'>, jobId: string) {
+  const job = (await pool.query('SELECT * FROM job_cards WHERE id = $1', [jobId])).rows[0];
+  const related: Record<string, unknown> = {};
+  for (const table of ['job_card_activity_logs', 'job_card_assignment_history', 'job_card_accountability_facts']) {
+    related[table] = (await pool.query(
+      `SELECT to_jsonb(t) AS row FROM ${table} t WHERE job_card_id = $1 ORDER BY to_jsonb(t)::text`, [jobId],
+    )).rows;
+  }
+  return { job, ...related };
+}
+
+async function snapshotOffboardingState(pool: Pool) {
+  const state: Record<string, unknown> = {};
+  for (const table of ['users', 'sessions', 'job_cards', 'job_card_activity_logs', 'job_card_assignment_history',
+    'job_card_accountability_facts', 'job_card_overdue_incidents', 'audit_events', 'processed_actions',
+    'customers', 'calendar_events', 'calendar_reminders', 'conversation_participants', 'messaging_activity_logs',
+    'realtime_events']) {
+    state[table] = (await pool.query(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`)).rows;
+  }
+  return state;
+}
+
+const terminalVariants = ['COMPLETED', 'CANCELLED', 'INVALIDATED'].flatMap((status) => (
+  [true, false].map((sameAssignee) => ({ status, sameAssignee }))
+));
+
+describe.skipIf(!databaseUrl)('SOF-1 terminal offboarding history integrity', () => {
+  it.each(terminalVariants)('blocks unresolved future proposal without changing $status history (same assignee=$sameAssignee)', async ({ status, sameAssignee }) => {
+    await withFixture(async (fixture) => {
+      const jobId = await insertJob(fixture.pool, {
+        organizationId: fixture.organizationId,
+        assignedTo: sameAssignee ? fixture.target.id : fixture.replacementC.id,
+        createdBy: fixture.admin.id, status, followUpAssignee: fixture.target.id,
+      });
+      const before = await snapshotJobHistory(fixture.pool, jobId);
+      const allBefore = await snapshotOffboardingState(fixture.pool);
+      let failure: unknown;
+      try {
+        const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+        await fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID()));
+      } catch (error) { failure = error; }
+      expect(await snapshotJobHistory(fixture.pool, jobId)).toEqual(before);
+      expect(failure).toMatchObject({ code: 'OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW', statusCode: 409 });
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(allBefore);
+      expect(fixture.disconnectUser).not.toHaveBeenCalled();
+    });
+  });
+  it.each(terminalVariants)('preserves $status without a future proposal while transferring active work and replaying (same assignee=$sameAssignee)', async ({ status, sameAssignee }) => {
+    await withFixture(async (fixture) => {
+      const jobId = await insertJob(fixture.pool, {
+        organizationId: fixture.organizationId, assignedTo: sameAssignee ? fixture.target.id : fixture.replacementC.id,
+        createdBy: fixture.admin.id, status,
+      });
+      const before = await snapshotJobHistory(fixture.pool, jobId);
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      expect(plan.jobs.some((job) => job.id === jobId)).toBe(false);
+      expect(plan.followUps.some((job) => job.jobCardId === jobId)).toBe(false);
+      const request = actualDecisions(fixture, plan, randomUUID());
+      const result = await fixture.service.execute(fixture.admin, fixture.target.id, request);
+      expect(await snapshotJobHistory(fixture.pool, jobId)).toEqual(before);
+      expect((await snapshotJobHistory(fixture.pool, fixture.ids.activeJob)).job).toMatchObject({
+        assigned_to: fixture.replacementB.id, follow_up_proposed_assignee: fixture.replacementB.id,
+      });
+      const after = await snapshotOffboardingState(fixture.pool);
+      expect(await fixture.service.execute(fixture.admin, fixture.target.id, request)).toEqual(result);
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(after);
+    });
+  });
+
+  it.each(['COMPLETED', 'CANCELLED', 'INVALIDATED'])('preserves historical past proposals on %s', async (status) => {
+    await withFixture(async (fixture) => {
+      const jobId = await insertJob(fixture.pool, { organizationId: fixture.organizationId, assignedTo: fixture.target.id,
+        createdBy: fixture.admin.id, status, followUpAssignee: fixture.target.id });
+      await fixture.pool.query('UPDATE job_cards SET follow_up_proposed_at=$2 WHERE id=$1', [jobId, at]);
+      const before = await snapshotJobHistory(fixture.pool, jobId);
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      await fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID()));
+      expect(await snapshotJobHistory(fixture.pool, jobId)).toEqual(before);
+    });
+  });
+
+  it('preserves a future terminal proposal owned by another active staff member', async () => {
+    await withFixture(async (fixture) => {
+      const jobId = await insertJob(fixture.pool, { organizationId: fixture.organizationId, assignedTo: fixture.target.id,
+        createdBy: fixture.admin.id, status: 'COMPLETED', followUpAssignee: fixture.replacementC.id });
+      const before = await snapshotJobHistory(fixture.pool, jobId);
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      await fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID()));
+      expect(await snapshotJobHistory(fixture.pool, jobId)).toEqual(before);
+    });
+  });
+
+  it('rechecks a terminal proposal at execute and rolls back the claim without partially offboarding', async () => {
+    await withFixture(async (fixture) => {
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const jobId = await insertJob(fixture.pool, { organizationId: fixture.organizationId, assignedTo: fixture.target.id,
+        createdBy: fixture.admin.id, status: 'COMPLETED', followUpAssignee: fixture.target.id });
+      // A child link alone is not a proposal-consumption witness.
+      await fixture.pool.query('UPDATE job_cards SET source_job_card_id=$2,follow_up_instructions=$3 WHERE id=$1',
+        [fixture.ids.activeJob, jobId, 'Live child remains independently assigned']);
+      const before = await snapshotOffboardingState(fixture.pool);
+      await expect(fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID())))
+        .rejects.toMatchObject({ code: 'OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW', statusCode: 409 });
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
+      expect(fixture.disconnectUser).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps stale-plan rejection atomic alongside preserved terminal history', async () => {
+    await withFixture(async (fixture) => {
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      await fixture.pool.query('UPDATE job_cards SET version=version+1 WHERE id=$1', [fixture.ids.activeJob]);
+      const before = await snapshotOffboardingState(fixture.pool);
+      await expect(fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID())))
+        .rejects.toMatchObject({ code: 'STALE_PLAN', statusCode: 409 });
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
+    });
+  });
+
+  it('rechecks status after a concurrent terminal transition wins the job row lock', async () => {
+    await withFixture(async (fixture) => {
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const before = await snapshotOffboardingState(fixture.pool);
+      delete before.job_cards; // The competing writer owns its explicit transition below.
+      const writer = await fixture.pool.connect();
+      let execution: Promise<unknown> | undefined;
+      try {
+        await writer.query('BEGIN');
+        const writerPid = (await writer.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        await writer.query('SELECT id FROM job_cards WHERE id=$1 FOR UPDATE', [fixture.ids.activeJob]);
+        execution = fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID()))
+          .then((result) => result, (error: unknown) => error);
+        await timeout((async () => {
+          const deadline = Date.now() + 1_500;
+          while (Date.now() < deadline) {
+            const waiting = await fixture.pool.query(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+              WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%job_cards%') AS blocked`, [writerPid]);
+            if (waiting.rows[0]!.blocked) return;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          throw new Error('Offboarding did not reach the competing job row lock');
+        })(), 'offboarding waiting on the concurrent job row');
+        await writer.query(`UPDATE job_cards SET status='CANCELLED',cancelled_at=$2,cancelled_by=$3,
+          cancel_reason='Concurrent cancellation',version=version+1 WHERE id=$1`,
+          [fixture.ids.activeJob, at, fixture.admin.id]);
+        const terminal = await snapshotJobHistory(writer, fixture.ids.activeJob);
+        await writer.query('COMMIT');
+        expect(await execution).toMatchObject({ code: 'OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW', statusCode: 409 });
+        expect(await snapshotJobHistory(fixture.pool, fixture.ids.activeJob)).toEqual(terminal);
+        const after = await snapshotOffboardingState(fixture.pool);
+        delete after.job_cards;
+        expect(after).toEqual(before);
+        expect(fixture.disconnectUser).not.toHaveBeenCalled();
+      } finally {
+        await writer.query('ROLLBACK');
+        writer.release();
+        await execution;
+      }
+    });
+  });
+
+  it('rolls back all successful responsibility writes when the final deactivation fails', async () => {
+    await withFixture(async (fixture) => {
+      await fixture.pool.query(`CREATE FUNCTION sof1_fail_deactivation() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'SOF1 injected late failure'; END $$`);
+      await fixture.pool.query(`CREATE TRIGGER sof1_fail_deactivation BEFORE UPDATE OF is_active ON users
+        FOR EACH ROW WHEN (NOT NEW.is_active) EXECUTE FUNCTION sof1_fail_deactivation()`);
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const before = await snapshotOffboardingState(fixture.pool);
+      await expect(fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID())))
+        .rejects.toThrow('SOF1 injected late failure');
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
+      expect(fixture.disconnectUser).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not expose a terminal blocker across role or organization boundaries', async () => {
+    await withFixture(async (fixture) => {
+      const otherTarget = await insertUser(fixture.pool, fixture.otherOrganizationId, 'STAFF', 'Other target');
+      const otherJob = await insertJob(fixture.pool, { organizationId: fixture.otherOrganizationId, assignedTo: otherTarget.id,
+        createdBy: fixture.otherAdmin.id, status: 'COMPLETED', followUpAssignee: otherTarget.id });
+      const before = await snapshotOffboardingState(fixture.pool);
+      await expect(fixture.service.preview(fixture.manager, otherTarget.id)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(fixture.service.preview(fixture.admin, otherTarget.id)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      await expect(fixture.service.execute(fixture.otherAdmin, fixture.target.id, actualDecisions(fixture, plan, randomUUID())))
+        .rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
+      const original = await snapshotJobHistory(fixture.pool, otherJob);
+      await fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID()));
+      expect(await snapshotJobHistory(fixture.pool, otherJob)).toEqual(original);
+    });
+  });
+
+  it('preserves populated terminal activity, assignment and accountability facts when blocked', async () => {
+    await withFixture(async (fixture) => {
+      const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const jobId = await insertJob(fixture.pool, { organizationId: fixture.organizationId, assignedTo: fixture.target.id,
+        createdBy: fixture.admin.id, status: 'COMPLETED', followUpAssignee: fixture.target.id });
+      await fixture.pool.query(`INSERT INTO job_card_schedule_revisions
+        (organization_id,job_card_id,revision_no,organization_timezone,source,created_by,created_at)
+        VALUES($1,$2,1,'Europe/Istanbul','CREATE',$3,$4)`, [fixture.organizationId, jobId, fixture.admin.id, at]);
+      const activityId = (await fixture.pool.query(`INSERT INTO job_card_activity_logs
+        (organization_id,job_card_id,actor_id,event_type) VALUES($1,$2,$3,'JOB_STARTED') RETURNING id`,
+        [fixture.organizationId, jobId, fixture.target.id])).rows[0]!.id;
+      await fixture.pool.query(`INSERT INTO job_card_assignment_history
+        (organization_id,job_card_id,to_user_id,changed_by,source,changed_at)
+        VALUES($1,$2,$3,$4,'CREATE',$5)`, [fixture.organizationId, jobId, fixture.target.id, fixture.admin.id, at]);
+      await fixture.pool.query(`INSERT INTO job_card_accountability_facts
+        (organization_id,job_card_id,fact_type,seq_no,occurred_at,schedule_revision_no,responsible_user_id,actor_user_id,source_activity_id)
+        VALUES($1,$2,'STARTED',1,$3,1,$4,$4,$5)`, [fixture.organizationId, jobId, at, fixture.target.id, activityId]);
+      const before = await snapshotOffboardingState(fixture.pool);
+      await expect(fixture.service.execute(fixture.admin, fixture.target.id, actualDecisions(fixture, plan, randomUUID())))
+        .rejects.toMatchObject({ code: 'OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW' });
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
+    });
+  });
+
+});

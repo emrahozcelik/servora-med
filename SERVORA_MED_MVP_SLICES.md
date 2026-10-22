@@ -682,3 +682,13 @@ The pilot is complete when:
 
 Structured Sales Meeting is complete in Slice 10. WebSocket remains conditional on the
 measured Slice 13 entry criteria and does not block pilot completion.
+
+
+## SOF-1 — Terminal offboarding history integrity (2026-10-22)
+
+- [x] Preserve terminal JobCard/proposal provenance and fail closed on unresolved future terminal proposals.
+- [x] Add real PostgreSQL six-variant history, active transfer, replay, stale/concurrency and rollback regressions.
+- Release acceptance requires exact committed-head Local CI 27/27, verifier and browser evidence; results are recorded externally against that SHA/tree.
+- Explicit proposal resolution remains a separate product decision, not an offboarding bypass.
+
+See [the narrow SOF-1 contract](docs/features/staff-offboarding-terminal-integrity.md).
