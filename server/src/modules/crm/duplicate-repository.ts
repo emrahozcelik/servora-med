@@ -20,6 +20,10 @@ export const DUPLICATE_CONTACTS_SQL = `SELECT parent.customer_id,ct.* FROM unnes
     WHERE organization_id=$1 AND customer_id BETWEEN parent.customer_id AND parent.customer_id
     ORDER BY customer_id,id LIMIT $3) ct
   ORDER BY parent.customer_id,ct.id`;
+// Bounded batch read: probe the canonical pair index once per wanted pair.
+// A plain LEFT JOIN lets the planner choose an organization-wide review scan and
+// sort (20k rows at the accepted dataset size) even when only 1-32 pairs are
+// asked for. LATERAL keeps every probe on the unique pair/event indexes.
 export const DUPLICATE_REVIEW_HEADS_SQL = `SELECT wanted.customer_a_id, wanted.customer_b_id,
   r.id, r.version, e.id AS event_id, e.seq, e.event_kind, e.resulting_status, e.reason_code,
   e.actor_user_id, e.occurred_at, e.evidence_schema_version, e.matching_rule_version,
@@ -30,14 +34,28 @@ export const DUPLICATE_REVIEW_HEADS_SQL = `SELECT wanted.customer_a_id, wanted.c
   previous_decision.actor_user_id AS previous_decision_actor_id,
   previous_decision.occurred_at AS previous_decision_at
 FROM unnest($2::uuid[], $3::uuid[]) AS wanted(customer_a_id, customer_b_id)
-LEFT JOIN customer_duplicate_reviews r
-  ON r.organization_id=$1 AND r.customer_a_id=wanted.customer_a_id AND r.customer_b_id=wanted.customer_b_id
-LEFT JOIN customer_duplicate_review_events e
-  ON e.organization_id=r.organization_id AND e.review_id=r.id AND e.seq=r.version
-LEFT JOIN customer_duplicate_review_events previous_decision
-  ON previous_decision.organization_id=r.organization_id AND previous_decision.review_id=r.id
- AND previous_decision.seq=r.version-1 AND previous_decision.event_kind='DECISION_RECORDED'
- AND e.event_kind='REVIEW_REOPENED'
+LEFT JOIN LATERAL (
+  SELECT r.id, r.version
+  FROM customer_duplicate_reviews r
+  WHERE r.organization_id=$1 AND r.customer_a_id=wanted.customer_a_id AND r.customer_b_id=wanted.customer_b_id
+  LIMIT 1
+) r ON true
+LEFT JOIN LATERAL (
+  SELECT e.id, e.seq, e.event_kind, e.resulting_status, e.reason_code, e.actor_user_id, e.occurred_at,
+         e.evidence_schema_version, e.matching_rule_version, e.evidence_key_id, e.evidence_digest,
+         e.matching_codes, e.conflicting_tax_numbers
+  FROM customer_duplicate_review_events e
+  WHERE e.organization_id=$1 AND e.review_id=r.id AND e.seq=r.version
+  LIMIT 1
+) e ON true
+LEFT JOIN LATERAL (
+  SELECT pd.id, pd.seq, pd.resulting_status, pd.reason_code, pd.actor_user_id, pd.occurred_at
+  FROM customer_duplicate_review_events pd
+  WHERE pd.organization_id=$1 AND pd.review_id=r.id
+    AND pd.seq=r.version-1 AND pd.event_kind='DECISION_RECORDED'
+    AND e.event_kind='REVIEW_REOPENED'
+  LIMIT 1
+) previous_decision ON true
 ORDER BY wanted.customer_a_id, wanted.customer_b_id`;
 
 export const DUPLICATE_REGISTER_HEADS_SQL = `SELECT r.customer_a_id, r.customer_b_id,

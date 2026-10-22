@@ -29,16 +29,17 @@ it('F02: owning portable documents preserve approved bytes except recorded machi
   }
   expect(readFileSync(path.join(root, 'DECISIONS.md'), 'utf8')).toContain('docs/features/crm-duplicate-review/README.md');
   expect(readFileSync(path.join(root, 'docs/README.md'), 'utf8')).toContain('features/crm-duplicate-review/README.md');
-  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('PR1 merged / PR2 merged / PR3 implemented-under-independent-review');
+  expect(readFileSync(path.join(folder, 'README.md'), 'utf8')).toContain('PR1 merged / PR2 merged / PR3 merged. CRM Slice 4A implementation completed.');
   expect(existsSync(path.join(folder, 'approved-design-originals.zip'))).toBe(false);
 });
 
-it('F16: rollout entry point distinguishes merged PR1/PR2, implemented PR3 and undeployed catalog 060', () => {
+it('F16: rollout entry point distinguishes merged PR1/PR2/PR3, completed Slice 4A and undeployed catalog 060', () => {
   const readme = readFileSync(path.join(folder, 'README.md'), 'utf8');
-  expect(readme).toContain('PR1 merged / PR2 merged / PR3 implemented-under-independent-review');
+  expect(readme).toContain('PR1 merged / PR2 merged / PR3 merged. CRM Slice 4A implementation completed.');
+  expect(readme).not.toContain('implemented-under-independent-review');
   expect(readme).toContain('Catalog head 060');
   expect(readme).toContain('Production rollout: NOT DEPLOYED');
   expect(readme).not.toContain('PR2/PR3 persistent decisions, reopen and history are not implemented');
   expect(readme).not.toContain('Catalog head 059');
-  expect(readme).toContain('PR3 adds the independent review register');
+  expect(readme).toContain('PR #381 merged PR3, which adds the independent review register');
 });
