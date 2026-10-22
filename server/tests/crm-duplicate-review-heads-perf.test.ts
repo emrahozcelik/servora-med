@@ -65,10 +65,12 @@ const foreignReviewId = (k: number) => `30000000-0000-4000-8000-${String(k).padS
 const pair = (k: number) => ({ customerAId: customerId(2 * k - 1), customerBId: customerId(2 * k) });
 
 /** 8 pairs from each state band: terminal v1, pending v2, terminal-after-reopen v3, reopened v4. */
-function scenarioPairIndexes(size: 1 | 20 | 32): number[] {
-  const perBand = size === 1 ? 1 : size === 20 ? 5 : 8;
-  const bands = [1, 401, 801, 901];
-  return bands.flatMap((start) => Array.from({ length: perBand }, (_, index) => start + index)).slice(0, size);
+function scenarioPairIndexes(population: number, batch: 1 | 20 | 32): number[] {
+  const perBand = batch === 1 ? 1 : batch === 20 ? 5 : 8;
+  const bands = population === 0
+    ? [1, 401, 801, 901]
+    : [1, Math.floor(population * 0.4) + 1, Math.floor(population * 0.7) + 1, Math.floor(population * 0.9) + 1];
+  return bands.flatMap((start) => Array.from({ length: perBand }, (_, index) => start + index)).slice(0, batch);
 }
 
 const percentile = (values: number[], p: number) => {
@@ -345,7 +347,7 @@ it.skipIf(!enabled)('PERF-HEADS: 0/1k/20k populations, 1/20/32 batches, legacy v
     try {
       await client.query('SET statement_timeout = 30000');
       for (const batch of [1, 20, 32] as const) {
-        const pairs = scenarioPairIndexes(batch).map(pair);
+        const pairs = scenarioPairIndexes(size, batch).map(pair);
         const params = [organizationId, pairs.map((item) => item.customerAId), pairs.map((item) => item.customerBId)];
         const key = `${size}_${batch}`;
 
@@ -399,14 +401,14 @@ it.skipIf(!enabled)('PERF-HEADS: 0/1k/20k populations, 1/20/32 batches, legacy v
 
       // One data query per repository batch read, never an N+1.
       const repository = new PostgresDuplicateReadRepository(pool);
-      const pair32 = scenarioPairIndexes(32).map(pair);
+      const pair32 = scenarioPairIndexes(size, 32).map(pair);
       const instrument = instrumentQueries();
       try {
         const heads = await repository.snapshot((snapshot) => snapshot.reviewHeads(organizationId, pair32));
         expect(heads.size).toBe(size === 0 ? 0 : 32);
       } finally { instrument.restore(); }
       parityChecks[size] = {
-        reviewedPairs: new Set([1, 20, 32].flatMap((batch) => scenarioPairIndexes(batch as 1 | 20 | 32))).size,
+        reviewedPairs: size === 0 ? 0 : new Set(scenarioPairIndexes(size, 32)).size,
         nullHeads: nullHeads.length,
         foreignOrgRows: foreign.rows.length,
         repositoryDataQueries: instrument.counter.data,

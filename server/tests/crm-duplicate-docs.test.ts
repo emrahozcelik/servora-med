@@ -39,6 +39,9 @@ it('F16: rollout entry point distinguishes merged PR1/PR2/PR3, completed Slice 4
   expect(readme).not.toContain('implemented-under-independent-review');
   expect(readme).toContain('Catalog head 060');
   expect(readme).toContain('Production rollout: NOT DEPLOYED');
+  expect(readme).toContain('CRM_DUPLICATE_COMPARISON_ENABLED');
+  expect(readme).toContain('defaults to false');
+  expect(readme).toContain('Customer merge and CRM Slice 4B are not implemented');
   expect(readme).not.toContain('PR2/PR3 persistent decisions, reopen and history are not implemented');
   expect(readme).not.toContain('Catalog head 059');
   expect(readme).toContain('PR #381 merged PR3, which adds the independent review register');
