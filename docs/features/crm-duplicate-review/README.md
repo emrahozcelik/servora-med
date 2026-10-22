@@ -1,11 +1,13 @@
 # CRM Slice 4A — owning contracts and rollout
 
-**Status: PR1 merged / PR2 merged / PR3 implemented-under-independent-review.**
+**Status: PR1 merged / PR2 merged / PR3 merged. CRM Slice 4A implementation completed.**
 
-**Production rollout: NOT DEPLOYED.**
+**Production rollout: NOT DEPLOYED. `CRM_DUPLICATE_COMPARISON_ENABLED` defaults to false.**
+
+**Scope boundary: Customer merge and CRM Slice 4B are not implemented.**
 
 The approved D1–D6 and T1–T5 design inputs are accepted. This records design
-acceptance, not production deployment or completion of the whole Slice 4A.
+acceptance and merged implementation, not production deployment.
 
 - Domain, algorithm and evidence SSOT: [Design](CRM_SLICE4A_DESIGN.md).
 - HTTP wire SSOT: [API contract](CRM_SLICE4A_API_CONTRACT.md).
@@ -36,7 +38,7 @@ BUSINESS scope includes prospect, active and inactive customers. GET creates no
 business, review, audit or receipt rows. Existing tax/Contact primary and STAFF
 CRM permissions are unchanged.
 
-PR3 adds the independent review register (`GET /api/customers/duplicate-reviews`)
+PR #381 merged PR3, which adds the independent review register (`GET /api/customers/duplicate-reviews`)
 and the dedicated registry workbench, so historical pairs that no longer match —
 or whose source is deleted, converted to DEMO, or otherwise unavailable — remain
 reviewable without a global candidate scan. Register paging is bounded by the
@@ -90,5 +92,11 @@ semantics, and grants no new decide/reopen authority.
   required Linux/PG17/browser evidence remain rollout gates. This documentation
   does not replace current test evidence or turn historical NOT_RUN into PASS.
 - Production migration, secret provisioning and deployment have not been performed.
-  PR #380 remediation authorizes local commits, push and PR updates; merge and
-  production actions remain outside that authorization.
+  The merged slice keeps `CRM_DUPLICATE_COMPARISON_ENABLED=false`; activation needs
+  a separate operator decision after the release-readiness gates (migration 059/060
+  preflight, evidence-key custody/rotation ownership, backup/restore and rollback
+  rehearsal) are accepted.
+- The batch review-head read probes the canonical pair index once per wanted pair
+  instead of scanning/sorting the organization's reviews. The read-side change adds
+  no migration and no index; its PostgreSQL 17 plan and semantic parity evidence is
+  recorded with the hardening change.
