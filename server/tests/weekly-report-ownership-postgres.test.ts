@@ -13,6 +13,7 @@ import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.j
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardStatus } from '../src/modules/job-cards/types.js';
 import { PostgresStaffOffboardingService, computeStaffOffboardingPlanHash, type StaffOffboardingPlan } from '../src/modules/people/offboarding.js';
+import { acquireRealtimeOrderingLock } from '../src/modules/realtime/ordering.js';
 import { parseWeeklyReportCreateInput } from '../src/modules/weekly-reports/create-input.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -393,6 +394,61 @@ describe.skipIf(!databaseUrl)('SOF-2A WeeklyReport ownership (PostgreSQL)', () =
       } finally {
         await holder.query('ROLLBACK'); holder.release();
         await Promise.allSettled([patch, execute]);
+      }
+    }));
+  }
+
+  for (const first of ['create', 'offboarding'] as const) {
+    it(`serializes WeeklyReport creation and offboarding when ${first} holds the Staff lock first`, async () => withFixture(async (f) => {
+      const jobId = await ordinary(f);
+      const plan = await f.offboarding.preview(f.admin, f.a.id);
+      const intent = decisions(f, plan);
+      const holder = await f.pool.connect();
+      let create: Promise<unknown> | undefined; let execute: Promise<unknown> | undefined;
+      const startCreate = () => f.jobs.createWeeklyReport(f.manager, parseWeeklyReportCreateInput({
+        clientActionId: randomUUID(), periodStart: '2026-08-03', assignedTo: f.a.id,
+      }));
+      try {
+        await holder.query('BEGIN');
+        // Pause the first real service transaction after its Staff lock, before commit.
+        await acquireRealtimeOrderingLock(holder, f.org);
+        if (first === 'create') {
+          create = startCreate();
+          await waitForLocks(f, 1);
+          execute = blocker(() => f.offboarding.execute(f.admin, f.a.id, intent));
+        } else {
+          execute = f.offboarding.execute(f.admin, f.a.id, intent);
+          await waitForLocks(f, 1);
+          create = expect(startCreate()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+        }
+        await waitForLocks(f, 2);
+        await holder.query('COMMIT');
+        await Promise.all([create, execute]);
+        const reports = (await f.pool.query(`SELECT r.staff_user_id, j.assigned_to FROM weekly_reports r
+          JOIN job_cards j ON j.organization_id = r.organization_id AND j.id = r.job_card_id
+          WHERE r.organization_id = $1`, [f.org])).rows;
+        const target = (await f.pool.query('SELECT is_active FROM users WHERE id = $1', [f.a.id])).rows[0]!;
+        const receipts = (await f.pool.query(`SELECT count(*)::int AS n FROM processed_actions
+          WHERE organization_id = $1 AND client_action_id = $2`, [f.org, intent.clientActionId])).rows[0]!.n;
+        const audit = (await f.pool.query(`SELECT count(*)::int AS n FROM audit_events
+          WHERE organization_id = $1 AND event_type = 'USER_OFFBOARDED'`, [f.org])).rows[0]!.n;
+        if (first === 'create') {
+          expect(reports).toEqual([{ staff_user_id: f.a.id, assigned_to: f.a.id }]);
+          expect(target.is_active).toBe(true);
+          expect((await f.jobs.detail(f.manager, jobId)).assignedTo).toBe(f.a.id);
+          expect(receipts).toBe(0); expect(audit).toBe(0);
+          expect((await f.pool.query('SELECT revoked_at FROM sessions WHERE user_id = $1', [f.a.id])).rows)
+            .toEqual([{ revoked_at: null }]);
+        } else {
+          expect(reports).toEqual([]); expect(target.is_active).toBe(false);
+          expect((await f.jobs.detail(f.manager, jobId)).assignedTo).toBe(f.b.id);
+          expect(receipts).toBe(1); expect(audit).toBe(1);
+          expect((await f.pool.query(`SELECT count(*)::int AS n FROM job_cards
+            WHERE organization_id = $1 AND type = 'WEEKLY_REPORT'`, [f.org])).rows[0]!.n).toBe(0);
+        }
+      } finally {
+        await holder.query('ROLLBACK'); holder.release();
+        await Promise.allSettled([create, execute]);
       }
     }));
   }

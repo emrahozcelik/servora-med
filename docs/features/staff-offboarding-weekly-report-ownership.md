@@ -40,6 +40,8 @@ journey is not implemented in 2A.
 SOF-1's terminal future-proposal blocker keeps priority. Completed exact-intent
 receipts are returned before fresh business validation. Blocker failure rolls
 back all transfers, session revocations, deactivation, audit and receipt writes.
+An unfinished report created after preview returns the resolution blocker before
+the stale-plan check; resolved legacy plans still require a fresh preview.
 WeeklyReport must never reach a generic replacement assignment mutation; SQL
 also fences out typed weekly roots and roots attached to a WeeklyReport row.
 
