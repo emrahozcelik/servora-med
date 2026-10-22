@@ -1887,3 +1887,34 @@ CHECK/unique, Contact primary rules and STAFF CRM rights remain unchanged.
 Production rollout remains disabled by default and requires exact-head evidence,
 strict schema compatibility and separately approved secret/migration/deployment
 steps. 4B, WR-01 and Issue #369 are not decided by this record.
+
+## SOF-2 Weekly Report ownership and resolution — 2026-10-22
+
+**Status: Accepted.** Product-owner approval of the SOF-2 RFC and PG17 evidence.
+This amends Weekly Report V1 Slice 1/2 assignment policy and clarifies Slice 4
+history access; scope and rollout are explicit.
+
+- WeeklyReport is bound to its original reporting Staff. Management PATCH and
+  offboarding cannot change that report's root assignee to another Staff.
+  Unfinished reports linked through either assignee or report owner block
+  offboarding pending explicit authorized resolution. Missing/inconsistent
+  ownership fails closed; no historical repair is authorized.
+- Draft, immutable submissions/PDF content and personnel attribution stay with
+  the original report. A replacement Staff receives only an independent report
+  through existing creation; new explicitly entered instructions/questions are
+  allowed, former content/history is not copied.
+- Same-organization authorized management may read inactive Staff historical
+  reports through the existing history paths. This supersedes Slice 4's
+  “active STAFF target” wording for historical reads only, not staff-list,
+  tenant, messaging or Staff access boundaries.
+- SOF-2A implements ownership containment and bounded explanatory blocker
+  metadata. SOF-1 terminal-proposal priority and exact receipt replay remain.
+- SOF-2B is the separately accepted follow-on policy: remove STAFF CANCEL only
+  for WEEKLY_REPORT and serialize draft writes with locked lifecycle/owner
+  validation. These changes are **not implemented by SOF-2A**. Current generic
+  cancellation and every other JobCard type remain unchanged in this slice.
+- SOF-2C owns the full actionable resolution journey. OF-02 is not CLOSED until
+  all three slices and their closure gates pass. No migration, CRM4B, generic
+  lifecycle framework or follow-up resolution command is authorized here.
+
+Contract: [SOF-2 ownership](docs/features/staff-offboarding-weekly-report-ownership.md).

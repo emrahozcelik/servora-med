@@ -109,6 +109,8 @@ OFFBOARDING_REQUIRED
 OFFBOARDING_UNAVAILABLE
 OFFBOARDING_TARGET_NOT_STAFF
 OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW
+OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION
+WEEKLY_REPORT_ASSIGNMENT_IMMUTABLE
 USER_ALREADY_INACTIVE
 INVALID_REPLACEMENT_STAFF
 CALENDAR_CONFLICT
@@ -282,6 +284,17 @@ Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORT
 ```
 
 Terminal JobCards are never mutable offboarding responsibilities. If a `COMPLETED`, `CANCELLED`, or `INVALIDATED` card retains a future follow-up proposal assigned to the target Staff, both preview and fresh execute validation return `409 OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW`. The operation makes no partial transfers, session revocations, user deactivation or durable receipt/audit changes. A linked child alone does not prove that the persisted proposal has been resolved; this case requires separate explicit domain review, not a rewrite of historical assignment or proposal fields. See [SOF-1 terminal integrity](docs/features/staff-offboarding-terminal-integrity.md).
+
+Unfinished WeeklyReports linked through either root assignee or original report
+owner block preview/fresh execute as `409 OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION`.
+SOF-1 keeps priority. `details.weeklyReports` returns the complete `total`,
+`limit: 50`, `hasMore` and deterministic metadata-only `items`; missing report
+rows, ownership mismatches and attached-report/root-type inconsistencies fail
+closed. A completed original intent still replays its receipt. Actual ordinary
+WeeklyReport reassignment is rejected at the locked PATCH boundary as
+`409 WEEKLY_REPORT_ASSIGNMENT_IMMUTABLE`. Same-value PATCH retains existing
+version/update semantics without assignment history or acceptance reset. See
+[SOF-2 ownership and detail fields](docs/features/staff-offboarding-weekly-report-ownership.md).
 
 `reasonCode` is one of `ACCESS_ENDED`, `ROLE_CHANGED`, `ACCOUNT_CORRECTION`, or `OTHER_ADMINISTRATIVE`; replacement users must be active Staff in the same organization. A changed plan returns `409 STALE_PLAN`; reusing a `clientActionId` for different input returns `409 CLIENT_ACTION_REUSED`. The response is `{ status: "OFFBOARDED", targetUserId, planHash, summary }`.
 

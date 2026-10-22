@@ -28,6 +28,8 @@ const ACTIVE_JOB_STATUSES = [
   'REVISION_REQUESTED',
 ] as const;
 
+const WEEKLY_REPORT_BLOCKER_LIMIT = 50;
+
 type Queryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
 
 type UserSnapshot = Readonly<{
@@ -451,6 +453,9 @@ export class PostgresStaffOffboardingService {
             follow_up_proposed_assignee = CASE WHEN $3::uuid IS NULL THEN follow_up_proposed_assignee ELSE $3::uuid END,
             version = version + 1, updated_at = $4
           WHERE organization_id = $1 AND id = $5 AND status = ANY($7::varchar[])
+            AND type <> 'WEEKLY_REPORT'
+            AND NOT EXISTS (SELECT 1 FROM weekly_reports r
+              WHERE r.organization_id = $1 AND r.job_card_id = $5)
             AND (assigned_to = $6 OR follow_up_proposed_assignee = $6)`,
         [actor.organizationId, jobDecision.get(jobId) ?? null, followUpDecision.get(jobId) ?? null, this.now(), jobId, targetUserId, ACTIVE_JOB_STATUSES],
       );
@@ -728,6 +733,45 @@ export class PostgresStaffOffboardingService {
     }
   }
 
+  private async assertWeeklyReportsResolved(queryable: Queryable, target: UserSnapshot) {
+    const result = await queryable.query<{
+      id: string; status: JobCardStatus; version: number; assigned_to: string; type: string;
+      report_id: string | null; staff_user_id: string | null;
+      period_start: string | null; report_version: number | null; total: string;
+    }>(
+      `SELECT j.id, j.status, j.version, j.assigned_to, j.type,
+              r.id AS report_id, r.staff_user_id, r.period_start::text,
+              r.version AS report_version, COUNT(*) OVER()::text AS total
+         FROM job_cards j
+         LEFT JOIN weekly_reports r
+           ON r.organization_id = j.organization_id AND r.job_card_id = j.id
+        WHERE j.organization_id = $1 AND j.status = ANY($3::varchar[])
+          AND (j.type = 'WEEKLY_REPORT' OR r.id IS NOT NULL)
+          AND (j.assigned_to = $2 OR r.staff_user_id = $2)
+        ORDER BY r.period_start NULLS LAST, j.id
+        LIMIT $4`,
+      [target.organizationId, target.id, ACTIVE_JOB_STATUSES, WEEKLY_REPORT_BLOCKER_LIMIT],
+    );
+    if (result.rows.length === 0) return;
+    const total = Number(result.rows[0]!.total);
+    throw new AppError(
+      'OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION',
+      409,
+      `Bu personele bağlı ${total} sonuçlandırılmamış haftalık rapor var. Raporların sahipliği devredilemez. Yetkili yönetici incelemesi veya gerekçeli iptal sonrasında sorumlulukları yeniden yükleyin.`,
+      { weeklyReports: {
+        total, limit: WEEKLY_REPORT_BLOCKER_LIMIT, hasMore: total > result.rows.length,
+        items: result.rows.map((row) => ({
+          jobCardId: row.id, reportId: row.report_id, staffUserId: row.staff_user_id,
+          assignedTo: row.assigned_to, periodStart: row.period_start, status: row.status,
+          jobVersion: row.version, reportVersion: row.report_version,
+          reason: row.report_id === null ? 'MISSING_REPORT'
+            : row.type !== 'WEEKLY_REPORT' ? 'ROOT_TYPE_MISMATCH'
+              : row.staff_user_id !== row.assigned_to ? 'OWNER_ASSIGNEE_MISMATCH' : 'UNFINISHED',
+        })),
+      } },
+    );
+  }
+
   private async readPlan(queryable: Queryable, target: UserSnapshot, lock: boolean): Promise<StaffOffboardingPlan> {
     const suffix = lock ? ' FOR UPDATE' : '';
     const at = this.now();
@@ -761,6 +805,11 @@ export class PostgresStaffOffboardingService {
         'Geçmiş bir işte bu personele ait ileri tarihli takip planı var. Takip sorumluluğu ayrıca incelenmeden personel devre dışı bırakılamaz.',
       );
     }
+    // Execute holds the ordered target/replacement user locks. Weekly create
+    // and reassignment use those same locks; cancellation cannot reopen work.
+    // The complete count is independent of the bounded metadata page. Keep
+    // SOF-1 above this check so terminal proposal provenance retains priority.
+    await this.assertWeeklyReportsResolved(queryable, target);
     const jobs = affectedJobs.rows.filter((row) => row.assigned_to === target.id);
     const followUps = affectedJobs.rows.filter((row) => (
       row.follow_up_proposed_assignee === target.id

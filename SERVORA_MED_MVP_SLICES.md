@@ -692,3 +692,20 @@ measured Slice 13 entry criteria and does not block pilot completion.
 - Explicit proposal resolution remains a separate product decision, not an offboarding bypass.
 
 See [the narrow SOF-1 contract](docs/features/staff-offboarding-terminal-integrity.md).
+
+## SOF-2A — Weekly Report ownership containment (2026-10-22)
+
+- [x] Fence actual WeeklyReport PATCH reassignment at the locked write boundary;
+  preserve existing same-value PATCH version/acceptance semantics.
+- [x] Block offboarding through either original report owner or current assignee;
+  surface missing/inconsistent rows with bounded metadata and complete totals.
+- [x] Preserve SOF-1 priority, terminal history, normal non-weekly transfers,
+  no-partial rollback, stale-plan handling and completed receipt replay.
+- [x] Add PG17 ownership, 1/50/201-record, tenant and actual row-lock regressions.
+- Review acceptance requires exact committed-head Local CI 27/27, verifier and
+  available error-UI browser evidence, recorded externally against that SHA/tree.
+- SOF-2B draft/CANCEL serialization and manager-only WeeklyReport cancellation
+  remain unimplemented; SOF-2C owns the actionable resolution journey. OF-02 is
+  not CLOSED by this containment slice. No deploy or feature activation.
+
+See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
