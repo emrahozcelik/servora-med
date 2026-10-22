@@ -4,6 +4,8 @@ import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import { isTerminalJobStatus } from '../job-cards/policy.js';
+import type { JobCardStatus } from '../job-cards/types.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeService } from '../realtime/service.js';
 
@@ -448,8 +450,9 @@ export class PostgresStaffOffboardingService {
             assigned_to = CASE WHEN $2::uuid IS NULL THEN assigned_to ELSE $2::uuid END,
             follow_up_proposed_assignee = CASE WHEN $3::uuid IS NULL THEN follow_up_proposed_assignee ELSE $3::uuid END,
             version = version + 1, updated_at = $4
-          WHERE organization_id = $1 AND id = $5 AND (assigned_to = $6 OR follow_up_proposed_assignee = $6)`,
-        [actor.organizationId, jobDecision.get(jobId) ?? null, followUpDecision.get(jobId) ?? null, this.now(), jobId, targetUserId],
+          WHERE organization_id = $1 AND id = $5 AND status = ANY($7::varchar[])
+            AND (assigned_to = $6 OR follow_up_proposed_assignee = $6)`,
+        [actor.organizationId, jobDecision.get(jobId) ?? null, followUpDecision.get(jobId) ?? null, this.now(), jobId, targetUserId, ACTIVE_JOB_STATUSES],
       );
       if (updated.rowCount !== 1) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       const previousJob = currentJobs.get(jobId);
@@ -730,7 +733,7 @@ export class PostgresStaffOffboardingService {
     const at = this.now();
     const affectedJobs = await queryable.query<{
       id: string;
-      status: string;
+      status: JobCardStatus;
       version: number;
       assigned_to: string;
       follow_up_proposed_assignee: string | null;
@@ -747,6 +750,17 @@ export class PostgresStaffOffboardingService {
         ORDER BY id${suffix}`,
       [target.organizationId, target.id, ACTIVE_JOB_STATUSES, at],
     );
+    // A terminal proposal is frozen provenance, not a mutable assignment.
+    // A linked child does not prove which proposal was consumed (approval may
+    // override it and post-hoc follow-ups also use that link). Until that
+    // responsibility is explicitly resolved, neither hide it nor rewrite it.
+    if (affectedJobs.rows.some((row) => isTerminalJobStatus(row.status))) {
+      throw new AppError(
+        'OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW',
+        409,
+        'Geçmiş bir işte bu personele ait ileri tarihli takip planı var. Takip sorumluluğu ayrıca incelenmeden personel devre dışı bırakılamaz.',
+      );
+    }
     const jobs = affectedJobs.rows.filter((row) => row.assigned_to === target.id);
     const followUps = affectedJobs.rows.filter((row) => (
       row.follow_up_proposed_assignee === target.id
