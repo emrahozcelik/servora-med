@@ -1918,3 +1918,33 @@ history access; scope and rollout are explicit.
   lifecycle framework or follow-up resolution command is authorized here.
 
 Contract: [SOF-2 ownership](docs/features/staff-offboarding-weekly-report-ownership.md).
+
+
+## SOF-2B Weekly Report atomic draft and manager-only cancellation — 2026-10-23
+
+**Status: Accepted.** Implements the separately accepted SOF-2B policy above;
+this explicitly supersedes its deferred implementation status, not SOF-2A's
+ownership or SOF-1's terminal-proposal rules.
+
+- Draft replacement uses one existing JobCard repository transaction: User
+  `FOR SHARE` -> JobCard `FOR UPDATE` -> WeeklyReport `FOR UPDATE`. Current
+  tenant/active STAFF role, root assignee, original report owner, editable
+  status and report `expectedVersion` are validated under these locks. The
+  draft UPDATE uses the same client; no lifecycle activity or receipt is made.
+- `FOR SHARE` fences user role/deactivation writes while remaining compatible
+  with lifecycle note-author SHARE locks. Weekly manual reminders acquire the
+  same target snapshot before the root and do not upgrade it beneath that lock;
+  non-weekly reminder behavior is unchanged.
+- Standalone `PostgresWeeklyReportRepository.updateDraft` and pool-level JobCard
+  draft UPDATE are removed. Draft SQL belongs only to the request transaction;
+  the old Pool-capable shared update helper is no longer exported.
+- STAFF has no new WEEKLY_REPORT CANCEL command in any unfinished status.
+  Canonical capabilities, reservation preflight and locked finalize share this
+  rule. MANAGER/ADMIN reasoned cancellation and other JobCard types retain their
+  existing policy. Exact completed historical scoped receipts still replay;
+  this does not grant permission for a new Staff cancellation.
+- Frozen submission identities/content, PDF models, historical attribution,
+  original Staff/week uniqueness and independent replacement creation remain.
+  SOF-2C and closure verification are still required; OF-02 remains open.
+
+Contract and verification boundaries: [SOF-2 ownership](docs/features/staff-offboarding-weekly-report-ownership.md).

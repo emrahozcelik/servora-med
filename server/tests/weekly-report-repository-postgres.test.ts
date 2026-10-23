@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../src/errors/index.js';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
+import { JobCardService } from '../src/modules/job-cards/service.js';
+import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { PostgresWeeklyReportRepository } from '../src/modules/weekly-reports/repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -252,7 +254,13 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
       const created = await repo.createReport({
         organizationId, jobCardId: jobId, staffUserId: staffA, periodStart: WEEK_A, questions: QUESTIONS,
       });
-      const updated = await repo.updateDraft({
+      const jobs = new JobCardService(new PostgresJobCardRepository(pool));
+      await jobs.acceptAssignment({ id: staffA, organizationId, role: 'STAFF' }, jobId,
+        { clientActionId: randomUUID(), expectedVersion: 1 });
+      const updateDraft = (input: { organizationId: string; reportId: string; staffUserId: string;
+        expectedVersion: number; draft: unknown; answers: unknown }) => jobs.updateWeeklyReportDraft(
+          { id: input.staffUserId, organizationId: input.organizationId, role: 'STAFF' }, jobId, input);
+      const updated = await updateDraft({
         organizationId, reportId: created.id, staffUserId: staffA, expectedVersion: 1,
         draft: { summary: 'Taslak özet.' }, answers: [{ questionKey: 'q1', answer: 'Kısmi.' }],
       });
@@ -260,21 +268,22 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
       expect(updated.draft.summary).toBe('Taslak özet.');
       expect(updated.answers).toEqual([{ questionKey: 'q1', answer: 'Kısmi.' }]);
       // Stale version, foreign owner and foreign tenant all fail deterministically.
-      await expect(repo.updateDraft({
+      await expect(updateDraft({
         organizationId, reportId: created.id, staffUserId: staffA, expectedVersion: 1,
         draft: {}, answers: [],
       })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
-      await expect(repo.updateDraft({
+      await expect(updateDraft({
         organizationId, reportId: created.id, staffUserId: staffB, expectedVersion: 2,
         draft: {}, answers: [],
-      })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      await expect(repo.updateDraft({
+      })).rejects.toMatchObject({ code: 'WEEKLY_REPORT_NOT_FOUND' });
+      await expect(updateDraft({
         organizationId: organizationId, reportId: created.id, staffUserId: staffA, expectedVersion: 2,
         draft: {}, answers: [{ questionKey: 'nope', answer: 'x' }],
       })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
       const org2 = await insertOrg(pool);
-      await expect(repo.updateDraft({
-        organizationId: org2, reportId: created.id, staffUserId: staffA, expectedVersion: 2,
+      const foreignStaff = await insertUser(pool, org2, 'STAFF');
+      await expect(updateDraft({
+        organizationId: org2, reportId: created.id, staffUserId: foreignStaff, expectedVersion: 2,
         draft: {}, answers: [],
       })).rejects.toMatchObject({ code: 'WEEKLY_REPORT_NOT_FOUND' });
       expect(await repo.getReportByStaffWeek(organizationId, staffA, WEEK_A)).toMatchObject({ id: created.id });
@@ -321,8 +330,11 @@ describe.skipIf(!databaseUrl)('weekly report repository (PostgreSQL)', () => {
       expect(first.sourceWork).toEqual(SOURCE_WORK);
 
       // Later draft edits and a second submission leave seq 1 byte-identical.
-      await repo.updateDraft({
-        organizationId, reportId: created.id, staffUserId: staffId, expectedVersion: 1,
+      const jobs = new JobCardService(new PostgresJobCardRepository(pool));
+      await jobs.acceptAssignment({ id: staffId, organizationId, role: 'STAFF' }, jobId,
+        { clientActionId: randomUUID(), expectedVersion: 1 });
+      await jobs.updateWeeklyReportDraft(
+        { id: staffId, organizationId, role: 'STAFF' }, jobId, { expectedVersion: 1,
         draft: { ...FULL_DRAFT, summary: 'Revize özet.' }, answers: FULL_ANSWERS,
       });
       const second = await repo.appendSubmission({

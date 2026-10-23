@@ -704,8 +704,25 @@ See [the narrow SOF-1 contract](docs/features/staff-offboarding-terminal-integri
 - [x] Add PG17 ownership, 1/50/201-record, tenant and actual row-lock regressions.
 - Review acceptance requires exact committed-head Local CI 27/27, verifier and
   available error-UI browser evidence, recorded externally against that SHA/tree.
-- SOF-2B draft/CANCEL serialization and manager-only WeeklyReport cancellation
-  remain unimplemented; SOF-2C owns the actionable resolution journey. OF-02 is
+- At SOF-2A closure, SOF-2B draft/CANCEL serialization and manager-only
+  cancellation remained unimplemented (implemented in the separate SOF-2B below).
+  SOF-2C owns the actionable resolution journey. OF-02 is
   not CLOSED by this containment slice. No deploy or feature activation.
 
 See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
+
+
+## SOF-2B — Weekly Report atomic draft and cancellation policy (2026-10-23)
+
+- [x] Single transaction/client for User -> JobCard -> WeeklyReport locked draft
+  replacement, with current active actor/ownership/status/report-version fences.
+- [x] Remove standalone and pool-level draft writers; keep one authorized producer.
+- [x] Remove only STAFF WEEKLY_REPORT CANCEL, sharing canonical capabilities and
+  reservation/finalize policy; retain reasoned management CANCEL and exact replay.
+- [x] Preserve frozen history/PDF identity, ownership containment and SOF-1 priority.
+- Review gates: real PG17 both-order lock/concurrency matrix, weekly/offboarding
+  regressions, desktop/mobile smoke, exact-head Local CI 27/27 and verifier/cleanup.
+  Executed evidence is external and SHA/tree-bound; checkboxes describe branch
+  implementation, not a production rollout or an OF-02 closure.
+- SOF-2C actionable resolution UX, closure verification, OF-01/OF-09 and terminal
+  follow-up resolution remain separate. No migration, deploy or feature activation.

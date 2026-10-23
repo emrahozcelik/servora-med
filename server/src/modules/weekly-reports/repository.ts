@@ -12,7 +12,6 @@ import type {
 } from './types.js';
 import {
   parsePeriodStart,
-  validateDraftAnswers,
   validateDraftBody,
   validateManagerQuestions,
   validateSourceWorkSnapshot,
@@ -33,14 +32,6 @@ function forbidden(): AppError {
     'FORBIDDEN',
     403,
     'Bu işlem için yetkiniz bulunmuyor.',
-  );
-}
-
-function versionConflict(): AppError {
-  return new AppError(
-    'VERSION_CONFLICT',
-    409,
-    'Rapor başka bir işlem tarafından güncellendi.',
   );
 }
 
@@ -162,39 +153,6 @@ export type WeeklyDraftRowUpdate = {
   answers: ManagerAnswer[];
 };
 
-/**
- * Version-guarded draft replacement shared by the standalone repository and
- * the JobCard service path. Returns null on stale version (caller maps to
- * VERSION_CONFLICT). Complete replacement, never sparse merge.
- */
-export async function updateWeeklyReportDraftRow(
-  executor: WeeklyQueryable,
-  input: WeeklyDraftRowUpdate,
-): Promise<WeeklyReportRow | null> {
-  const result = await executor.query<WeeklyReportRow>(
-    `UPDATE weekly_reports
-        SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
-            draft_highlights = $6, draft_field_observations = $7,
-            draft_support_needed = $8, manager_answers = $9,
-            version = version + 1, updated_at = NOW()
-      WHERE organization_id = $1 AND id = $2 AND version = $10
-      RETURNING *`,
-    [
-      input.organizationId,
-      input.reportId,
-      input.draft.summary,
-      input.draft.blockers,
-      input.draft.nextWeekPlan,
-      input.draft.highlights,
-      input.draft.fieldObservations,
-      input.draft.supportNeeded,
-      JSON.stringify(input.answers),
-      input.expectedVersion,
-    ],
-  );
-  return result.rows[0] ?? null;
-}
-
 export async function listWeeklyReportSubmissionRows(
   executor: WeeklyQueryable,
   organizationId: string,
@@ -274,16 +232,6 @@ export type CreateWeeklyReportInput = {
   /** Local `YYYY-MM-DD`; must be a Monday. `periodEnd` derives as +6 days. */
   periodStart: string;
   questions: unknown;
-};
-
-export type UpdateWeeklyReportDraftInput = {
-  organizationId: string;
-  reportId: string;
-  /** Acting user; must equal the report's staff owner (staff authorship). */
-  staffUserId: string;
-  expectedVersion: number;
-  draft: unknown;
-  answers: unknown;
 };
 
 export type AppendWeeklyReportSubmissionInput = {
@@ -409,30 +357,6 @@ export class PostgresWeeklyReportRepository {
     );
     const row = result.rows[0];
     return row ? mapReport(row) : null;
-  }
-
-  async updateDraft(input: UpdateWeeklyReportDraftInput): Promise<WeeklyReport> {
-    const draft = validateDraftBody(input.draft);
-    const current = await this.pool.query<WeeklyReportRow>(
-      `SELECT * FROM weekly_reports WHERE organization_id = $1 AND id = $2`,
-      [input.organizationId, input.reportId],
-    );
-    const row = current.rows[0];
-    if (!row) throw notFound();
-    if (row.staff_user_id !== input.staffUserId) throw forbidden();
-    if (row.version !== input.expectedVersion) throw versionConflict();
-    const answers = validateDraftAnswers(row.manager_questions, input.answers);
-    const next = await updateWeeklyReportDraftRow(this.pool, {
-      organizationId: input.organizationId,
-      reportId: input.reportId,
-      expectedVersion: input.expectedVersion,
-      draft,
-      answers,
-    });
-    // Lost-update race between the read and the write: same deterministic
-    // conflict as a stale caller version.
-    if (!next) throw versionConflict();
-    return mapReport(next);
   }
 
   async appendSubmission(

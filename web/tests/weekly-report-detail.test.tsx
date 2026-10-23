@@ -76,7 +76,7 @@ function makeJob(overrides: Partial<JobCard> = {}): JobCard {
     customer: null, contact: null,
     workflowContext: {
       ...baseWorkflowContext,
-      allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+      allowedCommands: ['SUBMIT_FOR_APPROVAL'],
       allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
       startLocationCaptureEnabled: false,
       lifecycle: { ...baseWorkflowContext.lifecycle, startedAt: '2026-08-03T09:00:00.000Z' },
@@ -233,6 +233,25 @@ describe('WeeklyReportDetail', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
+
+  it('hides weekly cancellation when the canonical Staff capability omits CANCEL', async () => {
+    await render(staffUser);
+    expect(hasButton('İşi iptal et')).toBe(false);
+    expect(hasButton('Kontrole gönder')).toBe(true);
+    expect(jobsApi.cancelJobCard).not.toHaveBeenCalled();
+  });
+
+  it('retains reasoned manager cancellation when the server declares CANCEL', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({ workflowContext: {
+      ...baseWorkflowContext, allowedCommands: ['CANCEL'], allowedActions: ['VIEW_NOTES'],
+    } }));
+    await render(managerUser);
+    expect(hasButton('İşi iptal et')).toBe(true);
+    click(buttonByText('İşi iptal et'));
+    await flush();
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(jobsApi.cancelJobCard).not.toHaveBeenCalled();
+  });
 
   // 1
   it('marks the form dirty when a draft section is edited', async () => {

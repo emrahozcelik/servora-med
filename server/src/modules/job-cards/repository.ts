@@ -68,7 +68,6 @@ import type {
 } from '../weekly-reports/repository.js';
 import {
   listWeeklyReportSubmissionRows as selectWeeklySubmissions,
-  updateWeeklyReportDraftRow as applyWeeklyDraftRow,
   type WeeklyDraftRowUpdate,
 } from '../weekly-reports/repository.js';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -879,6 +878,8 @@ export interface JobCardTransaction extends SubmissionReader {
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
+  /** Draft replacement on this client; caller holds User, JobCard and report locks. */
+  updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate): Promise<WeeklyReportRow | null>;
   /**
    * Weekly Report row locked for a submit freeze. The caller holds the JobCard
    * lock; this adds the report-row lock so draft edits serialize against the
@@ -957,13 +958,6 @@ export interface JobCardRepository extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<readonly AssignmentHistoryRecord[]>;
-  /**
-   * Version-guarded weekly draft replacement (shared helper; null on stale
-   * version). Used by the WeeklyReport service draft path.
-   */
-  updateWeeklyReportDraftRow(
-    input: WeeklyDraftRowUpdate,
-  ): Promise<WeeklyReportRow | null>;
   /** Weekly submission rows in seq order (service history read). */
   listWeeklyReportSubmissionRows(
     organizationId: string,
@@ -2114,6 +2108,31 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate) {
+    const result = await this.client.query<WeeklyReportRow>(
+      `UPDATE weekly_reports
+          SET draft_summary = $3, draft_blockers = $4, draft_next_week_plan = $5,
+              draft_highlights = $6, draft_field_observations = $7,
+              draft_support_needed = $8, manager_answers = $9,
+              version = version + 1, updated_at = NOW()
+        WHERE organization_id = $1 AND id = $2 AND version = $10
+        RETURNING *`,
+      [
+        input.organizationId,
+        input.reportId,
+        input.draft.summary,
+        input.draft.blockers,
+        input.draft.nextWeekPlan,
+        input.draft.highlights,
+        input.draft.fieldObservations,
+        input.draft.supportNeeded,
+        JSON.stringify(input.answers),
+        input.expectedVersion,
+      ],
+    );
+    return result.rows[0] ?? null;
   }
 
   async getJobForUpdate(organizationId: string, jobCardId: string) {
@@ -4227,10 +4246,6 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
     weekEnd: Date;
   }) {
     return selectWeeklySourceWork(this.pool, input);
-  }
-
-  async updateWeeklyReportDraftRow(input: WeeklyDraftRowUpdate) {
-    return applyWeeklyDraftRow(this.pool, input);
   }
 
   async listWeeklyReportSubmissionRows(organizationId: string, reportId: string) {

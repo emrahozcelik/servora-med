@@ -141,7 +141,7 @@ exist as legacy history after migration; they are not written by new application
 - Assigned Staff, Manager, or Admin may explicitly withdraw an authorized
   `WAITING_APPROVAL` JobCard to `IN_PROGRESS`, edit it, and submit it again.
   Manager/Admin withdrawal is intentional management intervention, not a policy gap.
-- Assigned Staff may cancel their own JobCard in any active state with a non-empty reason;
+- Assigned Staff may cancel their own non-WEEKLY_REPORT JobCard in any active state with a non-empty reason;
   Manager/Admin retain the same authority for organization-visible active JobCards.
 - Sales Meeting result fields begin only after start; `NEW` and `ACCEPTED` meetings neither
   expose nor accept result writes. Assignment-stage notes are allowed in `NEW` and
@@ -167,14 +167,19 @@ Authorized same-organization management retains historical report reads for
 inactive Staff through the existing history paths, without widening Staff or
 tenant access.
 
-The accepted follow-on SOF-2B policy removes Staff cancellation for this report
-type only and serializes draft writes with lifecycle validation. It is **not
-implemented by SOF-2A**; the generic cancellation rule above remains the current
-implementation until that separate slice. Manager/Admin reasoned cancellation
-and other JobCard types are unchanged in SOF-2A. Independent replacement reports
-use the replacement Staff's own identity; new manager instructions/questions may
-be supplied, but the former owner's content/history is not copied. See the
-[accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
+SOF-2B implements manager-only cancellation for this report type: STAFF cannot
+issue a new WEEKLY_REPORT CANCEL in any unfinished status. MANAGER/ADMIN retain
+reasoned cancellation; other JobCard types keep their existing Staff permissions.
+Draft replacement is serialized with current user, JobCard and report validation
+in one transaction, editable only in ACCEPTED/IN_PROGRESS with the report's own
+expectedVersion. A committed incompatible transition prevents a delayed draft
+UPDATE. Exact successful historical receipts still replay without rewriting
+history or authorizing a new command.
+
+Independent replacement reports use the replacement Staff's own identity; new
+manager instructions/questions may be supplied, but the former owner's content
+and history are not copied. SOF-2C/closure verification remain separate and
+OF-02 stays open. See the [accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
 
 ### Lifecycle visibility and responsibility
 
