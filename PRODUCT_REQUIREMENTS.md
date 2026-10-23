@@ -155,6 +155,27 @@ exist as legacy history after migration; they are not written by new application
 - `COMPLETED` and `CANCELLED` JobCards are immutable in MVP.
 - Admin override and lifecycle reversal are outside MVP.
 
+### Weekly Report ownership amendment — SOF-2, 2026-10-22
+
+A `WEEKLY_REPORT` belongs to its original reporting Staff. Ordinary assignment
+changes, including management PATCH and offboarding transfer, must not separate
+the root assignee from that owner. An unfinished report linked through either
+identity blocks offboarding until explicit authorized resolution; legacy
+ownership mismatches are surfaced, never silently repaired. Original draft,
+submission/PDF content and historical personnel attribution are preserved.
+Authorized same-organization management retains historical report reads for
+inactive Staff through the existing history paths, without widening Staff or
+tenant access.
+
+The accepted follow-on SOF-2B policy removes Staff cancellation for this report
+type only and serializes draft writes with lifecycle validation. It is **not
+implemented by SOF-2A**; the generic cancellation rule above remains the current
+implementation until that separate slice. Manager/Admin reasoned cancellation
+and other JobCard types are unchanged in SOF-2A. Independent replacement reports
+use the replacement Staff's own identity; new manager instructions/questions may
+be supplied, but the former owner's content/history is not copied. See the
+[accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-ownership.md).
+
 ### Lifecycle visibility and responsibility
 
 The product must make the current JobCard phase, expected actor, and transition consequence

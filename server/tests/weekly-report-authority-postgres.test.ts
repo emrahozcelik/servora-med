@@ -151,7 +151,9 @@ describe.skipIf(!databaseUrl)('weekly report authority (PostgreSQL)', () => {
       ]) {
         await expect(service.patch(actor, created.jobCardId, {
           expectedVersion: detail.version, ...fields,
-        })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+        })).rejects.toMatchObject({
+          code: Object.hasOwn(fields, 'assignedTo') ? 'WEEKLY_REPORT_ASSIGNMENT_IMMUTABLE' : 'FORBIDDEN',
+        });
       }
       const row = (await pool.query(
         `SELECT title, description, due_date::text AS due_date, assigned_to

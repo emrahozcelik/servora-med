@@ -2501,6 +2501,13 @@ export class JobCardService {
       // a weekly report can never be attached to a customer or a calendar
       // interval.
       if (job.type === 'WEEKLY_REPORT') {
+        if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
+          throw new AppError(
+            'WEEKLY_REPORT_ASSIGNMENT_IMMUTABLE',
+            409,
+            'Haftalık raporun sahibi ve sorumlu personeli değiştirilemez.',
+          );
+        }
         const customerScoped = fields.customerId !== undefined && fields.customerId !== job.customerId
           || fields.contactId !== undefined && fields.contactId !== job.contactId
           || fields.scheduledAt !== undefined && fields.scheduledAt !== (job.scheduledAt ?? null)
