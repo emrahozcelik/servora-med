@@ -87,6 +87,7 @@ await withRetirementFixture(async f => {
       }
     }
     assert.equal((await f.pool.query('SELECT count(*)::int n FROM weekly_reports')).rows[0].n,11,'only the historical and ten explicit browser-created reports');
+    assert.equal((await f.pool.query('SELECT count(*)::int n FROM job_cards')).rows[0].n,11,'no automatic or orphan JobCards');
   } finally {await browser?.close();await vite.close();await writeFile(resolve(evidence,'browser-results.json'),JSON.stringify(results,null,2));}
 },resolve(evidence,'database'));
 console.log('WRRET_BROWSER_PASS',results.length);

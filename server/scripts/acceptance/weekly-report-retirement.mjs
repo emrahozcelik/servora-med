@@ -135,6 +135,7 @@ export async function verifyRetirement(f) {
   // Readiness is reached only after Fastify onReady hooks, including any worker
   // start hook. Each real command below adds a bounded DB/HTTP observation.
   assert.equal((await f.pool.query('SELECT count(*)::int n FROM weekly_reports')).rows[0].n,1);
+  assert.equal((await f.pool.query('SELECT count(*)::int n FROM job_cards')).rows[0].n,1,'no automatic JobCard at bootstrap');
   for(const [user,body] of [[f.staff,{periodStart:'2026-09-07'}],[f.manager,{periodStart:'2026-09-14',staffUserIds:[f.staff.id,f.secondStaff.id]}],[f.administrator,{periodStart:'2026-09-21',staffUserIds:[f.staff.id,f.secondStaff.id]}]]) {
     const bulk=!!body.staffUserIds;const path=`/api/job-cards/weekly-reports${bulk?'/bulk-request':''}`;
     const response=await f.request(user,path,{clientActionId:randomUUID(),...body});
@@ -153,4 +154,5 @@ export async function verifyRetirement(f) {
   assert.deepEqual(buildWeeklyReportPdfDocumentModel({submission,staffName:f.staff.name}),f.pdfModel);
   await f.unchanged('historical-read-and-pdf');
   assert.equal((await f.pool.query('SELECT count(*)::int n FROM weekly_reports')).rows[0].n,6,'only explicit historical and manual reports');
+  assert.equal((await f.pool.query('SELECT count(*)::int n FROM job_cards')).rows[0].n,6,'only explicit historical and manual JobCards');
 }
