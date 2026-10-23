@@ -115,7 +115,7 @@ async function withCriticalActionDeadline<T>(pool: Pool, claim: CriticalActionCl
  * transaction, persist the response, and replay the stored response on an
  * exact re-submission. A changed intent is `CLIENT_ACTION_REUSED`.
  *
- * The neutral DB helper is shared by JobCard/recurrence and CRM. The optional
+ * The neutral DB helper is shared by JobCard and CRM. The optional
  * transaction-local timeouts and request deadline are CRM's opt-in; existing callers omit them and
  * keep their previous behavior. Receipt completion must affect exactly one
  * row or the whole transaction rolls back.

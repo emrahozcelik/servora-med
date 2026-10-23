@@ -11,9 +11,9 @@ import { ServoraAntProvider } from '../src/ui/antd';
  * Visual/geometry fixture for the Weekly Report manager question editor. It
  * renders the REAL editor inside the real
  * `.task-create > .task-form > fieldset > .field-group` shell (plus the staff
- * bulk-action row and a recurrence template edit instance), so the browser
- * measures the actual cascade: the editor root is a `.field-group`, which is
- * exactly the condition that used to stretch the native checkbox.
+ * bulk-action row), so the browser measures the actual cascade: the editor root
+ * is a `.field-group`, which is exactly the condition that used to stretch the
+ * native checkbox.
  */
 function EditorInstance({ idPrefix }: { idPrefix: string }) {
   const [presetKeys, setPresetKeys] = useState<ReadonlySet<string>>(new Set());
@@ -59,20 +59,6 @@ function CreateScreenFixture() {
   </main>;
 }
 
-function RecurrenceEditFixture() {
-  return <section className="recurrence-manager" id="recurrence-manager">
-    <ul className="activity-list" id="recurrence-list">
-      <li data-recurrence-id="rec-1">
-        <span className="recurrence-staff">Ayşe Personel</span>
-        <div className="recurrence-edit" id="recurrence-edit-rec-1">
-          <span className="form-help">Bu değişiklik yalnızca bundan sonra oluşturulacak raporları etkiler.</span>
-          <EditorInstance idPrefix="recurrence-edit-rec-1" />
-        </div>
-      </li>
-    </ul>
-  </section>;
-}
-
 /**
  * Commit-gated readiness marker: React 19 commits asynchronously, so the
  * marker must be set from an effect (after the editor is in the DOM) rather
@@ -86,21 +72,11 @@ function ReadySignal() {
 }
 
 const createRootNode = document.getElementById('weekly-question-create-root');
-const recurrenceRootNode = document.getElementById('weekly-question-recurrence-root');
 
 if (createRootNode) {
   createRoot(createRootNode).render(
     <ServoraAntProvider>
       <CreateScreenFixture />
-      <ReadySignal />
-    </ServoraAntProvider>,
-  );
-}
-
-if (recurrenceRootNode) {
-  createRoot(recurrenceRootNode).render(
-    <ServoraAntProvider>
-      <RecurrenceEditFixture />
       <ReadySignal />
     </ServoraAntProvider>,
   );

@@ -538,9 +538,6 @@ export type WeeklyReportCreateResult = {
  * Internal result of the shared creation core. `existing` means an already
  * canonical report for that staff/week won the identity; the JobCard and
  * report ids point at that winner and no new row was written.
- *
- * Exported for the Slice 5 recurrence worker, which drives the same core
- * through {@link JobCardService.createOrResolveWeeklyReportForStaff} below.
  */
 export type WeeklyReportCreationOutcome =
   | {
@@ -1337,42 +1334,6 @@ export class JobCardService {
       jobStatus: job.status,
       realtimeEvents,
     };
-  }
-
-  /**
-   * Slice 5 recurrence occurrence creation. This is a deliberate, minimal
-   * exposure of the canonical primitive above — NOT a second implementation.
-   *
-   * The recurrence worker owns its own transaction (the recurrence row, the
-   * staff lock, the report and the schedule advance must commit together), so
-   * it supplies the transaction and the already-held staff lock exactly like
-   * the single-create and bulk-request callers do. Behaviour is identical:
-   * a locked pre-check hit returns `existing` without creating a JobCard, the
-   * report insert defers duplicate identity to the database unique constraint,
-   * and a newly created report is a manager-requested JobCard (`NEW`,
-   * `createdBy` = the supplied actor id, JOB_CREATED activity + realtime).
-   *
-   * `selfCreate` is always false: a recurrence is a manager-authorized request,
-   * so the generated report must never be pre-accepted on the staff's behalf.
-   */
-  async createOrResolveWeeklyReportForStaff(
-    transaction: JobCardTransaction,
-    actor: JobCardActor,
-    input: {
-      staffUserId: string;
-      periodStart: string;
-      periodEnd: string;
-      dueDate: string;
-      questions: ManagerQuestion[];
-      instructions: string | null;
-      clientActionId: string;
-      requestTime: Date;
-    },
-  ): Promise<WeeklyReportCreationOutcome> {
-    return this.createOrResolveWeeklyReportForStaffCore(transaction, actor, {
-      ...input,
-      selfCreate: false,
-    });
   }
 
   /**

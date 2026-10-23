@@ -42,10 +42,9 @@ export type ManagerQuestionPayload = { key: string; prompt: string };
 
 /**
  * The editor's current selection. Presets keep their semantic keys; custom
- * questions keep the stable key stored on their draft (minted once at
- * add-time, or the verbatim persisted key when editing a recurrence
- * template), so the same ambiguous request retry sends the exact same keys
- * and prompts. Keys are never synthesized from array position here.
+ * questions keep the stable key minted once at add-time, so the same ambiguous
+ * request retry sends the exact same keys and prompts. Keys are never
+ * synthesized from array position here.
  */
 export function collectManagerQuestions(
   selectedPresetKeys: ReadonlySet<string>,
@@ -70,9 +69,8 @@ export function promptCodePoints(prompt: string): number {
 }
 
 /**
- * Reusable manager-question editor for Weekly Report creation AND recurrence
- * template editing (one editor, not two unrelated ones; deliberately not a
- * generic dynamic-form framework). Renders the five canonical presets as
+ * Reusable manager-question editor for Weekly Report creation (one editor, not
+ * a generic dynamic-form framework). Renders the five canonical presets as
  * checkable options followed by free-text custom questions. Nothing is
  * selected by default; state lives in the caller so the frozen attempt can be
  * replayed verbatim on an ambiguous retry.

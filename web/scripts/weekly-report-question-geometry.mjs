@@ -28,7 +28,6 @@ const fixture = `<!doctype html>
   </head>
   <body>
     <div id="weekly-question-create-root"></div>
-    <div id="weekly-question-recurrence-root"></div>
     <script type="module" src="/scripts/weekly-report-question-fixture.tsx"></script>
   </body>
 </html>`;
@@ -296,7 +295,6 @@ async function runViewport(browser, baseUrl, viewport, failures) {
     if (overflowX) failures.push(`${viewport.name}: horizontal overflow`);
 
     const create = await measureEditor(page, '#weekly-questions');
-    const recurrence = await measureEditor(page, '#recurrence-edit-rec-1-questions');
     const bulk = await measureBulkActions(page);
     console.log(JSON.stringify({
       viewport: viewport.name,
@@ -318,7 +316,6 @@ async function runViewport(browser, baseUrl, viewport, failures) {
     }));
 
     failures.push(...editorFailures(create, viewport, `${viewport.name} create`));
-    failures.push(...editorFailures(recurrence, viewport, `${viewport.name} recurrence`));
     failures.push(...bulkActionFailures(bulk, `${viewport.name} bulk`));
 
     await page.screenshot({
