@@ -8,31 +8,18 @@ import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresSessionRevocationPort } from '../src/modules/auth/admin-ports.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
-import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
-import { JobCardService } from '../src/modules/job-cards/service.js';
-import { PeopleService } from '../src/modules/people/service.js';
 import { PostgresPeopleRepository } from '../src/modules/people/repository.js';
 import { PostgresStaffOffboardingService } from '../src/modules/people/offboarding.js';
-import { PostgresWeeklyReportRecurrenceRepository } from '../src/modules/weekly-reports/recurrence-repository.js';
-import { WeeklyReportRecurrenceService } from '../src/modules/weekly-reports/recurrence-service.js';
-import { createWeeklyReportRecurrenceWorker } from '../src/modules/weekly-reports/recurrence-worker.js';
+import { PeopleService } from '../src/modules/people/service.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
-
 const WEEK_A = '2026-10-05';
-/** Monday 12:00 Europe/Istanbul — WEEK_A is the current organization week. */
 const NOW = '2026-10-05T09:00:00.000Z';
-/**
- * Deterministic retry clock for directly inserted fixtures: one second
- * before the frozen test clock. Due-state must come from the injected clock,
- * never the database's real NOW().
- */
-const FIXTURE_DUE_AT = new Date(new Date(NOW).valueOf() - 1_000);
 
 async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
   const adminPool = new Pool({ connectionString: databaseUrl });
-  const schema = `wr5l_${randomUUID().replaceAll('-', '')}`;
+  const schema = `wrlegacy_${randomUUID().replaceAll('-', '')}`;
   let pool: Pool | null = null;
   try {
     await adminPool.query(`CREATE SCHEMA ${schema}`);
@@ -55,7 +42,7 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 async function insertOrg(pool: Pool): Promise<string> {
   return (await pool.query<{ id: string }>(
     `INSERT INTO organizations (name, timezone) VALUES ($1, 'Europe/Istanbul') RETURNING id`,
-    [`WR5L ${randomUUID()}`],
+    [`WR-LEGACY ${randomUUID()}`],
   )).rows[0]!.id;
 }
 
@@ -70,36 +57,36 @@ async function insertUser(
      ) VALUES ($1, $2, $3, 'test-hash', $4, TRUE, 'BUSINESS')
      RETURNING id, organization_id AS "organizationId", name, email, role,
        must_change_password AS "mustChangePassword", is_active AS "isActive", version`,
-    [organizationId, `WR5L ${role} ${randomUUID()}`, `${randomUUID()}@test.local`, role],
+    [organizationId, `WR-LEGACY ${role} ${randomUUID()}`, `${randomUUID()}@test.local`, role],
   )).rows[0]!;
   if (role === 'STAFF') {
     await pool.query(
       `INSERT INTO staff_profiles (organization_id, user_id, title)
-       VALUES ($1, $2, 'WR5L test staff')`,
+       VALUES ($1, $2, 'WR legacy test staff')`,
       [organizationId, row.id],
     );
   }
   return row;
 }
 
-async function userVersion(pool: Pool, userId: string): Promise<number> {
-  return (await pool.query<{ version: number }>(
-    `SELECT version FROM users WHERE id = $1`, [userId],
-  )).rows[0]!.version;
-}
-
+/** The rule is deliberately due in the past: any surviving writer would fire. */
 async function insertRule(
   pool: Pool,
-  input: { organizationId: string; staffUserId: string; requestedByUserId: string; nextPeriodStart: string },
+  input: { organizationId: string; staffUserId: string; requestedByUserId: string },
 ): Promise<string> {
   return (await pool.query<{ id: string }>(
     `INSERT INTO weekly_report_recurrences
        (organization_id, staff_user_id, requested_by_user_id, next_period_start,
         manager_questions, instructions, next_attempt_at)
-     VALUES ($1, $2, $3, $4, '[]', NULL, $5) RETURNING id`,
-    [input.organizationId, input.staffUserId, input.requestedByUserId, input.nextPeriodStart,
-      FIXTURE_DUE_AT],
+     VALUES ($1, $2, $3, $4, '[]', NULL, NOW() - INTERVAL '1 second') RETURNING id`,
+    [input.organizationId, input.staffUserId, input.requestedByUserId, WEEK_A],
   )).rows[0]!.id;
+}
+
+async function userVersion(pool: Pool, userId: string): Promise<number> {
+  return (await pool.query<{ version: number }>(
+    `SELECT version FROM users WHERE id = $1`, [userId],
+  )).rows[0]!.version;
 }
 
 function peopleService(pool: Pool): PeopleService {
@@ -116,32 +103,6 @@ function peopleService(pool: Pool): PeopleService {
   );
 }
 
-function recurrenceHarness(pool: Pool) {
-  const published: unknown[] = [];
-  const jobCardService = new JobCardService(
-    new PostgresJobCardRepository(pool),
-    () => new Date(NOW),
-    { publish: (event) => { published.push(event); } },
-    { enabled: false },
-    { enabled: false },
-    { enabled: false, reminderLeadMinutes: 30 },
-  );
-  const repository = new PostgresWeeklyReportRecurrenceRepository(pool);
-  const service = new WeeklyReportRecurrenceService(
-    repository, pool, jobCardService, () => new Date(NOW),
-  );
-  const worker = createWeeklyReportRecurrenceWorker(
-    repository,
-    service.createOccurrence,
-    {
-      now: () => new Date(NOW),
-      publisher: { publish: (event) => { published.push(event); } },
-      batchSize: 50,
-    },
-  );
-  return { worker, published };
-}
-
 async function ruleState(pool: Pool, id: string) {
   return (await pool.query<{
     enabled: boolean; disabled_reason: string | null; next_period_start: string;
@@ -153,20 +114,19 @@ async function ruleState(pool: Pool, id: string) {
   )).rows[0]!;
 }
 
-describe.skipIf(!databaseUrl)('weekly report recurrence staff lifecycle (PostgreSQL)', () => {
-  it('offboards a staff member with an active rule and the worker auto-pauses with no report', async () => {
+describe.skipIf(!databaseUrl)('legacy recurrence rows and staff lifecycle (PostgreSQL)', () => {
+  it('offboarding a staff member with an enabled legacy rule neither fails nor mutates the rule', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const admin = await insertUser(pool, organizationId, 'ADMIN');
       const manager = await insertUser(pool, organizationId, 'MANAGER');
       const staff = await insertUser(pool, organizationId, 'STAFF');
       const ruleId = await insertRule(pool, {
-        organizationId, staffUserId: staff.id, requestedByUserId: manager.id, nextPeriodStart: WEEK_A,
+        organizationId, staffUserId: staff.id, requestedByUserId: manager.id,
       });
 
-      // Offboarding must NOT fail merely because a recurrence exists, and it
-      // must NOT resolve the rule itself: the worker converges to auto-pause
-      // on its next run. No cross-module coupling was added.
+      // Retirement removed the worker. Offboarding must stay usable and must
+      // not invent a second resolver for the dormant rule.
       const offboarding = new PostgresStaffOffboardingService(
         pool, { disconnectUser: () => {} }, () => new Date(NOW),
       );
@@ -186,26 +146,19 @@ describe.skipIf(!databaseUrl)('weekly report recurrence staff lifecycle (Postgre
       await expect(ruleState(pool, ruleId)).resolves.toMatchObject({
         enabled: true, disabled_reason: null, next_period_start: WEEK_A,
       });
-
-      const { worker, published } = recurrenceHarness(pool);
-      expect(await worker.runOnce()).toBe(1);
-      expect(published).toHaveLength(0);
       await expect(pool.query(`SELECT id FROM weekly_reports WHERE staff_user_id = $1`, [staff.id]))
         .resolves.toMatchObject({ rows: [] });
-      await expect(ruleState(pool, ruleId)).resolves.toMatchObject({
-        enabled: false, disabled_reason: 'STAFF_INELIGIBLE', next_period_start: WEEK_A,
-      });
     });
   });
 
-  it('blocks permanent delete while an enabled rule targets the staff member', async () => {
+  it('blocks permanent delete while an enabled legacy rule targets the staff member', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const admin = await insertUser(pool, organizationId, 'ADMIN');
       const manager = await insertUser(pool, organizationId, 'MANAGER');
       const staff = await insertUser(pool, organizationId, 'STAFF');
       await insertRule(pool, {
-        organizationId, staffUserId: staff.id, requestedByUserId: manager.id, nextPeriodStart: WEEK_A,
+        organizationId, staffUserId: staff.id, requestedByUserId: manager.id,
       });
 
       const service = peopleService(pool);
@@ -222,14 +175,14 @@ describe.skipIf(!databaseUrl)('weekly report recurrence staff lifecycle (Postgre
     });
   });
 
-  it('pausing the rule unblocks delete and cleans the orphaned rule', async () => {
+  it('a paused legacy rule does not block delete and its orphan row is cleaned with the user', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const admin = await insertUser(pool, organizationId, 'ADMIN');
       const manager = await insertUser(pool, organizationId, 'MANAGER');
       const staff = await insertUser(pool, organizationId, 'STAFF');
       const ruleId = await insertRule(pool, {
-        organizationId, staffUserId: staff.id, requestedByUserId: manager.id, nextPeriodStart: WEEK_A,
+        organizationId, staffUserId: staff.id, requestedByUserId: manager.id,
       });
       await pool.query(
         `UPDATE weekly_report_recurrences
@@ -242,26 +195,22 @@ describe.skipIf(!databaseUrl)('weekly report recurrence staff lifecycle (Postgre
       await service.deleteUser(admin, staff.id, await userVersion(pool, staff.id));
       await expect(pool.query(`SELECT id FROM users WHERE id = $1`, [staff.id]))
         .resolves.toMatchObject({ rows: [] });
-      // The paused rule's target no longer exists, so the configuration row is
-      // removed with the user instead of orphaning a rule that can never run.
+      // Existing hard-delete cleanup for a paused rule whose target is gone.
       await expect(pool.query(`SELECT id FROM weekly_report_recurrences WHERE id = $1`, [ruleId]))
         .resolves.toMatchObject({ rows: [] });
     });
   });
 
-  it('retains the authorizing manager as business history while the rule exists', async () => {
+  it('retains the authorizing manager as business history while the legacy rule exists', async () => {
     await withSchema(async (pool) => {
       const organizationId = await insertOrg(pool);
       const admin = await insertUser(pool, organizationId, 'ADMIN');
       const manager = await insertUser(pool, organizationId, 'MANAGER');
       const staff = await insertUser(pool, organizationId, 'STAFF');
       await insertRule(pool, {
-        organizationId, staffUserId: staff.id, requestedByUserId: manager.id, nextPeriodStart: WEEK_A,
+        organizationId, staffUserId: staff.id, requestedByUserId: manager.id,
       });
 
-      // The manager authorized nothing else: no JobCard, no audit event, no
-      // assignment. The recurrence requester identity alone is history, exactly
-      // like a JobCard creator.
       const service = peopleService(pool);
       await expect(service.getUser(admin, manager.id)).resolves.toMatchObject({
         canPermanentlyDelete: false,

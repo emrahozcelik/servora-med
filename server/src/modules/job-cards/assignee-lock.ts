@@ -10,13 +10,13 @@ import type { JobCardAssignee } from './types.js';
  * overlapping staff therefore serialize on the same lock sequence regardless
  * of the order the caller supplied them in, which is what makes "exactly one
  * canonical WeeklyReport per staff/week" hold across the single create, the
- * manager bulk request, the STAFF self-create and the recurrence worker.
+ * manager bulk request and the STAFF self-create.
  *
  * Extracted from `JobCardService.lockUsersInOrder` (verbatim semantics) so the
- * WeeklyReport recurrence service can participate in the SAME contract without
+ * WeeklyReport and Sale writers can participate in the SAME contract without
  * reaching into the JobCard service. The `transaction` argument is structural:
  * anything exposing `getAssigneeForUpdate` qualifies, including the JobCard
- * transaction and the recurrence worker's own transaction.
+ * transaction.
  */
 export type AssigneeLockReader = {
   getAssigneeForUpdate(

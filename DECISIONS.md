@@ -1527,6 +1527,9 @@ slice; no merge performed here.
   P1/P2/P5 red), M2 (guard applied globally → P4 red), M3 (NEW-status
   exemption, exactly what a recurrence worker produces → P5 red); all
   reverted, tree restored.
+- **Retired 2026-10-23:** automatic recurrence scheduling is retired as a product
+  capability; the Slice 5 record above stays traceable and unrewritten. See the
+  [recurrence retirement amendment](#weekly-report-recurrence-retirement--2026-10-23).
 ## Customer phone required for interactive creation — 2026-10-01
 
 A user creating a new customer through the normal product UX must supply a name
@@ -1887,6 +1890,47 @@ CHECK/unique, Contact primary rules and STAFF CRM rights remain unchanged.
 Production rollout remains disabled by default and requires exact-head evidence,
 strict schema compatibility and separately approved secret/migration/deployment
 steps. 4B, WR-01 and Issue #369 are not decided by this record.
+
+## Weekly Report recurrence retirement — 2026-10-23
+
+Status: Accepted product decision; code retirement implemented, independent review
+pending.
+
+Automatic weekly-report recurrence is retired permanently. Manual weekly reports
+remain. This supersedes only the automation parts of the
+"Weekly Report V1 Slice 5 recurring weekly requests" record; that record stays
+traceable and is not rewritten.
+
+- Removed: recurrence service/routes/worker/repository/input/types, app and
+  production wiring, the worker-only creation bridge, the manager recurring create
+  mode, the recurrence manager screen, recurrence API client/parsers and
+  recurrence-only tests.
+- Retained: STAFF manual create, MANAGER/ADMIN one-time bulk request, questions,
+  draft, submission, revision, approval, manager-only cancellation, SOF-2A
+  ownership and offboarding blockers, SOF-2B atomic draft, staff/week uniqueness,
+  idempotency, historical submissions, frozen PDF models, personnel attribution
+  and reporting integration.
+- Database: migration `052_weekly_report_recurrence`, the
+  `weekly_report_recurrences` table and every existing row remain untouched. This
+  retirement adds no migration. 052 is applied history and must not be edited,
+  renumbered or squashed.
+- Staff lifecycle: `server/src/modules/people/repository.ts` retains the
+  enabled-rule permanent-delete blocker, the requester business-history identity
+  and the paused-rule cleanup on hard delete. These guard dormant historical rows
+  and preserve foreign-key and accountability integrity; they are not a
+  recurrence management surface.
+- Deployment and rollback gate: production deployment is NO-GO until an
+  authorized read-only inspection establishes the enabled-rule set; production
+  must never be assumed to have zero enabled rules. If enabled rules exist, a
+  separately approved rule-quiescence procedure must complete before the retiring
+  release is deployed. An older release can restart its recurrence worker and
+  process stored enabled rules on its next tick, so rollback to such a release is
+  equally gated.
+- Residual unknown: an enabled legacy rule that survives deployment stays dormant
+  (no writer exists in this release) but keeps permanent delete blocked for that
+  staff member until quiescence.
+- No generic scheduler, replacement background worker, feature flag or
+  compatibility fallback is introduced by this retirement.
 
 ## SOF-2 Weekly Report ownership and resolution — 2026-10-22
 

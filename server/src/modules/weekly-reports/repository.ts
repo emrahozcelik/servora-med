@@ -268,7 +268,7 @@ export class PostgresWeeklyReportRepository {
    *
    * Every production writer of `weekly_reports`
    * (`JobCardService.createWeeklyReport` and `bulkRequestWeeklyReports`) goes
-   * through `createOrResolveWeeklyReportForStaff`, which takes
+   * through the private creation core, which takes
    * `lockUsersInOrder` → `getAssigneeForUpdate` before inserting, so two
    * concurrent creates for the same staff/week serialize on the `users` row.
    * This method instead issues a bare `INSERT … RETURNING *` with no such
@@ -281,7 +281,7 @@ export class PostgresWeeklyReportRepository {
    * Today it is reachable only from its own contract test
    * (`tests/weekly-report-repository-postgres.test.ts`); `app.ts` wires the
    * JobCard path only. Before any production wiring, either route the caller
-   * through `createOrResolveWeeklyReportForStaff` or take the same ordered user
+   * through the shared creation core or take the same ordered user
    * lock here. Left in place (not deleted, not refactored) to keep the change
    * surgical.
    */

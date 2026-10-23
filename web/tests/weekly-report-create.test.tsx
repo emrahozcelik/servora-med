@@ -332,7 +332,7 @@ describe('Weekly report create screen', () => {
     expect((host.querySelector('#weekly-clear-staff-selection') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  // --- Termin removal (both modes) ---
+  // --- Termin removal (single and bulk commands) ---
 
   it('one-time mode has no editable termin field anywhere', async () => {
     await render(manager);
@@ -341,18 +341,11 @@ describe('Weekly report create screen', () => {
     expect(host.textContent).not.toContain('isteğe bağlı, varsayılan');
   });
 
-  it('recurring mode has no editable termin field anywhere', async () => {
+  it('offers no automatic/recurring mode control', async () => {
     await render(manager);
-    await act(async () => {
-      (host.querySelector('#weekly-mode-recurring') as HTMLButtonElement)
-        .dispatchEvent(new Event('click', { bubbles: true }));
-    });
-    await flush();
-    expect(host.querySelector('#weekly-due')).toBeNull();
-    expect(host.querySelector('input[name="dueDate"]')).toBeNull();
-    // Even the old fixed display block is gone: the canonical deadline lives in
-    // the intro text, not an actionable-looking field.
-    expect(host.querySelector('#weekly-recurring-due')).toBeNull();
+    expect(host.querySelector('#weekly-mode')).toBeNull();
+    expect(host.querySelector('#weekly-mode-recurring')).toBeNull();
+    expect(host.textContent).not.toContain('Her hafta otomatik');
     expect(host.querySelector('#weekly-due-derived')).toBeNull();
   });
 

@@ -15,7 +15,6 @@ import {
 import type { BackupHealthReadinessPort } from './modules/health/service.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
-import { PostgresWeeklyReportRecurrenceRepository } from './modules/weekly-reports/recurrence-repository.js';
 import {
   AuthCredentialAdministration,
   PostgresSessionRevocationPort,
@@ -131,12 +130,6 @@ async function main() {
       jobCardRepository: jobCards,
       jobHistoryReadPort: jobCards,
       weeklyReportHistoryReadPort: jobCards,
-      // Slice 5: recurring weekly report rules. The app builds the service and
-      // the worker from this repository, reusing the canonical WeeklyReport
-      // creation primitive. No feature flag: an empty table is a safe no-op.
-      weeklyReportRecurrenceRepository: new PostgresWeeklyReportRecurrenceRepository(
-        database.pool,
-      ),
       peopleRepository: new PostgresPeopleRepository(
         database.pool, credentials, sessions, customerAssignments,
       ),
