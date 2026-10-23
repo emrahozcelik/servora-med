@@ -1,6 +1,7 @@
-# Weekly Report ownership containment — SOF-2A
+# Weekly Report ownership and atomic draft policy — SOF-2A / SOF-2B
 
-Status: accepted product policy, 2026-10-22. Implementation scope is SOF-2A only.
+Status: accepted product policy, 2026-10-22; SOF-2B implementation amendment,
+2026-10-23. SOF-2C remains separate.
 
 ## Ownership and authorization
 
@@ -47,9 +48,9 @@ also fences out typed weekly roots and roots attached to a WeeklyReport row.
 
 ## Explicit follow-on boundaries
 
-- SOF-2B: accepted manager-only WeeklyReport cancellation and transactional
-  draft/status/owner validation. Neither is implemented by 2A. Other JobCard
-  cancellation policy is unchanged.
+- SOF-2B: manager-only WeeklyReport cancellation and atomic draft validation
+  are implemented by the separate amendment below. Other JobCard cancellation
+  policy remains unchanged.
 - SOF-2C: actionable report links, management resolution and fresh-plan journey.
 - Replacement: a normal independent report for the new Staff/week. Former draft,
   answers and history are not copied; explicitly entered new instructions and
@@ -65,3 +66,44 @@ priority, forged decisions, no partial mutation, normal non-weekly transfers,
 stale review/exact replay, competing writers, role/tenant isolation and complete
 blocker detection with 1/50/201 records. Exact-head CI and available error-UI
 browser smoke are required before review; no migration or dependency is needed.
+
+
+## SOF-2B atomic draft and cancellation amendment
+
+Draft replacement uses the existing JobCard repository transaction with locks in
+this order: current user `FOR SHARE`, root `FOR UPDATE`, WeeklyReport `FOR UPDATE`.
+The active STAFF role and tenant are re-read, and the current root must be a
+WEEKLY_REPORT assigned to the actor with the same original reporting owner.
+Missing rows and historical owner/assignee mismatches fail closed; no repair.
+Only ACCEPTED/IN_PROGRESS may write. Validation of frozen questions/answers and
+the report's expectedVersion occurs under the locks; SQL keeps its version fence
+and executes on that transaction client. JobCard version is not substituted.
+
+Draft-first and lifecycle-first execution serialize at the root. A preceding
+CANCEL, SUBMIT, APPROVE or REQUEST_REVISION leaves the draft locked; RESUME may
+make it editable again, subject to the fresh report version. Full replacements
+never silently merge content. Stale or future versions conflict without UPDATE.
+A late error rolls back draft, report version and all transactional effects.
+Ordinary drafts create no lifecycle activity or processed-action receipt.
+
+The existing user snapshot primitive supplies `FOR SHARE`: it blocks role and
+deactivation changes, but is compatible with SUBMIT/standalone note author SHARE
+locks. Weekly manual reminders take that same target snapshot before the root
+and avoid a later lock upgrade. Non-weekly reminder behavior is unchanged.
+Standalone WeeklyReport `updateDraft`, pool-level JobCard draft UPDATE and the
+Pool-capable shared update helper are removed; only the locked transaction
+exposes draft SQL. Repository test fixtures now write via the authorized service.
+
+STAFF cannot issue a new CANCEL for any of the five unfinished WEEKLY_REPORT
+statuses. The same canonical command policy drives UI capabilities, reservation
+preflight and locked finalize. MANAGER/ADMIN keep existing reasoned CANCEL;
+activity, reason notes, actor and receipt semantics remain. Other JobCard types
+retain their cancellation policy. A successful pre-amendment scoped receipt
+replays before fresh policy validation; a pending old reservation is not approval
+for a new Staff cancellation. Unknown-outcome/recovery rules are not expanded.
+
+Frozen seq1/seq2 submissions, submittedBy, PDF models and original attribution
+remain unchanged. Original Staff/week uniqueness, independent replacement
+creation, SOF-2A both-owner blockers and SOF-1 terminal-proposal priority remain.
+OF-02 stays open pending SOF-2C and closure verification. No migration or new
+front-end authorization rule is needed: WeeklyReport UI uses canonical commands.

@@ -69,7 +69,8 @@ export function getAllowedLifecycleCommands(
       ? ['WITHDRAW_FROM_APPROVAL', 'CANCEL']
       : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
   })() as LifecycleCommand[];
-  return commands.filter(timeEligible);
+  return commands.filter((command) => timeEligible(command)
+    && !(command === 'CANCEL' && actor.role === 'STAFF' && job.type === 'WEEKLY_REPORT'));
 }
 
 export function getAllowedJobActions(

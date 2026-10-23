@@ -296,6 +296,25 @@ WeeklyReport reassignment is rejected at the locked PATCH boundary as
 version/update semantics without assignment history or acceptance reset. See
 [SOF-2 ownership and detail fields](docs/features/staff-offboarding-weekly-report-ownership.md).
 
+SOF-2B WeeklyReport draft/cancellation contract:
+
+- Draft PATCH retains complete replacement and the WeeklyReport's own
+  `expectedVersion`; it is not the JobCard version. One transaction locks the
+  current Staff user (`FOR SHARE`), root (`FOR UPDATE`) and report (`FOR UPDATE`),
+  validates tenant, active STAFF role, assignee/original owner and
+  ACCEPTED/IN_PROGRESS status, then writes through that same client.
+- A non-editable current status returns `409 WEEKLY_REPORT_DRAFT_LOCKED` before
+  UPDATE; stale/future report versions return `409 VERSION_CONFLICT`. Unauthorized
+  authors remain 403, inaccessible/missing reports 404. No draft-only lifecycle
+  activity or processed-action receipt is introduced.
+- STAFF WEEKLY_REPORT CANCEL is absent from canonical `workflowContext.allowedCommands`
+  and rejected by reservation preflight and locked finalize as
+  `409 INVALID_TRANSITION`. Existing reasoned MANAGER/ADMIN cancellation remains;
+  non-weekly permissions are unchanged. Exact completed historical scoped intent
+  receipts replay before fresh authorization; different intent hashes still fail.
+- Frozen submission/PDF content and owner attribution are preserved. No new
+  endpoint, migration, replacement flow or OF-09 recovery behavior is introduced.
+
 `reasonCode` is one of `ACCESS_ENDED`, `ROLE_CHANGED`, `ACCOUNT_CORRECTION`, or `OTHER_ADMINISTRATIVE`; replacement users must be active Staff in the same organization. A changed plan returns `409 STALE_PLAN`; reusing a `clientActionId` for different input returns `409 CLIENT_ACTION_REUSED`. The response is `{ status: "OFFBOARDED", targetUserId, planHash, summary }`.
 
 

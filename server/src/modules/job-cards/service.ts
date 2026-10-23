@@ -1545,29 +1545,46 @@ export class JobCardService {
     input: { expectedVersion: number; draft: unknown; answers: unknown },
     includeSaleCapability = true,
   ): Promise<WeeklyReportDetail> {
-    const { job, report } = await this.loadWeeklyReportContext(actor, jobCardId);
-    if (actor.role !== 'STAFF' || actor.id !== report.staffUserId) {
+    if (actor.role !== 'STAFF') {
       throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
     }
-    if (job.status !== 'ACCEPTED' && job.status !== 'IN_PROGRESS') {
-      throw new AppError(
-        'WEEKLY_REPORT_DRAFT_LOCKED',
-        409,
-        'Rapor taslağı bu aşamada düzenlenemez.',
-      );
-    }
-    const draft = validateDraftBody(input.draft);
-    const answers = validateDraftAnswers(report.questions, input.answers);
-    const updated = await this.repository.updateWeeklyReportDraftRow({
-      organizationId: actor.organizationId,
-      reportId: report.id,
-      expectedVersion: input.expectedVersion,
-      draft,
-      answers,
+    await this.repository.executeTransaction(async (tx) => {
+      // User -> JobCard -> WeeklyReport. Reuse the FOR SHARE user snapshot:
+      // it fences role/deactivation changes while remaining compatible with
+      // SUBMIT's note-author SHARE lock under the JobCard lock.
+      const currentActor = await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
+      if (!currentActor?.isActive || currentActor.role !== 'STAFF') {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+      if (!job || job.type !== 'WEEKLY_REPORT' || job.assignedTo !== actor.id) {
+        throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+      }
+      const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, jobCardId);
+      if (!row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+      const report = mapReport(row);
+      if (report.staffUserId !== actor.id) {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      if (job.status !== 'ACCEPTED' && job.status !== 'IN_PROGRESS') {
+        throw new AppError('WEEKLY_REPORT_DRAFT_LOCKED', 409, 'Rapor taslağı bu aşamada düzenlenemez.');
+      }
+      if (report.version !== input.expectedVersion) {
+        throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+      }
+      const draft = validateDraftBody(input.draft);
+      const answers = validateDraftAnswers(report.questions, input.answers);
+      const updated = await tx.updateWeeklyReportDraftRow({
+        organizationId: actor.organizationId,
+        reportId: report.id,
+        expectedVersion: input.expectedVersion,
+        draft,
+        answers,
+      });
+      if (!updated) {
+        throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+      }
     });
-    if (!updated) {
-      throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
-    }
     return this.getWeeklyReport(actor, jobCardId, includeSaleCapability);
   }
 
@@ -3334,8 +3351,18 @@ export class JobCardService {
         operationKey,
       },
       async (tx) => {
+        // Match weekly draft User -> JobCard order. SHARE also stays
+        // compatible with lifecycle/standalone note-author SHARE locks;
+        // never upgrade this target lock beneath the root lock.
+        const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+        const weeklyTarget = snapshot?.type === 'WEEKLY_REPORT'
+          ? await tx.getNoteAuthorSnapshot(actor.organizationId, snapshot.assignedTo)
+          : null;
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (snapshot?.type === 'WEEKLY_REPORT' && snapshot.assignedTo !== job.assignedTo) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
         if (job.version !== input.expectedVersion) {
           throw new AppError(
             'VERSION_CONFLICT',
@@ -3361,7 +3388,9 @@ export class JobCardService {
           );
         }
         const canonical = open[0]!;
-        const target = await tx.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
+        const target = snapshot?.type === 'WEEKLY_REPORT'
+          ? weeklyTarget
+          : await tx.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
         if (target === null || !target.isActive || target.role !== 'STAFF') {
           throw new AppError(
             'SUBMISSION_REMINDER_TARGET_UNPROVABLE',
