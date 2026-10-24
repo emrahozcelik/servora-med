@@ -229,6 +229,8 @@ describe.skipIf(!databaseUrl)('SOF-2A WeeklyReport ownership (PostgreSQL)', () =
       const error = await blocker(() => f.offboarding.preview(f.admin, f[target].id));
       expect(error.details).toMatchObject({ weeklyReports: { total: 1,
         items: [{ jobCardId: id, staffUserId: f.a.id, assignedTo: f.b.id, reason: 'OWNER_ASSIGNEE_MISMATCH' }] } });
+      expect(await f.offboarding.listWeeklyReportBlockers(f.admin, f[target].id, 50, null))
+        .toEqual((error.details as { weeklyReports: unknown }).weeklyReports);
       await blocker(() => f.offboarding.execute(f.admin, f[target].id, decisions(f, oldPlan)));
       expect(await snapshot(f)).toEqual(before);
     }));
@@ -241,6 +243,8 @@ describe.skipIf(!databaseUrl)('SOF-2A WeeklyReport ownership (PostgreSQL)', () =
       else await f.pool.query("UPDATE job_cards SET type = 'GENERAL_TASK' WHERE id = $1", [id]);
       const before = await snapshot(f); const error = await blocker(() => f.offboarding.preview(f.admin, f.a.id));
       expect(error.details).toMatchObject({ weeklyReports: { total: 1, items: [{ jobCardId: id, reason: corruption }] } });
+      expect(await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 50, null))
+        .toEqual((error.details as { weeklyReports: unknown }).weeklyReports);
       await blocker(() => f.offboarding.execute(f.admin, f.a.id, decisions(f, oldPlan)));
       expect(await snapshot(f)).toEqual(before);
     }));
@@ -349,7 +353,7 @@ describe.skipIf(!databaseUrl)('SOF-2A WeeklyReport ownership (PostgreSQL)', () =
     expect(await snapshot(f)).toEqual(before);
   }));
 
-  for (const count of [1, 50, 201]) {
+  for (const count of [1, 50, 51, 201]) {
     it(`counts every one of ${count} blockers with bounded deterministic metadata`, async () => withFixture(async (f) => {
       const empty = await f.offboarding.preview(f.admin, f.a.id);
       const expected: { id: string; period: string }[] = [];
@@ -369,9 +373,81 @@ describe.skipIf(!databaseUrl)('SOF-2A WeeklyReport ownership (PostgreSQL)', () =
         items: expected.sort((a, b) => a.period.localeCompare(b.period)).slice(0, 50).map((row) => ({ jobCardId: row.id, periodStart: row.period })) } });
       expect((await blocker(() => f.offboarding.preview(f.admin, f.a.id))).details).toEqual(error.details);
       expect((await blocker(() => f.offboarding.execute(f.admin, f.a.id, decisions(f, empty)))).details).toEqual(error.details);
+      const seen: string[] = [];
+      let after: { jobCardId: string; periodStart: string | null } | null = null;
+      do {
+        const page = await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 50, after);
+        expect(page.total).toBe(count);
+        expect(page.items.length).toBeLessThanOrEqual(50);
+        expect(JSON.stringify(page)).not.toContain(draft.summary);
+        seen.push(...page.items.map((item) => item.jobCardId));
+        after = page.hasMore ? page.items.at(-1)! : null;
+      } while (after);
+      expect(seen).toEqual(expected.map((item) => item.id));
       expect(await snapshot(f)).toEqual(before);
     }));
   }
+
+  it('uses the ordering key after a concurrent resolution or deleted anchor', async () => withFixture(async (f) => {
+    const ids = [await weekly(f, 'NEW', '2026-08-03')];
+    for (const period of ['2026-08-10', '2026-08-17']) {
+      const root = (await f.pool.query<{ id: string }>(`INSERT INTO job_cards
+        (organization_id, type, status, title, assigned_to, created_by)
+        VALUES ($1, 'WEEKLY_REPORT', 'NEW', 'Haftalık klinik raporu', $2, $3) RETURNING id`,
+      [f.org, f.a.id, f.manager.id])).rows[0]!;
+      await f.pool.query(`INSERT INTO weekly_reports
+        (organization_id, job_card_id, staff_user_id, period_start, period_end)
+        VALUES ($1, $2, $3, $4::date, $4::date + 6)`, [f.org, root.id, f.a.id, period]);
+      ids.push(root.id);
+    }
+    const first = await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 1, null);
+    expect(first.items[0]?.jobCardId).toBe(ids[0]);
+    await f.jobs.cancel(f.manager, ids[0]!, {
+      clientActionId: randomUUID(), expectedVersion: 1, cancelReason: 'İş değişikliği nedeniyle iptal.',
+    });
+    const shifted = await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 1, first.items[0]!);
+    expect(shifted.total).toBe(2);
+    expect(shifted.items[0]?.jobCardId).toBe(ids[1]);
+    await f.pool.query('DELETE FROM weekly_reports WHERE job_card_id = $1', [ids[1]]);
+    await f.pool.query('DELETE FROM job_cards WHERE id = $1', [ids[1]]);
+    const afterDeletion = await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 1, shifted.items[0]!);
+    expect(afterDeletion.total).toBe(1);
+    expect(afterDeletion.items.map((item) => item.jobCardId)).toEqual([ids[2]]);
+  }));
+
+  it('pages missing-report roots by id after dated blockers without inventing report identities', async () => withFixture(async (f) => {
+    const dated = await weekly(f, 'NEW');
+    const missing = (await f.pool.query<{ id: string }>(`INSERT INTO job_cards
+      (organization_id, type, status, title, assigned_to, created_by)
+      SELECT $1, 'WEEKLY_REPORT', 'NEW', 'Tarihsel rapor kaydı eksik', $2, $3
+      FROM generate_series(1, 2) RETURNING id`, [f.org, f.a.id, f.manager.id])).rows
+      .map((row) => row.id).sort();
+    let cursor: { jobCardId: string; periodStart: string | null } | null = null;
+    for (const id of [dated, ...missing]) {
+      const page = await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 1, cursor);
+      expect(page.total).toBe(3);
+      expect(page.items[0]?.jobCardId).toBe(id);
+      cursor = page.items[0]!;
+      if (id !== dated) expect(page.items[0]).toMatchObject({
+        reason: 'MISSING_REPORT', reportId: null, staffUserId: null, periodStart: null, reportVersion: null,
+      });
+    }
+    expect((await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 1, cursor)).items).toEqual([]);
+  }));
+
+  it('isolates the read-only blocker list by role, target and tenant', async () => withFixture(async (f) => {
+    const id = await weekly(f);
+    const before = await snapshot(f);
+    expect(await f.offboarding.listWeeklyReportBlockers(f.admin, f.a.id, 50, null))
+      .toMatchObject({ total: 1, items: [{ jobCardId: id, reason: 'UNFINISHED' }] });
+    await expect(f.offboarding.listWeeklyReportBlockers(f.manager, f.a.id, 50, null))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(f.offboarding.listWeeklyReportBlockers(f.a, f.a.id, 50, null))
+      .rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(f.offboarding.listWeeklyReportBlockers(f.foreign, f.a.id, 50, null))
+      .rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
+    expect(await snapshot(f)).toEqual(before);
+  }));
 
   for (const lock of ['root', 'user'] as const) {
     it(`serializes competing PATCH/offboarding behind the actual ${lock} row lock`, async () => withFixture(async (f) => {

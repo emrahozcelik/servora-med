@@ -726,3 +726,22 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   implementation, not a production rollout or an OF-02 closure.
 - SOF-2C actionable resolution UX, closure verification, OF-01/OF-09 and terminal
   follow-up resolution remain separate. No migration, deploy or feature activation.
+
+## SOF-2C — Weekly Report actionable resolution (2026-10-24)
+
+- [x] Present validated WeeklyReport blocker metadata and normal JobCard links
+  inside the existing Admin offboarding workflow; keep integrity cases closed.
+- [x] Add bounded, Admin/tenant-scoped, read-only cursor pages beyond the first
+  50 records and require fresh preview after manual resolution.
+- [x] Preserve exact-intent attempt recovery and use only existing management
+  lifecycle commands and independent manual report creation.
+- Review gates: focused PG17/frontend tests, real desktop/mobile browser flow,
+  full builds/tests/ops checks and exact committed-head Local CI 27/27 with
+  verifier and cleanup. Evidence is external and SHA/tree-bound; these
+  checkboxes describe branch implementation, not production rollout.
+  The real-browser entrypoint is `node web/scripts/sof2c-actionable-resolution-browser.mjs`
+  with an explicit isolated PG17 `TEST_DATABASE_URL`; it starts real Fastify,
+  Vite and Chromium and writes screenshots/results outside the checkout.
+- OF-02 integrated closure, OF-01/OF-09, terminal proposal resolution and
+  historical integrity repair remain separate. Production and recurrence
+  rollback gates are unchanged.

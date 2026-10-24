@@ -256,6 +256,7 @@ Logout is safe to repeat. It revokes the current session when present and clears
 | POST | `/:userId/deactivate` | admin | deactivate an eligible user and revoke all sessions |
 | POST | `/:userId/reset-password` | admin | set an Admin-provided temporary password and revoke all sessions |
 | POST | `/:userId/offboarding/preview` | admin | return the current Staff responsibility plan |
+| GET | `/:userId/offboarding/weekly-report-blockers` | admin | read a bounded metadata page of unresolved WeeklyReport blockers |
 | POST | `/:userId/offboarding/execute` | admin | apply an exact, idempotent Staff offboarding plan |
 
 Staff reads their identity through `/api/auth/me` and profile through `/api/staff/me`.
@@ -295,6 +296,14 @@ WeeklyReport reassignment is rejected at the locked PATCH boundary as
 `409 WEEKLY_REPORT_ASSIGNMENT_IMMUTABLE`. Same-value PATCH retains existing
 version/update semantics without assignment history or acceptance reset. See
 [SOF-2 ownership and detail fields](docs/features/staff-offboarding-weekly-report-ownership.md).
+
+The SOF-2C metadata continuation accepts `limit=1..50` (default 50), and an
+exclusive `afterJobCardId=<uuid>&afterPeriodStart=<YYYY-MM-DD|null>` cursor.
+Both cursor fields are required together. It rechecks active Admin and target
+Staff in the same organization and returns the 409's `weeklyReports` shape in
+a read-only response. Each page has a consistent total; clients must refresh
+the authoritative offboarding preview after any resolution or changed page.
+No draft or historical submission content is returned.
 
 SOF-2B WeeklyReport draft/cancellation contract:
 

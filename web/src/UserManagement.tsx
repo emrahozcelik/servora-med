@@ -113,9 +113,9 @@ function permanentDeleteUnavailableMessage(user: UserDetailRecord) {
   return null;
 }
 
-export function UserDetailView({ user: initial, viewerRole, onChanged, onDeleted }: {
+export function UserDetailView({ user: initial, viewerRole, onChanged, onDeleted, startWithFreshPreview = false }: {
   user: UserDetailRecord; viewerRole: ManagedUser['role'];
-  onChanged: (user: ManagedUser) => void; onDeleted?: () => void;
+  onChanged: (user: ManagedUser) => void; onDeleted?: () => void; startWithFreshPreview?: boolean;
 }) {
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [deletePending, setDeletePending] = useState(false);
@@ -147,6 +147,7 @@ export function UserDetailView({ user: initial, viewerRole, onChanged, onDeleted
           <input id="reset-password" name="temporaryPassword" type="password" minLength={NEW_PASSWORD_MIN_LENGTH} maxLength={NEW_PASSWORD_MAX_LENGTH} required aria-describedby="reset-password-hint" /></Field>
         <button className="secondary-button command-button">Parolayı sıfırla</button></form>
       {viewerRole === 'ADMIN' && user.role === 'STAFF' && <StaffOffboardingWorkflow target={user}
+        startWithFreshPreview={startWithFreshPreview}
         onCompleted={() => {
           setNotice('Personel erişimi sonlandırıldı.');
           getUser(user.id).then((next) => { setUser(next); onChanged(next); }).catch(() => {
@@ -199,6 +200,7 @@ export function UserCreateScreen() {
 export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role'] }) {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const [user, setUser] = useState<UserDetailRecord | null>(null);
   const [error, setError] = useState('');
@@ -225,6 +227,7 @@ export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role
   if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
     action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
   return <UserDetailView viewerRole={viewerRole} user={user}
+    startWithFreshPreview={new URLSearchParams(location.search).get('offboarding') === 'refresh'}
     onChanged={(next) => setUser((current) => current ? { ...current, ...next } : next)}
     onDeleted={() => navigate(paths.users, { replace: true, state: { notice: 'Kullanıcı kalıcı olarak silindi.' } })} />;
 }

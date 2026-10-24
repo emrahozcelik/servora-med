@@ -4495,6 +4495,86 @@ html a:focus-visible {
 .form-drawer:has(.offboarding-form) {
   width: min(42rem, 92vw);
 }
+.form-drawer:has(.offboarding-blockers) {
+  width: min(42rem, 92vw);
+}
+.offboarding-return-nav {
+  width: min(100%, 68rem);
+  margin: 0 auto;
+  padding: 1rem 1.5rem 0;
+}
+.offboarding-return-nav a {
+  min-height: var(--control-height);
+}
+.offboarding-blockers {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.offboarding-blockers-intro {
+  display: grid;
+  gap: 0.6rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+.offboarding-blockers-intro h3,
+.offboarding-blockers-intro p {
+  margin: 0;
+}
+.offboarding-blockers-intro p:last-child {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.offboarding-blocker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.offboarding-blocker-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem 1.5rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.offboarding-blocker-facts {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.offboarding-blocker-facts strong,
+.offboarding-blocker-facts span,
+.offboarding-blocker-facts small {
+  overflow-wrap: anywhere;
+}
+.offboarding-blocker-facts small {
+  color: var(--muted);
+}
+.offboarding-blocker-item a,
+.offboarding-blocker-actions a,
+.offboarding-blocker-actions button {
+  min-height: var(--control-height);
+}
+.offboarding-integrity-note {
+  max-width: 24ch;
+  margin: 0;
+  color: var(--warning);
+  line-height: 1.5;
+}
+.offboarding-blocker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+.offboarding-profile-link {
+  display: inline-flex;
+  align-items: center;
+  padding-inline: 0.25rem;
+}
 .offboarding-drawer-root ~ .product-dialog-backdrop.dialog-backdrop {
   z-index: 110;
 }
@@ -4539,6 +4619,12 @@ html a:focus-visible {
   color: var(--ink) !important;
   font-weight: 650;
 }
+.offboarding-independent-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin-top: 0.5rem;
+}
 .offboarding-control {
   display: grid;
   gap: 0.4rem;
@@ -4549,6 +4635,7 @@ html a:focus-visible {
 .offboarding-control select {
   width: 100%;
   min-width: 0;
+  min-height: var(--control-height);
 }
 .offboarding-section {
   display: grid;
@@ -4631,6 +4718,17 @@ html a:focus-visible {
   .offboarding-form .form-actions button,
   .offboarding-result-actions button {
     width: 100%;
+  }
+  .offboarding-blocker-item,
+  .offboarding-blocker-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .offboarding-integrity-note {
+    max-width: none;
+  }
+  .offboarding-return-nav {
+    padding: 0.75rem 1rem 0;
   }
 }
 

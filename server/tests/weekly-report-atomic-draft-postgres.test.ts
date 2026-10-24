@@ -128,6 +128,15 @@ async function report(f: Fixture, id: string) {
   return (await f.pool.query(`SELECT to_jsonb(w) AS row FROM weekly_reports w WHERE job_card_id=$1`, [id])).rows[0].row;
 }
 async function writes(f: Fixture) { return Number((await f.pool.query(`SELECT COUNT(*) AS n FROM draft_writes`)).rows[0].n); }
+async function materializeLateSubmission(f: Fixture) {
+  // Lifecycle reservations use the database clock. Sample that same clock
+  // after START so a small host/PG skew cannot hide the test's overdue episode.
+  const scanTime = (await f.pool.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+  const result = await createOverdueBreachScanner(new PostgresOverdueBreachScannerRepository(
+    new PostgresJobCardRepository(f.pool))).runOnce(scanTime);
+  expect(result.inserted).toBe(1);
+  return () => scanTime;
+}
 async function outcome<T>(promise: Promise<T>) {
   return promise.then((value) => ({ value }), (error: unknown) => ({ error }));
 }
@@ -188,11 +197,10 @@ describe.skipIf(!databaseUrl)('SOF-2B atomic weekly draft (PostgreSQL)', () => {
 
   it('serializes weekly manual reminder and draft without a User/JobCard deadlock', async () => withFixture(async (f) => {
     const id = await weekly(f);
-    await createOverdueBreachScanner(new PostgresOverdueBreachScannerRepository(
-      new PostgresJobCardRepository(f.pool))).runOnce(new Date());
+    const reminderNow = await materializeLateSubmission(f);
     const repo = new ObservedRepository(f.pool); const locked = gate();
     repo.after = async (method) => { if (method === 'getJobForUpdate') await locked.pause(); };
-    const reminder = outcome(service(repo, () => new Date()).sendSubmissionReminder(f.manager, id, await intent(f, id)));
+    const reminder = outcome(service(repo, reminderNow).sendSubmissionReminder(f.manager, id, await intent(f, id)));
     await locked.reached;
     const replacement = outcome(f.jobs.updateWeeklyReportDraft(f.staff, id, { expectedVersion: 1, draft, answers: [] }));
     try { expect((await waitForLock(f)).length).toBeGreaterThan(0); } finally { locked.release(); }
@@ -470,12 +478,12 @@ describe.skipIf(!databaseUrl)('SOF-2B atomic weekly draft (PostgreSQL)', () => {
 
   it('keeps weekly note-author SHARE compatible with a competing manual reminder', async () => withFixture(async (f) => {
     const id = await weekly(f);
-    await createOverdueBreachScanner(new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(f.pool))).runOnce(new Date());
+    const reminderNow = await materializeLateSubmission(f);
     const repo = new ObservedRepository(f.pool); const locked = gate();
     repo.after = async (method) => { if (method === 'getJobForUpdate') await locked.pause(); };
     const note = outcome(service(repo).addNote(f.staff, id, { clientActionId: randomUUID(), note: 'Haftalık açıklama.' }));
     await locked.reached;
-    const reminder = outcome(service(new PostgresJobCardRepository(f.pool), () => new Date())
+    const reminder = outcome(service(new PostgresJobCardRepository(f.pool), reminderNow)
       .sendSubmissionReminder(f.manager, id, await intent(f, id)));
     try { await waitForLock(f); } finally { locked.release(); }
     expect(await note).toHaveProperty('value'); expect(await reminder).toHaveProperty('value');
@@ -496,12 +504,12 @@ describe.skipIf(!databaseUrl)('SOF-2B atomic weekly draft (PostgreSQL)', () => {
 
   it('lets a weekly reminder wait behind a draft without changing report-version or assignment semantics', async () => withFixture(async (f) => {
     const id = await weekly(f);
-    await createOverdueBreachScanner(new PostgresOverdueBreachScannerRepository(new PostgresJobCardRepository(f.pool))).runOnce(new Date());
+    const reminderNow = await materializeLateSubmission(f);
     const repo = new ObservedRepository(f.pool); const locked = gate();
     repo.after = async (method) => { if (method === 'updateWeeklyReportDraftRow') await locked.pause(); };
     const replacement = outcome(service(repo).updateWeeklyReportDraft(f.staff, id, { expectedVersion: 1, draft, answers: [] }));
     await locked.reached;
-    const reminder = outcome(service(new PostgresJobCardRepository(f.pool), () => new Date())
+    const reminder = outcome(service(new PostgresJobCardRepository(f.pool), reminderNow)
       .sendSubmissionReminder(f.manager, id, await intent(f, id)));
     try { await waitForLock(f); } finally { locked.release(); }
     expect(await replacement).toHaveProperty('value'); expect(await reminder).toHaveProperty('value');

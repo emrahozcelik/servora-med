@@ -196,6 +196,36 @@ function weeklyReportsQuery(request: FastifyRequest) {
   return { limit, offset: integer(record.offset, 'offset', 0) };
 }
 
+function offboardingWeeklyReportBlockersQuery(request: FastifyRequest) {
+  const value = request.query;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Geçerli sorgu parametreleri gönderin.');
+  }
+  const query = value as Record<string, unknown>;
+  const unknown = Object.keys(query).find((key) => !['limit', 'afterJobCardId', 'afterPeriodStart'].includes(key));
+  if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
+  const limit = query.limit === undefined ? 50 : Number(query.limit);
+  if (query.limit !== undefined && (typeof query.limit !== 'string' || !/^\d+$/.test(query.limit))) {
+    throw new AppError('VALIDATION_ERROR', 400, 'limit geçersizdir.');
+  }
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+    throw new AppError('VALIDATION_ERROR', 400, 'limit geçersizdir.');
+  }
+  if (query.afterJobCardId === undefined && query.afterPeriodStart === undefined) return { limit, after: null };
+  if (typeof query.afterJobCardId !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(query.afterJobCardId)
+    || typeof query.afterPeriodStart !== 'string') {
+    throw new AppError('VALIDATION_ERROR', 400, 'Rapor sayfalama konumu geçersizdir.');
+  }
+  const periodStart = query.afterPeriodStart === 'null' ? null : query.afterPeriodStart;
+  if (periodStart !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart)
+    || Number.isNaN(Date.parse(`${periodStart}T00:00:00Z`))
+    || new Date(`${periodStart}T00:00:00Z`).toISOString().slice(0, 10) !== periodStart)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Rapor sayfalama konumu geçersizdir.');
+  }
+  return { limit, after: { jobCardId: query.afterJobCardId, periodStart } };
+}
+
 function staffProfile(value: unknown): StaffProfileInput | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -278,6 +308,11 @@ export function createPeopleHandlers(service: PeopleService, offboardingService?
       const body = bodyOf(request);
       exactFields(body, []);
       return offboardingService.preview(request.currentUser!, userId(request));
+    },
+    offboardingWeeklyReportBlockers: (request: FastifyRequest) => {
+      if (!offboardingService) throw new AppError('OFFBOARDING_UNAVAILABLE', 404, 'Offboarding akışı kullanılamıyor.');
+      const query = offboardingWeeklyReportBlockersQuery(request);
+      return offboardingService.listWeeklyReportBlockers(request.currentUser!, userId(request), query.limit, query.after);
     },
     offboardingExecute: (request: FastifyRequest) => {
       if (!offboardingService) throw new AppError('OFFBOARDING_UNAVAILABLE', 404, 'Offboarding akışı kullanılamıyor.');
