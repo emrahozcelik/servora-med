@@ -8,6 +8,7 @@ import type {
   WeeklyReportPdfDocumentModel,
   WeeklyReportSourceWorkStatus,
 } from './document-model.js';
+import { getCorrectedBuffer } from './notdef-widths.js';
 
 const require = createRequire(import.meta.url);
 
@@ -213,8 +214,12 @@ function documentDefinition(model: WeeklyReportPdfDocumentModel) {
  * clock, no filesystem, no network, no database. The only inputs are the model
  * fields, so a given model always produces the same document content (byte
  * layout may vary, so callers must compare model content, not binary hashes).
+ *
+ * The buffer is produced through {@link getCorrectedBuffer} so the embedded
+ * font's `.notdef` advance matches the width the layout engine reserved for
+ * missing glyphs; see `notdef-widths.ts` for the upstream defect.
  */
 export async function renderWeeklyReportPdf(model: WeeklyReportPdfDocumentModel): Promise<Buffer> {
   configurePdfMake();
-  return pdfMake.createPdf(documentDefinition(model)).getBuffer();
+  return getCorrectedBuffer(pdfMake.createPdf(documentDefinition(model)));
 }
