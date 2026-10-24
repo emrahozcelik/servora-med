@@ -110,6 +110,8 @@ async function resolveAndOffboard(browser, f, origin, width, target, jobCardId, 
     await expect(page.locator('[data-job-detail-meta]')).toContainText('İptal edildi');
     await page.getByRole('link', { name: 'Personel ayrılma ekranına dön ve planı yenile' }).click();
     await expect(page.getByRole('combobox', { name: 'İdari neden' })).toBeVisible();
+    const reasonBox = await page.getByRole('combobox', { name: 'İdari neden' }).boundingBox();
+    assert(reasonBox && reasonBox.height >= 44, `${width}: fresh-preview reason touch height`);
     await expect(page.locator('.offboarding-blockers')).toHaveCount(0);
     await page.screenshot({ path: resolve(evidence, `${width}-fresh-preview.png`), fullPage: true });
     await page.getByRole('link', { name: 'Gerekirse yeni personel için bağımsız haftalık rapor oluştur' }).click();

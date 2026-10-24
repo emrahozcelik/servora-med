@@ -4635,6 +4635,7 @@ html a:focus-visible {
 .offboarding-control select {
   width: 100%;
   min-width: 0;
+  min-height: var(--control-height);
 }
 .offboarding-section {
   display: grid;
