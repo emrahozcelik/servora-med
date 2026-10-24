@@ -1,7 +1,7 @@
-# Weekly Report ownership and atomic draft policy — SOF-2A / SOF-2B
+# Weekly Report ownership and resolution — SOF-2A / SOF-2B / SOF-2C
 
 Status: accepted product policy, 2026-10-22; SOF-2B implementation amendment,
-2026-10-23. SOF-2C remains separate.
+2026-10-23; SOF-2C resolution amendment, 2026-10-24.
 
 ## Ownership and authorization
 
@@ -107,3 +107,40 @@ remain unchanged. Original Staff/week uniqueness, independent replacement
 creation, SOF-2A both-owner blockers and SOF-1 terminal-proposal priority remain.
 OF-02 stays open pending SOF-2C and closure verification. No migration or new
 front-end authorization rule is needed: WeeklyReport UI uses canonical commands.
+
+## SOF-2C actionable resolution amendment
+
+The existing preview and fresh execute 409 contract remains capped at its first
+50 metadata items. The Admin offboarding drawer validates that metadata before
+display, shows the total and visible count, and links only `UNFINISHED` items to
+their existing JobCard. `MISSING_REPORT`, `OWNER_ASSIGNEE_MISMATCH` and
+`ROOT_TYPE_MISMATCH` are identified as data-integrity cases without a normal
+resolution link. They require separate authorized review; this slice neither
+repairs them nor forces cancellation.
+
+`GET /api/users/:userId/offboarding/weekly-report-blockers` is an Admin-only,
+same-organization, read-only metadata continuation. `limit` is 1–50 (default
+50); `afterJobCardId` and `afterPeriodStart` form an exclusive cursor. Both
+cursor fields must be supplied together; the latter is a valid period date or
+the literal `null` for missing periods. Unknown or invalid query fields fail
+validation. The response uses the same `total`, `limit`, `hasMore`, `items`
+shape and the same period/null-last/root-id order as the 409. Each read uses a
+consistent snapshot for its bounded page and total. Concurrent changes between
+reads can shift membership; the UI restarts when the count changes and always
+requires a fresh preview before confirmation. The endpoint exposes no draft,
+answers, submission or PDF content and authorizes no mutation.
+
+Management uses existing JobCard approval/revision or reasoned WeeklyReport
+`CANCEL` commands. The return route keeps the target Staff id and requests a
+new authoritative preview; previous plan hashes and decisions are discarded.
+A replacement report, when needed, is created independently through the normal
+manual form, without copying former content or impersonating Staff. Preview
+blockers create no execute attempt. A deterministic execute blocker retires
+only its matching persisted attempt before allowing a fresh plan; ambiguous
+outcomes retain exact-intent recovery. SOF-1 terminal blocker priority and the
+atomic offboarding barrier remain unchanged.
+
+SOF-2C review requires focused PG17 and frontend tests, real desktop/mobile
+browser flows including 201 blockers, exact-head Local CI 27/27 and verifier.
+OF-02 closure is a separate integrated audit. OF-01, OF-09, terminal proposal
+resolution and legacy data repair remain open.

@@ -65,6 +65,15 @@ export type StaffOffboardingResponse = {
     remindersHandled: number;
   };
 };
+export type WeeklyReportOffboardingBlocker = {
+  jobCardId: string; reportId: string | null; staffUserId: string | null;
+  assignedTo: string; periodStart: string | null; status: JobCardStatus;
+  jobVersion: number; reportVersion: number | null;
+  reason: 'UNFINISHED' | 'MISSING_REPORT' | 'OWNER_ASSIGNEE_MISMATCH' | 'ROOT_TYPE_MISMATCH';
+};
+export type WeeklyReportOffboardingBlockerPage = {
+  total: number; limit: number; hasMore: boolean; items: WeeklyReportOffboardingBlocker[];
+};
 export type { JobHistoryItem } from './crm-api';
 
 function parseUser(value: unknown): ManagedUser {
@@ -137,6 +146,82 @@ function hash(value: unknown, field: string) {
   const parsed = string(value, field);
   if (!/^[0-9a-f]{64}$/.test(parsed)) throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
   return parsed;
+}
+
+function blockerDate(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  const parsed = string(value, field);
+  const date = new Date(`${parsed}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(parsed) || Number.isNaN(date.valueOf())
+    || date.toISOString().slice(0, 10) !== parsed) {
+    throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
+  }
+  return parsed;
+}
+
+function blockerId(value: unknown, field: string): string {
+  const parsed = string(value, field);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
+  }
+  return parsed;
+}
+
+function parseWeeklyReportOffboardingBlocker(value: unknown, targetUserId: string): WeeklyReportOffboardingBlocker {
+  const raw = exactObject(value, [
+    'jobCardId', 'reportId', 'staffUserId', 'assignedTo', 'periodStart',
+    'status', 'jobVersion', 'reportVersion', 'reason',
+  ], 'haftalık rapor engeli');
+  const jobCardId = blockerId(raw.jobCardId, 'jobCardId');
+  const reportId = raw.reportId === null ? null : blockerId(raw.reportId, 'reportId');
+  const staffUserId = raw.staffUserId === null ? null : blockerId(raw.staffUserId, 'staffUserId');
+  const assignedTo = blockerId(raw.assignedTo, 'assignedTo');
+  const periodStart = blockerDate(raw.periodStart, 'periodStart');
+  const status = raw.status;
+  const reason = raw.reason;
+  const reportVersion = raw.reportVersion === null ? null : positiveInteger(raw.reportVersion, 'reportVersion');
+  if (!['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'].includes(String(status))
+    || !['UNFINISHED', 'MISSING_REPORT', 'OWNER_ASSIGNEE_MISMATCH', 'ROOT_TYPE_MISMATCH'].includes(String(reason))
+    || (assignedTo !== targetUserId && staffUserId !== targetUserId)
+    || (reportId === null) !== (reason === 'MISSING_REPORT')
+    || (reportId === null && (staffUserId !== null || periodStart !== null || reportVersion !== null))
+    || (reportId !== null && (staffUserId === null || periodStart === null || reportVersion === null))
+    || (reason === 'UNFINISHED' && staffUserId !== assignedTo)
+    || (reason === 'OWNER_ASSIGNEE_MISMATCH' && staffUserId === assignedTo)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Haftalık rapor engeli beklenen hedef veya durumla eşleşmiyor.');
+  }
+  return { jobCardId, reportId, staffUserId, assignedTo, periodStart,
+    status: status as JobCardStatus, jobVersion: positiveInteger(raw.jobVersion, 'jobVersion'),
+    reportVersion, reason: reason as WeeklyReportOffboardingBlocker['reason'] };
+}
+
+function parseWeeklyReportOffboardingBlockerPage(
+  value: unknown, targetUserId: string, expectedLimit?: 50,
+): WeeklyReportOffboardingBlockerPage {
+  const raw = exactObject(value, ['total', 'limit', 'hasMore', 'items'], 'haftalık rapor engel listesi');
+  const total = nonNegativeInteger(raw.total, 'weeklyReports.total');
+  const limit = positiveInteger(raw.limit, 'weeklyReports.limit');
+  if (limit > 50 || (expectedLimit && limit !== expectedLimit) || !Array.isArray(raw.items)
+    || raw.items.length > limit || raw.items.length > total || typeof raw.hasMore !== 'boolean') {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Haftalık rapor engel listesi geçersiz.');
+  }
+  const items = raw.items.map((item) => parseWeeklyReportOffboardingBlocker(item, targetUserId));
+  if (new Set(items.map((item) => item.jobCardId)).size !== items.length
+    || (raw.hasMore && items.length !== limit)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Haftalık rapor engel listesi geçersiz.');
+  }
+  return { total, limit, hasMore: raw.hasMore, items };
+}
+
+export function weeklyReportOffboardingBlockerFromError(error: unknown, targetUserId: string) {
+  if (!(error instanceof ApiError) || error.status !== 409
+    || error.code !== 'OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION') return null;
+  const details = exactObject(error.details, ['weeklyReports'], 'haftalık rapor engel bilgisi');
+  const page = parseWeeklyReportOffboardingBlockerPage(details.weeklyReports, targetUserId, 50);
+  if (page.total < 1 || page.items.length < 1 || page.hasMore !== (page.total > page.items.length)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Haftalık rapor engel bilgisi geçersiz.');
+  }
+  return page;
 }
 
 function parseOffboardingPlan(value: unknown, expectedTargetUserId: string): StaffOffboardingPlan {
@@ -221,6 +306,18 @@ export const permanentlyDeleteUser = async (id: string, expectedVersion?: number
 export const previewStaffOffboarding = async (id: string) => parseOffboardingPlan(
   await request(`/api/users/${encodeURIComponent(id)}/offboarding/preview`, json('POST', {})), id,
 );
+export const listStaffOffboardingWeeklyReportBlockers = async (
+  id: string, after: Pick<WeeklyReportOffboardingBlocker, 'jobCardId' | 'periodStart'> | null = null,
+) => {
+  const params = new URLSearchParams({ limit: '50' });
+  if (after) {
+    params.set('afterJobCardId', after.jobCardId);
+    params.set('afterPeriodStart', after.periodStart ?? 'null');
+  }
+  return parseWeeklyReportOffboardingBlockerPage(
+    await request(`/api/users/${encodeURIComponent(id)}/offboarding/weekly-report-blockers?${params}`), id, 50,
+  );
+};
 export const executeStaffOffboarding = async (id: string, input: StaffOffboardingExecuteInput) => parseOffboardingResponse(
   await request(`/api/users/${encodeURIComponent(id)}/offboarding/execute`, json('POST', input)), id, input.planHash,
 );

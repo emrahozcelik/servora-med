@@ -38,6 +38,7 @@ export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app,
   app.post('/users/:userId/reset-password', auth, handlers.resetPassword);
   if (options.offboardingService) {
     app.post('/users/:userId/offboarding/preview', auth, handlers.offboardingPreview);
+    app.get('/users/:userId/offboarding/weekly-report-blockers', auth, handlers.offboardingWeeklyReportBlockers);
     app.post('/users/:userId/offboarding/execute', auth, handlers.offboardingExecute);
   }
 

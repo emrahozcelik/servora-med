@@ -239,10 +239,23 @@ function NotFoundView() {
 function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { jobCardId } = useParams();
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const offboardingTarget = readOffboardingTarget(search, user);
   if (!jobCardId) return <NotFoundView />;
-  return <JobDetailScreen jobId={jobCardId} user={user}
+  return <>{offboardingTarget && <nav className="offboarding-return-nav" aria-label="Personel ayrılma akışına dönüş">
+    <Link className="secondary-button" to={`${paths.user(offboardingTarget)}?offboarding=refresh`}>
+      Personel ayrılma ekranına dön ve planı yenile
+    </Link>
+  </nav>}<JobDetailScreen jobId={jobCardId} user={user}
     onCreateFollowUp={() => navigate(paths.followUpCreate(jobCardId))} onChanged={() => {}}
-    onOpenMessaging={(conversationId) => navigate(`${paths.messages}?conversation=${encodeURIComponent(conversationId)}`)} />;
+    onOpenMessaging={(conversationId) => navigate(`${paths.messages}?conversation=${encodeURIComponent(conversationId)}`)} /></>;
+}
+
+function readOffboardingTarget(search: URLSearchParams, user: CurrentUser) {
+  const value = search.get('offboardingTarget');
+  return user.role === 'ADMIN' && value
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value : null;
 }
 
 function SaleCreateRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -320,8 +333,16 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
 }
 
 function WeeklyReportCreateRoute({ user, navigate }: { user: CurrentUser; navigate: (path: string) => void }) {
-  return <WeeklyReportCreateScreen user={user}
-    onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
+  const [search] = useSearchParams();
+  const offboardingTarget = readOffboardingTarget(search, user);
+  return <>{offboardingTarget && <nav className="offboarding-return-nav" aria-label="Personel ayrılma akışına dönüş">
+    <Link className="secondary-button" to={`${paths.user(offboardingTarget)}?offboarding=refresh`}>
+      Personel ayrılma ekranına dön ve planı yenile
+    </Link>
+  </nav>}<WeeklyReportCreateScreen user={user}
+    onCancel={() => navigate(offboardingTarget ? `${paths.user(offboardingTarget)}?offboarding=refresh` : paths.jobs)}
+    onCreated={(id) => navigate(offboardingTarget
+      ? `${paths.job(id)}?offboardingTarget=${encodeURIComponent(offboardingTarget)}` : paths.job(id))} /></>;
 }
 
 function DeliveryCreateRoute({ user, navigate, onDeliveryCreated }: {

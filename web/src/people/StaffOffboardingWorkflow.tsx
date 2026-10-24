@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { getJobCard } from '../jobs/jobs-api';
+import { jobCardStatusLabel } from '../jobs/job-labels';
+import { paths } from '../paths';
 import { ApiError } from '../services/api';
 import { getCalendarEvent } from '../services/calendar-api';
 import { getCustomer } from '../services/crm-api';
 import {
   executeStaffOffboarding,
+  listStaffOffboardingWeeklyReportBlockers,
   listStaff,
   previewStaffOffboarding,
+  weeklyReportOffboardingBlockerFromError,
   type ManagedUser,
   type StaffOffboardingExecuteInput,
   type StaffOffboardingPlan,
   type StaffOffboardingReasonCode,
   type StaffOffboardingResponse,
   type StaffProfile,
+  type WeeklyReportOffboardingBlockerPage,
 } from '../services/people-api';
 import { ConfirmationAction } from '../ui/antd/ConfirmationAction';
 import { EmptyState } from '../ui/antd/EmptyState';
@@ -51,6 +56,7 @@ type Attempt = StaffOffboardingAttempt;
 type Confirmation = { kind: 'initial' } | { kind: 'retry'; attempt: Attempt };
 type CleanupContinuation =
   | { kind: 'fresh-plan'; message: string }
+  | { kind: 'weekly-report-blocked'; page: WeeklyReportOffboardingBlockerPage }
   | { kind: 'load-error'; title: string; message: string };
 type AttemptOwnership =
   | { kind: 'active'; attempt: Attempt }
@@ -60,6 +66,8 @@ type Operation =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'editing'; message?: string }
+  | { kind: 'weekly-report-blocked'; page: WeeklyReportOffboardingBlockerPage;
+      message?: string; loadingMore?: boolean; pageError?: string }
   | { kind: 'submitting'; attempt: Attempt }
   | { kind: 'reconciling'; attempt: Attempt }
   | { kind: 'retry-ready'; attempt: Attempt; message: string }
@@ -128,9 +136,61 @@ function ResponsibilityHeading({ title, id, secondary }: { title: string; id: st
     {secondary && <span>{secondary}</span>}<small>Kayıt {shortId(id)}</small></div>;
 }
 
-export function StaffOffboardingWorkflow({ target, onCompleted }: {
+const BLOCKER_REASON_LABELS = {
+  UNFINISHED: 'Sonuçlandırılmamış rapor',
+  MISSING_REPORT: 'Rapor kaydı eksik',
+  OWNER_ASSIGNEE_MISMATCH: 'Rapor sahibi ile iş sorumlusu uyuşmuyor',
+  ROOT_TYPE_MISMATCH: 'İş türü ile rapor kaydı uyuşmuyor',
+} as const;
+
+function WeeklyReportBlockers({ target, operation, onRefresh, onMore, onClose }: {
+  target: ManagedUser;
+  operation: Extract<Operation, { kind: 'weekly-report-blocked' }>;
+  onRefresh: () => void;
+  onMore: () => void;
+  onClose: () => void;
+}) {
+  const { page } = operation;
+  return <section className="offboarding-blockers" aria-labelledby="offboarding-weekly-title">
+    <div className="offboarding-blockers-intro">
+      <h3 id="offboarding-weekly-title">Haftalık raporlar sonuçlandırılmalı</h3>
+      <p role="status" aria-live="polite">{page.total} engel var; {page.items.length} kayıt görüntüleniyor.</p>
+      <p>Personelin erişimi bu raporlar sonuçlanmadan kapatılamaz. Yönetici mevcut iş kartındaki onay veya gerekçeli iptal akışını kullanabilir. Her dönüşte güncel sorumluluk planı yeniden alınmalıdır.</p>
+    </div>
+    {operation.message && <p className="offboarding-alert" role="status">{operation.message}</p>}
+    {page.items.length > 0 && <ol className="offboarding-blocker-list">{page.items.map((item) => <li key={item.jobCardId} className="offboarding-blocker-item">
+      <div className="offboarding-blocker-facts">
+        <strong>{item.periodStart ? `${item.periodStart} haftası` : 'Dönem kaydı yok'}</strong>
+        <span>Durum: {jobCardStatusLabel(item.status)}</span>
+        <span>Neden: {BLOCKER_REASON_LABELS[item.reason]}</span>
+        <small>İş kartı {shortId(item.jobCardId)}</small>
+      </div>
+      {item.reason === 'UNFINISHED'
+        ? <a className="secondary-button" href={`${paths.job(item.jobCardId)}?offboardingTarget=${encodeURIComponent(target.id)}`}>
+          İş kartında incele
+        </a>
+        : <p className="offboarding-integrity-note">Veri bütünlüğü incelemesi gerekir. Bu kayıt normal rapor çözüm akışıyla işlenemez.</p>}
+    </li>)}</ol>}
+    {page.items.length === 0 && <p className="offboarding-alert" role="status">Liste değişti. Güncel sorumluluk planını yeniden yükleyin.</p>}
+    {operation.pageError && <p className="form-error" role="alert">{operation.pageError}</p>}
+    {page.hasMore && <button className="secondary-button" type="button" disabled={operation.loadingMore}
+      aria-busy={operation.loadingMore} onClick={onMore}>{operation.loadingMore ? 'Yükleniyor…' : 'Daha fazla rapor göster'}</button>}
+    <div className="offboarding-blocker-actions">
+      <button className="primary-button" type="button" onClick={onRefresh}>Güncel sorumlulukları yeniden yükle</button>
+      <a className="secondary-button" href={`${paths.newWeeklyReport}?offboardingTarget=${encodeURIComponent(target.id)}`}>
+        Gerekirse bağımsız yeni rapor oluştur
+      </a>
+      <button className="ghost-button" type="button" onClick={onClose}>Personel kaydına dön</button>
+      <a className="offboarding-profile-link" href={paths.staffProfile(target.id)}>Personel profilini görüntüle</a>
+    </div>
+    <p className="muted-copy">Yeni rapor ayrı bir personel ve hafta seçilerek normal oluşturma ekranında hazırlanır; eski raporun içeriği aktarılmaz.</p>
+  </section>;
+}
+
+export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPreview = false }: {
   target: ManagedUser;
   onCompleted: (response: StaffOffboardingResponse) => void;
+  startWithFreshPreview?: boolean;
 }) {
   const [initialRecovery] = useState(readPersistedStaffOffboardingAttempt);
   const recoveredAttempt = initialRecovery.kind === 'valid' && initialRecovery.targetUserId === target.id
@@ -168,6 +228,7 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
   const attemptOwnershipRef = useRef<AttemptOwnership>(recoveredOwnership);
   const attemptCreationGateRef = useRef(false);
   const submitGateRef = useRef(false);
+  const blockerPageGateRef = useRef(false);
   const hydrationCleanupStartedRef = useRef(false);
   const previewGenerationRef = useRef(0);
   const currentTargetIdRef = useRef(target.id);
@@ -201,9 +262,13 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
     setReplacements([]);
     setContext(EMPTY_CONTEXT);
     try {
-      const [nextPlan, activeStaff] = await Promise.all([
+      const [planResult, staffResult] = await Promise.allSettled([
         previewStaffOffboarding(expectedTargetId), listStaff('active'),
       ]);
+      if (planResult.status === 'rejected') throw planResult.reason;
+      if (staffResult.status === 'rejected') throw staffResult.reason;
+      const nextPlan = planResult.value;
+      const activeStaff = staffResult.value;
       const nextDraft = createOffboardingDraft(nextPlan);
       const nextReplacements = activeStaff.filter((profile) => profile.user.id !== expectedTargetId && profile.user.isActive);
       const nextContext = await loadContext(nextPlan);
@@ -215,8 +280,53 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
       setOperation({ kind: 'editing', ...(message ? { message } : {}) });
     } catch (error) {
       if (!isCurrentPreviewGeneration(generation, expectedTargetId)) return;
+      try {
+        const blocker = weeklyReportOffboardingBlockerFromError(error, expectedTargetId);
+        if (blocker) {
+          setOperation({ kind: 'weekly-report-blocked', page: blocker });
+          return;
+        }
+      } catch (invalid) {
+        setOperation({ kind: 'load-error', title: 'Engel bilgisi doğrulanamadı',
+          message: errorMessage(invalid, 'Haftalık rapor engelleri güvenle okunamadı.') });
+        return;
+      }
       setOperation({ kind: 'load-error', title: 'Sorumluluklar yüklenemedi',
         message: errorMessage(error, 'Güncel Staff sorumlulukları alınamadı. İşlem başlatılmadı.') });
+    }
+  }
+
+  async function loadMoreBlockers() {
+    if (operation.kind !== 'weekly-report-blocked' || !operation.page.hasMore || blockerPageGateRef.current) return;
+    const last = operation.page.items.at(-1);
+    if (!last) return;
+    const prior = operation.page;
+    const generation = previewGenerationRef.current;
+    const expectedTargetId = target.id;
+    blockerPageGateRef.current = true;
+    setOperation({ kind: 'weekly-report-blocked', page: prior, loadingMore: true });
+    try {
+      const next = await listStaffOffboardingWeeklyReportBlockers(expectedTargetId, last);
+      if (!isCurrentPreviewGeneration(generation, expectedTargetId)) return;
+      if (next.total !== prior.total) {
+        const refreshed = await listStaffOffboardingWeeklyReportBlockers(expectedTargetId);
+        if (!isCurrentPreviewGeneration(generation, expectedTargetId)) return;
+        setOperation({ kind: 'weekly-report-blocked', page: refreshed,
+          message: 'Rapor listesi değişti. Güncel liste baştan yüklendi; işlemleri yeniden inceleyin.' });
+        return;
+      }
+      const known = new Set(prior.items.map((item) => item.jobCardId));
+      if (next.items.some((item) => known.has(item.jobCardId))) {
+        throw new ApiError(0, 'INVALID_RESPONSE', 'Rapor listesi tutarsız. Listeyi yeniden yükleyin.');
+      }
+      setOperation({ kind: 'weekly-report-blocked', page: { ...next, items: [...prior.items, ...next.items] } });
+    } catch (error) {
+      if (isCurrentPreviewGeneration(generation, expectedTargetId)) {
+        setOperation({ kind: 'weekly-report-blocked', page: prior,
+          pageError: errorMessage(error, 'Daha fazla rapor yüklenemedi. Yeniden deneyin.') });
+      }
+    } finally {
+      blockerPageGateRef.current = false;
     }
   }
 
@@ -248,6 +358,10 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
     submitGateRef.current = false;
     if (ownership.continuation.kind === 'fresh-plan') {
       await fetchAuthoritativePlan(ownership.continuation.message);
+    } else if (ownership.continuation.kind === 'weekly-report-blocked') {
+      setPlan(null);
+      setDraft(null);
+      setOperation({ kind: 'weekly-report-blocked', page: ownership.continuation.page });
     } else {
       setOperation({ kind: 'load-error', title: ownership.continuation.title, message: ownership.continuation.message });
     }
@@ -307,6 +421,15 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
         await refreshAfterConflict('İşlem kimliği sunucu durumuyla eşleşmedi. Güncel sorumlulukları yeniden inceleyip yeni bir onay verin.');
       } else if (error instanceof ApiError && SEMANTIC_CONFLICT_CODES.has(error.code)) {
         await refreshAfterConflict('Sorumluluklar veya uygun personel değişti. Güncel planı yeniden inceleyip tüm kararları tekrar verin.');
+      } else if (error instanceof ApiError && error.status === 409
+        && error.code === 'OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION') {
+        try {
+          const page = weeklyReportOffboardingBlockerFromError(error, target.id);
+          await retireAttempt(attempt, { kind: 'weekly-report-blocked', page: page! });
+        } catch (invalid) {
+          await retireAttempt(attempt, { kind: 'load-error', title: 'Engel bilgisi doğrulanamadı',
+            message: errorMessage(invalid, 'Haftalık rapor engelleri güvenle okunamadı.') });
+        }
       } else if (error instanceof ApiError && error.code === 'USER_ALREADY_INACTIVE') {
         await retireAttempt(attempt, { kind: 'load-error', title: 'Personel zaten devre dışı',
           message: 'Bu girişimle eşleşen tamamlanmış bir sonuç doğrulanamadı. Güncel People durumunu yenileyin.' });
@@ -360,6 +483,14 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
     void cleanupRetiredAttempt();
   }, []);
 
+  useEffect(() => {
+    if (startWithFreshPreview && !recoveryBlocked && !attemptOwnershipRef.current) {
+      void fetchAuthoritativePlan();
+    }
+  // The route opt-in is consumed once when this workflow mounts.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const missing = plan && draft ? missingOffboardingDecisions(plan, draft) : [];
   const transferBlocked = replacements.length === 0 && Boolean(plan && (
     plan.jobs.length || plan.calendar.length || plan.followUps.length
@@ -375,6 +506,8 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
     <ResponsiveFormDrawer open={open} title={`${target.name} · erişim ve sorumluluklar`} rootClassName="offboarding-drawer-root"
       onDismiss={closeWorkflow} returnFocusRef={triggerRef}>
       {operation.kind === 'loading' && <LoadingSkeleton title="Sorumluluklar yükleniyor" rows={5} />}
+      {operation.kind === 'weekly-report-blocked' && <WeeklyReportBlockers target={target} operation={operation}
+        onRefresh={() => { void fetchAuthoritativePlan(); }} onMore={() => { void loadMoreBlockers(); }} onClose={closeWorkflow} />}
       {operation.kind === 'load-error' && <ResultState status="error" title={operation.title} description={operation.message}
         action={<div className="offboarding-result-actions"><button className="secondary-button" type="button" onClick={() => { void fetchAuthoritativePlan(); }}>Güncel durumu yeniden yükle</button>
           <button className="ghost-button" type="button" onClick={closeWorkflow}>Kapat</button></div>} />}
@@ -405,7 +538,10 @@ export function StaffOffboardingWorkflow({ target, onCompleted }: {
         <div className="offboarding-intro"><p>Sunucu, aktif sorumlulukları bu an için doğruladı. Erişim sonlanmadan önce her kayıt için açık karar verin.</p>
           <dl><div><dt>Aktif oturum</dt><dd>{plan.sessions.activeCount}</dd></div>
             <div><dt>İş konuşması</dt><dd>{plan.jobConversations.length}</dd></div></dl>
-          <p className="offboarding-preservation-note">İşlem geçmişi ve denetim kayıtları korunur.</p></div>
+          <p className="offboarding-preservation-note">İşlem geçmişi ve denetim kayıtları korunur.</p>
+          <a className="offboarding-independent-link" href={`${paths.newWeeklyReport}?offboardingTarget=${encodeURIComponent(target.id)}`}>
+            Gerekirse yeni personel için bağımsız haftalık rapor oluştur
+          </a></div>
         <label className="offboarding-control"><span>İdari neden</span><select name="reasonCode" value={draft.reasonCode}
           onChange={(event) => updateDraft((current) => ({ ...current, reasonCode: event.target.value as StaffOffboardingReasonCode | '' }))} required>
           <option value="">Neden seçin</option>{Object.entries(REASON_LABELS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}

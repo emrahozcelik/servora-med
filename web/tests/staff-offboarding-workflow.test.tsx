@@ -15,7 +15,7 @@ import type {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const people = vi.hoisted(() => ({
-  preview: vi.fn(), listStaff: vi.fn(), execute: vi.fn(),
+  preview: vi.fn(), listStaff: vi.fn(), execute: vi.fn(), listBlockers: vi.fn(),
 }));
 const context = vi.hoisted(() => ({ getJobCard: vi.fn(), getCustomer: vi.fn(), getCalendarEvent: vi.fn() }));
 
@@ -24,6 +24,7 @@ vi.mock('../src/services/people-api', async (importOriginal) => ({
   previewStaffOffboarding: (...args: unknown[]) => people.preview(...args),
   listStaff: (...args: unknown[]) => people.listStaff(...args),
   executeStaffOffboarding: (...args: unknown[]) => people.execute(...args),
+  listStaffOffboardingWeeklyReportBlockers: (...args: unknown[]) => people.listBlockers(...args),
 }));
 vi.mock('../src/jobs/jobs-api', () => ({ getJobCard: (...args: unknown[]) => context.getJobCard(...args) }));
 vi.mock('../src/services/crm-api', () => ({ getCustomer: (...args: unknown[]) => context.getCustomer(...args) }));
@@ -58,6 +59,25 @@ const persistedRequest = {
   followUpDecisions: [{ jobCardId: 'job-2', replacementUserId: 'staff-2' }],
   reminderDecisions: [{ reminderId: 'reminder-1', action: 'CANCEL' as const }],
 };
+const weeklyTarget: ManagedUser = { ...target, id: '550e8400-e29b-41d4-a716-446655440001' };
+const weeklyPlan: StaffOffboardingPlan = { ...plan,
+  target: { ...plan.target, id: weeklyTarget.id },
+  jobs: plan.jobs.map((job) => ({ ...job, assignedTo: weeklyTarget.id })),
+  planHash: 'b'.repeat(64),
+};
+function weeklyItem(index: number, reason: 'UNFINISHED' | 'MISSING_REPORT' | 'OWNER_ASSIGNEE_MISMATCH' | 'ROOT_TYPE_MISMATCH' = 'UNFINISHED') {
+  const id = `550e8400-e29b-41d4-a716-${(index + 100).toString(16).padStart(12, '0')}`;
+  return { jobCardId: id, reportId: reason === 'MISSING_REPORT' ? null : id,
+    staffUserId: reason === 'MISSING_REPORT' ? null : weeklyTarget.id,
+    assignedTo: reason === 'OWNER_ASSIGNEE_MISMATCH'
+      ? '550e8400-e29b-41d4-a716-446655440099' : weeklyTarget.id,
+    periodStart: reason === 'MISSING_REPORT' ? null : '2026-08-03', status: 'NEW',
+    jobVersion: 1, reportVersion: reason === 'MISSING_REPORT' ? null : 1, reason };
+}
+function weeklyBlocker(items: ReturnType<typeof weeklyItem>[], total = items.length) {
+  return new ApiError(409, 'OFFBOARDING_WEEKLY_REPORT_REQUIRES_RESOLUTION', 'Raporlar sonuçlandırılmalı.',
+    false, { weeklyReports: { total, limit: 50, hasMore: total > items.length, items } });
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -934,5 +954,100 @@ describe('Staff offboarding workflow', () => {
     const resolvedUnload = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(resolvedUnload);
     expect(resolvedUnload.defaultPrevented).toBe(false);
+  });
+
+  it('renders a preview blocker with real JobCard links and isolates historical integrity cases', async () => {
+    people.preview.mockRejectedValue(weeklyBlocker([
+      weeklyItem(0), weeklyItem(1, 'MISSING_REPORT'),
+      weeklyItem(2, 'OWNER_ASSIGNEE_MISMATCH'), weeklyItem(3, 'ROOT_TYPE_MISMATCH'),
+    ]));
+    const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
+    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    expect(container.textContent).toContain('4 engel var; 4 kayıt görüntüleniyor');
+    expect(container.textContent).toContain('Rapor kaydı eksik');
+    expect(container.textContent).toContain('Rapor sahibi ile iş sorumlusu uyuşmuyor');
+    expect(container.textContent).toContain('İş türü ile rapor kaydı uyuşmuyor');
+    expect(container.querySelectorAll('.offboarding-blocker-list a')).toHaveLength(1);
+    expect((container.querySelector('.offboarding-blocker-list a') as HTMLAnchorElement).getAttribute('href'))
+      .toBe(`/jobs/${weeklyItem(0).jobCardId}?offboardingTarget=${weeklyTarget.id}`);
+    expect((container.querySelector('.offboarding-blocker-actions a') as HTMLAnchorElement).getAttribute('href'))
+      .toBe(`/jobs/new-weekly-report?offboardingTarget=${weeklyTarget.id}`);
+    expect(container.querySelector('[name="reasonCode"]')).toBeNull();
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(uuid).not.toHaveBeenCalled();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('restarts a paged blocker list when concurrent resolution shifts the total', async () => {
+    const initial = Array.from({ length: 50 }, (_, index) => weeklyItem(index));
+    people.preview.mockRejectedValue(weeklyBlocker(initial, 201));
+    people.listBlockers.mockResolvedValueOnce({ total: 200, limit: 50, hasMore: true,
+      items: Array.from({ length: 50 }, (_, index) => weeklyItem(index + 50)) });
+    people.listBlockers.mockResolvedValueOnce({ total: 200, limit: 50, hasMore: true,
+      items: Array.from({ length: 50 }, (_, index) => weeklyItem(index + 1)) });
+    people.listBlockers.mockImplementation((_id: string, after: { jobCardId: string }) => {
+      const index = parseInt(after.jobCardId.slice(-12), 16) - 100 + 1;
+      const items = Array.from({ length: Math.min(50, 201 - index) }, (_, offset) => weeklyItem(index + offset));
+      return Promise.resolve({ total: 200, limit: 50, hasMore: index + items.length < 201, items });
+    });
+    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    await act(async () => button(container, 'Daha fazla rapor göster').click());
+    expect(container.textContent).toContain('Rapor listesi değişti');
+    expect(container.textContent).toContain('200 engel var; 50 kayıt görüntüleniyor');
+    for (let n = 0; n < 3; n += 1) {
+      await act(async () => button(container, 'Daha fazla rapor göster').click());
+    }
+    expect(container.textContent).toContain('200 engel var; 200 kayıt görüntüleniyor');
+    expect(container.querySelectorAll('.offboarding-blocker-list li')).toHaveLength(200);
+    expect(people.execute).not.toHaveBeenCalled();
+  });
+
+  it('can display all 201 records through bounded pages without an execute attempt', async () => {
+    people.preview.mockRejectedValue(weeklyBlocker(Array.from({ length: 50 }, (_, index) => weeklyItem(index)), 201));
+    people.listBlockers.mockImplementation((_id: string, after: { jobCardId: string }) => {
+      const index = parseInt(after.jobCardId.slice(-12), 16) - 100 + 1;
+      const items = Array.from({ length: Math.min(50, 201 - index) }, (_, offset) => weeklyItem(index + offset));
+      return Promise.resolve({ total: 201, limit: 50, hasMore: index + items.length < 201, items });
+    });
+    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    for (let n = 0; n < 4; n += 1) {
+      await act(async () => button(container, 'Daha fazla rapor göster').click());
+    }
+    expect(container.textContent).toContain('201 engel var; 201 kayıt görüntüleniyor');
+    expect(container.querySelectorAll('.offboarding-blocker-list li')).toHaveLength(201);
+    expect(people.listBlockers).toHaveBeenCalledTimes(4);
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('retires a deterministic execute blocker and requires fresh preview and confirmation', async () => {
+    people.preview.mockResolvedValueOnce(weeklyPlan).mockResolvedValueOnce({ ...weeklyPlan, planHash: 'c'.repeat(64) });
+    people.execute.mockRejectedValueOnce(weeklyBlocker([weeklyItem(0)]))
+      .mockResolvedValueOnce({ ...response, targetUserId: weeklyTarget.id, planHash: 'c'.repeat(64) });
+    const uuid = vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000081')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000082');
+    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    await completeDecisions(container);
+    await act(async () => button(container, 'Kararları onayla').click());
+    await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
+    expect(container.textContent).toContain('1 engel var; 1 kayıt görüntüleniyor');
+    expect(window.sessionStorage.length).toBe(0);
+    expect(people.preview).toHaveBeenCalledTimes(1);
+    expect(uuid).toHaveBeenCalledTimes(1);
+    await act(async () => button(container, 'Güncel sorumlulukları yeniden yükle').click());
+    expect(people.preview).toHaveBeenCalledTimes(2);
+    expect(button(container, 'Kararları onayla').disabled).toBe(true);
+    await completeDecisions(container);
+    await act(async () => button(container, 'Kararları onayla').click());
+    await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
+    expect(people.execute.mock.calls[0]?.[1]).toMatchObject({ planHash: 'b'.repeat(64) });
+    expect(people.execute.mock.calls[1]?.[1]).toMatchObject({ planHash: 'c'.repeat(64) });
+    expect(uuid).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Personel devre dışı bırakıldı');
   });
 });

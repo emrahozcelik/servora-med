@@ -29,6 +29,30 @@ const ACTIVE_JOB_STATUSES = [
 ] as const;
 
 const WEEKLY_REPORT_BLOCKER_LIMIT = 50;
+const WEEKLY_REPORT_BLOCKER_FROM = `FROM job_cards j
+  LEFT JOIN weekly_reports r
+    ON r.organization_id = j.organization_id AND r.job_card_id = j.id
+ WHERE j.organization_id = $1 AND j.status = ANY($3::varchar[])
+   AND (j.type = 'WEEKLY_REPORT' OR r.id IS NOT NULL)
+   AND (j.assigned_to = $2 OR r.staff_user_id = $2)`;
+
+type WeeklyReportBlockerRow = {
+  id: string; status: JobCardStatus; version: number; assigned_to: string; type: string;
+  report_id: string | null; staff_user_id: string | null;
+  period_start: string | null; report_version: number | null;
+};
+export type WeeklyReportBlockerCursor = Readonly<{ jobCardId: string; periodStart: string | null }>;
+
+function weeklyReportBlockerItem(row: WeeklyReportBlockerRow) {
+  return {
+    jobCardId: row.id, reportId: row.report_id, staffUserId: row.staff_user_id,
+    assignedTo: row.assigned_to, periodStart: row.period_start, status: row.status,
+    jobVersion: row.version, reportVersion: row.report_version,
+    reason: row.report_id === null ? 'MISSING_REPORT'
+      : row.type !== 'WEEKLY_REPORT' ? 'ROOT_TYPE_MISMATCH'
+        : row.staff_user_id !== row.assigned_to ? 'OWNER_ASSIGNEE_MISMATCH' : 'UNFINISHED',
+  };
+}
 
 type Queryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
 
@@ -225,6 +249,58 @@ export class PostgresStaffOffboardingService {
     if (!row) throw notFound();
     if (row.role !== 'STAFF') throw new AppError('OFFBOARDING_TARGET_NOT_STAFF', 409, 'Offboarding hedefi Staff olmalıdır.');
     return this.readPlan(this.pool, asUser(row), false);
+  }
+
+  async listWeeklyReportBlockers(
+    actor: SafeUser, targetUserId: string, limit: number, after: WeeklyReportBlockerCursor | null,
+  ) {
+    assertAdmin(actor);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const actorRow = await client.query<{ role: string; is_active: boolean }>(
+        `SELECT role, is_active FROM users WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, actor.id],
+      );
+      if (actorRow.rows[0]?.role !== 'ADMIN' || actorRow.rows[0]?.is_active !== true) throw forbidden();
+      const target = await client.query<{ role: string }>(
+        `SELECT role FROM users WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, targetUserId],
+      );
+      if (!target.rows[0]) throw notFound();
+      if (target.rows[0].role !== 'STAFF') {
+        throw new AppError('OFFBOARDING_TARGET_NOT_STAFF', 409, 'Offboarding hedefi Staff olmalıdır.');
+      }
+      const args = [actor.organizationId, targetUserId, ACTIVE_JOB_STATUSES];
+      const count = await client.query<{ total: string }>(
+        `SELECT COUNT(*)::text AS total ${WEEKLY_REPORT_BLOCKER_FROM}`, args,
+      );
+      const page = await client.query<WeeklyReportBlockerRow>(
+        `SELECT j.id, j.status, j.version, j.assigned_to, j.type,
+                r.id AS report_id, r.staff_user_id, r.period_start::text,
+                r.version AS report_version
+           ${WEEKLY_REPORT_BLOCKER_FROM}
+          AND ($4::uuid IS NULL
+            OR ($5::date IS NULL AND r.period_start IS NULL AND j.id > $4::uuid)
+            OR ($5::date IS NOT NULL AND (
+              r.period_start > $5::date
+              OR (r.period_start = $5::date AND j.id > $4::uuid)
+              OR r.period_start IS NULL)))
+          ORDER BY r.period_start NULLS LAST, j.id
+          LIMIT $6`,
+        [...args, after?.jobCardId ?? null, after?.periodStart ?? null, limit + 1],
+      );
+      await client.query('COMMIT');
+      return {
+        total: Number(count.rows[0]!.total), limit, hasMore: page.rows.length > limit,
+        items: page.rows.slice(0, limit).map(weeklyReportBlockerItem),
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async execute(actor: SafeUser, targetUserId: string, input: OffboardingDecisionInput): Promise<OffboardingResponse> {
@@ -734,20 +810,11 @@ export class PostgresStaffOffboardingService {
   }
 
   private async assertWeeklyReportsResolved(queryable: Queryable, target: UserSnapshot) {
-    const result = await queryable.query<{
-      id: string; status: JobCardStatus; version: number; assigned_to: string; type: string;
-      report_id: string | null; staff_user_id: string | null;
-      period_start: string | null; report_version: number | null; total: string;
-    }>(
+    const result = await queryable.query<WeeklyReportBlockerRow & { total: string }>(
       `SELECT j.id, j.status, j.version, j.assigned_to, j.type,
               r.id AS report_id, r.staff_user_id, r.period_start::text,
               r.version AS report_version, COUNT(*) OVER()::text AS total
-         FROM job_cards j
-         LEFT JOIN weekly_reports r
-           ON r.organization_id = j.organization_id AND r.job_card_id = j.id
-        WHERE j.organization_id = $1 AND j.status = ANY($3::varchar[])
-          AND (j.type = 'WEEKLY_REPORT' OR r.id IS NOT NULL)
-          AND (j.assigned_to = $2 OR r.staff_user_id = $2)
+         ${WEEKLY_REPORT_BLOCKER_FROM}
         ORDER BY r.period_start NULLS LAST, j.id
         LIMIT $4`,
       [target.organizationId, target.id, ACTIVE_JOB_STATUSES, WEEKLY_REPORT_BLOCKER_LIMIT],
@@ -760,14 +827,7 @@ export class PostgresStaffOffboardingService {
       `Bu personele bağlı ${total} sonuçlandırılmamış haftalık rapor var. Raporların sahipliği devredilemez. Yetkili yönetici incelemesi veya gerekçeli iptal sonrasında sorumlulukları yeniden yükleyin.`,
       { weeklyReports: {
         total, limit: WEEKLY_REPORT_BLOCKER_LIMIT, hasMore: total > result.rows.length,
-        items: result.rows.map((row) => ({
-          jobCardId: row.id, reportId: row.report_id, staffUserId: row.staff_user_id,
-          assignedTo: row.assigned_to, periodStart: row.period_start, status: row.status,
-          jobVersion: row.version, reportVersion: row.report_version,
-          reason: row.report_id === null ? 'MISSING_REPORT'
-            : row.type !== 'WEEKLY_REPORT' ? 'ROOT_TYPE_MISMATCH'
-              : row.staff_user_id !== row.assigned_to ? 'OWNER_ASSIGNEE_MISMATCH' : 'UNFINISHED',
-        })),
+        items: result.rows.map(weeklyReportBlockerItem),
       } },
     );
   }
