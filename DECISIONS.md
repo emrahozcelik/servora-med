@@ -1992,3 +1992,38 @@ ownership or SOF-1's terminal-proposal rules.
   SOF-2C and closure verification are still required; OF-02 remains open.
 
 Contract and verification boundaries: [SOF-2 ownership](docs/features/staff-offboarding-weekly-report-ownership.md).
+
+## Weekly Report PDF missing-glyph metrics — 2026-10-24
+
+Status: Accepted defect correction. Fixes a server-side rendering defect found by
+the WR-PDF-1 diagnosis; no business rule, workflow or stored data changes.
+
+Every code point the embedded Roboto font cannot render is drawn as glyph id 0
+(`.notdef`, the empty box). PDFKit (0.19.1 and still 0.20.2) seeds the CIDFont
+width array with the raw font-unit advance for id 0 while scaling every other
+entry into 1000-unit glyph space, so the produced `/W[0]` was `908` where the
+true advance is `443.359` — `.notdef` painted 2.048x too wide. pdfmake measures
+with fontkit, so the reserved width was correct and the painted width was not;
+a table cell holding enough missing glyphs painted across its right border and
+over the next column.
+
+- The correction rewrites only entry 0 of each embedded font's `/W` array, at
+  render time, before the document is serialised. Advances for supported glyphs
+  are never touched; Turkish text and normal typography keep their metrics.
+- No dependency, lockfile or `node_modules` change. The release artifact is built
+  with `npm ci --omit=dev`, so an install-time dependency patch would not survive;
+  the correction is applied to the in-flight document instead.
+- Font embedding, offline rendering and the closed URL/local access policies are
+  unchanged. No network font loading is introduced.
+- **Glyph coverage is not fixed and is not claimed to be.** Scripts Roboto lacks
+  (emoji, CJK, Arabic, arrows, check marks) still render as `.notdef` boxes. They
+  are now drawn at the width reserved for them instead of nearly twice that
+  width. Rendering genuine glyphs for those scripts remains a separate decision.
+- Source-work table column widths are unchanged from WR-02
+  (`[164.28, 65, 80, 65, 85]`); the pre-WR-02 `auto` overflow is already fixed on
+  `main` and this record adds regression protection only.
+- Frozen submissions, PDF document-model identity and attribution, submission
+  history, manual create/bulk, SOF-2A/SOF-2B ownership and cancellation,
+  offboarding, recurrence retirement and reporting integration are unchanged.
+- Verification uses painted PDF geometry, not pdfmake's layout boxes: the
+  previous tests compared reserved widths only and could not see this defect.

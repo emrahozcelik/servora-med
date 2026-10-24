@@ -38,6 +38,12 @@ declare module 'pdfmake' {
   }
 
   export interface PdfMakeCreatedDocument {
+    /**
+     * Resolves once layout and text encoding have run, before the document is
+     * ended. Exposed by pdfmake's server output document; used to inspect and
+     * correct embedded-font metrics before `/W` is serialised.
+     */
+    getStream(): Promise<unknown>;
     getBuffer(): Promise<Buffer>;
   }
 
