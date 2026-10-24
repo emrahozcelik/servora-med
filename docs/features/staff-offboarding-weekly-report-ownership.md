@@ -144,3 +144,15 @@ SOF-2C review requires focused PG17 and frontend tests, real desktop/mobile
 browser flows including 201 blockers, exact-head Local CI 27/27 and verifier.
 OF-02 closure is a separate integrated audit. OF-01, OF-09, terminal proposal
 resolution and legacy data repair remain open.
+
+### Known out-of-scope issue found during SOF-2C verification
+
+With `prefers-reduced-motion: reduce`, the shared `ServoraAntProvider` disables
+antd motion app-wide, and `@rc-component/trigger` then never re-aligns a Select
+popup: the option list stays at its `-1000vw/-1000vh` placeholder offset and a
+mouse click opens an invisible list (keyboard entry plus Enter still selects).
+This reproduces unchanged at `6054474` with a byte-identical antd bundle, so it
+is not a SOF-2C regression and this slice does not change it. SOF-2C browser
+verification therefore validates the blocker panel under reduced motion and the
+untouched manual report form under the default motion preference. Repairing the
+popup is a separate authorized UI/accessibility slice.
