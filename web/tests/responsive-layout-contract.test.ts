@@ -81,7 +81,7 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*\.servora-workflow-steps/);
     expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*scroll-behavior:\s*auto/);
-    expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*transition-duration:\s*0\.01ms/);
+    expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*\*,\s*\*::before,\s*\*::after\s*\{[^}]*transition:\s*none\s*!important/);
   });
 
   it('keeps the customer report list reflowable with a bounded structured row', () => {

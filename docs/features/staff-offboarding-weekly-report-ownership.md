@@ -156,3 +156,19 @@ is not a SOF-2C regression and this slice does not change it. SOF-2C browser
 verification therefore validates the blocker panel under reduced motion and the
 untouched manual report form under the default motion preference. Repairing the
 popup is a separate authorized UI/accessibility slice.
+
+### Issue #389 correction — 2026-10-25
+
+The earlier attribution to disabled Ant motion was a diagnostic lead, not the
+root cause. DevTools observations show that alignment runs, but the universal
+reduced-motion `transition-duration: 0.01ms` rule animates the temporary inset
+writes used for measurement. The immediate rectangle can therefore retain the
+old offscreen position. Disabling transitions in that same reduced-motion rule
+fixes measurement without changing the provider's `motion=false` token, popup
+container, dependency versions or business commands.
+
+The browser entrypoint now checks real alignment, scrolling, filtering,
+reopening, mouse/touch/keyboard selection and independent replacement through
+the full offboarding journey in both motion preferences at 1440px and 390px.
+Evidence remains external and bound to the reviewed source; branch verification
+does not close OF-02, OF-01/OF-09, terminal follow-up or production gates.
