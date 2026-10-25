@@ -745,3 +745,17 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
 - OF-02 integrated closure, OF-01/OF-09, terminal proposal resolution and
   historical integrity repair remain separate. Production and recurrence
   rollback gates are unchanged.
+
+## Issue #389 — Reduced-motion Select alignment (2026-10-25)
+
+- [x] Remove implicit inset transitions from the shared reduced-motion rule;
+  retain disabled Ant motion, document-body popups and normal-motion behavior.
+- [x] Add a real-popup RED/GREEN regression and expand the existing real-backend
+  offboarding browser entrypoint to four viewport/motion profiles, scroll,
+  reopen, filtering, pointer/touch and keyboard selection.
+- Acceptance requires real independent replacement and fresh-preview/execute
+  journeys, unchanged builds/tests, and exact-head Local CI/verifier when the
+  verified local daemon and resource conditions permit it. Execution results
+  are external SHA/tree-bound evidence, not claims made by these checkboxes.
+- OF-02 acceptance, OF-01/OF-09, terminal follow-up and production #369/release
+  gates remain independent. No automatic issue closure, merge or deployment.
