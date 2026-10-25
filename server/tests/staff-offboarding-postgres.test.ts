@@ -14,6 +14,10 @@ import { PostgresCalendarReminderWorkerRepository } from '../src/modules/calenda
 import { InMemoryRealtimeEventBus } from '../src/modules/realtime/event-bus.js';
 import { PostgresRealtimeEventRepository } from '../src/modules/realtime/repository.js';
 import { RealtimeService } from '../src/modules/realtime/service.js';
+import { parseJobCardCreateInput } from '../src/modules/job-cards/create-input.js';
+import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { JobCardService } from '../src/modules/job-cards/service.js';
+import { gatePoolStatements, waitFor } from './support/lifecycle-intent-harness.js';
 import {
   PostgresStaffOffboardingService,
   type OffboardingDecisionInput,
@@ -179,11 +183,11 @@ async function insertJob(
 ) {
   const id = randomUUID();
   const fields = {
-    startedAt: ['IN_PROGRESS', 'WAITING_APPROVAL', 'COMPLETED'].includes(input.status) ? at : null,
+    startedAt: ['IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED'].includes(input.status) ? at : null,
     acceptedAt: input.status === 'ACCEPTED' ? at : null,
     acceptedBy: input.status === 'ACCEPTED' ? input.assignedTo : null,
-    staffCompletedAt: ['WAITING_APPROVAL', 'COMPLETED'].includes(input.status) ? at : null,
-    staffCompletedBy: ['WAITING_APPROVAL', 'COMPLETED'].includes(input.status) ? input.assignedTo : null,
+    staffCompletedAt: ['WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED'].includes(input.status) ? at : null,
+    staffCompletedBy: ['WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED'].includes(input.status) ? input.assignedTo : null,
     managerApprovedAt: input.status === 'COMPLETED' ? at : null,
     managerApprovedBy: input.status === 'COMPLETED' ? input.createdBy : null,
     cancelledAt: input.status === 'CANCELLED' ? at : null,
@@ -192,9 +196,9 @@ async function insertJob(
     invalidatedAt: input.status === 'INVALIDATED' ? at : null,
     invalidatedBy: input.status === 'INVALIDATED' ? input.createdBy : null,
     invalidationReasonCode: input.status === 'INVALIDATED' ? 'DUPLICATE' : null,
-    revisionRequestedAt: null,
-    revisionRequestedBy: null,
-    revisionReason: null,
+    revisionRequestedAt: input.status === 'REVISION_REQUESTED' ? at : null,
+    revisionRequestedBy: input.status === 'REVISION_REQUESTED' ? input.createdBy : null,
+    revisionReason: input.status === 'REVISION_REQUESTED' ? 'Clarify clinic outcome' : null,
     followUpAt: input.followUpAssignee ? new Date('2026-08-26T09:00:00.000Z') : null,
     followUpType: input.followUpAssignee ? 'GENERAL_TASK' : null,
     followUpOrigin: input.followUpAssignee ? 'SYSTEM' : null,
@@ -409,7 +413,8 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
       expect(fixture.disconnectUser).toHaveBeenCalledWith(fixture.organizationId, fixture.target.id);
 
       const state = await fixture.pool.query<{
-        target_active: boolean; active_job_assignee: string; accepted_status: string; accepted_by: string;
+        target_active: boolean; active_job_assignee: string; accepted_status: string;
+        accepted_at: Date | null; accepted_by: string | null;
         completed_assignee: string; cancelled_assignee: string; invalidated_assignee: string;
         customer_assignee: string; calendar_assignee: string; past_calendar_assignee: string;
         follow_up_assignee: string; pending_recipient: string; claimed_recipient: string;
@@ -419,6 +424,7 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
           (SELECT is_active FROM users WHERE id = $1) AS target_active,
           (SELECT assigned_to FROM job_cards WHERE id = $2) AS active_job_assignee,
           (SELECT status FROM job_cards WHERE id = $3) AS accepted_status,
+          (SELECT accepted_at FROM job_cards WHERE id = $3) AS accepted_at,
           (SELECT accepted_by FROM job_cards WHERE id = $3) AS accepted_by,
           (SELECT assigned_to FROM job_cards WHERE id = $4) AS completed_assignee,
           (SELECT assigned_to FROM job_cards WHERE id = $5) AS cancelled_assignee,
@@ -440,7 +446,7 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
       expect(state.rows[0]).toMatchObject({
         target_active: false,
         active_job_assignee: fixture.replacementB.id,
-        accepted_status: 'ACCEPTED', accepted_by: fixture.target.id,
+        accepted_status: 'NEW', accepted_at: null, accepted_by: null,
         completed_assignee: fixture.target.id, cancelled_assignee: fixture.target.id,
         invalidated_assignee: fixture.target.id,
         customer_assignee: fixture.replacementB.id,
@@ -506,6 +512,105 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
     });
   });
 
+  it('resets current acceptance while preserving prior events and requiring the replacement to accept before start', async () => {
+    await withFixture(async (f) => {
+      const jobs = new JobCardService(new PostgresJobCardRepository(f.pool), () => new Date(at));
+      const created = await jobs.create(f.manager, parseJobCardCreateInput({
+        clientActionId: randomUUID(), type: 'GENERAL_TASK', title: 'Dental clinic coordination', assignedTo: f.target.id,
+      }));
+      const accepted = await jobs.acceptAssignment(f.target, created.id, {
+        clientActionId: randomUUID(), expectedVersion: created.version,
+      });
+      const historyBefore = await snapshotJobHistory(f.pool, created.id);
+      const plan = await f.service.preview(f.admin, f.target.id);
+      const request = actualDecisions(f, plan, randomUUID());
+      const response = await f.service.execute(f.admin, f.target.id, request);
+      const transferred = await jobs.detail(f.replacementB, created.id);
+      expect(transferred).toMatchObject({ status: 'NEW', version: accepted.version + 1,
+        workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } } });
+      expect(transferred.workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');
+      expect(transferred.workflowContext.allowedCommands).not.toContain('START');
+      await expect(jobs.start(f.replacementB, created.id, {
+        clientActionId: randomUUID(), expectedVersion: transferred.version,
+      })).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
+      await expect(jobs.acceptAssignment(f.target, created.id, {
+        clientActionId: randomUUID(), expectedVersion: transferred.version,
+      })).rejects.toMatchObject({ statusCode: 403 });
+      const priorActivities = await f.pool.query(
+        `SELECT to_jsonb(t) AS row FROM job_card_activity_logs t
+          WHERE job_card_id = $1 AND event_type <> 'JOB_ASSIGNED' ORDER BY to_jsonb(t)::text`, [created.id],
+      );
+      expect(priorActivities.rows).toEqual(historyBefore.job_card_activity_logs);
+      const assignment = (await f.pool.query(
+        `SELECT old_value, new_value FROM job_card_activity_logs
+          WHERE job_card_id = $1 AND event_type = 'JOB_ASSIGNED'`, [created.id],
+      )).rows;
+      expect(assignment).toEqual([{
+        old_value: { assignedTo: f.target.id, status: 'ACCEPTED' },
+        new_value: { assignedTo: f.replacementB.id, status: 'NEW' },
+      }]);
+      const acceptInput = { clientActionId: randomUUID(), expectedVersion: transferred.version };
+      const reaccepted = await jobs.acceptAssignment(f.replacementB, created.id, acceptInput);
+      expect(reaccepted).toMatchObject({ status: 'ACCEPTED', workflowContext: { lifecycle: { acceptedBy: { id: f.replacementB.id } } } });
+      expect(await jobs.acceptAssignment(f.replacementB, created.id, acceptInput)).toMatchObject({ version: reaccepted.version });
+      const started = await jobs.start(f.replacementB, created.id, {
+        clientActionId: randomUUID(), expectedVersion: reaccepted.version,
+      });
+      expect(started.status).toBe('IN_PROGRESS');
+      const after = await snapshotOffboardingState(f.pool);
+      expect(await f.service.execute(f.admin, f.target.id, request)).toEqual(response);
+      expect(await snapshotOffboardingState(f.pool)).toEqual(after);
+      expect((await f.pool.query(
+        `SELECT actor_id FROM job_card_activity_logs WHERE job_card_id = $1 AND event_type = 'JOB_ACCEPTED'
+          ORDER BY created_at, id`, [created.id],
+      )).rows.map((row) => row.actor_id)).toEqual([f.target.id, f.replacementB.id]);
+    });
+  });
+
+  it('preserves a breached late-start commitment before clearing the old acceptance', async () => {
+    await withFixture(async (f) => {
+      const baseline = (await f.pool.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now;
+      const jobs = new JobCardService(new PostgresJobCardRepository(f.pool), () => new Date(baseline.getTime() - 7_200_000));
+      const created = await jobs.create(f.target, parseJobCardCreateInput({
+        clientActionId: randomUUID(), type: 'PRODUCT_DELIVERY', title: 'Accepted clinic delivery', assignedTo: f.target.id,
+        customerId: f.ids.customer, scheduledAt: new Date(baseline.getTime() - 3_600_000).toISOString(),
+      }));
+      expect(created.status).toBe('ACCEPTED');
+      const offboarding = new PostgresStaffOffboardingService(f.pool, undefined, () => baseline);
+      const plan = await offboarding.preview(f.admin, f.target.id);
+      const input = actualDecisions(f, plan, randomUUID());
+      const before = await snapshotOffboardingState(f.pool);
+      await f.pool.query(`CREATE FUNCTION of01_fail_deactivation() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'OF01 late rollback'; END $$;
+        CREATE TRIGGER of01_fail_deactivation BEFORE UPDATE OF is_active ON users
+        FOR EACH ROW WHEN (NOT NEW.is_active) EXECUTE FUNCTION of01_fail_deactivation()`);
+      await expect(offboarding.execute(f.admin, f.target.id, input)).rejects.toThrow('OF01 late rollback');
+      expect(await snapshotOffboardingState(f.pool)).toEqual(before);
+      await f.pool.query('DROP TRIGGER of01_fail_deactivation ON users');
+      await offboarding.execute(f.admin, f.target.id, input);
+      const incidents = await f.pool.query(`SELECT delay_type, accountable_user_id, accountable_source, recovered_at
+        FROM job_card_overdue_incidents WHERE job_card_id=$1`, [created.id]);
+      expect(incidents.rows).toEqual([{ delay_type: 'LATE_START', accountable_user_id: f.target.id,
+        accountable_source: 'ASSIGNMENT_AT_BREACH', recovered_at: null }]);
+      await offboarding.execute(f.admin, f.target.id, input);
+      expect((await f.pool.query('SELECT count(*)::int AS n FROM job_card_overdue_incidents WHERE job_card_id=$1',
+        [created.id])).rows[0]!.n).toBe(1);
+    });
+  });
+
+  it('fails atomically if a breached acceptance has no provable governing schedule revision', async () => {
+    await withFixture(async (f) => {
+      await f.pool.query(`UPDATE job_cards SET type='PRODUCT_DELIVERY', customer_id=$2,
+        scheduled_at='2026-08-25T07:00:00Z', scheduled_ends_at='2026-08-25T07:30:00Z' WHERE id=$1`,
+      [f.ids.acceptedJob, f.ids.customer]);
+      const plan = await f.service.preview(f.admin, f.target.id);
+      const before = await snapshotOffboardingState(f.pool);
+      await expect(f.service.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID())))
+        .rejects.toMatchObject({ code: 'OVERDUE_INCIDENT_REVISION_MISSING', statusCode: 500 });
+      expect(await snapshotOffboardingState(f.pool)).toEqual(before);
+    });
+  });
+
   it('rejects stale plans, invalid replacements, wrong roles, and cross-organization targets without mutation', async () => {
     await withFixture(async (fixture) => {
       const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
@@ -543,6 +648,108 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
     });
   });
 
+  it.each(['ACCEPT_ASSIGNMENT', 'START'] as const)('rejects a stale %s waiting behind an offboarding reset', async (command) => {
+    await withFixture(async (f) => {
+      const gate = gatePoolStatements(f.pool, 'UPDATE users SET is_active = FALSE');
+      const offboarding = new PostgresStaffOffboardingService(gate.pool, undefined, () => new Date(at));
+      const plan = await offboarding.preview(f.admin, f.target.id);
+      const execution = offboarding.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID()));
+      const jobs = new JobCardService(new PostgresJobCardRepository(f.pool));
+      let mutation: Promise<unknown> | undefined;
+      try {
+        await timeout(gate.arrived, 'offboarding holds the job row before commit');
+        const input = { clientActionId: randomUUID(), expectedVersion: plan.jobs.find((j) => j.id === f.ids.acceptedJob)!.version };
+        mutation = (command === 'START' ? jobs.start(f.target, f.ids.acceptedJob, input)
+          : jobs.acceptAssignment(f.replacementB, f.ids.acceptedJob, input)).catch((error: unknown) => error);
+        await waitFor(async () => (await f.pool.query(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+          WHERE cardinality(pg_blocking_pids(pid)) > 0 AND query LIKE '%job_cards%') AS blocked`)).rows[0]!.blocked,
+        2_000, 'lifecycle request waiting on the offboarding row lock');
+        gate.release();
+        await execution;
+        expect(await mutation).toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+        const detail = await jobs.detail(f.replacementB, f.ids.acceptedJob);
+        expect(detail).toMatchObject({ status: 'NEW', workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } } });
+        expect((await f.pool.query(`SELECT count(*)::int AS n FROM job_card_activity_logs
+          WHERE job_card_id=$1 AND event_type IN ('JOB_STARTED','JOB_ACCEPTED')`, [f.ids.acceptedJob])).rows[0]!.n).toBe(0);
+      } finally { gate.release(); await execution; await mutation; }
+    });
+  });
+
+  it.each(['ACCEPT_ASSIGNMENT', 'START', 'REASSIGN'] as const)('rejects the stale offboarding plan when concurrent %s commits first', async (command) => {
+    await withFixture(async (f) => {
+      const jobs = new JobCardService(new PostgresJobCardRepository(f.pool));
+      const created = await jobs.create(f.manager, parseJobCardCreateInput({ clientActionId: randomUUID(),
+        type: 'GENERAL_TASK', title: 'Concurrent clinic task', assignedTo: f.target.id }));
+      const current = command === 'ACCEPT_ASSIGNMENT' ? created : await jobs.acceptAssignment(f.target, created.id,
+        { clientActionId: randomUUID(), expectedVersion: created.version });
+      const plan = await f.service.preview(f.admin, f.target.id);
+      const gate = gatePoolStatements(f.pool, command === 'REASSIGN' ? 'UPDATE job_cards SET' : 'SET status = $4::varchar(30)');
+      const concurrentJobs = new JobCardService(new PostgresJobCardRepository(gate.pool));
+      const input = { clientActionId: randomUUID(), expectedVersion: current.version };
+      const mutation = command === 'ACCEPT_ASSIGNMENT' ? concurrentJobs.acceptAssignment(f.target, created.id, input)
+        : command === 'START' ? concurrentJobs.start(f.target, created.id, input)
+          : concurrentJobs.patch(f.manager, created.id, { expectedVersion: current.version, assignedTo: f.replacementC.id });
+      let execution: Promise<unknown> | undefined;
+      try {
+        await timeout(gate.arrived, 'concurrent job mutation holds its locks');
+        execution = f.service.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID())).catch((error: unknown) => error);
+        await waitFor(async () => (await f.pool.query(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+          WHERE cardinality(pg_blocking_pids(pid)) > 0 AND (query LIKE '%users%' OR query LIKE '%job_cards%')) AS blocked`)).rows[0]!.blocked,
+        2_000, 'offboarding waiting on concurrent mutation');
+        gate.release();
+        const result = await mutation;
+        expect(await execution).toMatchObject({ code: 'STALE_PLAN', statusCode: 409 });
+        expect((await f.pool.query('SELECT is_active FROM users WHERE id=$1', [f.target.id])).rows[0]!.is_active).toBe(true);
+        const owner = command === 'REASSIGN' ? f.replacementC : f.target;
+        const detail = await jobs.detail(owner, created.id);
+        expect(detail.version).toBe(result.version);
+        expect(detail.status).toBe(command === 'START' ? 'IN_PROGRESS' : command === 'REASSIGN' ? 'NEW' : 'ACCEPTED');
+        expect((await f.pool.query(`SELECT count(*)::int AS n FROM audit_events
+          WHERE event_type='USER_OFFBOARDED' AND subject_id=$1`, [f.target.id])).rows[0]!.n).toBe(0);
+      } finally { gate.release(); await mutation; await execution; }
+    });
+  });
+
+  it.each(['GENERAL_TASK', 'PRODUCT_DELIVERY', 'SALES_MEETING', 'SALE'])('resets accepted %s ownership without rewriting historical acceptance', async (type) => {
+    await withFixture(async (f) => {
+      if (type === 'SALE') await f.pool.query(`UPDATE job_cards SET type='SALES_MEETING',
+        engagement_kind='CUSTOMER_VISIT', customer_id=$2 WHERE id=$1`, [f.ids.completedJob, f.ids.customer]);
+      await f.pool.query(`UPDATE job_cards SET type=$2::varchar(30), customer_id=$3,
+        engagement_kind=CASE WHEN $2::varchar(30)='SALES_MEETING' THEN 'CUSTOMER_VISIT' ELSE NULL END,
+        sale_source_visit_id=CASE WHEN $2::varchar(30)='SALE' THEN $4::uuid ELSE NULL END WHERE id=$1`,
+      [f.ids.acceptedJob, type, f.ids.customer, f.ids.completedJob]);
+      const plan = await f.service.preview(f.admin, f.target.id);
+      await f.service.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID()));
+      expect((await f.pool.query('SELECT status, accepted_at, accepted_by FROM job_cards WHERE id=$1',
+        [f.ids.acceptedJob])).rows).toEqual([{ status: 'NEW', accepted_at: null, accepted_by: null }]);
+    });
+  });
+
+  it.each(['NEW', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'])('preserves %s lifecycle facts during the existing active-work transfer exception', async (status) => {
+    await withFixture(async (f) => {
+      const id = await insertJob(f.pool, { organizationId: f.organizationId, assignedTo: f.target.id, createdBy: f.admin.id, status });
+      if (status !== 'NEW') await f.pool.query('UPDATE job_cards SET accepted_at=$2, accepted_by=$3 WHERE id=$1', [id, at, f.target.id]);
+      const facts = async () => (await f.pool.query(`SELECT status, accepted_at, accepted_by, started_at,
+        staff_completed_at, staff_completed_by, revision_requested_at, revision_requested_by FROM job_cards WHERE id=$1`, [id])).rows;
+      const before = await facts();
+      const plan = await f.service.preview(f.admin, f.target.id);
+      await f.service.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID()));
+      expect(await facts()).toEqual(before);
+    });
+  });
+
+  it('leaves another active assignee acceptance intact when only their follow-up proposal is transferred', async () => {
+    await withFixture(async (f) => {
+      const id = await insertJob(f.pool, { organizationId: f.organizationId, assignedTo: f.replacementC.id,
+        createdBy: f.admin.id, status: 'ACCEPTED', followUpAssignee: f.target.id });
+      const plan = await f.service.preview(f.admin, f.target.id);
+      expect(plan.jobs.map((j) => j.id)).not.toContain(id);
+      await f.service.execute(f.admin, f.target.id, actualDecisions(f, plan, randomUUID()));
+      expect((await f.pool.query('SELECT status, accepted_at, accepted_by, assigned_to FROM job_cards WHERE id=$1', [id])).rows)
+        .toEqual([{ status: 'ACCEPTED', accepted_at: at, accepted_by: f.replacementC.id, assigned_to: f.replacementC.id }]);
+    });
+  });
+
   it('serializes same-action and different-action concurrency to one durable completion', async () => {
     await withFixture(async (fixture) => {
       const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
@@ -572,6 +779,7 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
   it('rolls back the complete graph, sessions, audit, and receipt when the final deactivation fails', async () => {
     await withFixture(async (fixture) => {
       const plan = await fixture.service.preview(fixture.admin, fixture.target.id);
+      const before = await snapshotOffboardingState(fixture.pool);
       await fixture.pool.query(`
         CREATE FUNCTION fail_r4a_offboarding() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
@@ -593,6 +801,7 @@ describe.skipIf(!databaseUrl)('R4A Staff offboarding on real PostgreSQL', () => 
         fixture.target.id,
         actualDecisions(fixture, plan, 'r4a-rollback'),
       )).rejects.toThrow('injected R4A rollback failure');
+      expect(await snapshotOffboardingState(fixture.pool)).toEqual(before);
 
       const state = await fixture.pool.query<{
         target_active: boolean; job_assignee: string; customer_assignee: string;

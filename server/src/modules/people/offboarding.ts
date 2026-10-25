@@ -5,6 +5,8 @@ import type { Pool, PoolClient } from 'pg';
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
+import { materializeLateStartIfBreached, overdueRevisionMissingError } from '../job-cards/overdue-breach-producer.js';
+import { PostgresJobCardTransaction } from '../job-cards/repository.js';
 import type { JobCardStatus } from '../job-cards/types.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 import type { RealtimeService } from '../realtime/service.js';
@@ -513,6 +515,7 @@ export class PostgresStaffOffboardingService {
     const currentFollowUps = new Map(plan.followUps.map((item) => [item.jobCardId, item]));
     for (const jobId of [...new Set([...jobDecision.keys(), ...followUpDecision.keys()])].sort()) {
       const replacementForJob = jobDecision.get(jobId);
+      const previousJob = currentJobs.get(jobId);
       if (replacementForJob) {
         const jobInterval = await client.query<{ scheduled_at: Date | null; scheduled_ends_at: Date | null }>(
           `SELECT scheduled_at, scheduled_ends_at FROM job_cards WHERE organization_id = $1 AND id = $2`,
@@ -522,9 +525,24 @@ export class PostgresStaffOffboardingService {
         const scheduledAt = row?.scheduled_at ? row.scheduled_at.toISOString() : null;
         const scheduledEndsAt = row?.scheduled_ends_at ? row.scheduled_ends_at.toISOString() : null;
         await this.assertJobCardAssignmentAvailable(client, actor.organizationId, replacementForJob, jobId, scheduledAt, scheduledEndsAt);
+        if (previousJob?.status === 'ACCEPTED' && previousJob.assignedTo !== replacementForJob) {
+          // Preserve an already-breached commitment against the old ownership
+          // history before the current acceptance is cleared (JOB-006 / OVR-2).
+          const breach = await materializeLateStartIfBreached(new PostgresJobCardTransaction(client), {
+            organizationId: actor.organizationId, jobCardId: jobId, scheduledEndsAt,
+            scheduleRevisionNo: null, revisionEffectiveAt: null, source: 'MUTATION', requestTime: this.now(),
+          });
+          if (breach.kind === 'unprovable' && breach.reason === 'REVISION_MISSING') throw overdueRevisionMissingError();
+        }
       }
       const updated = await client.query(
         `UPDATE job_cards SET
+            status = CASE WHEN status = 'ACCEPTED' AND $2::uuid IS NOT NULL
+              AND assigned_to IS DISTINCT FROM $2::uuid THEN 'NEW' ELSE status END,
+            accepted_at = CASE WHEN status = 'ACCEPTED' AND $2::uuid IS NOT NULL
+              AND assigned_to IS DISTINCT FROM $2::uuid THEN NULL ELSE accepted_at END,
+            accepted_by = CASE WHEN status = 'ACCEPTED' AND $2::uuid IS NOT NULL
+              AND assigned_to IS DISTINCT FROM $2::uuid THEN NULL ELSE accepted_by END,
             assigned_to = CASE WHEN $2::uuid IS NULL THEN assigned_to ELSE $2::uuid END,
             follow_up_proposed_assignee = CASE WHEN $3::uuid IS NULL THEN follow_up_proposed_assignee ELSE $3::uuid END,
             version = version + 1, updated_at = $4
@@ -536,10 +554,10 @@ export class PostgresStaffOffboardingService {
         [actor.organizationId, jobDecision.get(jobId) ?? null, followUpDecision.get(jobId) ?? null, this.now(), jobId, targetUserId, ACTIVE_JOB_STATUSES],
       );
       if (updated.rowCount !== 1) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-      const previousJob = currentJobs.get(jobId);
       const previousFollowUp = currentFollowUps.get(jobId);
       if (jobDecision.has(jobId) && previousJob) {
-        await this.appendJobAssignmentEffect(client, actor, input, jobId, previousJob.assignedTo, jobDecision.get(jobId)!);
+        await this.appendJobAssignmentEffect(client, actor, input, jobId, previousJob.assignedTo, jobDecision.get(jobId)!,
+          previousJob.status === 'ACCEPTED' && previousJob.assignedTo !== jobDecision.get(jobId));
       }
       if (followUpDecision.has(jobId) && previousFollowUp) {
         await this.appendJobFieldsEffect(
@@ -619,6 +637,7 @@ export class PostgresStaffOffboardingService {
     jobCardId: string,
     previousAssignee: string,
     nextAssignee: string,
+    acceptanceReset: boolean,
   ) {
     const activity = await client.query<{ id: string; created_at: Date }>(
       `INSERT INTO job_card_activity_logs
@@ -626,7 +645,8 @@ export class PostgresStaffOffboardingService {
        VALUES ($1, $2, $3, 'JOB_ASSIGNED', $4::jsonb, $5::jsonb, $6::jsonb, $7)
        RETURNING id, created_at`,
       [actor.organizationId, jobCardId, actor.id,
-        JSON.stringify({ assignedTo: previousAssignee }), JSON.stringify({ assignedTo: nextAssignee }),
+        JSON.stringify({ assignedTo: previousAssignee, ...(acceptanceReset ? { status: 'ACCEPTED' } : {}) }),
+        JSON.stringify({ assignedTo: nextAssignee, ...(acceptanceReset ? { status: 'NEW' } : {}) }),
         JSON.stringify({ reason: 'STAFF_OFFBOARDED' }), `${input.clientActionId}:job:${jobCardId}`],
     );
     // FOUNDATION-1: authoritative ownership history rides the same database

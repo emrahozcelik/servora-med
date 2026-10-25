@@ -211,6 +211,15 @@ async function insertJob(
       null, fields.followUpInstructions, fields.followUpOrigin,
       fields.followUpBy, input.engagementKind ?? null],
   );
+  // Raw legacy fixtures need the same authoritative baseline snapshots as
+  // migration 043; never invent ownership or schedule history before baseline.
+  await pool.query(`INSERT INTO job_card_schedule_revisions
+    (organization_id,job_card_id,revision_no,scheduled_at,scheduled_ends_at,due_date,organization_timezone,source)
+    SELECT organization_id,id,1,scheduled_at,scheduled_ends_at,due_date,'Europe/Istanbul','BASELINE'
+    FROM job_cards WHERE id=$1`, [id]);
+  await pool.query(`INSERT INTO job_card_assignment_history
+    (organization_id,job_card_id,to_user_id,source,changed_at)
+    SELECT organization_id,id,assigned_to,'BASELINE',NOW() FROM job_cards WHERE id=$1`, [id]);
   return id;
 }
 

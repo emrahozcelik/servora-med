@@ -759,3 +759,24 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   are external SHA/tree-bound evidence, not claims made by these checkboxes.
 - OF-02 acceptance, OF-01/OF-09, terminal follow-up and production #369/release
   gates remain independent. No automatic issue closure, merge or deployment.
+
+## OF-01 — Offboarding acceptance reset (2026-10-25)
+
+- [x] Apply the existing JOB-006 management reassignment rule inside the locked
+  offboarding transaction: an actually reassigned ACCEPTED non-weekly job becomes
+  NEW with cleared current acceptance. The replacement must ACCEPT before START.
+- [x] Preserve prior acceptance/activity/accountability history and materialize an
+  already-breached late-start commitment before clearing acceptance, using the
+  existing OVR-2 producer. Record ACCEPTED → NEW in the assignment activity.
+- [x] Preserve started-work transfer exceptions, follow-up-only transfers, weekly
+  ownership fences, terminal containment, atomic rollback and exact-intent replay.
+- Review gates: baseline RED, focused PG17 lock/concurrency and history tests,
+  real Fastify/Vite and built-web browser acceptance (desktop/mobile, normal and
+  reduced motion, keyboard, Chromium and headed Google Chrome), full builds/tests,
+  exact committed-head Local CI 27/27, verifier, owned cleanup and preservation.
+  Execution evidence is external and SHA/tree-bound; implementation checkboxes
+  do not assert those gates passed or authorize production deployment.
+- Browser entrypoint: `node web/scripts/of01-acceptance-reset-browser.mjs` with
+  isolated PG17 `TEST_DATABASE_URL`; `OF01_WEB_RUNTIME=dist` selects built web.
+  No new migration or dependency. OF-09, #369, terminal follow-up, R4 and
+  production NO-GO remain unchanged. Separate PR only; no automatic merge.
