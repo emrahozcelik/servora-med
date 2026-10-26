@@ -21,7 +21,7 @@ function snapshot(id,label) {
   const read=path=>existsSync(path)?JSON.parse(readFileSync(path)):null;
   const journalDirectory=state+'/attempts/'+id;
   const journal=existsSync(journalDirectory)?readdirSync(journalDirectory).sort().map(name=>({name,sha256:createHash('sha256').update(readFileSync(journalDirectory+'/'+name)).digest('hex'),record:read(journalDirectory+'/'+name)})):[];
-  const data=JSON.stringify({label,attemptId:id,owner:read(state+'/active.json'),initialization:read(state+'/initializations/'+id+'.json'),journal})+'\n';
+  const data=JSON.stringify({label,attemptId:id,owner:read(state+'/active.json'),initialization:read(state+'/initializations/'+id+'.json'),admissionProof:read(state+'/admission-proofs/'+id+'.json'),journal})+'\n';
   writeFileSync(directory+'/'+id+'-'+label+'.json',data,{mode:0o600,flag:'wx'});
   console.log('JOURNAL_OWNER_SNAPSHOT='+label+' sha256='+createHash('sha256').update(data).digest('hex'));
 }

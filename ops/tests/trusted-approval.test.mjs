@@ -74,6 +74,7 @@ test('A2-02/03/16: admission keeps the exact 3600-second window and the original
   const atBoundary=timeEvidenceAt(expiry-3600000);
   const initial=initialAttempt(context,atBoundary);
   assert.equal(initial.formatVersion,2);assert.deepEqual(initial.admissionTime,atBoundary);
+  assert.equal(validateApproval(grant,timeEvidenceAt(expiry-1)),grant,'validity lasts until E-1ms without admitting new work');
   for(const now of [expiry-3599999,expiry-1])assert.throws(()=>initialAttempt(context,timeEvidenceAt(now)),/WINDOW_INSUFFICIENT/);
   assert.throws(()=>initialAttempt(context,{...atBoundary,bootLowerMs:atBoundary.bootLowerMs+1,bootUpperMs:atBoundary.bootUpperMs+1}),/WINDOW_INSUFFICIENT/);
 });
