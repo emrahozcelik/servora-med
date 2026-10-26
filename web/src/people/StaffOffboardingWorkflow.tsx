@@ -535,7 +535,7 @@ function ActorScopedOffboardingWorkflow({ viewer, target, onCompleted, startWith
       {operation.kind === 'load-error' && <ResultState status="error" title={operation.title} description={operation.message}
         action={<div className="offboarding-result-actions"><button className="secondary-button" type="button" onClick={() => { void fetchAuthoritativePlan(); }}>Güncel durumu yeniden yükle</button>
           <button className="ghost-button" type="button" onClick={closeWorkflow}>Kapat</button></div>} />}
-      {operation.kind === 'recovery-error' && <ResultState status="warning" title={operation.title} description={operation.message}
+      {operation.kind === 'recovery-error' && <ResultState status="warning" title={operation.title} description={<span className="muted-copy">{operation.message}</span>}
         action={operation.cleanupAvailable
           ? <button className="secondary-button" type="button" onClick={() => { void cleanupRetiredAttempt(); }}>Tekrar dene</button>
           : <button className="secondary-button" type="button" onClick={closeWorkflow}>Kapat</button>} />}

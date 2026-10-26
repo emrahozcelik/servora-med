@@ -155,6 +155,27 @@ for (const engine of engines) for (const mode of modes) for (const width of widt
             const close = page.getByRole('button',{name:'Kapat',exact:true}).last();
             await close.focus(); await expect(close).toBeFocused();
             const closeRect = await close.boundingBox(); assert(closeRect.height>=44);
+            const readability = await page.locator('.servora-ant-result-subtitle .muted-copy').evaluate(node => {
+              const channels = color => {
+                // Canvas normalizes CSS Color 4/OKLCH and alpha into sRGB bytes.
+                const context = document.createElement('canvas').getContext('2d');
+                context.fillStyle = color; context.fillRect(0,0,1,1);
+                const rgba = [...context.getImageData(0,0,1,1).data]; rgba[3] /= 255; return rgba;
+              };
+              const fg = channels(getComputedStyle(node).color);
+              let parent = node; let bg;
+              while (parent) {
+                const candidate = channels(getComputedStyle(parent).backgroundColor);
+                if (candidate.length === 3 || candidate[3] === 1) { bg = candidate; break; }
+                parent = parent.parentElement;
+              }
+              bg ??= [255,255,255];
+              const composite = fg.slice(0,3).map((v,i)=>v*(fg[3]??1)+bg[i]*(1-(fg[3]??1)));
+              const luminance = rgb => rgb.slice(0,3).map(v=>v/255).map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4).reduce((a,v,i)=>a+v*[0.2126,0.7152,0.0722][i],0);
+              const a=luminance(composite),b=luminance(bg);
+              return {foreground:fg,background:bg,contrast:(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)};
+            });
+            assert(readability.contrast>=4.5,`recovery explanation contrast must meet AA: ${JSON.stringify(readability)}`);
             await page.screenshot({path:resolve(evidence,`${id}-legacy.png`),fullPage:true});
             await page.addStyleTag({content:'html { font-size: 200% !important; }'});
             const textZoom = await page.locator('.form-drawer').evaluate(node=>({width:node.clientWidth,scroll:node.scrollWidth}));
@@ -167,7 +188,7 @@ for (const engine of engines) for (const mode of modes) for (const width of widt
             assert.deepEqual(await snapshot(),final);
             assert.deepEqual(errors,[]);
             results.push({id,status:'PASS',realLogin:['A','B','C','A'],fault,intercepted,exactRequest:true,syntheticTouch:width===390,
-              backend:{crossOrg:crossOrg.status(),manager:manager.status,otherActor:otherActorStatus,uncertain,final},geometry,legacyPreserved:true,textZoom,reflow});
+              backend:{crossOrg:crossOrg.status(),manager:manager.status,otherActor:otherActorStatus,uncertain,final},geometry,legacyPreserved:true,readability,textZoom,reflow});
           } catch (error) {
             await page.screenshot({path:resolve(evidence,`${id}-failure.png`),fullPage:true}).catch(()=>{});
             results.push({id,status:'FAIL',error:String(error)}); throw error;
