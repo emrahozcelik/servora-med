@@ -583,7 +583,7 @@ async function runBrowserAcceptance(fixture) {
   await page.getByText('İşlem kimliği sunucu durumuyla eşleşmedi.', { exact: false }).waitFor();
   record('UI-CLIENT-ACTION-REUSED-FAIL-CLOSED', reusedCount === 1
     && await page.getByText('Personel devre dışı bırakıldı', { exact: true }).count() === 0
-    && await page.evaluate((key) => sessionStorage.getItem(key), storageKey) === null,
+    && await page.evaluate((key) => Object.keys(sessionStorage).filter((entry) => entry.startsWith(key)).length, storageKey) === 0,
   `execute count=${reusedCount}`);
   await page.unroute(`**/api/users/${fixture.targets.reused}/offboarding/execute`);
 

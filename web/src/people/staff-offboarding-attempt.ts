@@ -1,3 +1,5 @@
+import type { CurrentUser } from '../services/api';
+
 import {
   STAFF_OFFBOARDING_REASON_CODES,
   type StaffOffboardingExecuteInput,
@@ -6,6 +8,12 @@ import {
 
 export const STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY = 'servora:r4b:staff-offboarding-attempt:v1';
 
+export type StaffOffboardingActor = Pick<CurrentUser, 'id' | 'organizationId'>;
+
+export function staffOffboardingAttemptStorageKey(actor: StaffOffboardingActor) {
+  return `${STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY}:${encodeURIComponent(actor.organizationId)}:${encodeURIComponent(actor.id)}`;
+}
+
 export type StaffOffboardingAttempt = Readonly<{
   request: StaffOffboardingExecuteInput;
 }>;
@@ -13,7 +21,9 @@ export type StaffOffboardingAttempt = Readonly<{
 export type StaffOffboardingAttemptStatus = 'ACTIVE' | 'RETIRED';
 
 type StoredStaffOffboardingAttempt = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: 3;
+  actorId: string;
+  organizationId: string;
   status: StaffOffboardingAttemptStatus;
   targetUserId: string;
   request: StaffOffboardingExecuteInput;
@@ -113,21 +123,26 @@ function parseRequest(value: unknown): StaffOffboardingExecuteInput | null {
   };
 }
 
-export function readPersistedStaffOffboardingAttempt(): StaffOffboardingAttemptRecovery {
+export function readPersistedStaffOffboardingAttempt(actor: StaffOffboardingActor): StaffOffboardingAttemptRecovery {
   if (typeof window === 'undefined') return { kind: 'none' };
   let serialized: string | null;
-  try { serialized = window.sessionStorage.getItem(STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY); }
+  try {
+    // Unbound legacy intent cannot safely be attributed, migrated or discarded.
+    if (!nonEmptyString(actor.id) || !nonEmptyString(actor.organizationId)
+      || window.sessionStorage.getItem(STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY) !== null) return { kind: 'invalid' };
+    serialized = window.sessionStorage.getItem(staffOffboardingAttemptStorageKey(actor));
+  }
   catch { return { kind: 'invalid' }; }
   if (serialized === null) return { kind: 'none' };
   let value: unknown;
   try { value = JSON.parse(serialized) as unknown; }
   catch { return { kind: 'invalid' }; }
-  const raw = exactRecord(value, ['schemaVersion', 'status', 'targetUserId', 'request', 'createdAt']);
+  const raw = exactRecord(value, ['schemaVersion', 'actorId', 'organizationId', 'status', 'targetUserId', 'request', 'createdAt']);
   const status = raw?.status === 'ACTIVE' || raw?.status === 'RETIRED' ? raw.status : null;
   const targetUserId = raw ? nonEmptyString(raw.targetUserId) : null;
   const createdAt = raw ? nonEmptyString(raw.createdAt) : null;
   const request = raw ? parseRequest(raw.request) : null;
-  if (!raw || raw.schemaVersion !== 2 || !status || !targetUserId || !createdAt
+  if (!raw || raw.schemaVersion !== 3 || raw.actorId !== actor.id || raw.organizationId !== actor.organizationId || !status || !targetUserId || !createdAt
     || !Number.isFinite(Date.parse(createdAt)) || !request) {
     return { kind: 'invalid' };
   }
@@ -135,28 +150,43 @@ export function readPersistedStaffOffboardingAttempt(): StaffOffboardingAttemptR
 }
 
 function persistStaffOffboardingAttemptWithStatus(
+  actor: StaffOffboardingActor,
   targetUserId: string,
   attempt: StaffOffboardingAttempt,
   status: StaffOffboardingAttemptStatus,
 ) {
   const stored: StoredStaffOffboardingAttempt = {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    actorId: actor.id,
+    organizationId: actor.organizationId,
     status,
     targetUserId,
     request: attempt.request,
     createdAt: new Date().toISOString(),
   };
-  window.sessionStorage.setItem(STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY, JSON.stringify(stored));
+  window.sessionStorage.setItem(staffOffboardingAttemptStorageKey(actor), JSON.stringify(stored));
 }
 
-export function persistStaffOffboardingAttempt(targetUserId: string, attempt: StaffOffboardingAttempt) {
-  persistStaffOffboardingAttemptWithStatus(targetUserId, attempt, 'ACTIVE');
+export function persistStaffOffboardingAttempt(actor: StaffOffboardingActor, targetUserId: string, attempt: StaffOffboardingAttempt) {
+  if (readPersistedStaffOffboardingAttempt(actor).kind !== 'none') throw new Error('Unresolved offboarding attempt');
+  persistStaffOffboardingAttemptWithStatus(actor, targetUserId, attempt, 'ACTIVE');
 }
 
-export function retirePersistedStaffOffboardingAttempt(targetUserId: string, attempt: StaffOffboardingAttempt) {
-  persistStaffOffboardingAttemptWithStatus(targetUserId, attempt, 'RETIRED');
+export function assertOwnedStaffOffboardingAttempt(actor: StaffOffboardingActor, targetUserId: string, attempt: StaffOffboardingAttempt) {
+  const current = readPersistedStaffOffboardingAttempt(actor);
+  if (current.kind !== 'valid' || current.targetUserId !== targetUserId
+    || JSON.stringify(current.attempt.request) !== JSON.stringify(parseRequest(attempt.request))) {
+    throw new Error('Offboarding attempt ownership could not be verified');
+  }
+  return current;
 }
 
-export function clearPersistedStaffOffboardingAttempt() {
-  window.sessionStorage.removeItem(STAFF_OFFBOARDING_ATTEMPT_STORAGE_KEY);
+export function retirePersistedStaffOffboardingAttempt(actor: StaffOffboardingActor, targetUserId: string, attempt: StaffOffboardingAttempt) {
+  assertOwnedStaffOffboardingAttempt(actor, targetUserId, attempt);
+  persistStaffOffboardingAttemptWithStatus(actor, targetUserId, attempt, 'RETIRED');
+}
+
+export function clearPersistedStaffOffboardingAttempt(actor: StaffOffboardingActor, targetUserId: string, attempt: StaffOffboardingAttempt) {
+  if (assertOwnedStaffOffboardingAttempt(actor, targetUserId, attempt).status !== 'RETIRED') throw new Error('Offboarding attempt is still active');
+  window.sessionStorage.removeItem(staffOffboardingAttemptStorageKey(actor));
 }

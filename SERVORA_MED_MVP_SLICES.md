@@ -780,3 +780,18 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   isolated PG17 `TEST_DATABASE_URL`; `OF01_WEB_RUNTIME=dist` selects built web.
   No new migration or dependency. OF-09, #369, terminal follow-up, R4 and
   production NO-GO remain unchanged. Separate PR only; no automatic merge.
+
+
+## OF-09 — Actor-scoped offboarding recovery (2026-10-26)
+
+- Narrow browser implementation: authenticated organization/actor/target binding,
+  schema 3 scoped storage, exact-intent revalidation and stale async result guard.
+- Legacy/unverifiable intent is preserved and blocks new offboarding; no automatic
+  attribution/discard and no backend/domain policy change.
+- Recovery and regression requirements are recorded in the
+  [OF-09 contract](docs/features/staff-offboarding-actor-recovery.md). Executed
+  RED/GREEN, real-API browser/SQL, exact-head Local CI/verifier and preservation
+  results are recorded in the external `OF09_*` evidence reports. Implementation
+  on a branch does not establish merge, production readiness or deployment.
+- OF-01, SOF-1/2, terminal follow-up product decision, #369 and R4 are unchanged.
+  Production remains NO-GO.
