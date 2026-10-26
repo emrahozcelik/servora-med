@@ -2027,3 +2027,52 @@ over the next column.
   offboarding, recurrence retirement and reporting integration are unchanged.
 - Verification uses painted PDF geometry, not pdfmake's layout boxes: the
   previous tests compared reserved widths only and could not see this defect.
+
+## OPS-TT-001 — Infrastructure-owned synchronized time and boot-bound authority
+
+- **Date:** 2026-10-26
+- **Status:** Owner-authorized intent for Issue #369 TT-A; isolated infrastructure and implementation acceptance remain mandatory. Production NO-GO.
+- **Scope:** Approval security only. A3 backup producer/reader remediation is deferred.
+
+The operating system owns continuous UTC synchronization. The application reads
+bounded synchronization-health evidence and persisted Linux BOOTTIME intervals;
+it does not set the clock, run a time daemon, or write periodic clock rows to
+PostgreSQL. Approval TTL (maximum 24 hours), the 3,600-second admission window,
+consumed-attempt scopes and existing start/backup/migration/rollback budgets stay
+unchanged. UTC labels, NTP flags and file timestamps alone cannot authorize work.
+
+Choose **chrony as the sole synchronization service** for the proposed host
+contract, with `time.ume.tubitak.gov.tr` (UTC(UME)) and the independently operated
+`time.cloudflare.com` using NTS. UME's public NTP is not assumed authenticated.
+Require both sources selectable and agreeing; loss/disagreement is UNKNOWN for
+new authority, not a reason to accept a single unverified source. The isolated
+configuration requires the authenticated source and does not disable NTS
+certificate-time checks. No production NTP configuration change is authorized.
+
+Health evidence must bound reference age, root distance and remaining system
+correction, identify both configured sources, and verify chrony active with
+systemd-timesyncd inactive. A synchronization-health threshold is a denial
+threshold, never extra approval lifetime or a wall-clock rollback tolerance.
+The proposed bounds are three maximum 256-second polls of reference age,
+1-second root distance, and 100ms remaining correction. Their isolated behavior
+and availability costs must be reported before release acceptance.
+
+A newly issued grant binds actual host boot/namespace/time evidence. Restart
+cannot re-anchor it; an unconsumed grant cannot cross reboot. A provable v2
+consumption may continue only the same bounded attempt after expiry/reboot.
+Unprovable legacy journals cannot be promoted. Durable initialization must be
+bracketed by pre-publication and post-fsync samples, with a separately fsynced
+hash-bound admission confirmation before owner publication or business effects.
+Missing confirmation can finish only in the original same-boot admission
+window after existing zero-progress/OLD EXACT checks; otherwise it stays denied.
+
+Infrastructure availability is not assumed: UME reachability, independent-source
+agreement, failure/recovery, process restart and actual amd64 reboot need isolated
+evidence. Two disagreeing sources cannot establish which one is correct; fail
+closed. This contract does not claim defense against compromised root/kernel,
+whole-VM snapshot rollback or arbitrary hardware clock-rate manipulation.
+
+Primary references: [UME](https://www.ume.tubitak.gov.tr/fizik-grubu-laboratuvarlari/zaman-frekans-ve-dalgaboyu-laboratuvari/),
+[Cloudflare Time](https://www.cloudflare.com/time/),
+[chrony configuration](https://chrony-project.org/doc/4.5/chrony.conf.html),
+[chronyc monitoring](https://chrony-project.org/doc/4.5/chronyc.html).

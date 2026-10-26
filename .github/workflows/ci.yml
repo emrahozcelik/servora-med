@@ -168,6 +168,7 @@ jobs:
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
       - run: npm ci
       - run: npm run build
+      - run: npx tsc --noEmit --module NodeNext --target ES2022 --strict --skipLibCheck --typeRoots node_modules/@types ../ops/tests/trusted-time-types.mts
       - name: production release dependency smoke
         run: |
           set -Eeuo pipefail
@@ -188,6 +189,7 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/trusted-approval.test.mjs
       - run: npm audit --audit-level=high
 
   web:

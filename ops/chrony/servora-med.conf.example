@@ -1,0 +1,11 @@
+# Proposed infrastructure contract OPS-TT-001. Isolated acceptance first.
+# Installation/restart on production requires separate explicit authorization.
+server time.ume.tubitak.gov.tr iburst prefer minpoll 6 maxpoll 8
+server time.cloudflare.com iburst nts trust require minpoll 6 maxpoll 8
+minsources 2
+maxdistance 1
+makestep 0.1 3
+rtcsync
+driftfile /var/lib/chrony/chrony.drift
+ntsdumpdir /var/lib/chrony
+logdir /var/log/chrony
