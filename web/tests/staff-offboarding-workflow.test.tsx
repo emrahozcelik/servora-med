@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StaffOffboardingWorkflow } from '../src/people/StaffOffboardingWorkflow';
+import { staffOffboardingAttemptStorageKey } from '../src/people/staff-offboarding-attempt';
 import { ApiError } from '../src/services/api';
 import type {
   ManagedUser,
@@ -30,6 +31,8 @@ vi.mock('../src/jobs/jobs-api', () => ({ getJobCard: (...args: unknown[]) => con
 vi.mock('../src/services/crm-api', () => ({ getCustomer: (...args: unknown[]) => context.getCustomer(...args) }));
 vi.mock('../src/services/calendar-api', () => ({ getCalendarEvent: (...args: unknown[]) => context.getCalendarEvent(...args) }));
 
+const viewer = { id: 'admin-a', organizationId: 'org-1' };
+const storageKey = staffOffboardingAttemptStorageKey(viewer);
 const target: ManagedUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Yılmaz', email: 'ayse@example.test',
   role: 'STAFF', mustChangePassword: false, isActive: true, version: 3, lastLoginAt: null,
   createdAt: '2026-08-01T08:00:00.000Z', updatedAt: '2026-08-01T08:00:00.000Z' };
@@ -129,10 +132,171 @@ describe('Staff offboarding workflow', () => {
     vi.restoreAllMocks();
   });
 
+  it('does not expose or replay Admin A intent after switching to Admin B in the same organization', async () => {
+    const actorA = { id: 'admin-a', organizationId: 'org-1' };
+    const actorB = { id: 'admin-b', organizationId: 'org-1' };
+    people.preview.mockResolvedValue(plan);
+    people.execute.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi.', true));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={actorA} target={target} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    await completeDecisions(container);
+    await act(async () => button(container, 'Kararları onayla').click());
+    await act(async () => button(container, 'Erişimi sonlandır').click());
+    expect(container.textContent).toContain('Aynı işlemi yeniden doğrula');
+    const stored = { ...window.sessionStorage };
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={actorB} target={target} onCompleted={() => {}} />));
+    expect(container.textContent).not.toContain('Aynı işlemi yeniden doğrula');
+    expect(container.textContent).not.toContain('Erişimi sonlandır');
+    expect(people.execute).toHaveBeenCalledTimes(2);
+    expect({ ...window.sessionStorage }).toEqual(stored);
+  });
+
+  it('fails closed if persisted ownership cannot be revalidated before retry', async () => {
+    people.execute.mockResolvedValue(response);
+    window.sessionStorage.setItem(storageKey, JSON.stringify({ schemaVersion: 3, actorId: viewer.id,
+      organizationId: viewer.organizationId, status: 'ACTIVE', targetUserId: target.id,
+      request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' }));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Aynı işlemi yeniden doğrula').click());
+    const stored = window.sessionStorage.getItem(storageKey);
+    vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'getItem')
+      .mockImplementation(() => { throw new Error('storage blocked'); });
+    await act(async () => button(container, 'Erişimi sonlandır').click());
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('İşlem kaydının sahipliği doğrulanamadı');
+    vi.restoreAllMocks();
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+  });
+
+  it('restores A exact intent after B logs out without deleting either actor record', async () => {
+    const actorB = { id: 'admin-b', organizationId: viewer.organizationId };
+    const stored = JSON.stringify({ schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
+      status: 'ACTIVE', targetUserId: target.id, request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(storageKey, stored);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={actorB} target={target} onCompleted={() => {}} />));
+    expect(container.textContent).not.toContain('Aynı işlemi yeniden doğrula');
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+    const bKey = staffOffboardingAttemptStorageKey(actorB);
+    const bStored = JSON.stringify({ schemaVersion: 3, actorId: actorB.id, organizationId: actorB.organizationId,
+      status: 'ACTIVE', targetUserId: target.id, request: { ...persistedRequest, clientActionId: 'b-intent' },
+      createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(bKey, bStored);
+    await act(async () => root.render(null));
+    people.execute.mockResolvedValue(response);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Aynı işlemi yeniden doğrula').click());
+    await act(async () => button(container, 'Erişimi sonlandır').click());
+    expect(people.execute).toHaveBeenCalledExactlyOnceWith(target.id, persistedRequest);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    expect(window.sessionStorage.getItem(bKey)).toBe(bStored);
+  });
+
+  it.each([{ id: viewer.id, organizationId: 'org-2' }, { id: 'admin-c', organizationId: 'org-2' }])(
+    'does not hydrate an old organization intent for %j', async (otherViewer) => {
+    const stored = JSON.stringify({ schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
+      status: 'ACTIVE', targetUserId: target.id, request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(storageKey, stored);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
+    expect(container.textContent).toContain('Aynı işlemi yeniden doğrula');
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={otherViewer}
+      target={{ ...target, id: 'staff-org-2', organizationId: otherViewer.organizationId }} onCompleted={() => {}} />));
+    expect(container.textContent).not.toContain('Aynı işlemi yeniden doğrula');
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+  });
+
+  it.each(['ACTIVE', 'RETIRED'])('preserves unbound legacy v2 %s intent and blocks fresh preview', async (status) => {
+    const legacyKey = 'servora:r4b:staff-offboarding-attempt:v1';
+    const stored = JSON.stringify({ schemaVersion: 2, status, targetUserId: target.id,
+      request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(legacyKey, stored);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target}
+      startWithFreshPreview onCompleted={() => {}} />));
+    expect(container.textContent).toContain('işlemi başlatan yönetici ve firma doğrulanamadı');
+    expect(button(container, 'Personeli devre dışı bırak').disabled).toBe(true);
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(people.preview).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(legacyKey)).toBe(stored);
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it.each(['success', 'NETWORK_ERROR', 'STALE_PLAN', 'CLIENT_ACTION_REUSED', 'USER_ALREADY_INACTIVE'])(
+    'ignores late A %s result after B login and A remount', async (outcome) => {
+    const pending = deferred<StaffOffboardingResponse>();
+    people.preview.mockResolvedValue(plan);
+    people.execute.mockReturnValue(pending.promise);
+    const completedA = vi.fn(); const completedB = vi.fn();
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={completedA} />));
+    await act(async () => button(container, 'Personeli devre dışı bırak').click());
+    await completeDecisions(container);
+    await act(async () => button(container, 'Kararları onayla').click());
+    await act(async () => button(container, 'Erişimi sonlandır').click());
+    const stored = window.sessionStorage.getItem(storageKey);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={{ ...viewer, id: 'admin-b' }} target={target} onCompleted={completedB} />));
+    await act(async () => {
+      if (outcome === 'success') pending.resolve(response);
+      else pending.reject(new ApiError(outcome === 'NETWORK_ERROR' ? 0 : 409, outcome, 'Late result', outcome === 'NETWORK_ERROR'));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(completedA).not.toHaveBeenCalled(); expect(completedB).not.toHaveBeenCalled();
+    expect(people.execute).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+    expect(container.textContent).not.toContain('Personel devre dışı bırakıldı');
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={completedA} />));
+    expect(container.textContent).toContain('Aynı işlemi yeniden doğrula');
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+  });
+
+  it.each([{ actorId: 'admin-b', organizationId: viewer.organizationId },
+    { actorId: viewer.id, organizationId: 'org-2' }, { actorId: '', organizationId: viewer.organizationId }])(
+    'fails closed on misbound scoped storage %j', async (identity) => {
+    const stored = JSON.stringify({ schemaVersion: 3, ...identity, status: 'ACTIVE', targetUserId: target.id,
+      request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(storageKey, stored);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
+    expect(container.textContent).toContain('Önceki işlem güvenle geri yüklenemedi');
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+  });
+
+  it('cleans only B retired intent while preserving A unresolved intent', async () => {
+    const actorB = { ...viewer, id: 'admin-b' };
+    const stored = JSON.stringify({ schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
+      status: 'ACTIVE', targetUserId: target.id, request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' });
+    window.sessionStorage.setItem(storageKey, stored);
+    const bKey = staffOffboardingAttemptStorageKey(actorB);
+    window.sessionStorage.setItem(bKey, JSON.stringify({ schemaVersion: 3, actorId: actorB.id,
+      organizationId: actorB.organizationId, status: 'RETIRED', targetUserId: target.id,
+      request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' }));
+    people.preview.mockResolvedValue(plan);
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={actorB} target={target} onCompleted={() => {}} />));
+    expect(window.sessionStorage.getItem(bKey)).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Yerel işlem kaydı temizlendi');
+  });
+
+  it.each(['request', 'target', 'status'])('does not send an in-memory retry after persisted %s changes', async (change) => {
+    people.execute.mockResolvedValue(response);
+    const stored = { schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
+      status: 'ACTIVE', targetUserId: target.id, request: persistedRequest, createdAt: '2026-08-25T12:00:00.000Z' };
+    window.sessionStorage.setItem(storageKey, JSON.stringify(stored));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
+    await act(async () => button(container, 'Aynı işlemi yeniden doğrula').click());
+    const changed = JSON.stringify({ ...stored, ...(change === 'request'
+      ? { request: { ...persistedRequest, clientActionId: 'different-intent' } }
+      : change === 'target' ? { targetUserId: 'other-target' } : { status: 'RETIRED' }) });
+    window.sessionStorage.setItem(storageKey, changed);
+    await act(async () => button(container, 'Erişimi sonlandır').click());
+    expect(people.execute).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('İşlem kaydının sahipliği doğrulanamadı');
+    expect(window.sessionStorage.getItem(storageKey)).toBe(changed);
+  });
+
   it('loads the server preview inside the workflow and renders every authoritative responsibility', async () => {
     const pending = deferred<StaffOffboardingPlan>();
     people.preview.mockReturnValue(pending.promise);
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     expect(people.preview).toHaveBeenCalledWith(target.id);
@@ -152,7 +316,7 @@ describe('Staff offboarding workflow', () => {
   it('keeps the drawer closed when an initial preview resolves after dismissal', async () => {
     const pending = deferred<StaffOffboardingPlan>();
     people.preview.mockReturnValue(pending.promise);
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
 
     await act(async () => (container.querySelector('.form-drawer-backdrop') as HTMLButtonElement).click());
@@ -167,7 +331,7 @@ describe('Staff offboarding workflow', () => {
     const pendingContext = deferred<{ id: string; title: string; status: string }>();
     people.preview.mockResolvedValue(plan);
     context.getJobCard.mockReturnValue(pendingContext.promise);
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
 
@@ -197,7 +361,7 @@ describe('Staff offboarding workflow', () => {
     people.listStaff.mockResolvedValueOnce([replacementA]).mockResolvedValueOnce([replacementB]);
     context.getJobCard.mockImplementation((id: string) => Promise.resolve({ id,
       title: id === 'job-a' ? 'Eski iş' : 'Güncel iş', status: 'IN_PROGRESS' }));
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     await act(async () => {
       const trigger = button(container, 'Personeli devre dışı bırak');
@@ -224,7 +388,7 @@ describe('Staff offboarding workflow', () => {
       customers: [], calendar: [], followUps: [], reminders: [], jobConversations: [], planHash: 'd'.repeat(64) } satisfies StaffOffboardingPlan;
     people.preview.mockReturnValueOnce(pendingA.promise).mockResolvedValueOnce(planB);
     context.getJobCard.mockResolvedValue({ id: 'job-b', title: 'Güncel iş', status: 'NEW' });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     await act(async () => {
       const trigger = button(container, 'Personeli devre dışı bırak');
@@ -251,7 +415,7 @@ describe('Staff offboarding workflow', () => {
       customers: [], calendar: [], followUps: [], reminders: [], jobConversations: [], planHash: 'c'.repeat(64) } satisfies StaffOffboardingPlan;
     people.preview.mockReturnValueOnce(pendingA.promise).mockReturnValueOnce(pendingB.promise);
     context.getJobCard.mockResolvedValue({ id: 'job-a', title: 'Eski iş', status: 'NEW' });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => {
       const trigger = button(container, 'Personeli devre dışı bırak');
       trigger.click();
@@ -273,7 +437,7 @@ describe('Staff offboarding workflow', () => {
 
   it('shows a bounded recovery action when the authoritative preview fails', async () => {
     people.preview.mockRejectedValue(new ApiError(503, 'REQUEST_FAILED', 'Önizleme alınamadı.', true));
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
 
@@ -289,7 +453,7 @@ describe('Staff offboarding workflow', () => {
     people.execute.mockReturnValue(execute.promise);
     const completed = vi.fn();
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={completed} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={completed} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
 
@@ -323,8 +487,8 @@ describe('Staff offboarding workflow', () => {
     await act(async () => { execute.resolve(response); await execute.promise; });
     expect(container.textContent).toContain('Personel devre dışı bırakıldı');
     expect(completed).toHaveBeenCalledWith(response);
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
-    await act(async () => root.render(<StaffOffboardingWorkflow target={{ ...target, isActive: false }} onCompleted={completed} />));
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={{ ...target, isActive: false }} onCompleted={completed} />));
     expect(container.textContent).toContain('Personel devre dışı bırakıldı');
     expect([...container.querySelectorAll('button')].some((entry) => entry.textContent === 'Personeli devre dışı bırak')).toBe(false);
     await act(async () => button(container, 'Tamam').click());
@@ -338,7 +502,7 @@ describe('Staff offboarding workflow', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000010');
     vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'removeItem')
       .mockImplementation(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={completed} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={completed} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -347,8 +511,8 @@ describe('Staff offboarding workflow', () => {
 
     expect(container.textContent).toContain('Personel devre dışı bırakıldı');
     expect(completed).toHaveBeenCalledWith(response);
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'RETIRED',
       request: { clientActionId: '00000000-0000-4000-8000-000000000010' },
     });
@@ -358,7 +522,7 @@ describe('Staff offboarding workflow', () => {
   it('allows confirmation and drawer cancellation before an execute attempt exists', async () => {
     people.preview.mockResolvedValue(plan);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -367,7 +531,7 @@ describe('Staff offboarding workflow', () => {
 
     expect(uuid).not.toHaveBeenCalled();
     expect(people.execute).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(container.querySelector('.form-drawer')).not.toBeNull();
 
     await act(async () => button(container, 'Vazgeç').click());
@@ -381,7 +545,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000011')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000012');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -405,8 +569,8 @@ describe('Staff offboarding workflow', () => {
       followUpDecisions: [{ jobCardId: 'job-2', replacementUserId: 'staff-2' }],
       reminderDecisions: [{ reminderId: 'reminder-1', action: 'CANCEL' }],
     });
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'ACTIVE',
       targetUserId: target.id,
       request: { clientActionId: '00000000-0000-4000-8000-000000000011', planHash: plan.planHash },
@@ -424,7 +588,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(ambiguousError).mockResolvedValueOnce(response);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000002');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -442,7 +606,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'İşlem sürüyor.')).mockResolvedValueOnce(response);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000003');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -463,24 +627,24 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'İşlem sürüyor.')).mockResolvedValueOnce(response);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000013');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
-    const persistedBeforeDismiss = window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1');
+    const persistedBeforeDismiss = window.sessionStorage.getItem(storageKey);
     await act(async () => (container.querySelector('.form-drawer-backdrop') as HTMLButtonElement).click());
     expect(container.querySelector('.form-drawer')).not.toBeNull();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBe(persistedBeforeDismiss);
+    expect(window.sessionStorage.getItem(storageKey)).toBe(persistedBeforeDismiss);
     expect(uuid).toHaveBeenCalledTimes(1);
     expect(people.execute).toHaveBeenCalledTimes(1);
 
     await act(async () => button(container, 'Aynı işlemi yeniden doğrula').click());
     await act(async () => button(container, 'Vazgeç').click());
     expect(container.querySelector('.form-drawer')).not.toBeNull();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBe(persistedBeforeDismiss);
+    expect(window.sessionStorage.getItem(storageKey)).toBe(persistedBeforeDismiss);
 
     await act(async () => button(container, 'Aynı işlemi yeniden doğrula').click());
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
@@ -496,7 +660,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValueOnce(plan).mockResolvedValueOnce(refreshed);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'STALE_PLAN', 'Plan değişti.'));
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000004');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -520,7 +684,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000031')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000032');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -528,7 +692,7 @@ describe('Staff offboarding workflow', () => {
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
     expect(uuid).toHaveBeenCalledTimes(1);
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(button(container, 'Kararları onayla').disabled).toBe(true);
 
     await completeDecisions(container);
@@ -552,15 +716,15 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000034');
     vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'removeItem')
       .mockImplementation(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'RETIRED',
       targetUserId: target.id,
       request: { clientActionId: '00000000-0000-4000-8000-000000000034' },
@@ -590,7 +754,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000035');
     vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'removeItem')
       .mockImplementationOnce(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -600,7 +764,7 @@ describe('Staff offboarding workflow', () => {
     expect(container.textContent).toContain('İşlem durumu güvenli biçimde temizlenemedi');
     await act(async () => { button(container, 'Tekrar dene').click(); await Promise.resolve(); });
 
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(people.preview).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Sorumluluklar veya uygun personel değişti');
     expect(people.execute).toHaveBeenCalledTimes(1);
@@ -621,7 +785,7 @@ describe('Staff offboarding workflow', () => {
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000038');
     vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'removeItem')
       .mockImplementationOnce(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -639,8 +803,8 @@ describe('Staff offboarding workflow', () => {
       '00000000-0000-4000-8000-000000000037',
       '00000000-0000-4000-8000-000000000038',
     ]);
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'ACTIVE',
       request: { clientActionId: '00000000-0000-4000-8000-000000000038', planHash: refreshed.planHash },
     });
@@ -658,15 +822,15 @@ describe('Staff offboarding workflow', () => {
       if (JSON.parse(value).status === 'RETIRED') throw new Error('storage blocked');
       return originalSetItem.call(this, key, value);
     });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'ACTIVE',
       request: { clientActionId: '00000000-0000-4000-8000-000000000036' },
     });
@@ -687,7 +851,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'INVALID_REPLACEMENT_STAFF', 'Personel artık uygun değil.'));
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000033');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -698,7 +862,7 @@ describe('Staff offboarding workflow', () => {
     expect(people.listStaff).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Sorumluluklar veya uygun personel değişti');
     expect(button(container, 'Kararları onayla').disabled).toBe(true);
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(container.textContent).not.toContain('Personel devre dışı bırakıldı');
   });
 
@@ -706,7 +870,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'CLIENT_ACTION_REUSED', 'Kimlik tekrar kullanıldı.'));
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000005');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -726,15 +890,15 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000039');
     vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'removeItem')
       .mockImplementation(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
-    expect(JSON.parse(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1') ?? 'null')).toMatchObject({
-      schemaVersion: 2,
+    expect(JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null')).toMatchObject({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId,
       status: 'RETIRED',
       request: { clientActionId: '00000000-0000-4000-8000-000000000039' },
     });
@@ -751,7 +915,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000041')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000042');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -759,7 +923,7 @@ describe('Staff offboarding workflow', () => {
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
 
     expect(uuid).toHaveBeenCalledTimes(1);
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());
     expect(uuid).toHaveBeenCalledTimes(1);
@@ -775,7 +939,7 @@ describe('Staff offboarding workflow', () => {
   it('supports a zero-responsibility preview with only the required neutral reason', async () => {
     people.preview.mockResolvedValue({ ...plan, jobs: [], customers: [], calendar: [], followUps: [], reminders: [] });
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain('Aktarılması gereken aktif sorumluluk bulunmuyor.');
@@ -793,7 +957,7 @@ describe('Staff offboarding workflow', () => {
 
   it('requires explicit replacements for customer reassignment and reminder transfer', async () => {
     people.preview.mockResolvedValue(plan);
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await choose(container, 'reasonCode', 'ROLE_CHANGED');
@@ -811,14 +975,14 @@ describe('Staff offboarding workflow', () => {
   });
 
   it('restores an exact same-target attempt after unmount without previewing or generating a new id', async () => {
-    window.sessionStorage.setItem('servora:r4b:staff-offboarding-attempt:v1', JSON.stringify({
-      schemaVersion: 2, status: 'ACTIVE', targetUserId: target.id, request: persistedRequest,
+    window.sessionStorage.setItem(storageKey, JSON.stringify({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId, status: 'ACTIVE', targetUserId: target.id, request: persistedRequest,
       createdAt: '2026-08-25T12:00:00.000Z',
     }));
     people.execute.mockResolvedValue(response);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
 
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     expect(container.textContent).toContain('İşlem sonucu henüz kesin değil');
     expect(container.textContent).toContain('Aynı işlemi yeniden doğrula');
@@ -830,22 +994,22 @@ describe('Staff offboarding workflow', () => {
     await act(async () => { button(container, 'Erişimi sonlandır').click(); await Promise.resolve(); });
     expect(people.execute).toHaveBeenCalledWith(target.id, persistedRequest);
     expect(uuid).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(container.textContent).toContain('Personel devre dışı bırakıldı');
   });
 
   it('cleans a hydrated retired attempt without executing it before loading a fresh preview', async () => {
-    window.sessionStorage.setItem('servora:r4b:staff-offboarding-attempt:v1', JSON.stringify({
-      schemaVersion: 2, status: 'RETIRED', targetUserId: target.id, request: persistedRequest,
+    window.sessionStorage.setItem(storageKey, JSON.stringify({
+      schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId, status: 'RETIRED', targetUserId: target.id, request: persistedRequest,
       createdAt: '2026-08-25T12:00:00.000Z',
     }));
     people.preview.mockResolvedValue(plan);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
 
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => { await Promise.resolve(); });
 
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(people.preview).toHaveBeenCalledTimes(1);
     expect(people.listStaff).toHaveBeenCalledTimes(1);
     expect(people.execute).not.toHaveBeenCalled();
@@ -861,7 +1025,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'İşlem sürüyor.')).mockResolvedValueOnce(response);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000024');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -871,7 +1035,7 @@ describe('Staff offboarding workflow', () => {
 
     await act(async () => root.unmount());
     root = createRoot(container);
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     expect(container.textContent).toContain('aynı kimlik ve kararlarla geri yüklendi');
     expect(people.preview).toHaveBeenCalledTimes(1);
@@ -883,36 +1047,36 @@ describe('Staff offboarding workflow', () => {
   });
 
   it.each(['ACTIVE', 'RETIRED'] as const)('blocks a second target while another target %s attempt remains in this tab', async (status) => {
-    const stored = JSON.stringify({ schemaVersion: 2, status, targetUserId: 'staff-other', request: persistedRequest,
+    const stored = JSON.stringify({ schemaVersion: 3, actorId: viewer.id, organizationId: viewer.organizationId, status, targetUserId: 'staff-other', request: persistedRequest,
       createdAt: '2026-08-25T12:00:00.000Z' });
-    window.sessionStorage.setItem('servora:r4b:staff-offboarding-attempt:v1', stored);
+    window.sessionStorage.setItem(storageKey, stored);
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
 
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     expect(container.textContent).toContain('Başka bir personel için sonuç bekleniyor');
     expect(button(container, 'Personeli devre dışı bırak').disabled).toBe(true);
     expect(people.preview).not.toHaveBeenCalled();
     expect(people.execute).not.toHaveBeenCalled();
     expect(uuid).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).toBe(stored);
+    expect(window.sessionStorage.getItem(storageKey)).toBe(stored);
   });
 
   it('fails closed when the unresolved recovery record is malformed', async () => {
-    window.sessionStorage.setItem('servora:r4b:staff-offboarding-attempt:v1', JSON.stringify({
+    window.sessionStorage.setItem(storageKey, JSON.stringify({
       schemaVersion: 1, targetUserId: target.id, request: { clientActionId: 'incomplete' },
       createdAt: '2026-08-25T12:00:00.000Z',
     }));
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
 
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
 
     expect(container.textContent).toContain('Önceki işlem güvenle geri yüklenemedi');
     expect(button(container, 'Personeli devre dışı bırak').disabled).toBe(true);
     expect(people.preview).not.toHaveBeenCalled();
     expect(people.execute).not.toHaveBeenCalled();
     expect(uuid).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('servora:r4b:staff-offboarding-attempt:v1')).not.toBeNull();
+    expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
   });
 
   it('does not execute when the semantic attempt cannot be persisted safely', async () => {
@@ -920,7 +1084,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000022');
     const storage = vi.spyOn(Object.getPrototypeOf(window.sessionStorage) as Storage, 'setItem')
       .mockImplementation(() => { throw new Error('storage blocked'); });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -938,7 +1102,7 @@ describe('Staff offboarding workflow', () => {
     people.preview.mockResolvedValue(plan);
     people.execute.mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'İşlem sürüyor.')).mockResolvedValueOnce(response);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000023');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={target} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={target} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => { await Promise.resolve(); });
     await completeDecisions(container);
@@ -962,7 +1126,7 @@ describe('Staff offboarding workflow', () => {
       weeklyItem(2, 'OWNER_ASSIGNEE_MISMATCH'), weeklyItem(3, 'ROOT_TYPE_MISMATCH'),
     ]));
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={weeklyTarget} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     expect(container.textContent).toContain('4 engel var; 4 kayıt görüntüleniyor');
     expect(container.textContent).toContain('Rapor kaydı eksik');
@@ -991,7 +1155,7 @@ describe('Staff offboarding workflow', () => {
       const items = Array.from({ length: Math.min(50, 201 - index) }, (_, offset) => weeklyItem(index + offset));
       return Promise.resolve({ total: 200, limit: 50, hasMore: index + items.length < 201, items });
     });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={weeklyTarget} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await act(async () => button(container, 'Daha fazla rapor göster').click());
     expect(container.textContent).toContain('Rapor listesi değişti');
@@ -1011,7 +1175,7 @@ describe('Staff offboarding workflow', () => {
       const items = Array.from({ length: Math.min(50, 201 - index) }, (_, offset) => weeklyItem(index + offset));
       return Promise.resolve({ total: 201, limit: 50, hasMore: index + items.length < 201, items });
     });
-    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={weeklyTarget} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     for (let n = 0; n < 4; n += 1) {
       await act(async () => button(container, 'Daha fazla rapor göster').click());
@@ -1030,7 +1194,7 @@ describe('Staff offboarding workflow', () => {
     const uuid = vi.spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000081')
       .mockReturnValueOnce('00000000-0000-4000-8000-000000000082');
-    await act(async () => root.render(<StaffOffboardingWorkflow target={weeklyTarget} onCompleted={() => {}} />));
+    await act(async () => root.render(<StaffOffboardingWorkflow viewer={viewer} target={weeklyTarget} onCompleted={() => {}} />));
     await act(async () => button(container, 'Personeli devre dışı bırak').click());
     await completeDecisions(container);
     await act(async () => button(container, 'Kararları onayla').click());

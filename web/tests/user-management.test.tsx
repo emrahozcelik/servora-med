@@ -43,28 +43,28 @@ describe('Admin user management views', () => {
   });
 
   it('keeps security commands separate and exposes the active Staff lifecycle only to Admin', () => {
-    const html = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={user} onBack={() => {}} onChanged={() => {}} />);
+    const html = renderToStaticMarkup(<UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user} onBack={() => {}} onChanged={() => {}} />);
     expect(html).toContain('Temel bilgiler'); expect(html).toContain('Rol ve erişim');
     expect(html).toContain('Geçici parola belirle');
     expect(html).toContain('Personeli devre dışı bırak');
     expect(html).not.toContain('Kullanıcıyı aktifleştir');
 
     for (const viewerRole of ['MANAGER', 'STAFF'] as const) {
-      const hidden = renderToStaticMarkup(<UserDetailView viewerRole={viewerRole} user={user} onBack={() => {}} onChanged={() => {}} />);
+      const hidden = renderToStaticMarkup(<UserDetailView viewer={{ id: 'viewer', organizationId: 'org-1', role: viewerRole }} user={user} onBack={() => {}} onChanged={() => {}} />);
       expect(hidden).not.toContain('Personeli devre dışı bırak');
     }
-    const inactive = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={{ ...user, isActive: false }} onBack={() => {}} onChanged={() => {}} />);
+    const inactive = renderToStaticMarkup(<UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={{ ...user, isActive: false }} onBack={() => {}} onChanged={() => {}} />);
     expect(inactive).not.toContain('Personeli devre dışı bırak');
   });
 
   it('shows permanent deletion only for server-confirmed pristine users', () => {
-    const eligible = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN"
+    const eligible = renderToStaticMarkup(<UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }}
       user={{ ...user, role: 'MANAGER', canPermanentlyDelete: true, permanentDeleteBlockers: [] }}
       onBack={() => {}} onChanged={() => {}} />);
     expect(eligible).toContain('Kalıcı olarak sil');
     expect(eligible).toContain('Bu işlem geri alınamaz');
 
-    const historyBearing = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN"
+    const historyBearing = renderToStaticMarkup(<UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }}
       user={{ ...user, canPermanentlyDelete: false, permanentDeleteBlockers: ['HAS_BUSINESS_HISTORY'] }}
       onBack={() => {}} onChanged={() => {}} />);
     expect(historyBearing).toContain('Operasyon geçmişi ve atıfları korunur');
@@ -113,7 +113,7 @@ describe('temporary password policy', () => {
     expect(create).toContain('minLength="6"');
     expect(create).toContain('maxLength="128"');
     expect(create).toContain('aria-describedby="temporary-password-hint"');
-    const detail = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={user} onBack={() => {}} onChanged={() => {}} />);
+    const detail = renderToStaticMarkup(<UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user} onBack={() => {}} onChanged={() => {}} />);
     expect(detail).toContain('6–128 karakter; en az bir büyük harf, bir rakam ve bir sembol.');
     expect(detail).toContain('aria-describedby="reset-password-hint"');
   });
@@ -150,7 +150,7 @@ describe('temporary password policy', () => {
 
   it('rejects a non-compliant reset password without calling the API', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    await act(async () => root.render(<MemoryRouter><UserDetailView viewerRole="ADMIN" user={user}
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
       onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
     fill(container.querySelector('#reset-password'), 'Server1');
     const forms = Array.from(container.querySelectorAll('form'));
@@ -223,7 +223,7 @@ describe('User detail route race protection', () => {
       .mockImplementationOnce(() => new Promise<ManagedUser>((resolve) => { resolveSecond = resolve; }));
 
     const router = createMemoryRouter([
-      { path: '/users/:userId', element: <UserDetailScreen viewerRole="ADMIN" /> },
+      { path: '/users/:userId', element: <UserDetailScreen viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} /> },
     ], { initialEntries: ['/users/user-a'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await router.navigate('/users/user-b'); });
@@ -244,7 +244,7 @@ describe('User detail route race protection', () => {
     const onDeleted = vi.fn();
     people.permanentlyDeleteUser.mockResolvedValue(undefined);
     const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
-    await act(async () => root.render(<MemoryRouter><UserDetailView viewerRole="ADMIN" user={eligible}
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={eligible}
       onBack={() => {}} onChanged={() => {}} onDeleted={onDeleted} /></MemoryRouter>));
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Kalıcı olarak sil')) as HTMLButtonElement;

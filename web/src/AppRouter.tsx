@@ -425,7 +425,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={canAccessRoute('users', user) ? <UserListScreen /> : <ForbiddenView />} />
         <Route path={paths.newUser} element={canAccessRoute('userCreate', user) ? <UserCreateScreen /> : <ForbiddenView />} />
-        <Route path="/users/:userId" element={canAccessRoute('userDetail', user) ? <UserDetailScreen viewerRole={user.role} /> : <ForbiddenView />} />
+        <Route path="/users/:userId" element={canAccessRoute('userDetail', user) ? <UserDetailScreen key={JSON.stringify([user.organizationId, user.id])} viewer={user} /> : <ForbiddenView />} />
         <Route path={paths.staff} element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />

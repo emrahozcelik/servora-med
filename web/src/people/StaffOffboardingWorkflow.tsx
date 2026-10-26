@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 
 import { getJobCard } from '../jobs/jobs-api';
 import { jobCardStatusLabel } from '../jobs/job-labels';
@@ -32,10 +32,12 @@ import {
   type StaffOffboardingDraft,
 } from './staff-offboarding-model';
 import {
+  assertOwnedStaffOffboardingAttempt,
   clearPersistedStaffOffboardingAttempt,
   persistStaffOffboardingAttempt,
   readPersistedStaffOffboardingAttempt,
   retirePersistedStaffOffboardingAttempt,
+  type StaffOffboardingActor,
   type StaffOffboardingAttempt,
 } from './staff-offboarding-attempt';
 
@@ -187,12 +189,24 @@ function WeeklyReportBlockers({ target, operation, onRefresh, onMore, onClose }:
   </section>;
 }
 
-export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPreview = false }: {
+type WorkflowProps = {
+  viewer: StaffOffboardingActor;
   target: ManagedUser;
   onCompleted: (response: StaffOffboardingResponse) => void;
   startWithFreshPreview?: boolean;
-}) {
-  const [initialRecovery] = useState(readPersistedStaffOffboardingAttempt);
+};
+
+export function StaffOffboardingWorkflow(props: WorkflowProps) {
+  return <ActorScopedOffboardingWorkflow key={JSON.stringify([props.viewer.organizationId, props.viewer.id, props.target.id])} {...props} />;
+}
+
+function ActorScopedOffboardingWorkflow({ viewer, target, onCompleted, startWithFreshPreview = false }: WorkflowProps) {
+  const activeRef = useRef(false);
+  useLayoutEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
+  const [initialRecovery] = useState(() => readPersistedStaffOffboardingAttempt(viewer));
   const recoveredAttempt = initialRecovery.kind === 'valid' && initialRecovery.targetUserId === target.id
     ? initialRecovery.attempt : null;
   const recoveredOwnership: AttemptOwnership = recoveredAttempt
@@ -206,7 +220,7 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
   const [operation, setOperation] = useState<Operation>(() => {
     if (initialRecovery.kind === 'invalid') return { kind: 'recovery-error',
       title: 'Önceki işlem güvenle geri yüklenemedi',
-      message: 'Bu sekmede sonucu kesinleşmemiş bir işlem kaydı var ancak bütünlüğü doğrulanamadı. Yeni işlem başlatılmadı.' };
+      message: 'Bu sekmede sonucu kesinleşmemiş bir işlem kaydı var ancak bütünlüğü veya işlemi başlatan yönetici ve firma doğrulanamadı. Kayıt korunuyor; sunucu sonucu yetkili incelemeyle netleştirilmeden yeni işlem başlatılamaz.' };
     if (initialRecovery.kind === 'valid' && initialRecovery.targetUserId !== target.id) return { kind: 'recovery-error',
       title: 'Başka bir personel için sonuç bekleniyor',
       message: 'Bu sekmede başka bir personel için sonucu kesinleşmemiş bir işlem bulunuyor. Önce o işlemi doğrulayın.' };
@@ -248,11 +262,11 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
   }, [navigationProtected]);
 
   function isCurrentPreviewGeneration(generation: number, expectedTargetId: string) {
-    return generation === previewGenerationRef.current && expectedTargetId === currentTargetIdRef.current;
+    return activeRef.current && generation === previewGenerationRef.current && expectedTargetId === currentTargetIdRef.current;
   }
 
   async function fetchAuthoritativePlan(message?: string) {
-    if (attemptOwnershipRef.current) return;
+    if (!activeRef.current || recoveryBlocked || attemptOwnershipRef.current) return;
     const generation = ++previewGenerationRef.current;
     const expectedTargetId = target.id;
     setOperation({ kind: 'loading' });
@@ -343,11 +357,11 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
 
   async function cleanupRetiredAttempt() {
     const ownership = attemptOwnershipRef.current;
-    if (ownership?.kind !== 'retired-pending-clear') return false;
+    if (!activeRef.current || ownership?.kind !== 'retired-pending-clear') return false;
     setConfirmation(null);
     try {
-      retirePersistedStaffOffboardingAttempt(target.id, ownership.attempt);
-      clearPersistedStaffOffboardingAttempt();
+      retirePersistedStaffOffboardingAttempt(viewer, target.id, ownership.attempt);
+      clearPersistedStaffOffboardingAttempt(viewer, target.id, ownership.attempt);
     } catch {
       setOperation({ kind: 'recovery-error', title: 'İşlem durumu güvenli biçimde temizlenemedi',
         message: 'Yeni bir işlem başlatmadan önce yerel işlem kaydını yeniden temizleyin.', cleanupAvailable: true });
@@ -370,7 +384,7 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
 
   async function retireAttempt(attempt: Attempt, continuation: CleanupContinuation) {
     const ownership = attemptOwnershipRef.current;
-    if (ownership?.kind !== 'active' || ownership.attempt !== attempt) return false;
+    if (!activeRef.current || ownership?.kind !== 'active' || ownership.attempt !== attempt) return false;
     attemptOwnershipRef.current = { kind: 'retired-pending-clear', attempt, continuation };
     setConfirmation(null);
     return cleanupRetiredAttempt();
@@ -378,8 +392,8 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
 
   function resolveAttemptAfterSuccess(attempt: Attempt) {
     try {
-      retirePersistedStaffOffboardingAttempt(target.id, attempt);
-      clearPersistedStaffOffboardingAttempt();
+      retirePersistedStaffOffboardingAttempt(viewer, target.id, attempt);
+      clearPersistedStaffOffboardingAttempt(viewer, target.id, attempt);
     } catch { /* authoritative success remains final; an exact replay stays idempotent */ }
     attemptOwnershipRef.current = null;
     setNavigationProtected(false);
@@ -391,23 +405,33 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
 
   async function refreshAfterConflict(message: string) {
     const ownership = attemptOwnershipRef.current;
-    if (ownership?.kind !== 'active') return;
+    if (!activeRef.current || ownership?.kind !== 'active') return;
     await retireAttempt(ownership.attempt, { kind: 'fresh-plan', message });
   }
 
   async function executeAttempt(attempt: Attempt, isReconciliation: boolean) {
     const ownership = attemptOwnershipRef.current;
-    if (ownership?.kind !== 'active' || ownership.attempt !== attempt) return;
+    if (!activeRef.current || ownership?.kind !== 'active' || ownership.attempt !== attempt) return;
     if (submitGateRef.current) return;
+    try {
+      if (assertOwnedStaffOffboardingAttempt(viewer, target.id, attempt).status !== 'ACTIVE') throw new Error('Retired attempt');
+    } catch {
+      setConfirmation(null);
+      setOperation({ kind: 'recovery-error', title: 'İşlem kaydının sahipliği doğrulanamadı',
+        message: 'Kayıt korunuyor. Sunucuya istek gönderilmedi; aynı yönetici ve firma oturumunda kayıt doğrulanmadan devam edilemez.' });
+      return;
+    }
     submitGateRef.current = true;
     setConfirmation(null);
     setOperation(isReconciliation ? { kind: 'reconciling', attempt } : { kind: 'submitting', attempt });
     try {
       const next = await executeStaffOffboarding(target.id, attempt.request);
+      if (!activeRef.current) return;
       resolveAttemptAfterSuccess(attempt);
       setOperation({ kind: 'success', response: next });
       onCompleted(next);
     } catch (error) {
+      if (!activeRef.current) return;
       if (ambiguous(error) && !isReconciliation) {
         submitGateRef.current = false;
         setOperation({ kind: 'reconciling', attempt });
@@ -449,7 +473,7 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
   }
 
   function confirmExecute() {
-    if (!confirmation) return;
+    if (!activeRef.current || recoveryBlocked || !confirmation) return;
     if (confirmation.kind === 'retry') {
       const ownership = attemptOwnershipRef.current;
       if (ownership?.kind !== 'active'
@@ -463,7 +487,7 @@ export function StaffOffboardingWorkflow({ target, onCompleted, startWithFreshPr
     try {
       const attempt: Attempt = { request: buildOffboardingRequest(plan, draft, crypto.randomUUID()) };
       attemptOwnershipRef.current = { kind: 'active', attempt };
-      persistStaffOffboardingAttempt(target.id, attempt);
+      persistStaffOffboardingAttempt(viewer, target.id, attempt);
       setNavigationProtected(true);
       void executeAttempt(attempt, false);
     } catch {
