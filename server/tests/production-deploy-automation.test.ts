@@ -505,6 +505,12 @@ assert_host_backup_contract`,
 function runObservationAcceptanceFixture(document: unknown) {
   const root = temporaryDirectory('observation-acceptance');
   const state = join(root, 'observation-v1.json');
+  if (document && typeof document === 'object' && 'schemaVersion' in document && document.schemaVersion===2) {
+    const raw=document as Record<string,unknown>;
+    raw.latestAttemptId='11111111-1111-4111-8111-111111111111';
+    raw.latestVerifiedProof={formatVersion:1,attemptId:raw.latestAttemptId,trigger:raw.latestVerifiedTrigger,
+      artifactSha256:'a'.repeat(64),after:{wallAtUTC:typeof raw.latestVerifiedAt==='string'?raw.latestVerifiedAt.replace('Z','.000Z'):null}};
+  }
   writeFileSync(state, `${JSON.stringify(document)}\n`, { mode: 0o600 });
   const result = runPatchedHost(
     `PHASE=POSTDEPLOY_BACKUP
@@ -1000,7 +1006,7 @@ describe('controlled production deployment automation contract', () => {
 
   it('rejects a stale predeploy observation after the postdeploy backup', () => {
     const fixture = runObservationAcceptanceFixture({
-      schemaVersion: 1,
+      schemaVersion: 2,
       latestAttemptTrigger: 'predeploy',
       latestAttemptResult: 'success',
       latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
@@ -1022,7 +1028,7 @@ describe('controlled production deployment automation contract', () => {
       {
         label: 'stale scheduled observation',
         document: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           latestAttemptTrigger: 'scheduled',
           latestAttemptResult: 'success',
           latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
@@ -1034,7 +1040,7 @@ describe('controlled production deployment automation contract', () => {
       {
         label: 'current postdeploy success',
         document: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           latestAttemptTrigger: 'postdeploy',
           latestAttemptResult: 'success',
           latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
@@ -1046,7 +1052,7 @@ describe('controlled production deployment automation contract', () => {
       {
         label: 'malformed timestamp',
         document: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           latestAttemptTrigger: 'postdeploy',
           latestAttemptResult: 'success',
           latestAttemptCompletedAt: 'not-an-instant',
@@ -1058,7 +1064,7 @@ describe('controlled production deployment automation contract', () => {
       {
         label: 'future timestamp',
         document: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           latestAttemptTrigger: 'postdeploy',
           latestAttemptResult: 'success',
           latestAttemptCompletedAt: '2026-09-21T17:00:11Z',
@@ -1070,7 +1076,7 @@ describe('controlled production deployment automation contract', () => {
       {
         label: 'verified timestamp does not correspond to completed attempt',
         document: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           latestAttemptTrigger: 'postdeploy',
           latestAttemptResult: 'success',
           latestAttemptCompletedAt: '2026-09-21T17:00:05Z',
@@ -2330,6 +2336,9 @@ describe('release identity capability evidence — artifact binding', () => {
       'server/dist/db/schema-check.js',
       'ops/scripts/backup-postgres.sh',
       'ops/scripts/backup-observation.sh',
+      'ops/scripts/backup-observation.mjs',
+      'ops/scripts/backup-observation-writer.mjs',
+      'ops/scripts/trusted-time.mjs',
       'ops/scripts/migration-state.mjs',
       'ops/scripts/migration-reconciliation.mjs',
       'ops/scripts/deploy-production-host.sh',

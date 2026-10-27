@@ -78,6 +78,8 @@ jobs:
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example
+          node --check ../ops/scripts/backup-observation.mjs
+          node --check ../ops/scripts/backup-observation-writer.mjs
           node --check ../ops/scripts/migration-state.mjs
           node --check ../ops/scripts/migration-reconciliation.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
@@ -173,8 +175,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           SMOKE="$(mktemp -d)"
-          cp -R dist package.json package-lock.json "$SMOKE/"
-          cd "$SMOKE"
+          mkdir -p "$SMOKE/server" "$SMOKE/ops/scripts"
+          cp -R dist package.json package-lock.json "$SMOKE/server/"
+          cp ../ops/scripts/trusted-time.mjs ../ops/scripts/backup-observation.mjs "$SMOKE/ops/scripts/"
+          cd "$SMOKE/server"
           npm ci --omit=dev
           test -d node_modules/fastify
           test -d node_modules/pg
@@ -182,6 +186,7 @@ jobs:
           test -f dist/index.js
           test -f dist/db/migrate.js
           test -f dist/db/schema-check.js
+          node --input-type=module -e "await import('./dist/modules/health/host-backup-observation.js')"
       - run: npx tsx src/db/migrate.ts
       - run: npm run schema:check
       - run: npm test -- --run

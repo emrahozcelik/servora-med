@@ -935,3 +935,16 @@ root administrator's `issueRootApproval(fields, ttlMs)` API takes independently
 reviewed identity/catalog/artifact/CI fields, captures actual target-host time and
 seals a new UUID exactly once. It accepts no supplied issue/expiry/boot clock.
 See `r4-forward-recovery.md` for publication confirmation and interruption rules.
+
+
+## Issue #369 TT-B — observation v2 compatibility gate
+
+OPS-TT-002 fixes the host backup freshness evaluator in source; it does not
+activate production. Follow [observation v2 migration/release ordering](backup-recovery/host-backup-observability.md#9-tt-b-observation-v2-supersedes-v1-implementation-details-in-8).
+V1 OLD writers cannot satisfy new fixed-root v2 seal binding, and OLD v1 readers
+cannot read a canonical v2 observation. A normal release switch alone is therefore
+insufficient for this first transition. Preserve state, exact v1 archive and
+original root evidence; review coordinated provisioning/release order and rollback
+compatibility before production approval. Never downgrade state or synthesize
+BOOTTIME merely to pass health. Rebooted proofs yield UNKNOWN until genuine new
+local and, once established, scheduled events prove freshness.

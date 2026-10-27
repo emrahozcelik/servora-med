@@ -366,3 +366,17 @@ Deleting `$SERVORA_ALERT_STATE_DIR` resets all deduplication state.
   [production cutover runbook](./backup-recovery/production-cutover-runbook.md).
   `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED` does not become a pass by switching
   this variable.
+
+
+## TT-B host-observation projection
+
+When `/api/health` identifies `backup.provider=host-observation`, the monitor
+consumes its `status` and `providerStatus` directly. It also requires a scheduled
+verified baseline. Backend unavailable/UNKNOWN, stale, failed, missing health or
+missing scheduled evidence cannot be promoted by a local file scan or a separate
+UTC calculation. `ageHours` is null for this provider; original age decisions
+belong to `evaluateBackupProviderStatus()`.
+
+The legacy non-host and BR5 branches retain their existing behavior. Their
+continued presence does not establish trusted-time acceptance for BR5. Production
+enablement and webhook provisioning still require separate authorization.

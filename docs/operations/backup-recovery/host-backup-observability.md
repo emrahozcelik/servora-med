@@ -252,3 +252,60 @@ otherwise:
 `DECISIONS.md` → OPS-004 remains the unchanged decision record; this section
 records implementation state only.
 
+
+
+## 9. TT-B observation v2 (supersedes v1 implementation details in §8)
+
+OPS-TT-002 extends the existing host provider. The SSOT path remains
+`/var/lib/servora-med-backup/observation-v1.json`; the JSON schema is now strictly
+`schemaVersion: 2`. The stable shell entrypoint calls
+`backup-observation-writer.mjs`; shared vocabulary/strict parsing lives in
+`backup-observation.mjs`. No new npm or native dependency is needed (Node22).
+
+The writer persists the TT-A sample before the dump, verifies the actual
+artifact and portable sidecar, fsyncs both plus their directory, samples again,
+and publishes an fsynced state by atomic rename plus directory fsync. The private
+proof contains the original event interval, attempt UUID, trigger and artifact /
+sidecar SHA-256. A missing trusted sample allows recording integrity success but
+leaves its freshness proof null. Publication or checksum errors fail the backup
+visibly; prior verified history survives failed/running attempts.
+
+`evaluateBackupProviderStatus()` alone decides age. It uses the conservative
+interval from original event to current trusted sample: upper <=26h can be
+healthy, lower >26h is stale; ambiguous boundaries and contradictory UTC are
+unavailable. Failure retains priority. API shape remains compatible and excludes
+boot IDs, private paths, internal samples and digests. The application health
+reader now needs the same read-only systemctl/chronyc/proc access as TT-A. Sampler
+failure degrades availability; it never falls back to Date.now or filesystem time.
+
+Local and scheduled proofs are retained separately. Once scheduled history
+exists, a missing/old-boot proof remains UNKNOWN even after a new manual backup.
+Before the first scheduled baseline, local health can be healthy, but R4 and host
+operator alerting require scheduled evidence explicitly. No scheduled timer is
+simulated by passing a manual invocation as a real timer event in acceptance.
+
+Migration and release ordering:
+
+1. Preserve the current state, old release and all evidence. The v2 writer
+   archives exact v1 bytes as `observation-v1.json.legacy-<sha256>.json` before
+   replacing the canonical document. The scheduled baseline flag/history survive;
+   old UTC data never receives synthetic BOOTTIME samples.
+2. A new reader treats v1 as history/UNKNOWN. An old reader rejects v2. There is
+   no mixed-version healthy rollout and no automatic v1 downgrade.
+3. Coordinate the reader, writer and fixed root-controller provisioning under
+   separate deployment approval. Predeploy backup uses the OLD release, so a
+   v1 OLD writer cannot satisfy the new root v2 receipt-binding prerequisite.
+   Review that release-order incompatibility before attempting deployment.
+4. After reboot, intact archives may pass restore integrity but their old boot
+   freshness is UNKNOWN. An established scheduled baseline needs a new genuine
+   scheduled backup. Do not replace it with manual/pre/postdeploy success.
+5. Root sealed-copy adoption validates retained archive integrity and creates no
+   observation event; it does not refresh backend local or scheduled age. The
+   root receipt binds new seals to the producer's actual artifact/sidecar digests.
+6. A rollback to a v1 reader cannot pass backup health with canonical v2 state.
+   Keep the v2 state/history, stop release acceptance, and use a separately
+   reviewed compatibility plan. There is no bypass through UTC or mtimes.
+
+BR5 remains disabled and its separate UTC heartbeat is outside TT-B. Production
+NO-GO persists. No production provider/environment/state is activated by this
+code change; `BACKUP_PROVIDER=host-observation` remains an explicit rollout choice.

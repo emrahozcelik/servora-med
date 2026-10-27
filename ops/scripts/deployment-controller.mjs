@@ -587,6 +587,30 @@ function adoptSealedBackup(attemptId, kind, context) {
 /** Seal the bytes of a freshly verified fixed-path host backup. Never retain
  * only the service-writable pathname: root retains its own immutable copy.
  */
+export function validateBackupObservationBinding(document,artifactSha256,sidecarSha256,trigger) {
+  const proof=document?.latestVerifiedProof;
+  if(document?.schemaVersion!==2||document.latestAttemptResult!=='success'||document.latestAttemptTrigger!==trigger
+    ||document.latestVerifiedTrigger!==trigger||!proof||Object.keys(proof).length!==8||proof.formatVersion!==1
+    ||typeof proof.attemptId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(proof.attemptId)
+    ||proof.attemptId!==document.latestAttemptId||proof.trigger!==trigger||proof.startedAt!==document.latestAttemptStartedAt
+    ||JSON.stringify(proof.before)!==JSON.stringify(document.latestAttemptTime)
+    ||proof.artifactSha256!==artifactSha256||proof.sidecarSha256!==sidecarSha256
+    ||document.latestAttemptCompletedAt!==document.latestVerifiedAt
+    ||typeof proof.after?.wallAtUTC!=='string'||proof.after.wallAtUTC.slice(0,19)+'Z'!==document.latestVerifiedAt
+    ||elapsedTime(proof.before,proof.after).status!=='KNOWN')throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+}
+
+function assertBackupObservationBinding(uid,gid,artifactSha256,sidecarSha256,trigger) {
+  const directory='/var/lib/servora-med-backup',info=lstatSync(directory);
+  if(!info.isDirectory()||info.isSymbolicLink()||info.uid!==uid||info.gid!==gid||(info.mode&0o7777)!==0o700)throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+  const fd=openSync(directory+'/observation-v1.json',constants.O_RDONLY|constants.O_NOFOLLOW);
+  try {
+    const stat=fstatSync(fd);
+    if(!stat.isFile()||stat.nlink!==1||stat.uid!==uid||stat.gid!==gid||(stat.mode&0o7777)!==0o600||stat.size>65536)throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+    validateBackupObservationBinding(JSON.parse(readFileSync(fd,'utf8')),artifactSha256,sidecarSha256,trigger);
+  } finally {closeSync(fd);}
+}
+
 export function sealBackupReceipt(attemptId, kind, file = null) {
   const context = currentAttempt(attemptId);
   if (!['pre','post'].includes(kind)
@@ -638,6 +662,7 @@ export function sealBackupReceipt(attemptId, kind, file = null) {
     } finally { closeSync(output); }
     const sha256 = hash.digest('hex');
     if (sha256 !== expected[1]) throw new Error('RECOVERY_BACKUP_UNTRUSTED');
+    assertBackupObservationBinding(uid,gid,sha256,digest(line),kind==='pre'?'predeploy':'postdeploy');
     // The copied root-private bytes must themselves be a real PostgreSQL
     // archive: digest agreement with the equally service-writable sidecar is
     // not proof, and the source pathname may have been swapped between the
@@ -1014,6 +1039,13 @@ async function completeAcceptedHandoff(context) {
   });
 }
 
+export function validateBackupHealthProjection(health) {
+  if (!health || health.status !== 'ok' || health.provider !== 'host-observation'
+    || health.providerStatus !== 'healthy' || typeof health.latestScheduledVerifiedAt !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(health.latestScheduledVerifiedAt)
+    || !Number.isFinite(Date.parse(health.latestScheduledVerifiedAt))) throw new Error('RECOVERY_BACKUP_HEALTH_FAILED');
+}
+
 function assertBackupHealth(context) {
   let health;
   try {
@@ -1023,7 +1055,7 @@ function assertBackupHealth(context) {
   } catch { throw new Error('RECOVERY_BACKUP_HEALTH_FAILED'); }
   // Use the existing application projection/freshness SSOT; postdeploy success
   // must not substitute for its separate scheduled heartbeat.
-  if (health.status !== 'ok' || health.provider !== 'host-observation') throw new Error('RECOVERY_BACKUP_HEALTH_FAILED');
+  validateBackupHealthProjection(health);
   validateBackupDatabase(context.profile);
 }
 

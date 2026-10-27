@@ -303,7 +303,13 @@ assert_observation_state_contract() {
     const executionCompleted = canonicalInstant(process.argv[3]);
     const attemptCompleted = canonicalInstant(document.latestAttemptCompletedAt);
     const verifiedAt = canonicalInstant(document.latestVerifiedAt);
-    if (document.schemaVersion !== 1
+    const proof = document.latestVerifiedProof;
+    if (document.schemaVersion !== 2
+      || !proof || proof.formatVersion !== 1 || proof.trigger !== "postdeploy"
+      || proof.attemptId !== document.latestAttemptId
+      || typeof proof.artifactSha256 !== "string" || !/^[0-9a-f]{64}$/.test(proof.artifactSha256)
+      || typeof proof.after?.wallAtUTC !== "string"
+      || proof.after.wallAtUTC.slice(0,19)+"Z" !== document.latestVerifiedAt
       || document.latestAttemptTrigger !== "postdeploy"
       || document.latestAttemptResult !== "success"
       || document.latestVerifiedTrigger !== "postdeploy"
@@ -509,6 +515,9 @@ validate_release_tree() {
     "$root/server/dist/db/schema-check.js" \
     "$root/ops/scripts/backup-postgres.sh" \
     "$root/ops/scripts/backup-observation.sh" \
+    "$root/ops/scripts/backup-observation.mjs" \
+    "$root/ops/scripts/backup-observation-writer.mjs" \
+    "$root/ops/scripts/trusted-time.mjs" \
     "$root/ops/scripts/migration-state.mjs" \
     "$root/ops/scripts/migration-reconciliation.mjs" \
     "$root/ops/scripts/deploy-production-host.sh" \

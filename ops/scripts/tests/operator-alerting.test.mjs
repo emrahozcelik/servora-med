@@ -34,6 +34,7 @@ import {
   deliverWebhook,
   evaluateBackup,
   evaluateVerifiedBackup,
+  evaluateHostBackup,
   loadConfig,
   loadState,
   main,
@@ -49,6 +50,16 @@ import {
   transitionCheck,
   writeState,
 } from '../operator-alerting.mjs';
+
+it('TT-B host alerting consumes backend UNKNOWN/STALE without a wall-clock promotion',()=>{
+  const backup={provider:'host-observation',providerStatus:'healthy',status:'ok',
+    latestScheduledVerifiedAt:'2026-10-27T09:00:00Z',latestScheduledRunStatus:'SUCCESS'};
+  assert.equal(evaluateHostBackup({ok:true,backup}).ok,true);
+  for(const change of [{providerStatus:'unavailable',status:'unavailable'},
+    {providerStatus:'stale',status:'unavailable'},{latestScheduledVerifiedAt:null}]) {
+    assert.equal(evaluateHostBackup({ok:true,backup:{...backup,...change}}).ok,false);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // In-memory test doubles
@@ -1732,6 +1743,16 @@ describe('runMonitor orchestration', () => {
     };
     return deps;
   };
+
+  it('TT-B preserves host UNKNOWN on HTTP 503 instead of promoting a local UTC backup',async()=>{
+    const deps=healthyDeps();
+    deps.fetch=async()=>healthResponse(503,{status:'unavailable',backup:{provider:'host-observation',
+      providerStatus:'unavailable',status:'unavailable',latestScheduledVerifiedAt:'20260805T120000Z'}});
+    const result=await runMonitor(loadConfig(env),deps);
+    assert.equal(result.outcomes.health.ok,false);
+    assert.equal(result.outcomes.backup.ok,false);
+    assert.equal(result.outcomes.backup.errorCategory,'host-backup-unavailable');
+  });
 
   it('healthy run: no events, zero exit, state persisted', async () => {
     const deps = healthyDeps();

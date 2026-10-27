@@ -29,14 +29,22 @@ export function validateTimeEvidence(value) {
   return value;
 }
 
-/** Conservative bounds; UTC can veto evidence, never reduce elapsed age. */
-export function elapsedTime(event, current) {
+/** Same-boot conservative bounds, including suspend; sufficient only to deny age. */
+export function elapsedBootTime(event, current) {
   try { validateTimeEvidence(event); validateTimeEvidence(current); }
   catch { return {status:'UNKNOWN'}; }
   if (event.bootId !== current.bootId || event.timeNamespaceId !== current.timeNamespaceId
     || current.bootLowerMs < event.bootLowerMs || current.bootUpperMs < event.bootUpperMs) return {status:'UNKNOWN'};
   const lowerMs = Math.max(0,current.bootLowerMs-event.bootUpperMs);
   const upperMs = current.bootUpperMs-event.bootLowerMs;
+  return {status:'KNOWN',lowerMs,upperMs};
+}
+
+/** UTC remains a veto for positive authority; boot bounds alone only deny. */
+export function elapsedTime(event, current) {
+  const bounds = elapsedBootTime(event,current);
+  if (bounds.status !== 'KNOWN') return bounds;
+  const {lowerMs,upperMs} = bounds;
   const wall = Date.parse(current.wallAtUTC)-Date.parse(event.wallAtUTC);
   if (wall+current.wallResolutionMs < lowerMs || wall-event.wallResolutionMs > upperMs) return {status:'UNKNOWN'};
   return {status:'KNOWN',lowerMs,upperMs};

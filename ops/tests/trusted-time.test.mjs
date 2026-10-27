@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { elapsedTime, parseSynchronization, evidenceFromLinuxReads } from '../scripts/trusted-time.mjs';
+import { elapsedTime, elapsedBootTime, parseSynchronization, evidenceFromLinuxReads } from '../scripts/trusted-time.mjs';
 
 export const timeEvidence = (elapsed = 0, overrides = {}) => ({
   formatVersion: 1, source: 'linux-boottime',
@@ -11,6 +11,12 @@ export const timeEvidence = (elapsed = 0, overrides = {}) => ({
   synchronization: { service: 'chrony', referenceAgeMs: 1000, rootDistanceMs: 1,
     correctionMs: 0, sourceCount: 2 },
   ...overrides,
+});
+
+test('TT-B: boot bounds remain available for a proven stale denial when UTC conflicts',()=>{
+  const current=timeEvidence(27*3600000,{wallAtUTC:timeEvidence(25*3600000).wallAtUTC});
+  assert.deepEqual(elapsedBootTime(timeEvidence(),current),{status:'KNOWN',lowerMs:27*3600000,upperMs:27*3600000});
+  assert.deepEqual(elapsedTime(timeEvidence(),current),{status:'UNKNOWN'});
 });
 
 test('TT-01: wall rollback is UNKNOWN against the original persisted boot anchor', () => {

@@ -2076,3 +2076,35 @@ Primary references: [UME](https://www.ume.tubitak.gov.tr/fizik-grubu-laboratuvar
 [Cloudflare Time](https://www.cloudflare.com/time/),
 [chrony configuration](https://chrony-project.org/doc/4.5/chrony.conf.html),
 [chronyc monitoring](https://chrony-project.org/doc/4.5/chronyc.html).
+
+
+## OPS-TT-002 — Host backup event time and observation v2 (TT-B)
+
+- **Date:** 2026-10-27
+- **Status:** Owner-authorized implementation scope for Issue #369 TT-B. Release acceptance and production activation remain separate. Production NO-GO.
+- **Scope:** A3 host-observation only; additive extension to OPS-004 and OPS-TT-001. TT-A approval/admission behavior and the disabled BR5 provider are unchanged.
+
+Use the existing TT-A synchronized Linux BOOTTIME primitive at backup start and
+after actual artifact/sidecar verification. Persist both original samples,
+attempt identity and both SHA-256 digests in strict observation schema 2 at the
+existing SSOT pathname. The reader never creates an event anchor. Local and
+scheduled verification proofs are independent; manual/predeploy/postdeploy
+backups cannot refresh the established scheduled baseline.
+
+The 26-hour inclusive boundary remains unchanged. A conservative upper age of
+at most 26 hours plus consistent UTC permits healthy; a proven lower age over
+26 hours is stale. Conflicting, missing, unsupported or cross-boot evidence is
+UNKNOWN/public unavailable. Latest failure keeps its existing priority.
+Consumers use the backend decision and cannot recalculate UTC age to promote it.
+
+V1 remains history only: preserve its exact bytes and established scheduled
+baseline when the writer migrates it, never manufacture current-boot evidence.
+Reboot requires a new backup event for local freshness, and a new scheduled event
+for an established scheduled baseline. Restore integrity and root sealed-backup
+adoption do not renew freshness. Old readers cannot consume v2, so a release
+rollback requires separate compatibility review; rewriting v2 to v1 is forbidden.
+
+No database migration, new worker/time service/native dependency, BR5 enablement,
+production state mutation or long observation is authorized by this scope.
+Deterministic 26h transitions and the existing Local CI producers verify code;
+synthetic boot/timer evidence must remain distinguished from live host acceptance.

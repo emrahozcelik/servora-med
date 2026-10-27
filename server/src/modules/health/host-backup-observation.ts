@@ -1,5 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
 import { open } from 'node:fs/promises';
+import {sampleTrustedTime,type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
 
 import {
   evaluateBackupProviderStatus,
@@ -11,13 +12,13 @@ import {
 } from './backup-freshness.js';
 import type { BackupHealthReadinessPort, PublicBackupHealth } from './service.js';
 
-/** Upper bound on the state artifact; the real document is well under 1 KiB. */
+/** Upper bound on the state artifact; v2 includes two private time proofs. */
 const MAX_OBSERVATION_BYTES = 64 * 1024;
 
 export type HostBackupObservationOptions = {
   /** Absolute path to `observation-v1.json`. Validated by config (fail-closed). */
   observationPath: string;
-  now?: () => Date;
+  sampleTime?: () => TimeEvidence;
 };
 
 /**
@@ -32,16 +33,18 @@ export type HostBackupObservationOptions = {
 export function createHostBackupObservationHealth(
   options: HostBackupObservationOptions,
 ): BackupHealthReadinessPort {
-  const now = options.now ?? (() => new Date());
+  const sampleTime = options.sampleTime ?? sampleTrustedTime;
   const observationPath = options.observationPath;
 
   return {
     async check(): Promise<PublicBackupHealth> {
       const state = await readObservationState(observationPath);
+      let currentTime:TimeEvidence|null=null;
+      try {currentTime=sampleTime();}catch { /* Missing trusted time denies freshness. */ }
       return projectProviderState({
         provider: 'host-observation',
         state,
-        nowMs: now().getTime(),
+        currentTime,
       });
     },
   };
@@ -54,7 +57,7 @@ export function createHostBackupObservationHealth(
 export function createDisabledBackupHealth(): BackupHealthReadinessPort {
   return {
     async check(): Promise<PublicBackupHealth> {
-      return projectProviderState({ provider: 'none', state: null, nowMs: Date.now(), forcedStatus: 'disabled' });
+      return projectProviderState({ provider: 'none', state: null, currentTime:null, forcedStatus: 'disabled' });
     },
   };
 }
@@ -81,7 +84,7 @@ async function readObservationState(observationPath: string): Promise<BackupObse
 export type ProjectProviderStateInput = {
   provider: PublicBackupHealth['provider'];
   state: BackupObservationState | null;
-  nowMs: number;
+  currentTime: TimeEvidence|null;
   /** Overrides evaluation when the mechanism is intentionally disabled. */
   forcedStatus?: BackupProviderStatus;
 };
@@ -95,8 +98,8 @@ export type ProjectProviderStateInput = {
  * provider currently populates the attempt-level additive fields.
  */
 export function projectProviderState(input: ProjectProviderStateInput): PublicBackupHealth {
-  const { provider, state, nowMs, forcedStatus } = input;
-  const providerStatus = forcedStatus ?? evaluateBackupProviderStatus(state, nowMs);
+  const { provider, state, currentTime, forcedStatus } = input;
+  const providerStatus = forcedStatus ?? evaluateBackupProviderStatus(state, currentTime);
   return {
     status: toCompatibilityStatus(providerStatus),
     latestVerifiedAt: state?.latestVerifiedSuccess?.verifiedAt ?? null,

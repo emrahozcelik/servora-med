@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alignIdentityEnvironment, environmentBaseline, validateIdentityTuple, validateAttemptDeploymentState } from '../scripts/deployment-controller.mjs';
+import { alignIdentityEnvironment, environmentBaseline, validateIdentityTuple, validateAttemptDeploymentState, validateBackupHealthProjection,validateBackupObservationBinding } from '../scripts/deployment-controller.mjs';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
+
+test('TT-B R4 seals only the artifact/sidecar pair named by original producer evidence',()=>{
+  const at='2026-10-27T09:00:00Z',id='11111111-1111-4111-8111-111111111111';
+  const proof={formatVersion:1,attemptId:id,trigger:'postdeploy',startedAt:at,artifactSha256:'a'.repeat(64),
+    sidecarSha256:'b'.repeat(64),before:timeEvidenceAt(Date.parse(at)),after:timeEvidenceAt(Date.parse(at))};
+  const document={schemaVersion:2,latestAttemptId:id,latestAttemptTime:proof.before,latestAttemptTrigger:'postdeploy',latestAttemptStartedAt:at,
+    latestAttemptCompletedAt:at,latestAttemptResult:'success',latestVerifiedAt:at,latestVerifiedTrigger:'postdeploy',latestVerifiedProof:proof};
+  assert.doesNotThrow(()=>validateBackupObservationBinding(document,'a'.repeat(64),'b'.repeat(64),'postdeploy'));
+  assert.throws(()=>validateBackupObservationBinding(document,'c'.repeat(64),'b'.repeat(64),'postdeploy'),/RECOVERY_BACKUP_UNTRUSTED/);
+  assert.throws(()=>validateBackupObservationBinding({...document,latestVerifiedProof:null},'a'.repeat(64),'b'.repeat(64),'postdeploy'),/RECOVERY_BACKUP_UNTRUSTED/);
+});
+
+test('TT-B R4 refuses backend UNKNOWN and a missing scheduled baseline without recomputing UTC age',()=>{
+  const healthy={status:'ok',provider:'host-observation',providerStatus:'healthy',latestScheduledVerifiedAt:'2026-10-27T09:00:00Z'};
+  assert.doesNotThrow(()=>validateBackupHealthProjection(healthy));
+  for(const change of [{status:'unavailable'},{providerStatus:'unavailable'},{providerStatus:'stale'},
+    {latestScheduledVerifiedAt:null},{provider:'br5-r2'}]) {
+    assert.throws(()=>validateBackupHealthProjection({...healthy,...change}),/RECOVERY_BACKUP_HEALTH_FAILED/);
+  }
+});
 
 test('identity alignment changes both pins and preserves every non-identity byte', () => {
   const source = '# protected\nDATABASE_URL=synthetic-only\nHEALTH_SCHEMA_VERSION=001_old\nSERVORA_RELEASE_SHA=' + 'a'.repeat(40) + '\n';
