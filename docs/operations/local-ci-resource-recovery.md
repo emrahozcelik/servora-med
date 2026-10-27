@@ -286,3 +286,35 @@ and production maintenance are outside this standing policy.
 
 CLI semantics: [Colima delete/data persistence](https://colima.run/docs/commands/#colima-delete)
 and [Lima additional disks](https://lima-vm.io/docs/config/disk/).
+
+## 9. Recreating a retired CI profile
+
+Retirement discards one-time VM setup as well as images. Before the next CI:
+
+1. Use Node 22 on the operator host and provision the exact `true` Docker
+   profile. A fresh Apple Silicon configuration can use
+   `colima start --profile true --activate=false --vm-type vz --vz-rosetta --cpu 3 --memory 4 --disk 40`.
+   These are resource settings, not a promise of enough free space; repeat §1.
+2. Confirm the checkout, `ops/local-ci/chains`, evidence root and shared
+   `~/.local/share/servora-med/ci-tmp` are visible inside the guest at the
+   **same physical absolute paths**, with required log/temp write access.
+   The default home mount does not cover a checkout under `/private/tmp`.
+   Configure explicit `--mount` entries before running CI (see installed
+   `colima start --help`); custom mounts must retain all needed shared paths.
+   Check actual files from `colima ssh --profile true`, not just directory
+   existence: Docker's `-v` can silently create an empty guest directory.
+3. Provision a Linux Node 22 binary inside the guest, matching its architecture,
+   from an approved [official Node.js distribution](https://nodejs.org/en/download).
+   Verify its upstream checksum before installation and record version/digest.
+   `ops/local-ci/docker-gated.sh` discovers guest `node` or
+   `$HOME/.local/bin/node`; a host macOS executable cannot replace it. Confirm
+   the guest executable reports major 22 and that the same guest can run
+   Docker and curl. Without guest Node, the host fallback cannot share Docker's
+   network namespace for the SSE behavior check and cannot qualify as PASS.
+4. Recheck the matching daemon IDs, Linux/amd64 emulation and §1 capacity.
+   Run CI with invocation-local `DOCKER_CONTEXT=colima-true`, `DOCKER_HOST`
+   unset and host Node 22 on PATH. Preserve any failed setup attempt and its
+   full stdout before retrying; use the exact source SHA, never edited logs.
+
+This preparation installs no application dependency and weakens no gate.
+R4/TT-A real-host fixture provisioning remains a separate authorized task.
