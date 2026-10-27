@@ -74,13 +74,13 @@ export function parseBackupObservationState(value) {
     ||(scheduledProof!==null&&(scheduledAt===null||!validateVerificationProof(scheduledProof,'scheduled',scheduledAt))))return null;
   const baseline=v2?value.scheduledBaselineEstablished:scheduledAt!==null;
   if(!baseline&&scheduledAt!==null)return null;
-  if(v2&&latestAttempt?.result==='success'&&(latestAttempt.completedAt!==verifiedAt||latestAttempt.trigger!==trigger
+  if(latestAttempt?.result==='success'&&(latestAttempt.completedAt!==verifiedAt||latestAttempt.trigger!==trigger
     ||(localProof!==null&&(localProof.attemptId!==latestAttempt.id||localProof.startedAt!==latestAttempt.startedAt
       ||JSON.stringify(localProof.before)!==JSON.stringify(latestAttempt.time)))))return null;
-  if(v2&&latestScheduledAttempt?.result==='success'&&(latestScheduledAttempt.completedAt!==scheduledAt
+  if(latestScheduledAttempt?.result==='success'&&(latestScheduledAttempt.completedAt!==scheduledAt
     ||(scheduledProof!==null&&(scheduledProof.attemptId!==latestScheduledAttempt.id||scheduledProof.startedAt!==latestScheduledAttempt.startedAt
       ||JSON.stringify(scheduledProof.before)!==JSON.stringify(latestScheduledAttempt.time)))))return null;
-  if(v2&&trigger==='scheduled'&&(verifiedAt!==scheduledAt||JSON.stringify(localProof)!==JSON.stringify(scheduledProof)))return null;
+  if(trigger==='scheduled'&&(verifiedAt!==scheduledAt||JSON.stringify(localProof)!==JSON.stringify(scheduledProof)))return null;
   if(localProof&&scheduledProof&&localProof.attemptId===scheduledProof.attemptId
     &&JSON.stringify(localProof)!==JSON.stringify(scheduledProof))return null;
   return {schemaVersion:value.schemaVersion,updatedAt:value.updatedAt,latestAttempt,

@@ -123,3 +123,14 @@ test('TT-B artifact/sidecar mismatch, symlink and unsafe permissions never publi
   fs.chmodSync(artifactPath,0o600);fs.renameSync(sidecar,sidecar+'.original');fs.symlinkSync(sidecar+'.original',sidecar);
   assert.throws(()=>success());assert.equal(readFileSync(statePath,'utf8'),original);
 }));
+
+test('TT-B contradictory v1 scheduled success cannot erase an established baseline during migration',()=>fixture(({base,statePath})=>{
+  const at=base.startedAt,legacy={schemaVersion:1,updatedAt:at,latestAttemptTrigger:'scheduled',latestAttemptStartedAt:at,
+    latestAttemptCompletedAt:at,latestAttemptResult:'success',latestAttemptFailureClass:null,latestVerifiedAt:at,
+    latestVerifiedTrigger:'scheduled',latestScheduledAttemptStartedAt:at,latestScheduledAttemptCompletedAt:at,
+    latestScheduledAttemptResult:'success',latestScheduledAttemptFailureClass:null,latestScheduledVerifiedAt:null};
+  const bytes=JSON.stringify(legacy);writeFileSync(statePath,bytes,{mode:0o600});
+  assert.equal(parseBackupObservationState(legacy),null);
+  assert.throws(()=>publishObservation({...base,trigger:'manual',startedAt:'2026-10-27T09:01:00Z',outcome:'running'},()=>sample(60000)));
+  assert.equal(readFileSync(statePath,'utf8'),bytes);
+}));
