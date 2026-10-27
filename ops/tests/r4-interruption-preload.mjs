@@ -3,13 +3,6 @@ import fs from 'node:fs';
 import {syncBuiltinESMExports} from 'node:module';
 import {hostname} from 'node:os';
 if (process.getuid() !== 0 || hostname() !== 'lima-servora-r4-20261012') throw Error('ISOLATED_HOST_REQUIRED');
-// Test-only clock at the admission publication point. The retry uses the real
-// clock, so the unmodified production reader must handle the expired grant.
-if (process.env.SERVORA_R4_ADMISSION_CLOCK) {
-  const time=Number(process.env.SERVORA_R4_ADMISSION_CLOCK);
-  if (!Number.isFinite(time) || time > Date.now()) throw Error('ISOLATED_CLOCK_INVALID');
-  Date.now=()=>time;
-}
 const fsync = fs.fsyncSync;
 let owner;
 fs.fsyncSync = function(fd) {

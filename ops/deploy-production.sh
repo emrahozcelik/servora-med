@@ -267,6 +267,7 @@ check_only() {
   bash -n "$REPO_ROOT/ops/scripts/deploy-production-host.sh"
   node --check "$REPO_ROOT/ops/scripts/migration-state.mjs"
   node --check "$REPO_ROOT/ops/scripts/migration-reconciliation.mjs"
+  node --check "$REPO_ROOT/ops/scripts/trusted-time.mjs"
   node --check "$REPO_ROOT/web/scripts/production-browser-smoke.mjs"
   [[ -f "$REPO_ROOT/.github/workflows/deploy-production.yml" ]] || fail WORKFLOW_MISSING
   [[ -f "$REPO_ROOT/docs/operations/production-deployment.md" ]] || fail DEPLOYMENT_DOC_MISSING

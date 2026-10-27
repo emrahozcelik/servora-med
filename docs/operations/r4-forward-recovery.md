@@ -7,9 +7,9 @@ restore, database downgrade, or migration by itself.
 ## Authority and identities
 
 The operator uses the existing local-first wrapper and exact-main CI evidence.
-A separate trusted administrator provisions the reviewed host helper, its four
+A separate trusted administrator provisions the reviewed host helper, its five
 Node modules (`deployment-attempt`, `deployment-controller`,
-`deployment-db-guard`, `migration-reconciliation`), `host-operation-lock.sh`, and
+`deployment-db-guard`, `migration-reconciliation`, `trusted-time`), `host-operation-lock.sh`, and
 `servora-med.service`. The installed files are root-owned: helper 0755, modules
 and lock library 0644, unit 0644. Ancestors must be physical root-owned
 non-group/other-writable directories. Node 22 and PostgreSQL 17 remain required.
@@ -24,7 +24,8 @@ create an approval or change any of these resources.
 
 The profile binds machine-id, public hostname, actual database cluster-id,
 database name/OID, role, loopback address/port, the hash of **all** protected env
-bytes except the two controlled identity pins, and seven installed file hashes.
+bytes except the two controlled identity pins, and nine contract hashes (the previous seven, the time module and the root-owned
+`/etc/chrony/chrony.conf`). Profile format 2 is required.
 `validateHostProfile()` is the field/type SSOT. The effective systemd User,
 Group, WorkingDirectory, ExecStart, EnvironmentFiles, fragment, drop-ins and
 restart policy must also match; a correct base unit hash is insufficient.
@@ -32,7 +33,8 @@ restart policy must also match; a correct base unit hash is insufficient.
 `validateApproval()` is the approval SSOT. A grant binds one UUIDv4, exact SHA
 and tree, approved artifact digest, exact CI manifest digest, OLD release and
 archive digest, full OLD/TARGET migration filenames **and SQL hashes**, profile
-digest, issue/expiry UTC (maximum 24 hours), and explicit operation scopes.
+digest, issue/expiry UTC (maximum 24 hours), actual issue-time boot/namespace
+evidence, and explicit operation scopes. Approval format 2 is required.
 At most two TOTAL candidate starts (including normal activation) and one
 pre-migration abort start may be authorized. Admission — the first durable
 journal publication — requires the grant to still cover the mandatory
@@ -75,9 +77,13 @@ permission, helper and immutable-byte comparison contracts. Recovery rechecks
 all payload contents, markers, retained archive hash, full catalog, and installed
 helper/modules/lock library/unit against the approved TARGET payload.
 
-Admission first fsyncs a root-private initialization record bound to the sealed
-grant, then publishes the active owner and checkpoint zero as the same verified
-initial record. A matching interrupted initialization may finish only after
+Admission samples trusted time immediately before the root-private initialization
+record, fsyncs that record and its directory, then samples again. Both samples
+must prove the original remaining admission window. A root-private, canonical
+`admission-proofs/<UUID>.json` binds the grant digest, exact initialization hash
+and post-fsync time. It is file/directory-fsynced before active owner publication
+or business effects. The owner and checkpoint zero still use the exact original
+initial record; the checkpoint chain never admits proof-sidecar files. A matching interrupted initialization may finish only after
 fresh OLD EXACT DB, artifact, identity and ordinary-service checks. It cannot
 repair a missing marker, another owner, a corrupt or progressed journal, a used
 start budget or any backup/migration side effect. The initialization marker and
@@ -281,3 +287,56 @@ BACKED_UP attempt uses its original deployment path. Missing/foreign barriers,
 failed/transitional service states, untrusted policy or incompatible DB histories
 never receive a stopped-service exception. The fresh SQL baseline is still
 captured only after this reconciliation, before MIGRATION_INTENT and migration.
+
+
+## TT-A format and infrastructure boundary (Issue #369 A2)
+
+OPS-TT-001 assigns continuous UTC synchronization to chrony, with UME and the
+independent Cloudflare NTS source. The application only reads bounded health and
+Linux BOOTTIME evidence. There is no application clock daemon, periodic database
+clock writer, caller time override or Date.now-only admission fallback.
+
+Unconsumed grants require the same actual boot and time namespace as issuance.
+Process restart preserves elapsed age; reboot refuses unconsumed authority even
+if the wall clock looks valid. UTC consistency is a veto, never extra lifetime.
+The 24-hour maximum TTL, 3,600-second admission window, 1,800-second observation
+and all scopes/start/backup/migration/rollback budgets remain unchanged.
+
+Initialization and journals use format 2, preserving the original admission
+evidence and each checkpoint's time evidence. A valid confirmation proves the
+first durable consumption occurred in the original window. Historical replay
+checks those persisted samples; it never passes an old wall timestamp as a
+trusted current clock. A corrected UTC label cannot renew or revoke proven
+consumption: only the same authorized phases and budgets survive, with fresh
+infrastructure evidence for new mutations. Observation separately requires
+uninterrupted boot/UTC/elapsed consistency and restarts its full interval after
+an anomaly. Backup writer/reader semantics are not changed by TT-A; A3 remains open.
+
+An unconfirmed marker burns reuse but does not establish consumed authority. A
+fresh same-boot, zero-progress retry may complete confirmation only while the
+original window still holds and existing OLD EXACT/payload/service checks pass.
+Expired, rebooted, torn or foreign proof states stay denied. V1 grants/journals
+are preserved, never promoted. An active legacy attempt requires separate review;
+there is no automatic schema conversion, approval renewal or budget reset.
+
+Proof directories are root:root 0700; files are root:root 0600, canonical, regular,
+non-symlink single-link records. Publication file-fsyncs an exclusive private
+`.admission-<UUID>.tmp`, links the final name, fsyncs the directory, then unlinks
+the temp and fsyncs again. Exactly one same-inode final/temp pair is recognized
+read-only and may be finalized after validation. An unlinked temp, foreign
+artifact, wrong owner/mode/link count or malformed record is denied, not repaired.
+A directory-fsync failure cannot publish the active owner. A retry of an already
+complete proof re-fsyncs it without changing its timestamp or authority.
+
+Administrator issuance uses the reviewed module's `issueRootApproval(fields,
+ttlMs)` on the target host. It captures actual evidence and exclusively seals
+the record; caller-provided format/issue/expiry/time-evidence fields are refused.
+The administrator independently verifies all identity/artifact/catalog/CI inputs
+and profile digest first. This API is absent from the deploy CLI and must never
+be granted to the deploy identity through sudo to Node, a shell or an issuer.
+
+TT-A changes privileged helper/profile bytes and requires a separately approved
+bootstrap before production use. Production NO-GO, A3, BR5 enablement, restore
+acceptance and deployment authorization remain separate. Root tests on the new
+`lima-servora-tt-a-amd64-20261026` fixture are a bounded authority/filesystem/reboot
+acceptance, not full database/artifact/smoke/observation R4 release acceptance.

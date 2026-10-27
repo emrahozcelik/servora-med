@@ -99,7 +99,7 @@ r4_controller() {
   directory=/usr/local/libexec/servora-med
   [[ -d "$directory" && ! -L "$directory" && "$(stat -c %u "$directory")" == 0 \
     && $((8#$(stat -c %a "$directory") & 8#022)) -eq 0 ]] || fail RECOVERY_TOOL_UNTRUSTED
-  for file in deployment-controller.mjs deployment-attempt.mjs deployment-db-guard.mjs migration-reconciliation.mjs; do
+  for file in deployment-controller.mjs deployment-attempt.mjs deployment-db-guard.mjs migration-reconciliation.mjs trusted-time.mjs; do
     [[ -f "$directory/$file" && ! -L "$directory/$file" \
       && "$(stat -c '%U:%G:%a:%h' "$directory/$file")" == root:root:644:1 ]] || fail RECOVERY_TOOL_UNTRUSTED
   done
@@ -521,6 +521,9 @@ validate_release_tree() {
     "$root/ops/systemd/servora-med-backup-manual.service"; do
     assert_release_file "$required" || fail RELEASE_TREE_INVALID
   done
+  if [[ -n "$ATTEMPT_ID" ]]; then
+    assert_release_file "$root/ops/scripts/trusted-time.mjs" || fail RELEASE_TREE_INVALID
+  fi
   [[ -x "$root/ops/scripts/backup-postgres.sh" ]] || fail RELEASE_TREE_INVALID
   [[ -x "$root/ops/scripts/backup-observation.sh" ]] || fail RELEASE_TREE_INVALID
   validate_extracted_links "$root"

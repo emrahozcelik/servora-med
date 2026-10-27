@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import { loadAttempt, admitAttempt, checkpointAttempt, alignAttemptEnvironment, alignIdentityEnvironment,
   createAttemptBarrier, alignAttemptPointer, grantStartPermit, revokeStartPermit,
   verifyAttemptCatalog } from '../scripts/deployment-controller.mjs';
+import {sampleTrustedTime} from '../scripts/trusted-time.mjs';
 import { withSealedFixture } from './r4-root-fixture.mjs';
 import { readLatestCheckpoint } from '../scripts/deployment-attempt.mjs';
 import { spawnSync } from 'node:child_process';
@@ -197,15 +198,16 @@ test('a root-sealed grant for a different machine is refused before any journal 
   const original = existsSync(profileFile) ? readFileSync(profileFile) : null;
   const id = randomUUID();
   const hash = text => createHash('sha256').update(text).digest('hex');
-  const profile = { formatVersion: 1, machineId: '0'.repeat(32), fqdn: 'r4.synthetic.invalid',
+  const profile = { formatVersion: 2, machineId: '0'.repeat(32), fqdn: 'r4.synthetic.invalid',
     databaseIdentity: { clusterId:'1', databaseName:'servora_med_test_r4_host', databaseOid:'1', role:'servora_r4_app', host:'127.0.0.1', port:5432 },
-    envBaselineSha256:'0'.repeat(64), contracts:Object.fromEntries(['helperSha256','nodeSha256','unitSha256','attemptModuleSha256','dbGuardModuleSha256','reconciliationModuleSha256','controllerModuleSha256'].map(key => [key,'0'.repeat(64)])) };
+    envBaselineSha256:'0'.repeat(64), contracts:Object.fromEntries(['helperSha256','nodeSha256','unitSha256','attemptModuleSha256','dbGuardModuleSha256','reconciliationModuleSha256','controllerModuleSha256','timeModuleSha256','timeConfigSha256'].map(key => [key,'0'.repeat(64)])) };
   const profileText = JSON.stringify(profile) + '\n';
-  const now = Date.now();
-  const grant = { formatVersion:1, attemptId:id, releaseSha:'a'.repeat(40), treeSha:'b'.repeat(40), artifactSha256:'c'.repeat(64), ciManifestSha256:'d'.repeat(64),
+  const issuedTime=sampleTrustedTime();
+  const now=Date.parse(issuedTime.wallAtUTC);
+  const grant = { formatVersion:2, attemptId:id, releaseSha:'a'.repeat(40), treeSha:'b'.repeat(40), artifactSha256:'c'.repeat(64), ciManifestSha256:'d'.repeat(64),
     targetCatalog:[{version:'001_baseline',sha256:'e'.repeat(64)}], oldReleaseSha:'f'.repeat(40), oldArtifactSha256:'1'.repeat(64),
     oldCatalog:[{version:'001_baseline',sha256:'e'.repeat(64)}], profileSha256:hash(profileText),
-    issuedAtUTC:new Date(now-1000).toISOString(), expiresAtUTC:new Date(now+60000).toISOString(), maxStarts:2,maxAbortStarts:1,
+    issuedTime,issuedAtUTC:issuedTime.wallAtUTC, expiresAtUTC:new Date(now+60000).toISOString(), maxStarts:2,maxAbortStarts:1,
     allowMigration:true,allowForwardRecovery:true,allowPreMigrationAbort:true,allowPostdeployBackup:true };
   writeFileSync(profileFile,profileText,{mode:0o600});
   writeFileSync(`${root}/approvals/${id}.json`,JSON.stringify(grant)+'\n',{mode:0o600});

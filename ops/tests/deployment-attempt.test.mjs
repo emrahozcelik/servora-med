@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseCanonicalRecord, validateApproval, assertPreMigrationAbortCompatibility, advanceAttempt,
-  validateHostProfile, initialAttempt } from '../scripts/deployment-attempt.mjs';
+import { parseCanonicalRecord, validateApproval as validateTimedApproval, assertPreMigrationAbortCompatibility as timedAbortCompatibility, advanceAttempt as advanceTimedAttempt,
+  validateHostProfile, initialAttempt as initialTimedAttempt } from '../scripts/deployment-attempt.mjs';
+
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
+const validateApproval=(record,now)=>validateTimedApproval(record,timeEvidenceAt(now));
+const initialAttempt=(context,now)=>initialTimedAttempt(context,timeEvidenceAt(now));
+const advanceAttempt=(journal,context,event,now)=>advanceTimedAttempt(journal,context,event,timeEvidenceAt(now));
+const assertPreMigrationAbortCompatibility=(approval,versions,now)=>timedAbortCompatibility(approval,versions,timeEvidenceAt(now));
 
 const approval = () => ({
-  formatVersion: 1,
+  formatVersion: 2,
   attemptId: '11111111-1111-4111-8111-111111111111',
   releaseSha: 'a'.repeat(40),
   treeSha: 'b'.repeat(40),
@@ -16,6 +22,7 @@ const approval = () => ({
   oldArtifactSha256: '2'.repeat(64),
   oldCatalog: [{ version: '001_baseline', sha256: 'e'.repeat(64) }],
   profileSha256: '3'.repeat(64),
+  issuedTime: timeEvidenceAt(),
   issuedAtUTC: '2026-10-12T09:00:00.000Z',
   // Admission must still leave the full mandatory acceptance window (see the
   // window contract below); fixtures keep a 3-hour grant for that purpose.
@@ -119,7 +126,7 @@ test('an ambiguous start intent cannot allocate an unused recovery slot', () => 
   const record = approval();
   const context = { approval: record, approvalSha256: '4'.repeat(64) };
   const journal = {
-    formatVersion: 1, attemptId: record.attemptId, approvalSha256: context.approvalSha256,
+    formatVersion: 2, admissionTime:timeEvidenceAt(), timeEvidence:timeEvidenceAt(Date.parse('2026-10-12T09:20:00.000Z')), attemptId: record.attemptId, approvalSha256: context.approvalSha256,
     profileSha256: record.profileSha256, sequence: 5, previousHash: '5'.repeat(64),
     phase: 'START_INTENT', starts: 1, abortStarts: 0, migrationCommitted: true,
     lastStart: 'intent', predeployBackup: null, postdeployBackup: null,

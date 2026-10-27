@@ -110,6 +110,7 @@ function createDeployFixture() {
     ['ops/scripts/deploy-production-host.sh', 'ops/scripts/deploy-production-host.sh'],
     ['ops/scripts/migration-state.mjs', 'ops/scripts/migration-state.mjs'],
     ['ops/scripts/migration-reconciliation.mjs', 'ops/scripts/migration-reconciliation.mjs'],
+    ['ops/scripts/trusted-time.mjs', 'ops/scripts/trusted-time.mjs'],
     ['web/scripts/production-browser-smoke.mjs', 'web/scripts/production-browser-smoke.mjs'],
     ['.github/workflows/deploy-production.yml', '.github/workflows/deploy-production.yml'],
     ['docs/operations/production-deployment.md', 'docs/operations/production-deployment.md'],

@@ -904,3 +904,34 @@ installed modules/unit/lock library are prerequisites. Normal zero-migration
 releases preserve their existing contract when no recovery attempt is pending.
 `--forward-recovery` uses the already sealed candidate without another transfer
 or migration. This documentation does not authorize production bootstrap/deploy.
+
+
+## Issue #369 TT-A — proposed infrastructure/approval bootstrap boundary
+
+Production remains NO-GO. TT-A does not authorize installation, NTP configuration
+changes, grant issuance, service restart, migration or deployment on production.
+OPS-TT-001 and the R4 format-2 contract require separately reviewed administrator
+provisioning of `trusted-time.mjs` alongside the existing fixed modules and an
+updated profile binding its hash plus `/etc/chrony/chrony.conf`. Legacy profile,
+grant and journal format 1 is refused; active legacy state must be reviewed and
+preserved, never converted by rewriting timestamps.
+
+The isolated configuration example is `ops/chrony/servora-med.conf.example`.
+Chrony owns continuous synchronization; systemd-timesyncd must be inactive. UME
+is public unauthenticated NTP, cross-checked with independent Cloudflare NTS. Both
+sources must remain selectable (`*`, `+` or chrony's selectable-but-uncombined
+`-`), with exactly one selected source. Loss, disagreement, stale reference,
+excessive root distance/correction or unreadable local status denies new approval
+authority. NTS certificate checks are never disabled. Two disagreeing sources
+cannot identify the correct one: fail closed.
+
+The runtime makes only bounded local monitoring queries and fixed kernel reads;
+it never changes clock configuration or adds a periodic clock worker. Sync health
+is not elapsed-time proof, and reboot cannot validate an old unconsumed grant.
+A3 backup freshness remains unfixed by TT-A and is still a production blocker.
+
+The deploy identity must not receive issuer/Node/shell/systemctl authority. The
+root administrator's `issueRootApproval(fields, ttlMs)` API takes independently
+reviewed identity/catalog/artifact/CI fields, captures actual target-host time and
+seals a new UUID exactly once. It accepts no supplied issue/expiry/boot clock.
+See `r4-forward-recovery.md` for publication confirmation and interruption rules.

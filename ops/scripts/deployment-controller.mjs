@@ -2,7 +2,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
-  OBSERVATION_SECONDS } from './deployment-attempt.mjs';
+  OBSERVATION_SECONDS, publishRootAdmissionConfirmation } from './deployment-attempt.mjs';
+import { elapsedTime, sampleTrustedTime } from './trusted-time.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
   symlinkSync, mkdirSync, readdirSync, readlinkSync, readSync, writeSync, linkSync } from 'node:fs';
@@ -72,7 +73,7 @@ function initializationRecord(context) {
   }
   const record = readProtectedRecord(marker,links).record;
   advanceAttempt(record,context,'VALIDATE');
-  if (JSON.stringify(record) !== JSON.stringify(initialAttempt(context,Date.parse(record.updatedAtUTC)))) {
+  if (JSON.stringify(record) !== JSON.stringify(initialAttempt(context,record.admissionTime))) {
     throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
   }
   if (existsSync(STATE_ROOT+'/active.json')) {
@@ -89,6 +90,7 @@ function finishInitialization(context) {
   // No backup, migration, budget, barrier, or later checkpoint can exist in
   // this initialization protocol. Never use it to repair a progressed chain.
   const id = context.approval.attemptId;
+  publishRootAdmissionConfirmation(context,pending.record);
   if (existsSync(STATE_ROOT+'/backups/'+id+'-pre.dump') || existsSync(STATE_ROOT+'/backups/'+id+'-post.dump')
     || existsSync(STATE_ROOT+'/logs/'+id)) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
   if (!existsSync(STATE_ROOT+'/active.json')) {
@@ -338,7 +340,7 @@ export function verifyAttemptRelease(attemptId, direction) {
     if (direction === 'target' && digest(trustedFile(root+'/ops/scripts/deploy-production-host.sh',0o750,null))
       !== digest(trustedFile(INSTALLED+'/deploy-production-host',0o755))) throw new Error('RECOVERY_RELEASE_UNPROVEN');
     if (direction === 'target') {
-      for (const name of ['deployment-attempt.mjs','deployment-controller.mjs','deployment-db-guard.mjs','migration-reconciliation.mjs']) {
+      for (const name of ['deployment-attempt.mjs','deployment-controller.mjs','deployment-db-guard.mjs','migration-reconciliation.mjs','trusted-time.mjs']) {
         if (digest(trustedFile(root+'/ops/scripts/'+name,0o650,null)) !== digest(trustedFile(INSTALLED+'/'+name,0o644))) {
           throw new Error('RECOVERY_RELEASE_UNPROVEN');
         }
@@ -400,6 +402,8 @@ function verifyHostProfile(profile, context) {
     dbGuardModuleSha256: [`${INSTALLED}/deployment-db-guard.mjs`, 0o644],
     reconciliationModuleSha256: [`${INSTALLED}/migration-reconciliation.mjs`, 0o644],
     controllerModuleSha256: [`${INSTALLED}/deployment-controller.mjs`, 0o644],
+    timeModuleSha256: [`${INSTALLED}/trusted-time.mjs`, 0o644],
+    timeConfigSha256: ['/etc/chrony/chrony.conf', 0o644],
   };
   for (const [key, [path, mode]] of Object.entries(files)) {
     if (digest(trustedFile(path, mode)) !== profile.contracts[key]) throw new Error('RECOVERY_HOST_CONTRACT_MISMATCH');
@@ -1183,7 +1187,8 @@ export async function observeAttempt(attemptId) {
     if (context.checkpoint.record.phase !== 'ACCEPTED') assertBarrier(context);
     let phase = context.checkpoint.record.phase;
     if (phase === 'POSTDEPLOY_BACKUP_PASSED') {
-      const startUTC = new Date().toISOString();
+      const startEvidence = sampleTrustedTime();
+      const startUTC = startEvidence.wallAtUTC;
       const start = process.hrtime.bigint();
       const boot = readFileSync('/proc/sys/kernel/random/boot_id','utf8');
       let samples = 0, pid, interrupted = false;
@@ -1203,7 +1208,12 @@ export async function observeAttempt(attemptId) {
           if ((pid && pid !== currentPid) || readFileSync('/proc/sys/kernel/random/boot_id','utf8') !== boot
             || systemctl('show','servora-med.service','-p','Restart','--value') !== 'no') throw new Error('RECOVERY_OBSERVATION_UNSTABLE');
           pid = currentPid; samples++;
-          const elapsedSeconds = Number((process.hrtime.bigint()-start)/1000000000n);
+          const interval = elapsedTime(startEvidence,sampleTrustedTime());
+          const hrMs = Number(process.hrtime.bigint()-start)/1000000;
+          if (interval.status !== 'KNOWN' || hrMs+1 < interval.lowerMs || hrMs-1 > interval.upperMs) {
+            throw new Error('RECOVERY_OBSERVATION_UNSTABLE');
+          }
+          const elapsedSeconds = Math.floor(Math.min(hrMs,interval.lowerMs)/1000);
           emit(`OBSERVATION_SAMPLE=${samples} UTC=${new Date().toISOString()} elapsed_seconds=${elapsedSeconds} health=PASS release=PASS backup=PASS pid=${pid}`);
           if (elapsedSeconds >= OBSERVATION_SECONDS) {
             phase = checkpointAttempt(attemptId,{kind:'OBSERVATION_PASSED',elapsedSeconds}).record.phase;

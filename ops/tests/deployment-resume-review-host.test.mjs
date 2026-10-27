@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {hostname} from 'node:os';
 import {withRuntimeFixture,prepareRealBackup,readDatabaseInvariants} from './r4-runtime-fixture.mjs';
 import {admitAttempt,checkpointAttempt,createAttemptBarrier,alignIdentityEnvironment,revokeStartPermit,runTargetSchemaCheck,sealBackupReceipt,loadAttempt,recordFreshMigrationIntent,abortAttempt} from '../scripts/deployment-controller.mjs';
-import {readLatestCheckpoint,readRootApproval,initialAttempt} from '../scripts/deployment-attempt.mjs';
+import {readLatestCheckpoint,readRootApproval} from '../scripts/deployment-attempt.mjs';
 
 assert.equal(process.getuid(),0);
 assert.equal(hostname(),'lima-servora-r4-20261012');
@@ -21,7 +21,7 @@ function snapshot(id,label) {
   const read=path=>existsSync(path)?JSON.parse(readFileSync(path)):null;
   const journalDirectory=state+'/attempts/'+id;
   const journal=existsSync(journalDirectory)?readdirSync(journalDirectory).sort().map(name=>({name,sha256:createHash('sha256').update(readFileSync(journalDirectory+'/'+name)).digest('hex'),record:read(journalDirectory+'/'+name)})):[];
-  const data=JSON.stringify({label,attemptId:id,owner:read(state+'/active.json'),initialization:read(state+'/initializations/'+id+'.json'),journal})+'\n';
+  const data=JSON.stringify({label,attemptId:id,owner:read(state+'/active.json'),initialization:read(state+'/initializations/'+id+'.json'),admissionProof:read(state+'/admission-proofs/'+id+'.json'),journal})+'\n';
   writeFileSync(directory+'/'+id+'-'+label+'.json',data,{mode:0o600,flag:'wx'});
   console.log('JOURNAL_OWNER_SNAPSHOT='+label+' sha256='+createHash('sha256').update(data).digest('hex'));
 }
@@ -119,32 +119,28 @@ kill -STOP "$BASHPID"
   } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
 },true));
 
-test('a timely sealed marker consumes authority before checkpoint zero and rejects late or foreign markers',async()=>withOldHost(async grant=>{
-  const now=Date.now(),admittedAt=now-7200000;
-  grant.issuedAtUTC=new Date(admittedAt-1000).toISOString();grant.expiresAtUTC=new Date(now-1000).toISOString();
-  const approvalText=JSON.stringify(grant)+'\n',approvalSha256=createHash('sha256').update(approvalText).digest('hex');
-  writeFileSync(state+'/approvals/'+grant.attemptId+'.json',approvalText);
+test('v2 marker-only recovery cannot derive authority from an edited UTC timestamp',async()=>withOldHost(async grant=>{
   const marker=state+'/initializations/'+grant.attemptId+'.json';
-  const first=initialAttempt({approval:grant,approvalSha256},admittedAt);
   const child=spawn('/usr/bin/node',['--import',preload,controller,'admit',grant.attemptId],{
-    env:{...process.env,SERVORA_R4_FAULT_POINT:'initialization-fsync',SERVORA_R4_ADMISSION_CLOCK:String(admittedAt)},stdio:['ignore','pipe','pipe']});
+    env:{...process.env,SERVORA_R4_FAULT_POINT:'initialization-fsync'},stdio:['ignore','pipe','pipe']});
   let output='',errors='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>errors+=c);
   const closed=new Promise(resolve=>child.once('close',resolve));
   try {
     for(let i=0;i<200&&!output.includes('FAULT_READY=initialization-fsync');i++)await delay(50);
     assert.ok(output.includes('FAULT_READY=initialization-fsync'),errors);child.kill('SIGKILL');await closed;
-    assert.deepEqual(JSON.parse(readFileSync(marker)),first);
-
-    assert.equal(existsSync(state+'/attempts/'+grant.attemptId+'/0000.json'),false);
-    assert.doesNotThrow(()=>readRootApproval(grant.attemptId,now),'the exact timely marker must count as consumed authority');
-    writeFileSync(marker,JSON.stringify({...first,updatedAtUTC:new Date(now).toISOString()})+'\n');
-    assert.throws(()=>readRootApproval(grant.attemptId,now),/ATTEMPT_APPROVAL_TIME_INVALID|ATTEMPT_APPROVAL_WINDOW_INSUFFICIENT|RECOVERY_INITIALIZATION_CONFLICT/);
+    const first=JSON.parse(readFileSync(marker));
+    assert.equal(first.formatVersion,2);
+    assert.equal(existsSync(state+'/admission-proofs/'+grant.attemptId+'.json'),false);
+    assert.equal(readRootApproval(grant.attemptId).initializationPending,true,'missing confirmation is pending, not historical consumed authority');
+    writeFileSync(marker,JSON.stringify({...first,updatedAtUTC:new Date(0).toISOString()})+'\n');
+    assert.throws(()=>readRootApproval(grant.attemptId),/RECOVERY_INITIALIZATION_CONFLICT/);
     writeFileSync(marker,JSON.stringify({...first,approvalSha256:'4'.repeat(64)})+'\n');
-    assert.throws(()=>readRootApproval(grant.attemptId,now),/RECOVERY_INITIALIZATION_CONFLICT|ATTEMPT_JOURNAL_INVALID/);
+    assert.throws(()=>readRootApproval(grant.attemptId),/RECOVERY_INITIALIZATION_CONFLICT/);
     writeFileSync(marker,JSON.stringify(first)+'\n');
     const retry=run('/usr/bin/node',[controller,'admit',grant.attemptId]);assert.equal(retry.status,0,retry.stderr);
     assert.equal(existsSync(marker),false);assert.equal(readLatestCheckpoint(grant.attemptId).record.phase,'ADMITTED');
-    console.log('TIMELY_MARKER_CONSUMED_AUTHORITY=PASS expiration_clock_fixture=PAST late_marker=DENIED foreign_hash=DENIED');
+    assert.equal(existsSync(state+'/admission-proofs/'+grant.attemptId+'.json'),true);
+    console.log('V2_MARKER_CONFIRMATION=PASS edited_utc=DENIED foreign_hash=DENIED fresh_same_boot_confirmation=PASS');
   } finally {if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');if(existsSync(marker))unlinkSync(marker);}
 }));
 

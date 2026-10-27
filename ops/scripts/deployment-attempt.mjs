@@ -4,6 +4,7 @@ import { constants, lstatSync, openSync, fstatSync, readFileSync, closeSync,
   mkdirSync, writeFileSync, fsyncSync, linkSync, unlinkSync, readdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
+import { elapsedTime, sampleTrustedTime, validateTimeEvidence } from './trusted-time.mjs';
 
 const ATTEMPT_ROOT = '/var/lib/servora-med/deploy';
 const ATTEMPT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -18,11 +19,12 @@ export const REQUIRED_ADMISSION_WINDOW_SECONDS = OBSERVATION_SECONDS + TRANSITIO
 
 const PROFILE_KEYS = ['formatVersion', 'machineId', 'fqdn', 'databaseIdentity', 'envBaselineSha256', 'contracts'];
 const CONTRACT_KEYS = ['helperSha256', 'nodeSha256', 'unitSha256', 'attemptModuleSha256',
-  'dbGuardModuleSha256', 'reconciliationModuleSha256', 'controllerModuleSha256'];
+  'dbGuardModuleSha256', 'reconciliationModuleSha256', 'controllerModuleSha256',
+  'timeModuleSha256', 'timeConfigSha256'];
 
 export function validateHostProfile(record) {
   if (!record || Object.keys(record).length !== PROFILE_KEYS.length
-    || PROFILE_KEYS.some(key => !Object.hasOwn(record,key)) || record.formatVersion !== 1
+    || PROFILE_KEYS.some(key => !Object.hasOwn(record,key)) || record.formatVersion !== 2
     || typeof record.machineId !== 'string' || !/^[0-9a-f]{32}$/.test(record.machineId)
     || typeof record.fqdn !== 'string' || record.fqdn.length > 253
     || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(record.fqdn)
@@ -41,6 +43,27 @@ export function readRootProfile(approval) {
   const profile = validateHostProfile(record);
   if (sha256 !== approval.profileSha256) throw new Error('RECOVERY_HOST_PROFILE_MISMATCH');
   return profile;
+}
+
+/** Administrator-only issuance API; intentionally absent from the deploy CLI. */
+export function issueRootApproval(fields, ttlMs) {
+  if (process.getuid?.() !== 0 || !fields || ['formatVersion','issuedAtUTC','expiresAtUTC','issuedTime']
+    .some(key => Object.hasOwn(fields,key)) || !Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 86400000) {
+    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
+  }
+  const issuedTime = sampleTrustedTime();
+  const record = {...fields,formatVersion:2,issuedAtUTC:issuedTime.wallAtUTC,
+    expiresAtUTC:new Date(Date.parse(issuedTime.wallAtUTC)+ttlMs).toISOString(),issuedTime};
+  validateApprovalStructure(record); readRootProfile(record);
+  const directory = ATTEMPT_ROOT+'/approvals';
+  const info = lstatSync(directory);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+    || (info.mode & 0o7777) !== 0o700) throw new Error('ATTEMPT_FILE_UNTRUSTED');
+  const file = directory+'/'+record.attemptId+'.json';
+  const fd = openSync(file,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  try { writeFileSync(fd,JSON.stringify(record)+'\n'); fsyncSync(fd); } finally { closeSync(fd); }
+  flushDirectory(directory);
+  return readProtectedRecord(file);
 }
 
 export function readProtectedRecord(file, expectedLinks = 1) {
@@ -202,11 +225,14 @@ export function readRootCheckpoint(attemptId, sequence) {
   return checkpoint;
 }
 
-export function readRootApproval(attemptId, now = Date.now()) {
+export function readRootApproval(attemptId) {
   if (typeof attemptId !== 'string' || !ATTEMPT_ID.test(attemptId)) {
     throw new Error('ATTEMPT_ID_INVALID');
   }
   const { record, sha256 } = readProtectedRecord(`${ATTEMPT_ROOT}/approvals/${attemptId}.json`);
+  validateApprovalStructure(record);
+  if (record.attemptId !== attemptId) throw new Error('ATTEMPT_APPROVAL_IDENTITY_INVALID');
+  const context = {approval:record,approvalSha256:sha256};
   // Consumption begins at the sealed initial record, before owner/checkpoint
   // publication. Existence alone is never authority: validate its exact bytes,
   // grant digest, original admission window and the only permitted inode pair.
@@ -222,9 +248,7 @@ export function readRootApproval(attemptId, now = Date.now()) {
       links = 2;
     }
     const initial = readProtectedRecord(markerInfo ? marker : first, links).record;
-    const admittedAt = Date.parse(initial.updatedAtUTC);
-    if (!Number.isFinite(now) || admittedAt > now
-      || JSON.stringify(initial) !== JSON.stringify(initialAttempt({approval:record,approvalSha256:sha256},admittedAt))) {
+    if (JSON.stringify(initial) !== JSON.stringify(initialAttempt(context,initial.admissionTime))) {
       throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
     }
     if (markerInfo) {
@@ -236,11 +260,20 @@ export function readRootApproval(attemptId, now = Date.now()) {
         }
       }
     }
+    const confirmation = readRootAdmissionConfirmation(context,initial);
+    if (!confirmation) {
+      // A reservation without confirmation cannot become historical authority.
+      // Only a same-boot, zero-progress marker may finish within the ORIGINAL window.
+      if (!markerInfo || firstInfo || stat(`${ATTEMPT_ROOT}/active.json`)) throw new Error('RECOVERY_ADMISSION_CONFIRMATION_MISSING');
+      initialAttempt(context,sampleTrustedTime());
+      return {...context,admissionTime:initial.admissionTime,initializationPending:true};
+    }
     admitted = true;
+    context.admissionTime = initial.admissionTime;
   }
-  const approval = admitted ? consumedApproval(record, now) : validateApproval(record, now);
-  if (approval.attemptId !== attemptId) throw new Error('ATTEMPT_APPROVAL_IDENTITY_INVALID');
-  return { approval, approvalSha256: sha256 };
+  if (!admitted && readRootAdmissionConfirmation(context,null)) throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
+  const approval = admitted ? consumedApproval(record) : validateApproval(record);
+  return { ...context, approval };
 }
 
 export function parseCanonicalRecord(text) {
@@ -262,6 +295,7 @@ const APPROVAL_KEYS = Object.freeze([
   'oldCatalog', 'profileSha256', 'issuedAtUTC', 'expiresAtUTC', 'maxStarts',
   'maxAbortStarts', 'allowMigration', 'allowForwardRecovery',
   'allowPreMigrationAbort', 'allowPostdeployBackup',
+  'issuedTime',
 ]);
 
 export function validateApprovalStructure(record) {
@@ -280,7 +314,7 @@ export function validateApprovalStructure(record) {
     || expires <= issued || expires - issued > 24 * 60 * 60 * 1000) {
     throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
-  if (record.formatVersion !== 1
+  if (record.formatVersion !== 2
     || typeof record.attemptId !== 'string'
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(record.attemptId)
     || ['releaseSha', 'oldReleaseSha', 'treeSha'].some((key) =>
@@ -313,14 +347,19 @@ export function validateApprovalStructure(record) {
       .some((key) => typeof record[key] !== 'boolean')) {
     throw new Error('ATTEMPT_APPROVAL_SCOPE_INVALID');
   }
+  validateTimeEvidence(record.issuedTime);
+  if (record.issuedTime.wallAtUTC !== record.issuedAtUTC) throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   return record;
 }
 
-export function validateApproval(record, now = Date.now()) {
+export function validateApproval(record, current = sampleTrustedTime()) {
   validateApprovalStructure(record);
+  const age = elapsedTime(record.issuedTime,current);
+  if (age.status !== 'KNOWN') throw new Error('TRUSTED_TIME_UNKNOWN');
+  const now = Date.parse(current.wallAtUTC);
   const issued = Date.parse(record.issuedAtUTC);
   const expires = Date.parse(record.expiresAtUTC);
-  if (!Number.isFinite(now) || issued > now || expires <= now) {
+  if (issued > now || expires <= now || age.upperMs >= expires-issued) {
     throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
   return record;
@@ -332,20 +371,17 @@ export function validateApproval(record, now = Date.now()) {
  * driven to a terminal state although the wall-clock expiry has passed.
  * Structure, scopes, budgets and issuance-vs-reference ordering stay enforced.
  */
-function consumedApproval(record, referenceUTC) {
+function consumedApproval(record) {
   validateApprovalStructure(record);
-  const reference = typeof referenceUTC === 'string' ? Date.parse(referenceUTC) : referenceUTC;
-  if (!Number.isFinite(reference) || Date.parse(record.issuedAtUTC) > reference) {
-    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
-  }
   return record;
 }
 
 /** Catalog admission only; the host still must prove the same DB identity,
  * migration lock, immutable OLD release and attempt before changing a barrier.
  */
-export function assertPreMigrationAbortCompatibility(approval, appliedVersions, now = Date.now()) {
-  consumedApproval(approval, now);
+export function assertPreMigrationAbortCompatibility(approval, appliedVersions, current = sampleTrustedTime()) {
+  consumedApproval(approval);
+  validateTimeEvidence(current);
   if (!approval.allowPreMigrationAbort || approval.maxAbortStarts === 0) {
     throw new Error('PRE_MIGRATION_ABORT_NOT_AUTHORIZED');
   }
@@ -359,6 +395,7 @@ const JOURNAL_KEYS = Object.freeze([
   'previousHash', 'phase', 'starts', 'abortStarts', 'migrationCommitted',
   'lastStart', 'predeployBackup', 'postdeployBackup', 'smokePassed',
   'observationPassed', 'invariantBaseline', 'schemaChecked', 'updatedAtUTC',
+  'admissionTime', 'timeEvidence',
 ]);
 const JOURNAL_PHASES = new Set(['ADMITTED','BACKED_UP','FENCED','MIGRATION_INTENT','DB_EXACT',
   'ENV_INTENT','ENV_ALIGNED','POINTER_INTENT','POINTER_ALIGNED','START_INTENT','START_FAILED',
@@ -386,29 +423,119 @@ function validInvariantBaseline(value) {
     && INVARIANT_KEYS.every(key => Number.isSafeInteger(value[key]) && value[key] >= 0);
 }
 
-export function initialAttempt(context, now = Date.now()) {
-  const approval = validateApproval(context.approval, now);
+export function initialAttempt(context, current = sampleTrustedTime()) {
+  const approval = validateApproval(context.approval, current);
+  const now = Date.parse(current.wallAtUTC);
+  const age = elapsedTime(approval.issuedTime,current);
   // Before the first durable mutation, the grant must still cover the full
   // mandatory acceptance interval plus the transition-phase budget. This is
   // the one point where the wall-clock window is proven; admission consumes it.
-  if (Date.parse(approval.expiresAtUTC) - now < REQUIRED_ADMISSION_WINDOW_SECONDS * 1000) {
+  if (Date.parse(approval.expiresAtUTC) - now < REQUIRED_ADMISSION_WINDOW_SECONDS * 1000
+    || Date.parse(approval.expiresAtUTC)-Date.parse(approval.issuedAtUTC)-age.upperMs < REQUIRED_ADMISSION_WINDOW_SECONDS*1000) {
     throw new Error('ATTEMPT_APPROVAL_WINDOW_INSUFFICIENT');
   }
   if (typeof context.approvalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(context.approvalSha256)) {
     throw new Error('ATTEMPT_JOURNAL_INVALID');
   }
-  return { formatVersion: 1, attemptId: approval.attemptId,
+  return { formatVersion: 2, attemptId: approval.attemptId,
     approvalSha256: context.approvalSha256, profileSha256: approval.profileSha256,
     sequence: 0, previousHash: null, phase: 'ADMITTED', starts: 0, abortStarts: 0,
     migrationCommitted: false, lastStart: 'none', predeployBackup: null,
     postdeployBackup: null, smokePassed: false, observationPassed: false,
-    invariantBaseline: null, schemaChecked: false, updatedAtUTC: new Date(now).toISOString() };
+    invariantBaseline: null, schemaChecked: false, updatedAtUTC: current.wallAtUTC,
+    admissionTime: current, timeEvidence: current };
+}
+
+const CONFIRMATION_KEYS = ['formatVersion','attemptId','approvalSha256','initialSha256','postFsyncTime'];
+
+export function validateAdmissionConfirmation(context, initial, proof) {
+  if (!proof || Object.keys(proof).length !== CONFIRMATION_KEYS.length
+    || CONFIRMATION_KEYS.some(key => !Object.hasOwn(proof,key)) || proof.formatVersion !== 2
+    || proof.attemptId !== context.approval.attemptId || proof.approvalSha256 !== context.approvalSha256
+    || proof.initialSha256 !== createHash('sha256').update(JSON.stringify(initial)+'\n').digest('hex')
+    || JSON.stringify(initial) !== JSON.stringify(initialAttempt(context,initial?.admissionTime))) {
+    throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
+  }
+  // A post-fsync sample still inside the original window proves the first
+  // publication was timely. Persisted evidence is historical, not a new lease.
+  initialAttempt(context,proof.postFsyncTime);
+  if (elapsedTime(initial.admissionTime,proof.postFsyncTime).status !== 'KNOWN') {
+    throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
+  }
+  return proof;
+}
+
+export function admissionConfirmation(context, initial, postFsyncTime = sampleTrustedTime()) {
+  return validateAdmissionConfirmation(context,initial,{formatVersion:2,attemptId:context.approval.attemptId,
+    approvalSha256:context.approvalSha256,initialSha256:createHash('sha256').update(JSON.stringify(initial)+'\n').digest('hex'),postFsyncTime});
+}
+
+const PROOF_ROOT = ATTEMPT_ROOT+'/admission-proofs';
+const PROOF_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.json$/;
+
+function proofFiles(attemptId) {
+  if (process.getuid?.() !== 0 || !ATTEMPT_ID.test(attemptId)) throw new Error('ATTEMPT_FILE_UNTRUSTED');
+  let info;
+  try { info = lstatSync(PROOF_ROOT); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+    || (info.mode & 0o7777) !== 0o700) throw new Error('ATTEMPT_FILE_UNTRUSTED');
+  const final = PROOF_ROOT+'/'+attemptId+'.json', temporary = PROOF_ROOT+'/.admission-'+attemptId+'.tmp';
+  let pair = false;
+  for (const name of readdirSync(PROOF_ROOT)) {
+    if (PROOF_NAME.test(name)) continue;
+    if (PROOF_ROOT+'/'+name !== temporary) throw new Error('RECOVERY_ADMISSION_CONFIRMATION_FOREIGN');
+    const temp = lstatSync(temporary);
+    let published;
+    try { published = lstatSync(final); } catch { throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INCOMPLETE'); }
+    if (temp.dev !== published.dev || temp.ino !== published.ino) throw new Error('RECOVERY_ADMISSION_CONFIRMATION_FOREIGN');
+    pair = true;
+  }
+  return {final,temporary,links:pair?2:1};
+}
+
+/** Read-only: paired publication residue is recognized but never removed here. */
+export function readRootAdmissionConfirmation(context, initial) {
+  const paths = proofFiles(context.approval.attemptId);
+  if (!paths) return null;
+  let proof;
+  try { proof = readProtectedRecord(paths.final,paths.links).record; }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  if (!initial) throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
+  return validateAdmissionConfirmation(context,initial,proof);
+}
+
+/** Caller holds the host lock and has proved fresh OLD EXACT/zero-progress state. */
+export function publishRootAdmissionConfirmation(context, initial) {
+  const existing = readRootAdmissionConfirmation(context,initial);
+  if (!existing) {
+    if (!proofFiles(context.approval.attemptId)) {
+      mkdirSync(PROOF_ROOT,{mode:0o700}); flushDirectory(ATTEMPT_ROOT);
+    }
+    // On a retry, re-flush the exact reserved marker before taking the post sample.
+    const marker = ATTEMPT_ROOT+'/initializations/'+context.approval.attemptId+'.json';
+    if (JSON.stringify(readProtectedRecord(marker).record) !== JSON.stringify(initial)) throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+    const markerFd = openSync(marker,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try { fsyncSync(markerFd); } finally { closeSync(markerFd); }
+    flushDirectory(ATTEMPT_ROOT+'/initializations');
+    const proof = admissionConfirmation(context,initial);
+    const paths = proofFiles(context.approval.attemptId);
+    const fd = openSync(paths.temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+    try { writeFileSync(fd,JSON.stringify(proof)+'\n'); fsyncSync(fd); } finally { closeSync(fd); }
+    linkSync(paths.temporary,paths.final);
+    flushDirectory(PROOF_ROOT);
+  }
+  const paths = proofFiles(context.approval.attemptId);
+  // Both fresh and interrupted publication are durable before owner/side effects.
+  readRootAdmissionConfirmation(context,initial);
+  flushDirectory(PROOF_ROOT);
+  if (paths.links === 2) { unlinkSync(paths.temporary); flushDirectory(PROOF_ROOT); }
+  return readRootAdmissionConfirmation(context,initial);
 }
 
 /** Only completed acceptance or a successful never-migrated abort may give
  * ownership back. A phase label alone is not proof of downstream gates.
  */
-export function acceptedHandoffDirection(journal, context, now = Date.now()) {
+export function acceptedHandoffDirection(journal, context, now = sampleTrustedTime()) {
   advanceAttempt(journal,context,'VALIDATE',now);
   if (journal.phase === 'ACCEPTED' && context.approval.allowForwardRecovery
     && context.approval.allowPostdeployBackup && journal.migrationCommitted
@@ -424,12 +551,14 @@ export function acceptedHandoffDirection(journal, context, now = Date.now()) {
 /** Reserve a start before invoking systemd. Persist the returned checkpoint
  * with file+directory fsync before executing any start operation.
  */
-export function advanceAttempt(journal, context, event, now = Date.now()) {
+export function advanceAttempt(journal, context, event, current = sampleTrustedTime()) {
   const approval = validateApprovalStructure(context.approval);
+  validateTimeEvidence(current);
+  const now = Date.parse(current.wallAtUTC);
   if (journal === null || typeof journal !== 'object' || Array.isArray(journal)
     || Object.keys(journal).length !== JOURNAL_KEYS.length
     || JOURNAL_KEYS.some((key) => !Object.hasOwn(journal, key))
-    || journal.formatVersion !== 1 || journal.attemptId !== approval.attemptId
+    || journal.formatVersion !== 2 || journal.attemptId !== approval.attemptId
     || typeof context.approvalSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(context.approvalSha256)
     || journal.approvalSha256 !== context.approvalSha256
     || journal.profileSha256 !== approval.profileSha256
@@ -445,18 +574,31 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
     || typeof journal.schemaChecked !== 'boolean'
     || typeof journal.observationPassed !== 'boolean'
     || !['none', 'intent', 'pass', 'fail'].includes(journal.lastStart)
-    || !validUTC(journal.updatedAtUTC,now)) {
+    || !validUTC(journal.updatedAtUTC,Infinity)) {
     throw new Error('ATTEMPT_JOURNAL_INVALID');
   }
   // The grant was consumed at admission: wall-clock expiry no longer blocks
   // the already-authorized transition, but a grant issued after the durable
   // journal timeline was never the one consumed here.
-  if (Date.parse(approval.issuedAtUTC) > Date.parse(journal.updatedAtUTC)) {
-    throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
+  // Historical admission is checked against the original issue anchor, never
+  // reconstructed by passing an old wall timestamp as the current clock.
+  initialAttempt(context,journal.admissionTime);
+  validateTimeEvidence(journal.timeEvidence);
+  if (journal.updatedAtUTC !== journal.timeEvidence.wallAtUTC
+    || (context.admissionTime && JSON.stringify(context.admissionTime) !== JSON.stringify(journal.admissionTime))
+    || (journal.timeEvidence.bootId === current.bootId
+      && (journal.timeEvidence.timeNamespaceId !== current.timeNamespaceId
+        || current.bootLowerMs < journal.timeEvidence.bootLowerMs
+        || current.bootUpperMs < journal.timeEvidence.bootUpperMs))) {
+    throw new Error('TRUSTED_TIME_UNKNOWN');
   }
+  // No new lifetime is granted here. Historical consumption, phase and budgets
+  // authorize this command. Fresh infrastructure evidence is mandatory, but a
+  // corrected UTC label cannot retroactively change consumption. Continuous
+  // elapsed/UTC consistency is independently required by observation.
   if (event === 'VALIDATE') return journal;
   const kind = typeof event === 'string' ? event : event?.kind;
-  const next = { ...journal, sequence: journal.sequence + 1, updatedAtUTC: new Date(now).toISOString() };
+  const next = { ...journal, sequence: journal.sequence + 1, updatedAtUTC: current.wallAtUTC, timeEvidence: current };
   if (kind === 'PREDEPLOY_BACKUP') {
     const receipt = event.receipt;
     if (journal.phase !== 'ADMITTED' || !validReceipt(receipt,now)) throw new Error('ATTEMPT_TRANSITION_INVALID');
@@ -487,7 +629,7 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   if (Object.hasOwn(transitions, kind)) {
     if (!transitions[kind].includes(journal.phase)) throw new Error('ATTEMPT_TRANSITION_INVALID');
     if (kind === 'POSTDEPLOY_BACKUP_INTENT' && !approval.allowPostdeployBackup) throw new Error('ATTEMPT_TRANSITION_INVALID');
-    if (kind === 'COMPLETED_ABORT') acceptedHandoffDirection(journal,context,now);
+    if (kind === 'COMPLETED_ABORT') acceptedHandoffDirection(journal,context,current);
     if (kind === 'DB_EXACT' && (!journal.predeployBackup || !journal.invariantBaseline)) throw new Error('ATTEMPT_TRANSITION_INVALID');
     if (kind === 'SMOKE_PASSED' && !journal.schemaChecked) throw new Error('ATTEMPT_TRANSITION_INVALID');
     return { ...next, phase: kind,
@@ -513,7 +655,7 @@ export function advanceAttempt(journal, context, event, now = Date.now()) {
   }
   if (kind === 'COMPLETED') {
     if (journal.phase !== 'ACCEPTED') throw new Error('ATTEMPT_TRANSITION_INVALID');
-    acceptedHandoffDirection(journal,context,now);
+    acceptedHandoffDirection(journal,context,current);
     return {...next,phase:kind};
   }
   if (kind === 'SCHEMA_CHECKED') {
