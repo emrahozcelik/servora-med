@@ -254,15 +254,25 @@ restore acceptance, or offsite R2/DR proof. Production bootstrap/preflight,
 exact-main Linux/amd64 artifact and migration/deployment approval remain separate.
 
 **Fixture retirement (owner authorization, 2026-10-27):** the named
-`lima-servora-r4-20261012` disposable host and its VM disk were removed
-during local resource cleanup. The named-guest prerequisite of existing
-`ops/tests/r4-*-host.sh` scripts therefore no longer exists; these
-host-gated tests cannot run until a new isolated fixture is explicitly
-provisioned/authorized. Earlier results remain historical only; deletion of
-raw evidence cannot be repaired from a manifest/hash list. This retirement
-does not permit deletion of any other protected guest, production resource,
-active recovery state, or future sealed host fixture. See the separate
-post-merge checklist in `local-ci-resource-recovery.md`.
+guest `servora-r4-20261012` (hostname `lima-servora-r4-20261012`) and its VM
+disk were removed during local cleanup. TT-A lab guests, including
+`servora-tt-a-amd64-20261026` and `servora-tt-a-r4closure-20261026`, were also
+retired. These are **historical fixture identities**, not available targets.
+Existing `ops/tests/r4-*-host.*` and `deployment-*-host.test.mjs` prerequisites
+include the root/runtime fixtures' exact hostname guards and reviewed sealed
+source/bootstrap state. A newly named Ubuntu guest alone cannot satisfy them;
+future execution requires an explicitly authorized isolated fixture with all
+reviewed prerequisites, or a separately approved fixture-contract update.
+Dependent host tests remain `NOT_RUN_HOST` until then; the ordinary 27-check
+CI contract is unchanged and does not substitute for real-host acceptance.
+
+The same cleanup deleted local CI/acceptance bundles. Retained cleanup reports,
+indices and hashes document earlier results but cannot replace deleted raw
+evidence or authorize deployment. Re-running tests creates new acceptance
+evidence. This retirement grants no authority to delete another protected
+guest, production resource, active recovery state or future sealed fixture.
+See [the recovery runbook](./local-ci-resource-recovery.md#6-prohibited-operations)
+for the historical record and its separate post-merge checklist.
 
 ## Review reconciliation: fence, consumption and shell state
 

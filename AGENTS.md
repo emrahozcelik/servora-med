@@ -302,28 +302,30 @@ Local-first CI (when GitHub-hosted runners are unavailable):
   juggle worktree state; use explicit patch files or commits instead.
   See [docs/operations/local-ci-resource-recovery.md](./docs/operations/local-ci-resource-recovery.md).
 
-* Post-merge resource retirement is a **separate, mandatory closure step**,
-  never part of an active CI run. After an authorized merge, first complete
-  resulting-main exact-SHA CI, cleanup/verifier, and the merge report.
-* Inventory the precise Colima Docker daemon and Lima instances, active
-  processes/CI locks, owned containers/networks/volumes, VM disks, and
-  downstream evidence requirements before any destructive operation.
+* Post-merge resource retirement is a **separate, mandatory closure review**
+  owned by the merge agent. Deletion requires successful resulting-main
+  exact-SHA CI and finalized cleanup/evidence verification. A skipped, failed,
+  or incomplete run never opens this gate. This is not CI-time cleanup or a
+  scheduled cleanup service.
+* Establish quiescence for the entire retirement window, including preventing
+  new CI/test/recovery starts. Inventory the precise Docker daemon, profiles,
+  guests, disks, volumes, host mounts, locks and downstream evidence consumers.
 * Retire only positively identified, quiescent, **disposable Servora-Med-only**
-  environments no longer needed by an authorized task. The dedicated
-  `colima true` CI profile may be stopped/deleted to reclaim its VM disk
-  after those gates; individually identified test-only Lima guests may be
-  retired on the same terms. Never use wildcard deletion, global Docker
-  prune, or infer ownership from a name alone. Unknown, shared, active, or
-  still-needed resources are **HOLD**, not delete.
+  environments no longer needed by an authorized task. VM/data-disk deletion
+  also destroys internal volumes and guest files; prove those disposable too.
+  The `colima true` CI profile and individually identified Lima test guests
+  may be retired only on these terms. Never use wildcard deletion, global
+  Docker prune, or infer ownership from a name alone. Unknown, shared, active,
+  intentionally retained, or still-needed resources are **HOLD**, not delete.
 * Never touch production hosts, the canonical checkout, unrelated worktrees,
   stashes, or other projects' VM/volume data. Preserve acceptance/deploy-needed
-  exact-SHA evidence **as actual files** in independently verified storage
-  before deleting any VM/workspace; manifest hashes without referenced
-  logs/artifacts are not a verifiable bundle.
+  exact-SHA evidence **as actual files** outside retiring resources, and run
+  the exact-source verifier against the retained bundle before deleting any
+  originals. Manifest hashes without referenced logs/artifacts are insufficient.
 * Record identities, before/after disk space, retained evidence, deletions
-  and HOLD reasons in the final merge report. See the runbook's post-merge
+  and HOLD reasons in the final merge report. HOLD means retirement remains
+  deferred, not successfully completed. Follow the runbook's post-merge
   section; CI's in-run ownership cleanup and broad-cleanup prohibition remain.
-
 
 Use additional commands only when they exist in the touched package:
 
