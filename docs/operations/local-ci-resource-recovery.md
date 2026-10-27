@@ -151,10 +151,21 @@ and [Docker contexts](https://docs.docker.com/engine/manage-resources/contexts/)
 
 ## 6. Prohibited operations
 
-- `docker system prune -a --volumes` and bare `docker volume prune`
-- `colima delete` / `limactl delete` as part of CI work
-- Deleting the independent `servora-r4-*` Lima VM (protected recovery scope)
-- Touching named/shared database volumes or other projects' containers
+- `docker system prune -a --volumes`, bare `docker volume prune`, or deleting a
+  volume because its label/name merely resembles a CI resource.
+- `colima delete` / `limactl delete` during CI, incident recovery, or any
+  active owner/lock. Per-run cleanup remains in `run.sh`.
+- Deleting a Lima guest, Colima profile, or disk without proving exclusive
+  disposable ownership, quiescence, and preservation of necessary evidence.
+- Touching named/shared database volumes, production state, or other projects'
+  containers/VMs. Unknown scope means HOLD.
+
+Historical note (2026-10-27): the owner authorized retirement of the former
+`lima-servora-r4-20261012` fixture and associated disposable lab resources.
+That instance is **not an available host-gated test target** and is no longer
+indefinitely protected by its old fixture name. Historical tests are not
+retroactively re-executed or upgraded to PASS; future real-host acceptance
+requires a newly authorized and provisioned isolated fixture.
 
 ## 7. Worktree state rule
 
@@ -167,3 +178,52 @@ HEAD and the remote stayed intact; causation not proven, recovery was
 untracked work separately if recovery is needed; an unstaged patch alone does
 not capture all three. Verify `git status --short` before and after. The five
 existing protected stash entries must remain unchanged during this task.
+
+## 8. Mandatory post-merge resource retirement (not CI cleanup)
+
+This separate operation runs **after** an authorized PR merge and the
+resulting-main exact-SHA CI, cleanup/verifier and merge report, never during a
+test run. The merge agent must perform the inventory and close the checklist;
+it may dispose of only identified, dedicated, idle Servora-Med scratch profiles
+under the standing owner-authorized policy in AGENTS.md. A HOLD is an honest
+cleanup result, not permission to override an ownership or evidence gate.
+
+1. **Read-only preflight:** record resulting-main SHA/tree and verifier; confirm
+   no active CI runner/lock, pending guest test or recovery ownership, and no
+   production or other project's dependence. Inspect `colima list`,
+   `limactl list`, Docker context/daemon identity if running, containers,
+   networks, named/anonymous volumes, VM disks, and host free space. Do not
+   start a stopped VM merely to inventory it unless needed for proof and
+   separately authorized.
+2. **Preserve required bytes:** move or copy completed exact-main CI
+   `manifest.json`, `report.md`, referenced logs (including cleanup files)
+   and any release/acceptance-required artifacts to an independently stored
+   directory outside retiring VMs and disposable worktrees. Verify manifest
+   and archive/file hashes **after copying**, and record the destination,
+   before removing originals. Preserve failure/RED history if used by open
+   reviews or recovery. A JSON index or digest list alone is insufficient to
+   replay `verify-evidence.sh`; if the full required bundle is gone, mark
+   acceptance evidence unavailable rather than fabricating PASS.
+3. **Colima:** if profile `true` is proven dedicated to Servora-Med CI,
+   idle, and no protected Docker data remain, stop and retire that exact
+   profile, including its disk image. Stopping a VM alone does not promise
+   reclamation of its allocated disk. If images must be pulled again for next
+   CI, report that expected cost. Do not change the user's default Docker
+   context; never prune another daemon or remove a shared named volume.
+4. **Lima:** enumerate exact guest identities. Retire an individual guest
+   only after identifying it as owner-authorized disposable test infrastructure
+   with no open host recovery/acceptance activity and externally preserved
+   required evidence. Stop/delete only that exact guest, not a wildcard or
+   all `servora-*` names. A removed named fixture cannot be used for later
+   host-gated tests; explicitly record `NOT_RUN_HOST` until reprovisioned.
+5. **Closeout:** verify no remaining owned containers/networks or temporary
+   CI locks; compare disk space before/after and report reclaimed capacity,
+   deleted profile/guest names, protected resources left in place and reasons
+   for HOLD. Preserve canonical Git checkout, all unrelated worktrees and
+   stashes. Do not silently purge `~/.local/share/servora-med/evidence`,
+   retained release artifacts or sealed recovery records.
+
+Do not perform any profile retirement following a failed/incomplete
+resulting-main CI, while an evidence consumer needs the original bundle, or
+when ownership cannot be established. Reuse this checklist for each merge
+instead of accumulating expensive idle VM disks across release cycles.
