@@ -11,6 +11,8 @@ export type HealthRoutesOptions = {
 
 export const healthRoutes: FastifyPluginAsync<HealthRoutesOptions> = async (app, options) => {
   const handlers = createHealthHandlers(options.readiness, options.releaseSha, options.backupReadiness);
-  app.get('/', handlers.getHealth);
-  app.get('/backup', handlers.getBackupHealth);
+  const onRequest=app.rateLimit({max:60,timeWindow:60_000,groupId:'public-health'});
+  app.addHook('preClose',async()=>{await options.backupReadiness?.close?.();});
+  app.get('/', {onRequest}, handlers.getHealth);
+  app.get('/backup', {onRequest}, handlers.getBackupHealth);
 };

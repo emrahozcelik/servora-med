@@ -31,7 +31,7 @@ The monitor:
 | Check | Condition |
 |-------|-----------|
 | `health` | GET the configured health URL. Failure = timeout, connection/TLS error, redirect, non-200, or a body that does not match the Servora-Med contract (`{"status":"ok"}`). |
-| `backup` | In `legacy` mode, read-only inspection of the backup directory. In `verified-runs` mode, the newest verified scheduled `SUCCESS` (`verified_at` present), worker/scheduler liveness, and latest scheduled failure from the safe `/api/health` aggregate are authoritative; a manual verified run does not satisfy scheduled freshness. |
+| `backup` | In `host-observation` mode, the canonical backend host projection (including scheduled baseline) is authoritative and any missing health denies. In `legacy` mode, read-only inspection of the backup directory. In `verified-runs` mode, the newest verified scheduled `SUCCESS` (`verified_at` present), worker/scheduler liveness, and latest scheduled failure from the safe `/api/health` aggregate are authoritative; a manual verified run does not satisfy scheduled freshness. |
 | `disk` | Free space on the configured path via `statfs`. Failure below `SERVORA_ALERT_DISK_MIN_FREE_PERCENT`. |
 | `monitor` | The monitor's own state file: corruption is quarantined, a fresh default state is created and a `monitor` alert is emitted. Unsupported future state versions fail the run without overwriting. |
 
@@ -54,7 +54,7 @@ Private operator environment file, e.g. `/etc/servora-med/servora-med-alerting.e
 | `SERVORA_ALERT_WEBHOOK_URL` | — | HTTPS webhook (plain http allowed only for loopback hosts). Required when enabled. |
 | `SERVORA_ALERT_HEALTH_URL` | `http://127.0.0.1:3000/api/health` | Application health endpoint (app contract is unchanged). |
 | `SERVORA_ALERT_BACKUP_DIR` | — | Read-only backup directory. Required when enabled. |
-| `SERVORA_ALERT_BACKUP_SOURCE` | `legacy` | `legacy` keeps the current dump/sidecar check; `verified-runs` consumes verified scheduled `backup_runs` health evidence. This is an explicit cutover switch, not a second monitor. |
+| `SERVORA_ALERT_BACKUP_SOURCE` | `legacy` | `legacy` keeps the dump/sidecar check; `verified-runs` consumes BR5 scheduled health; `host-observation` requires the backend host projection on every run. Host installations must select it explicitly before monitor activation. |
 | `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` | `26` | Max accepted age of the latest valid backup. |
 | `SERVORA_ALERT_DISK_PATH` | `/` | Filesystem to check (internal only, never leaves the host). |
 | `SERVORA_ALERT_DISK_LABEL` | `disk-target` | Safe payload label for the disk target; validated as a safe label and must not equal the disk path. |
@@ -370,7 +370,7 @@ Deleting `$SERVORA_ALERT_STATE_DIR` resets all deduplication state.
 
 ## TT-B host-observation projection
 
-When `/api/health` identifies `backup.provider=host-observation`, the monitor
+With `SERVORA_ALERT_BACKUP_SOURCE=host-observation`, the monitor
 consumes its `status` and `providerStatus` directly. It also requires a scheduled
 verified baseline. Backend unavailable/UNKNOWN, stale, failed, missing health or
 missing scheduled evidence cannot be promoted by a local file scan or a separate
@@ -380,3 +380,25 @@ belong to `evaluateBackupProviderStatus()`.
 The legacy non-host and BR5 branches retain their existing behavior. Their
 continued presence does not establish trusted-time acceptance for BR5. Production
 enablement and webhook provisioning still require separate authorization.
+
+
+### PR #394: explicit host source and probe failures
+
+Expected backup source comes from configuration, not from whichever HTTP response
+happened to arrive. Set `SERVORA_ALERT_BACKUP_SOURCE=host-observation` before
+enabling this monitor on a host-observation installation. Existing TT-B operators
+who relied on response-based auto-detection must set this value explicitly during
+the separately authorized rollout. This source remains selected across monitor
+process restarts and missing/corrupt state; it is not inferred from alert history.
+
+HTTP200 healthy requires the canonical host provider/status and scheduled baseline.
+HTTP503 UNKNOWN/stale, connection failure, timeout, invalid JSON, missing backup or
+wrong provider stays unavailable, including an already active alarm episode.
+There is no local-directory or BR5 fallback in host mode. Existing episode,
+cooldown, delivery retry and state-version behavior is unchanged. Legacy and
+verified-runs retain their declared sources; host selection is never implicit.
+
+The health server uses a shared 60 requests/minute per-IP budget across both health
+paths. Default five-minute monitoring is below it. Its trusted-time subprocess has
+a 3s whole-sample deadline, below the example 5s HTTP timeout; busy/timeouts deny
+backup freshness rather than replaying a previous healthy result.

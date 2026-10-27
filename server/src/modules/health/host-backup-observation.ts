@@ -1,6 +1,6 @@
 import { constants as fsConstants } from 'node:fs';
 import { open } from 'node:fs/promises';
-import {sampleTrustedTime,type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
+import {type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
 
 import {
   evaluateBackupProviderStatus,
@@ -10,6 +10,7 @@ import {
   type BackupObservationState,
   type BackupProviderStatus,
 } from './backup-freshness.js';
+import {createTrustedTimeSampler} from './trusted-time-sampler.js';
 import type { BackupHealthReadinessPort, PublicBackupHealth } from './service.js';
 
 /** Upper bound on the state artifact; v2 includes two private time proofs. */
@@ -18,7 +19,7 @@ const MAX_OBSERVATION_BYTES = 64 * 1024;
 export type HostBackupObservationOptions = {
   /** Absolute path to `observation-v1.json`. Validated by config (fail-closed). */
   observationPath: string;
-  sampleTime?: () => TimeEvidence;
+  sampleTime?: () => TimeEvidence|null|Promise<TimeEvidence|null>;
 };
 
 /**
@@ -33,20 +34,25 @@ export type HostBackupObservationOptions = {
 export function createHostBackupObservationHealth(
   options: HostBackupObservationOptions,
 ): BackupHealthReadinessPort {
-  const sampleTime = options.sampleTime ?? sampleTrustedTime;
+  const sampler = options.sampleTime ? null : createTrustedTimeSampler();
+  const sampleTime = options.sampleTime ?? (() => sampler!.sample());
+  let checking=false,closed=false;
   const observationPath = options.observationPath;
 
   return {
     async check(): Promise<PublicBackupHealth> {
-      const state = await readObservationState(observationPath);
-      let currentTime:TimeEvidence|null=null;
-      try {currentTime=sampleTime();}catch { /* Missing trusted time denies freshness. */ }
-      return projectProviderState({
-        provider: 'host-observation',
-        state,
-        currentTime,
-      });
+      if(checking||closed)return projectProviderState({provider:'host-observation',state:null,currentTime:null});
+      checking=true;
+      try {
+        const state = await readObservationState(observationPath);
+        let currentTime:TimeEvidence|null=null;
+        if(state&&!closed) {
+          try {currentTime=await sampleTime();if(closed)currentTime=null;}catch { /* Missing trusted time denies freshness. */ }
+        }
+        return projectProviderState({provider:'host-observation',state,currentTime});
+      } finally {checking=false;}
     },
+    async close(){closed=true;await sampler?.close();},
   };
 }
 

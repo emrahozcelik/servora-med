@@ -309,3 +309,23 @@ Migration and release ordering:
 BR5 remains disabled and its separate UTC heartbeat is outside TT-B. Production
 NO-GO persists. No production provider/environment/state is activated by this
 code change; `BACKUP_PROVIDER=host-observation` remains an explicit rollout choice.
+
+
+### HTTP sampling isolation (PR #394 security follow-up)
+
+The HTTP reader runs the unchanged TT-A sampler in a short-lived Node22 child;
+systemctl/chronyc calls never run on Fastify's event loop. One check/sample per
+provider instance may be active; concurrent requests return unavailable with no
+waiter queue or healthy cache. The fixed child command receives only PATH/LC_ALL,
+has at most 16KiB stdout, and a 3s deadline. Timeout, invalid output, spawn error
+and busy are unavailable. A POSIX process-group kill includes a current command
+or descendant; the sampling slot stays occupied until process/pipe close.
+Fastify preClose aborts and reaps active sampling before shutdown completes.
+
+Both health endpoints share an existing-plugin rate limiter: 60 requests/minute
+per IP, using the existing trusted-proxy IP policy. Excess requests get 429 without
+starting sampling. The unchanged R4 approximately 30s observation cadence and
+five-minute alerting probe fit this budget; no new observation was executed.
+Sampling remains request-driven and does not create a time service, background
+clock worker or event anchor. Root approval sampling, v2 migration/seal contracts,
+UTC veto, boot/namespace checks and inclusive 26h evaluator remain unchanged.

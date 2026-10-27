@@ -156,8 +156,8 @@ function absoluteDirectory(raw, name) {
 
 function backupSource(raw) {
   const value = raw === undefined || raw === '' ? 'legacy' : String(raw).trim();
-  if (value !== 'legacy' && value !== 'verified-runs') {
-    throw new ConfigError('SERVORA_ALERT_BACKUP_SOURCE must be legacy or verified-runs');
+  if (value !== 'legacy' && value !== 'verified-runs' && value !== 'host-observation') {
+    throw new ConfigError('SERVORA_ALERT_BACKUP_SOURCE must be legacy, verified-runs or host-observation');
   }
   return value;
 }
@@ -1083,7 +1083,7 @@ export async function runMonitor(config, deps) {
   const health = await probeHealth(config, deps);
   const outcomes = {
     health,
-    backup: health.backup?.provider === 'host-observation' ? evaluateHostBackup(health) : config.backupSource === 'verified-runs'
+    backup: config.backupSource === 'host-observation' ? evaluateHostBackup(health) : config.backupSource === 'verified-runs'
       ? evaluateVerifiedBackup(config, health, deps)
       : await evaluateBackup(config, deps),
     disk: probeDisk(config, deps),

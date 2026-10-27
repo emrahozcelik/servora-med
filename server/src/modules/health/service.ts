@@ -49,6 +49,8 @@ export type HealthReadinessPort = {
 
 export type BackupHealthReadinessPort = {
   check(): Promise<PublicBackupHealth>;
+  /** Abort request-scoped sampling during application shutdown. */
+  close?(): Promise<void>;
 };
 
 export const alwaysOkReadiness: HealthReadinessPort = {

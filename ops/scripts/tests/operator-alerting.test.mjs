@@ -372,6 +372,10 @@ describe('health probe', () => {
   });
 });
 
+it('PR394-P2 config accepts the explicit host-observation source',()=>{
+  assert.equal(loadConfig({...BASE_ENV,SERVORA_ALERT_BACKUP_SOURCE:'host-observation'}).backupSource,'host-observation');
+});
+
 describe('verified-runs backup source', () => {
   it('keeps legacy backup freshness authoritative until V1 is explicitly selected', () => {
     assert.equal(loadConfig(BASE_ENV).backupSource, 'legacy');
@@ -1748,10 +1752,55 @@ describe('runMonitor orchestration', () => {
     const deps=healthyDeps();
     deps.fetch=async()=>healthResponse(503,{status:'unavailable',backup:{provider:'host-observation',
       providerStatus:'unavailable',status:'unavailable',latestScheduledVerifiedAt:'20260805T120000Z'}});
-    const result=await runMonitor(loadConfig(env),deps);
+    const result=await runMonitor(loadConfig({...env,SERVORA_ALERT_BACKUP_SOURCE:'host-observation'}),deps);
     assert.equal(result.outcomes.health.ok,false);
     assert.equal(result.outcomes.backup.ok,false);
     assert.equal(result.outcomes.backup.errorCategory,'host-backup-unavailable');
+  });
+
+  it('PR394-P2: a failed host health probe cannot recover an active backup alarm from local UTC files',async()=>{
+    const deps=healthyDeps();
+    const config={...loadConfig({...env,SERVORA_ALERT_BACKUP_SOURCE:'host-observation'}),failureThreshold:1};
+    let disconnected=false;
+    deps.fetch=async(url)=>{
+      if(!url.includes('/api/health'))return webhookResponse(200);
+      if(disconnected)throw new TypeError('connection failed');
+      return healthResponse(200,{status:'ok',backup:{provider:'host-observation',providerStatus:'unavailable',
+        status:'unavailable',latestScheduledVerifiedAt:'2026-08-05T12:00:00Z'}});
+    };
+    const first=await runMonitor(config,deps);
+    assert.equal(first.state.checks.backup.alertActive,true);
+    disconnected=true;
+    const next=await runMonitor(config,deps);
+    assert.equal(next.outcomes.backup.ok,false);
+    assert.equal(next.state.checks.backup.alertActive,true);
+    assert.equal(next.events.some(event=>event.check==='backup'&&event.event==='recovery'),false);
+  });
+
+  for(const [name,response,healthy] of [
+    ['HTTP200 healthy',()=>healthResponse(200,{status:'ok',backup:{provider:'host-observation',providerStatus:'healthy',status:'ok',latestScheduledVerifiedAt:'2026-08-05T12:00:00Z'}}),true],
+    ['HTTP503 UNKNOWN',()=>healthResponse(503,{status:'unavailable',backup:{provider:'host-observation',providerStatus:'unavailable',status:'unavailable'}}),false],
+    ['HTTP503 stale',()=>healthResponse(503,{status:'unavailable',backup:{provider:'host-observation',providerStatus:'stale',status:'unavailable'}}),false],
+    ['network failure',()=>{throw new TypeError('connection failed');},false],
+    ['timeout',()=>{throw Object.assign(new Error('timed out'),{name:'TimeoutError'});},false],
+    ['invalid JSON',()=>({status:200,text:async()=>'not-json'}),false],
+    ['missing backup',()=>healthResponse(200,{status:'ok'}),false],
+    ['wrong provider',()=>healthResponse(200,{status:'ok',backup:{provider:'br5-r2',providerStatus:'healthy',status:'ok',latestScheduledVerifiedAt:'2026-08-05T12:00:00Z'}}),false],
+  ])it('PR394-P2 host source: '+name+' preserves the alarm episode unless trusted healthy',async()=>{
+    const deps=healthyDeps(),config={...loadConfig({...env,SERVORA_ALERT_BACKUP_SOURCE:'host-observation'}),failureThreshold:1};
+    let probe=()=>healthResponse(200,{status:'ok',backup:{provider:'host-observation',providerStatus:'unavailable',status:'unavailable'}});
+    deps.fetch=async(url)=>url.includes('/api/health')?probe():webhookResponse(200);
+    const first=await runMonitor(config,deps);
+    assert.equal(first.state.checks.backup.alertActive,true);
+    const episode=first.state.checks.backup;
+    probe=response;
+    const next=await runMonitor(config,deps);
+    assert.equal(next.outcomes.backup.ok,healthy);
+    assert.equal(next.state.checks.backup.alertActive,!healthy);
+    assert.equal(next.events.filter(event=>event.check==='backup'&&event.event==='recovery').length,healthy?1:0);
+    if(!healthy)assert.equal(next.state.checks.backup.lastRecoveryAt,episode.lastRecoveryAt);
+    const repeated=await runMonitor(config,deps);
+    assert.equal(repeated.events.some(event=>event.check==='backup'&&event.event==='recovery'),false);
   });
 
   it('healthy run: no events, zero exit, state persisted', async () => {

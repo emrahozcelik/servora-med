@@ -2108,3 +2108,20 @@ No database migration, new worker/time service/native dependency, BR5 enablement
 production state mutation or long observation is authorized by this scope.
 Deterministic 26h transitions and the existing Local CI producers verify code;
 synthetic boot/timer evidence must remain distinguished from live host acceptance.
+
+
+### OPS-TT-002 security follow-up — PR #394 (2026-10-27)
+
+Owner-authorized remediation isolates HTTP trusted-time sampling from Fastify's
+event loop in one bounded, request-scoped child with a 3s whole-sample deadline,
+16KiB stdout cap and process-group shutdown cleanup. Busy/failed sampling is
+unavailable; there is no queued sampling or reused healthy cache. Both public
+health routes share a 60/minute per-IP limit under the existing proxy policy.
+The TT-A root sampler, time-quality thresholds, event proofs, 26h inclusive rule,
+observation v2 migration and R4 seal/runtime contracts are unchanged.
+
+Host alerting must explicitly configure
+`SERVORA_ALERT_BACKUP_SOURCE=host-observation`. Failed/missing/malformed health
+cannot change this source or recover a backup alarm through a UTC directory scan.
+Legacy and verified-runs remain separately declared sources. Production activation,
+configuration changes and deployment remain outside this remediation.
