@@ -253,6 +253,17 @@ artifact requirement. Local host recovery evidence is not production acceptance,
 restore acceptance, or offsite R2/DR proof. Production bootstrap/preflight,
 exact-main Linux/amd64 artifact and migration/deployment approval remain separate.
 
+**Fixture retirement (owner authorization, 2026-10-27):** the named
+`lima-servora-r4-20261012` disposable host and its VM disk were removed
+during local resource cleanup. The named-guest prerequisite of existing
+`ops/tests/r4-*-host.sh` scripts therefore no longer exists; these
+host-gated tests cannot run until a new isolated fixture is explicitly
+provisioned/authorized. Earlier results remain historical only; deletion of
+raw evidence cannot be repaired from a manifest/hash list. This retirement
+does not permit deletion of any other protected guest, production resource,
+active recovery state, or future sealed host fixture. See the separate
+post-merge checklist in `local-ci-resource-recovery.md`.
+
 ## Review reconciliation: fence, consumption and shell state
 
 A durable `FENCED` record with no migration intent can resume normal deployment
