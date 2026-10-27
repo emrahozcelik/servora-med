@@ -243,11 +243,12 @@ Root-only tests under `ops/tests` refuse hosts other than the authorized
 `lima-servora-r4-20261012` fixture and use synthetic isolated databases. All-8
 SHA/grants are deliberate WIP fixtures, not production or exact-Git approvals.
 Exact-head acceptance uses a separate sealed `r4-test-source.json` identity and
-actual Git artifact/CI hashes. Host logs and failed attempts are retained outside
-Git. Pure state/operator tests run within the existing server-tests gate; the
+actual Git artifact/CI hashes. Host logs and failed attempts must be retained
+outside Git; historical availability is qualified by the retirement record below.
+Pure state/operator tests run within the existing server-tests gate; the
 27 mandatory gates are unchanged. Real host/systemd acceptance is additional.
 
-The Lima/VZ Ubuntu 24.04 host is ARM64, not native AMD64 parity. Linux/amd64
+The historical Lima/VZ Ubuntu 24.04 host was ARM64, not native AMD64 parity. Linux/amd64
 compatibility remains a separate mandatory CI gate and a future production
 artifact requirement. Local host recovery evidence is not production acceptance,
 restore acceptance, or offsite R2/DR proof. Production bootstrap/preflight,
@@ -358,6 +359,6 @@ be granted to the deploy identity through sudo to Node, a shell or an issuer.
 
 TT-A changes privileged helper/profile bytes and requires a separately approved
 bootstrap before production use. Production NO-GO, A3, BR5 enablement, restore
-acceptance and deployment authorization remain separate. Root tests on the new
+acceptance and deployment authorization remain separate. Historical root tests on the now-retired
 `lima-servora-tt-a-amd64-20261026` fixture are a bounded authority/filesystem/reboot
 acceptance, not full database/artifact/smoke/observation R4 release acceptance.
