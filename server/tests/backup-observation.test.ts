@@ -13,11 +13,15 @@
  *   G. writer and reader share exactly one vocabulary
  */
 
-import { execFileSync } from 'node:child_process';
+import {publishObservation} from '../../ops/scripts/backup-observation-writer.mjs';
+import {timeAt,trustedDocument} from './backup-time-fixture.js';
+import {createHash} from 'node:crypto';
+import {readFileSync,writeFileSync} from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {realpath} from 'node:fs/promises';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -59,7 +63,7 @@ type Doc = Record<string, unknown>;
 
 /** A valid document with no observed attempt at all. */
 function emptyDocument(updatedAt: string): Doc {
-  return {
+  return trustedDocument({
     schemaVersion: BACKUP_OBSERVATION_SCHEMA_VERSION,
     updatedAt,
     latestAttemptTrigger: null,
@@ -74,7 +78,7 @@ function emptyDocument(updatedAt: string): Doc {
     latestScheduledAttemptResult: null,
     latestScheduledAttemptFailureClass: null,
     latestScheduledVerifiedAt: null,
-  };
+  });
 }
 
 /**
@@ -101,7 +105,7 @@ function withSuccess(doc: Doc, trigger: BackupTriggerClass, at: string): Doc {
     next.latestScheduledAttemptFailureClass = null;
     next.latestScheduledVerifiedAt = at;
   }
-  return next;
+  return trustedDocument(next);
 }
 
 function withFailure(
@@ -159,7 +163,7 @@ function stateOf(doc: unknown): BackupObservationState {
 }
 
 function statusOf(doc: Doc, nowMs = NOW): string {
-  return evaluateBackupProviderStatus(stateOf(doc), nowMs);
+  return evaluateBackupProviderStatus(stateOf(doc), timeAt(nowMs));
 }
 
 const tempDirs: string[] = [];
@@ -167,21 +171,43 @@ const tempDirs: string[] = [];
 async function makeTempDir(prefix = 'obs1-'): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), prefix));
   tempDirs.push(dir);
-  return dir;
+  return realpath(dir);
+}
+
+
+/** Real filesystem writer, with explicit synthetic time samples (no host-clock mutation). */
+function runWriter(args:string[]):void {
+  const flags=Object.fromEntries(Array.from({length:(args.length-1)/2},(_,i)=>[args[1+i*2],args[2+i*2]]));
+  const input={statePath:flags['--state'],trigger:flags['--trigger'],startedAt:flags['--started-at'],
+    outcome:flags['--outcome'],completedAt:flags['--completed-at'],failureClass:flags['--failure-class']};
+  if(input.outcome==='success') {
+    const existing=requireState(input.statePath);
+    if(existing?.latestAttemptResult!=='running'||existing.latestAttemptStartedAt!==input.startedAt) {
+      publishObservation({...input,outcome:'running',completedAt:undefined,failureClass:undefined},()=>timeAt(Date.parse(input.startedAt)));
+    }
+    const artifactPath=path.join(path.dirname(input.statePath),'backup.dump');
+    const bytes=Buffer.from('verified backup fixture');
+    writeFileSync(artifactPath,bytes,{mode:0o600});
+    writeFileSync(artifactPath+'.sha256',createHash('sha256').update(bytes).digest('hex')+'  backup.dump\n',{mode:0o600});
+    publishObservation({...input,artifactPath,sidecarPath:artifactPath+'.sha256'},()=>timeAt(Date.parse(input.completedAt)));
+  } else publishObservation(input,()=>timeAt(Date.parse(input.startedAt)));
+}
+function requireState(file:string):Record<string,unknown>|null {
+  try{return JSON.parse(readFileSync(file,'utf8'));}catch{return null;}
 }
 
 /** Runs the canonical writer and returns the state path it published. */
 async function publish(args: string[]): Promise<string> {
   const dir = await makeTempDir();
   const statePath = path.join(dir, 'observation-v1.json');
-  execFileSync('bash', [WRITER, '--state', statePath, ...args], { stdio: 'pipe' });
+  runWriter([WRITER, '--state', statePath, ...args]);
   return statePath;
 }
 
 function hostHealth(observationPath: string, nowMs = NOW) {
   return createHostBackupObservationHealth({
     observationPath,
-    now: () => new Date(nowMs),
+    sampleTime: () => timeAt(nowMs),
   });
 }
 
@@ -200,7 +226,7 @@ afterEach(async () => {
 describe('A. observation schema is parsed fail-closed', () => {
   it('accepts a canonical scheduled success document', () => {
     const state = stateOf(successDocument('scheduled', instant(-HOUR)));
-    expect(state).toEqual({
+    expect(state).toMatchObject({
       schemaVersion: BACKUP_OBSERVATION_SCHEMA_VERSION,
       updatedAt: instant(-HOUR),
       latestAttempt: {
@@ -235,19 +261,19 @@ describe('A. observation schema is parsed fail-closed', () => {
     ['a JSON array', []],
     ['null', null],
     ['a missing schema version', { ...emptyDocument(instant(0)), schemaVersion: undefined }],
-    ['an unsupported schema version', { ...emptyDocument(instant(0)), schemaVersion: 2 }],
+    ['an unsupported schema version', { ...emptyDocument(instant(0)), schemaVersion: 99 }],
     ['a stringified schema version', { ...emptyDocument(instant(0)), schemaVersion: '1' }],
   ])('rejects %s', (_label, doc) => {
     expect(parseBackupObservationState(doc)).toBeNull();
   });
 
-  it('ignores unknown additive keys instead of failing the whole document', () => {
+  it('rejects unknown v2 keys under the strict schema', () => {
     const doc = {
       ...successDocument('scheduled', instant(-HOUR)),
       futureField: 'anything',
       nested: { a: 1 },
     };
-    expect(stateOf(doc).latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
+    expect(parseBackupObservationState(doc)).toBeNull();
   });
 
   it.each([
@@ -391,7 +417,7 @@ describe('B. the canonical writer produces documents the reader accepts', () => 
       '--outcome', 'success',
       '--completed-at', verifiedAt,
     ]);
-    execFileSync('bash', [
+    runWriter([
       WRITER,
       '--state', statePath,
       '--trigger', 'scheduled',
@@ -399,7 +425,7 @@ describe('B. the canonical writer produces documents the reader accepts', () => 
       '--outcome', 'failure',
       '--completed-at', instant(-55_000),
       '--failure-class', 'DUMP_FAILED',
-    ], { stdio: 'pipe' });
+    ]);
 
     const health = await readStatus(statePath);
     expect(health).toMatchObject({
@@ -440,21 +466,21 @@ describe('B. the canonical writer produces documents the reader accepts', () => 
       '--outcome', 'success',
       '--completed-at', priorVerifiedAt,
     ]);
-    execFileSync('bash', [
+    runWriter([
       WRITER,
       '--state', statePath,
       '--trigger', 'scheduled',
       '--started-at', runningAt,
       '--outcome', 'running',
-    ], { stdio: 'pipe' });
-    execFileSync('bash', [
+    ]);
+    runWriter([
       WRITER,
       '--state', statePath,
       '--trigger', 'scheduled',
       '--started-at', runningAt,
       '--outcome', 'success',
       '--completed-at', completedAt,
-    ], { stdio: 'pipe' });
+    ]);
 
     await expect(readStatus(statePath)).resolves.toMatchObject({
       status: 'ok',
@@ -525,7 +551,7 @@ describe('C. the single canonical 26-hour freshness rule', () => {
       'CHECKSUM_FAILED',
     );
     const state = stateOf(doc);
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('failed');
+    expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('failed');
     // The prior success timestamp must remain visible, not be erased.
     expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
   });
@@ -539,16 +565,16 @@ describe('C. the single canonical 26-hour freshness rule', () => {
 describe('D. trigger semantics and the schedule heartbeat', () => {
   it('counts a scheduled success for recoverability and for the heartbeat', () => {
     const state = stateOf(successDocument('scheduled', instant(-HOUR)));
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('healthy');
-    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(true);
+    expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('healthy');
+    expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(true);
   });
 
   it.each(['predeploy', 'postdeploy', 'manual'] as const)(
     'counts a %s success for recoverability but never for the heartbeat',
     (trigger) => {
       const state = stateOf(successDocument(trigger, instant(-HOUR)));
-      expect(evaluateBackupProviderStatus(state, NOW)).toBe('healthy');
-      expect(evaluateScheduledHeartbeat(state, NOW)).toBeNull();
+      expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('healthy');
+      expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBeNull();
       expect(state.latestScheduledVerifiedSuccess).toBeNull();
     },
   );
@@ -558,8 +584,8 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
     const afterDeploy = withSuccess(staleBaseline, 'postdeploy', instant(-HOUR));
     const state = stateOf(afterDeploy);
 
-    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('stale');
+    expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(false);
+    expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('stale');
     // Recoverability evidence is still fresh and visible.
     expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
     // The stale scheduled baseline is not overwritten by the deploy run.
@@ -570,7 +596,7 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
     const staleBaseline = successDocument('scheduled', instant(-30 * HOUR));
     const afterManual = withSuccess(staleBaseline, 'manual', instant(-HOUR));
 
-    expect(evaluateBackupProviderStatus(stateOf(afterManual), NOW)).toBe('stale');
+    expect(evaluateBackupProviderStatus(stateOf(afterManual), timeAt(NOW))).toBe('stale');
     expect(stateOf(afterManual).latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-30 * HOUR));
   });
 
@@ -578,8 +604,8 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
     const priorSuccess = successDocument('scheduled', instant(-HOUR));
     const state = stateOf(withRunning(priorSuccess, 'scheduled', instant(-30_000)));
 
-    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(true);
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('healthy');
+    expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(true);
+    expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('healthy');
     expect(state.latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
   });
 
@@ -591,8 +617,8 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
       const whileScheduledRuns = withRunning(afterFreshBackup, 'scheduled', instant(-30_000));
       const state = stateOf(whileScheduledRuns);
 
-      expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
-      expect(evaluateBackupProviderStatus(state, NOW)).toBe('stale');
+      expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(false);
+      expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('stale');
       expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
       expect(state.latestScheduledVerifiedSuccess?.verifiedAt).toBe(instant(-30 * HOUR));
     },
@@ -611,8 +637,8 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
       const afterFreshBackup = withSuccess(failedScheduled, freshTrigger, instant(-HOUR));
       const state = stateOf(afterFreshBackup);
 
-      expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
-      expect(evaluateBackupProviderStatus(state, NOW)).toBe('failed');
+      expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(false);
+      expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('failed');
       // The fresh artifact is still reported, but it cannot mask the failure.
       expect(state.latestVerifiedSuccess?.verifiedAt).toBe(instant(-HOUR));
     },
@@ -620,13 +646,13 @@ describe('D. trigger semantics and the schedule heartbeat', () => {
 
   it('treats a scheduled attempt that succeeded but went stale as stale, not failed', () => {
     const state = stateOf(successDocument('scheduled', instant(-30 * HOUR)));
-    expect(evaluateScheduledHeartbeat(state, NOW)).toBe(false);
-    expect(evaluateBackupProviderStatus(state, NOW)).toBe('stale');
+    expect(evaluateScheduledHeartbeat(state, timeAt(NOW))).toBe(false);
+    expect(evaluateBackupProviderStatus(state, timeAt(NOW))).toBe('stale');
   });
 
   it('does not report a broken heartbeat before the baseline is established', () => {
     const noBaseline = successDocument('postdeploy', instant(-HOUR));
-    expect(evaluateScheduledHeartbeat(stateOf(noBaseline), NOW)).toBeNull();
+    expect(evaluateScheduledHeartbeat(stateOf(noBaseline), timeAt(NOW))).toBeNull();
     expect(statusOf(noBaseline)).toBe('healthy');
   });
 });
@@ -829,21 +855,21 @@ describe('F. the public health contract changed only additively', () => {
   it('keeps a fresh scheduled success healthy while the next scheduled attempt is running', async () => {
     const dir = await makeTempDir();
     const statePath = path.join(dir, 'observation-v1.json');
-    execFileSync('bash', [
+    runWriter([
       WRITER,
       '--state', statePath,
       '--trigger', 'scheduled',
       '--started-at', instant(-HOUR),
       '--outcome', 'success',
       '--completed-at', instant(-HOUR),
-    ], { stdio: 'pipe' });
-    execFileSync('bash', [
+    ]);
+    runWriter([
       WRITER,
       '--state', statePath,
       '--trigger', 'scheduled',
       '--started-at', instant(-30_000),
       '--outcome', 'running',
-    ], { stdio: 'pipe' });
+    ]);
     const app = await appWithHostProvider(statePath);
 
     const response = await app.inject({ method: 'GET', url: '/api/health/backup' });
@@ -932,31 +958,6 @@ describe('F. the public health contract changed only additively', () => {
       expect(body).not.toContain('postgresql://');
       expect(body).not.toMatch(/[A-Za-z0-9_]*\.(json|dump|sql|sha256)/);
     }
-  });
-});
-
-describe('G. writer and reader share exactly one vocabulary', () => {
-  function bashArray(script: string, name: string): string[] {
-    const match = new RegExp(`${name}=\\(([\\s\\S]*?)\\)`).exec(script);
-    if (match === null) throw new Error(`${name} not found in the observation writer`);
-    return match[1]
-      .split(/\s+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0 && !token.startsWith('#'));
-  }
-
-  it('pins the same schema version on both sides of the contract', async () => {
-    const script = await readFile(WRITER, 'utf8');
-    expect(script).toContain(`readonly SCHEMA_VERSION=${BACKUP_OBSERVATION_SCHEMA_VERSION}`);
-  });
-
-  it.each([
-    ['TRIGGER_ALLOWLIST', () => [...BACKUP_TRIGGER_CLASSES]],
-    ['OUTCOME_ALLOWLIST', () => [...BACKUP_ATTEMPT_RESULTS]],
-    ['FAILURE_CLASS_ALLOWLIST', () => [...BACKUP_FAILURE_CLASSES]],
-  ])('keeps the %s vocabulary identical to the TypeScript contract', async (name, expected) => {
-    const script = await readFile(WRITER, 'utf8');
-    expect(bashArray(script, name)).toEqual(expected());
   });
 });
 

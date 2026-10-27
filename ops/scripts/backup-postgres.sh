@@ -99,6 +99,7 @@ write_observation() {
     --started-at "$attempt_started_at" --outcome "$outcome")
   [[ -n "$completed_at" ]] && args+=(--completed-at "$completed_at")
   [[ -n "$failure_class" ]] && args+=(--failure-class "$failure_class")
+  [[ "$outcome" != success ]] || args+=(--artifact "$final_path" --sidecar "$checksum_path")
   "$OBSERVATION_WRITER" "${args[@]}"
 }
 

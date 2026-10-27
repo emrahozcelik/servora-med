@@ -156,8 +156,8 @@ function absoluteDirectory(raw, name) {
 
 function backupSource(raw) {
   const value = raw === undefined || raw === '' ? 'legacy' : String(raw).trim();
-  if (value !== 'legacy' && value !== 'verified-runs') {
-    throw new ConfigError('SERVORA_ALERT_BACKUP_SOURCE must be legacy or verified-runs');
+  if (value !== 'legacy' && value !== 'verified-runs' && value !== 'host-observation') {
+    throw new ConfigError('SERVORA_ALERT_BACKUP_SOURCE must be legacy, verified-runs or host-observation');
   }
   return value;
 }
@@ -257,23 +257,21 @@ export async function probeHealth(config, deps) {
     result.httpStatus = response.status;
     if (response.status !== 200) {
       result.errorCategory = `http-${response.status}`;
-      return result;
+      if(response.status!==503)return result;
     }
     const text = await response.text();
     let body;
     try {
       body = JSON.parse(text);
     } catch {
-      result.errorCategory = 'invalid-body';
-      return result;
-    }
-    if (body?.status !== 'ok') {
-      result.errorCategory = 'invalid-body';
+      result.errorCategory ??= 'invalid-body';
       return result;
     }
     const backup = body?.backup;
     if (backup && typeof backup === 'object') {
       result.backup = {
+        provider: backup.provider === 'host-observation' ? 'host-observation' : null,
+        providerStatus: typeof backup.providerStatus === 'string' ? backup.providerStatus : null,
         status: backup.status === 'ok' ? 'ok' : 'unavailable',
         latestVerifiedAt: typeof backup.latestVerifiedAt === 'string' ? backup.latestVerifiedAt : null,
         latestScheduledVerifiedAt: typeof backup.latestScheduledVerifiedAt === 'string' ? backup.latestScheduledVerifiedAt : null,
@@ -283,6 +281,10 @@ export async function probeHealth(config, deps) {
         schedulerLastTickAt: typeof backup.schedulerLastTickAt === 'string' ? backup.schedulerLastTickAt : null,
       };
     }
+    // A 503 may still carry the host provider's UNKNOWN decision. Retain it so
+    // orchestration cannot fall back to a UTC-only local-directory scan.
+    if(response.status!==200)return result;
+    if(body?.status!=='ok') {result.errorCategory='invalid-body';return result;}
     result.ok = true;
     result.errorCategory = null;
     return result;
@@ -296,6 +298,17 @@ export async function probeHealth(config, deps) {
     }
     return result;
   }
+}
+
+/** Host freshness is decided by the backend's trusted-time evaluator only. */
+export function evaluateHostBackup(healthResult) {
+  const backup=healthResult?.backup;
+  const ok=healthResult?.ok===true&&backup?.provider==='host-observation'&&backup.status==='ok'
+    &&backup.providerStatus==='healthy'&&typeof backup.latestScheduledVerifiedAt==='string'
+    &&Number.isFinite(Date.parse(backup.latestScheduledVerifiedAt));
+  return {ok,errorCategory:ok?null:'host-backup-unavailable',latestProblem:ok?null:backup?.providerStatus??'unavailable',
+    ageHours:null,basename:null,checksumValid:null,latestBackupTimestamp:backup?.latestScheduledVerifiedAt??null,
+    workerHeartbeatAt:null,schedulerLastTickAt:null};
 }
 
 export function evaluateVerifiedBackup(config, healthResult, deps) {
@@ -1070,7 +1083,7 @@ export async function runMonitor(config, deps) {
   const health = await probeHealth(config, deps);
   const outcomes = {
     health,
-    backup: config.backupSource === 'verified-runs'
+    backup: config.backupSource === 'host-observation' ? evaluateHostBackup(health) : config.backupSource === 'verified-runs'
       ? evaluateVerifiedBackup(config, health, deps)
       : await evaluateBackup(config, deps),
     disk: probeDisk(config, deps),
