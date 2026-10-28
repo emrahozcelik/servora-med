@@ -151,16 +151,15 @@ never consults the adoption record.
 Node 22 / macOS. Wired into `server-tests` in
 `ops/local-ci/chains/server-chain-user.sh` and into the GitHub `server` job.
 
-Pure binding (13): valid record accepted; original identity unchanged and
-adopted archive distinct; content-manifest contradiction; different OLD
-release; renamed original digest; non-preserved catalog; foreign machine;
-attestation outside the grant window; baseline completed after attestation;
-baseline claiming restore acceptance; missing static verification; different
-database; extra/missing keys; adopted archive reusing the original digest;
-baseline id outside the authorised slot; target binding mismatch.
+Pure binding (15): valid record accepted; content-manifest contradiction;
+different OLD release; renamed original digest; non-preserved catalog; foreign
+machine; attestation outside the grant window; baseline completed after
+attestation; baseline claiming restore acceptance; missing static verification;
+different database; extra/missing keys; adopted archive reusing the original
+digest; baseline id outside the authorised slot; target binding mismatch.
 
 Host boundary, in-memory Linux fixture that executes the real controller and the
-real protected readers (16): deploy user cannot issue; administrator seals
+real protected readers (14): deploy user cannot issue; administrator seals
 exclusively and the record is byte-exact; `tar --compare` and
 `pg_restore --list` are actually invoked; retained archive present; another
 attempt owns the host; an admission record exists; archive member list differs;
