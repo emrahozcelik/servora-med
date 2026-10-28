@@ -206,7 +206,7 @@ ci_docker run --rm --platform "$WEB_PLATFORM" --ulimit nofile=65536:65536 --name
 printf '%s\n' "$web_chain_code" >"$LOGS/aux/web-chain.exit"
 
 echo "=== [3/5] benchmark smoke ==="
-ci_docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
+ci_docker run --rm --platform linux/amd64 -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
   node /repo/ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke >"$LOGS/benchmark-smoke.log" 2>&1 \
   && echo 0 >"$LOGS/benchmark-smoke.exit" || echo "$?" >"$LOGS/benchmark-smoke.exit"
 
