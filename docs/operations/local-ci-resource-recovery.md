@@ -289,6 +289,10 @@ and [Lima additional disks](https://lima-vm.io/docs/config/disk/).
 
 ## 9. Recreating a retired CI profile
 
+For the retained Phase 1 optimization profile and its persistent caches, see
+[local CI caches](local-ci-caches.md). That task retains the profile/data disk;
+normal per-run cleanup still removes only its temporary owned resources.
+
 Retirement discards one-time VM setup as well as images. Before the next CI:
 
 1. Use Node 22 on the operator host and provision the exact `true` Docker

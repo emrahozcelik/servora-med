@@ -36,6 +36,7 @@ check server-shellcheck -- shellcheck -x \
   ../ops/local-ci/verify-evidence.sh \
   ../ops/local-ci/lib/evidence.sh \
   ../ops/local-ci/lib/resource-cleanup.sh \
+  ../ops/local-ci/lib/cache.sh \
   ../ops/local-ci/lib/ssh-files.sh \
   ../ops/scripts/backup-postgres.sh \
   ../ops/scripts/backup-observation.sh \
