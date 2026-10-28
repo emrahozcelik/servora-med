@@ -47,7 +47,7 @@ export async function adoptionHost(f) {
   const add=(path,data,mode=0o600)=>{
     files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1});
     let parent=path.slice(0,path.lastIndexOf('/'));
-    while(parent){if(!directories.has(parent))directories.set(parent,0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
+    while(parent){if(!directories.has(parent))directories.set(parent,parent.startsWith(state+'/')?0o700:0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
   };
   const info=path=>{
     path=posix.normalize(path);
@@ -130,7 +130,7 @@ export async function adoptionHost(f) {
     FragmentPath:'/etc/systemd/system/servora-med.service',DropInPaths:'',
     ExecStart:'{ path=/usr/bin/node ; argv[]=/usr/bin/node dist/index.js ; ignore_errors=no ; mock=yes }',
     EnvironmentFiles:'/etc/servora-med/servora-med.env (ignore_errors=no)',NeedDaemonReload:'no',Restart:'on-failure'};
-  const host={fs:fakeFs,fds,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
+  const host={fs:fakeFs,fds,properties,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
   host.dumpLedger='COPY public.schema_migrations (version, applied_at) FROM stdin;\n'
     +f.context.approval.oldCatalog.map(entry=>entry.version+'\t2026-10-12 09:00:00+00').join('\n')+'\n\\.\n';
   host.child={spawn:()=>{throw new Error('unexpected subprocess');},execFileSync:(file,args,options)=>{

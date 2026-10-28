@@ -364,3 +364,24 @@ test('a trailing newline cannot select a different baseline directory',()=>{
   const f=fixture();f.record.baselineId=f.baseline.baselineId+='\n';
   rejects(f,/RECOVERY_INSTALLED_OLD_ADOPTION_INVALID/);
 });
+
+test('issuance rejects pending recovery before loading any potentially reconciling attempt helper',async t=>{
+  const host=await refuses(t,(host,f)=>{
+    host.add('/var/lib/servora-med/deploy/active.json',JSON.stringify({attemptId:f.context.approval.attemptId,
+      approvalSha256:f.context.approvalSha256})+'\n');
+    host.add('/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf','[Service]\nRestart=no\n');
+    host.properties.NeedDaemonReload='yes';
+  },/RECOVERY_ADOPTION_STATE_NOT_EMPTY/);
+  assert.equal(host.commands.some(([file])=>file==='/usr/bin/systemctl'),false);
+});
+
+test('an empty but untrusted recovery directory is not an empty trusted namespace',async t=>{
+  await refuses(t,host=>host.directories.set('/var/lib/servora-med/deploy/initializations',0o755),
+    /RECOVERY_ADOPTION_STATE_UNTRUSTED/);
+});
+
+test('orphan R4 backup or log history blocks first-cutover issuance',async t=>{
+  for(const relative of ['backups/orphan.dump','logs/orphan.log'])
+    await refuses(t,host=>host.add('/var/lib/servora-med/deploy/'+relative,'unowned history'),
+      /RECOVERY_ADOPTION_STATE_NOT_EMPTY/);
+});

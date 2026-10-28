@@ -390,7 +390,9 @@ installed tools, refuses an absent host.lock (no implicit bootstrap), acquires
 the ordinary nonblocking stable host lock on descriptor 9, sanitizes the Node
 environment and invokes `issueInstalledOldAdoption()`. The API independently
 checks the named/inherited inode and confirms/acquires its kernel lock before
-reading any attempt state. A concurrent deploy/admit/recovery/maintenance phase
+reading any attempt state. Pending recovery and nonempty/untrusted private R4
+namespaces are rejected before `loadAttempt()` can enter a reconciliation path.
+A concurrent deploy/admit/recovery/maintenance phase
 therefore excludes issuance; exclusive creation also prevents double publication.
 
 The root administrator must review the baseline's actual capture identity,

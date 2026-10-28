@@ -106,14 +106,21 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
   // One exclusive permanent host slot. Partial publication burns reuse too;
   // there is no renewal, overwrite, journal repair or deploy-user issuance.
   if (existsSync(ADOPTION_FILE)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
-  const context = loadAttempt(attemptId), {approval,profile} = context;
+  // Reject pending state before loadAttempt: its normal deployment recovery
+  // path can reconcile checkpoint residues in a pending systemd window.
   for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
     '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
     if (existsSync(path)) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
-  for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs']) {
-    if (existsSync(path) && readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+  for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs',
+    STATE_ROOT+'/backups',STATE_ROOT+'/logs']) {
+    if (!existsSync(path)) continue;
+    const info = lstatSync(path);
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
+    if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
+  const context = loadAttempt(attemptId), {approval,profile} = context;
   const root = '/opt/servora-med/releases/'+ADOPTABLE_OLD;
   const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
   if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== ADOPTABLE_OLD

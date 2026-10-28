@@ -37,7 +37,9 @@ all packages with similar names.
 
 Issuance requires the reviewed root profile/contracts, the OLD current/env
 identity and marker, no retained original archive, no active owner/barrier/start
-permit/recovery drop-in, and empty R4 attempts/initializations/admission proofs.
+permit/recovery drop-in, and empty, trusted 0700 R4 attempts/initializations/
+admission-proofs/backups/logs namespaces. These raw filesystem guards run before
+`loadAttempt()` so issuance cannot enter its checkpoint-reconciliation paths.
 The administrator independently reviews all inputs through a separate root
 channel. The deploy identity receives no issuer capability.
 
@@ -109,7 +111,7 @@ migration. Adoption does not undo that separate reader compatibility boundary.
 
 ## Verification
 
-- 40 adoption regressions: binding, root authority, ledger parsing, grant/UUID
+- 43 adoption regressions: binding, root authority, ledger parsing, grant/UUID
   replay, protected-file metadata, torn publication, controller restart,
   consumed versus unconsumed authority, subsequent strict releases, pre-
   migration abort and post-migration forward-only/start-budget rules.
