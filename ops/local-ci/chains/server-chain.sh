@@ -44,6 +44,7 @@ grep PRETTY_NAME /etc/os-release | tee -a /logs/aux/stage-a.log
 bash /chains/verify-log-permissions.sh >>/logs/aux/stage-a.log 2>&1
 
 rm -rf /work && cp -a /repo /work
+SERVORA_R4_ISOLATED_CLI_TEST=1 node --test /work/ops/tests/installed-old-adoption-cli-root.test.mjs > /logs/aux/installed-old-adoption-cli-root.log 2>&1
 cp /chains/static-syntax.sh /work/ops-local-ci-static-syntax.sh
 cp /chains/dep-smoke.sh /work/ops-local-ci-dep-smoke.sh
 cp /chains/server-chain-user.sh /work/ops-local-ci-stage-b.sh

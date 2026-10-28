@@ -62,6 +62,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/predeploy-backup-launcher.sh \
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
@@ -95,6 +96,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/predeploy-backup-launcher.sh \
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
@@ -194,7 +196,7 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
-      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/trusted-approval.test.mjs
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs
       - run: npm audit --audit-level=high
 
   web:

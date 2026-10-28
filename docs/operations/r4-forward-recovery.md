@@ -63,9 +63,11 @@ integrity and bind the request, not cryptographic independent CI authenticity.
 The existing wrapper additionally accepts `--attempt-id UUID`. A migration
 requires an explicit grant **and** `--allow-migrations`. Attempt-bound mode
 requires local CI and a prebuilt artifact; it cannot rebuild a Mac runtime.
-Before transfer the fixed read-only host `attempt-preflight` phase checks the
+Before transfer the fixed host `attempt-preflight` phase checks the
 OLD database/release and returns a non-secret approved SHA/tree/artifact/CI/host
 projection. The operator compares every field against verified local inputs.
+`attempt-preflight` belongs to an authorized deployment workflow: it can reconcile
+initialization/handoff state and is not a read-only inventory command.
 A working existing Playwright 1.55.1/Chromium launch remains an operator
 prerequisite. No browser is installed on the VPS or recovery VM by this feature.
 
@@ -362,3 +364,57 @@ bootstrap before production use. Production NO-GO, A3, BR5 enablement, restore
 acceptance and deployment authorization remain separate. Historical root tests on the now-retired
 `lima-servora-tt-a-amd64-20261026` fixture are a bounded authority/filesystem/reboot
 acceptance, not full database/artifact/smoke/observation R4 release acceptance.
+
+## Issue #369 first-cutover administrator attestation
+
+OPS-R4-001 permits exactly one installed-OLD adoption for the missing original
+`71ae6df6…` archive. This explicitly qualifies the original archive-retention
+prerequisite above for that first cutover only. A corrupt present archive,
+another OLD, another catalog, or another grant cannot use it. Preserve the
+original marker/digest; preserve the adoption record permanently after use.
+The original archive remains unavailable; a recovery package is a different
+provenance claim, not proof that the missing bytes were recovered.
+
+After separately approved host bootstrap and independent review of the final
+TARGET source/artifact/CI, an administrator can install the reviewed
+`ops/scripts/issue-installed-old-adoption.sh` as
+`/usr/local/libexec/servora-med/issue-installed-old-adoption`, root:root **0750**.
+Compare its SHA-256 to the reviewed source before installation. The five modules
+and shared lock library keep their existing root ownership and pinned contracts.
+Do not add this command, Node, a shell or an issuer to the deploy user's sudoers.
+Installing or invoking it on production requires separate explicit authority.
+
+The CLI accepts exactly two arguments, the existing grant UUID and protected
+baseline ID. It has no path, clock, permission or force selector. It validates the
+installed tools, refuses an absent host.lock (no implicit bootstrap), acquires
+the ordinary nonblocking stable host lock on descriptor 9, sanitizes the Node
+environment and invokes `issueInstalledOldAdoption()`. The API independently
+checks the named/inherited inode and confirms/acquires its kernel lock before
+reading any attempt state. Pending recovery and nonempty/untrusted private R4
+namespaces are rejected before `loadAttempt()` can enter a reconciliation path.
+A concurrent deploy/admit/recovery/maintenance phase
+therefore excludes issuance; exclusive creation also prevents double publication.
+
+The root administrator must review the baseline's actual capture identity,
+database dump, configuration, rollback boundaries and separate archive digest.
+The issuer rehashes every protected payload, walks the installed immutable tree,
+checks exact tar members/types and `tar --compare`, lists the dump, and reads only
+`schema_migrations` from the archive into memory to compare its sorted ledger
+with OLD. It never executes that SQL or connects to a database. These checks
+remain required each time the adoption proves OLD. `pg_restore --list` alone
+would prove TOC readability, not ledger equality or restore acceptance.
+
+A sealed record binds that same grant only. It cannot renew an unconsumed grant
+across expiry/reboot, change a consumed attempt's budgets, authorize another UUID,
+or recreate an aborted attempt. Torn publication burns the slot and needs a
+separate operator decision; deleting/resealing it is not a retry procedure.
+After the first transition, the ordinary TARGET archive becomes the next OLD's
+strict retained archive. Do not remove these pins until a separate reviewed
+retirement verifies the completed cutover and retained evidence.
+
+Adoption does not make v2 observation readable by v1. TARGET's predeploy writer
+may publish `running` in v2 before dump completion, so schema still being 055 is
+not by itself proof that operational rollback to the v1 reader is healthy.
+Migration intent/commit still has its existing abort/forward-only rules; the
+fresh candidate PRE backup, scheduled v2 event and postdeploy acceptance remain
+mandatory. This recovery baseline does not replace any of those receipts.
