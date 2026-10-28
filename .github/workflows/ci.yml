@@ -194,7 +194,7 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
-      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/trusted-approval.test.mjs
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs
       - run: npm audit --audit-level=high
 
   web:

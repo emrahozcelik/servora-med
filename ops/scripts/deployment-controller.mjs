@@ -2,13 +2,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
-  OBSERVATION_SECONDS, publishRootAdmissionConfirmation } from './deployment-attempt.mjs';
+  OBSERVATION_SECONDS, publishRootAdmissionConfirmation, validateApprovalStructure,
+  validateApproval } from './deployment-attempt.mjs';
 import { elapsedTime, sampleTrustedTime } from './trusted-time.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
   symlinkSync, mkdirSync, readdirSync, readlinkSync, readSync, writeSync, linkSync } from 'node:fs';
 import { parseCanonicalRecord } from './deployment-attempt.mjs';
 import { classifyMigrationState } from './migration-reconciliation.mjs';
+import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -21,6 +23,156 @@ const STATE_ROOT = '/var/lib/servora-med/deploy';
 const PERMIT_DIRECTORY = '/run/servora-med-recovery';
 const PERMIT_FILE = `${PERMIT_DIRECTORY}/start.permit`;
 const PG_RESTORE_BIN = '/usr/bin/pg_restore';
+
+// Owner-authorized Issue #369 first cutover only. This does not redefine the
+// original artifact, or add an operator-selected compatibility mode.
+const ADOPTION_FILE = STATE_ROOT+'/installed-old-adoption.json';
+const BASELINE_ROOT = '/var/lib/servora-med-recovery-baselines';
+const ADOPTABLE_OLD = '71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
+const ORIGINAL_OLD_ARTIFACT = '6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
+const ORIGINAL_OLD_CATALOG = 'd285479365412eaf25133adec8853be75cb97ac87a46980b814e5321333ee62d';
+const jsonDigest = value => digest(JSON.stringify(value)+'\n');
+const ADOPTION_KEYS = ['formatVersion','kind','attemptId','approvalSha256','profileSha256','machineId',
+  'oldReleaseSha','originalArtifactSha256','oldCatalogSha256','oldContentManifestSha256',
+  'targetReleaseSha','targetTreeSha','targetArtifactSha256','baselineId','baselineManifestSha256',
+  'adoptedArchiveSha256','databaseDumpSha256','attestedTime'];
+
+/** Pure binding check; callers must obtain records through root-private readers. */
+export function validateInstalledOldAdoption(record, context, baseline, baselineSha256) {
+  const fail = () => { throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID'); };
+  const {approval,approvalSha256,profile} = context;
+  validateApprovalStructure(approval);
+  if (!record || Object.keys(record).length !== ADOPTION_KEYS.length
+    || ADOPTION_KEYS.some(key=>!Object.hasOwn(record,key)) || record.formatVersion !== 1
+    || record.kind !== 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER'
+    || approval.oldReleaseSha !== ADOPTABLE_OLD || approval.oldArtifactSha256 !== ORIGINAL_OLD_ARTIFACT
+    || jsonDigest(approval.oldCatalog) !== ORIGINAL_OLD_CATALOG
+    || record.attemptId !== approval.attemptId || record.approvalSha256 !== approvalSha256
+    || record.profileSha256 !== approval.profileSha256 || record.machineId !== profile.machineId
+    || record.oldReleaseSha !== approval.oldReleaseSha || record.originalArtifactSha256 !== approval.oldArtifactSha256
+    || record.oldCatalogSha256 !== jsonDigest(approval.oldCatalog)
+    || record.targetReleaseSha !== approval.releaseSha || record.targetTreeSha !== approval.treeSha
+    || record.targetArtifactSha256 !== approval.artifactSha256
+    || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record.baselineId)
+    || record.baselineManifestSha256 !== baselineSha256
+    || ['approvalSha256','profileSha256','oldCatalogSha256','oldContentManifestSha256',
+      'targetArtifactSha256','baselineManifestSha256','adoptedArchiveSha256','databaseDumpSha256']
+      .some(key=>typeof record[key] !== 'string' || !/^[0-9a-f]{64}$/.test(record[key]))) fail();
+  // Attestation proves a historical root action inside this grant's original
+  // window. It never re-anchors current approval age or consumed-attempt scope.
+  validateApproval(approval,record.attestedTime);
+  if (!baseline || baseline.formatVersion !== 1 || baseline.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
+    || baseline.baselineId !== record.baselineId || baseline.machineId !== profile.machineId
+    || baseline.sourceReleaseSha !== approval.oldReleaseSha || baseline.originalArtifactSha256 !== approval.oldArtifactSha256
+    || baseline.installedContentManifestSha256 !== record.oldContentManifestSha256
+    || jsonDigest(baseline.catalog) !== ORIGINAL_OLD_CATALOG || baseline.restoreAcceptance !== false
+    || !Number.isFinite(Date.parse(baseline.completedAtUTC))
+    || Date.parse(baseline.completedAtUTC) > Date.parse(record.attestedTime.wallAtUTC)
+    || ['dumpList','dumpCatalogExact','adoptedArchiveComparedToInstalled','configurationArchiveCompared',
+      'originalObservationAndMarkerUnchanged','appPidUnchanged'].some(key=>baseline.verifications?.[key] !== true)) fail();
+  validateDatabaseIdentity(profile.databaseIdentity); validateDatabaseIdentity(baseline.databaseIdentity);
+  if (Object.keys(profile.databaseIdentity).some(key=>profile.databaseIdentity[key] !== baseline.databaseIdentity[key])) fail();
+  for (const name of ['database.dump','installed-old-release.adopted.tar.gz','configuration.tar.gz',
+    'database-metadata.json','installed-old-content.sha256']) {
+    const entry = baseline.files?.[name];
+    if (!entry || entry.name !== name || !/^[0-9a-f]{64}$/.test(entry.sha256)
+      || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0) fail();
+  }
+  if (record.adoptedArchiveSha256 !== baseline.files['installed-old-release.adopted.tar.gz'].sha256
+    || record.adoptedArchiveSha256 === approval.oldArtifactSha256
+    || record.oldContentManifestSha256 !== baseline.files['installed-old-content.sha256'].sha256
+    || record.databaseDumpSha256 !== baseline.files['database.dump'].sha256) fail();
+  return record;
+}
+
+/** Separate administrator API, deliberately absent from the deploy CLI. */
+export function issueInstalledOldAdoption(attemptId, baselineId) {
+  if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+  if (typeof baselineId !== 'string' || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(baselineId)) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  // One exclusive permanent host slot. Partial publication burns reuse too;
+  // there is no renewal, overwrite, journal repair or deploy-user issuance.
+  if (existsSync(ADOPTION_FILE)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  const context = loadAttempt(attemptId), {approval,profile} = context;
+  for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
+    '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
+    if (existsSync(path)) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+  }
+  for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs']) {
+    if (existsSync(path) && readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+  }
+  const root = '/opt/servora-med/releases/'+ADOPTABLE_OLD;
+  const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
+  if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== ADOPTABLE_OLD
+    || tuple.schema !== approval.oldCatalog.at(-1).version
+    || existsSync(`${STATE_ROOT}/artifacts/${ADOPTABLE_OLD}.tar.gz`)
+    || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== ORIGINAL_OLD_ARTIFACT+'\n') {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  const baselineBytes = trustedFile(BASELINE_ROOT+'/'+baselineId+'/baseline-manifest.json',0o600);
+  const baseline = parseCanonicalRecord(baselineBytes.toString('utf8'));
+  const record = {formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',attemptId,
+    approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
+    oldReleaseSha:approval.oldReleaseSha,originalArtifactSha256:approval.oldArtifactSha256,
+    oldCatalogSha256:jsonDigest(approval.oldCatalog),oldContentManifestSha256:baseline.installedContentManifestSha256,
+    targetReleaseSha:approval.releaseSha,targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
+    baselineId,baselineManifestSha256:digest(baselineBytes),
+    adoptedArchiveSha256:baseline.files?.['installed-old-release.adopted.tar.gz']?.sha256,
+    databaseDumpSha256:baseline.files?.['database.dump']?.sha256,attestedTime:sampleTrustedTime()};
+  verifyAttemptCatalog(attemptId,'old');
+  verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root));
+  // The directory is protected by loadAttempt's root-private grant/profile
+  // readers. Mode is fixed by open, not by the caller's umask.
+  const fd = openSync(ADOPTION_FILE,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  try { writeFileSync(fd,JSON.stringify(record)+'\n');fsyncSync(fd); } finally {closeSync(fd);}
+  flushDirectory(STATE_ROOT);
+  validateApproval(approval,sampleTrustedTime());
+  const sealed = readProtectedRecord(ADOPTION_FILE);
+  if (sealed.sha256 !== jsonDigest(record)) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  return sealed;
+}
+
+function verifyInstalledOldBaseline(record,context,root,entries) {
+  // Validate the ID before using it as a path component, even for a sealed
+  // administrator record. No arbitrary filesystem selector is accepted.
+  if (!/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record?.baselineId)) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  const directory = BASELINE_ROOT+'/'+record.baselineId;
+  const bytes = trustedFile(directory+'/baseline-manifest.json',0o600);
+  const baseline = parseCanonicalRecord(bytes.toString('utf8'));
+  validateInstalledOldAdoption(record,context,baseline,digest(bytes));
+  const payloads = Object.entries(baseline.files);
+  if (payloads.length > 32) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  for (const [name,entry] of payloads) {
+    if (!/^[a-z0-9][a-z0-9.-]{0,99}$/.test(name) || entry?.name !== name
+      || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+    const payload = trustedFile(directory+'/'+name,0o600);
+    if (payload.length !== entry.bytes || digest(payload) !== entry.sha256) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  if (digest(trustedFile(root+'/.servora-release-content.sha256',0o600)) !== record.oldContentManifestSha256) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  const archive = directory+'/installed-old-release.adopted.tar.gz';
+  const run = args => execFileSync('/usr/bin/tar',args,{encoding:'utf8',timeout:30000,maxBuffer:8388608,
+    env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe']});
+  const names = run(['--list','--quoting-style=literal','--file',archive]).trimEnd().split('\n');
+  const types = run(['--list','--verbose','--quoting-style=literal','--file',archive]).trimEnd().split('\n');
+  const expected = new Map(entries.map(([path,line])=>[path,line[0]==='f'?'-':line[0]]));
+  expected.set('.','d');expected.set('./.servora-release-artifact.sha256','-');expected.set('./.servora-release-content.sha256','-');
+  if (names.length !== expected.size || types.length !== names.length) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  for (let index=0;index<names.length;index++) {
+    const name = names[index].replace(/\/$/,'');
+    if (!expected.has(name) || expected.get(name) !== types[index][0]) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+    expected.delete(name);
+  }
+  // Compare bytes, file types, modes, owners and symlink targets; never extract
+  // or execute the adopted archive. Missing/extra/duplicate members fail above.
+  run(['--compare','--file',archive,'--directory',root]);
+  execFileSync(PG_RESTORE_BIN,['--list',directory+'/database.dump'],{timeout:30000,maxBuffer:8388608,
+    env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe']});
+}
 
 function existsSync(path) {
   // A dangling link is an existing, untrusted resource; never treat it as
@@ -301,18 +453,8 @@ export function verifyAttemptCatalog(attemptId, direction) {
  * comparison. Every payload entry remains root-owned and non-writable by the
  * operator/service; retained archives are sealed by the root admission path.
  */
-export function verifyAttemptRelease(attemptId, direction) {
-  const {approval} = loadAttempt(attemptId);
-  if (!['old','target'].includes(direction)) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
-  const sha = direction === 'old' ? approval.oldReleaseSha : approval.releaseSha;
-  const expected = direction === 'old' ? approval.oldArtifactSha256 : approval.artifactSha256;
-  const root = '/opt/servora-med/releases/'+sha;
-  try {
-    if (digest(trustedFile(`${STATE_ROOT}/artifacts/${sha}.tar.gz`,0o600)) !== expected
-      || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== expected+'\n') {
-      throw new Error('RECOVERY_RELEASE_UNPROVEN');
-    }
-    const entries = [];
+function verifiedReleaseEntries(root) {
+  const entries = [];
     const walk = relative => {
       const path = root+'/'+relative;
       const info = lstatSync(path);
@@ -336,6 +478,30 @@ export function verifyAttemptRelease(attemptId, direction) {
     const manifest = entries.map(([,line]) => line).join('\n')+'\n';
     if (trustedFile(root+'/.servora-release-content.sha256',0o600).toString('utf8') !== manifest) {
       throw new Error('RECOVERY_RELEASE_UNPROVEN');
+    }
+  return entries;
+}
+
+export function verifyAttemptRelease(attemptId, direction) {
+  const context = loadAttempt(attemptId);
+  const {approval} = context;
+  if (!['old','target'].includes(direction)) throw new Error('RECOVERY_CONTROLLER_ARGUMENTS_INVALID');
+  const sha = direction === 'old' ? approval.oldReleaseSha : approval.releaseSha;
+  const expected = direction === 'old' ? approval.oldArtifactSha256 : approval.artifactSha256;
+  const root = '/opt/servora-med/releases/'+sha;
+  try {
+    if (trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== expected+'\n') {
+      throw new Error('RECOVERY_RELEASE_UNPROVEN');
+    }
+    const entries = verifiedReleaseEntries(root);
+    const retained = `${STATE_ROOT}/artifacts/${sha}.tar.gz`;
+    if (existsSync(retained)) {
+      // Corrupt, foreign or dangling retained archives never fall back.
+      if (digest(trustedFile(retained,0o600)) !== expected) throw new Error('RECOVERY_RELEASE_UNPROVEN');
+    } else {
+      if (direction !== 'old') throw new Error('RECOVERY_RELEASE_UNPROVEN');
+      const record = readProtectedRecord(ADOPTION_FILE).record;
+      verifyInstalledOldBaseline(record,context,root,entries);
     }
     if (direction === 'target' && digest(trustedFile(root+'/ops/scripts/deploy-production-host.sh',0o750,null))
       !== digest(trustedFile(INSTALLED+'/deploy-production-host',0o755))) throw new Error('RECOVERY_RELEASE_UNPROVEN');
