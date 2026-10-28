@@ -182,3 +182,16 @@ test('cache shell helper passes syntax and ShellCheck', () => {
     assert.equal(result.status, 0, result.stdout + result.stderr);
   }
 });
+
+test('ARM64 daemon does not change the historical amd64 web/server platforms', () => {
+  const result = spawnSync('bash', ['-c', `
+source "$1/ops/local-ci/lib/cache.sh"
+ci_docker() { echo aarch64; }
+ci_prepare_web_image() { [[ "$WEB_PLATFORM" == linux/amd64 && "$WEB_ARCH" == x64 ]]; WEB_IMAGE_ID=fixture; }
+ci_prepare_npm_volume() { [[ "$2" == linux/amd64 ]] || return 9; printf 'fixture-%s' "$1"; }
+ci_prepare_caches
+printf '%s %s %s %s' "$WEB_PLATFORM" "$WEB_ARCH" "$SERVER_NPM_CACHE" "$WEB_NPM_CACHE"
+`, 'cache-platform-fixture', repo], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'linux/amd64 x64 fixture-server fixture-web');
+});

@@ -58,9 +58,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const root = process.cwd();
   const installed = installedMetadata(root);
   if (process.argv[2] === '--record') {
-    assert.match(process.env.LOCAL_CI_IMAGE_KEY ?? '', /^[0-9a-f]{64}$/);
+    assert.match(process.env.LOCAL_CI_IMAGE_DIGEST ?? '', /^[0-9a-f]{64}$/);
     fs.writeFileSync('/opt/servora-playwright/os-packages.txt', execFileSync('dpkg-query', ['-W']));
-    fs.writeFileSync(metadataPath, JSON.stringify({ imageKey: process.env.LOCAL_CI_IMAGE_KEY, installed, system: systemMetadata() }) + '\n', { flag: 'wx' });
+    fs.writeFileSync(metadataPath, JSON.stringify({ imageKey: process.env.LOCAL_CI_IMAGE_DIGEST, installed, system: systemMetadata() }) + '\n', { flag: 'wx' });
   } else {
     const require = createRequire(path.join(root, 'package.json'));
     const image = JSON.parse(fs.readFileSync(metadataPath));

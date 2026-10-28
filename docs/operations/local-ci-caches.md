@@ -10,7 +10,7 @@ Use the [resource recovery runbook](local-ci-resource-recovery.md) §1 and §9
 before starting. The authorized optimization environment is a new `true`
 profile: native ARM64 VZ VM, Docker, 3 CPUs, 4 GiB RAM, 40 GiB Docker data disk,
 Kubernetes disabled, installed Rosetta for existing linux/amd64 server checks.
-The native web platform remains unchanged. Colima also has a separate default
+Both server and web containers remain linux/amd64. Colima also has a separate default
 20 GiB root disk; the 40 GiB setting is its Docker data disk.
 
 For a missing profile/context only, after verifying that neither name nor disk
@@ -39,8 +39,11 @@ No global prune or automatic stale-cache retirement is part of this change.
 ## Browser image
 
 `ops/local-ci/images/web.Dockerfile` keeps Node 22 on Debian Bookworm. Its
-multiarch base is pinned by version and digest. The existing native daemon
-architecture determines the web platform; the server remains linux/amd64.
+multiarch base is pinned by version and digest. The native ARM64 guest runs
+both chains as linux/amd64, preserving the measured baseline.
+The historical `d6bb648` browser-install log explicitly contains amd64 apt
+packages and x86 browser downloads; daemon architecture alone does not prove
+the platform of an implicitly selected, locally cached image.
 
 The image key hashes the platform and exact bytes of:
 

@@ -19,7 +19,7 @@ ci_prepare_web_image() {
     # Send only exact-export image inputs, never an operator's working tree.
     tar -C "$EXPORT_DIR" -c web/package.json web/package-lock.json ops/local-ci/images/web.Dockerfile ops/local-ci/browser-availability.mjs \
       | colima ssh --profile true -- docker --host unix:///var/run/docker.sock build --provenance=false --load \
-        --platform "$WEB_PLATFORM" --build-arg "LOCAL_CI_IMAGE_KEY=$WEB_IMAGE_KEY" \
+        --platform "$WEB_PLATFORM" --build-arg "LOCAL_CI_IMAGE_DIGEST=$WEB_IMAGE_KEY" \
         --label "com.servora.local-ci.cache=web-image" --label "com.servora.local-ci.cache-key=$WEB_IMAGE_KEY" \
         -t "$tag" -f ops/local-ci/images/web.Dockerfile - || return 1
     WEB_IMAGE_ID="$(ci_docker image inspect --format '{{.Id}}' "$tag")" || return 1
@@ -55,15 +55,10 @@ ci_prepare_npm_volume() {
 }
 
 ci_prepare_caches() {
-  local arch
-  arch="$(ci_docker info --format '{{.Architecture}}')" || return 1
-  case "$arch" in
-    aarch64|arm64) WEB_ARCH=arm64 ;;
-    x86_64|amd64) WEB_ARCH=x64 ;;
-    *) echo 'LOCAL_CI_CACHE_FAILED reason=UNSUPPORTED_DAEMON_ARCH' >&2; return 1 ;;
-  esac
-  WEB_PLATFORM=linux/arm64
-  [[ "$WEB_ARCH" != x64 ]] || WEB_PLATFORM=linux/amd64
+  # d6bb648's apt/browser logs prove an amd64 web container. Preserve that
+  # platform explicitly; a native ARM64 daemon must not change the benchmark.
+  WEB_ARCH=x64
+  WEB_PLATFORM=linux/amd64
   ci_prepare_web_image || return 1
   # shellcheck disable=SC2034 # Cache names consumed by run.sh.
   SERVER_NPM_CACHE="$(ci_prepare_npm_volume server linux/amd64 node:22-bookworm 1000)" || return 1
