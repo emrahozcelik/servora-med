@@ -20,6 +20,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$SCRIPT_DIR/lib/evidence.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/resource-cleanup.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/cache.sh"
 
 # Helpers are sourceable for focused tests without executing CI.
 
@@ -177,27 +179,34 @@ EXPORT_DIR="$(mktemp -d "$BUNDLE/tree-export.XXXXXX")"
 EXPORT_CREATED=true
 git -C "$REPO" archive "$SHA" | tar -x -C "$EXPORT_DIR"
 
+echo '=== persistent browser image and npm download caches ==='
+ci_prepare_caches >"$LOGS/aux/cache-preparation.log" 2>&1
+cat "$LOGS/aux/cache-preparation.log"
+
 server_chain_code=0
 echo "=== [1/5] server chain (node:22 + postgres:17) ==="
 ci_docker run --platform linux/amd64 --rm --network "$NET_ID" --name "servora-localci-server-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
+  --mount "type=volume,source=$SERVER_NPM_CACHE,target=/npm-cache" -e npm_config_cache=/npm-cache \
   node:22-bookworm bash /chains/server-chain.sh 2>&1 | tee "$LOGS/aux/server-chain.stdout.log" || server_chain_code=$?
 printf '%s\n' "$server_chain_code" >"$LOGS/aux/server-chain.exit"
 
 web_chain_code=0
 echo "=== [2/5] web chain (node:22) ==="
-ci_docker run --rm --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID" \
+ci_docker run --rm --platform "$WEB_PLATFORM" --ulimit nofile=65536:65536 --name "servora-localci-web-$RUN_ID" \
   -v "$EXPORT_DIR:/repo:ro" \
   -v "$LOGS:/logs" \
   -v "$SCRIPT_DIR/chains:/chains:ro" \
   -e LOCAL_CI_SHA="$SHA" \
-  node:22-bookworm bash /chains/web-chain.sh 2>&1 | tee "$LOGS/aux/web-chain.stdout.log" || web_chain_code=$?
+  -e LOCAL_CI_WEB_IMAGE_KEY="$WEB_IMAGE_KEY" -e LOCAL_CI_WEB_ARCH="$WEB_ARCH" \
+  --mount "type=volume,source=$WEB_NPM_CACHE,target=/npm-cache" -e npm_config_cache=/npm-cache \
+  "$WEB_IMAGE_ID" bash /chains/web-chain.sh 2>&1 | tee "$LOGS/aux/web-chain.stdout.log" || web_chain_code=$?
 printf '%s\n' "$web_chain_code" >"$LOGS/aux/web-chain.exit"
 
 echo "=== [3/5] benchmark smoke ==="
-ci_docker run --rm -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
+ci_docker run --rm --platform linux/amd64 -v "$EXPORT_DIR:/repo:ro" node:22-bookworm \
   node /repo/ops/benchmarks/auth-kdf-benchmark.mjs --mode=smoke >"$LOGS/benchmark-smoke.log" 2>&1 \
   && echo 0 >"$LOGS/benchmark-smoke.exit" || echo "$?" >"$LOGS/benchmark-smoke.exit"
 

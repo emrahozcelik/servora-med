@@ -72,7 +72,7 @@ const COMMANDS = {
   'web-build': 'npm ci + build with VITE_SERVORA_BUILD_SHA',
   'web-bundle': 'npm run bundle:check',
   'web-tests': 'npm test -- --run (web)',
-  'web-playwright-install': 'playwright install --with-deps chromium webkit',
+  'web-playwright-install': 'lockfile/toolchain match + cached Chromium and WebKit launch/render',
   'web-smoke-dist': 'npm run smoke:production-dist',
   'web-smoke-responsive': 'npm run smoke:responsive',
   'web-geometry': 'follow-up-dialog-geometry.mjs',

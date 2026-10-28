@@ -39,6 +39,8 @@ function runnerFixture() {
   const repo = join(dir, 'repo');
   const ci = join(repo, 'ops/local-ci');
   cpSync(join(root, 'ops/local-ci'), ci, { recursive: true });
+  // Cache lifecycle has its own Docker-boundary regressions in ci-cache.test.mjs.
+  writeFileSync(join(ci, 'lib/cache.sh'), 'ci_prepare_caches() { WEB_PLATFORM=linux/arm64; WEB_ARCH=arm64; WEB_IMAGE_KEY=fixture; WEB_IMAGE_ID=fixture; SERVER_NPM_CACHE=fixture-server; WEB_NPM_CACHE=fixture-web; }\n');
   mkdirSync(join(repo, 'server'));
   mkdirSync(join(dir, 'bin'));
   const binary = (name: string, content: string) => writeFileSync(join(dir, 'bin', name), `#!/bin/bash\n${content}\n`, { mode: 0o755 });

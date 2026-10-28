@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Web chain for ops/local-ci/run.sh — reproduces the CI `web` job.
-# Runs inside node:22-bookworm with /repo (exact tree, ro) and /logs (rw).
+# Runs inside the lockfile-keyed Node 22 Bookworm browser image.
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export HOME=/root
@@ -35,7 +35,7 @@ if ! grep -q "$SHA" dist/assets/*.js; then
 fi
 check web-bundle -- bash -c 'npm run bundle:check'
 check web-tests -- bash -c 'npm test -- --run'
-check web-playwright-install -- bash -c 'npx playwright install --with-deps chromium webkit'
+check web-playwright-install -- node ../ops/local-ci/browser-availability.mjs
 check web-smoke-dist -- bash -c 'npm run smoke:production-dist'
 check web-smoke-responsive -- bash -c 'npm run smoke:responsive'
 check web-geometry -- bash -c 'node scripts/follow-up-dialog-geometry.mjs'
