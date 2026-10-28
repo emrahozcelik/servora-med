@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import { validateInstalledOldAdoption, issueInstalledOldAdoption } from '../scripts/deployment-controller.mjs';
-import { approvalFixture, timeEvidenceAt } from './trusted-time-fixture.mjs';
-import {adoptionHost} from './installed-old-adoption-fixture.mjs';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
+import {adoptionHost,adoptionFixture as fixture} from './installed-old-adoption-fixture.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const jsonHash = value => hash(JSON.stringify(value)+'\n');
@@ -14,29 +16,6 @@ const directory = new URL('../../server/src/db/migrations/',import.meta.url);
 const catalog = readdirSync(directory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,55)
   .map(name=>({version:name.slice(0,-4),sha256:hash(readFileSync(new URL(name,directory)))}));
 
-function fixture() {
-  const approval={...approvalFixture(),oldReleaseSha:oldSha,oldArtifactSha256:original,
-    oldCatalog:catalog,targetCatalog:catalog};
-  const databaseIdentity={clusterId:'1',databaseName:'servora_med_test_adoption',databaseOid:'1',role:'servora_app',host:'127.0.0.1',port:5432};
-  const profile={machineId:'1'.repeat(32),databaseIdentity};
-  const baseline={formatVersion:1,kind:'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT',
-    baselineId:'20261012T090000Z-issue369-71ae6df6',createdAtUTC:approval.issuedAtUTC,completedAtUTC:approval.issuedAtUTC,
-    machineId:profile.machineId,sourceReleaseSha:oldSha,originalArtifactSha256:original,
-    installedContentManifestSha256:'5'.repeat(64),databaseIdentity,catalog,restoreAcceptance:false,
-    verifications:{dumpList:true,dumpCatalogExact:true,adoptedArchiveComparedToInstalled:true,configurationArchiveCompared:true,originalObservationAndMarkerUnchanged:true,appPidUnchanged:true},
-    files:Object.fromEntries(['database.dump','installed-old-release.adopted.tar.gz','configuration.tar.gz','database-metadata.json','installed-old-content.sha256'].map(name=>[name,{name,sha256:'6'.repeat(64),bytes:10}]))};
-  const context={approval,approvalSha256:'4'.repeat(64),profile};
-  baseline.files['installed-old-content.sha256'].sha256=baseline.installedContentManifestSha256;
-  const record={formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',attemptId:approval.attemptId,
-    approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
-    oldReleaseSha:oldSha,originalArtifactSha256:original,oldCatalogSha256:jsonHash(catalog),
-    oldContentManifestSha256:baseline.installedContentManifestSha256,targetReleaseSha:approval.releaseSha,
-    targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
-    baselineId:baseline.baselineId,baselineManifestSha256:jsonHash(baseline),
-    adoptedArchiveSha256:baseline.files['installed-old-release.adopted.tar.gz'].sha256,
-    databaseDumpSha256:baseline.files['database.dump'].sha256,attestedTime:timeEvidenceAt()};
-  return {record,context,baseline,baselineSha256:jsonHash(baseline)};
-}
 
 test('first cutover accepts one root-sealed exact OLD/baseline binding without replacing original identity',()=>{
   const {record,context,baseline,baselineSha256}=fixture();
@@ -210,7 +189,7 @@ test('a sealed adoption is permanent and cannot be reissued',async t=>{
 
 test('a partially published adoption burns the slot instead of being repaired',async t=>{
   // A crash between exclusive create and fsync leaves an unusable record. The
-  // operator cannot renew, overwrite or repair it; a new grant is required.
+  // operator cannot renew, overwrite or repair it; a separate decision is required.
   const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
   host.add(host.recordFile,'{"formatVersion":1,"kind":"ADOPTED_INST');
   assert.throws(()=>host.controller.issueInstalledOldAdoption(f.context.approval.attemptId,f.baseline.baselineId),
@@ -232,4 +211,156 @@ test('OLD verification never falls back to adoption when the retained archive is
   host.add('/var/lib/servora-med/deploy/artifacts/'+oldSha+'.tar.gz','not the approved bytes',0o600);
   assert.throws(()=>host.controller.verifyAttemptRelease(f.context.approval.attemptId,'old'),
     /RECOVERY_RELEASE_UNPROVEN/);
+});
+
+test('adoption independently refuses a dump ledger differing from OLD despite true manifest flags',async t=>{
+  await refuses(t,host=>{host.dumpLedger='COPY public.schema_migrations (version, applied_at) FROM stdin;\n001_foreign\t2026-10-12\n\\.\n';},
+    /RECOVERY_BASELINE_DUMP_CATALOG_MISMATCH/);
+});
+
+test('malformed, duplicate and missing dump ledger blocks never pass the static catalogue flag',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  const valid=host.dumpLedger;
+  for(const invalid of ['',valid+valid,valid.replace('001_', '999_'),
+    valid.replace('\\.\n',''),valid.replace('version, applied_at','applied_at, version'),
+    valid.replace(/\n001_[^\n]+\n/,'\n')]) {
+    host.dumpLedger=invalid;
+    assert.throws(()=>host.controller.issueInstalledOldAdoption(f.context.approval.attemptId,f.baseline.baselineId),
+      /RECOVERY_BASELINE_DUMP_CATALOG_MISMATCH/);
+    assert.equal(host.files.has(host.recordFile),false);
+  }
+});
+
+test('another UUID or a rewritten grant cannot replay a sealed OLD adoption',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  const id=f.context.approval.attemptId;
+  host.controller.issueInstalledOldAdoption(id,f.baseline.baselineId);
+  const sealed=Buffer.from(host.files.get(host.recordFile).data);
+  const foreignId='22222222-2222-4222-8222-222222222222';
+  host.add('/var/lib/servora-med/deploy/approvals/'+foreignId+'.json',
+    JSON.stringify({...f.context.approval,attemptId:foreignId})+'\n');
+  assert.throws(()=>host.controller.verifyAttemptRelease(foreignId,'old'),/RECOVERY_RELEASE_UNPROVEN/);
+  host.add('/var/lib/servora-med/deploy/approvals/'+id+'.json',
+    JSON.stringify({...f.context.approval,maxStarts:1})+'\n');
+  assert.throws(()=>host.controller.verifyAttemptRelease(id,'old'),/RECOVERY_RELEASE_UNPROVEN/);
+  assert.deepEqual(host.files.get(host.recordFile).data,sealed);
+});
+
+test('foreign ownership, permissions, links and torn root records cannot establish OLD proof',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  const id=f.context.approval.attemptId;
+  host.controller.issueInstalledOldAdoption(id,f.baseline.baselineId);
+  const valid=host.files.get(host.recordFile);
+  for(const drift of [{uid:1001},{gid:1001},{mode:0o644},{nlink:2},{data:Buffer.from('{')},
+    {data:Buffer.from(valid.data.toString().trimEnd())}]) {
+    host.files.set(host.recordFile,{...valid,...drift});
+    assert.throws(()=>host.controller.verifyAttemptRelease(id,'old'),/RECOVERY_RELEASE_UNPROVEN/);
+  }
+  host.files.set(host.recordFile,valid);
+  assert.doesNotThrow(()=>host.controller.verifyAttemptRelease(id,'old'));
+});
+
+test('an interrupted exclusive write stays unusable across controller restart and burns reissuance',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  const id=f.context.approval.attemptId;
+  host.interruptWrite=true;
+  assert.throws(()=>host.controller.issueInstalledOldAdoption(id,f.baseline.baselineId),/simulated interruption/);
+  const torn=Buffer.from(host.files.get(host.recordFile).data);
+  host.interruptWrite=false;
+  const restarted=await host.restart();
+  assert.throws(()=>restarted.verifyAttemptRelease(id,'old'),/RECOVERY_RELEASE_UNPROVEN/);
+  assert.throws(()=>restarted.issueInstalledOldAdoption(id,f.baseline.baselineId),/ALREADY_SEALED/);
+  assert.deepEqual(host.files.get(host.recordFile).data,torn);
+});
+
+test('restart cannot renew an unconsumed grant; proven consumption retains only the same adoption',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  const id=f.context.approval.attemptId;
+  host.controller.issueInstalledOldAdoption(id,f.baseline.baselineId);
+  const sealed=Buffer.from(host.files.get(host.recordFile).data);
+  host.now=timeEvidenceAt(Date.parse(f.context.approval.expiresAtUTC)+1,
+    {bootId:'22222222-2222-4222-8222-222222222222',bootLowerMs:1000,bootUpperMs:1000});
+  const restarted=await host.restart();
+  assert.throws(()=>restarted.verifyAttemptRelease(id,'old'),/TIME_INVALID|TRUSTED_TIME_UNKNOWN/);
+  const initial=host.attempt.initialAttempt(f.context,f.record.attestedTime);
+  const proof=host.attempt.admissionConfirmation(f.context,initial,f.record.attestedTime);
+  host.add('/var/lib/servora-med/deploy/attempts/'+id+'/0000.json',JSON.stringify(initial)+'\n');
+  host.add('/var/lib/servora-med/deploy/admission-proofs/'+id+'.json',JSON.stringify(proof)+'\n');
+  host.directories.set('/var/lib/servora-med/deploy/admission-proofs',0o700);
+  const before=new Map([...host.files].map(([path,file])=>[path,Buffer.from(file.data)]));
+  assert.doesNotThrow(()=>restarted.verifyAttemptRelease(id,'old'));
+  for(const [path,bytes] of before)assert.deepEqual(host.files.get(path).data,bytes,'verification must remain read-only');
+  assert.deepEqual(host.files.get(host.recordFile).data,sealed);
+  assert.throws(()=>restarted.issueInstalledOldAdoption(id,f.baseline.baselineId),/ALREADY_SEALED/);
+});
+
+test('a subsequent release requires its normal retained artifact even while the adoption slot remains',async t=>{
+  const f=fixture(),bytes='next normal OLD artifact';
+  f.context.approval.oldReleaseSha='e'.repeat(40);
+  f.context.approval.oldArtifactSha256=hash(bytes);
+  const host=await adoptionHost(f);t.after(host.cleanup);
+  host.add(host.recordFile,JSON.stringify(f.record)+'\n');
+  const retained='/var/lib/servora-med/deploy/artifacts/'+f.context.approval.oldReleaseSha+'.tar.gz';
+  host.add(retained,bytes);
+  assert.doesNotThrow(()=>host.controller.verifyAttemptRelease(f.context.approval.attemptId,'old'));
+  host.files.delete(retained);
+  assert.throws(()=>host.controller.verifyAttemptRelease(f.context.approval.attemptId,'old'),/RECOVERY_RELEASE_UNPROVEN/);
+});
+
+test('an adopted OLD proof preserves pre-migration abort and post-migration forward-only budgets',async t=>{
+  const f=fixture();
+  f.context.approval.targetCatalog=readdirSync(directory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort()
+    .map(name=>({version:name.slice(0,-4),sha256:hash(readFileSync(new URL(name,directory)))}));
+  const host=await adoptionHost(f);t.after(host.cleanup);
+  const {initialAttempt,advanceAttempt,assertPreMigrationAbortCompatibility}=host.attempt;
+  const now=f.record.attestedTime,context=f.context;
+  host.controller.issueInstalledOldAdoption(context.approval.attemptId,f.baseline.baselineId);
+  host.controller.verifyAttemptRelease(context.approval.attemptId,'old');
+  const initial=initialAttempt(context,now);
+  // A synthetic distinct receipt represents the mandatory fresh TARGET backup;
+  // the adopted recovery-baseline dump does not become an R4 PRE receipt.
+  const backed=advanceAttempt(initial,context,{kind:'PREDEPLOY_BACKUP',receipt:{sha256:'8'.repeat(64),completedAtUTC:now.wallAtUTC}},now);
+  const fenced=advanceAttempt(backed,context,'FENCED',now);
+  assert.doesNotThrow(()=>assertPreMigrationAbortCompatibility(context.approval,catalog.map(e=>e.version),now));
+  const abortIntent=advanceAttempt(fenced,context,'ABORT_INTENT',now);
+  assert.equal(abortIntent.abortStarts,1);
+  const aborted=advanceAttempt(abortIntent,context,'ABORTED',now);
+  const terminal=advanceAttempt(aborted,context,'COMPLETED_ABORT',now);
+  assert.throws(()=>advanceAttempt(terminal,context,'ABORT_INTENT',now),/ATTEMPT_TRANSITION_INVALID/);
+  const baseline={organizations:1,admins:1,staff:1,customers:1,products:1,jobs:1,demoData:0};
+  const intent=advanceAttempt(fenced,context,{kind:'MIGRATION_INTENT',baseline},now);
+  const exact=advanceAttempt(intent,context,'DB_EXACT',now);
+  assert.equal(exact.migrationCommitted,true);
+  assert.throws(()=>advanceAttempt(exact,context,'ABORT_INTENT',now),/ATTEMPT_TRANSITION_INVALID/);
+  assert.throws(()=>assertPreMigrationAbortCompatibility(context.approval,context.approval.targetCatalog.map(e=>e.version),now),
+    /PRE_MIGRATION_ABORT_DB_NOT_OLD_EXACT/);
+  let target=exact;
+  for(const event of ['ENV_INTENT','ENV_ALIGNED','POINTER_INTENT','POINTER_ALIGNED','START_INTENT'])
+    target=advanceAttempt(target,context,event,now);
+  assert.equal(target.starts,1);
+  assert.throws(()=>advanceAttempt(target,context,'START_INTENT',now),/ATTEMPT_START_AMBIGUOUS/);
+  target=advanceAttempt(target,context,'START_FAILED',now);
+  target=advanceAttempt(target,context,'START_INTENT',now);
+  assert.equal(target.starts,2);
+  target=advanceAttempt(target,context,'START_FAILED',now);
+  assert.throws(()=>advanceAttempt(target,context,'START_INTENT',now),/BUDGET_EXHAUSTED/);
+});
+
+test('administrator issuance cannot race admission through an unlocked direct API call',async t=>{
+  await refuses(t,host=>host.fds.delete(9),/RECOVERY_ADOPTION_HOST_LOCK_REQUIRED/);
+});
+
+test('the administrator CLI refuses a real non-root process before reading privileged state',
+  {skip:process.getuid?.()===0?'requires an ordinary user':false},()=>{
+    const command=fileURLToPath(new URL('../scripts/issue-installed-old-adoption.sh',import.meta.url));
+    const result=spawnSync('/bin/bash',[command,'11111111-1111-4111-8111-111111111111',
+      '20261012T090000Z-issue369-71ae6df6'],{encoding:'utf8',env:{PATH:'/usr/bin:/bin',NODE_OPTIONS:'untrusted'}});
+    assert.equal(result.status,1);
+    assert.equal(result.stderr.trim(),'RECOVERY_ADOPTION_ADMIN_REQUIRED');
+    assert.equal(result.stdout,'');
+  });
+
+test('a trailing newline cannot select a different baseline directory',()=>{
+  const f=fixture();f.record.baselineId=f.baseline.baselineId+='\n';
+  rejects(f,/RECOVERY_INSTALLED_OLD_ADOPTION_INVALID/);
 });

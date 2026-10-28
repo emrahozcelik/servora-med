@@ -2125,3 +2125,38 @@ Host alerting must explicitly configure
 cannot change this source or recover a backup alarm through a UTC directory scan.
 Legacy and verified-runs remain separately declared sources. Production activation,
 configuration changes and deployment remain outside this remediation.
+
+## OPS-R4-001 — One adopted installed OLD for the Issue #369 first cutover
+
+- **Date:** 2026-10-28
+- **Status:** Owner-authorized implementation; production installation, issuance,
+  migration and deployment each remain separately gated. Production NO-GO.
+- **Scope:** A narrow exception to the retained original OLD archive prerequisite
+  in the R4 runbook; grants, journal formats, trusted time, backup freshness and
+  activation/abort budgets are unchanged.
+
+The original upload bytes for OLD `71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa`
+were not located. Preserve its original artifact marker and grant digest
+`6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672`.
+A newly captured installed-release archive has a distinct identity and must never
+be labelled the original artifact or treated as restored-system acceptance.
+
+One permanent root-private `installed-old-adoption.json` may bind an independently
+verified recovery baseline to one exact grant digest/UUID, root profile, machine,
+database, original 055 SQL catalog, installed content manifest and TARGET
+SHA/tree/artifact. An administrator-only CLI, absent from deploy sudoers, shares
+the stable host kernel lock with deployment. The API requires that same inherited
+inode/descriptor, so an unlocked direct call cannot race admission. Exclusive
+publication prevents replacement; partial state is denied and never repaired.
+
+The exception applies only when the original retained OLD archive is absent.
+Corrupt retained archives cannot fall back. Every baseline payload must hash
+correctly; the adopted archive must contain exactly the installed entry set and
+pass real byte/type/metadata comparison; its dump must list and contain the exact
+OLD ledger. Original grant time, consumption proofs and operation scopes still
+apply. Subsequent releases require their own ordinary retained artifacts.
+
+See [the first-cutover design](ISSUE369_FIRST_CUTOVER_R4_DESIGN.md) and
+[the administrator contract](docs/operations/r4-forward-recovery.md#issue-369-first-cutover-administrator-attestation).
+The explicitly authorized plaintext manual Mac recovery copy does not change
+OPS-003 or enable BR5. No production issuance is authorized by this decision.

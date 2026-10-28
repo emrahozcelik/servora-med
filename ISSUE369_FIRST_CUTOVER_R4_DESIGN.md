@@ -1,211 +1,152 @@
 # Issue #369 — First-cutover installed OLD adoption
 
-Status: **implemented in `codex/issue369-first-cutover-baseline`; not deployed.**
-Base (TARGET): `d6bb6483f983fbacaff2141355d2dfc04c5d1161`
-Installed OLD: `71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa`
-Original OLD artifact SHA-256 (preserved, never replaced):
-`6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672`
+Status: implemented for review in PR #397; **not installed or invoked on production**.
+Base main: `d6bb6483f983fbacaff2141355d2dfc04c5d1161`.
+OLD: `71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa`.
+Original archive digest, preserved:
+`6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672`.
 
-`PRODUCTION_GO=false`. Issue #369 stays OPEN. This document describes a code
-path that has not run on production; it is not deployment authorisation.
+`PRODUCTION_GO=false`; Issue #369 stays OPEN. The final PR commit is a new source
+identity. Base-main evidence cannot authorize deploying changed helper bytes.
 
-## 1. Problem
+## Authority
 
-R4 proves the OLD release by comparing a **retained upload archive**
-(`/var/lib/servora-med/deploy/artifacts/<sha>.tar.gz`) against
-`approval.oldArtifactSha256`, then walking the installed tree against its
-content marker. The 10 October upload archive no longer exists anywhere that
-was searched (`ISSUE369_OLD_ARTIFACT_DISCOVERY.tr.md` →
-`ORIGINAL_ARTIFACT_NOT_LOCATED`). The strict path therefore blocks the first
-v1→v2 cutover forever, even though the installed tree is byte-identical to its
-own root-owned content marker (8,114 files / 9,559 manifest lines verified under
-root).
+Owner-authorized OPS-R4-001 qualifies the strict retained-original-OLD contract
+for this single first cutover. The original upload archive was not located.
+The new baseline captures installed content; it does not reconstruct the
+original upload or prove restoration. Its adopted archive has its own digest.
 
-Two things must not be traded away to fix this:
+Normal format-2 grants keep `oldArtifactSha256` equal to the original digest.
+A separate administrator attestation binds the recovery baseline to that exact
+grant UUID and raw digest, profile, machine, database, original 55-entry SQL
+catalog and TARGET SHA/tree/artifact. No grant/journal is modified or resealed.
 
-* The original artifact digest and marker stay exactly as they are. The missing
-  archive is never recreated, renamed or re-declared as the original.
-* A recovery package is not a substitute for artifact provenance. It is a
-  **separate identity** with its own digest, bound to one grant, one host, one
-  database and one attempt.
+## Fixed scope and publication
 
-## 2. Design
+There is one permanent root-private slot:
+`/var/lib/servora-med/deploy/installed-old-adoption.json`.
+It is canonical JSON plus newline, format 1, kind
+`ADOPTED_INSTALLED_OLD_FIRST_CUTOVER`, root:root 0600, single-link regular file.
 
-A single, permanent host record authorises exactly one first cutover:
+The validator pins the exact OLD SHA, original digest and canonical 055 catalog
+hash `d285479365412eaf25133adec8853be75cb97ac87a46980b814e5321333ee62d`.
+The baseline ID is a constrained timestamp plus `-issue369-71ae6df6`, under the
+fixed private recovery-baselines root. The chosen exact ID and manifest hash
+are sealed into the record. That pattern is not an automatic authorization of
+all packages with similar names.
 
-`/var/lib/servora-med/deploy/installed-old-adoption.json`
-kind `ADOPTED_INSTALLED_OLD_FIRST_CUTOVER`, `formatVersion: 1`, 18 keys, mode
-`0600`, root-owned, canonical JSON.
+Issuance requires the reviewed root profile/contracts, the OLD current/env
+identity and marker, no retained original archive, no active owner/barrier/start
+permit/recovery drop-in, and empty R4 attempts/initializations/admission proofs.
+The administrator independently reviews all inputs through a separate root
+channel. The deploy identity receives no issuer capability.
 
-It is created by `issueInstalledOldAdoption(attemptId, baselineId)`, an
-administrator API that is **deliberately absent from the deploy CLI** and
-refuses any non-root EUID (`RECOVERY_ADOPTION_ADMIN_REQUIRED`).
+The CLI `issue-installed-old-adoption.sh` is installed only after separate
+approval, root:root 0750. It accepts exactly the grant UUID and baseline ID,
+checks physical root-owned protected tools, pins the shared lock library digest,
+requires an already provisioned host.lock and holds its kernel lock on fd 9.
+It clears Node environment overrides and prints only a status and record digest.
 
-`verifyAttemptRelease(attemptId, 'old')` consults it only when the retained
-archive is **absent**. Every other path is unchanged.
+The API independently verifies the named/inherited host.lock inode and confirms
+or acquires its nonblocking kernel lock before reading state. A direct root call
+without that descriptor fails. Issuance and ordinary deployment/admission share
+the same kernel exclusion. A root writer ignoring the contract is outside the
+root-trusted threat model; bootstrap and other administrative changes require an
+exclusive window too.
 
-### 2.1 Why this is not a generic bypass
+After verification, the issuer exclusively creates the permanent slot, file-
+and directory-fsyncs it, revalidates actual trusted time and checks readback.
+A competing publisher cannot overwrite it. A partial record burns reuse and is
+never repaired automatically. The record is retained after completion/abort.
 
-Four values are compile-time constants, not inputs:
+## Independent payload verification
 
-| Constant | Value | Meaning |
-| --- | --- | --- |
-| `ADOPTABLE_OLD` | `71ae6df6…` | The only release this record can describe |
-| `ORIGINAL_OLD_ARTIFACT` | `6f9dbb6a…` | The preserved original digest, re-checked against the installed marker |
-| `ORIGINAL_OLD_CATALOG` | `d2854793…` | Canonical digest of the 55-entry OLD migration catalog |
-| baseline id pattern | `^\d{8}T\d{6}Z-issue369-71ae6df6$` | The single authorised recovery package |
+Both issuance and OLD proof re-read protected files and:
 
-There is no environment variable, CLI flag, config file or operator-selected
-mode that widens this. A different SHA, host, catalog, database or release
-fails the binding check. The second and every later release returns to the
-strict artifact rule because `verifyAttemptRelease` only falls back for
-`direction === 'old'` and only when the sealed record is present.
+1. Validate exact record keys and binding to the same grant, profile, machine,
+   OLD/content/catalog, TARGET and baseline manifest. Historical attestation
+   time must be inside the original grant window; it does not re-anchor age.
+2. Match baseline database identity to the sealed profile and its 055 SQL
+   catalog to the pinned catalog. Preserve `restoreAcceptance=false`.
+3. Rehash every named payload and match its size, including the separate dump,
+   adopted release archive, configuration archive and content manifest.
+4. Walk every immutable installed entry against the original content marker.
+   Require exact adopted tar member count/names/types, no duplicate/extra/
+   omitted/special entries, and `tar --compare` in place. Never extract or
+   execute adopted code during proof.
+5. Run `pg_restore --list`, then `pg_restore --data-only
+   --table=schema_migrations --file=-` against the dump. Read only that ledger
+   into bounded memory, require exactly one expected COPY block and the exact
+   sorted 055 ledger. Missing, duplicate, malformed or diverged history fails.
+   No database connection or SQL execution occurs.
 
-### 2.2 Issuance preconditions
+The original manifest's static flags preserve capture history; they cannot
+substitute for these current hash/archive/ledger checks. Configuration capture
+and unchanged source PID/observation are historical producer attestations;
+proof does not assert that today's running configuration is unchanged forever.
 
-Issuance refuses to run unless all of these hold:
+## Strict path and lifecycle
 
-1. `EUID === 0`.
-2. The adoption slot is empty — `RECOVERY_ADOPTION_ALREADY_SEALED` otherwise.
-   A partially written record burns the slot; there is no renewal, overwrite,
-   repair or delete-and-retry.
-3. The host is quiescent: no `active.json`, no `activation.block`, no
-   `/run/servora-med-recovery/start.permit`, no
-   `servora-med.service.d/90-servora-recovery.conf`, and empty `attempts/`,
-   `initializations/`, `admission-proofs/` — else
-   `RECOVERY_ADOPTION_STATE_NOT_EMPTY`.
-4. `loadAttempt()` passes: root grant, root profile, `/etc/machine-id`, host
-   contract hashes, env baseline.
-5. `/opt/servora-med/current` resolves to `/opt/servora-med/releases/71ae6df6…`,
-   the env tuple names that release and schema `055_…`.
-6. No retained archive exists at `artifacts/71ae6df6….tar.gz`. If one does, the
-   strict path already applies and adoption is refused.
-7. `<release>/.servora-release-artifact.sha256` still reads exactly
-   `6f9dbb6a…\n`.
+`verifyAttemptRelease()` still requires the original marker and complete
+immutable content/catalog. A present retained archive must match its ordinary
+grant digest; corrupt/foreign/dangling archives never fall back. Only an absent
+OLD archive can consult the sealed adoption. TARGET never uses it.
 
-### 2.3 Independent verification before sealing
+The grant digest/UUID binding denies renewal, changed scopes and another attempt.
+An unconsumed grant expires normally and cannot cross reboot. Proven consumption
+continues only the same journal/scopes/budgets; read-only verification does not
+rewrite authority. Completed/aborted attempts do not acquire another start.
+After the first release, a different OLD cannot match this record and needs its
+ordinary retained artifact. No operator bypass flag or generic compatibility
+mode is introduced.
 
-`verifyInstalledOldBaseline()` re-derives the evidence instead of trusting the
-manifest flags:
+Pre-migration abort still needs a never-committed boundary and fresh OLD EXACT
+DB proof; committed/ambiguous TARGET migration remains forward-only. This
+baseline is not the mandatory fresh TARGET PRE receipt, postdeploy receipt or
+scheduled v2 proof. TARGET's predeploy v2 writer can publish `running` before
+dump completion: observation format can already restrict v1 rollback before any
+migration. Adoption does not undo that separate reader compatibility boundary.
 
-* `validateInstalledOldAdoption()` — pure 18-key binding: grant identity, grant
-  digest, profile, machine, OLD release, original digest, catalog digest,
-  target release/tree/artifact, baseline id shape, and every 64-hex field.
-* The attestation is validated **against the grant's original window**
-  (`validateApproval(approval, record.attestedTime)`). It proves a historical
-  root action inside that window; it does not re-anchor or extend the grant.
-* Baseline must declare `restoreAcceptance: false`, must not complete after the
-  attestation, must agree on database identity, and must carry all six static
-  verifications true.
-* Every payload named in the manifest is re-read through `trustedFile(…, 0o600)`
-  and must match its recorded size and SHA-256.
-* The installed `/.servora-release-content.sha256` must hash to
-  `record.oldContentManifestSha256`.
-* `tar --list` (with types) must produce **exactly** the installed release entry
-  set plus `.` and the two marker files — no missing, extra or duplicate member.
-* `tar --compare --file <archive> --directory <releaseRoot>` compares bytes,
-  file types, modes, owners and symlink targets in place. The archive is never
-  extracted or executed.
-* `pg_restore --list <dump>` must succeed. This is a catalog/history check, not
-  a restore.
+## Verification
 
-Only after all of that does it write the record with
-`O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0600`, `fsync` the file, `fsync` the
-directory, re-sample trusted time to re-validate the grant, then read the record
-back through `readProtectedRecord` and compare digests.
+- 40 adoption regressions: binding, root authority, ledger parsing, grant/UUID
+  replay, protected-file metadata, torn publication, controller restart,
+  consumed versus unconsumed authority, subsequent strict releases, pre-
+  migration abort and post-migration forward-only/start-budget rules.
+- Real root CLI/kernel test in a disposable Linux container: no-fd direct API
+  denial, competing host lock denial, foreign inode denial, library drift denial,
+  stable inode preservation. It reaches the real controller and intentionally
+  stops at the missing grant; no live attestation is issued.
+- Real GNU tar/PostgreSQL 17 integration with a synthetic isolated database:
+  valid 055 dump and adopted archive pass; a rehashed wrong-content archive and
+  readable rehashed dump missing a migration fail. Host paths/time remain
+  fixture-controlled; this is not production/systemd/Chrony acceptance.
+- All new checks join existing CI gates. Root CLI checks run in the disposable
+  local-CI root stage; ordinary adoption/tool checks run in server-tests. The
+  27 required gate IDs are unchanged.
 
-### 2.4 Consumption
+Exact-head Local CI results and source identity are recorded in the permanent
+operator validation report and PR after execution. No PASS is inferred from a
+skipped check or blocked hosted Actions. No new R4/TT-A systemd fixture is created.
 
-`verifyAttemptRelease(attemptId, 'old')`:
+## Recovery evidence and remaining approvals
 
-```
-marker file === expected digest          -> else RECOVERY_RELEASE_UNPROVEN
-verifiedReleaseEntries(root)             -> unchanged walk + content marker
-retained archive present?
-  yes -> digest must equal expected      -> corrupt/foreign/dangling never falls back
-  no  -> direction must be 'old'         -> else RECOVERY_RELEASE_UNPROVEN
-         read sealed adoption
-         verifyInstalledOldBaseline(...) -> full re-derivation above
-```
+Baseline `20261028T055858Z-issue369-71ae6df6` is retained under the private
+production recovery-baselines root and the protected Mac recovery-baselines
+directory. Manifest digest:
+`126878c1bba05428978b71d15df1b9bfa2c26c9acc525ff2c583f47c1c53c32f`.
+Adopted archive digest:
+`104644552259256597c8c563d84eff46698b8bbd02599aa4f4b87ddbdb2d9176`.
+Dump digest:
+`50d6ef5a6cf46b7c46e7987240ec0f15c4d2e8ccf50f5a7193f790f51e2e204c`.
 
-The target direction keeps its existing helper/module/unit hash comparisons and
-never consults the adoption record.
+Capture static checks and transfer checksum verification passed; real isolated
+restore acceptance and third-site survivability remain unverified. The manual
+Mac copy is plaintext by explicit owner instruction, directory 0700/files 0600.
+This changes no normal BR5/OPS-003 policy and does not enable an offsite provider.
+Private configuration, dumps and approval payloads are excluded from this PR.
 
-## 3. Preserved invariants
-
-| Invariant | Where enforced |
-| --- | --- |
-| Original digest and marker never change | Constant + marker comparison; `record.adoptedArchiveSha256 !== approval.oldArtifactSha256` |
-| Recovery package is a separate identity | Distinct `sha256` for `installed-old-release.adopted.tar.gz`; `kind: RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT` |
-| Installed content manifest verified | Marker digest + full `tar --compare` |
-| Independent root attestation | Root-only API, separate record, absent from CLI |
-| Separate DB backup identity bound | `databaseDumpSha256`, `databaseIdentity` equality, `pg_restore --list` |
-| No general bypass | Compile-time constants, single baseline-id pattern, single slot |
-| Old grants/journals never re-sealed | Record is a new file; no journal, checkpoint or grant file is written |
-| Fail-closed on missing/inconsistent records | Unknown/extra keys, missing verifications, future completion, foreign DB, stale attestation all throw |
-| Second and later releases use strict rule | Fallback requires `direction === 'old'` |
-
-## 4. Test coverage
-
-`ops/tests/installed-old-adoption.test.mjs` — 29 tests, all passing on
-Node 22 / macOS. Wired into `server-tests` in
-`ops/local-ci/chains/server-chain-user.sh` and into the GitHub `server` job.
-
-Pure binding (15): valid record accepted; content-manifest contradiction;
-different OLD release; renamed original digest; non-preserved catalog; foreign
-machine; attestation outside the grant window; baseline completed after
-attestation; baseline claiming restore acceptance; missing static verification;
-different database; extra/missing keys; adopted archive reusing the original
-digest; baseline id outside the authorised slot; target binding mismatch.
-
-Host boundary, in-memory Linux fixture that executes the real controller and the
-real protected readers (14): deploy user cannot issue; administrator seals
-exclusively and the record is byte-exact; `tar --compare` and
-`pg_restore --list` are actually invoked; retained archive present; another
-attempt owns the host; an admission record exists; archive member list differs;
-archive member type differs; dump cannot be listed; installed content marker
-changed after the baseline; payload bytes drifted; sealed record is permanent;
-partially published record burns the slot; OLD verification succeeds only
-through a sealed adoption; corrupt retained archive never falls back to
-adoption.
-
-Every host-level rejection also asserts that **no partial adoption record was
-written**.
-
-Not covered by this slice, and deliberately not claimed:
-
-* Real root issuance on production (forbidden by the task).
-* Real `tar`/`pg_restore` behaviour on the actual 16.7 MB archive and 4.6 MB
-  dump (the fixture returns synthetic output).
-* Migration abort / forward-only boundaries — these are the existing R4
-  contract (`docs/operations/r4-forward-recovery.md`), untouched here.
-* Cross-process/reboot continuity for the adoption path.
-* Full local CI 27 gates.
-
-## 5. Open items
-
-1. **No operator CLI for issuance.** The task forbade root approval issuance, so
-   the API exists without a reviewed root-only entry point. A future slice must
-   add a fixed, root-only command (mirroring the `issueRootApproval` pattern)
-   before this can be used. Until then the fallback is unreachable in
-   production and behaviour is unchanged.
-2. **`baseline.verifications` booleans are trusted.** `pg_restore --list` is
-   re-run, but `dumpCatalogExact` is not recomputed against the OLD catalog at
-   adoption time. The manifest is root-owned, `0600` and covered by
-   `baselineManifestSha256`, so the threat model is narrow; recomputing the
-   catalog comparison would still be stronger.
-3. **Compile-time pinning is intentional debt.** `ADOPTABLE_OLD`,
-   `ORIGINAL_OLD_ARTIFACT`, `ORIGINAL_OLD_CATALOG` and the baseline-id regex must
-   be removed or superseded once the first cutover completes, or they become a
-   second, permanent release selector beside the real one.
-4. **Backup producer is not a committed tool.** The recovery set was built by
-   one-off scripts under `/private/tmp`; only its manifest and outputs are
-   retained. Reproducibility of the recovery point depends on those scripts
-   surviving outside the repo.
-
-## 6. Evidence
-
-* Recovery baseline: `/Users/emrah/.local/share/servora-med/recovery-baselines/20261028T055858Z-issue369-71ae6df6/`
-* Baseline report: `/Users/emrah/.local/share/servora-med/issue369-recovery-baseline-20261028/ISSUE369_NEW_RECOVERY_BASELINE.tr.md`
-* Deployment gate that consumes this: `production-deployment.md`, `r4-forward-recovery.md`
-* Prior audits: `ISSUE369_R4_IMPACT.md`, `ISSUE369_ACCEPTANCE_MATRIX.md`
+Chrony/R4/monitoring bootstrap, independent review and issuance of the final
+source-bound root profile/grant/adoption, migrations 056–060, scheduled-event
+acceptance and deployment remain separate decisions. The compile-time pins are
+intentional first-cutover scope; retiring them requires later reviewed evidence.

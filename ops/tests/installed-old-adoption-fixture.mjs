@@ -9,6 +9,38 @@ import {posix} from 'node:path';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const json=value=>Buffer.from(JSON.stringify(value)+'\n');
 const state='/var/lib/servora-med/deploy';
+import {approvalFixture,timeEvidenceAt} from './trusted-time-fixture.mjs';
+const jsonHash=value=>hash(JSON.stringify(value)+'\n');
+const oldSha='71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
+const original='6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
+const migrationDirectory=new URL('../../server/src/db/migrations/',import.meta.url);
+const catalog=fs.readdirSync(migrationDirectory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,55)
+  .map(name=>({version:name.slice(0,-4),sha256:hash(fs.readFileSync(new URL(name,migrationDirectory)))}));
+
+export function adoptionFixture() {
+  const approval={...approvalFixture(),oldReleaseSha:oldSha,oldArtifactSha256:original,
+    oldCatalog:catalog,targetCatalog:catalog};
+  const databaseIdentity={clusterId:'1',databaseName:'servora_med_test_adoption',databaseOid:'1',role:'servora_app',host:'127.0.0.1',port:5432};
+  const profile={machineId:'1'.repeat(32),databaseIdentity};
+  const baseline={formatVersion:1,kind:'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT',
+    baselineId:'20261012T090000Z-issue369-71ae6df6',createdAtUTC:approval.issuedAtUTC,completedAtUTC:approval.issuedAtUTC,
+    machineId:profile.machineId,sourceReleaseSha:oldSha,originalArtifactSha256:original,
+    installedContentManifestSha256:'5'.repeat(64),databaseIdentity,catalog,restoreAcceptance:false,
+    verifications:{dumpList:true,dumpCatalogExact:true,adoptedArchiveComparedToInstalled:true,configurationArchiveCompared:true,originalObservationAndMarkerUnchanged:true,appPidUnchanged:true},
+    files:Object.fromEntries(['database.dump','installed-old-release.adopted.tar.gz','configuration.tar.gz','database-metadata.json','installed-old-content.sha256'].map(name=>[name,{name,sha256:'6'.repeat(64),bytes:10}]))};
+  const context={approval,approvalSha256:'4'.repeat(64),profile};
+  baseline.files['installed-old-content.sha256'].sha256=baseline.installedContentManifestSha256;
+  const record={formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',attemptId:approval.attemptId,
+    approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
+    oldReleaseSha:oldSha,originalArtifactSha256:original,oldCatalogSha256:jsonHash(catalog),
+    oldContentManifestSha256:baseline.installedContentManifestSha256,targetReleaseSha:approval.releaseSha,
+    targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
+    baselineId:baseline.baselineId,baselineManifestSha256:jsonHash(baseline),
+    adoptedArchiveSha256:baseline.files['installed-old-release.adopted.tar.gz'].sha256,
+    databaseDumpSha256:baseline.files['database.dump'].sha256,attestedTime:timeEvidenceAt()};
+  return {record,context,baseline,baselineSha256:jsonHash(baseline)};
+}
+
 export async function adoptionHost(f) {
   const files=new Map(),directories=new Map([['/',0o755],[state,0o700]]),fds=new Map(),commands=[];
   let nextFd=10;
@@ -21,7 +53,7 @@ export async function adoptionHost(f) {
     path=posix.normalize(path);
     const file=files.get(path),dir=directories.has(path);
     if(!file&&!dir)throw Object.assign(new Error('not found'),{code:'ENOENT'});
-    return {uid:0,gid:0,nlink:1,mode:dir?directories.get(path):file.mode,size:file?.data.length??0,
+    return {uid:0,gid:0,nlink:1,dev:1,ino:parseInt(hash(path).slice(0,8),16),mode:dir?directories.get(path):file.mode,size:file?.data.length??0,
       isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file};
   };
   const children=path=>{
@@ -70,8 +102,12 @@ export async function adoptionHost(f) {
     adoptedArchiveSha256:f.baseline.files['installed-old-release.adopted.tar.gz'].sha256,
     databaseDumpSha256:f.baseline.files['database.dump'].sha256});
   const key='adoption-host-'+randomUUID();
+  add(state+'/host.lock','');fds.set(9,state+'/host.lock');
+  const forbidden=()=>{throw new Error('unexpected host filesystem mutation');};
   const fakeFs={...fs,
-    lstatSync:info,fstatSync:fd=>info(fds.get(fd)),
+    mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
+    symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
+    lstatSync:info,fstatSync:fd=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});return info(fds.get(fd));},
     readdirSync:children,realpathSync:path=>path==='/opt/servora-med/current'?root:path,
     openSync:(path,flags)=>{
       path=posix.normalize(path);
@@ -82,7 +118,10 @@ export async function adoptionHost(f) {
     closeSync:fd=>fds.delete(fd),fsyncSync:()=>{},
     readFileSync:(path,encoding)=>{const value=files.get(typeof path==='number'?fds.get(path):posix.normalize(path))?.data;
       if(!value)throw Object.assign(new Error('missing'),{code:'ENOENT'});return encoding?value.toString():Buffer.from(value);},
-    writeFileSync:(fd,data)=>{files.get(fds.get(fd)).data=Buffer.from(data);},
+    writeFileSync:(fd,data)=>{
+      files.get(fds.get(fd)).data=Buffer.from(data);
+      if(host.interruptWrite){files.get(fds.get(fd)).data=Buffer.from(data).subarray(0,20);throw new Error('simulated interruption');}
+    },
   };
   const names=['./',...entries.map(([p,t])=>p+(t==='d'?'/':'')),
     './.servora-release-artifact.sha256','./.servora-release-content.sha256'];
@@ -91,13 +130,18 @@ export async function adoptionHost(f) {
     FragmentPath:'/etc/systemd/system/servora-med.service',DropInPaths:'',
     ExecStart:'{ path=/usr/bin/node ; argv[]=/usr/bin/node dist/index.js ; ignore_errors=no ; mock=yes }',
     EnvironmentFiles:'/etc/servora-med/servora-med.env (ignore_errors=no)',NeedDaemonReload:'no',Restart:'on-failure'};
-  const host={fs:fakeFs,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
-  host.child={spawn:()=>{throw new Error('unexpected subprocess');},execFileSync:(file,args)=>{
+  const host={fs:fakeFs,fds,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
+  host.dumpLedger='COPY public.schema_migrations (version, applied_at) FROM stdin;\n'
+    +f.context.approval.oldCatalog.map(entry=>entry.version+'\t2026-10-12 09:00:00+00').join('\n')+'\n\\.\n';
+  host.child={spawn:()=>{throw new Error('unexpected subprocess');},execFileSync:(file,args,options)=>{
     commands.push([file,...args]);if(host.failCommand===file)throw new Error('command failed');
+    if(file==='/usr/bin/flock')return '';
+    if(host.realTools&&['/usr/bin/tar','/usr/bin/pg_restore'].includes(file))return host.realTools(file,args,options);
     if(file==='/usr/bin/systemctl')return Object.entries(properties).map(([k,v])=>k+'='+v).join('\n');
     if(file==='/usr/bin/tar'&&args.includes('--list'))return (args.includes('--verbose')?host.types:host.names).join('\n')+'\n';
     if(file==='/usr/bin/tar'&&args.includes('--compare'))return '';
     if(file==='/usr/bin/pg_restore'&&args[0]==='--list')return 'synthetic dump TOC';
+    if(file==='/usr/bin/pg_restore'&&args.includes('--table=schema_migrations'))return host.dumpLedger;
     throw new Error('unexpected host command');
   }};
   globalThis[key]=host;
@@ -105,7 +149,8 @@ export async function adoptionHost(f) {
   const mockModule=(name,values)=>url(`const values=globalThis[${JSON.stringify(key)}][${JSON.stringify(name)}];\n`+
     Object.keys(values).map(k=>k==='default'?'export default values.default;':`export const ${k}=values.${k};`).join('\n'));
   const fsUrl=mockModule('fs',fakeFs),childUrl=mockModule('child',host.child);
-  host.clock={...clock,sampleTrustedTime:()=>f.record.attestedTime};
+  host.now=f.record.attestedTime;
+  host.clock={...clock,sampleTrustedTime:()=>host.now};
   const clockUrl=mockModule('clock',host.clock);
   const scripts=new URL('../scripts/',import.meta.url);
   const rewrite=(name,extra={})=>{
@@ -114,10 +159,11 @@ export async function adoptionHost(f) {
         path==='./trusted-time.mjs'?clockUrl:path.startsWith('.')?new URL(path,scripts).href:path);
       return `from '${target}'`;
     });
-    return url(`const process=globalThis[${JSON.stringify(key)}].process;\n`+source);
+    return url(`const process=globalThis[${JSON.stringify(key)}].process;\n`+source
+      +`\n// instance ${randomUUID()}\n//# sourceURL=servora-test/${name}\n`);
   };
-  const attemptUrl=rewrite('deployment-attempt.mjs');
-  host.controller=await import(rewrite('deployment-controller.mjs',{'./deployment-attempt.mjs':attemptUrl}));
+  host.restart=()=>import(rewrite('deployment-controller.mjs',{'./deployment-attempt.mjs':rewrite('deployment-attempt.mjs')}));
+  host.controller=await host.restart();
   host.cleanup=()=>delete globalThis[key];
   host.recordFile=state+'/installed-old-adoption.json';
   // The returned pure lifecycle functions are the real reviewed implementation.

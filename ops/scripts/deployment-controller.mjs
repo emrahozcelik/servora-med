@@ -88,6 +88,18 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
 /** Separate administrator API, deliberately absent from the deploy CLI. */
 export function issueInstalledOldAdoption(attemptId, baselineId) {
   if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+  // The administrator CLI inherits the same open-file description as the
+  // deployment helper. Verify the stable inode and take/confirm its kernel
+  // lock before reading state; a direct, unlocked API call cannot race admit.
+  try {
+    trustedFile(STATE_ROOT+'/host.lock',0o600);
+    const held = fstatSync(9), named = lstatSync(STATE_ROOT+'/host.lock');
+    if (!held.isFile() || held.dev !== named.dev || held.ino !== named.ino) throw new Error();
+    execFileSync('/usr/bin/flock',['--nonblock','9'],{timeout:2000,
+      env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe',...Array(6).fill('ignore'),9]});
+    const after = lstatSync(STATE_ROOT+'/host.lock');
+    if (held.dev !== after.dev || held.ino !== after.ino) throw new Error();
+  } catch { throw new Error('RECOVERY_ADOPTION_HOST_LOCK_REQUIRED'); }
   if (typeof baselineId !== 'string' || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(baselineId)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
@@ -172,6 +184,16 @@ function verifyInstalledOldBaseline(record,context,root,entries) {
   run(['--compare','--file',archive,'--directory',root]);
   execFileSync(PG_RESTORE_BIN,['--list',directory+'/database.dump'],{timeout:30000,maxBuffer:8388608,
     env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe']});
+  // Read only the migration ledger from the archive into memory. No database
+  // connection, SQL execution, restore, or business-row export occurs here.
+  const ledger = execFileSync(PG_RESTORE_BIN,['--data-only','--table=schema_migrations','--file=-',directory+'/database.dump'],
+    {encoding:'utf8',timeout:30000,maxBuffer:1048576,env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe']});
+  const blocks = [...ledger.matchAll(/^COPY public\.schema_migrations \(version, applied_at\) FROM stdin;\n([\s\S]*?)^\\\.\n/gm)];
+  const rows = blocks.length === 1 ? blocks[0][1].replace(/\n$/,'').split('\n') : [];
+  const versions = rows.map(row=>row.match(/^([0-9]{3}_[a-z0-9_]+)\t[^\t\r\n]+$/)?.[1]).sort();
+  if (JSON.stringify(versions) !== JSON.stringify(context.approval.oldCatalog.map(entry=>entry.version))) {
+    throw new Error('RECOVERY_BASELINE_DUMP_CATALOG_MISMATCH');
+  }
 }
 
 function existsSync(path) {
