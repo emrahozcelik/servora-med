@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {timeEvidenceAt} from './trusted-time-fixture.mjs';
-import { elapsedTime, elapsedBootTime, parseSynchronization, evidenceFromLinuxReads } from '../scripts/trusted-time.mjs';
+import { elapsedTime, elapsedBootTime, parseSynchronization, evidenceFromLinuxReads, validateTimeEvidence, validateCurrentTimeEvidence } from '../scripts/trusted-time.mjs';
 
 export const timeEvidence = (elapsed = 0, overrides = {}) => ({
   formatVersion: 1, source: 'linux-boottime',
@@ -174,4 +174,23 @@ test('OPS-TT-003: unavailable is not permission to accept a malformed source rec
   r.sources=r.sources.replace('^,+,bevtime1.metrologie.at,3,6,377,1','^,?,bevtime1.metrologie.at,0,6,invalid,9999');
   r.details.selectdata=r.details.selectdata.replace('+ bevtime1.metrologie.at','? bevtime1.metrologie.at');
   assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003: zero-reach nonselected source cannot veto two remaining authenticated voters',()=>{
+  const r=multiReads();
+  r.sources=r.sources.replace('^,-,1.ntp.ubuntu.com,3,6,377,1','^,-,1.ntp.ubuntu.com,3,6,0,900');
+  r.details.packets=r.details.packets.filter(p=>p.name!=='1.ntp.ubuntu.com');
+  assert.equal(parseMulti(r).sourceCount,2);
+});
+
+test('OPS-TT-003: selected-source reach loss always denies even with two other valid operators',()=>{
+  const r=multiReads();r.sources=r.sources.replace('^,*,time.cloudflare.com,3,6,377,1','^,*,time.cloudflare.com,3,6,0,900');
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003: changing a legacy format number cannot manufacture new quorum evidence',()=>{
+  const legacy=timeEvidence();
+  assert.equal(validateTimeEvidence(legacy),legacy);
+  assert.throws(()=>validateCurrentTimeEvidence(legacy),/TRUSTED_TIME_UNKNOWN/);
+  assert.throws(()=>validateTimeEvidence({...legacy,formatVersion:2}),/TRUSTED_TIME_UNKNOWN/);
 });

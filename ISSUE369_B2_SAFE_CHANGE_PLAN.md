@@ -14,7 +14,9 @@ restriction expects N----/N---- and needs separate effective-options evidence.
 
 Reachability is required for EACH VOTING SELECTABLE source, not every configured
 source. A third source with reach=0 may remain unavailable and contribute no vote;
-there must still be >=2 independently NTS-authenticated selectable operators and
+sourceCount counts actual policy-eligible reachable/recent authenticated votes,
+not cached plus/minus flags from a lost source. A lost selected reference still
+denies the sample; x/T/~ are never ignored. There must still be >=2 independently NTS-authenticated selectable operators and
 exactly one selected reference. x/T/~, foreign/duplicate identities, missing auth,
 invalid health, option/config mismatch or a single remaining vote => UNKNOWN.
 NTS mode/cookies alone are insufficient; inspect actual authenticated NTP packet

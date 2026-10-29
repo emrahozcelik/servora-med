@@ -2206,8 +2206,10 @@ Linux BOOTTIME, boot-ID, zero-offset time namespace and UTC veto checks.
 
 Time evidence **format 2** adds `sourcePolicy`, `configSha256`, configured voting
 count 3, actual selectable/authenticated voting count (2 or 3), sorted unique
-selectable NTS names and selected name. `sourceCount` is the actual selectable
-voting count, excluding UME. `authenticatedSourceCount` counts those voting
+selectable NTS names and selected name. `sourceCount` is the actual policy-eligible selectable
+voting count, excluding UME. A nonselected source with zero reach or a sample
+older than 768s cannot vote even if sources temporarily retains a minus/plus
+flag; selected-source loss or any x/T/~ state still denies the whole sample. `authenticatedSourceCount` counts those voting
 sources, not cached cookies or unavailable operators. Existing approval/journal
 format 2 and backup observation schema 2 are separate outer versions and do not
 change merely because their nested time evidence version changes.

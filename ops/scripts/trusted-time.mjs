@@ -117,10 +117,12 @@ export function parseSynchronization(tracking, sources, nowMs, details) {
       continue;
     }
     if (selection[3] !== '-----' || selection[4] !== '-----') unknown();
-    if (line[1] === '?') {
-      if (!['?','s','M','d','S','w'].includes(selection[0])
+    const unavailable = line[1] === '?' || parseInt(line[5],8) === 0
+      || number(line[6])*1000 > MAX_REFERENCE_AGE_MS;
+    if (unavailable) {
+      if (line[1] === '*' || !['?','s','M','d','S','w','+','D','P','U'].includes(selection[0])
         || !['N','Y'].includes(selection[2]) || !['NTS','-'].includes(auth[1])) unknown();
-      continue; // Unavailable sources never vote and need no historical packet proof.
+      continue; // No reachable/recent selectable vote; never count cached authentication.
     }
     if (selection[2] !== 'Y' || auth[1] !== 'NTS' || !['*','+','D','P','U'].includes(selection[0])
       || (line[1] === '*' ? selection[0] !== '*' : selection[0] === '*')
