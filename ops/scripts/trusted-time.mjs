@@ -102,7 +102,12 @@ export function parseSynchronization(tracking, sources, nowMs, details) {
   const selections = report(details.selectdata,10,1), authentication = report(details.authdata,10,0);
   if (lines.length !== 4 || new Set(lines.map(line => line[2])).size !== 4
     || lines.some(line => line.length !== 10 || line[0] !== '^' || !names.includes(line[2])
-      || !['*','+','-','?'].includes(line[1]))) unknown();
+      || !['*','+','-','?'].includes(line[1])
+      || !Number.isInteger(number(line[3])) || number(line[3]) < 0 || number(line[3]) > 15
+      || !Number.isInteger(number(line[4])) || number(line[4]) < 6 || number(line[4]) > 8
+      || !/^[0-7]{1,3}$/.test(line[5])
+      || !Number.isFinite(number(line[6])) || number(line[6]) < 0
+      || line.slice(7).some(value => !Number.isFinite(number(value))))) unknown();
   const selectable = [];
   for (const line of lines) {
     const name = line[2], selection = selections.get(name), auth = authentication.get(name);

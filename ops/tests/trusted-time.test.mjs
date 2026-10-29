@@ -168,3 +168,10 @@ test('OPS-TT-003: a cold unavailable operator without an established NTS session
   r.details.packets=r.details.packets.filter(p=>p.name!=='bevtime1.metrologie.at');
   assert.equal(parseMulti(r).sourceCount,2);
 });
+
+test('OPS-TT-003: unavailable is not permission to accept a malformed source record',()=>{
+  const r=multiReads();
+  r.sources=r.sources.replace('^,+,bevtime1.metrologie.at,3,6,377,1','^,?,bevtime1.metrologie.at,0,6,invalid,9999');
+  r.details.selectdata=r.details.selectdata.replace('+ bevtime1.metrologie.at','? bevtime1.metrologie.at');
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
