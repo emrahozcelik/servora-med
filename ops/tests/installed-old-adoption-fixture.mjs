@@ -164,6 +164,7 @@ export async function adoptionHost(f) {
   };
   host.restart=()=>import(rewrite('deployment-controller.mjs',{'./deployment-attempt.mjs':rewrite('deployment-attempt.mjs')}));
   host.controller=await host.restart();
+  host.rootAttempt=await import(rewrite('deployment-attempt.mjs'));
   host.cleanup=()=>delete globalThis[key];
   host.recordFile=state+'/installed-old-adoption.json';
   // The returned pure lifecycle functions are the real reviewed implementation.

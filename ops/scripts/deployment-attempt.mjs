@@ -51,7 +51,7 @@ export function issueRootApproval(fields, ttlMs) {
     .some(key => Object.hasOwn(fields,key)) || !Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 86400000) {
     throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
-  const issuedTime = sampleTrustedTime();
+  const issuedTime = validateCurrentTimeEvidence(sampleTrustedTime());
   const record = {...fields,formatVersion:2,issuedAtUTC:issuedTime.wallAtUTC,
     expiresAtUTC:new Date(Date.parse(issuedTime.wallAtUTC)+ttlMs).toISOString(),issuedTime};
   validateApprovalStructure(record); readRootProfile(record);
