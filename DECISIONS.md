@@ -2160,3 +2160,108 @@ See [the first-cutover design](ISSUE369_FIRST_CUTOVER_R4_DESIGN.md) and
 [the administrator contract](docs/operations/r4-forward-recovery.md#issue-369-first-cutover-administrator-attestation).
 The explicitly authorized plaintext manual Mac recovery copy does not change
 OPS-003 or enable BR5. No production issuance is authorized by this decision.
+
+
+## OPS-TT-003 — Authenticated two-of-three NTS quorum and versioned time evidence
+
+- **Date:** 2026-10-30
+- **Status:** Owner-authorized policy and source implementation scope for Issue #369. Source review, exact-head CI, new artifact and isolated host acceptance remain gates. No production change authorization; Production NO-GO.
+- **Supersedes:** OPS-TT-001's fixed UME/Cloudflare pair, requirement that both configured sources be selectable, and the corresponding two-source live evidence contract. OPS-TT-002's nested time evidence uses this version boundary; its observation schema, event identity, 26-hour rule and scheduled/manual separation remain unchanged.
+
+Chrony remains the sole continuous synchronization daemon. Policy `nts-quorum-v1`
+is closed in source: Cloudflare `time.cloudflare.com`, BEV Austria
+`bevtime1.metrologie.at`, and Canonical `1.ntp.ubuntu.com` are three independent
+operators, not three addresses from one operator. UME `time.ume.tubitak.gov.tr`
+is unauthenticated **monitor-only**, explicitly `noselect`, and never a quorum
+vote. Require at least two authenticated, recently selectable NTS operators,
+exactly one selected reference matching tracking, and agreement with the selected
+source. A third unavailable source is not a veto when the other two satisfy all
+checks. A single vote, foreign/duplicate/ambiguous identity, falseticker (`x`),
+trusted-source disagreement (`T`), excessive jitter (`~`), or malformed evidence
+denies authority. No reachable-all-three condition may contradict this rule.
+
+The chosen configuration is `authselectmode require`, `minsources 2`,
+`maxdistance 1`, `makestep 0.1 3`. **No explicit NTS `trust` or `require` flags.**
+Chrony 4.5 `require` authentication mode implicitly excludes unauthenticated
+sources; unlike `mix`, it does not inject `trust/require` into NTS selection.
+Expected NTS COpts/EOpts are `-----`/`-----`; explicit monitor UME has
+`N----`/`N----`. The retained candidate-b experiment had UME configured without
+explicit `noselect`, hence `-----`/`N----`: explicit `noselect` is a deliberate
+restriction, verified separately rather than called byte-identical evidence.
+The previous safe-change draft's explicit NTS `trust require` is not the tested
+candidate and is superseded by this decision. NTS certificate and certificate-time
+checks remain enabled; no `nocerttimecheck`, custom trust bypass or weaker thresholds.
+
+Source/selection names alone and NTS-KE cookie counts are insufficient. A voting
+source must have NTS mode in `authdata`, allowed configured/effective options in
+`selectdata`, and a valid authenticated NTP response in `ntpdata`. The numeric
+packet address is bound to Chrony's original configured `sourcename`, never
+reverse DNS or a fresh hostname lookup. Bounded read failures deny. The exact
+reviewed config bytes/hash and closed source policy must match; runtime source
+or selection changes during collection deny the sample. Reference age <=768s,
+root distance <=1000ms, and absolute correction <=100ms remain unchanged, as do
+Linux BOOTTIME, boot-ID, zero-offset time namespace and UTC veto checks.
+
+### Persisted evidence, authority and historical replay
+
+Time evidence **format 2** adds `sourcePolicy`, `configSha256`, configured voting
+count 3, actual selectable/authenticated voting count (2 or 3), sorted unique
+selectable NTS names and selected name. `sourceCount` is the actual selectable
+voting count, excluding UME. `authenticatedSourceCount` counts those voting
+sources, not cached cookies or unavailable operators. Existing approval/journal
+format 2 and backup observation schema 2 are separate outer versions and do not
+change merely because their nested time evidence version changes.
+
+`validateTimeEvidence()` is a **structural/historical** validator: exact legacy
+time format 1 keeps its original fixed `sourceCount=2` semantics. It is not new
+NTS quorum proof. `validateCurrentTimeEvidence()` requires time format 2 for
+issuance, unconsumed grant admission, current recovery transitions, HTTP sampler
+results and new backup event samples. Legacy unconsumed grants, incomplete old
+admission markers and mixed-policy admission intervals cannot create authority.
+No old record is rewritten, converted, re-signed, re-sealed or given new lifetime.
+
+Only historical replay of a previously sealed, fully confirmed same-attempt
+consumption may use the private historical initial-record reconstruction. It
+checks the exact original grant, initial hash and post-fsync proof in the original
+boot/window. It cannot mint a new confirmation through the public publisher.
+Continuation still requires the protected proof/ownership chain, fresh format-2
+infrastructure evidence and the original scope/start/abort/migration budgets.
+Expiry or reboot never resets budgets. An unconsumed grant still cannot cross
+reboot. Existing root profile/module/config hash contracts are not bypassed: a
+profile mismatch remains STOP and needs an independently reviewed transition.
+
+Legacy nested backup proofs remain parseable historical records. They cannot
+produce healthy freshness against format-2 current time; mixed versions are
+UNKNOWN for positive elapsed-time authorization. Same-boot lower BOOTTIME bounds
+may still prove staleness only. New backups need new format-2 event samples;
+scheduled freshness still requires a real scheduled event. Existing journal,
+grant, receipt and observation bytes are preserved, never retroactively upgraded.
+
+### Privilege and acceptance boundary
+
+Chrony 4.5 restricts `authdata`, `selectdata` and `ntpdata` to its privileged Unix
+socket. Granting that socket (or a general sudo chronyc command) to app/backup
+UIDs would also permit daemon mutations and is **not authorized**. Current source
+fails closed if those reads are unavailable. A separately reviewed bounded
+read-only access design is required before app/backup sandbox host acceptance;
+this decision does not invent a root broker, shared cache, daemon, socket ACL
+exception or additional deployment privilege. Root-only parsing success is not
+app UID acceptance. The HTTP 3s whole-child deadline and 16KiB cap remain unchanged.
+
+OPS-TT-001's 24h maximum grant TTL, 3600s admission window, reboot denial,
+consumed same-attempt rules, fsync proof requirements, all budgets and 1800s
+release observation remain unchanged. OPS-TT-002 failure priority, event proofs,
+scheduled baseline separation and legacy observation byte retention remain.
+Trust boundaries against compromised root/kernel/hypervisor are unchanged.
+
+The old `67afe5a` CI/artifact remains historical evidence for that source only.
+This implementation requires its own source SHA/tree, exact-head full CI, new
+Linux artifact and source-bound host/reboot/sandbox/failure acceptance. None
+licenses production config/service/clock changes, B3 bootstrap, issuance,
+migration, restore or deployment. Issue #369 remains OPEN; PRODUCTION_GO=false.
+
+Primary sources: [Chrony 4.5 authselectmode](https://chrony-project.org/doc/4.5/chrony.conf.html#authselectmode),
+[selectdata](https://chrony-project.org/doc/4.5/chronyc.html#selectdata),
+[ntpdata](https://chrony-project.org/doc/4.5/chronyc.html#ntpdata),
+[4.5 command permissions](https://github.com/mlichvar/chrony/blob/4.5/cmdmon.c),
+[4.5 original-name and report implementation](https://github.com/mlichvar/chrony/blob/4.5/client.c).

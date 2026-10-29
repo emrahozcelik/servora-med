@@ -4,13 +4,13 @@ import {constants,openSync,closeSync,fstatSync,readFileSync,readSync,writeFileSy
 import {createHash,randomUUID} from 'node:crypto';
 import {basename,dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {sampleTrustedTime,elapsedTime} from './trusted-time.mjs';
+import {sampleTrustedTime,elapsedTime,validateCurrentTimeEvidence} from './trusted-time.mjs';
 import {BACKUP_TRIGGER_CLASSES,BACKUP_ATTEMPT_RESULTS,BACKUP_FAILURE_CLASSES,OBSERVATION_KEYS,
   parseBackupObservationState,parseObservationInstant,eventLabel} from './backup-observation.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const fail=()=>{throw new Error('BACKUP_OBSERVATION_UNTRUSTED');};
 const flushDirectory=path=>{const fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY);try{fsyncSync(fd);}finally{closeSync(fd);}};
-function sample(readTime) {try{return readTime();}catch{return null;}}
+function sample(readTime) {try{return validateCurrentTimeEvidence(readTime());}catch{return null;}}
 function readState(path) {
   let fd;
   try {

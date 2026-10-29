@@ -7,12 +7,14 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
 import {publishObservation} from '../scripts/backup-observation-writer.mjs';
 import {parseBackupObservationState} from '../scripts/backup-observation.mjs';
-const sample=(ms=0)=>({formatVersion:1,source:'linux-boottime',bootId:'11111111-1111-4111-8111-111111111111',
+const legacySample=(ms=0)=>({formatVersion:1,source:'linux-boottime',bootId:'11111111-1111-4111-8111-111111111111',
   timeNamespaceId:'time:[4026531834]',bootLowerMs:100000+ms,bootUpperMs:100000+ms,
   wallAtUTC:new Date(Date.parse('2026-10-27T09:00:00Z')+ms).toISOString(),wallResolutionMs:1,
   synchronization:{service:'chrony',referenceAgeMs:1,rootDistanceMs:1,correctionMs:0,sourceCount:2}});
+const sample=(ms=0)=>timeEvidenceAt(Date.parse('2026-10-27T09:00:00Z')+ms);
 test('TT-B producer binds the original event interval to the actual artifact and sidecar',()=>{
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'ttb-writer-')));
   try {
@@ -133,4 +135,29 @@ test('TT-B contradictory v1 scheduled success cannot erase an established baseli
   assert.equal(parseBackupObservationState(legacy),null);
   assert.throws(()=>publishObservation({...base,trigger:'manual',startedAt:'2026-10-27T09:01:00Z',outcome:'running'},()=>sample(60000)));
   assert.equal(readFileSync(statePath,'utf8'),bytes);
+}));
+
+test('OPS-TT-003: a legacy sampler cannot mint new backup event freshness',()=>fixture(({base,statePath,success})=>{
+  publishObservation({...base,outcome:'running'},()=>legacySample());
+  success(base,()=>legacySample(1000));
+  const raw=JSON.parse(readFileSync(statePath,'utf8'));
+  assert.equal(raw.latestAttemptTime,null);
+  assert.equal(raw.latestVerifiedProof,null);
+}));
+
+test('OPS-TT-003: a new event preserves legacy nested scheduled proof bytes without promoting them',()=>fixture(({base,statePath,success})=>{
+  publishObservation({...base,outcome:'running'},()=>sample());success();
+  const old=JSON.parse(readFileSync(statePath,'utf8'));
+  old.latestVerifiedProof.before=legacySample();old.latestVerifiedProof.after=legacySample(1000);
+  old.latestScheduledVerifiedProof=old.latestVerifiedProof;
+  old.latestAttemptTime=old.latestVerifiedProof.before;old.latestScheduledAttemptTime=old.latestVerifiedProof.before;
+  writeFileSync(statePath,JSON.stringify(old),{mode:0o600});
+  const bytes=JSON.stringify(old.latestScheduledVerifiedProof);
+  assert.ok(parseBackupObservationState(JSON.parse(readFileSync(statePath,'utf8'))));
+  const manual={...base,trigger:'manual',startedAt:'2026-10-27T09:01:00Z'};
+  publishObservation({...manual,outcome:'running'},()=>sample(60000));success(manual,()=>sample(61000));
+  const next=JSON.parse(readFileSync(statePath,'utf8'));
+  assert.equal(next.schemaVersion,2);assert.equal(next.latestVerifiedProof.after.formatVersion,2);
+  assert.equal(next.latestScheduledVerifiedProof.after.formatVersion,1);
+  assert.equal(JSON.stringify(next.latestScheduledVerifiedProof),bytes);
 }));

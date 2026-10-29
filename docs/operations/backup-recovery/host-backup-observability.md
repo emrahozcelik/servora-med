@@ -329,3 +329,17 @@ five-minute alerting probe fit this budget; no new observation was executed.
 Sampling remains request-driven and does not create a time service, background
 clock worker or event anchor. Root approval sampling, v2 migration/seal contracts,
 UTC veto, boot/namespace checks and inclusive 26h evaluator remain unchanged.
+
+
+### Nested trusted-time evidence after OPS-TT-003
+
+Observation schema 2 is retained; new events contain time evidence format 2,
+policy `nts-quorum-v1`. Legacy nested time format 1 remains readable history and
+is never rewritten or mistaken for the new authenticated quorum. A new reader
+cannot mark that legacy proof healthy against new policy time; a natural new
+scheduled backup must establish a policy-compatible scheduled proof. An old
+running event that finishes across the policy change cannot be re-anchored into
+freshness. Dump/checksum integrity remains a different claim from freshness.
+The exact config/source allowlist and packet authentication are mandatory.
+App/backup UIDs must not receive the Chrony control socket: until separately
+reviewed read-only access and real sandbox acceptance exist, sampling is UNKNOWN.

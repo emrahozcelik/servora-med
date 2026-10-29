@@ -1,11 +1,19 @@
-import type {TimeEvidence} from '../../ops/scripts/trusted-time.mjs';
+import {SOURCE_POLICY,CHRONY_CONFIG_SHA256,type CurrentTimeEvidence,type TimeEvidence} from '../../ops/scripts/trusted-time.mjs';
 
 const origin=Date.parse('2026-01-01T00:00:00Z');
-export function timeAt(ms:number, overrides:Partial<TimeEvidence>={}):TimeEvidence {
-  return {formatVersion:1,source:'linux-boottime',bootId:'11111111-1111-4111-8111-111111111111',
+export function timeAt(ms:number, overrides:Partial<CurrentTimeEvidence>={}):CurrentTimeEvidence {
+  return {formatVersion:2,source:'linux-boottime',bootId:'11111111-1111-4111-8111-111111111111',
     timeNamespaceId:'time:[4026531834]',bootLowerMs:ms-origin,bootUpperMs:ms-origin,
     wallAtUTC:new Date(ms).toISOString(),wallResolutionMs:1,
-    synchronization:{service:'chrony',referenceAgeMs:1,rootDistanceMs:1,correctionMs:0,sourceCount:2},...overrides};
+    synchronization:{service:'chrony',referenceAgeMs:1,rootDistanceMs:1,correctionMs:0,sourceCount:2,sourcePolicy:SOURCE_POLICY,configSha256:CHRONY_CONFIG_SHA256,
+      configuredSourceCount:3,authenticatedSourceCount:2,selectableSources:['1.ntp.ubuntu.com','time.cloudflare.com'],
+      selectedSource:'time.cloudflare.com'},...overrides};
+}
+
+export function legacyTimeAt(ms:number):TimeEvidence {
+  const current=timeAt(ms);
+  return {...current,formatVersion:1,synchronization:{service:'chrony',referenceAgeMs:1,
+    rootDistanceMs:1,correctionMs:0,sourceCount:2}};
 }
 
 export function trustedDocument(doc:Record<string,unknown>):Record<string,unknown> {

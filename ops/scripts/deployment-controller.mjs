@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
   OBSERVATION_SECONDS, publishRootAdmissionConfirmation, validateApprovalStructure,
-  validateApproval } from './deployment-attempt.mjs';
+  validateApproval, validateInitialAttemptRecord } from './deployment-attempt.mjs';
 import { elapsedTime, sampleTrustedTime } from './trusted-time.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
@@ -254,9 +254,7 @@ function initializationRecord(context) {
   }
   const record = readProtectedRecord(marker,links).record;
   advanceAttempt(record,context,'VALIDATE');
-  if (JSON.stringify(record) !== JSON.stringify(initialAttempt(context,record.admissionTime))) {
-    throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
-  }
+  validateInitialAttemptRecord(context,record);
   if (existsSync(STATE_ROOT+'/active.json')) {
     const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
     if (Object.keys(active).length !== 2 || active.attemptId !== context.approval.attemptId
