@@ -446,3 +446,12 @@ fresh request-bound time2 evidence without app/backup Chrony socket access. It
 does not alter approval lifetime, persisted historical replay, budgets or root
 profile/source contracts. Newly installed module/unit bytes require independent
 review; no production install or active-profile transition is authorized here.
+
+Packaging the reviewed socket/template units in the release tree does not install
+them. Before the first release that ships the v2 sampler, the restricted reader
+must already be installed, enabled and host-verified on the target under a
+separately authorized production bootstrap. Approval of a release, artifact or
+PR does not imply that host authorization. Without the reader,
+`sampleTrustedTime()` fails with `TRUSTED_TIME_UNKNOWN`, backup observation keeps
+no current-time proof, and the predeploy/postdeploy binding gates fail closed with
+`RECOVERY_BACKUP_UNTRUSTED`. There is no fallback clock source.

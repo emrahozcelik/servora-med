@@ -81,6 +81,23 @@ administrator approval. Existing artifact56d3b4f5 is historical and unchanged.
 New source needs exact-head CI, host acceptance and a separately identified new
 artifact before any production apply consideration.
 
+## Rollback and fail-closed effect
+
+Rollback is a separately authorized host operation, not a deploy phase. It
+changes no Chrony configuration, grant, journal, receipt or budget.
+
+1. `systemctl disable --now servora-med-time-evidence.socket`.
+2. Remove the installed socket/template units and run `systemctl daemon-reload`.
+3. Do not substitute another clock source and do not relax the binding gate.
+   Reinstalling a reader requires the same independent review and a fresh host
+   acceptance.
+
+With the socket absent or disabled, `sampleTrustedTime()` fails with
+`TRUSTED_TIME_UNKNOWN`. Backup observation then keeps `latestVerifiedProof=null`,
+so predeploy/postdeploy proof binding fails closed with
+`RECOVERY_BACKUP_UNTRUSTED` and the release stays blocked. Rollback removes the
+privileged read path; it never restores authority on its own.
+
 Sources: [Chrony4.5 command access](https://chrony-project.org/doc/4.5/chronyc.html),
 [command permissions](https://github.com/mlichvar/chrony/blob/4.5/cmdmon.c),
 [systemd255 socket activation](https://www.freedesktop.org/software/systemd/man/255/systemd.socket.html).
