@@ -5,10 +5,12 @@ import {readFileSync,lstatSync,openSync,closeSync,fstatSync,constants,writeFileS
 import {hostname} from 'node:os';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createConnection} from 'node:net';
-import {sampleTrustedTime,validateCurrentTimeEvidence} from '../scripts/trusted-time.mjs';
-import {validateHostProfile,issueRootApproval,readRootApproval,readLatestCheckpoint} from '../scripts/deployment-attempt.mjs';
-import {environmentBaseline,admitAttempt,currentAttempt} from '../scripts/deployment-controller.mjs';
-const ROOT='/var/lib/servora-med/deploy',LAB='/etc/servora-reader-lab',SOURCE='/opt/servora-lab';
+/** Deployment APIs execute the installed, descriptor-bound modules; the staged
+ * source tree at SOURCE stays hash-only evidence and is never imported. */
+import {validateCurrentTimeEvidence} from '/usr/local/libexec/servora-med/trusted-time.mjs';
+import {validateHostProfile,issueRootApproval,readRootApproval,readLatestCheckpoint} from '/usr/local/libexec/servora-med/deployment-attempt.mjs';
+import {environmentBaseline,admitAttempt,currentAttempt} from '/usr/local/libexec/servora-med/deployment-controller.mjs';
+const ROOT='/var/lib/servora-med/deploy',LAB='/etc/servora-reader-lab',SOURCE='/opt/servora-lab',INSTALLED='/usr/local/libexec/servora-med';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const run=(file,args)=>execFileSync(file,args,{encoding:'utf8',timeout:10000,env:{PATH:'/usr/sbin:/usr/bin:/bin',LC_ALL:'C'}}).trim();
 const boot=()=>readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
@@ -28,7 +30,8 @@ function guard(){
  assert.equal(d.machineId,readFileSync('/etc/machine-id','utf8').trim());
  assert.equal(d.resourceId,readFileSync('/sys/class/dmi/id/product_uuid','utf8').trim().toLowerCase());
  for(const [name,digest] of Object.entries(d.sourceFiles)){assert(!name.includes('..')&&!name.startsWith('/'));assert.equal(hash(protectedRead(SOURCE+'/'+name,0o644)),digest);}
- assert.equal(hash(protectedRead('/usr/local/libexec/servora-med/trusted-time.mjs',0o644)),d.sourceFiles['ops/scripts/trusted-time.mjs']);
+ for(const name of ['trusted-time','deployment-attempt','deployment-controller','deployment-db-guard','migration-reconciliation'])
+  assert.equal(hash(protectedRead(INSTALLED+'/'+name+'.mjs',0o644)),d.sourceFiles['ops/scripts/'+name+'.mjs'],'installed module must match the signed source capsule');
  return d;
 }
 const d=guard(),phase=process.argv[2];assert.equal(process.argv.length,3);
@@ -52,7 +55,7 @@ else if(phase==='negative'){
  console.log(JSON.stringify({kind:'FIXED_PROTOCOL_COMMAND_REJECTED',bytes:bad}));
 }
 else if(phase==='prepare-reboot'){
- known();assert.equal(spawnSync('/usr/bin/test',['-e',ROOT]).status,1,'state must be fresh');
+ known();assert.equal(spawnSync('/usr/bin/test',['-e',ROOT]).status,1,'fresh signed lab required: /var/lib/servora-med/deploy must not exist');
  mkdirSync('/var/lib/servora-med',{mode:0o755});mkdirSync(ROOT,{mode:0o700});
  for(const name of ['approvals','attempts','initializations'])mkdirSync(ROOT+'/'+name,{mode:0o700});
  const fd=openSync(ROOT+'/host.lock',constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);closeSync(fd);
@@ -61,7 +64,7 @@ else if(phase==='prepare-reboot'){
  const fields=()=>({attemptId:randomUUID(),releaseSha:d.sourceSha,treeSha:d.sourceTree,artifactSha256:d.sourceCapsuleSha256,ciManifestSha256:hash(protectedRead(LAB+'/descriptor.json')),oldReleaseSha:d.sourceSha,oldArtifactSha256:d.sourceCapsuleSha256,targetCatalog:d.catalog,oldCatalog:d.catalog,profileSha256:hash(readFileSync(ROOT+'/profile.json')),maxStarts:1,maxAbortStarts:0,allowMigration:false,allowForwardRecovery:false,allowPreMigrationAbort:false,allowPostdeployBackup:false});
  // Source-capsule/API lab only: no deployment/artifact acceptance or effects.
  const unconsumed=issueRootApproval(fields(),7200000),consumed=issueRootApproval(fields(),7200000);
- const lock=run('/usr/bin/flock',['-n',ROOT+'/host.lock','/usr/bin/node','--input-type=module','--eval',`import {admitAttempt} from '${SOURCE}/ops/scripts/deployment-controller.mjs'; console.log(JSON.stringify(admitAttempt('${consumed.record.attemptId}')));`]);assert.equal(JSON.parse(lock).checkpoint.record.phase,'ADMITTED');
+ const lock=run('/usr/bin/flock',['-n',ROOT+'/host.lock','/usr/bin/node','--input-type=module','--eval',`import {admitAttempt} from '${installed}/deployment-controller.mjs'; console.log(JSON.stringify(admitAttempt('${consumed.record.attemptId}')));`]);assert.equal(JSON.parse(lock).checkpoint.record.phase,'ADMITTED');
  const pathsToKeep=[ROOT+'/profile.json',ROOT+'/approvals/'+unconsumed.record.attemptId+'.json',ROOT+'/approvals/'+consumed.record.attemptId+'.json',ROOT+'/attempts/'+consumed.record.attemptId+'/0000.json',ROOT+'/admission-proofs/'+consumed.record.attemptId+'.json',ROOT+'/active.json'];
  const saved={bootId:boot(),unconsumedId:unconsumed.record.attemptId,consumedId:consumed.record.attemptId,files:Object.fromEntries(pathsToKeep.map(p=>[p,hash(readFileSync(p))])),hostLock:{dev:lstatSync(ROOT+'/host.lock').dev,ino:lstatSync(ROOT+'/host.lock').ino},grant:consumed.record};publish(LAB+'/before-reboot.json',saved);
  console.log(JSON.stringify({kind:'PREPARED_REAL_REBOOT',bootId:saved.bootId,unconsumedId:saved.unconsumedId,consumedId:saved.consumedId,hostLock:saved.hostLock,starts:0}));
