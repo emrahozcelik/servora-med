@@ -55,3 +55,70 @@ test('reviewed activation units are transitively pinned by the time module',asyn
  for(const [name,pin] of [['servora-med-time-evidence@.service',time.READER_UNIT_SHA256],['servora-med-time-evidence.socket',time.READER_SOCKET_UNIT_SHA256]])
   assert.equal(createHash('sha256').update(readFileSync(new URL('../systemd/'+name,import.meta.url))).digest('hex'),pin);
 });
+
+test('collector sandbox grants one narrow Chrony client-socket path',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const unit=readFileSync(new URL('../systemd/servora-med-time-evidence@.service',import.meta.url),'utf8');
+ assert.match(unit,/^ProtectSystem=strict$/m);
+ assert.match(unit,/^ReadWritePaths=-\/run\/chrony$/m);
+ assert.match(unit,/^CapabilityBoundingSet=$/m);
+ assert.match(unit,/^User=_chrony$/m);
+});
+
+const RELEASE_GID=988;
+const releaseModulePath='/opt/servora-med/releases/'+'a'.repeat(40)+'/ops/scripts/trusted-time.mjs';
+const releaseFile=(overrides={})=>({kind:'file',uid:0,gid:RELEASE_GID,mode:0o650,nlink:1,...overrides});
+const releaseAncestors=(overrides={})=>[
+ {kind:'directory',uid:0,gid:RELEASE_GID,mode:0o750},
+ {kind:'directory',uid:0,gid:RELEASE_GID,mode:0o750},
+ {kind:'directory',uid:0,gid:RELEASE_GID,mode:0o750},
+ {kind:'directory',uid:0,gid:RELEASE_GID,mode:0o750},
+ {kind:'directory',uid:0,gid:RELEASE_GID,mode:0o750},
+ {kind:'directory',uid:0,gid:0,mode:0o755},
+].map((entry,index)=>({...entry,...(overrides[index]||{})}));
+const INSTALLED_MODULE='/usr/local/libexec/servora-med/trusted-time.mjs';
+const installedFile=(overrides={})=>({kind:'file',uid:0,gid:0,mode:0o644,nlink:1,...overrides});
+const installedAncestors=(overrides={})=>Array.from({length:4},(_,index)=>({kind:'directory',uid:0,gid:0,mode:0o755,...(overrides[index]||{})}));
+
+test('release-path sampler accepts only the deployed immutable release contract',()=>{
+ assert.equal(time.validateTimeModuleContract(releaseModulePath,releaseFile(),releaseAncestors(),RELEASE_GID),'release');
+});
+
+test('installed collector keeps the strict root-owned module contract',()=>{
+ assert.equal(time.validateTimeModuleContract(INSTALLED_MODULE,installedFile(),installedAncestors(),RELEASE_GID),'installed');
+});
+
+test('release-path sampler denies writable, foreign or non-release modules',()=>{
+ for(const path of [
+  '/opt/servora-med/releases/'+'a'.repeat(39)+'/ops/scripts/trusted-time.mjs',
+  '/opt/servora-med/releases/'+'A'.repeat(40)+'/ops/scripts/trusted-time.mjs',
+  '/opt/servora-med/releases/'+'a'.repeat(40)+'/ops/scripts/other.mjs',
+  '/opt/servora-med/releases/'+'a'.repeat(40)+'/ops/trusted-time.mjs',
+  '/opt/servora-med/current/ops/scripts/trusted-time.mjs',
+  '/opt/servora-lab/ops/scripts/trusted-time.mjs',
+  new URL('../scripts/trusted-time.mjs',import.meta.url).pathname,
+ ]) assert.throws(()=>time.validateTimeModuleContract(path,releaseFile(),releaseAncestors(),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ for(const file of [releaseFile({uid:1}),releaseFile({gid:0}),releaseFile({gid:RELEASE_GID+1}),releaseFile({mode:0o644}),releaseFile({mode:0o655}),releaseFile({mode:0o660}),releaseFile({nlink:2}),releaseFile({kind:'other'})])
+  assert.throws(()=>time.validateTimeModuleContract(releaseModulePath,file,releaseAncestors(),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ for(const gid of [0,-1,1.5,999999]) assert.throws(()=>time.validateTimeModuleContract(releaseModulePath,releaseFile(),releaseAncestors(),gid),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('release-path ancestors deny group/other write, foreign owners and links',()=>{
+ for(const index of [0,1,2]) {
+  for(const ancestor of [{mode:0o752},{mode:0o757},{mode:0o775},{gid:RELEASE_GID+1},{gid:0},{uid:1},{kind:'file'},{kind:'other'}])
+   assert.throws(()=>time.validateTimeModuleContract(releaseModulePath,releaseFile(),releaseAncestors({[index]:ancestor}),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ }
+ for(const index of [3,4,5]) {
+  for(const ancestor of [{mode:0o757},{mode:0o775},{gid:RELEASE_GID+1},{uid:1},{kind:'file'},{kind:'other'}])
+   assert.throws(()=>time.validateTimeModuleContract(releaseModulePath,releaseFile(),releaseAncestors({[index]:ancestor}),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ }
+});
+
+test('installed collector denies release-style and writable module metadata',()=>{
+ for(const file of [installedFile({gid:RELEASE_GID}),installedFile({mode:0o650}),installedFile({mode:0o664}),installedFile({uid:1}),installedFile({nlink:2}),installedFile({kind:'other'})])
+  assert.throws(()=>time.validateTimeModuleContract(INSTALLED_MODULE,file,installedAncestors(),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ for(const index of [0,1,2,3]) {
+  for(const ancestor of [{gid:RELEASE_GID},{mode:0o757},{mode:0o775},{uid:1},{kind:'file'}])
+   assert.throws(()=>time.validateTimeModuleContract(INSTALLED_MODULE,installedFile(),installedAncestors({[index]:ancestor}),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ }
+});

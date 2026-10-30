@@ -39,5 +39,9 @@ export function validateRestrictedReply(reply: unknown, context: unknown): Curre
 
 export function validateReaderSocketMetadata(info: import("node:fs").Stats, gid: number): {dev: number;ino: number};
 
+export type TimeModuleEntry = {kind: 'file' | 'directory' | 'other';uid: number;gid: number;mode: number;nlink: number};
+/** Installed root:root module or the exact immutable release copy; no other path. */
+export function validateTimeModuleContract(path: string, info: TimeModuleEntry, ancestors: TimeModuleEntry[], releaseGid: number): 'installed' | 'release';
+
 export const READER_UNIT_SHA256: string;
 export const READER_SOCKET_UNIT_SHA256: string;

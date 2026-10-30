@@ -21,6 +21,8 @@ AmbientCapabilities=
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
+# chronyc binds its per-process client socket in the daemon socket directory.
+ReadWritePaths=-/run/chrony
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

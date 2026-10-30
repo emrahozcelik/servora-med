@@ -16,9 +16,12 @@ access also permits clock/config mutations. Never grant it to app/backup UIDs.
 
 Ubuntu24.04 package observation: /run/chrony is _chrony-owned0700. Instead of
 adding CAP_DAC_OVERRIDE to a root worker, the fixed collector runs as _chrony
-with **empty capabilities**, NoNewPrivileges=yes and AF_UNIX only. It has Chrony
-control access intrinsically, but its root-owned reviewed code exposes only a
-fixed read sequence. App/backup remain servora-med, never _chrony group members.
+with **empty capabilities**, NoNewPrivileges=yes and AF_UNIX only. Because
+chronyc creates its per-process client socket beside the daemon socket, the unit
+grants only `ReadWritePaths=-/run/chrony`; ProtectSystem=strict and the rest of
+the sandbox remain unchanged. It has Chrony control access intrinsically, but
+its root-owned reviewed code exposes only a fixed read sequence. App/backup
+remain servora-med, never _chrony group members.
 Root-owned code does not imply a root-UID process is necessary. PrivateNetwork
 is not needed: RestrictAddressFamilies=AF_UNIX forbids worker IP sockets while
 allowing Chrony's local Unix transport. No Chrony command socket ACL is changed.

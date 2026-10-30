@@ -269,20 +269,64 @@ function collectorUidAllowed() {
   const account=fixedRun('/usr/bin/getent',['passwd','_chrony']).split(':');
   return account.length===7 && /^\d+$/.test(account[2]) && uid===Number(account[2]);
 }
-export const READER_UNIT_SHA256='02215d1f7669baf58de329d294ea633d55e3f9a0f1be4331c10a0cb9f55b9cd5';
+export const READER_UNIT_SHA256='62549b2245f5f712a816268eec74364b4291a4ee597ceab99e9a59d4076ac6b4';
 export const READER_SOCKET_UNIT_SHA256='2ea5811188acd78013fa89dd0734169eb2cddceeef4ea223d0492834f1b3ed55';
 const READER_SOCKET='/run/servora-med-time/evidence.sock';
 const INSTALLED_TIME='/usr/local/libexec/servora-med/trusted-time.mjs';
+const RELEASE_TIME=/^\/opt\/servora-med\/releases\/[0-9a-f]{40}\/ops\/scripts\/trusted-time\.mjs$/;
 const MAX_READER_BYTES=16384;
 function fixedRun(file,args,timeout=500) {
   return execFileSync(file,args,{encoding:'utf8',timeout,maxBuffer:MAX_READER_BYTES,
     env:{PATH:'/usr/bin:/bin',LC_ALL:'C'},stdio:['ignore','pipe','pipe']}).trim();
 }
+function descriptor(info) {
+  return {kind:info.isFile()?'file':info.isDirectory()?'directory':'other',uid:info.uid,gid:info.gid,mode:info.mode&0o7777,nlink:info.nlink};
+}
+function ancestorDescriptors(path) {
+  const ancestors=[];
+  for(let parent=path.slice(0,path.lastIndexOf('/'));parent;parent=parent.slice(0,parent.lastIndexOf('/'))) ancestors.push(descriptor(lstatSync(parent)));
+  return ancestors;
+}
 function protectedAncestors(path) {
-  for(let parent=path.slice(0,path.lastIndexOf('/'));parent;parent=parent.slice(0,parent.lastIndexOf('/'))) {
-    const info=lstatSync(parent);
-    if(!info.isDirectory() || info.uid!==0 || info.gid!==0 || (info.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
+  for(const ancestor of ancestorDescriptors(path)) if(ancestor.kind!=='directory'||ancestor.uid!==0||ancestor.gid!==0||(ancestor.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
+}
+/** Installed code is root:root 0644. The deployed release copy is root:servora-med 0650
+ * under 0750 release directories. Neither group can write. No other executing path is accepted. */
+export function validateTimeModuleContract(path,info,ancestors,releaseGid) {
+  if(path===INSTALLED_TIME) {
+    if(info.kind!=='file'||info.uid!==0||info.gid!==0||info.nlink!==1||info.mode!==0o644) throw new Error('TRUSTED_TIME_UNKNOWN');
+    for(const ancestor of ancestors) if(ancestor.kind!=='directory'||ancestor.uid!==0||ancestor.gid!==0||(ancestor.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
+    return 'installed';
   }
+  if(!RELEASE_TIME.test(path)) throw new Error('TRUSTED_TIME_UNKNOWN');
+  if(!Number.isSafeInteger(releaseGid)||releaseGid<1) throw new Error('TRUSTED_TIME_UNKNOWN');
+  if(info.kind!=='file'||info.uid!==0||info.gid!==releaseGid||info.nlink!==1||info.mode!==0o650) throw new Error('TRUSTED_TIME_UNKNOWN');
+  if(ancestors.length!==6) throw new Error('TRUSTED_TIME_UNKNOWN');
+  for(const ancestor of ancestors.slice(0,3)) {
+    if(ancestor.kind!=='directory'||ancestor.uid!==0||ancestor.gid!==releaseGid||ancestor.mode!==0o750) throw new Error('TRUSTED_TIME_UNKNOWN');
+  }
+  for(const ancestor of ancestors.slice(3)) {
+    if(ancestor.kind!=='directory'||ancestor.uid!==0||![0,releaseGid].includes(ancestor.gid)||(ancestor.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
+  }
+  return 'release';
+}
+function releaseGroupGid() {
+  const group=fixedRun('/usr/bin/getent',['group','servora-med']).split(':');
+  if(group.length!==4||!/^\d+$/.test(group[2])||Number(group[2])<1) throw new Error('TRUSTED_TIME_UNKNOWN');
+  return Number(group[2]);
+}
+function protectedModuleBytes(path) {
+  const ancestors=ancestorDescriptors(path);
+  const releaseGid=RELEASE_TIME.test(path)?releaseGroupGid():-1;
+  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try {
+    const before=fstatSync(fd),byPath=lstatSync(path);
+    if(before.size>262144 || before.ino!==byPath.ino || before.dev!==byPath.dev) throw new Error('TRUSTED_TIME_UNKNOWN');
+    validateTimeModuleContract(path,descriptor(before),ancestors,releaseGid);
+    const bytes=readFileSync(fd),after=fstatSync(fd);
+    if(before.size!==after.size || before.mtimeMs!==after.mtimeMs || before.ctimeMs!==after.ctimeMs || bytes.length!==before.size) throw new Error('TRUSTED_TIME_UNKNOWN');
+    return {bytes,dev:before.dev,ino:before.ino,ctimeMs:before.ctimeMs};
+  } finally {closeSync(fd);}
 }
 function protectedBytes(path) {
   protectedAncestors(path);
@@ -317,7 +361,7 @@ function chronyIdentity() {
   const config=protectedBytes('/etc/chrony/chrony.conf');
   const configSha256=createHash('sha256').update(config.bytes).digest('hex');
   if(configSha256!==CHRONY_CONFIG_SHA256)throw new Error('TRUSTED_TIME_UNKNOWN');
-  const module=protectedBytes(fileURLToPath(import.meta.url));
+  const module=protectedModuleBytes(fileURLToPath(import.meta.url));
   const endpoint=collectorUidAllowed()?'/run/chrony/chronyd.sock':'127.0.0.1';
   const sourceRows=fixedRun('/usr/bin/chronyc',['-h',endpoint,'-N','-c','sources','-a']).split('\n').map(row=>row.split(',').slice(0,6));
   const tracking=fixedRun('/usr/bin/chronyc',['-h',endpoint,'-N','-c','tracking']).split(',').slice(0,4);
