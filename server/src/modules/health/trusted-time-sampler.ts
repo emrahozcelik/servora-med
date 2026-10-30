@@ -1,7 +1,7 @@
 /** HTTP-only isolation; the fixed TT-A sampler and its security rules are unchanged. */
 import {spawn,type ChildProcess} from 'node:child_process';
 import {performance} from 'node:perf_hooks';
-import {validateTimeEvidence,type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
+import {validateCurrentTimeEvidence,type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
 
 export const HEALTH_TIME_SAMPLE_TIMEOUT_MS=3000;
 const MAX_OUTPUT_BYTES=16*1024;
@@ -55,7 +55,7 @@ export function createTrustedTimeSampler(
         clearTimeout(timer);
         let time:TimeEvidence|null=null;
         if(!invalid&&code===0&&performance.now()-started<=timeoutMs) {
-          try {time=validateTimeEvidence(JSON.parse(output.toString('utf8')));}catch { /* Untrusted output denies. */ }
+          try {time=validateCurrentTimeEvidence(JSON.parse(output.toString('utf8')));}catch { /* Untrusted output denies. */ }
         }
         resolveSample(time);
         if(active===current)active=null;

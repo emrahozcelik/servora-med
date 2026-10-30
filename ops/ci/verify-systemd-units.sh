@@ -69,6 +69,8 @@ rewrite_unit "$ROOT/ops/systemd/servora-med-postdeploy-backup.service" "$TMP/uni
 rewrite_unit "$ROOT/ops/systemd/servora-med-predeploy-backup@.service" "$TMP/units/servora-med-predeploy-backup@.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-backup-worker.service" "$TMP/units/servora-med-backup-worker.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-alerting.service" "$TMP/units/servora-med-alerting.service"
+rewrite_unit "$ROOT/ops/systemd/servora-med-time-evidence.socket" "$TMP/units/servora-med-time-evidence.socket"
+rewrite_unit "$ROOT/ops/systemd/servora-med-time-evidence@.service" "$TMP/units/servora-med-time-evidence@.service"
 # Timers have no absolute host paths beyond Unit= reference.
 cp "$ROOT/ops/systemd/servora-med-backup.timer" "$TMP/units/servora-med-backup.timer"
 cp "$ROOT/ops/systemd/servora-med-alerting.timer" "$TMP/units/servora-med-alerting.timer"
@@ -80,6 +82,8 @@ fi
 
 # Hard gate: non-zero fails the job.
 systemd-analyze verify \
+  "$TMP/units/servora-med-time-evidence.socket" \
+  "$TMP/units/servora-med-time-evidence@.service" \
   "$TMP/units/servora-med.service" \
   "$TMP/units/servora-med-backup.service" \
   "$TMP/units/servora-med-backup-manual.service" \

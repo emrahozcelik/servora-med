@@ -527,7 +527,9 @@ validate_release_tree() {
     "$root/ops/systemd/servora-med-backup.timer" \
     "$root/ops/systemd/servora-med-predeploy-backup@.service" \
     "$root/ops/systemd/servora-med-postdeploy-backup.service" \
-    "$root/ops/systemd/servora-med-backup-manual.service"; do
+    "$root/ops/systemd/servora-med-backup-manual.service" \
+    "$root/ops/systemd/servora-med-time-evidence.socket" \
+    "$root/ops/systemd/servora-med-time-evidence@.service"; do
     assert_release_file "$required" || fail RELEASE_TREE_INVALID
   done
   if [[ -n "$ATTEMPT_ID" ]]; then

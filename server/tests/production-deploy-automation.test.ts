@@ -2348,6 +2348,8 @@ describe('release identity capability evidence — artifact binding', () => {
       'ops/systemd/servora-med-predeploy-backup@.service',
       'ops/systemd/servora-med-postdeploy-backup.service',
       'ops/systemd/servora-med-backup-manual.service',
+      'ops/systemd/servora-med-time-evidence.socket',
+      'ops/systemd/servora-med-time-evidence@.service',
     ];
     for (const file of files) writeFileSync(join(root, file), 'fixture');
     chmodSync(join(root, 'ops/scripts/backup-postgres.sh'), 0o755);
@@ -2373,6 +2375,23 @@ describe('release identity capability evidence — artifact binding', () => {
       expect(`${missing.stdout}${missing.stderr}`).toContain('RELEASE_TREE_INVALID');
     } finally {
       rmSync(withoutMarker, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the restricted time evidence units in candidate release trees', () => {
+    for (const unit of [
+      'ops/systemd/servora-med-time-evidence.socket',
+      'ops/systemd/servora-med-time-evidence@.service',
+    ]) {
+      const root = releaseTreeFixture(true);
+      try {
+        rmSync(join(root, unit));
+        const missing = runHostHarness('validate_release_tree "$2"', [root]);
+        expect(missing.status).not.toBe(0);
+        expect(`${missing.stdout}${missing.stderr}`).toContain('RELEASE_TREE_INVALID');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
   });
 });

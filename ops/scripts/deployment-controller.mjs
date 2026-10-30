@@ -3,8 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
   OBSERVATION_SECONDS, publishRootAdmissionConfirmation, validateApprovalStructure,
-  validateApproval } from './deployment-attempt.mjs';
-import { elapsedTime, sampleTrustedTime } from './trusted-time.mjs';
+  validateApproval, validateInitialAttemptRecord } from './deployment-attempt.mjs';
+import { elapsedTime, sampleTrustedTime, validateCurrentTimeEvidence } from './trusted-time.mjs';
 import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, realpathSync,
   writeFileSync, fsyncSync, fchmodSync, fchownSync, renameSync, unlinkSync,
   symlinkSync, mkdirSync, readdirSync, readlinkSync, readSync, writeSync, linkSync } from 'node:fs';
@@ -254,9 +254,7 @@ function initializationRecord(context) {
   }
   const record = readProtectedRecord(marker,links).record;
   advanceAttempt(record,context,'VALIDATE');
-  if (JSON.stringify(record) !== JSON.stringify(initialAttempt(context,record.admissionTime))) {
-    throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
-  }
+  validateInitialAttemptRecord(context,record);
   if (existsSync(STATE_ROOT+'/active.json')) {
     const active = readProtectedRecord(STATE_ROOT+'/active.json').record;
     if (Object.keys(active).length !== 2 || active.attemptId !== context.approval.attemptId
@@ -784,6 +782,8 @@ function adoptSealedBackup(attemptId, kind, context) {
  */
 export function validateBackupObservationBinding(document,artifactSha256,sidecarSha256,trigger) {
   const proof=document?.latestVerifiedProof;
+  try {validateCurrentTimeEvidence(proof?.before);validateCurrentTimeEvidence(proof?.after);}
+  catch {throw new Error('RECOVERY_BACKUP_UNTRUSTED');}
   if(document?.schemaVersion!==2||document.latestAttemptResult!=='success'||document.latestAttemptTrigger!==trigger
     ||document.latestVerifiedTrigger!==trigger||!proof||Object.keys(proof).length!==8||proof.formatVersion!==1
     ||typeof proof.attemptId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(proof.attemptId)

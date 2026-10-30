@@ -1,7 +1,10 @@
-# Proposed infrastructure contract OPS-TT-001. Isolated acceptance first.
-# Installation/restart on production requires separate explicit authorization.
-server time.ume.tubitak.gov.tr iburst prefer minpoll 6 maxpoll 8
-server time.cloudflare.com iburst nts trust require minpoll 6 maxpoll 8
+# OPS-TT-003 / nts-quorum-v1. Isolated acceptance before production approval.
+# No explicit trust/require: authselectmode require does NOT inject those flags.
+authselectmode require
+server time.cloudflare.com iburst nts minpoll 6 maxpoll 8
+server bevtime1.metrologie.at iburst nts minpoll 6 maxpoll 8
+server 1.ntp.ubuntu.com iburst nts minpoll 6 maxpoll 8
+server time.ume.tubitak.gov.tr iburst noselect minpoll 6 maxpoll 8
 minsources 2
 maxdistance 1
 makestep 0.1 3

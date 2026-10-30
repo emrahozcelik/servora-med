@@ -1,0 +1,17 @@
+[Unit]
+Description=Servora-Med read-only time evidence activation
+
+[Socket]
+ListenStream=/run/servora-med-time/evidence.sock
+SocketUser=root
+SocketGroup=servora-med
+SocketMode=0660
+DirectoryMode=0755
+Accept=yes
+MaxConnections=2
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=120
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

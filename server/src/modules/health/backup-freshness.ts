@@ -1,5 +1,5 @@
 /** Canonical host backup freshness policy (OPS-004 / TT-B). */
-import {elapsedBootTime, elapsedTime, type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
+import {elapsedBootTime, elapsedTime, validateCurrentTimeEvidence, type TimeEvidence} from '../../../../ops/scripts/trusted-time.mjs';
 import {validateVerificationProof,type BackupAttemptResult,type BackupObservationState, type BackupObservationSuccess} from '../../../../ops/scripts/backup-observation.mjs';
 export {BACKUP_TRIGGER_CLASSES,BACKUP_ATTEMPT_RESULTS,BACKUP_FAILURE_CLASSES,BACKUP_OBSERVATION_SCHEMA_VERSION,
   parseObservationInstant,parseBackupObservationState} from '../../../../ops/scripts/backup-observation.mjs';
@@ -9,6 +9,7 @@ export type BackupProviderStatus='healthy'|'stale'|'failed'|'unavailable'|'disab
 export const BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS=26*60*60*1000;
 
 function freshness(success:BackupObservationSuccess|null,current:TimeEvidence|null):'healthy'|'stale'|'unavailable' {
+  try {validateCurrentTimeEvidence(current);}catch{return 'unavailable';}
   const proof=success?.proof;
   if(!proof||!current||!validateVerificationProof(proof,success.trigger,success.verifiedAt))return 'unavailable';
   if(Date.parse(success.verifiedAt)>Date.parse(current.wallAtUTC))return 'unavailable';

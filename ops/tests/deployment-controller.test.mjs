@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { alignIdentityEnvironment, environmentBaseline, validateIdentityTuple, validateAttemptDeploymentState, validateBackupHealthProjection,validateBackupObservationBinding } from '../scripts/deployment-controller.mjs';
-import {timeEvidenceAt} from './trusted-time-fixture.mjs';
+import {timeEvidenceAt,legacyTimeEvidenceAt} from './trusted-time-fixture.mjs';
 
 test('TT-B R4 seals only the artifact/sidecar pair named by original producer evidence',()=>{
   const at='2026-10-27T09:00:00Z',id='11111111-1111-4111-8111-111111111111';
@@ -48,4 +48,13 @@ test('attempt deployment state preserves the approved old release and exact cata
  for(const invalid of [text.replace('migrations_applied=1','migrations_applied=0'),text.replace(approval.oldReleaseSha,'c'.repeat(40)),text.replace('old_release=/opt/servora-med/releases/'+approval.oldReleaseSha,'old_release='),text+'extra=value\n',text.replace('postdeploy=not_run','postdeploy=rolled_back')]){
   assert.throws(()=>validateAttemptDeploymentState(invalid,approval),/DEPLOYMENT_STATE_INVALID/);
  }
+});
+
+test('OPS-TT-003: historical backup time cannot become a newly sealed R4 backup proof',()=>{
+  const at='2026-10-27T09:00:00Z',id='11111111-1111-4111-8111-111111111111';
+  const proof={formatVersion:1,attemptId:id,trigger:'postdeploy',startedAt:at,artifactSha256:'a'.repeat(64),
+    sidecarSha256:'b'.repeat(64),before:legacyTimeEvidenceAt(Date.parse(at)),after:legacyTimeEvidenceAt(Date.parse(at))};
+  const document={schemaVersion:2,latestAttemptId:id,latestAttemptTime:proof.before,latestAttemptTrigger:'postdeploy',latestAttemptStartedAt:at,
+    latestAttemptCompletedAt:at,latestAttemptResult:'success',latestVerifiedAt:at,latestVerifiedTrigger:'postdeploy',latestVerifiedProof:proof};
+  assert.throws(()=>validateBackupObservationBinding(document,'a'.repeat(64),'b'.repeat(64),'postdeploy'),/RECOVERY_BACKUP_UNTRUSTED/);
 });

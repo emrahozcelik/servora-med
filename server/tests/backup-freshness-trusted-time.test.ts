@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {evaluateBackupProviderStatus, parseBackupObservationState} from '../src/modules/health/backup-freshness.js';
-import {timeAt, trustedDocument} from './backup-time-fixture.js';
+import {timeAt, legacyTimeAt, trustedDocument} from './backup-time-fixture.js';
 import {createHostBackupObservationHealth} from '../src/modules/health/host-backup-observation.js';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -88,4 +88,17 @@ describe('TT-B backup event time',()=>{
       expect((await health.check()).providerStatus).toBe('healthy');
     } finally {await rm(dir,{recursive:true,force:true});}
   });
+});
+
+
+it('OPS-TT-003 keeps old time proofs as history and never promotes their quorum',()=>{
+  const raw=trustedDocument(legacy);
+  const proof=raw.latestVerifiedProof as {before:ReturnType<typeof legacyTimeAt>;after:ReturnType<typeof legacyTimeAt>};
+  proof.before=legacyTimeAt(Date.parse(at));proof.after=legacyTimeAt(Date.parse(at));
+  raw.latestScheduledVerifiedProof=proof;raw.latestAttemptTime=proof.before;raw.latestScheduledAttemptTime=proof.before;
+  const bytes=JSON.stringify(raw),state=parseBackupObservationState(JSON.parse(bytes));
+  expect(state).not.toBeNull();
+  expect(evaluateBackupProviderStatus(state,legacyTimeAt(Date.parse(at)+1000))).toBe('unavailable');
+  expect(evaluateBackupProviderStatus(state,timeAt(Date.parse(at)+1000))).toBe('unavailable');
+  expect(JSON.stringify(raw)).toBe(bytes);
 });

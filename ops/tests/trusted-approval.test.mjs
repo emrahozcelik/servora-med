@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {createHash} from 'node:crypto';
 import {validateApproval,initialAttempt,advanceAttempt,acceptedHandoffDirection,
-  admissionConfirmation,validateAdmissionConfirmation} from '../scripts/deployment-attempt.mjs';
-import {approvalFixture,timeEvidenceAt} from './trusted-time-fixture.mjs';
+  admissionConfirmation,validateAdmissionConfirmation,validateInitialAttemptRecord} from '../scripts/deployment-attempt.mjs';
+import {approvalFixture,timeEvidenceAt,legacyTimeEvidenceAt} from './trusted-time-fixture.mjs';
 
 test('A2-01/04/05/06: v2 uses its persisted issue anchor, including expiry+1ms rollback',()=>{
   const grant=approvalFixture(),issued=Date.parse(grant.issuedAtUTC),expiry=Date.parse(grant.expiresAtUTC);
@@ -77,4 +78,43 @@ test('A2-02/03/16: admission keeps the exact 3600-second window and the original
   assert.equal(validateApproval(grant,timeEvidenceAt(expiry-1)),grant,'validity lasts until E-1ms without admitting new work');
   for(const now of [expiry-3599999,expiry-1])assert.throws(()=>initialAttempt(context,timeEvidenceAt(now)),/WINDOW_INSUFFICIENT/);
   assert.throws(()=>initialAttempt(context,{...atBoundary,bootLowerMs:atBoundary.bootLowerMs+1,bootUpperMs:atBoundary.bootUpperMs+1}),/WINDOW_INSUFFICIENT/);
+});
+
+test('OPS-TT-003: legacy time evidence cannot authorize an unconsumed grant or admission',()=>{
+  const grant=approvalFixture(),legacy={...grant,issuedTime:legacyTimeEvidenceAt()};
+  const context={approval:legacy,approvalSha256:'4'.repeat(64)};
+  assert.throws(()=>validateApproval(legacy,legacyTimeEvidenceAt()),/TRUSTED_TIME_UNKNOWN/);
+  assert.throws(()=>initialAttempt(context,legacyTimeEvidenceAt()),/TRUSTED_TIME_UNKNOWN/);
+  assert.throws(()=>validateApproval(grant,legacyTimeEvidenceAt()),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003: historical v1 confirmation replays without rewriting or resetting consumed scope',()=>{
+  const grant={...approvalFixture(),issuedTime:legacyTimeEvidenceAt()};
+  const context={approval:grant,approvalSha256:'4'.repeat(64)};
+  // Exact pre-policy format-2 journal carrying time format 1, not a new admission.
+  const initial={...initialAttempt({approval:approvalFixture(),approvalSha256:context.approvalSha256},timeEvidenceAt()),
+    admissionTime:legacyTimeEvidenceAt(),timeEvidence:legacyTimeEvidenceAt()};
+  const proof={formatVersion:2,attemptId:grant.attemptId,approvalSha256:context.approvalSha256,
+    initialSha256:createHash('sha256').update(JSON.stringify(initial)+'\n').digest('hex'),
+    postFsyncTime:legacyTimeEvidenceAt(Date.parse(grant.issuedAtUTC)+20)};
+  const bytes=JSON.stringify({grant,initial,proof});
+  assert.equal(validateAdmissionConfirmation(context,initial,proof),proof);
+  const current=timeEvidenceAt(Date.parse(grant.expiresAtUTC)+1000,
+    {bootId:'22222222-2222-4222-8222-222222222222',bootLowerMs:100,bootUpperMs:100});
+  const prior={...initial,phase:'START_FAILED',migrationCommitted:true,starts:2,lastStart:'fail'};
+  const next=advanceAttempt(prior,context,'VALIDATE',current);
+  assert.equal(next,prior);assert.equal(next.starts,2);
+  assert.throws(()=>advanceAttempt(prior,context,'START_INTENT',current),/ATTEMPT_START_BUDGET_EXHAUSTED/);
+  assert.throws(()=>admissionConfirmation(context,initial,current),/TRUSTED_TIME_UNKNOWN/);
+  assert.equal(JSON.stringify({grant,initial,proof}),bytes);
+});
+
+test('OPS-TT-003: controller historical initial-record validation cannot publish new legacy authority',()=>{
+  const grant={...approvalFixture(),issuedTime:legacyTimeEvidenceAt()};
+  const context={approval:grant,approvalSha256:'4'.repeat(64)};
+  const record={...initialAttempt({approval:approvalFixture(),approvalSha256:context.approvalSha256},timeEvidenceAt()),
+    admissionTime:legacyTimeEvidenceAt(),timeEvidence:legacyTimeEvidenceAt()};
+  assert.equal(validateInitialAttemptRecord(context,record),record);
+  assert.throws(()=>validateInitialAttemptRecord(context,{...record,starts:1}),/RECOVERY_INITIALIZATION_CONFLICT/);
+  assert.throws(()=>initialAttempt(context,record.admissionTime),/TRUSTED_TIME_UNKNOWN/);
 });

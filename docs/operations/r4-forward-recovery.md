@@ -315,8 +315,9 @@ captured only after this reconciliation, before MIGRATION_INTENT and migration.
 
 ## TT-A format and infrastructure boundary (Issue #369 A2)
 
-OPS-TT-001 assigns continuous UTC synchronization to chrony, with UME and the
-independent Cloudflare NTS source. The application only reads bounded health and
+OPS-TT-003 supersedes OPS-TT-001's fixed source pair: chrony requires at least
+two authenticated/selectable operators from the closed Cloudflare/BEV/Canonical
+NTS allowlist and exactly one selected source; UME is monitor-only noselect. The application only reads bounded health and
 Linux BOOTTIME evidence. There is no application clock daemon, periodic database
 clock writer, caller time override or Date.now-only admission fallback.
 
@@ -418,3 +419,39 @@ not by itself proof that operational rollback to the v1 reader is healthy.
 Migration intent/commit still has its existing abort/forward-only rules; the
 fresh candidate PRE backup, scheduled v2 event and postdeploy acceptance remain
 mandatory. This recovery baseline does not replace any of those receipts.
+
+
+### OPS-TT-003 source-policy transition (not production authorization)
+
+The live sampler emits nested time format 2 (`nts-quorum-v1`); legacy time
+format 1 remains structurally readable only for historical checks. Unconsumed
+legacy-time approvals cannot be admitted or given a new confirmation. Exact
+sealed, confirmed format-2 journals containing old time evidence can be replayed
+only as historical same-attempt consumption; fresh transitions need time format 2
+and the existing root profile/source/owner/proof contracts and budgets. No rewrite,
+re-seal, new TTL or restart-budget reset is permitted. A source/profile mismatch
+is STOP, not an automatic bootstrap or continuation exception.
+
+The reviewed config is `ops/chrony/servora-med.conf.example`, without explicit
+NTS trust/require flags. Authselectmode require is not mix. Chrony 4.5's privileged
+read reports are unavailable to ordinary app/backup UIDs; do not grant them the
+Unix control socket or general sudo. Until a separately reviewed bounded read
+path and real sandbox acceptance exist, these samplers return UNKNOWN and the
+release stays blocked. Root parser and container config checks do not close
+this gate. New module/config bytes require new source-bound CI/artifact and
+independent administrator review before any separately authorized bootstrap.
+
+The Issue369 [restricted Chrony reader](./restricted-chrony-evidence.md) supplies
+fresh request-bound time2 evidence without app/backup Chrony socket access. It
+does not alter approval lifetime, persisted historical replay, budgets or root
+profile/source contracts. Newly installed module/unit bytes require independent
+review; no production install or active-profile transition is authorized here.
+
+Packaging the reviewed socket/template units in the release tree does not install
+them. Before the first release that ships the v2 sampler, the restricted reader
+must already be installed, enabled and host-verified on the target under a
+separately authorized production bootstrap. Approval of a release, artifact or
+PR does not imply that host authorization. Without the reader,
+`sampleTrustedTime()` fails with `TRUSTED_TIME_UNKNOWN`, backup observation keeps
+no current-time proof, and the predeploy/postdeploy binding gates fail closed with
+`RECOVERY_BACKUP_UNTRUSTED`. There is no fallback clock source.

@@ -4,7 +4,7 @@ import { constants, lstatSync, openSync, fstatSync, readFileSync, closeSync,
   mkdirSync, writeFileSync, fsyncSync, linkSync, unlinkSync, readdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
-import { elapsedTime, sampleTrustedTime, validateTimeEvidence } from './trusted-time.mjs';
+import { elapsedTime, sampleTrustedTime, validateTimeEvidence, validateCurrentTimeEvidence } from './trusted-time.mjs';
 
 const ATTEMPT_ROOT = '/var/lib/servora-med/deploy';
 const ATTEMPT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -51,7 +51,7 @@ export function issueRootApproval(fields, ttlMs) {
     .some(key => Object.hasOwn(fields,key)) || !Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 86400000) {
     throw new Error('ATTEMPT_APPROVAL_TIME_INVALID');
   }
-  const issuedTime = sampleTrustedTime();
+  const issuedTime = validateCurrentTimeEvidence(sampleTrustedTime());
   const record = {...fields,formatVersion:2,issuedAtUTC:issuedTime.wallAtUTC,
     expiresAtUTC:new Date(Date.parse(issuedTime.wallAtUTC)+ttlMs).toISOString(),issuedTime};
   validateApprovalStructure(record); readRootProfile(record);
@@ -248,7 +248,7 @@ export function readRootApproval(attemptId) {
       links = 2;
     }
     const initial = readProtectedRecord(markerInfo ? marker : first, links).record;
-    if (JSON.stringify(initial) !== JSON.stringify(initialAttempt(context,initial.admissionTime))) {
+    if (JSON.stringify(initial) !== JSON.stringify(initialAttemptAt(context,initial.admissionTime))) {
       throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
     }
     if (markerInfo) {
@@ -353,6 +353,13 @@ export function validateApprovalStructure(record) {
 }
 
 export function validateApproval(record, current = sampleTrustedTime()) {
+  validateCurrentTimeEvidence(record?.issuedTime);
+  validateCurrentTimeEvidence(current);
+  return approvalAt(record,current);
+}
+
+// Historical replay only. Never exposed as an admission/issuance clock override.
+function approvalAt(record, current) {
   validateApprovalStructure(record);
   const age = elapsedTime(record.issuedTime,current);
   if (age.status !== 'KNOWN') throw new Error('TRUSTED_TIME_UNKNOWN');
@@ -381,7 +388,7 @@ function consumedApproval(record) {
  */
 export function assertPreMigrationAbortCompatibility(approval, appliedVersions, current = sampleTrustedTime()) {
   consumedApproval(approval);
-  validateTimeEvidence(current);
+  validateCurrentTimeEvidence(current);
   if (!approval.allowPreMigrationAbort || approval.maxAbortStarts === 0) {
     throw new Error('PRE_MIGRATION_ABORT_NOT_AUTHORIZED');
   }
@@ -424,7 +431,12 @@ function validInvariantBaseline(value) {
 }
 
 export function initialAttempt(context, current = sampleTrustedTime()) {
-  const approval = validateApproval(context.approval, current);
+  validateApproval(context.approval,current);
+  return initialAttemptAt(context,current);
+}
+
+function initialAttemptAt(context, current) {
+  const approval = approvalAt(context.approval, current);
   const now = Date.parse(current.wallAtUTC);
   const age = elapsedTime(approval.issuedTime,current);
   // Before the first durable mutation, the grant must still cover the full
@@ -446,6 +458,14 @@ export function initialAttempt(context, current = sampleTrustedTime()) {
     admissionTime: current, timeEvidence: current };
 }
 
+/** Structural historical validation only; no publication, consumption or fresh authority. */
+export function validateInitialAttemptRecord(context, record) {
+  if (JSON.stringify(record) !== JSON.stringify(initialAttemptAt(context,record?.admissionTime))) {
+    throw new Error('RECOVERY_INITIALIZATION_CONFLICT');
+  }
+  return record;
+}
+
 const CONFIRMATION_KEYS = ['formatVersion','attemptId','approvalSha256','initialSha256','postFsyncTime'];
 
 export function validateAdmissionConfirmation(context, initial, proof) {
@@ -453,12 +473,12 @@ export function validateAdmissionConfirmation(context, initial, proof) {
     || CONFIRMATION_KEYS.some(key => !Object.hasOwn(proof,key)) || proof.formatVersion !== 2
     || proof.attemptId !== context.approval.attemptId || proof.approvalSha256 !== context.approvalSha256
     || proof.initialSha256 !== createHash('sha256').update(JSON.stringify(initial)+'\n').digest('hex')
-    || JSON.stringify(initial) !== JSON.stringify(initialAttempt(context,initial?.admissionTime))) {
+    || JSON.stringify(initial) !== JSON.stringify(initialAttemptAt(context,initial?.admissionTime))) {
     throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
   }
   // A post-fsync sample still inside the original window proves the first
   // publication was timely. Persisted evidence is historical, not a new lease.
-  initialAttempt(context,proof.postFsyncTime);
+  initialAttemptAt(context,proof.postFsyncTime);
   if (elapsedTime(initial.admissionTime,proof.postFsyncTime).status !== 'KNOWN') {
     throw new Error('RECOVERY_ADMISSION_CONFIRMATION_INVALID');
   }
@@ -466,6 +486,8 @@ export function validateAdmissionConfirmation(context, initial, proof) {
 }
 
 export function admissionConfirmation(context, initial, postFsyncTime = sampleTrustedTime()) {
+  validateApproval(context.approval,postFsyncTime);
+  validateCurrentTimeEvidence(initial?.admissionTime);
   return validateAdmissionConfirmation(context,initial,{formatVersion:2,attemptId:context.approval.attemptId,
     approvalSha256:context.approvalSha256,initialSha256:createHash('sha256').update(JSON.stringify(initial)+'\n').digest('hex'),postFsyncTime});
 }
@@ -553,7 +575,7 @@ export function acceptedHandoffDirection(journal, context, now = sampleTrustedTi
  */
 export function advanceAttempt(journal, context, event, current = sampleTrustedTime()) {
   const approval = validateApprovalStructure(context.approval);
-  validateTimeEvidence(current);
+  validateCurrentTimeEvidence(current);
   const now = Date.parse(current.wallAtUTC);
   if (journal === null || typeof journal !== 'object' || Array.isArray(journal)
     || Object.keys(journal).length !== JOURNAL_KEYS.length
@@ -582,7 +604,7 @@ export function advanceAttempt(journal, context, event, current = sampleTrustedT
   // journal timeline was never the one consumed here.
   // Historical admission is checked against the original issue anchor, never
   // reconstructed by passing an old wall timestamp as the current clock.
-  initialAttempt(context,journal.admissionTime);
+  initialAttemptAt(context,journal.admissionTime);
   validateTimeEvidence(journal.timeEvidence);
   if (journal.updatedAtUTC !== journal.timeEvidence.wallAtUTC
     || (context.admissionTime && JSON.stringify(context.admissionTime) !== JSON.stringify(journal.admissionTime))

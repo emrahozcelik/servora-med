@@ -5,7 +5,7 @@ import test from 'node:test';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import { validateInstalledOldAdoption, issueInstalledOldAdoption } from '../scripts/deployment-controller.mjs';
-import {timeEvidenceAt} from './trusted-time-fixture.mjs';
+import {timeEvidenceAt,legacyTimeEvidenceAt} from './trusted-time-fixture.mjs';
 import {adoptionHost,adoptionFixture as fixture} from './installed-old-adoption-fixture.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -384,4 +384,15 @@ test('orphan R4 backup or log history blocks first-cutover issuance',async t=>{
   for(const relative of ['backups/orphan.dump','logs/orphan.log'])
     await refuses(t,host=>host.add('/var/lib/servora-med/deploy/'+relative,'unowned history'),
       /RECOVERY_ADOPTION_STATE_NOT_EMPTY/);
+});
+
+
+test('OPS-TT-003: canonical administrator issuance refuses a legacy sampler before any publication',async t=>{
+  const f=fixture(),host=await adoptionHost(f);t.after(host.cleanup);
+  host.now=legacyTimeEvidenceAt();
+  const {formatVersion,issuedAtUTC,expiresAtUTC,issuedTime,...fields}=f.context.approval;
+  const before=new Map([...host.files].map(([path,file])=>[path,Buffer.from(file.data)]));
+  assert.throws(()=>host.rootAttempt.issueRootApproval(fields,3600000),/TRUSTED_TIME_UNKNOWN/);
+  assert.deepEqual([...host.files.keys()],[...before.keys()]);
+  for(const [path,bytes] of before)assert.deepEqual(host.files.get(path).data,bytes);
 });
