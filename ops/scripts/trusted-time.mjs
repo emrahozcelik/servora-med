@@ -1,8 +1,10 @@
 /** Read-only infrastructure time evidence. No domain TTLs or clock setters. */
-import { readFileSync, readlinkSync, constants, openSync, fstatSync, closeSync } from 'node:fs';
+import { readFileSync, readlinkSync, constants, openSync, fstatSync, closeSync, lstatSync, readSync, writeSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { isIP } from 'node:net';
+import { createHash, randomBytes } from 'node:crypto';
+import { isIP, createConnection } from 'node:net';
+import { fileURLToPath } from 'node:url';
+import { performance } from 'node:perf_hooks';
 const KEYS = ['formatVersion','source','bootId','timeNamespaceId','bootLowerMs',
   'bootUpperMs','wallAtUTC','wallResolutionMs','synchronization'];
 const SYNC_KEYS = ['service','referenceAgeMs','rootDistanceMs','correctionMs','sourceCount'];
@@ -186,11 +188,15 @@ export function evidenceFromLinuxReads(reads) {
 }
 
 /** Fixed production paths/commands only. Never accepts caller clock overrides. */
-export function sampleTrustedTime() {
+function collectChronyTime() {
   try {
-    if (process.platform !== 'linux') throw new Error('TRUSTED_TIME_UNKNOWN');
-    const run = (file,args) => execFileSync(file,args,{encoding:'utf8',timeout:2000,maxBuffer:16384,
-      env:{PATH:'/usr/bin:/bin',LC_ALL:'C'},stdio:['ignore','pipe','pipe']}).trim();
+    if (process.platform !== 'linux' || !collectorUidAllowed()) throw new Error('TRUSTED_TIME_UNKNOWN');
+    const started=performance.now();
+    const run = (file,args) => {
+      const remaining=2000-Math.ceil(performance.now()-started);
+      if(remaining<=0)throw new Error('TRUSTED_TIME_UNKNOWN');
+      return fixedRun(file,file==='/usr/bin/chronyc'?['-h','/run/chrony/chronyd.sock',...args]:args,remaining);
+    };
     if (run('/usr/bin/systemctl',['is-active','chrony.service']) !== 'active') throw new Error('TRUSTED_TIME_UNKNOWN');
     // systemctl exits nonzero for an inactive unit. No service mutation is used.
     try {
@@ -242,4 +248,143 @@ export function sampleTrustedTime() {
       uptimeAfter:readFileSync('/proc/uptime','utf8'),
       bootAfter:readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim(),namespaceAfter:readlinkSync('/proc/self/ns/time')});
   } catch { throw new Error('TRUSTED_TIME_UNKNOWN'); }
+}
+
+/** Transport validation is separate from persisted TimeEvidence format2. */
+export function validateRestrictedReply(reply,context) {
+  try {
+    if (!exact(reply,['formatVersion','nonce','identity','time']) || reply.formatVersion!==1 || !/^[0-9a-f]{64}$/.test(context.nonce) || reply.nonce!==context.nonce) throw new Error('TRUSTED_TIME_UNKNOWN');
+    if (JSON.stringify(reply.identity)!==JSON.stringify(context.before.identity) || JSON.stringify(reply.identity)!==JSON.stringify(context.after.identity)) throw new Error('TRUSTED_TIME_UNKNOWN');
+    if(reply.time.bootId!==reply.identity.bootId || reply.time.timeNamespaceId!==context.before.namespace || context.before.namespace!==context.after.namespace) throw new Error('TRUSTED_TIME_UNKNOWN');
+    if(!Number.isSafeInteger(context.before.bootMs) || !Number.isSafeInteger(context.after.bootMs) || context.after.bootMs<context.before.bootMs || context.after.bootMs-context.before.bootMs>2500) throw new Error('TRUSTED_TIME_UNKNOWN');
+    if(reply.time.bootLowerMs<context.before.bootMs || reply.time.bootUpperMs>context.after.bootMs+10) throw new Error('TRUSTED_TIME_UNKNOWN');
+    return validateCurrentTimeEvidence(reply.time);
+  } catch {throw new Error('TRUSTED_TIME_UNKNOWN');}
+}
+
+
+function collectorUidAllowed() {
+  const uid=process.getuid();
+  if(uid===0)return true;
+  const account=fixedRun('/usr/bin/getent',['passwd','_chrony']).split(':');
+  return account.length===7 && /^\d+$/.test(account[2]) && uid===Number(account[2]);
+}
+export const READER_UNIT_SHA256='02215d1f7669baf58de329d294ea633d55e3f9a0f1be4331c10a0cb9f55b9cd5';
+export const READER_SOCKET_UNIT_SHA256='2ea5811188acd78013fa89dd0734169eb2cddceeef4ea223d0492834f1b3ed55';
+const READER_SOCKET='/run/servora-med-time/evidence.sock';
+const INSTALLED_TIME='/usr/local/libexec/servora-med/trusted-time.mjs';
+const MAX_READER_BYTES=16384;
+function fixedRun(file,args,timeout=500) {
+  return execFileSync(file,args,{encoding:'utf8',timeout,maxBuffer:MAX_READER_BYTES,
+    env:{PATH:'/usr/bin:/bin',LC_ALL:'C'},stdio:['ignore','pipe','pipe']}).trim();
+}
+function protectedAncestors(path) {
+  for(let parent=path.slice(0,path.lastIndexOf('/'));parent;parent=parent.slice(0,parent.lastIndexOf('/'))) {
+    const info=lstatSync(parent);
+    if(!info.isDirectory() || info.uid!==0 || info.gid!==0 || (info.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
+  }
+}
+function protectedBytes(path) {
+  protectedAncestors(path);
+  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try {
+    const before=fstatSync(fd),byPath=lstatSync(path);
+    if(!before.isFile() || before.uid!==0 || before.gid!==0 || before.nlink!==1
+      || (before.mode&0o7777)!==0o644 || before.size>262144 || before.ino!==byPath.ino || before.dev!==byPath.dev) throw new Error('TRUSTED_TIME_UNKNOWN');
+    const bytes=readFileSync(fd),after=fstatSync(fd);
+    if(before.size!==after.size || before.mtimeMs!==after.mtimeMs || before.ctimeMs!==after.ctimeMs || bytes.length!==before.size) throw new Error('TRUSTED_TIME_UNKNOWN');
+    return {bytes,dev:before.dev,ino:before.ino,ctimeMs:before.ctimeMs};
+  } finally {closeSync(fd);}
+}
+function clockRead() {
+  const bootId=readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim();
+  const namespace=readlinkSync('/proc/self/ns/time');
+  if(!/^monotonic\s+0\s+0\s+boottime\s+0\s+0\s*$/.test(readFileSync('/proc/self/timens_offsets','utf8').trim())) throw new Error('TRUSTED_TIME_UNKNOWN');
+  const uptime=readFileSync('/proc/uptime','utf8').split(' ')[0];
+  if(!/^\d+\.\d{2}$/.test(uptime))throw new Error('TRUSTED_TIME_UNKNOWN');
+  return {bootId,namespace,bootMs:Math.round(Number(uptime)*1000)};
+}
+function chronyIdentity() {
+  const props=fixedRun('/usr/bin/systemctl',['show','chrony.service','--property=ActiveState,MainPID,InvocationID']);
+  const rows=Object.fromEntries(props.split('\n').map(row=>row.split('=')));
+  if(Object.keys(rows).length!==3 || rows.ActiveState!=='active' || !/^[1-9]\d*$/.test(rows.MainPID) || !/^[0-9a-f]{32}$/.test(rows.InvocationID))throw new Error('TRUSTED_TIME_UNKNOWN');
+  const pid=Number(rows.MainPID),stat=readFileSync(`/proc/${pid}/stat`,'utf8');
+  const fields=stat.slice(stat.lastIndexOf(')')+2).split(' '),startTicks=fields[19];
+  if(!/^\d+$/.test(startTicks))throw new Error('TRUSTED_TIME_UNKNOWN');
+  // Reject alternate config/command-line directives: Ubuntu24.04's fixed default only.
+  const argv=readFileSync(`/proc/${pid}/cmdline`,'utf8').split('\0').filter(Boolean);
+  if(!['["/usr/sbin/chronyd","-F","1"]','["/usr/sbin/chronyd"]'].includes(JSON.stringify(argv)))throw new Error('TRUSTED_TIME_UNKNOWN');
+  const config=protectedBytes('/etc/chrony/chrony.conf');
+  const configSha256=createHash('sha256').update(config.bytes).digest('hex');
+  if(configSha256!==CHRONY_CONFIG_SHA256)throw new Error('TRUSTED_TIME_UNKNOWN');
+  const module=protectedBytes(fileURLToPath(import.meta.url));
+  const endpoint=collectorUidAllowed()?'/run/chrony/chronyd.sock':'127.0.0.1';
+  const sourceRows=fixedRun('/usr/bin/chronyc',['-h',endpoint,'-N','-c','sources','-a']).split('\n').map(row=>row.split(',').slice(0,6));
+  const tracking=fixedRun('/usr/bin/chronyc',['-h',endpoint,'-N','-c','tracking']).split(',').slice(0,4);
+  const selectionSha256=createHash('sha256').update(JSON.stringify({sourceRows,tracking})).digest('hex');
+  return {bootId:clockRead().bootId,service:rows.ActiveState,pid,startTicks,invocationId:rows.InvocationID,
+    configSha256,configDev:config.dev,configIno:config.ino,configCtimeMs:config.ctimeMs,selectionSha256,moduleSha256:createHash('sha256').update(module.bytes).digest('hex')};
+}
+export function validateReaderSocketMetadata(info,gid) {
+  if(!Number.isSafeInteger(gid) || gid<1 || !info.isSocket() || info.uid!==0 || info.gid!==gid || info.nlink!==1 || (info.mode&0o7777)!==0o660 || !Number.isSafeInteger(info.ino) || info.ino<1)throw new Error('TRUSTED_TIME_UNKNOWN');
+  return {dev:info.dev,ino:info.ino};
+}
+function readerSocketIdentity() {
+  if(createHash('sha256').update(protectedBytes('/etc/systemd/system/servora-med-time-evidence@.service').bytes).digest('hex')!==READER_UNIT_SHA256)throw new Error('TRUSTED_TIME_UNKNOWN');
+  if(createHash('sha256').update(protectedBytes('/etc/systemd/system/servora-med-time-evidence.socket').bytes).digest('hex')!==READER_SOCKET_UNIT_SHA256)throw new Error('TRUSTED_TIME_UNKNOWN');
+  protectedAncestors(READER_SOCKET);
+  const info=lstatSync(READER_SOCKET);
+  const group=fixedRun('/usr/bin/getent',['group','servora-med']).split(':');
+  if(group.length!==4 || !/^\d+$/.test(group[2]))throw new Error('TRUSTED_TIME_UNKNOWN');
+  return validateReaderSocketMetadata(info,Number(group[2]));
+}
+/** No caller arguments, privilege escalation, cache, fallback or persistent snapshot. */
+export async function readRestrictedTime() {
+  try {
+  const socketBefore=readerSocketIdentity(),clockBefore=clockRead(),identity=chronyIdentity();
+  const nonce=randomBytes(32).toString('hex');
+  const payload=await new Promise((resolve,reject)=>{
+    let output=Buffer.alloc(0),done=false;
+    const connection=createConnection({path:READER_SOCKET});
+    const finish=(error)=>{if(done)return;done=true;clearTimeout(timer);connection.destroy();error?reject(error):resolve(output);};
+    const timer=setTimeout(()=>finish(new Error('TRUSTED_TIME_UNKNOWN')),2200);
+    connection.on('connect',()=>connection.end(nonce+'\n'));
+    connection.on('data',chunk=>{if(output.length+chunk.length>MAX_READER_BYTES)finish(new Error('TRUSTED_TIME_UNKNOWN'));else output=Buffer.concat([output,chunk]);});
+    connection.on('error',finish);connection.on('end',()=>finish());
+  });
+  const afterIdentity=chronyIdentity(),clockAfter=clockRead(),socketAfter=readerSocketIdentity();
+  if(JSON.stringify(socketBefore)!==JSON.stringify(socketAfter))throw new Error('TRUSTED_TIME_UNKNOWN');
+  return validateRestrictedReply(JSON.parse(payload.toString('utf8')),{nonce,
+    before:{identity,bootMs:clockBefore.bootMs,namespace:clockBefore.namespace},
+    after:{identity:afterIdentity,bootMs:clockAfter.bootMs,namespace:clockAfter.namespace}});
+  } catch {throw new Error('TRUSTED_TIME_UNKNOWN');}
+}
+/** Existing synchronous API, bounded child; all consumers use the same restricted path. */
+export function sampleTrustedTime() {
+  try {
+    if(process.platform!=='linux')throw new Error('TRUSTED_TIME_UNKNOWN');
+    const bytes=execFileSync(process.execPath,['--no-addons',fileURLToPath(import.meta.url),'--read-chrony'],{
+      encoding:'utf8',timeout:2800,maxBuffer:MAX_READER_BYTES,env:{PATH:'/usr/bin:/bin',LC_ALL:'C'},stdio:['ignore','pipe','ignore']});
+    return validateCurrentTimeEvidence(JSON.parse(bytes));
+  } catch {throw new Error('TRUSTED_TIME_UNKNOWN');}
+}
+function collectRestrictedReply() {
+  if(!collectorUidAllowed() || fileURLToPath(import.meta.url)!==INSTALLED_TIME)throw new Error('TRUSTED_TIME_UNKNOWN');
+  const input=Buffer.alloc(66);let count=0;
+  while(count<input.length) {const n=readSync(0,input,count,input.length-count,null);if(!n)break;count+=n;}
+  const nonce=input.subarray(0,count).toString('utf8');
+  if(!/^[0-9a-f]{64}\n$/.test(nonce))throw new Error('TRUSTED_TIME_UNKNOWN');
+  const before=chronyIdentity(),time=collectChronyTime(),after=chronyIdentity();
+  if(JSON.stringify(before)!==JSON.stringify(after))throw new Error('TRUSTED_TIME_UNKNOWN');
+  return {formatVersion:1,nonce:nonce.trim(),identity:before,time};
+}
+if(process.argv[1]===fileURLToPath(import.meta.url)) {
+  try {
+    if(process.argv.length!==3)throw new Error('TRUSTED_TIME_UNKNOWN');
+    let result;
+    if(process.argv[2]==='--collect-chrony')result=collectRestrictedReply();
+    else if(process.argv[2]==='--read-chrony')result=await readRestrictedTime();
+    else throw new Error('TRUSTED_TIME_UNKNOWN');
+    writeSync(1,JSON.stringify(result)+'\n');
+  } catch {process.exitCode=1;}
 }

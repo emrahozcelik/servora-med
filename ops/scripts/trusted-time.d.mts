@@ -33,3 +33,11 @@ export function evidenceFromLinuxReads(reads: {
   synchronization: CurrentTimeEvidence['synchronization'];
 }): CurrentTimeEvidence;
 export function sampleTrustedTime(): CurrentTimeEvidence;
+/** On-demand, request-bound read path; no caller parameters or persistent cache. */
+export function readRestrictedTime(): Promise<CurrentTimeEvidence>;
+export function validateRestrictedReply(reply: unknown, context: unknown): CurrentTimeEvidence;
+
+export function validateReaderSocketMetadata(info: import("node:fs").Stats, gid: number): {dev: number;ino: number};
+
+export const READER_UNIT_SHA256: string;
+export const READER_SOCKET_UNIT_SHA256: string;

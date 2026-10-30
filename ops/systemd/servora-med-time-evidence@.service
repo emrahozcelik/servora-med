@@ -1,0 +1,32 @@
+[Unit]
+Description=Servora-Med fixed read-only Chrony evidence collector
+
+[Service]
+Type=exec
+User=_chrony
+Group=_chrony
+ExecStart=/usr/bin/node --no-addons /usr/local/libexec/servora-med/trusted-time.mjs --collect-chrony
+Environment=PATH=/usr/bin:/bin LC_ALL=C
+UnsetEnvironment=NODE_OPTIONS NODE_PATH LD_PRELOAD LD_LIBRARY_PATH
+StandardInput=socket
+StandardOutput=socket
+StandardError=null
+RuntimeMaxSec=3
+TimeoutStopSec=1
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=16
+InaccessiblePaths=-/etc/servora-med -/var/lib/servora-med -/var/backups/servora-med

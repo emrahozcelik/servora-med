@@ -2267,3 +2267,17 @@ Primary sources: [Chrony 4.5 authselectmode](https://chrony-project.org/doc/4.5/
 [ntpdata](https://chrony-project.org/doc/4.5/chronyc.html#ntpdata),
 [4.5 command permissions](https://github.com/mlichvar/chrony/blob/4.5/cmdmon.c),
 [4.5 original-name and report implementation](https://github.com/mlichvar/chrony/blob/4.5/client.c).
+
+### Issue369 restricted evidence reader implementation amendment
+
+The previously open read-access boundary above is addressed in this owner-authorized
+source/test scope by [the restricted evidence reader](docs/operations/restricted-chrony-evidence.md).
+A root-owned systemd socket starts a bounded fixed collector as the existing
+Chrony UID with empty capabilities. The app/backup UID receives sanitized
+request-bound TimeEvidence2, never Chrony control access, general sudo, a command
+RPC, cached authority or a new issuer. The read-only transport accepts only an
+internally generated nonce. No additional long-lived privileged daemon or timer
+snapshot is introduced. Exact installation/effective unit contracts, new-source
+CI/artifact and isolated UID/sandbox/reboot/continuation acceptance remain gates.
+This amendment does not authorize production connection, config/service/clock
+change, root issuance, deployment, migration, restore or backup trigger.

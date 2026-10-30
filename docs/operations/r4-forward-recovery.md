@@ -440,3 +440,9 @@ path and real sandbox acceptance exist, these samplers return UNKNOWN and the
 release stays blocked. Root parser and container config checks do not close
 this gate. New module/config bytes require new source-bound CI/artifact and
 independent administrator review before any separately authorized bootstrap.
+
+The Issue369 [restricted Chrony reader](./restricted-chrony-evidence.md) supplies
+fresh request-bound time2 evidence without app/backup Chrony socket access. It
+does not alter approval lifetime, persisted historical replay, budgets or root
+profile/source contracts. Newly installed module/unit bytes require independent
+review; no production install or active-profile transition is authorized here.
