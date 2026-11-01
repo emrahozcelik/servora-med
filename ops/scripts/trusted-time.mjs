@@ -187,6 +187,31 @@ export function evidenceFromLinuxReads(reads) {
     wallAtUTC:reads.wallAtUTC,wallResolutionMs:1,synchronization:reads.synchronization});
 }
 
+/**
+ * Compares two `chronyc -N -c sources -a` reports for a source replacement,
+ * selection, reachability, poll or identity change during one collection.
+ * `LastRx` is the 7th CSV field (0-based index 6), a per-second age counter
+ * rather than a source property; it is omitted so ordinary time progression
+ * cannot be mistaken for a change. Every other field remains significant,
+ * including mode, offsets and root distance, so a poll or source replacement
+ * that changes any reported field is still denied. A poll that only advances
+ * LastRx is covered by the surrounding chronyIdentity()/selectdata checks.
+ * A report with any non-10-field line is rejected rather than compared raw.
+ */
+export function sameSourceReport(before, after) {
+  if (typeof before !== 'string' || typeof after !== 'string') return false;
+  const normalize = report => {
+    const lines = report.trim().split('\n');
+    if (lines.some(line => line.split(',').length !== 10)) return null;
+    return lines.map(line => {
+      const fields = line.split(',');
+      return [...fields.slice(0,6),...fields.slice(7)].join(',');
+    }).join('\n');
+  };
+  const left = normalize(before), right = normalize(after);
+  return left !== null && left === right;
+}
+
 /** Fixed production paths/commands only. Never accepts caller clock overrides. */
 function collectChronyTime() {
   try {
@@ -239,7 +264,7 @@ function collectChronyTime() {
       packets.push({name,address,data});
     }
     // A poll/selection/source replacement during collection denies this sample.
-    if (sources !== run('/usr/bin/chronyc',['-N','-c','sources','-a'])
+    if (!sameSourceReport(sources,run('/usr/bin/chronyc',['-N','-c','sources','-a']))
       || selectdata !== run('/usr/bin/chronyc',['-N','selectdata','-a'])
       || config !== readFileSync('/etc/chrony/chrony.conf','utf8')) throw new Error('TRUSTED_TIME_UNKNOWN');
     const wallAtUTC = new Date().toISOString();

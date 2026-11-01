@@ -23,6 +23,8 @@ export function elapsedTime(event: unknown, current: unknown):
   {status: 'UNKNOWN'} | {status: 'KNOWN'; lowerMs: number; upperMs: number};
 export function elapsedBootTime(event: unknown, current: unknown):
   {status: 'UNKNOWN'} | {status: 'KNOWN'; lowerMs: number; upperMs: number};
+/** Compares source reports while ignoring the per-second LastRx age field. */
+export function sameSourceReport(before: string, after: string): boolean;
 export function parseSynchronization(tracking: string, sources: string, nowMs: number, details: {
   config: string; selectdata: string; authdata: string;
   packets: {name: string; address: string; data: string}[];
