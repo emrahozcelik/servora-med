@@ -58,7 +58,7 @@ test('TT-04: historical Ubuntu two-source tracking is not sufficient new packet 
   assert.throws(()=>parseSynchronization(tracking,sources,1793016650000),/TRUSTED_TIME_UNKNOWN/);
 });
 
-test('OPS-TT-004: LastRx progression alone is not a source replacement',()=>{
+test('OPS-TT-003 LastRx: progression alone is not a source replacement',()=>{
   const before=[
     '^,-,time.cloudflare.com,3,8,377,189,-0.001046172,-0.001048987,0.012701389',
     '^,*,bevtime1.metrologie.at,1,8,377,45,-0.000007954,-0.000010077,0.003151543',
@@ -67,29 +67,38 @@ test('OPS-TT-004: LastRx progression alone is not a source replacement',()=>{
   ].join('\n');
   const after=before.replace(',377,189,',',377,190,').replace(',377,45,',',377,46,')
     .replace(',377,457,',',377,458,').replace(',377,61,',',377,62,');
-  // The former byte-equality comparator rejects this ordinary age advance.
+  // Behavioral RED for the former byte-equality comparator: it rejected this
+  // ordinary age advance (`false`); the fixed comparison accepts it.
   assert.notEqual(before,after);
   assert.equal(sameSourceReport(before,after),true);
 });
 
-test('OPS-TT-004 denial: poll, reach, selection, identity and stratum changes still differ',()=>{
+test('OPS-TT-003 LastRx denial: every meaningful field still differs with age progress',()=>{
   const base=[
     '^,-,time.cloudflare.com,3,8,377,189,-0.001046172,-0.001048987,0.012701389',
     '^,*,bevtime1.metrologie.at,1,8,377,45,-0.000007954,-0.000010077,0.003151543',
     '^,-,1.ntp.ubuntu.com,2,8,377,457,0.000159971,0.000177182,0.013359158',
     '^,?,time.ume.tubitak.gov.tr,1,8,377,61,0.012961019,0.012958821,0.025438448',
   ].join('\n');
-  const lines=base.split('\n');
+  const aged=base.replace(',377,189,',',377,190,').replace(',377,45,',',377,46,')
+    .replace(',377,457,',',377,458,').replace(',377,61,',',377,62,');
+  const lines=aged.split('\n');
+  const malformed9=base.split('\n').map((line,index)=>index===0?line.replace(',377,189,',','):line).join('\n');
   for (const mutant of [
-    base.replace(',3,8,377,189,',',3,6,377,189,'),
-    base.replace(',3,8,377,189,',',3,8,0,189,'),
-    base.replace('^,*,bevtime1','^,+,bevtime1'),
-    base.replace('time.cloudflare.com','attacker.invalid'),
-    base.replace(',3,8,377,189,',',0,8,377,189,'),
+    aged.replace(',3,8,377,190,',',3,6,377,190,'),
+    aged.replace(',3,8,377,190,',',3,8,0,190,'),
+    aged.replace('^,*,bevtime1','^,+,bevtime1'),
+    aged.replace('time.cloudflare.com','attacker.invalid'),
+    aged.replace(',3,8,377,190,',',0,8,377,190,'),
+    aged.replace('^,-,time.cloudflare.com','~,-,time.cloudflare.com'),
+    aged.replace('-0.001046172','-0.001046173'),
+    aged.replace('-0.001048987','-0.001048988'),
+    aged.replace('0.012701389','0.012701390'),
     [...lines].reverse().join('\n'),
     lines.slice(1).join('\n'),
-    base+'\n^,-,extra.invalid,1,8,377,0,0,0,0',
-    base.replace(',time.cloudflare.com,',','),
+    aged+'\n^,-,extra.invalid,1,8,377,0,0,0,0',
+    aged.replace(',time.cloudflare.com,',','),
+    malformed9,
   ]) assert.equal(sameSourceReport(base,mutant),false);
 });
 
