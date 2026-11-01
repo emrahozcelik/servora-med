@@ -653,7 +653,9 @@ export async function runHandoff({execute = true} = {}) {
         r4TerminalState: EMERGENCY_R4_TERMINAL_STATE, r4Acceptance: 'NOT_ACCEPTED',
         parentAttemptId: parentId, authorizationId: authorization.authorizationId,
         receiptSha256: receipt.hash, journalHeadSha256: latest.hash,
-        steps: latest.steps, appPid: runtime.pid};
+        steps: latest.steps, appPid: current.meta.identity?.pid ?? runtime.pid,
+        initialAppPid: runtime.pid,
+        processContinuity: receipt.handoff.processContinuity};
     }
     if (!execute) {
       return {result: 'EMERGENCY_HANDOFF_READY', nextAction: action,
@@ -745,7 +747,9 @@ export async function runHandoff({execute = true} = {}) {
         r4TerminalState: EMERGENCY_R4_TERMINAL_STATE, r4Acceptance: 'NOT_ACCEPTED',
         parentAttemptId: parentId, authorizationId: authorization.authorizationId,
         receiptSha256: receipt.hash, journalHeadSha256: latest.hash,
-        steps: latest.steps, appPid: runtime.pid};
+        steps: latest.steps, appPid: current.meta.identity?.pid ?? runtime.pid,
+        initialAppPid: runtime.pid,
+        processContinuity: receipt.handoff.processContinuity};
     }
   }
   fail('EMERGENCY_HANDOFF_LOOP_EXHAUSTED');

@@ -88,6 +88,8 @@ test('HOST-02: barrier-first handoff completes without restarting the app', () =
   assert.equal(body.r4TerminalState, 'HEALTH_PASSED_FENCED');
   assert.equal(body.r4Acceptance, 'NOT_ACCEPTED');
   assert.equal(body.appPid, pid);
+  assert.equal(body.initialAppPid, pid);
+  assert.equal(body.processContinuity, 'PRESERVED');
   assert.deepEqual(journalPhases(authorization.authorizationId), [
     'INTENT', 'POLICY_INTENT', 'POLICY_RESTORED', 'BARRIER_INTENT', 'BARRIER_REMOVED',
     'OWNER_INTENT', 'OWNER_RETIRED', 'HANDOFF_COMPLETE',
