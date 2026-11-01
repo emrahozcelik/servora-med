@@ -74,6 +74,15 @@ canonical R4 responsibilities, tested separately from mere sampler success.
 
 ## Installation and acceptance boundary
 
+The owner-authorized forward-only amendment adds exactly
+`/usr/local/libexec/servora-med-forward/trusted-time.mjs` as a second fixed
+root:root0644 installed path. The old installed R4 module/profile remain
+unchanged. The new manifested module must equal the TARGET bytes; a phase-bound
+collector-template drop-in selects it under the new deployment journal. `_chrony`,
+empty capabilities, socket, sandbox, nonce and quality checks remain unchanged.
+Exact client/collector module-hash equality is still required; legacy clients
+gain no fallback. See [the forward adapter](forward-only-host-adapter-targeted.md).
+
 New root-owned socket/template units and exact installed trusted-time module
 are required; no installer or production operation runs in this task. Future
 administrator review must compare hashes, effective units/drop-ins, actual app/

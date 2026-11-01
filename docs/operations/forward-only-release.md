@@ -1,6 +1,7 @@
 # Forward-only `060 -> hotfix release` transition (Issue #369)
 
-Status: **design + targeted contract tests; not host-accepted, not production-ready.**
+Status: **pure contract + root host adapter implemented and targeted-tested;
+final delta needs independent confirmation; not host-accepted or production-ready.**
 
 This document defines the transition that follows the completed emergency
 restart-policy handoff. It is **not** a deployment authorization and grants no
@@ -30,8 +31,9 @@ owner under the old directory, which the emergency receipt explicitly forbids.
 ## 2. Architecture
 
 Pure contract module: `ops/scripts/forward-transition.mjs`.
-Host adapter (next phase): a root-only reader/executor that owns every
-filesystem, database, systemd and network mutation.
+Host adapter: `ops/scripts/forward-host.mjs`, with separate orchestration,
+durable storage, evidence validation and unprivileged DB probe modules.
+See [adapter boundaries and targeted evidence](forward-only-host-adapter-targeted.md).
 
 ```
 emergency receipt (sealed, read-only)
@@ -117,22 +119,49 @@ separate review.
 
 ## 5. Restart, crash and reboot model
 
-The transition keeps normal `Restart=on-failure` for the whole window. No
-barrier, no `Restart=no` drop-in and no start permit are created.
+The implementation **does not preserve `Restart=on-failure` throughout the
+transition**. The previous design aspiration conflicts with bounded activation:
+systemd 255 automatic restarts skip `ConditionPathExists`. The owner-authorized
+adapter phase therefore uses a separate, narrow forward guard and budget
+drop-in. The sealed R4 unit/profile/helpers and recovery drop-in are untouched.
+
+`STOP_INTENT` precedes installing the forward barrier, `ExecStartPre` gate and
+temporary `Restart=no`. A fully stopped service, empty cgroup and disappearance
+of OLD's exact PID/start time precede environment/pointer alignment. Every
+TARGET activation reserves a durable `START_INTENT` slot; `ExecStartPre` must
+exclusively consume it before candidate code executes. A consumed or ambiguous
+slot is never started again, including after reboot. This cut does not use a
+second slot as an automatic retry, even when a grant permits two.
 
 | Window | Behaviour | Rationale |
 | --- | --- | --- |
-| Preflight, backup, smoke | App keeps running; a crash is restarted by systemd | Availability is preserved; observation has not started |
-| `STOP_INTENT -> OLD_STOPPED` | Operator-requested stop; `Restart=on-failure` does not restart a clean stop | The only intentional downtime window |
-| `ACTIVATE_INTENT` | Pointer switch; a crash before the new start leaves the app down and the journal resumable | No automatic rollback: DB/pointer identity is never half-reverted |
-| After `TARGET_ACTIVATED` | A crash is automatically restarted by systemd | This is the protection the emergency handoff restored |
+| Preflight, predeploy backup | OLD retains normal restart protection; exact admission identity must remain stable | No stop or pointer mutation before durable intent |
+| `STOP_INTENT -> OLD_STOPPED` | Forward gate and temporary `Restart=no`, then controlled stop and empty-cgroup proof | No stale auto-restart can launch the wrong release after alignment |
+| `ACTIVATE_INTENT` | Exact environment/pointer alignment, durable slot, one-use gate consumption, bounded identity discovery | Unknown outcomes never cause another start |
+| After `TARGET_ACTIVATED` through observation | Forward guard remains; crashes fail closed with the slot retained | Availability tradeoff is explicit; no uncounted candidate start |
 | Observation | A restart, PID change or boot change **invalidates** the observation | Acceptance cannot be claimed across a process discontinuity |
 | Reboot during observation | `OBSERVATION_STARTED` without a completed proof stops the run; a new attempt is required | No reboot-tolerant observation is claimed |
+| `OBSERVATION_PASSED -> ACCEPTED` | Restore `on-failure` while the start gate remains closed; revalidate proof, health and PID before seal | Automatic restart still cannot bypass the slot |
+| Accepted terminal handback | Remove the gate, reload and prove normal policy, remove barrier, then retire owner | Same deployment's durable acceptance authorizes release of its guards |
+
+If the controller or accepted process crashes in that last window, `finish`
+can release the accepted guards before demanding current runtime health. Normal
+startup of that already accepted release is runtime handback, not a reset or
+reuse of deployment activation slots. Current health/schema/backup checks still
+gate owner retirement. Historical accepted backup receipts retain their bytes;
+they do not become fresh new-boot observation evidence.
 
 There is **no automatic rollback**. A failed transition records the last safe
 phase and stops; an operator decides between completing forward and an
 explicitly authorized recovery. A rollback that rewrites the release pointer
 and DB identity automatically is forbidden.
+
+An interrupted observation with no sealed result is terminally blocked for this
+grant; it cannot be restarted, renamed successful, silently unfenced, or adopted
+by a new owner. A separate failed-attempt recovery authorization/closure contract
+is still required before production readiness. There is no unbounded controller
+wait, but the safety guards intentionally persist on failure. This limitation
+must not be described as solved normal restart availability.
 
 ## 6. Authorization and artifact contract
 
@@ -167,7 +196,7 @@ authority and not `PRODUCTION_GO`.
 
 ## 7. Targeted test coverage
 
-`ops/tests/forward-transition.test.mjs` (28 tests): foreign/completed parent,
+`ops/tests/forward-transition.test.mjs` (29 tests): foreign/completed parent,
 wrong emergency receipt, changed checkpoint, wrong schema head, wrong artifact
 and tree, wrong CI manifest, foreign owner, missing authorization, migration
 without authority, failed activation, failed pre/post backup, PID/boot change
@@ -176,7 +205,7 @@ during observation, short or forged observation, early acceptance, direct
 
 ## 8. Not yet done
 
-- Host adapter and real Ubuntu/systemd 255 host acceptance.
+- Full real Ubuntu/systemd 255 host acceptance (targeted fixture tests are separate).
 - Exact-main Local CI for the final head.
 - Real 1,800-second observation.
 - Any production authorization, deployment, migration or restart.

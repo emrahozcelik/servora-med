@@ -298,6 +298,10 @@ export const READER_UNIT_SHA256='62549b2245f5f712a816268eec74364b4291a4ee597ceab
 export const READER_SOCKET_UNIT_SHA256='2ea5811188acd78013fa89dd0734169eb2cddceeef4ea223d0492834f1b3ed55';
 const READER_SOCKET='/run/servora-med-time/evidence.sock';
 const INSTALLED_TIME='/usr/local/libexec/servora-med/trusted-time.mjs';
+// Owner-authorized forward adapter: keep the sealed R4 module untouched.
+// The new collector/client still bind the exact same module bytes per request.
+const FORWARD_INSTALLED_TIME='/usr/local/libexec/servora-med-forward/trusted-time.mjs';
+const isInstalledTimePath=path=>path===INSTALLED_TIME || path===FORWARD_INSTALLED_TIME;
 const RELEASE_TIME=/^\/opt\/servora-med\/releases\/[0-9a-f]{40}\/ops\/scripts\/trusted-time\.mjs$/;
 const MAX_READER_BYTES=16384;
 function fixedRun(file,args,timeout=500) {
@@ -315,10 +319,10 @@ function ancestorDescriptors(path) {
 function protectedAncestors(path) {
   for(const ancestor of ancestorDescriptors(path)) if(ancestor.kind!=='directory'||ancestor.uid!==0||ancestor.gid!==0||(ancestor.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
 }
-/** Installed code is root:root 0644. The deployed release copy is root:servora-med 0650
- * under 0750 release directories. Neither group can write. No other executing path is accepted. */
+/** Both fixed installed paths are root:root 0644. The deployed release copy is
+ * root:servora-med 0650 under 0750 release directories. No caller path is accepted. */
 export function validateTimeModuleContract(path,info,ancestors,releaseGid) {
-  if(path===INSTALLED_TIME) {
+  if(isInstalledTimePath(path)) {
     if(info.kind!=='file'||info.uid!==0||info.gid!==0||info.nlink!==1||info.mode!==0o644) throw new Error('TRUSTED_TIME_UNKNOWN');
     for(const ancestor of ancestors) if(ancestor.kind!=='directory'||ancestor.uid!==0||ancestor.gid!==0||(ancestor.mode&0o022)) throw new Error('TRUSTED_TIME_UNKNOWN');
     return 'installed';
@@ -438,7 +442,7 @@ export function sampleTrustedTime() {
   } catch {throw new Error('TRUSTED_TIME_UNKNOWN');}
 }
 function collectRestrictedReply() {
-  if(!collectorUidAllowed() || fileURLToPath(import.meta.url)!==INSTALLED_TIME)throw new Error('TRUSTED_TIME_UNKNOWN');
+  if(!collectorUidAllowed() || !isInstalledTimePath(fileURLToPath(import.meta.url)))throw new Error('TRUSTED_TIME_UNKNOWN');
   const input=Buffer.alloc(66);let count=0;
   while(count<input.length) {const n=readSync(0,input,count,input.length-count,null);if(!n)break;count+=n;}
   const nonce=input.subarray(0,count).toString('utf8');

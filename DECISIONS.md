@@ -2281,3 +2281,27 @@ snapshot is introduced. Exact installation/effective unit contracts, new-source
 CI/artifact and isolated UID/sandbox/reboot/continuation acceptance remain gates.
 This amendment does not authorize production connection, config/service/clock
 change, root issuance, deployment, migration, restore or backup trigger.
+
+### Issue369 forward-only collector path amendment (2026-11-01)
+
+Owner-authorized **source and targeted-test scope only** extends the restricted
+reader to one additional fixed installed path:
+`/usr/local/libexec/servora-med-forward/trusted-time.mjs`. It uses the existing
+root:root 0644, single-link and protected-ancestor contract. Arbitrary
+caller-selected paths/endpoints remain forbidden. The release-path contract
+remains root:servora-med 0650 under its existing 0750 directories.
+
+The forward adapter must not overwrite the sealed R4 installed module/profile.
+Its manifested collector bytes must equal the exact TARGET module bytes. A
+separate, exact template drop-in selects the new path only under a durable
+collector intent within `ACTIVATE_INTENT`, with the admitted owner, current DB060
+proof and stopped OLD. TARGET start requires that collector result and effective
+unit/module/socket verification. Base units, `_chrony` UID, empty capabilities,
+sandbox, nonce protocol, source policy, quality, deadlines and evidence formats
+remain unchanged. Client/collector module hashes still match exactly.
+
+The collector selection remains after accepted forward handback; old R4 files
+remain read-only history. Unknown/foreign selection, interrupted publication and
+module/socket drift fail closed; no weaker proof or old-collector fallback is
+authorized. Issuance, installation and production changes remain separately
+gated. This is not genuine NTS/1800-second acceptance or PRODUCTION_GO.
