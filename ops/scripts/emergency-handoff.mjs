@@ -139,7 +139,8 @@ function validateJournal(record) {
   return body;
 }
 
-function validateAuthorization(record, context) {
+/** Structural authorization validation that does not need live state. */
+export function validateEmergencyHandoffAuthorizationStructure(record) {
   if (!exactKeys(record, AUTHORIZATION_KEYS) || record.formatVersion !== 2
     || record.kind !== 'EMERGENCY_HANDOFF_AUTHORIZATION'
     || !uuid(record.authorizationId)
@@ -183,6 +184,12 @@ function validateAuthorization(record, context) {
     || !hex(record.backups.preSha256, 64) || !hex(record.backups.postSha256, 64)) {
     fail('EMERGENCY_HANDOFF_AUTHORIZATION_INVALID');
   }
+  return record;
+}
+
+function validateAuthorization(record, context) {
+  validateEmergencyHandoffAuthorizationStructure(record);
+  const parent = record.parent, host = record.host;
   if (!exactKeys(context, CONTEXT_KEYS) || !instant(context.nowUTC)
     || !hex(context.authorizationSha256, 64) || !hex(context.toolArtifactSha256, 64)
     || !exactKeys(context.parent, PARENT_KEYS) || !exactKeys(context.host, HOST_KEYS)

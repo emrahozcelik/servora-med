@@ -16,7 +16,7 @@ import {randomUUID} from 'node:crypto';
 import {
   AUTHORIZATION_FILE, ARTIFACT_ROOT, EMERGENCY_ROOT, ensureEmergencyRoot,
   assertRoot, withHostLock, verifyAttemptRelease, readLatestCheckpoint,
-  captureLive, assertBackups,
+  captureLive, assertBackups, assertParentEligible,
 } from './emergency-handoff-host.mjs';
 import {verifyInstalledArtifact} from './emergency-handoff-artifact.mjs';
 import {loadAttempt} from '/usr/local/libexec/servora-med/deployment-controller.mjs';
@@ -55,12 +55,7 @@ export async function issue() {
   const parent = loadAttempt(parentId);
   const checkpointFile = readLatestCheckpoint(parentId);
   const checkpoint = checkpointFile.record;
-  if (checkpoint.phase !== 'POSTDEPLOY_BACKUP_PASSED' || checkpoint.migrationCommitted !== true
-    || checkpoint.smokePassed !== true || !checkpoint.postdeployBackup
-    || checkpoint.starts < 1 || checkpoint.starts !== parent.approval.maxStarts
-    || checkpoint.lastStart !== 'pass') {
-    fail('EMERGENCY_HANDOFF_PARENT_NOT_ELIGIBLE');
-  }
+  assertParentEligible(checkpoint, parent.approval);
   verifyAttemptRelease(parentId, 'target');
   assertBackups(parentId, checkpoint);
   const artifact = verifyInstalledArtifact(ARTIFACT_ROOT);

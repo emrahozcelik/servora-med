@@ -3,8 +3,8 @@
 import test, {before, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  appendFileSync, copyFileSync, existsSync, lstatSync, readFileSync, readdirSync, unlinkSync,
-  writeFileSync, chmodSync,
+  appendFileSync, chownSync, copyFileSync, existsSync, lstatSync, readFileSync, readdirSync,
+  rmSync, unlinkSync, writeFileSync, chmodSync,
 } from 'node:fs';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
@@ -12,7 +12,7 @@ import {join} from 'node:path';
 import {hostname} from 'node:os';
 import {
   build, resetMutable, issueAuthorization, runHost, paths, serviceFacts,
-  parentSnapshot, restoreCatalog, TARGET_SHA,
+  parentSnapshot, readOnlySnapshot, restoreCatalog, TARGET_SHA,
 } from './emergency-handoff-fixture.mjs';
 
 assert.equal(hostname(), 'lima-servora-r4-20261012');
@@ -72,7 +72,7 @@ test('HOST-01: verify is read-only and reports READY', () => {
   assert.equal(existsSync(join(P.EMERGENCY, authorization.authorizationId)), false);
 });
 
-test('HOST-02: barrier-first handoff completes without restarting the app', () => {
+test('HOST-02: policy-first handoff completes without restarting the app', () => {
   const authorization = issueAuthorization(fixture.attemptId);
   const parent = parentSnapshot(fixture.attemptId);
   const before = serviceFacts();
@@ -198,7 +198,7 @@ test('HOST-06: a foreign active owner is rejected without mutation', () => {
   chmodSync(P.STATE + '/active.json', 0o600);
   const result = runHost('apply');
   assert.notEqual(result.status, 0);
-  assert.match(failure(result), /EMERGENCY_HANDOFF_LIVE_STATE_MISMATCH/);
+  assert.match(failure(result), /EMERGENCY_HANDOFF_(LIVE_STATE_MISMATCH|OWNER_UNTRUSTED)/);
   assert.equal(existsSync(P.STATE + '/activation.block'), true);
   assert.equal(existsSync(P.DROPIN), true);
   assert.equal(applicable().length, 0);
@@ -267,6 +267,17 @@ test('HOST-09: every critical publication boundary recovers deterministically', 
     assert.notEqual(interrupted.status, 0, `fault ${point} must stop the tool`);
     assert.match(interrupted.stdout + interrupted.stderr, new RegExp('EMERGENCY_FAULT=' + point),
       `fault ${point} must be reached`);
+    const interruptedState = readOnlySnapshot(fixture.attemptId);
+    const statusResult = runHost('status');
+    assert.equal(statusResult.status, 0, `${point} status: ${statusResult.stderr}`);
+    assert.equal(JSON.parse(statusResult.stdout.trim()).readOnly, true, point);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), interruptedState,
+      `${point} status changed state`);
+    const verifyResult = runHost('verify');
+    assert.equal(verifyResult.status, 0, `${point} verify: ${verifyResult.stderr}`);
+    assert.equal(JSON.parse(verifyResult.stdout.trim()).readOnly, true, point);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), interruptedState,
+      `${point} verify changed state`);
     const resumed = runHost('apply');
     assert.equal(resumed.status, 0, `${point}: ${resumed.stderr}`);
     assert.ok(['EMERGENCY_HANDOFF_COMPLETE', 'EMERGENCY_HANDOFF_ALREADY_COMPLETE']
@@ -302,8 +313,25 @@ test('HOST-10: a second, different authorization cannot adopt an interrupted jou
   });
   const result = runHost('apply');
   assert.notEqual(result.status, 0);
-  assert.match(failure(result), /EMERGENCY_HANDOFF_(LIVE_STATE_MISMATCH|OTHER_AUTHORIZATION)/);
+  assert.match(failure(result), /EMERGENCY_HANDOFF_(LIVE_STATE_MISMATCH|OTHER_AUTHORIZATION|FOREIGN_STATE)/);
   assert.deepEqual(readdirSync(join(P.EMERGENCY, directories[0])).sort(), before);
+  assert.equal(existsSync(P.STATE + '/activation.block'), false);
+
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  const second = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'barrier-unlink-after',
+  });
+  assert.notEqual(second.status, 0);
+  const secondDirectory = applicable();
+  assert.equal(secondDirectory.length, 1);
+  const secondBefore = readdirSync(join(P.EMERGENCY, secondDirectory[0])).sort();
+  rewriteAuthorization(authorization => { authorization.reason = 'tampered-after-start'; });
+  const changedBytes = runHost('apply');
+  assert.notEqual(changedBytes.status, 0);
+  assert.match(failure(changedBytes), /EMERGENCY_HANDOFF_OTHER_AUTHORIZATION/);
+  assert.deepEqual(readdirSync(join(P.EMERGENCY, secondDirectory[0])).sort(), secondBefore);
   assert.equal(existsSync(P.STATE + '/activation.block'), false);
 });
 
@@ -332,4 +360,259 @@ test('HOST-11: after the handoff, systemd restarts a crashed app (fixture only)'
   }, 20), 'restarted app must become healthy');
   assert.equal(health.releaseSha, TARGET_SHA);
   assert.equal(receipt(authorization.authorizationId).parentAttemptCompleted, false);
+});
+
+test('HOST-12: preflight is read-only and runs before authorization', () => {
+  rmSync(P.EMERGENCY, {recursive: true, force: true});
+  const before = readOnlySnapshot(fixture.attemptId);
+  const result = runHost('preflight', {}, ['--parent', fixture.attemptId]);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout.trim());
+  assert.equal(body.result, 'EMERGENCY_HANDOFF_PREFLIGHT_READY');
+  assert.equal(body.readOnly, true);
+  assert.equal(body.authorizationPresent, false);
+  assert.equal(body.emergencyRootPresent, false);
+  assert.equal(body.parentAttemptId, fixture.attemptId);
+  assert.equal(existsSync(P.EMERGENCY), false, 'preflight must not create the emergency root');
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), before);
+
+  for (const mode of ['verify', 'status']) {
+    const missing = runHost(mode);
+    assert.notEqual(missing.status, 0, `${mode} must fail without an authorization`);
+    assert.match(failure(missing), /EMERGENCY_HANDOFF_AUTHORIZATION_MISSING/);
+    assert.equal(existsSync(P.EMERGENCY), false);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), before, `${mode} changed state`);
+  }
+
+  const discovered = runHost('preflight');
+  assert.equal(discovered.status, 0, discovered.stderr);
+  assert.equal(JSON.parse(discovered.stdout.trim()).parentAttemptId, fixture.attemptId);
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), before);
+});
+
+test('HOST-13: verify is strictly read-only, including a half policy unlink', () => {
+  const authorization = issueAuthorization(fixture.attemptId);
+  const initialFacts = serviceFacts();
+  const pid = Number(initialFacts.MainPID);
+  const start = processStart(pid);
+  let before = readOnlySnapshot(fixture.attemptId);
+  let result = runHost('verify');
+  assert.equal(result.status, 0, result.stderr);
+  let body = JSON.parse(result.stdout.trim());
+  assert.equal(body.result, 'EMERGENCY_HANDOFF_READY');
+  assert.equal(body.readOnly, true);
+  assert.equal(body.pendingReload, false);
+  assert.equal(existsSync(join(P.EMERGENCY, authorization.authorizationId)), false);
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), before);
+  assert.equal(serviceFacts().MainPID, String(pid));
+  assert.equal(processStart(pid), start);
+
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  const interrupted = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'policy-unlink-after',
+  });
+  assert.notEqual(interrupted.status, 0);
+  assert.match(interrupted.stdout + interrupted.stderr, /EMERGENCY_FAULT=policy-unlink-after/);
+  const pendingFacts = serviceFacts();
+  assert.equal(pendingFacts.MainPID, String(pid), 'the app must not restart');
+  assert.equal(pendingFacts.NeedDaemonReload, 'yes');
+  assert.equal(existsSync(P.DROPIN), false);
+
+  before = readOnlySnapshot(fixture.attemptId);
+  result = runHost('verify');
+  assert.equal(result.status, 0, result.stderr);
+  body = JSON.parse(result.stdout.trim());
+  assert.equal(body.result, 'EMERGENCY_HANDOFF_READY');
+  assert.equal(body.readOnly, true);
+  assert.equal(body.pendingReload, true);
+  assert.equal(body.nextAction, 'RELOAD_POLICY');
+  assert.equal(serviceFacts().NeedDaemonReload, 'yes', 'verify must not reload systemd');
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), before, 'verify changed state');
+
+  result = runHost('apply');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout.trim()).result, 'EMERGENCY_HANDOFF_COMPLETE');
+  assert.equal(serviceFacts().MainPID, String(pid));
+  assert.equal(processStart(pid), start);
+  assert.equal(serviceFacts().Restart, 'on-failure');
+  assert.equal(serviceFacts().NeedDaemonReload, 'no');
+});
+
+test('HOST-14: status is strictly read-only and fails closed on damaged state', () => {
+  const authorization = issueAuthorization(fixture.attemptId);
+  const completed = runHost('apply');
+  assert.equal(completed.status, 0, completed.stderr);
+  const completedState = readOnlySnapshot(fixture.attemptId);
+  const statusResult = runHost('status');
+  assert.equal(statusResult.status, 0, statusResult.stderr);
+  const statusBody = JSON.parse(statusResult.stdout.trim());
+  assert.equal(statusBody.readOnly, true);
+  assert.equal(statusBody.journalPhase, 'HANDOFF_COMPLETE');
+  assert.equal(statusBody.receipt.r4Acceptance, 'NOT_ACCEPTED');
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), completedState);
+
+  resetMutable();
+  const corruptAuth = issueAuthorization(fixture.attemptId);
+  const interrupted = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'journal-link-after',
+  });
+  assert.notEqual(interrupted.status, 0);
+  const corruptDirectory = join(P.EMERGENCY, corruptAuth.authorizationId);
+  for (const name of readdirSync(corruptDirectory)) {
+    if (name.startsWith('.')) unlinkSync(join(corruptDirectory, name));
+  }
+  const recordFile = join(corruptDirectory, '0000.json');
+  const record = JSON.parse(readFileSync(recordFile, 'utf8'));
+  record.phase = 'BARRIER_REMOVED';
+  writeFileSync(recordFile, JSON.stringify(record) + '\n', {mode: 0o600});
+  chmodSync(recordFile, 0o600);
+  let damagedState = readOnlySnapshot(fixture.attemptId);
+  for (const mode of ['status', 'verify']) {
+    const result = runHost(mode);
+    assert.notEqual(result.status, 0, `${mode} must reject a corrupt journal`);
+    assert.match(failure(result), /EMERGENCY_HANDOFF_JOURNAL_(HASH_INVALID|INVALID)/);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), damagedState,
+      `${mode} changed a corrupt journal`);
+  }
+
+  resetMutable();
+  const foreignAuth = issueAuthorization(fixture.attemptId);
+  const foreignRun = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'journal-link-after',
+  });
+  assert.notEqual(foreignRun.status, 0);
+  const foreignDirectory = join(P.EMERGENCY, foreignAuth.authorizationId);
+  for (const name of readdirSync(foreignDirectory)) {
+    if (name.startsWith('.')) unlinkSync(join(foreignDirectory, name));
+  }
+  const foreign = join(foreignDirectory, '.11111111-1111-4111-8111-111111111111.tmp');
+  writeFileSync(foreign, 'foreign\n', {mode: 0o600});
+  chmodSync(foreign, 0o600);
+  chownSync(foreign, 1, 1);
+  damagedState = readOnlySnapshot(fixture.attemptId);
+  for (const mode of ['status', 'verify']) {
+    const result = runHost(mode);
+    assert.notEqual(result.status, 0, `${mode} must reject a foreign journal`);
+    assert.match(failure(result), /EMERGENCY_HANDOFF_JOURNAL_INVALID/);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), damagedState,
+      `${mode} changed a foreign journal`);
+  }
+
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  writeFileSync(P.STATE + '/active.json', JSON.stringify({
+    attemptId: '22222222-2222-4222-8222-222222222222',
+    approvalSha256: '9'.repeat(64),
+  }) + '\n', {mode: 0o600});
+  chmodSync(P.STATE + '/active.json', 0o600);
+  damagedState = readOnlySnapshot(fixture.attemptId);
+  const foreignOwner = runHost('verify');
+  assert.notEqual(foreignOwner.status, 0);
+  assert.match(failure(foreignOwner), /EMERGENCY_HANDOFF_(LIVE_STATE_MISMATCH|OWNER_UNTRUSTED)/);
+  assert.deepEqual(readOnlySnapshot(fixture.attemptId), damagedState);
+});
+
+
+test('HOST-15: read commands leave sealed checkpoint records byte-identical', () => {
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  const directory = join(P.STATE, 'attempts', fixture.attemptId);
+  const residueName = '.11111111-1111-4111-8111-111111111111.tmp';
+  const residue = join(directory, residueName);
+  const records = () => readdirSync(directory).filter(name => /^\d{4}\.json$/.test(name)).sort()
+    .map(name => ({name, sha256: hash(readFileSync(join(directory, name)))}));
+  const beforeRecords = records();
+  const seedResidue = () => {
+    writeFileSync(residue, 'checkpoint residue\n', {mode: 0o600});
+    chmodSync(residue, 0o600);
+    chownSync(residue, 0, 0);
+  };
+  const facts = serviceFacts();
+  const pid = Number(facts.MainPID);
+  const start = processStart(pid);
+  seedResidue();
+  const verify = runHost('verify');
+  assert.equal(verify.status, 0, verify.stderr);
+  assert.equal(JSON.parse(verify.stdout.trim()).readOnly, true);
+  assert.equal(existsSync(residue), false,
+    'the canonical checkpoint reader completes only its own residue');
+  assert.deepEqual(records(), beforeRecords, 'checkpoint record bytes changed');
+  assert.deepEqual(serviceFacts(), facts, 'systemd state changed');
+  assert.equal(processStart(pid), start, 'app process changed');
+
+  seedResidue();
+  const preflight = runHost('preflight', {}, ['--parent', fixture.attemptId]);
+  assert.equal(preflight.status, 0, preflight.stderr);
+  assert.equal(existsSync(residue), false);
+  assert.deepEqual(records(), beforeRecords, 'checkpoint record bytes changed');
+  assert.deepEqual(serviceFacts(), facts, 'systemd state changed');
+  assert.equal(processStart(pid), start, 'app process changed');
+});
+
+test('HOST-16: resumed handoffs reject foreign ownership and damaged runtime before mutation', () => {
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  const interrupted = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'barrier-unlink-after',
+  });
+  assert.notEqual(interrupted.status, 0);
+  writeFileSync(P.STATE + '/active.json', JSON.stringify({
+    attemptId: '22222222-2222-4222-8222-222222222222',
+    approvalSha256: '9'.repeat(64),
+  }) + '\n', {mode: 0o600});
+  chmodSync(P.STATE + '/active.json', 0o600);
+  const ownerSnapshot = readOnlySnapshot(fixture.attemptId);
+  for (const mode of ['verify', 'apply']) {
+    const result = runHost(mode);
+    assert.notEqual(result.status, 0, `${mode} must reject a foreign owner`);
+    assert.match(failure(result), /EMERGENCY_HANDOFF_OWNER_UNTRUSTED/);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), ownerSnapshot,
+      `${mode} changed state before rejecting a foreign owner`);
+  }
+
+  resetMutable();
+  issueAuthorization(fixture.attemptId);
+  const pendingOwner = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'policy-unlink-after',
+  });
+  assert.notEqual(pendingOwner.status, 0);
+  assert.equal(serviceFacts().NeedDaemonReload, 'yes');
+  writeFileSync(P.STATE + '/active.json', JSON.stringify({
+    attemptId: '22222222-2222-4222-8222-222222222222',
+    approvalSha256: '9'.repeat(64),
+  }) + '\n', {mode: 0o600});
+  chmodSync(P.STATE + '/active.json', 0o600);
+  const pendingSnapshot = readOnlySnapshot(fixture.attemptId);
+  for (const mode of ['verify', 'apply']) {
+    const result = runHost(mode);
+    assert.notEqual(result.status, 0, `${mode} must reject a foreign owner before reload`);
+    assert.match(failure(result), /EMERGENCY_HANDOFF_OWNER_UNTRUSTED/);
+    assert.equal(serviceFacts().NeedDaemonReload, 'yes',
+      `${mode} reloaded systemd before the ownership check`);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), pendingSnapshot,
+      `${mode} changed state before rejecting a foreign owner`);
+  }
+
+  resetMutable();
+  const runtimeAuth = issueAuthorization(fixture.attemptId);
+  const runtimeRun = runHost('apply', {
+    NODE_OPTIONS: '--import ' + join(import.meta.dirname, 'emergency-handoff-fault-preload.mjs'),
+    SERVORA_EH_FAULT_POINT: 'journal-link-after',
+  });
+  assert.notEqual(runtimeRun.status, 0);
+  unlinkSync(join(P.EMERGENCY, runtimeAuth.authorizationId, 'runtime.json'));
+  const runtimeSnapshot = readOnlySnapshot(fixture.attemptId);
+  for (const mode of ['verify', 'apply']) {
+    const result = runHost(mode);
+    assert.notEqual(result.status, 0, `${mode} must reject a missing runtime`);
+    assert.match(failure(result), /EMERGENCY_HANDOFF_RUNTIME_INVALID/);
+    assert.deepEqual(readOnlySnapshot(fixture.attemptId), runtimeSnapshot,
+      `${mode} changed state before rejecting a missing runtime`);
+  }
 });

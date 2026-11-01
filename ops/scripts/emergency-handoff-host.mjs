@@ -27,6 +27,7 @@ import {fileURLToPath} from 'node:url';
 import {basename, join} from 'node:path';
 import {
   validateEmergencyHandoffAuthorization,
+  validateEmergencyHandoffAuthorizationStructure,
   initialEmergencyHandoff,
   advanceEmergencyHandoff,
   nextEmergencyHandoffAction,
@@ -39,7 +40,8 @@ import {
 } from './emergency-handoff.mjs';
 import {verifyInstalledArtifact} from './emergency-handoff-artifact.mjs';
 import {loadAttempt, verifyAttemptRelease} from '/usr/local/libexec/servora-med/deployment-controller.mjs';
-import {readLatestCheckpoint, readProtectedRecord} from '/usr/local/libexec/servora-med/deployment-attempt.mjs';
+import {readLatestCheckpoint, readProtectedRecord, readRootApproval, readRootProfile}
+  from '/usr/local/libexec/servora-med/deployment-attempt.mjs';
 export {loadAttempt, verifyAttemptRelease, readLatestCheckpoint};
 
 export const STATE_ROOT = '/var/lib/servora-med/deploy';
@@ -68,6 +70,24 @@ const fail = code => { throw new Error(code); };
 
 export function assertRoot() {
   if (process.getuid?.() !== 0) fail('EMERGENCY_HANDOFF_ROOT_REQUIRED');
+}
+
+/**
+ * Reads a root record that may still carry its paired publication temp
+ * (final + temp hardlink, both nlink 2). It never removes the temp.
+ */
+function readEmergencyRecord(file) {
+  const directory = file.slice(0, file.lastIndexOf('/'));
+  const info = lstatSync(file);
+  let paired = 0;
+  for (const name of readdirSync(directory)) {
+    if (!JOURNAL_TEMP.test(name)) continue;
+    const temp = lstatSync(join(directory, name));
+    if (temp.dev === info.dev && temp.ino === info.ino) paired += 1;
+  }
+  if (paired === 0) return readProtectedRecord(file);
+  if (paired !== 1 || info.nlink !== 2) fail('EMERGENCY_HANDOFF_RECORD_UNTRUSTED');
+  return readProtectedRecord(file, 2);
 }
 
 function flush(path) {
@@ -101,6 +121,11 @@ export function ensureEmergencyRoot() {
     flush(STATE_ROOT);
   }
   assertRootDirectory(EMERGENCY_ROOT);
+}
+
+/** Read-only counterpart: never creates the emergency directory. */
+function assertEmergencyRootIfPresent() {
+  if (existsSync(EMERGENCY_ROOT)) assertRootDirectory(EMERGENCY_ROOT);
 }
 
 /** Publishes an immutable canonical record without ever overwriting one. */
@@ -153,7 +178,7 @@ export function reconcileJournalDirectory(directory) {
 
 /** Finishes or discards only our own interrupted named publication. */
 function reconcileNamedTemps(directory) {
-  const finals = ['runtime.json', 'receipt.json'].map(name => {
+  const finals = ['runtime.json', 'receipt.json', 'reboot.json'].map(name => {
     const path = join(directory, name);
     return existsSync(path) ? lstatSync(path) : null;
   });
@@ -170,17 +195,45 @@ function reconcileNamedTemps(directory) {
   }
 }
 
+function inspectJournalTemps(directory) {
+  let pending = 0;
+  for (const name of readdirSync(directory)) {
+    if (!JOURNAL_TEMP.test(name)) continue;
+    const info = lstatSync(join(directory, name));
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || ![1, 2].includes(info.nlink)) {
+      fail('EMERGENCY_HANDOFF_JOURNAL_INVALID');
+    }
+    pending += 1;
+  }
+  return pending;
+}
+
+/** Pure journal reader. It never removes interrupted publications. */
 export function readJournalChain(directory) {
-  reconcileJournalTemps(directory);
-  const names = readdirSync(directory).filter(name => JOURNAL_NAME.test(name)).sort();
-  if (names.length > MAX_RECORDS) fail('EMERGENCY_HANDOFF_JOURNAL_INVALID');
-  names.forEach((name, index) => {
+  const names = readdirSync(directory);
+  for (const name of names) {
+    if (!JOURNAL_NAME.test(name) && !JOURNAL_TEMP.test(name)
+      && !['runtime.json', 'receipt.json', 'reboot.json'].includes(name)) {
+      fail('EMERGENCY_HANDOFF_JOURNAL_INVALID');
+    }
+  }
+  const records = names.filter(name => JOURNAL_NAME.test(name)).sort();
+  if (records.length > MAX_RECORDS) fail('EMERGENCY_HANDOFF_JOURNAL_INVALID');
+  records.forEach((name, index) => {
     if (name !== String(index).padStart(4, '0') + '.json') fail('EMERGENCY_HANDOFF_JOURNAL_INVALID');
   });
-  const records = names.map(name => readProtectedRecord(join(directory, name)));
-  if (records.length === 0) return [];
-  validateEmergencyHandoffChain(records.map(entry => entry.record));
-  return records;
+  const entries = records.map(name => readEmergencyRecord(join(directory, name)));
+  if (entries.length === 0) return [];
+  validateEmergencyHandoffChain(entries.map(entry => entry.record));
+  return entries;
+}
+
+/** Read-only journal inspection used by verify/status. */
+export function inspectJournal(directory) {
+  assertRootDirectory(directory);
+  const pendingPublications = inspectJournalTemps(directory);
+  return {chain: readJournalChain(directory), pendingPublications};
 }
 
 export function publishNamedJson(file, body) {
@@ -328,13 +381,52 @@ export function assertBackups(attemptId, checkpoint) {
 
 function readOptionalProtected(path) {
   if (!existsSync(path)) return null;
-  return readProtectedRecord(path).record;
+  return readEmergencyRecord(path).record;
 }
 
 function foreignEmergencyEntries(journalDirectoryName) {
   if (!existsSync(EMERGENCY_ROOT)) return false;
   return readdirSync(EMERGENCY_ROOT).some(name => name !== 'authorization.json'
     && name !== journalDirectoryName);
+}
+
+/** Stored owner/barrier must belong to the authorized parent. */
+function assertStoredOwnershipMatches(authorization) {
+  const parent = authorization.parent;
+  const owner = readOptionalProtected(OWNER);
+  if (owner && (owner.attemptId !== parent.attemptId
+    || owner.approvalSha256 !== parent.approvalSha256)) {
+    fail('EMERGENCY_HANDOFF_OWNER_UNTRUSTED');
+  }
+  const barrier = readOptionalProtected(BARRIER);
+  if (barrier && (barrier.attemptId !== parent.attemptId
+    || barrier.approvalSha256 !== parent.approvalSha256)) {
+    fail('EMERGENCY_HANDOFF_BARRIER_UNTRUSTED');
+  }
+}
+
+/** A present owner/barrier must always belong to the authorized parent. */
+function assertLiveOwnershipMatches(authorization, captured) {
+  const parent = authorization.parent;
+  if (captured.meta.owner
+    && (captured.live.activeAttemptId !== parent.attemptId
+      || captured.live.activeApprovalSha256 !== parent.approvalSha256)) {
+    fail('EMERGENCY_HANDOFF_OWNER_UNTRUSTED');
+  }
+  if (captured.meta.barrier
+    && (captured.live.barrierAttemptId !== parent.attemptId
+      || captured.live.barrierApprovalSha256 !== parent.approvalSha256)) {
+    fail('EMERGENCY_HANDOFF_BARRIER_UNTRUSTED');
+  }
+}
+
+/** Read-only rejection of unrelated emergency state before any mutation. */
+function assertEmergencyRootEntries(authorizationId) {
+  if (!existsSync(EMERGENCY_ROOT)) return;
+  for (const name of readdirSync(EMERGENCY_ROOT)) {
+    if (name === 'authorization.json' || name === authorizationId) continue;
+    fail('EMERGENCY_HANDOFF_FOREIGN_STATE');
+  }
 }
 
 /**
@@ -389,7 +481,9 @@ export async function captureLive(approval, profile, checkpoint, journalDirector
 }
 
 export function readAuthorization() {
+  if (!existsSync(AUTHORIZATION_FILE)) fail('EMERGENCY_HANDOFF_AUTHORIZATION_MISSING');
   const {record, sha256} = readProtectedRecord(AUTHORIZATION_FILE);
+  validateEmergencyHandoffAuthorizationStructure(record);
   return {authorization: record, authorizationSha256: sha256};
 }
 
@@ -398,12 +492,17 @@ export function journalDirectory(authorizationId) {
 }
 
 export function readRuntime(directory, authorizationSha256) {
-  const {record, sha256} = readProtectedRecord(join(directory, 'runtime.json'));
+  const file = join(directory, 'runtime.json');
+  if (!existsSync(file)) fail('EMERGENCY_HANDOFF_RUNTIME_INVALID');
+  const {record, sha256} = readEmergencyRecord(file);
   if (record.formatVersion !== 1 || record.kind !== 'EMERGENCY_HANDOFF_RUNTIME'
     || typeof record.authorizationId !== 'string' || record.authorizationSha256 !== authorizationSha256
     || typeof record.startedAtUTC !== 'string' || typeof record.bootId !== 'string'
     || !Number.isSafeInteger(record.pid) || record.pid < 1 || typeof record.startTime !== 'string'
-    || typeof record.initialContext !== 'object') {
+    || record.initialContext === null || typeof record.initialContext !== 'object'
+    || record.initialContext.parent === null || typeof record.initialContext.parent !== 'object'
+    || record.initialContext.host === null || typeof record.initialContext.host !== 'object'
+    || record.initialContext.live === null || typeof record.initialContext.live !== 'object') {
     fail('EMERGENCY_HANDOFF_RUNTIME_INVALID');
   }
   return record;
@@ -439,7 +538,7 @@ const currentBootId = () => readFileSync('/proc/sys/kernel/random/boot_id', 'utf
  * sealed observation that binds the previous and current boot/process pairs.
  * No restart is ever hidden: the receipt records REBOOT_OBSERVED.
  */
-export function ensureProcessContinuity(directory, runtime, captured) {
+export function ensureProcessContinuity(directory, runtime, captured, {publish = true} = {}) {
   const bootId = currentBootId();
   if (runtime.bootId === bootId) {
     assertPidStable(runtime, captured.meta.identity);
@@ -455,7 +554,7 @@ export function ensureProcessContinuity(directory, runtime, captured) {
       startTime: captured.meta.identity.startTime},
   };
   if (existsSync(file)) {
-    const {record, sha256} = readProtectedRecord(file);
+    const {record, sha256} = readEmergencyRecord(file);
     if (record.formatVersion !== 1 || record.kind !== 'EMERGENCY_HANDOFF_REBOOT_OBSERVATION'
       || record.authorizationId !== runtime.authorizationId
       || record.authorizationSha256 !== runtime.authorizationSha256
@@ -464,6 +563,9 @@ export function ensureProcessContinuity(directory, runtime, captured) {
       fail('EMERGENCY_HANDOFF_REBOOT_OBSERVATION_CONFLICT');
     }
     return {mode: 'REBOOT_OBSERVED', rebootObservationSha256: sha256};
+  }
+  if (!publish) {
+    return {mode: 'REBOOT_OBSERVED_PENDING', rebootObservationSha256: null};
   }
   const {sha256} = publishNamedJson(file, {
     formatVersion: 1, kind: 'EMERGENCY_HANDOFF_REBOOT_OBSERVATION',
@@ -490,6 +592,58 @@ function completeOwnedReload() {
   return true;
 }
 
+/** Exact sealed-parent eligibility shared by preflight and issuance. */
+export function assertParentEligible(checkpoint, approval) {
+  if (checkpoint.phase !== 'POSTDEPLOY_BACKUP_PASSED' || checkpoint.migrationCommitted !== true
+    || checkpoint.smokePassed !== true || !checkpoint.postdeployBackup
+    || checkpoint.starts < 1 || checkpoint.starts !== approval.maxStarts
+    || checkpoint.lastStart !== 'pass') {
+    fail('EMERGENCY_HANDOFF_PARENT_NOT_ELIGIBLE');
+  }
+}
+
+/**
+ * Read-only parent load for verify while our own policy unlink is pending.
+ * loadAttempt() samples trusted time through acceptedHandoffDirection() in that
+ * exact systemd state; those canonical modules are hash-bound and must not be
+ * changed. This path keeps the same approval/profile/checkpoint binding without
+ * reloading systemd or sampling the broken production collector.
+ */
+function loadParentReadOnly(attemptId) {
+  const context = readRootApproval(attemptId);
+  const profile = readRootProfile(context.approval);
+  if (readFileSync('/etc/machine-id', 'utf8').trim() !== profile.machineId) {
+    fail('RECOVERY_HOST_MACHINE_MISMATCH');
+  }
+  return {...context, profile};
+}
+
+/** Read-only release identity proof for the pending-reload verify path. */
+function assertReleaseIdentity(approval) {
+  const root = '/opt/servora-med/releases/' + approval.releaseSha;
+  if (realpathSync(CURRENT) !== root) fail('RECOVERY_RELEASE_UNPROVEN');
+  if (readFileSync(root + '/.servora-release-artifact.sha256', 'utf8')
+    !== approval.artifactSha256 + '\n') fail('RECOVERY_RELEASE_UNPROVEN');
+  const retained = `${STATE_ROOT}/artifacts/${approval.releaseSha}.tar.gz`;
+  if (!existsSync(retained) || sha256File(retained) !== approval.artifactSha256) {
+    fail('RECOVERY_RELEASE_UNPROVEN');
+  }
+}
+
+/** Read-only detection of our own interrupted policy unlink. */
+function detectPendingReload(properties = serviceProperties()) {
+  return properties.NeedDaemonReload === 'yes' && !existsSync(DROPIN)
+    && (properties.DropInPaths === '' || properties.DropInPaths === DROPIN)
+    && ['no', 'on-failure'].includes(properties.Restart);
+}
+
+function argument(name) {
+  const index = process.argv.indexOf(name);
+  return index > 0 ? process.argv[index + 1] : null;
+}
+
+const ATTEMPT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 /** Acquires the fixed host lock by re-executing the CLI under flock. */
 export function withHostLock(argv) {
   if (process.env.SERVORA_EH_LOCKED === '1') {
@@ -512,7 +666,7 @@ function assertDropInTrusted() {
 }
 
 function assertBarrierMatches(authorization) {
-  const barrier = readProtectedRecord(BARRIER).record;
+  const barrier = readEmergencyRecord(BARRIER).record;
   if (Object.keys(barrier).length !== 2
     || barrier.attemptId !== authorization.parent.attemptId
     || barrier.approvalSha256 !== authorization.parent.approvalSha256) {
@@ -521,7 +675,7 @@ function assertBarrierMatches(authorization) {
 }
 
 function assertOwnerMatches(authorization) {
-  const owner = readProtectedRecord(OWNER).record;
+  const owner = readEmergencyRecord(OWNER).record;
   if (Object.keys(owner).length !== 2
     || owner.attemptId !== authorization.parent.attemptId
     || owner.approvalSha256 !== authorization.parent.approvalSha256) {
@@ -544,22 +698,57 @@ function ensureIntent(directory, latest, predecessor, intent, timestamp) {
 }
 
 /**
- * Runs the handoff. Read-only when `execute` is false.
+ * Runs the handoff. `execute: false` (verify) is strictly read-only: it never
+ * creates directories, reloads systemd, reconciles journal residue or writes a
+ * reboot observation. Mutations only run on the authorized `apply` path after
+ * the authorization and its journal ownership have been validated.
  */
 export async function runHandoff({execute = true} = {}) {
   assertRoot();
-  ensureEmergencyRoot();
   const artifact = verifyInstalledArtifact(ARTIFACT_ROOT);
-  completeOwnedReload();
+  if (execute) ensureEmergencyRoot();
+  else assertEmergencyRootIfPresent();
   const {authorization, authorizationSha256} = readAuthorization();
+  assertEmergencyRootEntries(authorization.authorizationId);
   const parentId = authorization.parent?.attemptId;
-  const loaded = loadAttempt(parentId);
+  const directory = journalDirectory(authorization.authorizationId);
+  const directoryName = authorization.authorizationId;
+  const journalExists = existsSync(directory);
+  if (journalExists) assertRootDirectory(directory);
+  let runtime = null;
+  const pendingReload = detectPendingReload();
+  let inspection = journalExists
+    ? inspectJournal(directory) : {chain: [], pendingPublications: 0};
+  // Completing our own interrupted policy unlink is the only systemd mutation.
+  // It is gated on this authorization's journal and never runs for verify.
+  if (execute && pendingReload && journalExists) {
+    const latest = inspection.chain.at(-1)?.record;
+    if (!latest || latest.phase !== 'POLICY_INTENT'
+      || latest.authorizationId !== authorization.authorizationId
+      || latest.authorizationSha256 !== authorizationSha256
+      || latest.toolArtifactSha256 !== artifact.artifactSha256) {
+      fail('EMERGENCY_HANDOFF_POLICY_UNTRUSTED');
+    }
+    runtime = readRuntime(directory, authorizationSha256);
+    if (runtime.initialContext.parent?.attemptId !== authorization.parent?.attemptId
+      || runtime.initialContext.parent?.checkpointSha256 !== authorization.parent?.checkpointSha256
+      || runtime.initialContext.host?.machineId !== authorization.host?.machineId
+      || runtime.initialContext.host?.releaseArtifactSha256 !== authorization.host?.releaseArtifactSha256) {
+      fail('EMERGENCY_HANDOFF_RUNTIME_BINDING_MISMATCH');
+    }
+    assertStoredOwnershipMatches(authorization);
+    completeOwnedReload();
+    inspection = inspectJournal(directory);
+  }
+  const deferReleaseProof = !execute && pendingReload;
+  const loaded = deferReleaseProof ? loadParentReadOnly(parentId) : loadAttempt(parentId);
   if (loaded.approvalSha256 !== authorization.parent.approvalSha256) {
     fail('EMERGENCY_HANDOFF_BINDING_MISMATCH');
   }
   const checkpointFile = readLatestCheckpoint(parentId);
   const checkpoint = checkpointFile.record;
-  verifyAttemptRelease(parentId, 'target');
+  if (deferReleaseProof) assertReleaseIdentity(loaded.approval);
+  else verifyAttemptRelease(parentId, 'target');
   assertBackups(parentId, checkpoint);
   const binding = emergencyAuthorizationBinding({
     attemptId: parentId, approvalSha256: loaded.approvalSha256,
@@ -567,14 +756,14 @@ export async function runHandoff({execute = true} = {}) {
     checkpoint: {...checkpoint, sha256: checkpointFile.sha256},
     approval: loaded.approval, profile: loaded.profile,
   });
-  const directory = journalDirectory(authorization.authorizationId);
-  const directoryName = authorization.authorizationId;
-  const journalExists = existsSync(directory);
-  if (journalExists) assertRootDirectory(directory);
   const captured = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
+  assertLiveOwnershipMatches(authorization, captured);
   if (captured.live.releaseSha !== authorization.host.releaseSha) fail('EMERGENCY_HANDOFF_BINDING_MISMATCH');
-  if (journalExists) reconcileJournalDirectory(directory);
-  const chain = journalExists ? readJournalChain(directory) : [];
+  let chain = inspection.chain;
+  if (chain.length > 0 && (chain[0].record.authorizationId !== authorization.authorizationId
+    || chain[0].record.authorizationSha256 !== authorizationSha256)) {
+    fail('EMERGENCY_HANDOFF_OTHER_AUTHORIZATION');
+  }
   const journalState = {
     present: chain.length > 0,
     authorizationId: chain.length > 0 ? authorization.authorizationId : null,
@@ -589,7 +778,6 @@ export async function runHandoff({execute = true} = {}) {
     authorizationSha256, toolArtifactSha256: artifact.artifactSha256,
     parent: binding.parent, host: binding.host, backups, journal: journalState,
   };
-  let runtime = null;
   if (chain.length === 0) {
     const runtimePath = join(directory, 'runtime.json');
     const previous = existsSync(runtimePath) ? readRuntime(directory, authorizationSha256) : null;
@@ -599,10 +787,15 @@ export async function runHandoff({execute = true} = {}) {
     validateEmergencyHandoffAuthorization(authorization, context);
     if (!execute) {
       return {result: 'EMERGENCY_HANDOFF_READY', nextAction: 'START',
-        authorizationId: authorization.authorizationId, toolArtifactSha256: artifact.artifactSha256};
+        authorizationId: authorization.authorizationId, toolArtifactSha256: artifact.artifactSha256,
+        readOnly: true, pendingReload, pendingPublications: inspection.pendingPublications};
     }
     if (!existsSync(directory)) { mkdirSync(directory, {mode: 0o700}); flush(EMERGENCY_ROOT); }
     assertRootDirectory(directory);
+    // Reconciliation is a mutation; it runs only after the authorization was
+    // validated above and this journal directory is bound to it.
+    reconcileJournalDirectory(directory);
+    if (existsSync(join(directory, '0000.json'))) fail('EMERGENCY_HANDOFF_JOURNAL_CONFLICT');
     if (previous) {
       runtime = previous;
     } else {
@@ -613,7 +806,7 @@ export async function runHandoff({execute = true} = {}) {
     if (!initialContinuity) fail('EMERGENCY_HANDOFF_PID_INVALID');
     publishRecord(directory, initialEmergencyHandoff(authorization, context));
   } else {
-    runtime = readRuntime(directory, authorizationSha256);
+    if (runtime === null) runtime = readRuntime(directory, authorizationSha256);
     if (runtime.authorizationId !== authorization.authorizationId
       || runtime.authorizationSha256 !== authorizationSha256
       || runtime.initialContext.parent.checkpointSha256 !== binding.parent.checkpointSha256
@@ -626,6 +819,11 @@ export async function runHandoff({execute = true} = {}) {
       journal: {present: true, authorizationId: authorization.authorizationId,
         authorizationSha256, terminal: journalState.terminal}};
     validateEmergencyHandoffAuthorization(authorization, resumed);
+    if (execute) {
+      reconcileJournalDirectory(directory);
+      inspection = inspectJournal(directory);
+      chain = inspection.chain;
+    }
   }
   let continuity = {mode: 'PRESERVED', rebootObservationSha256: null};
   for (let round = 0; round < MAX_RECORDS; round += 1) {
@@ -634,19 +832,20 @@ export async function runHandoff({execute = true} = {}) {
     const receiptPath = join(directory, 'receipt.json');
     const receiptPresent = existsSync(receiptPath);
     const current = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
-    if (!receiptPresent) {
-      continuity = ensureProcessContinuity(directory, runtime, current);
-      if (current.live.releaseSha !== authorization.host.releaseSha) fail('EMERGENCY_HANDOFF_RELEASE_CHANGED');
+    if (current.live.foreignOwner) fail('EMERGENCY_HANDOFF_FOREIGN_STATE');
+    assertLiveOwnershipMatches(authorization, current);
+    if (!receiptPresent && current.live.releaseSha !== authorization.host.releaseSha) {
+      fail('EMERGENCY_HANDOFF_RELEASE_CHANGED');
     }
     const action = nextEmergencyHandoffAction(latest, {
       ...current.observed, receiptPresent,
     });
     if (action === 'STOP') fail('EMERGENCY_HANDOFF_STATE_AMBIGUOUS');
     if (action === 'DONE') {
-      const receipt = readProtectedRecord(receiptPath).record;
+      const receipt = readEmergencyRecord(receiptPath).record;
       verifyEmergencyHandoffReceipt(receipt, {
         authorizationId: authorization.authorizationId, authorizationSha256,
-        toolArtifactSha256: artifact.artifactSha256, parent: binding.parent,
+        toolArtifactSha256: authorization.toolArtifactSha256, parent: binding.parent,
       });
       return {result: 'EMERGENCY_HANDOFF_ALREADY_COMPLETE',
         operationalStatus: EMERGENCY_OPERATIONAL_STATUS,
@@ -655,12 +854,18 @@ export async function runHandoff({execute = true} = {}) {
         receiptSha256: receipt.hash, journalHeadSha256: latest.hash,
         steps: latest.steps, appPid: current.meta.identity?.pid ?? runtime.pid,
         initialAppPid: runtime.pid,
-        processContinuity: receipt.handoff.processContinuity};
+        processContinuity: receipt.handoff.processContinuity,
+        readOnly: !execute, pendingReload, pendingPublications: inspection.pendingPublications};
+    }
+    if (!receiptPresent) {
+      continuity = ensureProcessContinuity(directory, runtime, current, {publish: execute});
     }
     if (!execute) {
       return {result: 'EMERGENCY_HANDOFF_READY', nextAction: action,
         authorizationId: authorization.authorizationId,
-        toolArtifactSha256: artifact.artifactSha256};
+        toolArtifactSha256: artifact.artifactSha256,
+        readOnly: true, pendingReload, pendingPublications: inspection.pendingPublications,
+        processContinuity: continuity.mode};
     }
     const timestamp = nowUTC();
     if (action === 'REMOVE_BARRIER') {
@@ -740,7 +945,7 @@ export async function runHandoff({execute = true} = {}) {
       publishNamedJson(receiptPath, receipt);
       verifyEmergencyHandoffReceipt(receipt, {
         authorizationId: authorization.authorizationId, authorizationSha256,
-        toolArtifactSha256: artifact.artifactSha256, parent: binding.parent,
+        toolArtifactSha256: authorization.toolArtifactSha256, parent: binding.parent,
       });
       return {result: 'EMERGENCY_HANDOFF_COMPLETE',
         operationalStatus: EMERGENCY_OPERATIONAL_STATUS,
@@ -749,45 +954,150 @@ export async function runHandoff({execute = true} = {}) {
         receiptSha256: receipt.hash, journalHeadSha256: latest.hash,
         steps: latest.steps, appPid: current.meta.identity?.pid ?? runtime.pid,
         initialAppPid: runtime.pid,
-        processContinuity: receipt.handoff.processContinuity};
+        processContinuity: receipt.handoff.processContinuity,
+        readOnly: false, pendingReload, pendingPublications: inspection.pendingPublications};
     }
   }
   fail('EMERGENCY_HANDOFF_LOOP_EXHAUSTED');
 }
 
+/**
+ * Read-only preflight. It can run before any authorization exists and never
+ * creates the emergency directory, reloads systemd or touches journal residue.
+ */
+export async function preflight() {
+  assertRoot();
+  const artifact = verifyInstalledArtifact(ARTIFACT_ROOT);
+  assertEmergencyRootIfPresent();
+  const explicit = argument('--parent');
+  let parentId = explicit;
+  if (parentId !== null && !ATTEMPT_ID.test(parentId)) fail('EMERGENCY_HANDOFF_ARGUMENTS_INVALID');
+  if (parentId === null) {
+    for (const path of [OWNER, BARRIER]) {
+      if (!existsSync(path)) continue;
+      const record = readEmergencyRecord(path).record;
+      if (ATTEMPT_ID.test(record.attemptId ?? '')) { parentId = record.attemptId; break; }
+    }
+  }
+  if (parentId === null) fail('EMERGENCY_HANDOFF_PREFLIGHT_PARENT_UNKNOWN');
+  const authorizationPresent = existsSync(AUTHORIZATION_FILE);
+  let journalPresent = false;
+  let journalPhase = null;
+  let pendingPublications = 0;
+  let journalAuthorizationId = null;
+  if (authorizationPresent) {
+    const {authorization} = readAuthorization();
+    assertEmergencyRootEntries(authorization.authorizationId);
+    const directory = journalDirectory(authorization.authorizationId);
+    journalAuthorizationId = authorization.authorizationId;
+    if (existsSync(directory)) {
+      const inspection = inspectJournal(directory);
+      journalPresent = inspection.chain.length > 0;
+      journalPhase = inspection.chain.at(-1)?.record.phase ?? null;
+      pendingPublications = inspection.pendingPublications;
+    }
+  } else if (existsSync(EMERGENCY_ROOT) && readdirSync(EMERGENCY_ROOT).length > 0) {
+    fail('EMERGENCY_HANDOFF_FOREIGN_STATE');
+  }
+  if (detectPendingReload()) fail('EMERGENCY_HANDOFF_RECOVERY_PENDING');
+  const parent = loadAttempt(parentId);
+  const checkpointFile = readLatestCheckpoint(parentId);
+  const checkpoint = checkpointFile.record;
+  assertParentEligible(checkpoint, parent.approval);
+  verifyAttemptRelease(parentId, 'target');
+  assertBackups(parentId, checkpoint);
+  const binding = emergencyAuthorizationBinding({
+    attemptId: parentId, approvalSha256: parent.approvalSha256,
+    profileSha256: parent.approval.profileSha256,
+    checkpoint: {...checkpoint, sha256: checkpointFile.sha256},
+    approval: parent.approval, profile: parent.profile,
+  });
+  const captured = await captureLive(parent.approval, parent.profile, checkpoint,
+    journalAuthorizationId);
+  const live = captured.live;
+  if (live.activeAttemptId !== parentId || live.activeApprovalSha256 !== parent.approvalSha256
+    || live.barrierAttemptId !== parentId || live.barrierApprovalSha256 !== parent.approvalSha256
+    || live.permitPresent || live.foreignOwner || !live.appActive || !live.coreHealth
+    || live.releaseSha !== binding.host.releaseSha
+    || live.schemaHead !== binding.parent.schemaHead
+    || live.starts !== binding.parent.starts || live.maxStarts !== binding.parent.maxStarts
+    || live.dropInPresent !== true || live.restartPolicy !== 'no'
+    || live.needDaemonReload !== false) {
+    fail('EMERGENCY_HANDOFF_PREFLIGHT_STATE_MISMATCH');
+  }
+  return {
+    kind: 'EMERGENCY_HANDOFF_PREFLIGHT',
+    result: 'EMERGENCY_HANDOFF_PREFLIGHT_READY',
+    readOnly: true,
+    parentAttemptId: parentId,
+    checkpointSequence: checkpoint.sequence,
+    checkpointSha256: checkpointFile.sha256,
+    releaseSha: binding.host.releaseSha,
+    releaseArtifactSha256: binding.host.releaseArtifactSha256,
+    schemaHead: binding.parent.schemaHead,
+    startBudget: {used: live.starts, max: live.maxStarts},
+    app: {active: live.appActive, pid: live.appPid, coreHealth: live.coreHealth},
+    state: {dropInPresent: live.dropInPresent, restartPolicy: live.restartPolicy,
+      barrierPresent: live.barrierAttemptId !== null, ownerPresent: live.activeAttemptId !== null,
+      permitPresent: live.permitPresent},
+    toolArtifactSha256: artifact.artifactSha256,
+    emergencyRootPresent: existsSync(EMERGENCY_ROOT),
+    authorizationPresent, journalPresent, journalPhase, pendingPublications,
+  };
+}
+
+/** Read-only status. Never reloads systemd or reconciles journal residue. */
 export function status() {
   assertRoot();
-  ensureEmergencyRoot();
   const artifact = verifyInstalledArtifact(ARTIFACT_ROOT);
-  completeOwnedReload();
+  assertEmergencyRootIfPresent();
   const {authorization, authorizationSha256} = readAuthorization();
+  assertEmergencyRootEntries(authorization.authorizationId);
   const directory = journalDirectory(authorization.authorizationId);
-  if (existsSync(directory)) reconcileJournalDirectory(directory);
-  const chain = existsSync(directory) ? readJournalChain(directory) : [];
+  const inspection = existsSync(directory)
+    ? inspectJournal(directory) : {chain: [], pendingPublications: 0};
   const receiptPath = join(directory, 'receipt.json');
-  const receipt = existsSync(receiptPath) ? readProtectedRecord(receiptPath).record : null;
-  return {kind: 'EMERGENCY_HANDOFF_STATUS', authorizationId: authorization.authorizationId,
+  const receipt = existsSync(receiptPath) ? readEmergencyRecord(receiptPath).record : null;
+  if (receipt) {
+    verifyEmergencyHandoffReceipt(receipt, {
+      authorizationId: authorization.authorizationId,
+      authorizationSha256,
+      toolArtifactSha256: authorization.toolArtifactSha256,
+      parent: authorization.parent,
+    });
+  }
+  return {kind: 'EMERGENCY_HANDOFF_STATUS', readOnly: true,
+    authorizationPresent: true, authorizationId: authorization.authorizationId,
     authorizationSha256, toolArtifactSha256: artifact.artifactSha256,
-    journalPhase: chain.at(-1)?.record.phase ?? null,
-    journalHeadSha256: chain.at(-1)?.record.hash ?? null,
+    journalPresent: inspection.chain.length > 0,
+    journalPhase: inspection.chain.at(-1)?.record.phase ?? null,
+    journalHeadSha256: inspection.chain.at(-1)?.record.hash ?? null,
+    pendingPublications: inspection.pendingPublications,
     receipt: receipt ? {operationalStatus: receipt.operationalStatus,
       r4TerminalState: receipt.r4TerminalState, r4Acceptance: receipt.r4Acceptance,
+      processContinuity: receipt.handoff.processContinuity,
       receiptSha256: receipt.hash} : null};
 }
 
 function main() {
   const action = process.argv[2];
+  const run = promise => promise.then(result => {
+    process.stdout.write(JSON.stringify(result) + '\n');
+  }).catch(error => {
+    process.stderr.write((error.message || 'EMERGENCY_HANDOFF_FAILED') + '\n');
+    process.exitCode = 1;
+  });
   try {
     assertRoot();
     if (action === 'status') {
       process.stdout.write(JSON.stringify(status()) + '\n');
       return;
     }
-    if (action === 'verify' || action === 'apply') {
+    if (action === 'preflight') { run(preflight()); return; }
+    if (action === 'verify') { run(runHandoff({execute: false})); return; }
+    if (action === 'apply') {
       withHostLock(process.argv.slice(2));
-      runHandoff({execute: action === 'apply'}).then(result => {
-        process.stdout.write(JSON.stringify(result) + '\n');
-      }).catch(error => { process.stderr.write((error.message || 'EMERGENCY_HANDOFF_FAILED') + '\n'); process.exitCode = 1; });
+      run(runHandoff({execute: true}));
       return;
     }
     fail('EMERGENCY_HANDOFF_ARGUMENTS_INVALID');

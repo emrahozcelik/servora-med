@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {hostname} from 'node:os';
 import {
   copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync,
-  readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, chmodSync, chownSync,
+  readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, chmodSync,
+  chownSync,
   readSync, openSync, closeSync, constants,
 } from 'node:fs';
 import {createHash, randomUUID} from 'node:crypto';
@@ -471,6 +472,50 @@ export function fileSnapshot(path) {
   return existsSync(path) ? hash(readFileSync(path)) : null;
 }
 
+/** Metadata/content snapshot that excludes atime (reads may update it). */
+export function treeSnapshot(root) {
+  if (!existsSync(root)) return null;
+  const entries = [];
+  const walk = (path, relative) => {
+    const info = lstatSync(path);
+    entries.push([relative, info.mode, info.uid, info.gid, info.nlink, info.ino,
+      info.size, info.mtimeMs, info.ctimeMs,
+      info.isSymbolicLink() ? readlinkSync(path) : null,
+      info.isFile() ? hash(readFileSync(path)) : null]);
+    if (info.isDirectory()) {
+      for (const name of readdirSync(path).sort()) walk(join(path, name), relative + '/' + name);
+    }
+  };
+  walk(root, '.');
+  return entries;
+}
+
+function processStartTime(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return null;
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+}
+
+/** Every filesystem/systemd/process fact a read-only command must preserve. */
+export function readOnlySnapshot(attemptId) {
+  const facts = serviceFacts();
+  const pid = Number(facts.MainPID);
+  return {
+    emergency: treeSnapshot(EMERGENCY),
+    parent: parentSnapshot(attemptId),
+    owner: fileSnapshot(STATE + '/active.json'),
+    barrier: fileSnapshot(STATE + '/activation.block'),
+    hostLock: fileSnapshot(STATE + '/host.lock'),
+    env: fileSnapshot(ENV),
+    dropin: fileSnapshot(DROPIN),
+    unit: fileSnapshot(UNIT),
+    permit: existsSync('/run/servora-med-recovery/start.permit'),
+    current: realpathSync('/opt/servora-med/current'),
+    service: facts,
+    process: pid > 0 ? {pid, startTime: processStartTime(pid)} : null,
+  };
+}
+
 export function readSealed(path) {
   return readFileSync(path);
 }
@@ -481,8 +526,8 @@ export function issueAuthorization(attemptId, extra = []) {
     '--reason', 'R4_OBSERVATION_TRUSTED_TIME_BLOCKED', ...extra]));
 }
 
-export function runHost(mode, environment = {}) {
-  return spawnSync('/usr/bin/node', [ARTIFACT + '/emergency-handoff-host.mjs', mode], {
+export function runHost(mode, environment = {}, args = []) {
+  return spawnSync('/usr/bin/node', [ARTIFACT + '/emergency-handoff-host.mjs', mode, ...args], {
     encoding: 'utf8', timeout: 180000, env: {...process.env, ...environment},
   });
 }

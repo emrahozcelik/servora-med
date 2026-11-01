@@ -166,12 +166,12 @@ Consequences, verified on real systemd 255 (`ops/tests/emergency-handoff-systemd
 | after INTENT | INTENT | re-observe; require pre-state |
 | before barrier unlink | BARRIER_INTENT | unlink again |
 | after barrier unlink, before record | BARRIER_INTENT, barrier gone | record BARRIER_REMOVED |
-| after policy unlink, before reload | POLICY_INTENT, drop-in gone, `NeedDaemonReload=yes` | `daemon-reload` then record |
+| after policy unlink, before reload | POLICY_INTENT, drop-in gone, `NeedDaemonReload=yes` | `verify` reports `RELOAD_POLICY` read-only; `apply` reloads then records |
 | after reload | POLICY_RESTORED candidate | re-read `Restart=on-failure` then record |
 | before owner unlink | OWNER_INTENT | unlink again |
 | after owner unlink, before record | OWNER_INTENT, owner gone | record OWNER_RETIRED |
 | after HANDOFF_COMPLETE, before receipt | complete journal, no receipt | seal receipt |
-| after receipt link before temp unlink | receipt nlink 2 | reconcile owned temp, verify receipt |
+| after receipt link before temp unlink | receipt nlink 2 | `status`/`verify` read it read-only; `apply` reconciles the owned temp |
 
 Reboot behavior:
 
@@ -222,22 +222,79 @@ A future `060 -> hotfix release` forward-only transition must:
 `assertForwardTransitionEligible` implements these checks and returns a
 supersession record with `grantsReleaseAuthority: false`.
 
-## 9. Operator sequence (production, separate approval)
+## 9. Read-only command contract
+
+`preflight`, `verify` and `status` are read-only for emergency state, systemd
+state, the app process and every sealed record byte. They never create
+`/var/lib/servora-med/deploy/emergency`, run `systemctl daemon-reload`,
+reconcile/unlink emergency journal residue, publish `reboot.json` or change the
+app PID. `preflight` and `verify` fail closed with a typed error on missing
+authorization, a corrupt or foreign journal, a foreign owner/permit or a state
+mismatch; `status` is journal/receipt-only by design and does not sample live
+state.
+
+The one permitted write is the sealed canonical checkpoint reader completing
+its own interrupted publication by unlinking a `.uuid.tmp` under
+`/var/lib/servora-med/deploy/attempts/<parent>/`. It never changes a checkpoint
+record byte; HOST-15 proves that exact boundary. Emergency state is never
+reconciled by these commands.
+
+- `preflight` works **before** an authorization exists. It discovers the parent
+  from `--parent <uuid>` or the sealed `active.json`/`activation.block`, proves
+  the parent/release/DB/backup/live preconditions and reports `READY` without
+  writing emergency, systemd or app state (the canonical checkpoint-reader
+  exception above applies).
+- `verify` requires an authorization and reports the exact next action. If our
+  own policy unlink is pending (`NeedDaemonReload=yes`, drop-in absent), it
+  reports `nextAction: "RELOAD_POLICY"` and `pendingReload: true`; it does not
+  reload systemd. In that one state, `verify` is an advisory subset: it proves
+  the authorization/journal/runtime binding, release identity and backups, but
+  the full canonical host profile, installed-module and catalog proof is
+  re-run by `apply` after the reload and before any mutation.
+- `status` reads the authorization, journal chain and receipt only. It
+  validates the sealed receipt and never samples live state or touches journal
+  residue.
+- Read commands do not take the host lock. `apply` holds it for the whole
+  mutation.
+- A journal that has already started may be resumed after the authorization's
+  original 60-minute issuance window; the one-use grant was consumed at INTENT
+  and resumption is bounded by the sealed journal, not by a new grant.
+
+Apart from the canonical checkpoint-reader exception above, only `issue`
+(writes the one-use authorization) and `apply` (after the full binding check)
+mutate anything.
+
+## 10. Operator sequence (production, separate approval)
 
 ```bash
-# 1. Read-only preflight (no mutation)
-/usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs verify
+# 1. Read-only preflight; no authorization needed, no mutation
+/usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs preflight \
+  --parent <attempt-uuid>
 
 # 2. Only after explicit production approval: issue the one-use authorization
 /usr/local/libexec/servora-med-emergency/issue-emergency-handoff.mjs \
   --parent <attempt-uuid> --expires-minutes 30 --reason <reason>
 
-# 3. Apply; the app PID must not change
+# 3. Read-only verify against the issued authorization
+/usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs verify
+
+# 4. Apply; the app PID must not change
 /usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs apply
 
-# 4. Read-only status
+# 5. Read-only status
 /usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs status
 ```
+
+If `verify` reports `pendingReload: true` / `nextAction: "RELOAD_POLICY"`,
+`apply` will finish the interrupted reload after re-validating the
+authorization. Do not run `systemctl daemon-reload` by hand.
+
+`preflight` is step 1 only. After an interrupted `apply`, a non-zero
+`preflight` with `EMERGENCY_HANDOFF_RECOVERY_PENDING` is informational; use
+the read-only `verify`/`status` and then `apply` to recover. The command
+outputs `readOnly`, `pendingReload`, `pendingPublications` and
+`processContinuity` (`PRESERVED`, `REBOOT_OBSERVED` or the verify-only
+`REBOOT_OBSERVED_PENDING`) describe this contract.
 
 STOP, do not retry and do not hand-edit state, if any command returns a
 non-zero status, the PID changes, health is not 200, a contract/hash mismatch
@@ -248,7 +305,7 @@ Production execution is **not** authorized by this document. It requires a
 separate explicit operator approval for the artifact install, the one-use
 authorization and the application window.
 
-## 10. What still requires the forward-only project
+## 11. What still requires the forward-only project
 
 The Trusted Time `LastRx` fix (PR #400) is not installed in production. The
 collector remains hash-bound to the sealed R4 profile. A true R4 `COMPLETED`
