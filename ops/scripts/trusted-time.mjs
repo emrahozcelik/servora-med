@@ -187,6 +187,23 @@ export function evidenceFromLinuxReads(reads) {
     wallAtUTC:reads.wallAtUTC,wallResolutionMs:1,synchronization:reads.synchronization});
 }
 
+/**
+ * Compares two `chronyc -N -c sources -a` reports for a source replacement,
+ * selection, reachability, poll or identity change during one collection.
+ * Field 6 is `LastRx`, a per-second age counter rather than a source property;
+ * it is omitted so ordinary time progression cannot be mistaken for a change.
+ * Every other field remains significant, including offsets and root distance,
+ * so a real poll or source replacement is still denied.
+ */
+export function sameSourceReport(before, after) {
+  if (typeof before !== 'string' || typeof after !== 'string') return false;
+  const normalize = report => report.split('\n').map(line => {
+    const fields = line.split(',');
+    return fields.length === 10 ? [...fields.slice(0,6),...fields.slice(7)].join(',') : line;
+  }).join('\n');
+  return normalize(before) === normalize(after);
+}
+
 /** Fixed production paths/commands only. Never accepts caller clock overrides. */
 function collectChronyTime() {
   try {
@@ -239,7 +256,7 @@ function collectChronyTime() {
       packets.push({name,address,data});
     }
     // A poll/selection/source replacement during collection denies this sample.
-    if (sources !== run('/usr/bin/chronyc',['-N','-c','sources','-a'])
+    if (!sameSourceReport(sources,run('/usr/bin/chronyc',['-N','-c','sources','-a']))
       || selectdata !== run('/usr/bin/chronyc',['-N','selectdata','-a'])
       || config !== readFileSync('/etc/chrony/chrony.conf','utf8')) throw new Error('TRUSTED_TIME_UNKNOWN');
     const wallAtUTC = new Date().toISOString();

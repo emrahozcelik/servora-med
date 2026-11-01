@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {timeEvidenceAt} from './trusted-time-fixture.mjs';
-import { elapsedTime, elapsedBootTime, parseSynchronization, evidenceFromLinuxReads, validateTimeEvidence, validateCurrentTimeEvidence } from '../scripts/trusted-time.mjs';
+import { elapsedTime, elapsedBootTime, parseSynchronization, evidenceFromLinuxReads, validateTimeEvidence, validateCurrentTimeEvidence, sameSourceReport } from '../scripts/trusted-time.mjs';
 
 export const timeEvidence = (elapsed = 0, overrides = {}) => ({
   formatVersion: 1, source: 'linux-boottime',
@@ -56,6 +56,34 @@ test('TT-04: historical Ubuntu two-source tracking is not sufficient new packet 
   const tracking='C21BDE05,time.ume.tubitak.gov.tr,2,1793016588.506463721,-0.000010336,-0.012481262,0.012481262,4.911,-9.364,259.424,0.035545181,0.019027820,64.1,Normal';
   const sources='^,*,time.ume.tubitak.gov.tr,1,6,37,60,-0.000239742,-0.012717556,0.019729888\n^,-,time.cloudflare.com,3,6,37,57,0.012002185,0.012002185,0.033609279';
   assert.throws(()=>parseSynchronization(tracking,sources,1793016650000),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-004: LastRx progression alone is not a source replacement',()=>{
+  const before=[
+    '^,-,time.cloudflare.com,3,8,377,189,-0.001046172,-0.001048987,0.012701389',
+    '^,*,bevtime1.metrologie.at,1,8,377,45,-0.000007954,-0.000010077,0.003151543',
+    '^,-,1.ntp.ubuntu.com,2,8,377,457,0.000159971,0.000177182,0.013359158',
+    '^,?,time.ume.tubitak.gov.tr,1,8,377,61,0.012961019,0.012958821,0.025438448',
+  ].join('\n');
+  const after=before.replace(',377,189,',',377,190,').replace(',377,45,',',377,46,')
+    .replace(',377,457,',',377,458,').replace(',377,61,',',377,62,');
+  assert.equal(sameSourceReport(before,after),true);
+});
+
+test('OPS-TT-004 denial: poll, reach, selection, identity and stratum changes still differ',()=>{
+  const base=[
+    '^,-,time.cloudflare.com,3,8,377,189,-0.001046172,-0.001048987,0.012701389',
+    '^,*,bevtime1.metrologie.at,1,8,377,45,-0.000007954,-0.000010077,0.003151543',
+    '^,-,1.ntp.ubuntu.com,2,8,377,457,0.000159971,0.000177182,0.013359158',
+    '^,?,time.ume.tubitak.gov.tr,1,8,377,61,0.012961019,0.012958821,0.025438448',
+  ].join('\n');
+  for (const mutant of [
+    base.replace(',3,8,377,189,',',3,6,377,189,'),
+    base.replace(',3,8,377,189,',',3,8,0,189,'),
+    base.replace('^,*,bevtime1','^,+,bevtime1'),
+    base.replace('time.cloudflare.com','attacker.invalid'),
+    base.replace(',3,8,377,189,',',0,8,377,189,'),
+  ]) assert.equal(sameSourceReport(base,mutant),false);
 });
 
 const ntsNames=['time.cloudflare.com','bevtime1.metrologie.at','1.ntp.ubuntu.com'];
