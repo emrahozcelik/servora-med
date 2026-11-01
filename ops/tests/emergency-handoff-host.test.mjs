@@ -115,6 +115,8 @@ test('HOST-02: barrier-first handoff completes without restarting the app', () =
   assert.equal(sealed.parentAttemptCompleted, false);
   assert.equal(sealed.futureReleaseAuthority, false);
   assert.deepEqual(sealed.host.startBudget, {used: 2, max: 2});
+  assert.equal(sealed.handoff.processContinuity, 'PRESERVED');
+  assert.equal(sealed.handoff.rebootObservationSha256, null);
 });
 
 test('HOST-03: wrong parent approval or checkpoint is rejected without mutation', () => {

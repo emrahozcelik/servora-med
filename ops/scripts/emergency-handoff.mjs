@@ -56,7 +56,8 @@ const RECEIPT_KEYS = ['formatVersion','kind','operationalStatus','r4TerminalStat
   'backups'];
 const RECEIPT_PARENT_KEYS = ['attemptId','approvalSha256','profileSha256',
   'checkpointSequence','checkpointSha256','phase'];
-const RECEIPT_HANDOFF_KEYS = ['journalHeadSha256','steps','completedAtUTC'];
+const RECEIPT_HANDOFF_KEYS = ['journalHeadSha256','steps','completedAtUTC',
+  'processContinuity','rebootObservationSha256'];
 const RECEIPT_HOST_KEYS = ['machineId','database','releaseSha','schemaHead','startBudget'];
 const RECEIPT_BUDGET_KEYS = ['used','max'];
 const EXPECTED_RECEIPT_KEYS = ['authorizationId','authorizationSha256','toolArtifactSha256','parent'];
@@ -377,7 +378,8 @@ export function validateEmergencyHandoffChain(records) {
 }
 
 /** Seals the terminal operational receipt. It never claims R4 acceptance. */
-export function sealEmergencyHandoffReceipt(journal, record, context, nowUTC) {
+export function sealEmergencyHandoffReceipt(journal, record, context, nowUTC,
+  continuity = {mode: 'PRESERVED', rebootObservationSha256: null}) {
   const body = validateJournal(journal);
   validateAuthorization(record, context);
   if (body.phase !== 'HANDOFF_COMPLETE' || body.handoffComplete !== true) {
@@ -391,6 +393,12 @@ export function sealEmergencyHandoffReceipt(journal, record, context, nowUTC) {
     fail('EMERGENCY_HANDOFF_RECEIPT_BINDING_MISMATCH');
   }
   if (!instant(nowUTC) || Date.parse(nowUTC) < Date.parse(body.updatedAtUTC)) {
+    fail('EMERGENCY_HANDOFF_RECEIPT_INVALID');
+  }
+  if (!continuity || !['PRESERVED','REBOOT_OBSERVED'].includes(continuity.mode)
+    || (continuity.mode === 'PRESERVED' && continuity.rebootObservationSha256 !== null)
+    || (continuity.mode === 'REBOOT_OBSERVED'
+      && !hex(continuity.rebootObservationSha256, 64))) {
     fail('EMERGENCY_HANDOFF_RECEIPT_INVALID');
   }
   return sealed({
@@ -415,6 +423,8 @@ export function sealEmergencyHandoffReceipt(journal, record, context, nowUTC) {
       journalHeadSha256: journal.hash,
       steps: {...body.steps},
       completedAtUTC: nowUTC,
+      processContinuity: continuity.mode,
+      rebootObservationSha256: continuity.rebootObservationSha256,
     },
     host: {
       machineId: context.host.machineId,
@@ -449,6 +459,11 @@ function validateReceipt(receipt) {
     || !exactKeys(body.handoff, RECEIPT_HANDOFF_KEYS)
     || !hex(body.handoff.journalHeadSha256, 64) || !exactKeys(body.handoff.steps, STEP_KEYS)
     || STEP_KEYS.some(key => body.handoff.steps[key] !== true)
+    || !['PRESERVED','REBOOT_OBSERVED'].includes(body.handoff.processContinuity)
+    || (body.handoff.processContinuity === 'PRESERVED'
+      && body.handoff.rebootObservationSha256 !== null)
+    || (body.handoff.processContinuity === 'REBOOT_OBSERVED'
+      && !hex(body.handoff.rebootObservationSha256, 64))
     || !instant(body.handoff.completedAtUTC)
     || !exactKeys(body.host, RECEIPT_HOST_KEYS)
     || !hex(body.host.machineId, 32) || !exactKeys(body.host.database, DATABASE_KEYS)
@@ -492,6 +507,7 @@ export function verifyEmergencyHandoffReceipt(receipt, expected) {
     emergencyAuthorizationId: body.authorizationId,
     emergencyJournalHeadSha256: body.handoff.journalHeadSha256,
     r4TerminalState: EMERGENCY_R4_TERMINAL_STATE,
+    processContinuity: body.handoff.processContinuity,
     parentAttemptCompleted: false,
     grantsReleaseAuthority: false,
   });

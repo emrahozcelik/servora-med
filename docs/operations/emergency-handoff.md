@@ -37,9 +37,19 @@ The terminal record is an operational status, not R4 acceptance:
   "r4Acceptance": "NOT_ACCEPTED",
   "observationPassed": false,
   "parentAttemptCompleted": false,
-  "futureReleaseAuthority": false
+  "futureReleaseAuthority": false,
+  "handoff": {
+    "processContinuity": "PRESERVED",
+    "rebootObservationSha256": null
+  }
 }
 ```
+
+A reboot during an interrupted handoff necessarily replaces the process. The
+tool never starts it; after an operator-authorized start it records a sealed
+`reboot.json` observation (`previous`/`current` boot and PID/start-time) and the
+receipt says `processContinuity: "REBOOT_OBSERVED"`. A second restart in the
+same boot is still a hard stop.
 
 `futureReleaseAuthority: false` is deliberate: the receipt lets a future
 forward-only transition **recognize and supersede** the old owner. It does not

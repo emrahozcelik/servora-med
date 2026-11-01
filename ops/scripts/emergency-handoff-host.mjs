@@ -431,6 +431,49 @@ export function assertPidStable(runtime, identity) {
   }
 }
 
+const currentBootId = () => readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+
+/**
+ * Same-boot handoffs require the exact PID/start-time captured at INTENT. A
+ * reboot necessarily replaces the process; it is accepted only as an explicit,
+ * sealed observation that binds the previous and current boot/process pairs.
+ * No restart is ever hidden: the receipt records REBOOT_OBSERVED.
+ */
+export function ensureProcessContinuity(directory, runtime, captured) {
+  const bootId = currentBootId();
+  if (runtime.bootId === bootId) {
+    assertPidStable(runtime, captured.meta.identity);
+    return {mode: 'PRESERVED', rebootObservationSha256: null};
+  }
+  if (!captured.live.appActive || !captured.live.coreHealth) {
+    fail('EMERGENCY_HANDOFF_HEALTH_LOST');
+  }
+  const file = join(directory, 'reboot.json');
+  const expected = {
+    previous: {bootId: runtime.bootId, pid: runtime.pid, startTime: runtime.startTime},
+    current: {bootId, pid: captured.meta.identity.pid,
+      startTime: captured.meta.identity.startTime},
+  };
+  if (existsSync(file)) {
+    const {record, sha256} = readProtectedRecord(file);
+    if (record.formatVersion !== 1 || record.kind !== 'EMERGENCY_HANDOFF_REBOOT_OBSERVATION'
+      || record.authorizationId !== runtime.authorizationId
+      || record.authorizationSha256 !== runtime.authorizationSha256
+      || JSON.stringify(record.previous) !== JSON.stringify(expected.previous)
+      || JSON.stringify(record.current) !== JSON.stringify(expected.current)) {
+      fail('EMERGENCY_HANDOFF_REBOOT_OBSERVATION_CONFLICT');
+    }
+    return {mode: 'REBOOT_OBSERVED', rebootObservationSha256: sha256};
+  }
+  const {sha256} = publishNamedJson(file, {
+    formatVersion: 1, kind: 'EMERGENCY_HANDOFF_REBOOT_OBSERVATION',
+    authorizationId: runtime.authorizationId,
+    authorizationSha256: runtime.authorizationSha256,
+    previous: expected.previous, current: expected.current, observedAtUTC: nowUTC(),
+  });
+  return {mode: 'REBOOT_OBSERVED', rebootObservationSha256: sha256};
+}
+
 /**
  * Completes our own interrupted daemon-reload before the canonical host
  * verifier runs. The R4 verifier only tolerates the policy-unlinked pending
@@ -562,11 +605,12 @@ export async function runHandoff({execute = true} = {}) {
     assertRootDirectory(directory);
     if (previous) {
       runtime = previous;
-      assertPidStable(runtime, captured.meta.identity);
     } else {
       runtime = publishRuntime(directory, {...context, authorizationId: authorization.authorizationId},
         captured.meta.identity, authorizationSha256);
     }
+    const initialContinuity = ensureProcessContinuity(directory, runtime, captured);
+    if (!initialContinuity) fail('EMERGENCY_HANDOFF_PID_INVALID');
     publishRecord(directory, initialEmergencyHandoff(authorization, context));
   } else {
     runtime = readRuntime(directory, authorizationSha256);
@@ -582,8 +626,8 @@ export async function runHandoff({execute = true} = {}) {
       journal: {present: true, authorizationId: authorization.authorizationId,
         authorizationSha256, terminal: journalState.terminal}};
     validateEmergencyHandoffAuthorization(authorization, resumed);
-    assertPidStable(runtime, captured.meta.identity);
   }
+  let continuity = {mode: 'PRESERVED', rebootObservationSha256: null};
   for (let round = 0; round < MAX_RECORDS; round += 1) {
     const records = readJournalChain(directory);
     const latest = records.at(-1).record;
@@ -591,8 +635,7 @@ export async function runHandoff({execute = true} = {}) {
     const receiptPresent = existsSync(receiptPath);
     const current = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
     if (!receiptPresent) {
-      assertPidStable(runtime, current.meta.identity);
-      if (!current.live.coreHealth || !current.live.appActive) fail('EMERGENCY_HANDOFF_HEALTH_LOST');
+      continuity = ensureProcessContinuity(directory, runtime, current);
       if (current.live.releaseSha !== authorization.host.releaseSha) fail('EMERGENCY_HANDOFF_RELEASE_CHANGED');
     }
     const action = nextEmergencyHandoffAction(latest, {
@@ -623,7 +666,7 @@ export async function runHandoff({execute = true} = {}) {
       ensureIntent(directory, latest, 'POLICY_RESTORED', 'BARRIER_INTENT', timestamp);
       unlinkAndFlush(BARRIER, STATE_ROOT);
       const after = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
-      assertPidStable(runtime, after.meta.identity);
+      ensureProcessContinuity(directory, runtime, after);
       if (after.observed.barrierPresent) fail('EMERGENCY_HANDOFF_BARRIER_UNTRUSTED');
       publishRecord(directory, advanceEmergencyHandoff(readJournalChain(directory).at(-1).record,
         'BARRIER_REMOVED', nowUTC()));
@@ -640,7 +683,7 @@ export async function runHandoff({execute = true} = {}) {
       unlinkAndFlush(DROPIN, '/etc/systemd/system/servora-med.service.d');
       systemctl('daemon-reload');
       const after = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
-      assertPidStable(runtime, after.meta.identity);
+      ensureProcessContinuity(directory, runtime, after);
       if (after.observed.dropInPresent || after.observed.restartPolicy !== 'on-failure'
         || after.observed.needDaemonReload) fail('EMERGENCY_HANDOFF_POLICY_UNTRUSTED');
       publishRecord(directory, advanceEmergencyHandoff(readJournalChain(directory).at(-1).record,
@@ -650,7 +693,7 @@ export async function runHandoff({execute = true} = {}) {
     if (action === 'RELOAD_POLICY') {
       systemctl('daemon-reload');
       const after = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
-      assertPidStable(runtime, after.meta.identity);
+      ensureProcessContinuity(directory, runtime, after);
       if (after.observed.restartPolicy !== 'on-failure' || after.observed.needDaemonReload) {
         fail('EMERGENCY_HANDOFF_POLICY_UNTRUSTED');
       }
@@ -670,7 +713,7 @@ export async function runHandoff({execute = true} = {}) {
       ensureIntent(directory, latest, 'BARRIER_REMOVED', 'OWNER_INTENT', timestamp);
       unlinkAndFlush(OWNER, STATE_ROOT);
       const after = await captureLive(loaded.approval, loaded.profile, checkpoint, directoryName);
-      assertPidStable(runtime, after.meta.identity);
+      ensureProcessContinuity(directory, runtime, after);
       if (after.observed.ownerPresent) fail('EMERGENCY_HANDOFF_OWNER_UNTRUSTED');
       publishRecord(directory, advanceEmergencyHandoff(readJournalChain(directory).at(-1).record,
         'OWNER_RETIRED', nowUTC()));
@@ -691,7 +734,7 @@ export async function runHandoff({execute = true} = {}) {
         authorizationSha256, toolArtifactSha256: artifact.artifactSha256,
         journal: {present: true, authorizationId: authorization.authorizationId,
           authorizationSha256, terminal: false},
-      }, timestamp);
+      }, timestamp, continuity);
       publishNamedJson(receiptPath, receipt);
       verifyEmergencyHandoffReceipt(receipt, {
         authorizationId: authorization.authorizationId, authorizationSha256,

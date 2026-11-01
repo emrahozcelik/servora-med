@@ -276,6 +276,8 @@ test('EH-21: the terminal receipt is a distinct operational status, not R4 accep
   assert.equal(receipt.parentAttemptCompleted, false);
   assert.equal(receipt.futureReleaseAuthority, false);
   assert.equal(receipt.handoff.journalHeadSha256, j.hash);
+  assert.equal(receipt.handoff.processContinuity, 'PRESERVED');
+  assert.equal(receipt.handoff.rebootObservationSha256, null);
   assert.equal(receipt.parent.checkpointSha256, h('c'));
   assert.match(receipt.hash, /^[0-9a-f]{64}$/);
 });
@@ -330,6 +332,27 @@ test('EH-25: a future release transition requires exclusive, clean, restart-prot
     const live = { ...clean }; mutate(live);
     assert.throws(() => assertForwardTransitionEligible({ receipt, expected, live }), /FORWARD_TRANSITION_(OWNERSHIP|POLICY)_CONFLICT/);
   }
+});
+
+test('EH-27: a reboot-observed receipt records the auditable continuity boundary', () => {
+  const auth = authorization(), ctx = context();
+  const j = completeHandoff();
+  const base = { ...ctx, journal: { present: true, authorizationId: auth.authorizationId,
+    authorizationSha256: h('4'), terminal: false } };
+  const receipt = sealEmergencyHandoffReceipt(j, auth, base, NOW,
+    { mode: 'REBOOT_OBSERVED', rebootObservationSha256: h('7') });
+  assert.equal(receipt.handoff.processContinuity, 'REBOOT_OBSERVED');
+  assert.equal(receipt.handoff.rebootObservationSha256, h('7'));
+  const supersession = verifyEmergencyHandoffReceipt(receipt, {
+    authorizationId: auth.authorizationId, authorizationSha256: h('4'),
+    toolArtifactSha256: h('3'), parent: { ...auth.parent },
+  });
+  assert.equal(supersession.processContinuity, 'REBOOT_OBSERVED');
+  assert.equal(supersession.parentAttemptCompleted, false);
+  assert.throws(() => sealEmergencyHandoffReceipt(j, auth, base, NOW,
+    { mode: 'PRESERVED', rebootObservationSha256: h('7') }), /EMERGENCY_HANDOFF_RECEIPT_INVALID/);
+  assert.throws(() => sealEmergencyHandoffReceipt(j, auth, base, NOW,
+    { mode: 'REBOOT_OBSERVED', rebootObservationSha256: null }), /EMERGENCY_HANDOFF_RECEIPT_INVALID/);
 });
 
 test('EH-26: a missing, truncated or foreign receipt never enables a future transition', () => {
