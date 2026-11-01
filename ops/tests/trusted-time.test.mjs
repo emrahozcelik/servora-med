@@ -67,6 +67,8 @@ test('OPS-TT-004: LastRx progression alone is not a source replacement',()=>{
   ].join('\n');
   const after=before.replace(',377,189,',',377,190,').replace(',377,45,',',377,46,')
     .replace(',377,457,',',377,458,').replace(',377,61,',',377,62,');
+  // The former byte-equality comparator rejects this ordinary age advance.
+  assert.notEqual(before,after);
   assert.equal(sameSourceReport(before,after),true);
 });
 
@@ -77,12 +79,17 @@ test('OPS-TT-004 denial: poll, reach, selection, identity and stratum changes st
     '^,-,1.ntp.ubuntu.com,2,8,377,457,0.000159971,0.000177182,0.013359158',
     '^,?,time.ume.tubitak.gov.tr,1,8,377,61,0.012961019,0.012958821,0.025438448',
   ].join('\n');
+  const lines=base.split('\n');
   for (const mutant of [
     base.replace(',3,8,377,189,',',3,6,377,189,'),
     base.replace(',3,8,377,189,',',3,8,0,189,'),
     base.replace('^,*,bevtime1','^,+,bevtime1'),
     base.replace('time.cloudflare.com','attacker.invalid'),
     base.replace(',3,8,377,189,',',0,8,377,189,'),
+    [...lines].reverse().join('\n'),
+    lines.slice(1).join('\n'),
+    base+'\n^,-,extra.invalid,1,8,377,0,0,0,0',
+    base.replace(',time.cloudflare.com,',','),
   ]) assert.equal(sameSourceReport(base,mutant),false);
 });
 
