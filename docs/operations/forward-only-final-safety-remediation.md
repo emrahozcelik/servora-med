@@ -146,6 +146,12 @@ outside this work.
 
 ## Acceptance decision
 
+PR #402's later review found a HIGH in deployment-grant time admission and
+separate CI failures. Their remediation and new targeted evidence are recorded
+in [PR #402 remediation](forward-only-pr402-remediation.md). The counts above
+remain historical evidence for their named source; they do not approve the
+subsequent grant-v2 delta.
+
 **STOP for starting full host acceptance.** The remaining prerequisite is
 independent review of the final TT-A/terminal/recovery tree, explicitly left open
 by the owner. Direct review and targeted tests do not substitute for it.

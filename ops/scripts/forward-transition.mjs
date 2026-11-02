@@ -18,6 +18,7 @@
 import {createHash} from 'node:crypto';
 import {classifyMigrationState} from './migration-reconciliation.mjs';
 import {verifyEmergencyHandoffReceipt} from './emergency-handoff.mjs';
+import {elapsedTime, validateCurrentTimeEvidence} from './trusted-time.mjs';
 
 export const FORWARD_TRANSITION_SCOPE = 'FORWARD_ONLY_RELEASE_TRANSITION';
 export const FORWARD_PARENT_DISPOSITION = 'SUPERSEDED_BY_EMERGENCY_HANDOFF';
@@ -42,7 +43,7 @@ export const FORWARD_FORBIDDEN = Object.freeze([
 ]);
 
 const AUTHORIZATION_KEYS = Object.freeze([
-  'formatVersion', 'kind', 'authorizationId', 'issuedAtUTC', 'expiresAtUTC',
+  'formatVersion', 'kind', 'authorizationId', 'issuedAtUTC', 'expiresAtUTC', 'issuedTime',
   'maxUses', 'reason', 'scope', 'attemptId', 'parent', 'old', 'target', 'host',
   'migration', 'budgets', 'actions', 'forbidden',
 ]);
@@ -189,12 +190,40 @@ function validateWindow(record) {
   if (expires <= issued || expires - issued > 24 * 60 * 60 * 1000) {
     fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
   }
+  validateCurrentTimeEvidence(record.issuedTime);
+  if (record.issuedTime.wallAtUTC.replace(/\.\d{3}Z$/, 'Z') !== record.issuedAtUTC) {
+    fail('FORWARD_TRANSITION_TIME_INVALID');
+  }
+}
+
+/** Fresh positive authority needs TT-A quorum, consistent UTC and conservative
+ * same-boot/namespace elapsed bounds. Historical consumed replay uses the
+ * recorded admission proof, never a new wall-clock window. */
+export function validateForwardAuthorizationTime(record, current, clock = null) {
+  validateWindow(record);
+  validateCurrentTimeEvidence(current);
+  const age = elapsedTime(record.issuedTime, current);
+  if (age.status !== 'KNOWN') fail('TRUSTED_TIME_UNKNOWN');
+  const issued = Date.parse(record.issuedTime.wallAtUTC), expires = Date.parse(record.expiresAtUTC);
+  const now = Date.parse(current.wallAtUTC);
+  if (now < issued || now >= expires || age.upperMs >= expires - issued) fail('FORWARD_TRANSITION_TIME_INVALID');
+  // A live root reader also brackets the publication point. A previously
+  // valid quorum sample cannot extend a deadline while I/O is delayed.
+  if (clock !== null) {
+    if (clock.bootId !== current.bootId || clock.timeNamespaceId !== current.timeNamespaceId
+      || !Number.isSafeInteger(clock.uptimeMs) || clock.uptimeMs < current.bootUpperMs
+      || !Number.isFinite(Date.parse(clock.wallAtUTC))) fail('TRUSTED_TIME_UNKNOWN');
+    if (clock.uptimeMs - record.issuedTime.bootLowerMs >= expires - issued
+      || Date.parse(clock.wallAtUTC) >= expires) fail('FORWARD_TRANSITION_TIME_INVALID');
+    if (Date.parse(clock.wallAtUTC) < now) fail('TRUSTED_TIME_UNKNOWN');
+  }
+  return current;
 }
 
 /** Structural authorization validation; no live state required. */
 export function validateForwardAuthorizationStructure(record) {
   if (!exactKeys(record, AUTHORIZATION_KEYS)) fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
-  if (record.formatVersion !== 1 || record.kind !== 'FORWARD_TRANSITION_AUTHORIZATION') {
+  if (record.formatVersion !== 2 || record.kind !== 'FORWARD_TRANSITION_AUTHORIZATION') {
     fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
   }
   if (record.scope !== FORWARD_TRANSITION_SCOPE) fail('FORWARD_TRANSITION_SCOPE_INVALID');
@@ -303,7 +332,7 @@ function validateSupersession(supersession, record, context) {
  * target identity. It never mutates state and never grants release authority.
  */
 function validateAuthorizationBindings(record, context, {enforceWindow}) {
-  if (!exactKeys(context, ['nowUTC', 'authorizationSha256', 'supersession', 'emergency',
+  if (!exactKeys(context, ['nowUTC', 'currentTime', 'authorizationSha256', 'supersession', 'emergency',
     'parentIdentity', 'host', 'target', 'journal'])
     || !exactKeys(context.journal, ['present'])
     || typeof context.journal.present !== 'boolean') {
@@ -313,6 +342,7 @@ function validateAuthorizationBindings(record, context, {enforceWindow}) {
     fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
   }
   if (enforceWindow) {
+    validateForwardAuthorizationTime(record, context.currentTime);
     const now = Date.parse(context.nowUTC);
     if (now < Date.parse(record.issuedAtUTC)) fail('FORWARD_TRANSITION_TIME_INVALID');
     if (now >= Date.parse(record.expiresAtUTC)) fail('FORWARD_TRANSITION_TIME_INVALID');

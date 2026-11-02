@@ -69,6 +69,8 @@ fs.fsyncSync = function(fd) {
 };
 const originalExec = cp.execFileSync;
 cp.execFileSync = function(file, args, options) {
+  if (point === 'trace-time-reader' && args.includes('--read-chrony'))
+    process.stderr.write('FIXTURE_TIME_READER=' + args[args.indexOf('--read-chrony') - 1] + '\n');
   if (point === 'forced-time-unknown' && args.includes('--read-chrony')) throw new Error('TRUSTED_TIME_UNKNOWN');
   if (point === 'deny-reload' && file === '/usr/bin/systemctl' && args[0] === 'daemon-reload') fire('deny-reload');
   let result;

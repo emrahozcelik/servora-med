@@ -173,6 +173,8 @@ One root-owned, one-use authorization
 (`FORWARD_TRANSITION_AUTHORIZATION`, scope `FORWARD_ONLY_RELEASE_TRANSITION`)
 binds:
 
+- format version **2** and the actual TT-A v2 `issuedTime` sample (UTC,
+  boot/namespace, conservative boottime bounds and authenticated quorum);
 - parent: attempt, approval, profile, checkpoint, emergency authorization,
   emergency journal head, receipt digest, disposition;
 - OLD: release SHA, artifact digest, schema head, full catalog;
@@ -184,8 +186,24 @@ binds:
 
 Issuance requires the app to be running under `Restart=on-failure`, the OLD
 release to be live, no active owner of either generation, an identical catalog
-and an open time window (maximum 24 hours). The grant is consumed at `INTENT`;
-resumption afterwards is bounded by the sealed journal, not by the wall clock.
+and an open time window (maximum 24 hours). Wall-only version-1 forward grants
+are refused. Admission and each unspent START need a fresh restricted TT-A
+sample, matching issuance boot/namespace and conservative elapsed upper bound
+below expiry. UTC is an additional veto. UNKNOWN cannot create a new INTENT or
+authorize a start. The root adapter checks the live kernel deadline as well;
+ExecStartPre checks before and after durable slot publication. A slot burned by
+publication delay is never retried.
+
+Admission and START time proofs are hash-bound in the journal; the permanent
+start receipt also records its actual authorization sample. Consumed replay and
+known activation reconciliation validate those historical proofs without
+reopening the grant or requiring a new positive time decision. A new unspent
+START still requires live evidence; recovery/terminal handback keep their
+separate contracts. Before collector handoff the adapter reads through the
+exact sealed legacy sampler, afterwards through the manifested forward sampler.
+The legacy reader supplies time only and gains no new deployment authority.
+See [PR #402 grant and CI remediation](forward-only-pr402-remediation.md) for
+the targeted evidence and remaining acceptance gates.
 
 Acceptance (`FORWARD_RELEASE_ACCEPTED`) requires:
 

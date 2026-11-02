@@ -143,7 +143,9 @@ function createDeployFixture() {
     sha,
     tree,
     script: join(root, 'ops', 'deploy-production.sh'),
-    env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GH_TOKEN: 'fixture-token' },
+    // The temporary repository is main. Do not inherit the enclosing PR's
+    // refs/pull/.../merge identity into these independent deployment fixtures.
+    env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GH_TOKEN: 'fixture-token', GITHUB_REF: 'refs/heads/main' },
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -388,6 +390,15 @@ describe('verify-evidence.sh fail-closed gates', { timeout: 60000 }, () => {
 });
 
 describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
+  it('retains production denial of an explicitly selected pull-request workflow ref', () => {
+    const fixture = createDeployFixture();
+    try {
+      const result = runSourced(fixture.script, 'SHA="$2"; verify_source', [fixture.sha],
+        { ...fixture.env, GITHUB_REF: 'refs/pull/402/merge' });
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain('NON_MAIN_WORKFLOW_REF');
+    } finally { fixture.cleanup(); }
+  });
   it('refuses a different selected file beside a valid canonical manifest', () => {
     const fixture = createDeployFixture();
     const evidenceRoot = temporaryDirectory('selected-file');

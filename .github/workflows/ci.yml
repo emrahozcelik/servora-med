@@ -197,10 +197,13 @@ jobs:
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
       - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs
+      - name: forward-only contract and adapter regressions
+        run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs
       - run: npm audit --audit-level=high
 
   web:
-    runs-on: ubuntu-latest
+    # Playwright 1.55.1 has browser/dependency builds for Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web

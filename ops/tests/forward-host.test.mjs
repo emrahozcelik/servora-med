@@ -19,6 +19,64 @@ test('adapter preflight is read-only and validates the forward authorization', a
   assert.deepEqual(f.effects, []);
 });
 
+test('UNKNOWN trusted time denies fresh admission before any journal or owner mutation', async () => {
+  const f = fixture();
+  f.io.authorizationTime = async () => { throw new Error('TRUSTED_TIME_UNKNOWN'); };
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /TRUSTED_TIME_UNKNOWN/);
+  assert.deepEqual(f.log, []);
+  assert.deepEqual(f.effects, []);
+});
+
+test('wall rollback cannot admit a grant expired by trusted elapsed time', async () => {
+  const f = fixture();
+  f.tick(5 * 3600_000);
+  f.io.now = () => '2026-11-01T17:00:00Z';
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /TIME_INVALID/);
+  assert.deepEqual(f.log, []);
+  assert.deepEqual(f.effects, []);
+});
+
+test('elapsed expiry denies an unspent START after crash and wall rollback', async () => {
+  const f = fixture(), append = f.io.append;
+  f.authorization.expiresAtUTC = '2026-11-01T17:05:00Z';
+  f.io.append = record => {
+    append(record);
+    if (record.event === 'PHASE' && record.contract.phase === 'ACTIVATE_INTENT') throw new Error('CRASH_BEFORE_START');
+  };
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /CRASH_BEFORE_START/);
+  f.io.append = append; f.tick(6 * 60_000);
+  f.io.now = () => '2026-11-01T17:01:00Z';
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /TIME_INVALID/);
+  assert.equal(f.log.filter(r => r.event === 'START_INTENT').length, 0);
+  assert.equal(f.effects.filter(e => e.operation === 'START').length, 0);
+});
+
+test('admission rechecks time after pre-publication checks and records no stale INTENT', async () => {
+  const f = fixture(); let checks = 0;
+  f.io.check = async () => {
+    if (++checks === 2) f.io.authorizationTime = async () => { throw new Error('TRUSTED_TIME_UNKNOWN'); };
+  };
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /TRUSTED_TIME_UNKNOWN/);
+  assert.equal(f.log.length, 0);
+  assert.equal(f.effects.length, 0);
+});
+
+test('consumed journal status and known activation resume do not reopen an expired grant', async () => {
+  const f = fixture(), append = f.io.append;
+  f.io.append = record => {
+    append(record);
+    if (record.event === 'START_DONE') throw new Error('CRASH_AFTER_KNOWN_START');
+  };
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'apply'), /CRASH_AFTER_KNOWN_START/);
+  f.io.append = append; f.tick(5 * 3600_000);
+  f.io.authorizationTime = async () => { throw new Error('TRUSTED_TIME_UNKNOWN'); };
+  const original = structuredClone(f.log), effects = f.effects.length;
+  assert.equal((await adapter.runForwardHost(f.io, f.authorization, 'status')).starts, 1);
+  assert.deepEqual(f.log, original); assert.equal(f.effects.length, effects);
+  assert.equal((await adapter.runForwardHost(f.io, f.authorization, 'apply')).phase, 'HEALTH_PASSED');
+  assert.equal(f.effects.filter(e => e.operation === 'START').length, 1);
+});
+
 test('CI evidence refuses a PASS label with missing checks or files', () => {
   assert.throws(() => evidence.verifyForwardCI({schemaVersion: 2, result: 'PASS', checks: []},
     {releaseSha: 'a'.repeat(40), treeSha: 'b'.repeat(40)}, () => Buffer.from('')), /FORWARD_HOST_CI_INVALID/);

@@ -14,7 +14,7 @@ import {dirname, join, basename} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {runForwardHost, validateHostLog} from './forward-host-driver.mjs';
 import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward-host-recovery.mjs';
-import {assertEmergencySupersession, validateForwardAuthorizationStructure,
+import {assertEmergencySupersession, validateForwardAuthorizationStructure, validateForwardAuthorizationTime,
   FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
 import {digest, seal, verifyForwardCI, verifyObservationProof} from './forward-host-evidence.mjs';
@@ -99,6 +99,8 @@ function assertCollectorBinding(state) {
 }
 const bootId = () => readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
 const uptime = () => Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
+const authorizationClock = () => ({bootId: bootId(), timeNamespaceId: readlinkSync('/proc/self/ns/time'),
+  wallAtUTC: new Date().toISOString(), uptimeMs: Math.ceil(uptime()) + 10});
 function mkdir(path, mode = 0o700) {
   trustedParents(path);
   if (!existsSync(path)) { mkdirSync(path, {mode}); flushDirectory(dirname(path)); }
@@ -311,6 +313,24 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
   const attempt = PATHS.root + '/' + a.attemptId, journalPath = attempt + '/journal';
   const readLog = () => existsSync(journalPath) ? openHostJournal(journalPath).read(log => validateHostLog(log, a, authorizationSha256, toolHash)) : [];
   const hostState = () => validateHostLog(readLog(), a, authorizationSha256, toolHash);
+  const authorizationTime = async () => {
+    const state = hostState();
+    assertCollectorBinding(state);
+    // The legacy producer stays sealed until COLLECTOR_DONE. Its matching
+    // reader supplies time only; all new release authority stays here.
+    if (state.done.has('COLLECTOR')) {
+      const time = sampleTrustedTime();
+      assertCollectorBinding(hostState());
+      return validateForwardAuthorizationTime(a, time, authorizationClock());
+    }
+    const parent = await readParent(a), path = PATHS.installed + '/trusted-time.mjs';
+    const expected = parent.profile.contracts.timeModuleSha256;
+    if (fileHash(path, {mode: 0o644}) !== expected) fail('FORWARD_HOST_ROOT_HELPER_DRIFT');
+    const time = (await import(path)).sampleTrustedTime();
+    if (fileHash(path, {mode: 0o644}) !== expected) fail('FORWARD_HOST_ROOT_HELPER_DRIFT');
+    assertCollectorBinding(hostState());
+    return validateForwardAuthorizationTime(a, time, authorizationClock());
+  };
   const recoveryPath = attempt + '/recovery', recoveryJournal = recoveryPath + '/journal';
   const recoveryGrant = () => protectedJson(attempt + '/recovery-authorization.json');
   const readRecoveryLog = () => existsSync(recoveryJournal) ? openHostJournal(recoveryJournal).read(log =>
@@ -474,19 +494,20 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
   };
   const gateResult = (pending) => {
     const receipt = protectedJson(attempt + '/start-' + pending.data.slot + '.json');
+    validateForwardAuthorizationTime(a, receipt.authorizedTime);
     const current = processRelease(a.target.releaseSha);
     if (receipt.intentHash !== pending.hash || receipt.authorizationSha256 !== authorizationSha256
       || receipt.bootId !== bootId() || receipt.invocationId !== current.invocationId) fail('FORWARD_HOST_ACTIVATION_UNKNOWN');
     return {identity: current, slot: pending.data.slot, gateReceiptHash: digest(canonical(receipt))};
   };
   const io = {
-    now, toolHash, readLog, recoveryStarted, readRecoveryLog,
+    now, toolHash, readLog, recoveryStarted, readRecoveryLog, authorizationTime,
     pendingPublications: () => existsSync(journalPath) ? openHostJournal(journalPath).pending() : 0,
     check: verifyStatic,
     identity: async () => identity(),
     context: async () => {
       const parent = await readParent(a), p = properties(), active = identity(p), sha = basename(realpathSync(PATHS.current));
-      return {nowUTC: now(), authorizationSha256, supersession: parent.supersession,
+      return {nowUTC: now(), currentTime: null, authorizationSha256, supersession: parent.supersession,
         emergency: {receiptSha256: parent.receipt.hash, journalHeadSha256: parent.receipt.handoff.journalHeadSha256},
         parentIdentity: {approvalSha256: parent.approvalSha256, profileSha256: parent.approval.profileSha256},
         host: {machineId: readFileSync('/etc/machine-id', 'utf8').trim(), database: a.host.database,
@@ -722,6 +743,7 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
         }
         case 'START': {
           assertStopped(log[0].data.oldIdentity); assertBarrier(); tuple(a.target.releaseSha);
+          validateForwardAuthorizationTime(a, await authorizationTime());
           if (Date.parse(now()) >= Date.parse(a.expiresAtUTC)) fail('FORWARD_HOST_START_WINDOW_EXPIRED');
           mkdir('/run/servora-med-forward');
           publishExclusive(PATHS.ticket, canonical({attemptId: a.attemptId, authorizationSha256,
@@ -872,9 +894,13 @@ async function startGate() {
     || realpathSync(PATHS.current) !== releaseRoot(a.target.releaseSha)
     || properties().Restart !== 'no' || envText().split('\n').filter(l => l.startsWith('SERVORA_RELEASE_SHA=')).join() !== 'SERVORA_RELEASE_SHA=' + a.target.releaseSha) fail('FORWARD_HOST_START_GATE_DENIED');
   // O_EXCL consumes the slot permanently before any candidate instruction.
+  const authorizedTime = validateForwardAuthorizationTime(a, sampleTrustedTime(), authorizationClock());
   publishExclusive(attempt + '/start-' + s.starts + '.json', canonical({...ticket,
-    invocationId: process.env.INVOCATION_ID, consumedAtUTC: now()}));
+    invocationId: process.env.INVOCATION_ID, consumedAtUTC: now(), authorizedTime}));
   unlinkSync(PATHS.ticket); flushDirectory(dirname(PATHS.ticket));
+  // A publication that finished past the deadline burns its slot but must
+  // fail ExecStartPre. systemd may not execute candidate code afterwards.
+  validateForwardAuthorizationTime(a, authorizedTime, authorizationClock());
   // The controller, outside the sandbox, retires the old-condition permit.
 }
 
@@ -943,6 +969,6 @@ async function main() {
   process.stdout.write(canonical(result));
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => {
-  process.stderr.write((/^(?:FORWARD_HOST|FORWARD_TRANSITION|EMERGENCY_HANDOFF|RECOVERY|ATTEMPT)_[A-Z_]+$/.test(error.message) ? error.message : 'FORWARD_HOST_FAILED') + '\n');
+  process.stderr.write((/^(?:FORWARD_HOST|FORWARD_TRANSITION|EMERGENCY_HANDOFF|RECOVERY|ATTEMPT|TRUSTED_TIME)_[A-Z_]+$/.test(error.message) ? error.message : 'FORWARD_HOST_FAILED') + '\n');
   process.exitCode = 1;
 });

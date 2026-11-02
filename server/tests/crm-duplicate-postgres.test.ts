@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
@@ -108,13 +108,36 @@ it('READ-02, SEC-02: 20,001 sources fail explicitly, invalid anchors conceal bef
   await expect(service.comparison(context, pair[0].id, pair[1].id)).resolves.toMatchObject({ allowedActions: ['DECIDE'] });
 });
 
-it('PERF-05: contact membership probe uses the ordered composite index instead of scanning the group', async () => {
-  const contactIds = (await pool.query("INSERT INTO contacts(organization_id,customer_id,name,is_active) SELECT $1,$2,'Synthetic contact',true FROM generate_series(1,50000) RETURNING id", [org, ids[0]])).rows.map((c) => c.id);
+async function withContactIndexFixture(count: number, run: (client: PoolClient, customerIds: string[]) => Promise<void>) {
+  const client = await pool.connect(), customerId = randomUUID();
   try {
-    await pool.query('ANALYZE contacts');
-    const plan = (await pool.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${DUPLICATE_CONTACTS_SQL}`, [org, [ids[0], ids[1]], 201])).rows[0]['QUERY PLAN'][0];
+    await client.query('BEGIN');
+    await client.query("SET LOCAL statement_timeout = '10s'");
+    await client.query("INSERT INTO customers(id,organization_id,name,customer_type) VALUES($1,$2,'Synthetic index fixture','clinic')", [customerId, org]);
+    await client.query("INSERT INTO contacts(organization_id,customer_id,name,is_active) SELECT $1,$2,'Synthetic contact',true FROM generate_series(1,$3)", [org, customerId, count]);
+    await run(client, [customerId, ids[1]!]);
+  } finally {
+    // A Vitest timeout does not cancel an async callback. This transaction's
+    // rows remain invisible to later readers even while rollback is pending.
+    try { await client.query('ROLLBACK'); } finally { client.release(); }
+  }
+}
+
+it('PERF-05: contact membership probe uses the ordered composite index instead of scanning the group', async () => {
+  await withContactIndexFixture(50_000, async (client, customerIds) => {
+    await client.query('ANALYZE contacts');
+    const plan = (await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${DUPLICATE_CONTACTS_SQL}`, [org, customerIds.slice(0, 2), 201])).rows[0]['QUERY PLAN'][0];
     expect(JSON.stringify(plan)).toContain('contacts_duplicate_membership_idx');
-  } finally { await pool.query('DELETE FROM contacts WHERE id=ANY($1::uuid[])', [contactIds]); }
+  });
+}, 30_000);
+
+it('PERF-05 isolation: unfinished oversized contact fixture cannot contaminate business reads', async () => {
+  // This callback holds the bulk fixture before its cleanup, the exact window
+  // that a timed-out test can leave running while the next test begins.
+  await withContactIndexFixture(201, async () => {
+    const detail = await app.inject({ url: `/api/customers/duplicate-review-pairs/${ids[0]}/${ids[1]}`, headers: { 'x-test-role': 'ADMIN' } });
+    expect(detail.statusCode, detail.body).toBe(200);
+  });
 });
 
 it('READ-02: Contact and address sentinels retain blocked list headers but never generate partial evidence', async () => {

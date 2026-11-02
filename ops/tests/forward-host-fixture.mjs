@@ -1,6 +1,7 @@
 // Synthetic adapter port. Never installed or used by the production CLI.
 import {createHash} from 'node:crypto';
 import {FORWARD_ACTIONS, FORWARD_FORBIDDEN, FORWARD_PARENT_DISPOSITION} from '../scripts/forward-transition.mjs';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export const HEAD = '060_crm_duplicate_review_decisions';
 export function fixture() {
@@ -8,10 +9,11 @@ export function fixture() {
     version: i === 59 ? HEAD : String(i + 1).padStart(3, '0') + '_fixture', sha256: '1'.repeat(64),
   }));
   const authorization = {
-    formatVersion: 1, kind: 'FORWARD_TRANSITION_AUTHORIZATION',
+    formatVersion: 2, kind: 'FORWARD_TRANSITION_AUTHORIZATION',
     authorizationId: '33333333-3333-4333-8333-333333333333',
     attemptId: '22222222-2222-4222-8222-222222222222',
     issuedAtUTC: '2026-11-01T16:00:00Z', expiresAtUTC: '2026-11-01T20:00:00Z',
+    issuedTime: timeEvidenceAt(Date.parse('2026-11-01T16:00:00Z')),
     maxUses: 1, reason: 'FORWARD_HOST_FIXTURE', scope: 'FORWARD_ONLY_RELEASE_TRANSITION',
     parent: {attemptId: '11111111-1111-4111-8111-111111111111', approvalSha256: 'a'.repeat(64),
       profileSha256: 'b'.repeat(64), checkpointSequence: 17, checkpointSha256: 'c'.repeat(64),
@@ -29,10 +31,11 @@ export function fixture() {
   let clock = Date.parse('2026-11-01T17:00:00Z');
   const io = {
     now: () => new Date(clock).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    authorizationTime: async () => timeEvidenceAt(clock),
     readLog: () => structuredClone(log),
     append: record => { log.push(structuredClone(record)); },
     check: async () => {},
-    context: async () => ({nowUTC: io.now(), authorizationSha256: hash(JSON.stringify(authorization) + '\n'),
+    context: async () => ({nowUTC: io.now(), currentTime: null, authorizationSha256: hash(JSON.stringify(authorization) + '\n'),
       supersession: {kind: 'PARENT_ATTEMPT_SUPERSESSION', disposition: FORWARD_PARENT_DISPOSITION,
         parentAttemptId: authorization.parent.attemptId, parentCheckpointSequence: 17,
         parentCheckpointSha256: authorization.parent.checkpointSha256,

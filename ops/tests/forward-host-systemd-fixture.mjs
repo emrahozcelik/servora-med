@@ -12,6 +12,7 @@ import {FORWARD_ACTIONS, FORWARD_FORBIDDEN, FORWARD_PARENT_DISPOSITION} from '..
 import {digest, seal} from '../scripts/forward-host-evidence.mjs';
 import {canonical} from '../scripts/forward-host-storage.mjs';
 import {recoveryDigest} from '../scripts/forward-host-recovery.mjs';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
 assert.equal(process.getuid(), 0);
 assert.equal(hostname(), 'lima-servora-r4-20261012');
 assert.equal(process.arch, 'x64');
@@ -173,8 +174,9 @@ export function reset(saved) {
     cleanup: {result: 'PASS', mode: 'keep-containers', log: {path: 'logs/aux/cleanup.log', sha256: digest('fixture retained\n')}, status: {path: 'logs/aux/cleanup.status', sha256: digest('PASS\n')}}};
   write(ci + '/manifest.json', canonical(manifest));
   const r = saved.receipt;
-  const a = {formatVersion: 1, kind: 'FORWARD_TRANSITION_AUTHORIZATION', authorizationId: randomUUID(),
-    issuedAtUTC: new Date(Date.now() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'), expiresAtUTC: new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  const issuedTime = fixtureTime();
+  const a = {formatVersion: 2, kind: 'FORWARD_TRANSITION_AUTHORIZATION', authorizationId: randomUUID(),
+    issuedAtUTC: issuedTime.wallAtUTC.replace(/\.\d{3}Z$/, 'Z'), expiresAtUTC: new Date(Date.parse(issuedTime.wallAtUTC) + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z'), issuedTime,
     maxUses: 1, reason: 'SYNTHETIC_TARGETED_HOST_FIXTURE', scope: 'FORWARD_ONLY_RELEASE_TRANSITION', attemptId,
     parent: {attemptId: r.parent.attemptId, approvalSha256: r.parent.approvalSha256, profileSha256: r.parent.profileSha256,
       checkpointSequence: r.parent.checkpointSequence, checkpointSha256: r.parent.checkpointSha256,
@@ -185,6 +187,14 @@ export function reset(saved) {
     budgets: {maxStarts: 2, maxObservationAttempts: 1}, actions: [...FORWARD_ACTIONS], forbidden: [...FORWARD_FORBIDDEN]};
   write(PATHS.root + '/authorization.json', canonical(a));
   waitHealth(a.old.releaseSha); return a;
+}
+/** Synthetic issuance data only. Positive CLI admission/START still require
+ * the real restricted sampler; these fixture values cannot replace it. */
+export function fixtureTime() {
+  const before = Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
+  const wall = Date.now(), after = Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
+  return timeEvidenceAt(wall, {bootId: readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
+    timeNamespaceId: readlinkSync('/proc/self/ns/time'), bootLowerMs: Math.max(0, Math.floor(before) - 10), bootUpperMs: Math.ceil(after) + 10});
 }
 /** Keep raw grants/journals/dumps inside the same private disposable VM.
  * This is not an export or deployment evidence bundle. */

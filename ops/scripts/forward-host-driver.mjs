@@ -4,6 +4,7 @@ import {
   validateForwardAuthorization, validateForwardAuthorizationStructure,
   initialForwardTransition, advanceForwardTransition, validateForwardChain,
   recordForwardObservation, sealForwardAcceptance,
+  validateForwardAuthorizationTime,
 } from './forward-transition.mjs';
 
 const fail = code => { throw new Error(code); };
@@ -38,6 +39,7 @@ export function validateHostLog(log, authorization, authorizationSha256, toolHas
       || (index && Date.parse(body.atUTC) < Date.parse(log[index - 1].atUTC))) fail('FORWARD_HOST_JOURNAL_INVALID');
     if (body.event === 'PHASE') {
       if (pending || (index === 0 && body.contract.phase !== 'INTENT')) fail('FORWARD_HOST_PHASE_CONFLICT');
+      if (index === 0) validateForwardAuthorizationTime(authorization, body.data?.admissionTime);
       if ((REQUIRED[body.contract.phase] ?? []).some(op => !done.has(op))) fail('FORWARD_HOST_PHASE_CONFLICT');
       contracts.push(body.contract);
       validateForwardChain(contracts);
@@ -49,7 +51,10 @@ export function validateHostLog(log, authorization, authorizationSha256, toolHas
       if (status === 'INTENT') {
         if (pending || (done.has(op) && op !== 'START')) fail('FORWARD_HOST_PHASE_CONFLICT');
         if ((OP_REQUIRES[op] ?? []).some(required => !done.has(required))) fail('FORWARD_HOST_PHASE_CONFLICT');
-        if (op === 'START' && (++starts > authorization.budgets.maxStarts || body.data.slot !== starts)) fail('FORWARD_HOST_START_BUDGET_EXHAUSTED');
+        if (op === 'START') {
+          if (++starts > authorization.budgets.maxStarts || body.data.slot !== starts) fail('FORWARD_HOST_START_BUDGET_EXHAUSTED');
+          validateForwardAuthorizationTime(authorization, body.data.authorizationTime);
+        }
         pending = record;
       } else {
         if (!pending || pending.event !== op + '_INTENT') fail('FORWARD_HOST_PHASE_CONFLICT');
@@ -68,7 +73,10 @@ export async function runForwardHost(io, authorization, command) {
   await io.check();
   let log = io.readLog();
   let state = validateHostLog(log, authorization, context.authorizationSha256, io.toolHash);
-  if (!state.contract) validateForwardAuthorization(authorization, context);
+  if (!state.contract) {
+    context.currentTime = await io.authorizationTime();
+    validateForwardAuthorization(authorization, context);
+  }
   if (['preflight', 'status'].includes(command)) return {readOnly: true, phase: state.contract?.phase ?? 'READY', starts: state.starts,
     ownerRetired: state.done.has('RETIRE'), pendingPublications: io.pendingPublications?.() ?? 0};
   if (io.recoveryStarted?.()) fail('FORWARD_HOST_RECOVERY_OWNS_ATTEMPT');
@@ -78,6 +86,10 @@ export async function runForwardHost(io, authorization, command) {
   if (command === 'finish' && !['OBSERVATION_PASSED', 'ACCEPTED'].includes(state.contract?.phase)) fail('FORWARD_HOST_PHASE_CONFLICT');
   const append = async (event, data, contract = state.contract) => {
     await io.check();
+    if (log.length === 0) data = {...data,
+      admissionTime: validateForwardAuthorizationTime(authorization, await io.authorizationTime())};
+    if (event === 'START_INTENT') data = {...data,
+      authorizationTime: validateForwardAuthorizationTime(authorization, await io.authorizationTime())};
     if (event === 'PHASE' && contract.phase === 'ACCEPTED') await io.verifyObservation(state.done.get('OBSERVE').data, log);
     const body = {formatVersion: 1, kind: 'FORWARD_HOST_EVENT', sequence: log.length,
       previousHash: log.at(-1)?.hash ?? null, authorizationSha256: context.authorizationSha256,
@@ -97,7 +109,10 @@ export async function runForwardHost(io, authorization, command) {
       await append(op + '_DONE', result);
       return result;
     }
-    if (op === 'START' && Date.parse(io.now()) >= Date.parse(authorization.expiresAtUTC)) fail('FORWARD_HOST_START_WINDOW_EXPIRED');
+    if (op === 'START') {
+      validateForwardAuthorizationTime(authorization, await io.authorizationTime());
+      if (Date.parse(io.now()) >= Date.parse(authorization.expiresAtUTC)) fail('FORWARD_HOST_START_WINDOW_EXPIRED');
+    }
     await append(op + '_INTENT', data);
     const result = await io.effect(op, data, log);
     await append(op + '_DONE', result);

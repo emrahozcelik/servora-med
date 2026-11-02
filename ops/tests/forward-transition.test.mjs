@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {timeEvidenceAt} from './trusted-time-fixture.mjs';
 import {
   FORWARD_TRANSITION_SCOPE,
   FORWARD_PARENT_DISPOSITION,
@@ -10,6 +11,7 @@ import {
   FORWARD_OBSERVATION_SECONDS,
   validateForwardAuthorizationStructure,
   validateForwardAuthorization,
+  validateForwardAuthorizationTime,
   validateConsumedForwardAuthorization,
   classifyForwardCatalog,
   initialForwardTransition,
@@ -47,6 +49,40 @@ const DATABASE = Object.freeze({
   databaseOid: '16389', role: 'servora', host: '127.0.0.1', port: 5432,
 });
 
+test('grant time rejects another boot, namespace, legacy evidence and wall rollback', () => {
+  const a = authorization();
+  const current = timeEvidenceAt(Date.parse(NOW));
+  for (const invalid of [null, {...current, formatVersion: 1},
+    {...current, bootId: '99999999-9999-4999-8999-999999999999'},
+    {...current, timeNamespaceId: 'time:[123]'},
+    {...current, wallAtUTC: a.issuedTime.wallAtUTC}]) {
+    assert.throws(() => validateForwardAuthorizationTime(a, invalid), /TRUSTED_TIME_UNKNOWN/);
+  }
+});
+
+test('conservative monotonic upper bound closes the grant before the last UTC millisecond', () => {
+  const a = authorization(), expiry = Date.parse(a.expiresAtUTC);
+  const current = timeEvidenceAt(expiry - 1, {bootUpperMs: expiry});
+  assert.throws(() => validateForwardAuthorizationTime(a, current), /TIME_INVALID/);
+});
+
+test('a valid sample cannot survive expiry while waiting for durable slot publication', () => {
+  const a = authorization(), sample = timeEvidenceAt(Date.parse('2026-11-01T17:29:59Z'));
+  const clock = {bootId: sample.bootId, timeNamespaceId: sample.timeNamespaceId,
+    uptimeMs: Date.parse(a.expiresAtUTC), wallAtUTC: sample.wallAtUTC}; // wall rollback during publication
+  assert.throws(() => validateForwardAuthorizationTime(a, sample, clock), /TIME_INVALID/);
+});
+
+test('standalone time validation rejects a malformed grant window', () => {
+  const a = authorization({expiresAtUTC: 'invalid'});
+  assert.throws(() => validateForwardAuthorizationTime(a, timeEvidenceAt(Date.parse(NOW))), /AUTHORIZATION_INVALID/);
+});
+
+test('pre-fix wall-only grants cannot obtain new authority', () => {
+  const a = authorization(); delete a.issuedTime; a.formatVersion = 1;
+  assert.throws(() => validateForwardAuthorizationStructure(a), /AUTHORIZATION_INVALID/);
+});
+
 function supersession(overrides = {}) {
   return {
     kind: 'PARENT_ATTEMPT_SUPERSESSION',
@@ -66,11 +102,12 @@ function supersession(overrides = {}) {
 
 function authorization(overrides = {}) {
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     kind: 'FORWARD_TRANSITION_AUTHORIZATION',
     authorizationId: '33333333-3333-4333-8333-333333333333',
     issuedAtUTC: '2026-11-01T16:30:00Z',
     expiresAtUTC: '2026-11-01T17:30:00Z',
+    issuedTime: timeEvidenceAt(Date.parse('2026-11-01T16:30:00Z')),
     maxUses: 1,
     reason: 'R4_OBSERVATION_TRUSTED_TIME_BLOCKED',
     scope: FORWARD_TRANSITION_SCOPE,
@@ -105,6 +142,7 @@ function context(overrides = {}) {
   const a = authorization();
   return {
     nowUTC: NOW,
+    currentTime: timeEvidenceAt(Date.parse(NOW)),
     authorizationSha256: h('9'),
     supersession: supersession(),
     emergency: {receiptSha256: RECEIPT_SHA, journalHeadSha256: JOURNAL_HEAD},
