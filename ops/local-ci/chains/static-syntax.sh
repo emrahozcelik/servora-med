@@ -38,6 +38,6 @@ for script in ../ops/local-ci/*.sh ../ops/local-ci/lib/*.sh ../ops/local-ci/chai
 done
 node --check ../ops/local-ci/assemble-manifest.mjs
 
-for module in deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe; do
+for module in deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe forward-host-recovery; do
   node --check "../ops/scripts/${module}.mjs"
 done

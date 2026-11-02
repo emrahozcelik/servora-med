@@ -34,6 +34,9 @@ Pure contract module: `ops/scripts/forward-transition.mjs`.
 Host adapter: `ops/scripts/forward-host.mjs`, with separate orchestration,
 durable storage, evidence validation and unprivileged DB probe modules.
 See [adapter boundaries and targeted evidence](forward-only-host-adapter-targeted.md).
+The separately authorized [failure-recovery contract](forward-only-failure-recovery.md)
+and [final safety remediation](forward-only-final-safety-remediation.md) cover
+failed attempts; they never advance this deployment to acceptance.
 
 ```
 emergency receipt (sealed, read-only)
@@ -157,11 +160,12 @@ explicitly authorized recovery. A rollback that rewrites the release pointer
 and DB identity automatically is forbidden.
 
 An interrupted observation with no sealed result is terminally blocked for this
-grant; it cannot be restarted, renamed successful, silently unfenced, or adopted
-by a new owner. A separate failed-attempt recovery authorization/closure contract
-is still required before production readiness. There is no unbounded controller
-wait, but the safety guards intentionally persist on failure. This limitation
-must not be described as solved normal restart availability.
+deployment grant. The separate failure-recovery grant can restore policy for the
+same healthy TARGET, close fenced custody without a start/rollback, or release
+an unchanged healthy OLD owner before STOP_INTENT. Each outcome is explicitly
+NOT_ACCEPTED and freezes the original journal/start budget. There is no automatic
+observation retry, unfence or new release authority. Independent final review
+and the full acceptance gates remain mandatory.
 
 ## 6. Authorization and artifact contract
 

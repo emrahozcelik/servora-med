@@ -1,5 +1,12 @@
 # Issue #369 — forward-only host adapter and targeted integration
 
+Historical targeted evidence for `c81cbaf…`. The missing failure-recovery path
+described below is superseded by the separately owner-authorized
+[failure-recovery contract](forward-only-failure-recovery.md) and
+[final safety remediation evidence](forward-only-final-safety-remediation.md).
+Its original test/review results remain historical; they do not approve the
+later tree.
+
 This is implementation evidence, not a release authorization. Baseline pure
 contract: `178571d0b718d70c79fcb0997bc50c486742befa`; canonical main remains
 `5af00f7f34a8986c716fb3a9a881ef48c8740c85`. The pure module is unchanged.

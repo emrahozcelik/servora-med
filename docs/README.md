@@ -19,7 +19,7 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | Duplicate customer detection/review, persistent decisions and the PR3 register workbench | [CRM Slice 4A owning package](features/crm-duplicate-review/README.md) |
 | Local setup | [README](../README.md#configure-the-development-database) and [isolated test environment](operations/local-test-environment.md) |
 | Deploy and CI recovery | [Production deployment](operations/production-deployment.md), [local CI recovery](operations/local-ci-resource-recovery.md), [local CI caches](operations/local-ci-caches.md), and [local CI source](../ops/local-ci/) |
-| Restore, offsite DR, and forward recovery | [Backup/recovery](operations/backup-recovery/README.md), [backup/restore](operations/backup-restore.md), [R4](operations/r4-forward-recovery.md), and [forward-only releases](operations/forward-only-release.md) |
+| Restore, offsite DR, and forward recovery | [Backup/recovery](operations/backup-recovery/README.md), [backup/restore](operations/backup-restore.md), [R4](operations/r4-forward-recovery.md), [forward-only releases](operations/forward-only-release.md), and [separate failure recovery](operations/forward-only-failure-recovery.md) |
 | Pilot and staging | [macOS pilot](operations/local-macos-cloudflare-tunnel.md) and [staging contract](operations/staging-contract.md) |
 | End-user guidance | [Turkish user manual](user-manual/servora-med-user-manual.md) |
 

@@ -11,6 +11,7 @@ import {TOOL_FILES, PATHS, toolManifest} from '../scripts/forward-host.mjs';
 import {FORWARD_ACTIONS, FORWARD_FORBIDDEN, FORWARD_PARENT_DISPOSITION} from '../scripts/forward-transition.mjs';
 import {digest, seal} from '../scripts/forward-host-evidence.mjs';
 import {canonical} from '../scripts/forward-host-storage.mjs';
+import {recoveryDigest} from '../scripts/forward-host-recovery.mjs';
 assert.equal(process.getuid(), 0);
 assert.equal(hostname(), 'lima-servora-r4-20261012');
 assert.equal(process.arch, 'x64');
@@ -122,6 +123,7 @@ function buildTarget(saved) {
 import {createServer} from 'node:http';
 import {existsSync, readFileSync} from 'node:fs';
 const flags='/opt/servora-med/forward-fixture-flags/';
+setInterval(()=>{if(existsSync(flags+'unknown-exe'))process.execve('/usr/bin/sleep',['sleep','120'],process.env);},100).unref();
 createServer((req,res)=>{
   const backup=req.url==='/api/health/backup';
   if(existsSync(flags+(backup?'backup-fail':'health-fail'))){res.writeHead(503);res.end('{}');return;}
@@ -141,6 +143,7 @@ const dirnameOf = path => path.slice(0, path.lastIndexOf('/'));
 export function reset(saved) {
   assert.equal(saved.receipt.host.database.databaseName, 'servora_med_test_eh');
   assert.equal(saved.receipt.host.releaseSha, 'e4ca2b19f7865dca3f1e4597dd099ed167667a19');
+  preserveForwardFixture();
   ctl('stop', 'servora-med.service');
   if (existsSync(PATHS.owner)) {
     const owner = JSON.parse(readFileSync(PATHS.owner));
@@ -183,6 +186,19 @@ export function reset(saved) {
   write(PATHS.root + '/authorization.json', canonical(a));
   waitHealth(a.old.releaseSha); return a;
 }
+/** Keep raw grants/journals/dumps inside the same private disposable VM.
+ * This is not an export or deployment evidence bundle. */
+export function preserveForwardFixture() {
+  if (!existsSync(PATHS.root + '/authorization.json')) return;
+  const a = JSON.parse(readFileSync(PATHS.root + '/authorization.json'));
+  assert.equal(a.reason, 'SYNTHETIC_TARGETED_HOST_FIXTURE');
+  assert.equal(a.target.releaseSha, TARGET); assert.equal(a.host.database.databaseName, 'servora_med_test_eh');
+  assert.match(a.attemptId, /^[a-f0-9-]{36}$/);
+  const root = FIXTURE + '/final-safety-retained'; dir(root);
+  const destination = root + '/' + a.attemptId;
+  if (!existsSync(destination)) cpSync(PATHS.root, destination, {recursive: true, preserveTimestamps: true});
+  else assert.equal(digest(readFileSync(destination + '/authorization.json')), digest(readFileSync(PATHS.root + '/authorization.json')));
+}
 export function waitHealth(sha) {
   for (let i = 0; i < 50; i++) {
     const result = spawnSync('/usr/bin/curl', ['-fsS', '--max-time', '2', 'http://127.0.0.1:3000/api/health'], {encoding: 'utf8'});
@@ -194,9 +210,23 @@ export function waitHealth(sha) {
 export function host(command, extraEnv = {}) {
   return spawnSync('/usr/bin/node', [PATHS.tool + '/forward-host.mjs', command], {encoding: 'utf8', timeout: 240000, env: {...process.env, ...extraEnv}});
 }
+export function recoveryFixtureGrant(a, mode = 'RESTORE_HEALTHY_TARGET') {
+  const status = host('recovery-status'); assert.equal(status.status, 0, status.stderr);
+  const {snapshot, uptimeMs} = JSON.parse(status.stdout), attempt = PATHS.root + '/' + a.attemptId;
+  const names = readdirSync(attempt + '/journal').filter(n => /^\d{4}\.json$/.test(n)).sort();
+  const latest = JSON.parse(readFileSync(attempt + '/journal/' + names.at(-1)));
+  const grant = {formatVersion: 1, kind: 'FORWARD_FAILURE_RECOVERY_AUTHORIZATION', authorizationId: randomUUID(),
+    attemptId: a.attemptId, scope: 'FORWARD_FAILURE_RECOVERY', mode, onFailure: 'CLOSE_FENCED', maxUses: 1,
+    bootId: snapshot.bootId, issuedUptimeMs: uptimeMs, expiresUptimeMs: uptimeMs + 3590_000,
+    issuedAtUTC: new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    expiresAtUTC: new Date(Date.now() + 3590_000).toISOString().replace(/\.\d{3}Z$/, 'Z'), reason: 'SYNTHETIC_TARGETED_RECOVERY_FIXTURE',
+    deploymentAuthorizationSha256: recoveryDigest(a), deploymentJournalHeadSha256: latest.hash,
+    toolHash: JSON.parse(readFileSync(PATHS.tool + '/manifest.json')).hash, snapshotSha256: recoveryDigest(snapshot)};
+  write(attempt + '/recovery-authorization.json', canonical(grant)); return grant;
+}
 export function fault(point, command = 'apply') {
   assert.match(point, /^[A-Za-z0-9_-]+$/);
-  assert.ok(['apply', 'smoke', 'finish', 'status', 'preflight'].includes(command));
+  assert.ok(['apply', 'smoke', 'finish', 'status', 'preflight', 'observe', 'recover', 'recovery-status'].includes(command));
   const script = 'exec 9<>/var/lib/servora-med/deploy/host.lock\n/usr/bin/flock -n 9 || exit 90\n' +
     'exec /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin SERVORA_FORWARD_LOCKED=1 SERVORA_FORWARD_LOCK_FD=9 ' +
     'FORWARD_FIXTURE_FAULT=' + point + ' /usr/bin/node --import=' + SOURCE + '/ops/tests/forward-host-fault-preload.mjs ' + PATHS.tool + '/forward-host.mjs ' + command;

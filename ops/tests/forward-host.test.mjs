@@ -233,3 +233,62 @@ test('accepted crash recovery releases guards before requiring live runtime heal
   assert.equal(result.ownerRetired, true);
   assert.equal(f.log.filter(r => r.event === 'START_INTENT').length, 1);
 });
+
+function syntheticObservation(f) {
+  const effect = f.io.effect;
+  f.io.effect = async (op, data, log) => {
+    if (op === 'OBSERVE') {
+      const identity = await f.io.identity(), startedAtUTC = f.io.now(); f.tick(1800_000);
+      return {startedAtUTC, completedAtUTC: f.io.now(), seconds: 1800, samples: 61,
+        pid: identity.pid, pidStartTime: identity.startTime, bootId: identity.bootId,
+        endPid: identity.pid, endStartTime: identity.startTime, endBootId: identity.bootId};
+    }
+    if (op === 'POLICY') return effect('HANDOFF', data, log);
+    return effect(op, data, log);
+  };
+}
+for (const failure of ['TRUSTED_TIME_UNKNOWN', 'FORWARD_HOST_BACKUP_HEALTH_FAILED',
+  'FORWARD_HOST_PROCESS_CHANGED', 'FORWARD_HOST_OBSERVATION_INTERRUPTED', 'PROOF_WRITE_INTERRUPTED']) {
+  test('synthetic observation failure ' + failure + ' retains owner and spent budget without acceptance', async () => {
+    const f = fixture(); await adapter.runForwardHost(f.io, f.authorization, 'apply');
+    await adapter.runForwardHost(f.io, f.authorization, 'smoke');
+    const effect = f.io.effect;
+    f.io.effect = async (op, data, log) => { if (op === 'OBSERVE') throw new Error(failure); return effect(op, data, log); };
+    await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'observe'), new RegExp(failure));
+    const state = adapter.validateHostLog(f.log, f.authorization, f.log[0].authorizationSha256, f.io.toolHash);
+    assert.equal(state.starts, 1); assert.equal(state.pending.event, 'OBSERVE_INTENT');
+    assert.equal(state.contract.acceptance, null);
+    const context = await f.io.context(); assert.equal(context.host.restartPolicy, 'no');
+    assert.deepEqual(context.host.activeOwnerIds, [f.authorization.attemptId]);
+    assert.equal(f.effects.some(e => ['POLICY', 'HANDOFF', 'RETIRE'].includes(e.operation)), false);
+  });
+}
+test('ACCEPTED before policy restoration is structurally impossible', async () => {
+  const f = fixture(); await adapter.runForwardHost(f.io, f.authorization, 'apply');
+  await adapter.runForwardHost(f.io, f.authorization, 'smoke'); syntheticObservation(f);
+  const effect = f.io.effect;
+  f.io.effect = async (op, data, log) => { if (op === 'POLICY') throw new Error('POLICY_RESTORE_CRASH'); return effect(op, data, log); };
+  await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'observe'), /POLICY_RESTORE_CRASH/);
+  assert.equal(f.log.at(-1).contract.phase, 'OBSERVATION_PASSED');
+  assert.equal(f.log.some(r => r.contract.phase === 'ACCEPTED'), false);
+  assert.equal((await f.io.context()).host.restartPolicy, 'no');
+});
+for (const event of ['POLICY_DONE', 'HANDOFF_INTENT', 'HANDOFF_DONE', 'RETIRE_INTENT', 'RETIRE_DONE']) {
+  test('synthetic terminal crash after ' + event + ' retains one activation and resumes without another observation', async () => {
+    const f = fixture(); await adapter.runForwardHost(f.io, f.authorization, 'apply');
+    await adapter.runForwardHost(f.io, f.authorization, 'smoke'); syntheticObservation(f);
+    const append = f.io.append;
+    f.io.append = record => { append(record); if (record.event === event) throw new Error('TERMINAL_CRASH'); };
+    await assert.rejects(adapter.runForwardHost(f.io, f.authorization, 'observe'), /TERMINAL_CRASH/);
+    f.io.append = append;
+    f.io.reconcile = async (op, pending, log) => {
+      if (!['HANDOFF', 'RETIRE'].includes(op)) throw new Error('UNSUPPORTED_RESUME');
+      return f.io.effect(op, pending.data, log);
+    };
+    const result = await adapter.runForwardHost(f.io, f.authorization, 'finish');
+    assert.equal(result.ownerRetired, true); assert.equal(result.starts, 1);
+    assert.equal(f.log.filter(r => r.event === 'OBSERVE_INTENT').length, 1);
+    assert.equal(f.log.filter(r => r.event === 'START_INTENT').length, 1);
+    adapter.validateHostLog(f.log, f.authorization, f.log[0].authorizationSha256, f.io.toolHash);
+  });
+}

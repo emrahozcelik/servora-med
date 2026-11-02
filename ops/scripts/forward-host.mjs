@@ -13,6 +13,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname, join, basename} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {runForwardHost, validateHostLog} from './forward-host-driver.mjs';
+import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward-host-recovery.mjs';
 import {assertEmergencySupersession, validateForwardAuthorizationStructure,
   FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
@@ -38,7 +39,7 @@ export const PATHS = Object.freeze({
 });
 export const TOOL_FILES = Object.freeze([
   'forward-host.mjs', 'forward-host-driver.mjs', 'forward-host-storage.mjs', 'forward-host-evidence.mjs',
-  'forward-host-probe.mjs', 'forward-transition.mjs', 'emergency-handoff.mjs',
+  'forward-host-probe.mjs', 'forward-host-recovery.mjs', 'forward-transition.mjs', 'emergency-handoff.mjs',
   'migration-reconciliation.mjs', 'deployment-db-guard.mjs', 'trusted-time.mjs', 'required-checks.txt',
 ]);
 const UNIT_NAME = 'servora-med.service';
@@ -114,14 +115,18 @@ function envText() {
   const gid = Number(execute('/usr/bin/id', ['-g', 'servora-med']).trim());
   return protectedBytes(PATHS.env, {gid, mode: 0o640}).toString();
 }
-function identity(props = properties()) {
+function unitIdentity(props = properties()) {
   const pid = Number(props.MainPID);
   if (props.ActiveState !== 'active' || props.SubState !== 'running' || !Number.isSafeInteger(pid) || pid < 1) return null;
   const stat = readFileSync('/proc/' + pid + '/stat', 'utf8');
   const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
   if (!/^\d+$/.test(startTime) || !/^[a-f0-9]{32}$/.test(props.InvocationID)) fail('FORWARD_HOST_PROCESS_INVALID');
-  if (realpathSync('/proc/' + pid + '/exe') !== realpathSync('/usr/bin/node')) fail('FORWARD_HOST_PROCESS_INVALID');
   return {pid, startTime, bootId: bootId(), invocationId: props.InvocationID};
+}
+function identity(props = properties()) {
+  const current = unitIdentity(props);
+  if (current && realpathSync('/proc/' + current.pid + '/exe') !== realpathSync('/usr/bin/node')) fail('FORWARD_HOST_PROCESS_INVALID');
+  return current;
 }
 function assertStopped(oldIdentity) {
   const p = properties();
@@ -299,13 +304,18 @@ async function holdDatabase(a, operation) {
   } finally { if (exit === null) child.kill('SIGKILL'); child.stdin.destroy(); }
 }
 
-export async function createHostIO(a, check = async () => {}) {
+export async function createHostIO(a, check = async () => {}, {recovery = false} = {}) {
   root(); validateForwardAuthorizationStructure(a);
   if (a.old.schemaHead !== HEAD || a.target.schemaHead !== HEAD) fail('FORWARD_HOST_CATALOG_INVALID');
   const toolHash = verifyTool(), authorizationSha256 = fileHash(PATHS.root + '/authorization.json');
   const attempt = PATHS.root + '/' + a.attemptId, journalPath = attempt + '/journal';
   const readLog = () => existsSync(journalPath) ? openHostJournal(journalPath).read(log => validateHostLog(log, a, authorizationSha256, toolHash)) : [];
   const hostState = () => validateHostLog(readLog(), a, authorizationSha256, toolHash);
+  const recoveryPath = attempt + '/recovery', recoveryJournal = recoveryPath + '/journal';
+  const recoveryGrant = () => protectedJson(attempt + '/recovery-authorization.json');
+  const readRecoveryLog = () => existsSync(recoveryJournal) ? openHostJournal(recoveryJournal).read(log =>
+    validateRecoveryLog(log, recoveryGrant(), a, readLog(), toolHash)) : [];
+  const recoveryStarted = () => existsSync(recoveryJournal) && readdirSync(recoveryJournal).length > 0;
   const assertOwner = (optional = false) => {
     if (!existsSync(PATHS.owner)) { if (optional) return; fail('FORWARD_HOST_OWNER_MISSING'); }
     if (!same(protectedJson(PATHS.owner), {attemptId: a.attemptId, approvalSha256: authorizationSha256})) fail('FORWARD_HOST_FOREIGN_OWNER');
@@ -322,6 +332,8 @@ export async function createHostIO(a, check = async () => {}) {
   const verifyStatic = async () => {
     if (verifyTool() !== toolHash || fileHash(PATHS.root + '/authorization.json') !== authorizationSha256) fail('FORWARD_HOST_HASH_DRIFT');
     const parent = await readParent(a);
+    const {environmentBaseline} = await import(PATHS.installed + '/deployment-controller.mjs');
+    if (environmentBaseline(envText()) !== parent.profile.envBaselineSha256) fail('FORWARD_HOST_ENV_DRIFT');
     if (readFileSync('/etc/machine-id', 'utf8').trim() !== a.host.machineId
       || !same(parent.profile.databaseIdentity, a.host.database)) fail('FORWARD_HOST_HOST_IDENTITY_INVALID');
     // Sealed R4 root readers are imports only. Never install TARGET over them.
@@ -377,6 +389,30 @@ export async function createHostIO(a, check = async () => {}) {
       if (existsSync(PATHS.owner) || existsSync(PATHS.barrier) || existsSync(PATHS.guard) || existsSync(PATHS.policy)
         || existsSync(PATHS.ticket) || p.Restart !== 'on-failure' || p.NeedDaemonReload !== 'no') fail('FORWARD_HOST_FOREIGN_OWNER');
       tuple(a.old.releaseSha); processRelease(a.old.releaseSha); health(a.old.releaseSha);
+    } else if (recovery) {
+      const records = readRecoveryLog(), last = records.at(-1)?.event;
+      const retiring = records.some(r => r.event === 'RETIRE_INTENT');
+      assertOwner(retiring);
+      if (existsSync(PATHS.barrier)) assertBarrier();
+      const handed = records.some(r => r.event === 'HANDOFF_INTENT');
+      const sealed = records.find(r => r.event === 'SEAL_DONE');
+      for (const item of records.filter(r => r.event === 'SEAL_DONE')) {
+        const file = item.data.receipt.requestedMode !== item.data.receipt.mode ? 'fallback-receipt.json' : 'receipt.json';
+        if (!same(protectedJson(recoveryPath + '/' + file), item.data.receipt)) fail('FORWARD_HOST_RECOVERY_RECEIPT_INVALID');
+      }
+      if (handed && !sealed) fail('FORWARD_HOST_RECOVERY_RECEIPT_INVALID');
+      const changing = ['FENCE_INTENT', 'POLICY_INTENT', 'HANDOFF_INTENT'].includes(last)
+        || !records.length && ['FENCE_INTENT', 'POLICY_INTENT'].includes(state.pending?.event);
+      if (!changing) {
+        const gated = state.done.has('FENCE') && !handed || records.some(r => r.event === 'FENCE_DONE');
+        const policyRestored = !records.some(r => r.event === 'FENCE_DONE')
+          && (records.some(r => r.event === 'POLICY_DONE') || state.done.has('POLICY'));
+        const expected = gated ? [PATHS.guard, ...(!policyRestored ? [PATHS.policy] : [])] : [];
+        if (p.NeedDaemonReload !== 'no' || !same(dropins, expected)
+          || p.Restart !== (gated && !policyRestored ? 'no' : 'on-failure')
+          || (gated && (!existsSync(PATHS.barrier) || !p.ExecStartPre.includes(PATHS.tool + '/forward-host.mjs start-gate')))
+          || (!gated && p.ExecStartPre !== '')) fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+      }
     } else {
       assertOwner(state.contract.phase === 'INTENT' || state.contract.phase === 'ACCEPTED');
       if (existsSync(PATHS.barrier)) assertBarrier();
@@ -406,11 +442,11 @@ export async function createHostIO(a, check = async () => {}) {
     }
     await check(); return parent;
   };
-  const verifyBackup = kind => {
+  const verifyBackup = (kind, historical = false) => {
     const receipt = protectedJson(attempt + '/' + kind + '-backup.json');
     const state = hostState(), intent = readLog().find(r => r.event === (kind === 'pre' ? 'PRE_BACKUP_INTENT' : 'POST_BACKUP_INTENT'));
     const completed = state.done.get(kind === 'pre' ? 'PRE_BACKUP' : 'POST_BACKUP');
-    const accepted = state.contract.phase === 'ACCEPTED';
+    const accepted = state.contract.phase === 'ACCEPTED' || historical;
     if (completed && completed.data.receiptSha256 !== fileHash(attempt + '/' + kind + '-backup.json')) fail('FORWARD_HOST_BACKUP_HASH_DRIFT');
     if (!intent || receipt.kind !== 'FORWARD_HOST_BACKUP' || receipt.attemptId !== a.attemptId
       || receipt.authorizationSha256 !== authorizationSha256 || receipt.intentHash !== intent.hash
@@ -444,7 +480,7 @@ export async function createHostIO(a, check = async () => {}) {
     return {identity: current, slot: pending.data.slot, gateReceiptHash: digest(canonical(receipt))};
   };
   const io = {
-    now, toolHash, readLog,
+    now, toolHash, readLog, recoveryStarted, readRecoveryLog,
     pendingPublications: () => existsSync(journalPath) ? openHostJournal(journalPath).pending() : 0,
     check: verifyStatic,
     identity: async () => identity(),
@@ -472,6 +508,134 @@ export async function createHostIO(a, check = async () => {}) {
         identity: processRelease(a.target.releaseSha), releaseSha: a.target.releaseSha, schemaHead: HEAD,
         backupReceiptSha256: fileHash(attempt + '/post-backup.json'), now: sampleTrustedTime()});
     },
+    recoveryContext: async () => {
+      const p = properties(), current = unitIdentity(p);
+      let releaseSha = null;
+      if (current) for (const candidate of [a.old.releaseSha, a.target.releaseSha]) {
+        try { processRelease(candidate, current); releaseSha = candidate; break; } catch { /* unknown is evidence, never authority */ }
+      }
+      const environment = envText().split('\n').filter(l => l.startsWith('SERVORA_RELEASE_SHA='));
+      const snapshot = {identity: current, releaseSha,
+        pointerSha: basename(realpathSync(PATHS.current)), environmentSha: environment.length === 1 ? environment[0].slice(20) : null,
+        bootId: bootId(), health: 'NOT_CHECKED', schema: 'NOT_CHECKED', backupHealth: 'NOT_CHECKED', trustedTime: 'UNKNOWN',
+        owner: existsSync(PATHS.owner), barrier: existsSync(PATHS.barrier), gate: existsSync(PATHS.guard), restart: p.Restart,
+        observationFileSha256: existsSync(attempt + '/observation.json') ? fileHash(attempt + '/observation.json') : null,
+        backupIntegrity: ['PRE_BACKUP', 'POST_BACKUP'].every(op => hostState().done.has(op)) ? 'VALID' : 'NOT_COMPLETED'};
+      for (const [op, kind] of [['PRE_BACKUP', 'pre'], ['POST_BACKUP', 'post']]) if (hostState().done.has(op)) {
+        try { verifyBackup(kind, true); } catch { snapshot.backupIntegrity = 'INVALID'; }
+      }
+      if (releaseSha) {
+        try { health(releaseSha); snapshot.health = 'PASS'; } catch { snapshot.health = 'FAIL'; }
+        try { health(releaseSha, true); snapshot.backupHealth = 'PASS'; } catch { snapshot.backupHealth = 'FAIL'; }
+        try {
+          execute('/usr/bin/sudo', ['-u', 'servora-med', '--', '/usr/bin/env', '-i', 'PATH=' + CLEAN_ENV.PATH, 'NODE_ENV=production',
+            '/usr/bin/node', '--env-file=' + PATHS.env, releaseRoot(a.target.releaseSha) + '/server/dist/db/schema-check.js'], {timeout: 120000});
+          snapshot.schema = 'PASS';
+        } catch { snapshot.schema = 'FAIL'; }
+        processRelease(releaseSha, current);
+      }
+      try { sampleTrustedTime(); snapshot.trustedTime = 'KNOWN'; } catch { /* never relabel UNKNOWN as PASS */ }
+      return {snapshot, deploymentLog: readLog(), uptimeMs: uptime()};
+    },
+    appendRecovery: record => {
+      mkdir(recoveryPath); mkdir(recoveryJournal);
+      openHostJournal(recoveryJournal).append(record);
+    },
+    recoveryEffect: async (op, data, records) => {
+      const pending = records.at(-1), grant = records[0].data.grant, admitted = records[0].data.snapshot;
+      const fallback = records.some(r => r.event === 'FALLBACK_INTENT');
+      const untouched = grant.mode === 'RELEASE_UNCHANGED_OLD';
+      if (pending.event !== op + '_INTENT') fail('FORWARD_HOST_INTENT_REQUIRED');
+      const healthy = (continuous = true) => {
+        const sha = untouched ? a.old.releaseSha : a.target.releaseSha;
+        tuple(sha);
+        const current = processRelease(sha, continuous ? admitted.identity : null);
+        health(sha);
+        try {
+          execute('/usr/bin/sudo', ['-u', 'servora-med', '--', '/usr/bin/env', '-i', 'PATH=' + CLEAN_ENV.PATH, 'NODE_ENV=production',
+            '/usr/bin/node', '--env-file=' + PATHS.env, releaseRoot(a.target.releaseSha) + '/server/dist/db/schema-check.js'], {timeout: 120000});
+        } catch { fail('FORWARD_HOST_RECOVERY_RUNTIME_UNHEALTHY'); }
+        processRelease(sha, current); return current;
+      };
+      assertOwner(op === 'RETIRE');
+      switch (op) {
+        case 'FENCE':
+          if (grant.mode !== 'CLOSE_FENCED' && !fallback) fail('FORWARD_HOST_RECOVERY_PHASE_INVALID');
+          if (!existsSync(PATHS.barrier)) publishExclusive(PATHS.barrier, canonical({attemptId: a.attemptId, approvalSha256: authorizationSha256}));
+          else assertBarrier();
+          mkdir('/etc/systemd/system/servora-med.service.d', 0o755); mkdir('/run/servora-med-forward');
+          for (const [path, text] of [[PATHS.guard, GUARD_TEXT], [PATHS.policy, POLICY_TEXT]]) {
+            if (!existsSync(path)) publishExclusive(path, text);
+            else if (protectedBytes(path).toString() !== text) fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          }
+          systemctl('daemon-reload');
+          if (properties().Restart !== 'no' || properties().NeedDaemonReload !== 'no') fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          return {restart: 'no', custody: 'RECOVERY_FENCED'};
+        case 'QUIESCE': {
+          assertBarrier();
+          for (const path of [PATHS.permit, PATHS.ticket]) if (existsSync(path)) {
+            const record = protectedJson(path);
+            if (record.attemptId !== a.attemptId || record.authorizationSha256 !== authorizationSha256
+              || record.intentHash !== hostState().pending?.hash) fail('FORWARD_HOST_FOREIGN_PERMIT');
+            unlinkSync(path); flushDirectory(dirname(path));
+          }
+          const current = unitIdentity();
+          if (!current) {
+            systemctl('stop', UNIT_NAME); // cancel a queued on-failure job too
+            assertStopped(null); return {processDisposition: 'STOPPED'};
+          }
+          if (!admitted.identity || !same(current, admitted.identity)) return {processDisposition: 'UNKNOWN_UNTOUCHED', identity: current};
+          if (![a.old.releaseSha, a.target.releaseSha].includes(admitted.releaseSha)) return {processDisposition: 'UNKNOWN_UNTOUCHED', identity: current};
+          processRelease(admitted.releaseSha, admitted.identity);
+          systemctl('stop', UNIT_NAME); assertStopped(admitted.identity);
+          return {processDisposition: 'STOPPED', stoppedIdentity: admitted.identity};
+        }
+        case 'POLICY':
+          if (grant.mode !== 'RESTORE_HEALTHY_TARGET') fail('FORWARD_HOST_RECOVERY_PHASE_INVALID');
+          healthy(); assertBarrier();
+          if (!existsSync(PATHS.guard)) fail('FORWARD_HOST_FENCE_MISSING');
+          if (existsSync(PATHS.policy)) { unlinkSync(PATHS.policy); flushDirectory(dirname(PATHS.policy)); }
+          systemctl('daemon-reload');
+          if (properties().Restart !== 'on-failure' || properties().NeedDaemonReload !== 'no') fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          return {restart: 'on-failure', startGate: 'CLOSED', identity: healthy()};
+        case 'SEAL':
+          if (untouched) {
+            healthy(false);
+            if (existsSync(PATHS.barrier) || existsSync(PATHS.guard) || existsSync(PATHS.policy)
+              || properties().Restart !== 'on-failure') fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          } else assertBarrier();
+          if (grant.mode === 'RESTORE_HEALTHY_TARGET' && !fallback) healthy();
+          else if (!untouched && properties().Restart !== 'no') fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          const receiptPath = recoveryPath + (fallback ? '/fallback-receipt.json' : '/receipt.json');
+          if (existsSync(receiptPath)) {
+            if (!same(protectedJson(receiptPath), data.receipt)) fail('FORWARD_HOST_RECOVERY_RECEIPT_INVALID');
+          } else publishExclusive(receiptPath, canonical(data.receipt));
+          return {receipt: data.receipt};
+        case 'HANDOFF': {
+          const sealed = records.find(r => r.event === 'SEAL_DONE');
+          if (grant.mode !== 'RESTORE_HEALTHY_TARGET' || !sealed
+            || !same(protectedJson(recoveryPath + '/receipt.json'), sealed.data.receipt)) fail('FORWARD_HOST_RECOVERY_RECEIPT_INVALID');
+          // Once the sealed policy handoff has removed the gate, normal
+          // on-failure may already have restarted this exact artifact. This
+          // command itself never issues start, reset-failed or pointer repair.
+          healthy(existsSync(PATHS.guard));
+          if (existsSync(PATHS.guard)) { unlinkSync(PATHS.guard); flushDirectory(dirname(PATHS.guard)); }
+          systemctl('daemon-reload');
+          if (properties().Restart !== 'on-failure' || properties().DropInPaths !== '' || properties().NeedDaemonReload !== 'no') fail('FORWARD_HOST_RECOVERY_SYSTEMD_DRIFT');
+          if (existsSync(PATHS.barrier)) { assertBarrier(); unlinkSync(PATHS.barrier); flushDirectory(PATHS.state); }
+          return {restart: 'on-failure', identity: healthy(false), startIssued: false};
+        }
+        case 'RETIRE':
+          tuple(untouched ? a.old.releaseSha : a.target.releaseSha);
+          if (existsSync(PATHS.owner)) healthy(false);
+          if (existsSync(PATHS.guard) || existsSync(PATHS.policy) || existsSync(PATHS.barrier)
+            || existsSync(PATHS.permit) || existsSync(PATHS.ticket) || properties().Restart !== 'on-failure') fail('FORWARD_HOST_RETIREMENT_INVALID');
+          if (existsSync(PATHS.owner)) { assertOwner(); unlinkSync(PATHS.owner); flushDirectory(PATHS.state); }
+          return {ownerRetired: true};
+        default: fail('FORWARD_HOST_RECOVERY_PHASE_INVALID');
+      }
+    },
+    reconcileRecovery: async (op, data, records) => io.recoveryEffect(op, data, records),
     effect: async (op, data, log) => {
       assertOwner(op === 'OWNER');
       const pending = log.at(-1);
@@ -691,6 +855,8 @@ async function startGate() {
   const a = protectedJson(PATHS.root + '/authorization.json'); validateForwardAuthorizationStructure(a);
   const authHash = fileHash(PATHS.root + '/authorization.json');
   const attempt = PATHS.root + '/' + a.attemptId;
+  if (existsSync(attempt + '/recovery/journal') && readdirSync(attempt + '/recovery/journal').length > 0)
+    fail('FORWARD_HOST_RECOVERY_OWNS_ATTEMPT');
   const log = openHostJournal(attempt + '/journal').read();
   const s = validateHostLog(log, a, authHash, verifyTool());
   const pending = s.pending;
@@ -737,22 +903,41 @@ async function main() {
   const command = process.argv[2];
   if (process.argv.length !== 3) fail('FORWARD_HOST_ARGUMENTS_INVALID');
   if (command === 'start-gate') { await startGate(); return; }
-  if (!['preflight', 'status', 'apply', 'smoke', 'observe', 'finish'].includes(command)) fail('FORWARD_HOST_COMMAND_INVALID');
+  if (!['preflight', 'status', 'apply', 'smoke', 'observe', 'finish', 'recover', 'recovery-status'].includes(command)) fail('FORWARD_HOST_COMMAND_INVALID');
   verifyTool(); checkDirectory(PATHS.root);
   const a = protectedJson(PATHS.root + '/authorization.json'); validateForwardAuthorizationStructure(a);
-  const readOnly = ['preflight', 'status'].includes(command);
+  const readOnly = ['preflight', 'status', 'recovery-status'].includes(command);
   if (!readOnly) lockedReexec([command]);
   // Artifact, CI, import closure and authority checks precede loading even
   // service-UID candidate dependencies with access to the database credential.
   let guardedCheck = async () => {};
-  const io = await createHostIO(a, () => guardedCheck());
-  await runForwardHost(io, a, 'preflight');
+  const attempt = PATHS.root + '/' + a.attemptId;
+  const recoveryJournal = attempt + '/recovery/journal';
+  const recovering = ['recover', 'recovery-status'].includes(command)
+    || existsSync(recoveryJournal) && readdirSync(recoveryJournal).length > 0;
+  if (recovering && !readOnly && command !== 'recover') fail('FORWARD_HOST_RECOVERY_OWNS_ATTEMPT');
+  const io = await createHostIO(a, () => guardedCheck(), {recovery: recovering});
+  if (recovering) await io.check();
+  else await runForwardHost(io, a, 'preflight');
   const result = await holdDatabase(a, async check => {
     guardedCheck = check;
     await io.check();
     const journalPath = PATHS.root + '/' + a.attemptId + '/journal';
-    if (!readOnly && existsSync(journalPath)) openHostJournal(journalPath).reconcile(log => validateHostLog(log, a,
+    if (!readOnly && !recovering && existsSync(journalPath)) openHostJournal(journalPath).reconcile(log => validateHostLog(log, a,
       fileHash(PATHS.root + '/authorization.json'), io.toolHash));
+    if (recovering) {
+      const grantPath = attempt + '/recovery-authorization.json';
+      if (!existsSync(grantPath)) {
+        if (!readOnly || io.recoveryStarted()) fail('FORWARD_HOST_RECOVERY_AUTHORIZATION_REQUIRED');
+        const context = await io.recoveryContext();
+        return {readOnly: true, recoveryPhase: 'AWAITING_SEPARATE_ROOT_APPROVAL', snapshot: context.snapshot,
+          snapshotSha256: recoveryDigest(context.snapshot), uptimeMs: context.uptimeMs, phase: context.deploymentLog.at(-1)?.contract.phase};
+      }
+      const grant = protectedJson(grantPath);
+      if (!readOnly && existsSync(recoveryJournal)) openHostJournal(recoveryJournal).reconcile(log =>
+        validateRecoveryLog(log, grant, a, io.readLog(), io.toolHash));
+      return runFailureRecovery(io, a, grant, readOnly ? 'recovery-status' : 'recover');
+    }
     return runForwardHost(io, a, command);
   });
   process.stdout.write(canonical(result));

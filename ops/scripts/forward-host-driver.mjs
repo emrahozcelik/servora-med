@@ -71,6 +71,7 @@ export async function runForwardHost(io, authorization, command) {
   if (!state.contract) validateForwardAuthorization(authorization, context);
   if (['preflight', 'status'].includes(command)) return {readOnly: true, phase: state.contract?.phase ?? 'READY', starts: state.starts,
     ownerRetired: state.done.has('RETIRE'), pendingPublications: io.pendingPublications?.() ?? 0};
+  if (io.recoveryStarted?.()) fail('FORWARD_HOST_RECOVERY_OWNS_ATTEMPT');
   if (command === 'apply' && state.contract && !['INTENT', 'PREFLIGHT_PASSED', 'BACKUP_INTENT', 'PREDEPLOY_BACKUP_PASSED', 'STOP_INTENT', 'OLD_STOPPED', 'ACTIVATE_INTENT', 'TARGET_ACTIVATED', 'HEALTH_PASSED'].includes(state.contract.phase)) fail('FORWARD_HOST_PHASE_CONFLICT');
   if (command === 'smoke' && !['HEALTH_PASSED', 'SMOKE_PASSED', 'POSTDEPLOY_BACKUP_INTENT', 'POSTDEPLOY_BACKUP_PASSED'].includes(state.contract?.phase)) fail('FORWARD_HOST_PHASE_CONFLICT');
   if (command === 'observe' && !['POSTDEPLOY_BACKUP_PASSED', 'OBSERVATION_INTENT', 'OBSERVATION_STARTED', 'OBSERVATION_PASSED', 'ACCEPTED'].includes(state.contract?.phase)) fail('FORWARD_HOST_PHASE_CONFLICT');
