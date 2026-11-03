@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import cp from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import {hostname} from 'node:os';
+import {fixtureTime} from './forward-host-systemd-fixture.mjs';
 if (hostname() !== 'lima-servora-r4-20261012' || process.getuid() !== 0) throw new Error('FORWARD_FIXTURE_ONLY');
 const requested = process.env.FORWARD_FIXTURE_FAULT;
 const point = requested?.startsWith('accepted-') ? requested.slice(9) : requested;
@@ -69,6 +70,10 @@ fs.fsyncSync = function(fd) {
 };
 const originalExec = cp.execFileSync;
 cp.execFileSync = function(file, args, options) {
+  // Test-only admission clock. The real socket collector and module bytes are
+  // still used; this only removes NTS source-report timing from the fixture.
+  if (process.env.FORWARD_FIXTURE_SYNTHETIC_TIME === '1' && args.includes('--read-chrony'))
+    return JSON.stringify(fixtureTime());
   if (point === 'trace-time-reader' && args.includes('--read-chrony'))
     process.stderr.write('FIXTURE_TIME_READER=' + args[args.indexOf('--read-chrony') - 1] + '\n');
   if (point === 'forced-time-unknown' && args.includes('--read-chrony')) throw new Error('TRUSTED_TIME_UNKNOWN');

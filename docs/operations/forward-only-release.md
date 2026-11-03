@@ -253,3 +253,13 @@ before any later production operation; the old artifact/grant cannot attest it.
 Until those exist: `HOST_ACCEPTANCE=NOT_RUN`, `FULL_LOCAL_CI=NOT_RUN`,
 `PRODUCTION_DEPLOYMENT=NOT_AUTHORIZED`, `R4_ACCEPTANCE=NOT_ACCEPTED`,
 `PRODUCTION_GO=false`.
+
+## 9. Post-recovery and later releases
+
+The v2 grant above is a one-shot transition from the sealed R4 OLD. After a
+recovery-restored TARGET, later `060 -> 060` releases use the separate
+[release continuity contract](forward-only-release-continuity.md): a
+`RELEASE_CONTINUITY_AUTHORIZATION` binds the sealed origin, the predecessor
+authorization/journal/recovery or acceptance, the live OLD release/artifact and
+collector module, and the new TARGET. The legacy `readParent()` identity checks
+are not relaxed; the continuity path adds a separate lineage validation.
