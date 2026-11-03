@@ -17,7 +17,7 @@ import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward
 import {assertEmergencySupersession, validateForwardAuthorizationStructure, validateForwardAuthorizationTime,
   FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
-import {digest, seal, verifyForwardCI, verifyObservationProof} from './forward-host-evidence.mjs';
+import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions} from './forward-host-evidence.mjs';
 import {sampleTrustedTime, elapsedTime, READER_UNIT_SHA256, READER_SOCKET_UNIT_SHA256,
   validateTimeModuleContract, validateReaderSocketMetadata} from './trusted-time.mjs';
 import {canonical, protectedBytes, protectedJson, trustedParents, flushDirectory,
@@ -382,13 +382,14 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
       if (digest(readFileSync(releaseRoot(a.target.releaseSha) + source)) !== fileHash(PATHS.tool + '/' + name, {mode: 0o644})) fail('FORWARD_HOST_TOOL_TARGET_MISMATCH');
     }
     const ci = PATHS.root + '/ci/' + a.target.releaseSha;
-    const manifestBytes = protectedBytes(ci + '/manifest.json');
-    if (digest(manifestBytes) !== a.target.ciManifestSha256) fail('FORWARD_HOST_CI_INVALID');
     const required = protectedBytes(PATHS.tool + '/required-checks.txt', {mode: 0o644}).toString().split('\n').filter(l => l && !l.startsWith('#'));
-    const ciManifest = JSON.parse(manifestBytes);
-    verifyForwardCI(ciManifest, a.target, name => protectedBytes(ci + '/' + name), required);
-    const actualLogs = readdirSync(ci + '/logs').filter(n => n.endsWith('.log')).sort();
-    if (!same(actualLogs, ciManifest.checks.map(c => c.log.slice(5)).sort())) fail('FORWARD_HOST_CI_INVALID');
+    verifyForwardCIPackage({
+      manifestBytes: protectedBytes(ci + '/manifest.json'),
+      target: a.target,
+      required,
+      read: name => protectedBytes(ci + '/' + name, forwardCIEntryOptions(name)),
+      actualLogs: readdirSync(ci + '/logs').filter(n => n.endsWith('.log')).sort(),
+    });
     const state = hostState(), p = properties();
     assertCollectorBinding(state);
     const allowed = [PATHS.guard, PATHS.policy];

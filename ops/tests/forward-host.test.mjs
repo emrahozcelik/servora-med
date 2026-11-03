@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as adapter from '../scripts/forward-host-driver.mjs';
 import {fixture} from './forward-host-fixture.mjs';
 import * as storage from '../scripts/forward-host-storage.mjs';
-import {mkdtempSync, readdirSync, rmSync, realpathSync, mkdirSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, readdirSync, rmSync, realpathSync, mkdirSync, writeFileSync,
+  symlinkSync, linkSync, chmodSync, truncateSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -80,6 +81,183 @@ test('consumed journal status and known activation resume do not reopen an expir
 test('CI evidence refuses a PASS label with missing checks or files', () => {
   assert.throws(() => evidence.verifyForwardCI({schemaVersion: 2, result: 'PASS', checks: []},
     {releaseSha: 'a'.repeat(40), treeSha: 'b'.repeat(40)}, () => Buffer.from('')), /FORWARD_HOST_CI_INVALID/);
+});
+
+const CI_RELEASE = 'a'.repeat(40);
+const CI_TREE = 'b'.repeat(40);
+const CI_REQUIRED = ['server-tests', 'linux-compat'];
+
+function ciFixture() {
+  const logs = new Map([
+    ['logs/server-tests.log', Buffer.from('server tests\n')],
+    ['logs/linux-compat.log', Buffer.from('linux compatibility\n')],
+    ['logs/aux/cleanup.log', Buffer.from('cleanup retained\n')],
+    ['logs/aux/cleanup.status', Buffer.from('PASS\n')],
+  ]);
+  const checks = CI_REQUIRED.map(id => ({
+    id, result: 'PASS', log: `logs/${id}.log`, sha256: evidence.digest(logs.get(`logs/${id}.log`)),
+    ...(id === 'linux-compat' ? {detail: {nativeBinaries: 0, osRestricted: 0, cpuRestricted: 0,
+      linuxAmd64: {result: 'pass', productionPackages: 1}}} : {}),
+  }));
+  const manifest = {
+    schemaVersion: 2, sha: CI_RELEASE, tree: CI_TREE, result: 'PASS',
+    provenance: 'local-operator-attested', builder: {os: 'linux', arch: 'x64', node: process.version},
+    checks,
+    cleanup: {result: 'PASS', mode: 'remove',
+      log: {path: 'logs/aux/cleanup.log', sha256: evidence.digest(logs.get('logs/aux/cleanup.log'))},
+      status: {path: 'logs/aux/cleanup.status', sha256: evidence.digest(logs.get('logs/aux/cleanup.status'))}},
+  };
+  const manifestBytes = Buffer.from(JSON.stringify(manifest) + '\n');
+  return {logs, manifest, manifestBytes,
+    target: {releaseSha: CI_RELEASE, treeSha: CI_TREE, ciManifestSha256: evidence.digest(manifestBytes)}};
+}
+
+function ciRead(f, name) {
+  const bytes = f.logs.get(name);
+  if (!bytes) throw new Error('MISSING_LOG ' + name);
+  return bytes;
+}
+
+function ciPackage(f, read = name => ciRead(f, name),
+  actualLogs = ['linux-compat.log', 'server-tests.log']) {
+  return evidence.verifyForwardCIPackage({manifestBytes: f.manifestBytes, target: f.target,
+    required: CI_REQUIRED, read, actualLogs});
+}
+
+function ciOwner() {
+  return {uid: process.getuid(), gid: process.getgid(), mode: 0o600};
+}
+
+function withTempCIFile(bytes, operation) {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'servora-forward-ci-')));
+  try {
+    const path = join(directory, 'server-tests.log');
+    writeFileSync(path, bytes, {mode: 0o600});
+    return operation(path, directory);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+}
+
+test('CI-LARGE-01/02: a real-size log above 4 MiB passes only through the scoped CI reader', () => {
+  const bytes = Buffer.alloc(10_875_668, 0x61);
+  assert.deepEqual(evidence.forwardCIEntryOptions('logs/aux/cleanup.log'), {});
+  assert.deepEqual(evidence.forwardCIEntryOptions('manifest.json'), {});
+  withTempCIFile(bytes, path => {
+    assert.throws(() => storage.protectedBytes(path, ciOwner()), /FORWARD_HOST_FILE_UNTRUSTED/);
+    const scoped = storage.protectedBytes(path,
+      {...ciOwner(), ...evidence.forwardCIEntryOptions('logs/server-tests.log')});
+    assert.equal(scoped.length, bytes.length);
+    assert.deepEqual(scoped, bytes);
+  });
+});
+
+test('CI-LARGE-03: a CI log with a mismatched SHA-256 is denied', () => {
+  const f = ciFixture();
+  f.manifest.checks.find(c => c.id === 'server-tests').sha256 = '0'.repeat(64);
+  f.manifestBytes = Buffer.from(JSON.stringify(f.manifest) + '\n');
+  f.target.ciManifestSha256 = evidence.digest(f.manifestBytes);
+  assert.throws(() => ciPackage(f), /FORWARD_HOST_CI_INVALID/);
+});
+
+test('CI-LARGE-04: a truncated large log is denied', () => {
+  const f = ciFixture();
+  const large = Buffer.alloc(10_875_668, 0x61);
+  f.logs.set('logs/server-tests.log', large);
+  f.manifest.checks.find(c => c.id === 'server-tests').sha256 = evidence.digest(large);
+  f.manifestBytes = Buffer.from(JSON.stringify(f.manifest) + '\n');
+  f.target.ciManifestSha256 = evidence.digest(f.manifestBytes);
+  assert.equal(ciPackage(f).sha, CI_RELEASE);
+  assert.throws(() => ciPackage(f, name => name === 'logs/server-tests.log'
+    ? large.subarray(0, large.length - 1) : ciRead(f, name)), /FORWARD_HOST_CI_INVALID/);
+});
+
+test('CI-LARGE-05: the scoped CI reader denies a log above its explicit 32 MiB bound', () => {
+  withTempCIFile('x', path => {
+    truncateSync(path, evidence.MAX_FORWARD_CI_LOG_BYTES + 1);
+    assert.throws(() => storage.protectedBytes(path,
+      {...ciOwner(), ...evidence.forwardCIEntryOptions('logs/server-tests.log')}), /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('CI-LARGE-06: a symlinked CI log is denied', () => {
+  withTempCIFile('x', (path, directory) => {
+    const link = join(directory, 'link.log');
+    symlinkSync(path, link);
+    assert.throws(() => storage.protectedBytes(link, ciOwner()), /ELOOP|FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('CI-LARGE-07: a hard-linked CI log is denied', () => {
+  withTempCIFile('x', (path, directory) => {
+    linkSync(path, join(directory, 'second.log'));
+    assert.throws(() => storage.protectedBytes(path, ciOwner()), /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('CI-LARGE-08: a CI log with wrong owner or group is denied', () => {
+  withTempCIFile('x', path => {
+    assert.throws(() => storage.protectedBytes(path, {...ciOwner(), uid: process.getuid() + 1}),
+      /FORWARD_HOST_FILE_UNTRUSTED/);
+    assert.throws(() => storage.protectedBytes(path, {...ciOwner(), gid: process.getgid() + 1}),
+      /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('CI-LARGE-09: a CI log with the wrong permission mode is denied', () => {
+  withTempCIFile('x', path => {
+    chmodSync(path, 0o640);
+    assert.throws(() => storage.protectedBytes(path, ciOwner()), /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('CI-LARGE-10: a CI log reached through a symlinked parent is denied', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'servora-forward-ci-')));
+  try {
+    const real = join(directory, 'real');
+    mkdirSync(real, {mode: 0o700});
+    const path = join(real, 'server-tests.log');
+    writeFileSync(path, 'x', {mode: 0o600});
+    const linked = join(directory, 'linked');
+    symlinkSync(real, linked);
+    assert.throws(() => storage.protectedBytes(join(linked, 'server-tests.log'), ciOwner()),
+      /FORWARD_HOST_DIRECTORY_UNTRUSTED/);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+});
+
+test('CI-LARGE-11: a missing required check is denied', () => {
+  const f = ciFixture();
+  f.manifest.checks.pop();
+  f.manifestBytes = Buffer.from(JSON.stringify(f.manifest) + '\n');
+  f.target.ciManifestSha256 = evidence.digest(f.manifestBytes);
+  assert.throws(() => ciPackage(f), /FORWARD_HOST_CI_INVALID/);
+});
+
+test('CI-LARGE-12: manifest hash or release/tree mismatch is denied', () => {
+  const badHash = ciFixture();
+  badHash.target.ciManifestSha256 = '0'.repeat(64);
+  assert.throws(() => ciPackage(badHash), /FORWARD_HOST_CI_INVALID/);
+  const badRelease = ciFixture();
+  badRelease.target.releaseSha = 'c'.repeat(40);
+  assert.throws(() => ciPackage(badRelease), /FORWARD_HOST_CI_INVALID/);
+  const badTree = ciFixture();
+  badTree.target.treeSha = 'd'.repeat(40);
+  assert.throws(() => ciPackage(badTree), /FORWARD_HOST_CI_INVALID/);
+});
+
+test('CI-LARGE-13: cleanup log or status drift is denied', () => {
+  const badLog = ciFixture();
+  badLog.manifest.cleanup.log.sha256 = '0'.repeat(64);
+  badLog.manifestBytes = Buffer.from(JSON.stringify(badLog.manifest) + '\n');
+  badLog.target.ciManifestSha256 = evidence.digest(badLog.manifestBytes);
+  assert.throws(() => ciPackage(badLog), /FORWARD_HOST_CI_INVALID/);
+  const badStatus = ciFixture();
+  assert.throws(() => ciPackage(badStatus, name => name === 'logs/aux/cleanup.status'
+    ? Buffer.from('FAIL\n') : ciRead(badStatus, name)), /FORWARD_HOST_CI_INVALID/);
+});
+
+test('CI-LARGE-14: an unexpected extra log file is denied', () => {
+  const f = ciFixture();
+  assert.throws(() => ciPackage(f, name => ciRead(f, name),
+    ['extra.log', 'linux-compat.log', 'server-tests.log']), /FORWARD_HOST_CI_INVALID/);
 });
 
 test('host journal publishes exclusively and read-only inspection preserves bytes and names', async () => {

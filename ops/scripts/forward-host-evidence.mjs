@@ -29,6 +29,30 @@ export function verifyForwardCI(m, target, read, required) {
   return true;
 }
 
+/** CI check logs are genuine test output and legitimately exceed the default
+ * 4 MiB protected-file bound. Only that exact entry class gets a larger,
+ * explicit bound; manifest, cleanup evidence and every other protected file
+ * keep the default. */
+export const MAX_FORWARD_CI_LOG_BYTES = 32 * 1024 * 1024;
+const CI_CHECK_LOG = /^logs\/[A-Za-z0-9_.-]+\.log$/;
+export function forwardCIEntryOptions(name) {
+  return CI_CHECK_LOG.test(name) ? {limit: MAX_FORWARD_CI_LOG_BYTES} : {};
+}
+
+/** Verifies the retained manifest and its exact top-level log set. The caller
+ * supplies the protected reader so path, ownership and mode checks stay in
+ * the host adapter. */
+export function verifyForwardCIPackage({manifestBytes, target, required, read, actualLogs}) {
+  if (digest(manifestBytes) !== target.ciManifestSha256) fail('FORWARD_HOST_CI_INVALID');
+  const manifest = JSON.parse(manifestBytes);
+  verifyForwardCI(manifest, target, read, required);
+  if (!Array.isArray(actualLogs)
+    || JSON.stringify(actualLogs) !== JSON.stringify(manifest.checks.map(c => c.log.slice(5)).sort())) {
+    fail('FORWARD_HOST_CI_INVALID');
+  }
+  return manifest;
+}
+
 export function verifyObservationProof(proof, expected) {
   const {hash, ...body} = proof ?? {};
   if (hash !== seal(body).hash || body.kind !== 'FORWARD_HOST_OBSERVATION'
