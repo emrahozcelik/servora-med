@@ -30,10 +30,11 @@ const destination = flags.destination
 const directory = dirname(destination);
 if (!existsSync(directory)) fail('ATTEMPT_DIRECTORY_MISSING');
 const info = lstatSync(directory);
-if (!info.isDirectory() || info.uid !== 0 || (info.mode & 0o7777) !== 0o700) fail('ATTEMPT_DIRECTORY_UNTRUSTED');
+if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+  || (info.mode & 0o7777) !== 0o700) fail('ATTEMPT_DIRECTORY_UNTRUSTED');
 try {
   const created = preserveAttemptAuthorization({source, destination,
-    expectedSha: flags['expected-sha256']});
+    expectedSha: flags['expected-sha256'], attemptId: flags['attempt-id']});
   console.log(JSON.stringify({status: 'FORWARD_AUTHORIZATION_PRESERVED',
     attemptId: flags['attempt-id'], destination, created, sha256: flags['expected-sha256']}));
 } catch (error) {

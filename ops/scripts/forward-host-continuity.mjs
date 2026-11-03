@@ -63,10 +63,15 @@ export function assertCollectorDrainBound() {
 
 /** Preserve the exact authorization bytes under the attempt directory before a
  * successor grant replaces the single top-level file. No history rewrite. */
-export function preserveAttemptAuthorization({source, destination, expectedSha,
-  read = path => protectedBytes(path), publish = publishExclusive}) {
+export function preserveAttemptAuthorization({source, destination, expectedSha, attemptId,
+  read = path => protectedBytes(path), publish = publishExclusive,
+  validate = validateForwardAuthorizationStructure}) {
   const bytes = read(source);
   if (digest(bytes) !== expectedSha) throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_DRIFT');
+  let record;
+  try { record = JSON.parse(bytes); } catch { throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_DRIFT'); }
+  validate(record);
+  if (record.attemptId !== attemptId) throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_DRIFT');
   if (existsSync(destination)) {
     if (digest(read(destination)) !== expectedSha) throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_DRIFT');
     return false;
@@ -77,12 +82,13 @@ export function preserveAttemptAuthorization({source, destination, expectedSha,
 
 /** Two continuity attempts may not fork from the same predecessor. */
 export function assertNoLineageFork({root, authorization,
-  list = path => readdirSync(path), read = path => protectedBytes(path)}) {
+  list = path => readdirSync(path), read = path => protectedBytes(path),
+  exists = path => existsSync(path)}) {
   if (!isContinuity(authorization)) return;
   for (const name of list(root)) {
     if (name === authorization.attemptId) continue;
     const path = join(root, name, 'authorization.json');
-    if (!existsSync(path)) continue;
+    if (!exists(path)) continue;
     let other;
     try { other = JSON.parse(read(path)); } catch { throw new Error('FORWARD_HOST_LINEAGE_FORK'); }
     if (isContinuity(other)
@@ -92,15 +98,31 @@ export function assertNoLineageFork({root, authorization,
   }
 }
 
-/** Root-only lineage validation against the immutable predecessor attempt. */
-export function validateContinuityLineage(authorization, {root = '/var/lib/servora-med/deploy/forward',
-  legacyTool = LEGACY_TOOL_DIR, toolRoot = VERSIONED_TOOL_ROOT} = {}) {
+/** Root-only lineage validation against the immutable predecessor attempt.
+ * File readers and journal validators are injectable so every fail-closed
+ * branch is exercised by deterministic tests without production paths. */
+export function validateContinuityLineage(authorization, {
+  root = '/var/lib/servora-med/deploy/forward',
+  releasesRoot = '/opt/servora-med/releases',
+  legacyTool = LEGACY_TOOL_DIR,
+  toolRoot = VERSIONED_TOOL_ROOT,
+  exists = existsSync,
+  readAuthorization = path => protectedBytes(path),
+  readManifest = path => protectedJson(path, {mode: 0o644}),
+  openJournal = directory => openHostJournal(directory),
+  validateDeploymentLog = validateHostLog,
+  validateRecovery = validateRecoveryLog,
+  readReceipt = path => protectedJson(path),
+  readFile = path => readFileSync(path),
+  digestValue = digest,
+  verifyAcceptance = verifyForwardAcceptance,
+} = {}) {
   if (!isContinuity(authorization)) throw new Error('FORWARD_HOST_LINEAGE_INVALID');
   const line = authorization.lineage, attempt = join(root, line.predecessorAttemptId);
   const authPath = join(attempt, 'authorization.json');
-  if (!existsSync(authPath)) throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_MISSING');
-  const authBytes = protectedBytes(authPath);
-  if (digest(authBytes) !== line.predecessorAuthorizationSha256) {
+  if (!exists(authPath)) throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_MISSING');
+  const authBytes = readAuthorization(authPath);
+  if (digestValue(authBytes) !== line.predecessorAuthorizationSha256) {
     throw new Error('FORWARD_HOST_LINEAGE_AUTHORIZATION_DRIFT');
   }
   const predecessor = JSON.parse(authBytes);
@@ -110,15 +132,15 @@ export function validateContinuityLineage(authorization, {root = '/var/lib/servo
   if (isContinuity(predecessor)
     ? basename(toolDir) !== line.predecessorToolHash || !/^[0-9a-f]{64}$/.test(basename(toolDir))
     : toolDir !== legacyTool) throw new Error('FORWARD_HOST_LINEAGE_TOOL_DRIFT');
-  const manifest = protectedJson(join(toolDir, 'manifest.json'), {mode: 0o644});
+  const manifest = readManifest(join(toolDir, 'manifest.json'));
   if (manifest.hash !== line.predecessorToolHash) throw new Error('FORWARD_HOST_LINEAGE_TOOL_DRIFT');
 
   const journalDir = join(attempt, 'journal');
-  if (!existsSync(journalDir)) throw new Error('FORWARD_HOST_LINEAGE_JOURNAL_MISSING');
-  const journal = openHostJournal(journalDir);
+  if (!exists(journalDir)) throw new Error('FORWARD_HOST_LINEAGE_JOURNAL_MISSING');
+  const journal = openJournal(journalDir);
   if (journal.pending() !== 0) throw new Error('FORWARD_HOST_LINEAGE_JOURNAL_PENDING');
   const log = journal.read();
-  const state = validateHostLog(log, predecessor, line.predecessorAuthorizationSha256, line.predecessorToolHash);
+  const state = validateDeploymentLog(log, predecessor, line.predecessorAuthorizationSha256, line.predecessorToolHash);
   const last = log.at(-1);
   const recoveryPending = line.type === 'RECOVERY'
     && (state.pending === null || state.pending?.event === 'OBSERVE_INTENT');
@@ -138,13 +160,13 @@ export function validateContinuityLineage(authorization, {root = '/var/lib/servo
     ? join(toolRoot, line.predecessorToolHash, 'trusted-time.mjs')
     : join(legacyTool, 'trusted-time.mjs');
   if (line.predecessorCollectorPath !== expectedCollectorPath
-    || digest(protectedBytes(line.predecessorCollectorPath)) !== line.predecessorCollectorModuleSha256) {
+    || digestValue(readFile(line.predecessorCollectorPath)) !== line.predecessorCollectorModuleSha256) {
     throw new Error('FORWARD_HOST_LINEAGE_COLLECTOR_DRIFT');
   }
   // Release files are root:servora-med 0650 and are content-verified by
   // verifyRelease(); bind the collector bytes to the same release module.
-  const releaseModule = join('/opt/servora-med/releases', line.predecessorReleaseSha, 'ops/scripts/trusted-time.mjs');
-  if (digest(readFileSync(releaseModule)) !== line.predecessorCollectorModuleSha256) {
+  if (digestValue(readFile(join(releasesRoot, line.predecessorReleaseSha, 'ops/scripts/trusted-time.mjs')))
+    !== line.predecessorCollectorModuleSha256) {
     throw new Error('FORWARD_HOST_LINEAGE_COLLECTOR_DRIFT');
   }
 
@@ -154,18 +176,18 @@ export function validateContinuityLineage(authorization, {root = '/var/lib/servo
     const recoveryPath = join(attempt, 'recovery');
     const grantPath = join(attempt, 'recovery-authorization.json');
     const receiptPath = join(recoveryPath, 'receipt.json');
-    if (!existsSync(grantPath) || !existsSync(receiptPath)) throw new Error('FORWARD_HOST_LINEAGE_RECOVERY_MISSING');
-    const grant = protectedJson(grantPath);
+    if (!exists(grantPath) || !exists(receiptPath)) throw new Error('FORWARD_HOST_LINEAGE_RECOVERY_MISSING');
+    const grant = readReceipt(grantPath);
     if (recoveryDigest(grant) !== line.recoveryAuthorizationSha256) {
       throw new Error('FORWARD_HOST_LINEAGE_RECOVERY_DRIFT');
     }
-    const recoveryJournal = openHostJournal(join(recoveryPath, 'journal'));
+    const recoveryJournal = openJournal(join(recoveryPath, 'journal'));
     if (recoveryJournal.pending() !== 0) throw new Error('FORWARD_HOST_LINEAGE_RECOVERY_PENDING');
     const recoveryLog = recoveryJournal.read();
-    const validated = validateRecoveryLog(recoveryLog, grant, predecessor, log, line.predecessorToolHash);
-    const receipt = protectedJson(receiptPath);
+    const validated = validateRecovery(recoveryLog, grant, predecessor, log, line.predecessorToolHash);
+    const receipt = readReceipt(receiptPath);
     if (!validated.final || validated.fallback
-      || digest(protectedBytes(receiptPath)) !== line.recoveryReceiptSha256
+      || digestValue(readAuthorization(receiptPath)) !== line.recoveryReceiptSha256
       || receipt.mode !== 'RESTORE_HEALTHY_TARGET'
       || receipt.outcome !== line.recoveryOutcome
       || receipt.outcome !== CONTINUITY_RECOVERY_OUTCOME
@@ -180,13 +202,13 @@ export function validateContinuityLineage(authorization, {root = '/var/lib/servo
       journalHead: line.recoveryJournalHeadSha256, receiptSha256: line.recoveryReceiptSha256,
       outcome: receipt.outcome, mode: receipt.mode, final: true, fallback: false, ownerRetired: true};
   } else {
-    if (existsSync(join(attempt, 'recovery'))) throw new Error('FORWARD_HOST_LINEAGE_ACCEPTANCE_DRIFT');
+    if (exists(join(attempt, 'recovery'))) throw new Error('FORWARD_HOST_LINEAGE_ACCEPTANCE_DRIFT');
     const accepted = log.find(record => record.event === 'PHASE' && record.contract.phase === 'ACCEPTED');
     if (!accepted || accepted.contract.hash !== line.acceptanceContractSha256
       || !state.done.has('HANDOFF') || !state.done.has('RETIRE')) {
       throw new Error('FORWARD_HOST_LINEAGE_ACCEPTANCE_DRIFT');
     }
-    verifyForwardAcceptance(accepted.contract, {authorizationId: predecessor.authorizationId,
+    verifyAcceptance(accepted.contract, {authorizationId: predecessor.authorizationId,
       authorizationSha256: line.predecessorAuthorizationSha256,
       parentAttemptId: predecessor.parent.attemptId, target: predecessor.target});
     facts.acceptance = {contractSha256: line.acceptanceContractSha256, handoff: true, retire: true};

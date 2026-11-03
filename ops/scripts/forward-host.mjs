@@ -703,7 +703,8 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
               // a future lineage can verify the exact authorization bytes.
               mkdir(attempt);
               preserveAttemptAuthorization({source: PATHS.root + '/authorization.json',
-                destination: attempt + '/authorization.json', expectedSha: authorizationSha256});
+                destination: attempt + '/authorization.json', expectedSha: authorizationSha256,
+                attemptId: a.attemptId});
             }
             publishExclusive(PATHS.owner, canonical({attemptId: a.attemptId, approvalSha256: authorizationSha256}));
           }
