@@ -133,6 +133,49 @@ test('OPS-TT-003: losing one NTS operator still permits two authenticated select
   assert.deepEqual(sync.selectableSources,['1.ntp.ubuntu.com','time.cloudflare.com']);
 });
 
+test('OPS-TT-003b: a selectable source failing an RFC 5905 test is excluded, not fatal',()=>{
+  const r=multiReads();
+  const failing=r.details.packets.find(packet=>packet.name==='1.ntp.ubuntu.com');
+  failing.data=failing.data.replace('111 111 1111','111 111 1101');
+  const sync=parseMulti(r);
+  assert.equal(sync.sourceCount,2);
+  assert.equal(sync.authenticatedSourceCount,2);
+  assert.deepEqual(sync.selectableSources,['bevtime1.metrologie.at','time.cloudflare.com']);
+});
+
+test('OPS-TT-003b: the selected reference failing an RFC 5905 test denies the sample',()=>{
+  const r=multiReads();
+  const selected=r.details.packets.find(packet=>packet.name==='time.cloudflare.com');
+  selected.data=selected.data.replace('111 111 1111','111 111 1101');
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003b: two failing sources cannot leave a single independent vote',()=>{
+  const r=multiReads();
+  for(const name of ['bevtime1.metrologie.at','1.ntp.ubuntu.com']){
+    const packet=r.details.packets.find(item=>item.name===name);
+    packet.data=packet.data.replace('111 111 1111','111 111 1101');
+  }
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003b: a malformed NTP test report denies the sample',()=>{
+  const r=multiReads();
+  const packet=r.details.packets.find(item=>item.name==='1.ntp.ubuntu.com');
+  packet.data=packet.data.replace('111 111 1111','111 111 11');
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
+test('OPS-TT-003b: the two remaining votes must still overlap after exclusion',()=>{
+  const r=multiReads();
+  const failing=r.details.packets.find(packet=>packet.name==='1.ntp.ubuntu.com');
+  failing.data=failing.data.replace('111 111 1111','111 111 1101');
+  r.details.selectdata=r.details.selectdata.replace(
+    '+ bevtime1.metrologie.at Y ----- ----- 1 1.0 -10ms +10ms',
+    '+ bevtime1.metrologie.at Y ----- ----- 1 1.0 +50ms +60ms');
+  assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);
+});
+
 test('OPS-TT-003 denial: one selectable cannot authorize',()=>{const r=multiReads();r.sources=r.sources.replace('^,+,','^,?,').replace('^,-,','^,?,');r.details.selectdata=r.details.selectdata.replace('+ bev','? bev').replace('D 1.ntp','? 1.ntp');assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);});
 
 test('OPS-TT-003 denial: packet authentication loss denies despite cookies',()=>{const r=multiReads();r.details.packets[1].data=r.details.packets[1].data.replace('Authenticated   : Yes','Authenticated   : No');assert.throws(()=>parseMulti(r),/TRUSTED_TIME_UNKNOWN/);});
