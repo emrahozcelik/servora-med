@@ -225,6 +225,24 @@ without authority, failed activation, failed pre/post backup, PID/boot change
 during observation, short or forged observation, early acceptance, direct
 `ACCEPTED`, journal tamper/sequence gaps, and the migration-free happy path.
 
+### Production parent backup read bound — 2026-11-03
+
+Production preflight on `2e1df205` stopped before admission: the preserved R4
+PRE/POST dumps are 4,603,938 / 4,642,231 bytes, above the generic protected-file
+bound of 4 MiB. Their hashes and Emergency Handoff bindings are valid. The
+parent is not completed; this failure does not authorize changing its history.
+
+`verifyForwardParentBackups()` applies the existing forward dump bound of
+1 GiB only to those two fixed parent dump reads. Root ownership, exact mode,
+single-link, `O_NOFOLLOW`, protected ancestors and full receipt-bound hashes
+remain mandatory. The generic 4 MiB bound and the separate CI-log bound are
+unchanged. `PARENT-BACKUP-01..06` cover the real production sizes, corruption,
+truncation, the upper bound and protected-file metadata failures.
+
+This source fix does not change an installed tool, grant, collector, schema or
+release. It needs independent review and its own exact-source CI/artifact
+before any later production operation; the old artifact/grant cannot attest it.
+
 ## 8. Not yet done
 
 - Full real Ubuntu/systemd 255 host acceptance (targeted fixture tests are separate).

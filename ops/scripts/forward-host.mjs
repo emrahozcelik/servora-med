@@ -17,7 +17,7 @@ import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward
 import {assertEmergencySupersession, validateForwardAuthorizationStructure, validateForwardAuthorizationTime,
   FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
-import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions} from './forward-host-evidence.mjs';
+import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions, verifyForwardParentBackups} from './forward-host-evidence.mjs';
 import {sampleTrustedTime, elapsedTime, READER_UNIT_SHA256, READER_SOCKET_UNIT_SHA256,
   validateTimeModuleContract, validateReaderSocketMetadata} from './trusted-time.mjs';
 import {canonical, protectedBytes, protectedJson, trustedParents, flushDirectory,
@@ -243,9 +243,8 @@ async function readParent(authorization) {
     || receipt.host.releaseSha !== authorization.old.releaseSha || receipt.host.schemaHead !== HEAD
     || parent.approval.releaseSha !== authorization.old.releaseSha || parent.approval.artifactSha256 !== authorization.old.artifactSha256
     || !same(parent.approval.targetCatalog, authorization.old.catalog)) fail('FORWARD_HOST_EMERGENCY_INVALID');
-  for (const [kind, expected] of [['pre', receipt.backups.preSha256], ['post', receipt.backups.postSha256]]) {
-    if (fileHash(PATHS.state + '/backups/' + authorization.parent.attemptId + '-' + kind + '.dump') !== expected) fail('FORWARD_HOST_PARENT_BACKUP_DRIFT');
-  }
+  verifyForwardParentBackups(receipt.backups, (kind, options) =>
+    protectedBytes(PATHS.state + '/backups/' + authorization.parent.attemptId + '-' + kind + '.dump', options));
   return {...parent, profile, checkpoint, receipt, supersession};
 }
 

@@ -137,6 +137,89 @@ function withTempCIFile(bytes, operation) {
   } finally { rmSync(directory, {recursive: true, force: true}); }
 }
 
+function withParentBackupFiles(operation) {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'servora-forward-parent-')));
+  try {
+    const files = {}, backups = {};
+    for (const [kind, size] of [['pre', 4_603_938], ['post', 4_642_231]]) {
+      const bytes = Buffer.alloc(size, kind === 'pre' ? 0x61 : 0x62);
+      files[kind] = join(directory, kind + '.dump');
+      writeFileSync(files[kind], bytes, {mode: 0o600});
+      backups[kind + 'Sha256'] = evidence.digest(bytes);
+    }
+    return operation({files, backups, directory,
+      read: (kind, options) => storage.protectedBytes(files[kind], {...ciOwner(), ...options})});
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+}
+
+test('PARENT-BACKUP-01: real production-size sealed dumps pass without widening the generic reader', () => {
+  withParentBackupFiles(({files, backups, read}) => {
+    for (const path of Object.values(files)) {
+      assert.throws(() => storage.protectedBytes(path, ciOwner()), /FORWARD_HOST_FILE_UNTRUSTED/);
+    }
+    assert.doesNotThrow(() => evidence.verifyForwardParentBackups(backups, read));
+  });
+});
+
+test('PARENT-BACKUP-02: either sealed dump with a mismatched hash is denied', () => {
+  for (const kind of ['pre', 'post']) {
+    withParentBackupFiles(({backups, read}) => {
+      assert.throws(() => evidence.verifyForwardParentBackups(
+        {...backups, [kind + 'Sha256']: '0'.repeat(64)}, read), /FORWARD_HOST_PARENT_BACKUP_DRIFT/);
+    });
+  }
+});
+
+test('PARENT-BACKUP-03: a truncated sealed dump is denied', () => {
+  withParentBackupFiles(({files, backups, read}) => {
+    truncateSync(files.post, 4_642_230);
+    assert.throws(() => evidence.verifyForwardParentBackups(backups, read), /FORWARD_HOST_PARENT_BACKUP_DRIFT/);
+  });
+});
+
+test('PARENT-BACKUP-04: either sealed dump above the existing 1 GiB backup bound is denied', () => {
+  for (const kind of ['pre', 'post']) {
+    withParentBackupFiles(({files, backups, read}) => {
+      truncateSync(files[kind], 1024 * 1024 * 1024 + 1);
+      assert.throws(() => evidence.verifyForwardParentBackups(backups, read), /FORWARD_HOST_FILE_UNTRUSTED/);
+    });
+  }
+});
+
+test('PARENT-BACKUP-05: the scoped read retains owner, group and exact mode checks', () => {
+  for (const mismatch of [{uid: process.getuid() + 1}, {gid: process.getgid() + 1}]) {
+    withParentBackupFiles(({files, backups}) => {
+      assert.throws(() => evidence.verifyForwardParentBackups(backups, (kind, options) =>
+        storage.protectedBytes(files[kind], {...ciOwner(), ...options, ...mismatch})), /FORWARD_HOST_FILE_UNTRUSTED/);
+    });
+  }
+  withParentBackupFiles(({files, backups, read}) => {
+    chmodSync(files.pre, 0o640);
+    assert.throws(() => evidence.verifyForwardParentBackups(backups, read), /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+});
+
+test('PARENT-BACKUP-06: the scoped read denies symlinks, hardlinks and symlinked parents', () => {
+  withParentBackupFiles(({files, backups, directory}) => {
+    const link = join(directory, 'pre-link.dump');
+    symlinkSync(files.pre, link);
+    assert.throws(() => evidence.verifyForwardParentBackups(backups, (kind, options) =>
+      storage.protectedBytes(kind === 'pre' ? link : files[kind], {...ciOwner(), ...options})),
+    /ELOOP|FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+  withParentBackupFiles(({files, backups, read, directory}) => {
+    linkSync(files.pre, join(directory, 'pre-hardlink.dump'));
+    assert.throws(() => evidence.verifyForwardParentBackups(backups, read), /FORWARD_HOST_FILE_UNTRUSTED/);
+  });
+  withParentBackupFiles(({backups, directory}) => {
+    const linked = join(directory, 'linked');
+    symlinkSync(directory, linked);
+    assert.throws(() => evidence.verifyForwardParentBackups(backups, (kind, options) =>
+      storage.protectedBytes(join(linked, kind + '.dump'), {...ciOwner(), ...options})),
+    /FORWARD_HOST_DIRECTORY_UNTRUSTED/);
+  });
+});
+
 test('CI-LARGE-01/02: a real-size log above 4 MiB passes only through the scoped CI reader', () => {
   const bytes = Buffer.alloc(10_875_668, 0x61);
   assert.deepEqual(evidence.forwardCIEntryOptions('logs/aux/cleanup.log'), {});
