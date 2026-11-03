@@ -6,6 +6,14 @@ export const digest = value => createHash('sha256').update(value).digest('hex');
 export const seal = body => ({...body, hash: digest(JSON.stringify(body) + '\n')});
 const fail = code => { throw new Error(code); };
 
+/** Match the existing forward dump bound, only for the sealed parent's two
+ * receipts. The supplied protected reader retains every metadata check. */
+export function verifyForwardParentBackups(backups, read) {
+  for (const kind of ['pre', 'post']) {
+    if (digest(read(kind, {limit: 1024 * 1024 * 1024})) !== backups[kind + 'Sha256']) fail('FORWARD_HOST_PARENT_BACKUP_DRIFT');
+  }
+}
+
 /** Uses the repository's required-checks.txt, supplied by the sealed adapter.
  * This verifies retained evidence; it never starts CI. */
 export function verifyForwardCI(m, target, read, required) {
