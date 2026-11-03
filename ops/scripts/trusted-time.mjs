@@ -316,7 +316,10 @@ const INSTALLED_TIME='/usr/local/libexec/servora-med/trusted-time.mjs';
 // Owner-authorized forward adapter: keep the sealed R4 module untouched.
 // The new collector/client still bind the exact same module bytes per request.
 const FORWARD_INSTALLED_TIME='/usr/local/libexec/servora-med-forward/trusted-time.mjs';
-const isInstalledTimePath=path=>path===INSTALLED_TIME || path===FORWARD_INSTALLED_TIME;
+// Continuity releases run from a versioned tool directory whose name is the
+// tool manifest hash. The live predecessor tool directory is never replaced.
+const FORWARD_VERSIONED_TIME=/^\/usr\/local\/libexec\/servora-med-forward-tools\/[0-9a-f]{64}\/trusted-time\.mjs$/;
+const isInstalledTimePath=path=>path===INSTALLED_TIME || path===FORWARD_INSTALLED_TIME || FORWARD_VERSIONED_TIME.test(path);
 const RELEASE_TIME=/^\/opt\/servora-med\/releases\/[0-9a-f]{40}\/ops\/scripts\/trusted-time\.mjs$/;
 const MAX_READER_BYTES=16384;
 function fixedRun(file,args,timeout=500) {

@@ -42,6 +42,13 @@ export const FORWARD_FORBIDDEN = Object.freeze([
   'reset_start_budget', 'change_parent_records',
 ]);
 
+export const CONTINUITY_KIND = 'RELEASE_CONTINUITY_AUTHORIZATION';
+export const CONTINUITY_SCOPE = 'RELEASE_CONTINUITY_TRANSITION';
+export const CONTINUITY_RECOVERY_OUTCOME = 'FORWARD_TARGET_POLICY_RESTORED_NOT_ACCEPTED';
+export const LEGACY_TOOL_DIR = '/usr/local/libexec/servora-med-forward';
+export const VERSIONED_TOOL_ROOT = '/usr/local/libexec/servora-med-forward-tools';
+export const CONTINUITY_TOOL_DIR_RE = /^\/usr\/local\/libexec\/servora-med-forward-tools\/[0-9a-f]{64}$/;
+export const CONTINUITY_COLLECTOR_PATH_RE = /^(?:\/usr\/local\/libexec\/servora-med-forward\/trusted-time\.mjs|\/usr\/local\/libexec\/servora-med-forward-tools\/[0-9a-f]{64}\/trusted-time\.mjs)$/;
 const AUTHORIZATION_KEYS = Object.freeze([
   'formatVersion', 'kind', 'authorizationId', 'issuedAtUTC', 'expiresAtUTC', 'issuedTime',
   'maxUses', 'reason', 'scope', 'attemptId', 'parent', 'old', 'target', 'host',
@@ -62,6 +69,16 @@ const DATABASE_KEYS = Object.freeze([
 ]);
 const MIGRATION_KEYS = Object.freeze(['allowed', 'required', 'authorizedMigrations']);
 const BUDGET_KEYS = Object.freeze(['maxStarts', 'maxObservationAttempts']);
+const CONTINUITY_AUTHORIZATION_KEYS = Object.freeze([...AUTHORIZATION_KEYS, 'lineage']);
+const LINEAGE_COMMON_KEYS = Object.freeze([
+  'type', 'predecessorAttemptId', 'predecessorAuthorizationSha256', 'predecessorToolHash',
+  'predecessorJournalHeadSha256', 'predecessorTerminalPhase', 'predecessorReleaseSha',
+  'predecessorArtifactSha256', 'predecessorCollectorModuleSha256', 'predecessorCollectorPath',
+]);
+const LINEAGE_RECOVERY_KEYS = Object.freeze([...LINEAGE_COMMON_KEYS,
+  'recoveryAuthorizationSha256', 'recoveryJournalHeadSha256', 'recoveryReceiptSha256', 'recoveryOutcome']);
+const LINEAGE_ACCEPTED_KEYS = Object.freeze([...LINEAGE_COMMON_KEYS, 'acceptanceContractSha256']);
+
 const JOURNAL_KEYS = Object.freeze([
   'formatVersion', 'kind', 'attemptId', 'authorizationId', 'authorizationSha256',
   'parentAttemptId', 'parentDisposition', 'parentApprovalSha256', 'parentProfileSha256',
@@ -222,11 +239,19 @@ export function validateForwardAuthorizationTime(record, current, clock = null) 
 
 /** Structural authorization validation; no live state required. */
 export function validateForwardAuthorizationStructure(record) {
-  if (!exactKeys(record, AUTHORIZATION_KEYS)) fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
-  if (record.formatVersion !== 2 || record.kind !== 'FORWARD_TRANSITION_AUTHORIZATION') {
+  const continuity = record?.kind === CONTINUITY_KIND;
+  if (!exactKeys(record, continuity ? CONTINUITY_AUTHORIZATION_KEYS : AUTHORIZATION_KEYS)) {
     fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
   }
-  if (record.scope !== FORWARD_TRANSITION_SCOPE) fail('FORWARD_TRANSITION_SCOPE_INVALID');
+  if (continuity ? record.formatVersion !== 1 : record.formatVersion !== 2) {
+    fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
+  }
+  if (!continuity && record.kind !== 'FORWARD_TRANSITION_AUTHORIZATION') {
+    fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
+  }
+  if (record.scope !== (continuity ? CONTINUITY_SCOPE : FORWARD_TRANSITION_SCOPE)) {
+    fail('FORWARD_TRANSITION_SCOPE_INVALID');
+  }
   if (!uuid(record.authorizationId) || !uuid(record.attemptId)
     || !Number.isSafeInteger(record.maxUses) || record.maxUses !== 1
     || typeof record.reason !== 'string' || record.reason.length === 0
@@ -291,7 +316,91 @@ export function validateForwardAuthorizationStructure(record) {
     || JSON.stringify(record.forbidden) !== JSON.stringify(FORWARD_FORBIDDEN)) {
     fail('FORWARD_TRANSITION_AUTHORIZATION_INVALID');
   }
+  if (continuity) {
+    validateContinuityLineageStructure(record.lineage);
+    if (record.attemptId === record.lineage.predecessorAttemptId) {
+      fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+    }
+  }
   return record;
+}
+
+/** Structural lineage validation. The live predecessor journal, recovery
+ * receipt and collector bytes are validated by the host adapter. */
+export function validateContinuityLineageStructure(lineage) {
+  if (!isObject(lineage) || !['RECOVERY', 'ACCEPTED'].includes(lineage.type)) {
+    fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+  }
+  const keys = lineage.type === 'RECOVERY' ? LINEAGE_RECOVERY_KEYS : LINEAGE_ACCEPTED_KEYS;
+  if (!exactKeys(lineage, keys)
+    || !uuid(lineage.predecessorAttemptId)
+    || !hex(lineage.predecessorAuthorizationSha256, 64)
+    || !hex(lineage.predecessorToolHash, 64)
+    || !hex(lineage.predecessorJournalHeadSha256, 64)
+    || !FORWARD_PHASES.includes(lineage.predecessorTerminalPhase)
+    || !hex(lineage.predecessorReleaseSha, 40)
+    || !hex(lineage.predecessorArtifactSha256, 64)
+    || !hex(lineage.predecessorCollectorModuleSha256, 64)
+    || !CONTINUITY_COLLECTOR_PATH_RE.test(lineage.predecessorCollectorPath)) {
+    fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+  }
+  if (lineage.type === 'ACCEPTED') {
+    if (lineage.predecessorTerminalPhase !== 'ACCEPTED' || !hex(lineage.acceptanceContractSha256, 64)) {
+      fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+    }
+  } else if (lineage.predecessorTerminalPhase === 'ACCEPTED' || lineage.predecessorTerminalPhase === 'INTENT'
+    || !hex(lineage.recoveryAuthorizationSha256, 64)
+    || !hex(lineage.recoveryJournalHeadSha256, 64)
+    || !hex(lineage.recoveryReceiptSha256, 64)
+    || lineage.recoveryOutcome !== CONTINUITY_RECOVERY_OUTCOME) {
+    fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+  }
+  return lineage;
+}
+
+/** Cross-bind a continuity grant to the verified predecessor authorization and
+ * the facts read from its terminal journal/recovery/acceptance evidence. */
+export function validateContinuityLineageBindings(record, predecessor, facts) {
+  validateForwardAuthorizationStructure(record);
+  validateForwardAuthorizationStructure(predecessor);
+  if (record.kind !== CONTINUITY_KIND) fail('FORWARD_TRANSITION_LINEAGE_INVALID');
+  const line = record.lineage;
+  if (predecessor.attemptId !== line.predecessorAttemptId
+    || predecessor.authorizationId === record.authorizationId
+    || record.attemptId === predecessor.attemptId
+    || JSON.stringify(record.parent) !== JSON.stringify(predecessor.parent)
+    || JSON.stringify(record.host) !== JSON.stringify(predecessor.host)
+    || predecessor.target.releaseSha !== line.predecessorReleaseSha
+    || predecessor.target.artifactSha256 !== line.predecessorArtifactSha256
+    || predecessor.target.releaseSha !== record.old.releaseSha
+    || predecessor.target.artifactSha256 !== record.old.artifactSha256
+    || predecessor.target.schemaHead !== record.old.schemaHead
+    || !sameCatalog(predecessor.target.catalog, record.old.catalog)) {
+    fail('FORWARD_TRANSITION_LINEAGE_MISMATCH');
+  }
+  if (!isObject(facts) || facts.toolHash !== line.predecessorToolHash
+    || facts.terminalPhase !== line.predecessorTerminalPhase
+    || facts.journalHead !== line.predecessorJournalHeadSha256
+    || facts.collectorModuleSha256 !== line.predecessorCollectorModuleSha256) {
+    fail('FORWARD_TRANSITION_LINEAGE_MISMATCH');
+  }
+  if (line.type === 'RECOVERY') {
+    if (!isObject(facts.recovery)
+      || facts.recovery.authorizationSha256 !== line.recoveryAuthorizationSha256
+      || facts.recovery.journalHead !== line.recoveryJournalHeadSha256
+      || facts.recovery.receiptSha256 !== line.recoveryReceiptSha256
+      || facts.recovery.outcome !== line.recoveryOutcome
+      || facts.recovery.mode !== 'RESTORE_HEALTHY_TARGET'
+      || facts.recovery.final !== true || facts.recovery.fallback !== false
+      || facts.recovery.ownerRetired !== true) {
+      fail('FORWARD_TRANSITION_LINEAGE_MISMATCH');
+    }
+  } else if (!isObject(facts.acceptance)
+    || facts.acceptance.contractSha256 !== line.acceptanceContractSha256
+    || facts.acceptance.handoff !== true || facts.acceptance.retire !== true) {
+    fail('FORWARD_TRANSITION_LINEAGE_MISMATCH');
+  }
+  return true;
 }
 
 function validateSupersession(supersession, record, context) {

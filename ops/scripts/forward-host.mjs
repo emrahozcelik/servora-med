@@ -15,7 +15,10 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {runForwardHost, validateHostLog} from './forward-host-driver.mjs';
 import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward-host-recovery.mjs';
 import {assertEmergencySupersession, validateForwardAuthorizationStructure, validateForwardAuthorizationTime,
-  FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
+  FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES, LEGACY_TOOL_DIR} from './forward-transition.mjs';
+import {isContinuity, validateContinuityLineage, assertNoLineageFork, collectorExpectation,
+  collectorSwitchPlan, collectorText, assertCollectorDrainBound, COLLECTOR_DRAIN_MS,
+  preserveAttemptAuthorization, atomicReplaceFile} from './forward-host-continuity.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
 import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions, verifyForwardParentBackups,
   verifyReleaseArchive} from './forward-host-evidence.mjs';
@@ -24,9 +27,11 @@ import {sampleTrustedTime, elapsedTime, READER_UNIT_SHA256, READER_SOCKET_UNIT_S
 import {canonical, protectedBytes, protectedJson, trustedParents, flushDirectory,
   publishExclusive, openHostJournal} from './forward-host-storage.mjs';
 
+const SELF_TOOL_DIR = dirname(realpathSync(fileURLToPath(import.meta.url)));
+const VERSIONED_TOOL = /^\/usr\/local\/libexec\/servora-med-forward-tools\/[0-9a-f]{64}$/.test(SELF_TOOL_DIR);
 export const PATHS = Object.freeze({
   state: '/var/lib/servora-med/deploy', root: '/var/lib/servora-med/deploy/forward',
-  tool: '/usr/local/libexec/servora-med-forward', installed: '/usr/local/libexec/servora-med',
+  tool: VERSIONED_TOOL ? SELF_TOOL_DIR : LEGACY_TOOL_DIR, installed: '/usr/local/libexec/servora-med',
   owner: '/var/lib/servora-med/deploy/active.json', barrier: '/var/lib/servora-med/deploy/activation.block',
   permit: '/run/servora-med-recovery/start.permit', env: '/etc/servora-med/servora-med.env',
   current: '/opt/servora-med/current', unit: '/etc/systemd/system/servora-med.service',
@@ -40,7 +45,8 @@ export const PATHS = Object.freeze({
 });
 export const TOOL_FILES = Object.freeze([
   'forward-host.mjs', 'forward-host-driver.mjs', 'forward-host-storage.mjs', 'forward-host-evidence.mjs',
-  'forward-host-probe.mjs', 'forward-host-recovery.mjs', 'forward-transition.mjs', 'emergency-handoff.mjs',
+  'forward-host-probe.mjs', 'forward-host-recovery.mjs', 'forward-host-continuity.mjs',
+  'forward-transition.mjs', 'emergency-handoff.mjs',
   'migration-reconciliation.mjs', 'deployment-db-guard.mjs', 'trusted-time.mjs', 'required-checks.txt',
 ]);
 const UNIT_NAME = 'servora-med.service';
@@ -48,7 +54,6 @@ const HEAD = '060_crm_duplicate_review_decisions';
 const CLEAN_ENV = {PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C'};
 const POLICY_TEXT = '[Service]\nRestart=no\n';
 const GUARD_TEXT = '[Service]\nExecStartPre=+/usr/bin/node ' + PATHS.tool + '/forward-host.mjs start-gate\nReadWritePaths=' + PATHS.root + ' /run/servora-med-forward\n';
-const COLLECTOR_TEXT = '[Service]\nExecStart=\nExecStart=/usr/bin/node --no-addons ' + PATHS.tool + '/trusted-time.mjs --collect-chrony\n';
 const fail = code => { throw new Error(code); };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -71,7 +76,7 @@ function properties() {
     'ExecStartPre', 'EnvironmentFiles', 'InvocationID', 'ControlGroup', 'Job'];
   return unitProperties(UNIT_NAME, keys);
 }
-function assertCollectorBinding(state) {
+function assertCollectorBinding(state, a, continuity, targetModule) {
   if (fileHash(PATHS.collectorUnit, {mode: 0o644}) !== READER_UNIT_SHA256
     || fileHash(PATHS.collectorSocket, {mode: 0o644}) !== READER_SOCKET_UNIT_SHA256) fail('FORWARD_HOST_COLLECTOR_UNIT_DRIFT');
   const p = unitProperties('servora-med-time-evidence@forward-probe.service', ['FragmentPath', 'DropInPaths',
@@ -86,18 +91,23 @@ function assertCollectorBinding(state) {
   trustedParents(PATHS.timeSocket);
   try { validateReaderSocketMetadata(lstatSync(PATHS.timeSocket), Number(execute('/usr/bin/id', ['-g', 'servora-med']).trim())); }
   catch { fail('FORWARD_HOST_COLLECTOR_SOCKET_INVALID'); }
+  const before = collectorExpectation(a, {complete: false, toolDir: PATHS.tool, targetModule, installed: PATHS.installed});
+  const after = collectorExpectation(a, {complete: true, toolDir: PATHS.tool, targetModule, installed: PATHS.installed});
+  const pending = state.pending?.event === 'COLLECTOR_INTENT';
+  const complete = state.done.has('COLLECTOR');
   const present = existsSync(PATHS.collectorDropin);
-  if (present && protectedBytes(PATHS.collectorDropin).toString() !== COLLECTOR_TEXT) fail('FORWARD_HOST_COLLECTOR_UNIT_DRIFT');
-  const complete = state.done.has('COLLECTOR'), pending = state.pending?.event === 'COLLECTOR_INTENT';
-  const oldPrefix = '{ path=/usr/bin/node ; argv[]=/usr/bin/node --no-addons ' + PATHS.installed + '/trusted-time.mjs --collect-chrony ; ignore_errors=no ; ';
-  const newPrefix = '{ path=/usr/bin/node ; argv[]=/usr/bin/node --no-addons ' + PATHS.tool + '/trusted-time.mjs --collect-chrony ; ignore_errors=no ; ';
-  const oldLoaded = p.DropInPaths === '' && p.ExecStart.startsWith(oldPrefix);
-  const newLoaded = p.DropInPaths === PATHS.collectorDropin && p.ExecStart.startsWith(newPrefix);
-  if ((p.ExecStart.match(/\{/g) ?? []).length !== 1 || !p.ExecStart.endsWith(' }')
-    || (pending ? (!oldLoaded && !newLoaded) || !['yes', 'no'].includes(p.NeedDaemonReload)
-      : complete ? !present || !newLoaded || p.NeedDaemonReload !== 'no'
-        : present || !oldLoaded || p.NeedDaemonReload !== 'no')) fail('FORWARD_HOST_COLLECTOR_BINDING_INVALID');
+  const prefix = path => '{ path=/usr/bin/node ; argv[]=/usr/bin/node --no-addons ' + path + ' --collect-chrony ; ignore_errors=no ; ';
+  const loaded = expectation => expectation.dropin
+    ? p.DropInPaths === PATHS.collectorDropin && p.ExecStart.startsWith(prefix(expectation.path))
+    : p.DropInPaths === '' && p.ExecStart.startsWith(prefix(expectation.path));
+  const valid = expectation => loaded(expectation)
+    && (expectation.dropin ? present && protectedBytes(PATHS.collectorDropin).toString() === expectation.text : !present)
+    && (!expectation.moduleSha256 || fileHash(expectation.path, {mode: 0o644}) === expectation.moduleSha256);
+  const loadedOk = pending ? valid(before) || valid(after) : complete ? valid(after) : valid(before);
+  if ((p.ExecStart.match(/\{/g) ?? []).length !== 1 || !p.ExecStart.endsWith(' }') || !loadedOk
+    || (!pending && p.NeedDaemonReload !== 'no')) fail('FORWARD_HOST_COLLECTOR_BINDING_INVALID');
 }
+
 const bootId = () => readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
 const uptime = () => Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
 const authorizationClock = () => ({bootId: bootId(), timeNamespaceId: readlinkSync('/proc/self/ns/time'),
@@ -158,7 +168,7 @@ export function toolManifest(directory = PATHS.tool) {
 function verifyTool() {
   const actual = toolManifest();
   const installed = protectedJson(PATHS.tool + '/manifest.json', {mode: 0o644});
-  if (!same(actual, installed)) fail('FORWARD_HOST_TOOL_DRIFT');
+  if (!same(actual, installed) || (VERSIONED_TOOL && basename(PATHS.tool) !== actual.hash)) fail('FORWARD_HOST_TOOL_DRIFT');
   return actual.hash;
 }
 function releaseRoot(sha) { return '/opt/servora-med/releases/' + sha; }
@@ -245,12 +255,24 @@ async function readParent(authorization) {
     expected: {authorizationId: emergencyAuthorization.authorizationId, authorizationSha256: fileHash(emergency + '/authorization.json'), toolArtifactSha256: emergencyAuthorization.toolArtifactSha256, parent: emergencyAuthorization.parent}});
   if (latest.phase !== 'HANDOFF_COMPLETE' || latest.hash !== authorization.parent.emergencyJournalHeadSha256
     || !same(receipt.host.database, authorization.host.database) || receipt.host.machineId !== authorization.host.machineId
-    || receipt.host.releaseSha !== authorization.old.releaseSha || receipt.host.schemaHead !== HEAD
-    || parent.approval.releaseSha !== authorization.old.releaseSha || parent.approval.artifactSha256 !== authorization.old.artifactSha256
-    || !same(parent.approval.targetCatalog, authorization.old.catalog)) fail('FORWARD_HOST_EMERGENCY_INVALID');
+    || receipt.host.schemaHead !== HEAD || !same(parent.approval.targetCatalog, authorization.old.catalog)) {
+    fail('FORWARD_HOST_EMERGENCY_INVALID');
+  }
+  let continuity = null;
+  if (isContinuity(authorization)) {
+    // The sealed receipt and approval still describe the historical R4 origin.
+    // The live OLD is the predecessor TARGET and is validated by the lineage.
+    if (receipt.host.releaseSha !== parent.approval.releaseSha) fail('FORWARD_HOST_EMERGENCY_INVALID');
+    continuity = validateContinuityLineage(authorization, {root: PATHS.root});
+    assertNoLineageFork({root: PATHS.root, authorization});
+  } else if (receipt.host.releaseSha !== authorization.old.releaseSha
+    || parent.approval.releaseSha !== authorization.old.releaseSha
+    || parent.approval.artifactSha256 !== authorization.old.artifactSha256) {
+    fail('FORWARD_HOST_EMERGENCY_INVALID');
+  }
   verifyForwardParentBackups(receipt.backups, (kind, options) =>
     protectedBytes(PATHS.state + '/backups/' + authorization.parent.attemptId + '-' + kind + '.dump', options));
-  return {...parent, profile, checkpoint, receipt, supersession};
+  return {...parent, profile, checkpoint, receipt, supersession, continuity};
 }
 
 function processRelease(expectedSha, expectedIdentity = null) {
@@ -315,24 +337,29 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
   if (a.old.schemaHead !== HEAD || a.target.schemaHead !== HEAD) fail('FORWARD_HOST_CATALOG_INVALID');
   const toolHash = verifyTool(), authorizationSha256 = fileHash(PATHS.root + '/authorization.json');
   const attempt = PATHS.root + '/' + a.attemptId, journalPath = attempt + '/journal';
+  const targetModule = digest(readFileSync(releaseRoot(a.target.releaseSha) + '/ops/scripts/trusted-time.mjs'));
   const readLog = () => existsSync(journalPath) ? openHostJournal(journalPath).read(log => validateHostLog(log, a, authorizationSha256, toolHash)) : [];
   const hostState = () => validateHostLog(readLog(), a, authorizationSha256, toolHash);
   const authorizationTime = async () => {
     const state = hostState();
-    assertCollectorBinding(state);
-    // The legacy producer stays sealed until COLLECTOR_DONE. Its matching
-    // reader supplies time only; all new release authority stays here.
+    // Pre-handoff continuity reads through the predecessor collector module;
+    // v2 keeps the sealed legacy module. After COLLECTOR_DONE the manifested
+    // target module is the only producer.
     if (state.done.has('COLLECTOR')) {
+      assertCollectorBinding(state, a, null, targetModule);
       const time = sampleTrustedTime();
-      assertCollectorBinding(hostState());
+      assertCollectorBinding(hostState(), a, null, targetModule);
       return validateForwardAuthorizationTime(a, time, authorizationClock());
     }
-    const parent = await readParent(a), path = PATHS.installed + '/trusted-time.mjs';
-    const expected = parent.profile.contracts.timeModuleSha256;
+    const parent = await readParent(a);
+    const pre = collectorExpectation(a, {complete: false, toolDir: PATHS.tool, targetModule, installed: PATHS.installed});
+    const path = pre.path;
+    const expected = isContinuity(a) ? a.lineage.predecessorCollectorModuleSha256 : parent.profile.contracts.timeModuleSha256;
+    assertCollectorBinding(state, a, parent.continuity, targetModule);
     if (fileHash(path, {mode: 0o644}) !== expected) fail('FORWARD_HOST_ROOT_HELPER_DRIFT');
     const time = (await import(path)).sampleTrustedTime();
     if (fileHash(path, {mode: 0o644}) !== expected) fail('FORWARD_HOST_ROOT_HELPER_DRIFT');
-    assertCollectorBinding(hostState());
+    assertCollectorBinding(hostState(), a, parent.continuity, targetModule);
     return validateForwardAuthorizationTime(a, time, authorizationClock());
   };
   const recoveryPath = attempt + '/recovery', recoveryJournal = recoveryPath + '/journal';
@@ -395,7 +422,7 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
       actualLogs: readdirSync(ci + '/logs').filter(n => n.endsWith('.log')).sort(),
     });
     const state = hostState(), p = properties();
-    assertCollectorBinding(state);
+    assertCollectorBinding(state, a, parent.continuity, targetModule);
     const allowed = [PATHS.guard, PATHS.policy];
     const dropins = p.DropInPaths.split(' ').filter(Boolean);
     if (p.User !== 'servora-med' || p.Group !== 'servora-med' || p.FragmentPath !== PATHS.unit
@@ -458,7 +485,8 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
       if (!changing) {
         const fenced = state.done.has('FENCE') && !handoff;
         const expectedDropins = fenced ? [PATHS.guard, ...(!policyRemoved ? [PATHS.policy] : [])] : [];
-        const hasLoadedGate = /^\{ path=\/usr\/bin\/node ; argv\[\]=\/usr\/bin\/node \/usr\/local\/libexec\/servora-med-forward\/forward-host\.mjs start-gate ; ignore_errors=no ; [^}]*\}$/.test(p.ExecStartPre);
+        const hasLoadedGate = p.ExecStartPre.startsWith('{ path=/usr/bin/node ; argv[]=/usr/bin/node ' + PATHS.tool + '/forward-host.mjs start-gate ; ignore_errors=no ; ')
+          && p.ExecStartPre.endsWith(' }');
         if (p.NeedDaemonReload !== 'no' || !same(dropins, expectedDropins)
           || p.Restart !== (fenced && !policyRemoved ? 'no' : 'on-failure')
           || (fenced ? !hasLoadedGate : p.ExecStartPre !== '')
@@ -669,7 +697,16 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
       switch (op) {
         case 'OWNER': {
           if (existsSync(PATHS.owner)) assertOwner();
-          else publishExclusive(PATHS.owner, canonical({attemptId: a.attemptId, approvalSha256: authorizationSha256}));
+          else {
+            if (isContinuity(a)) {
+              // Preserve the predecessor grant under its immutable attempt so
+              // a future lineage can verify the exact authorization bytes.
+              mkdir(attempt);
+              preserveAttemptAuthorization({source: PATHS.root + '/authorization.json',
+                destination: attempt + '/authorization.json', expectedSha: authorizationSha256});
+            }
+            publishExclusive(PATHS.owner, canonical({attemptId: a.attemptId, approvalSha256: authorizationSha256}));
+          }
           return {owner: a.attemptId};
         }
         case 'PRE_BACKUP': case 'POST_BACKUP': {
@@ -735,16 +772,23 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
         }
         case 'COLLECTOR': {
           assertStopped(log[0].data.oldIdentity); assertBarrier(); tuple(a.target.releaseSha);
+          const targetModule = digest(readFileSync(releaseRoot(a.target.releaseSha) + '/ops/scripts/trusted-time.mjs'));
+          if (fileHash(PATHS.tool + '/trusted-time.mjs', {mode: 0o644}) !== targetModule) fail('FORWARD_HOST_TOOL_TARGET_MISMATCH');
+          const after = collectorExpectation(a, {complete: true, toolDir: PATHS.tool, targetModule, installed: PATHS.installed});
+          const before = collectorExpectation(a, {complete: false, toolDir: PATHS.tool, targetModule, installed: PATHS.installed});
           mkdir(dirname(PATHS.collectorDropin), 0o755);
-          if (!existsSync(PATHS.collectorDropin)) publishExclusive(PATHS.collectorDropin, COLLECTOR_TEXT);
-          else if (protectedBytes(PATHS.collectorDropin).toString() !== COLLECTOR_TEXT) fail('FORWARD_HOST_COLLECTOR_UNIT_DRIFT');
-          systemctl('daemon-reload');
-          // Prior socket instances have a sealed 3s lifetime + 1s stop budget.
-          // Do not restart Chrony, the socket, or the application.
-          await delay(4500);
-          assertCollectorBinding({...hostState(), pending: null, done: new Map([...hostState().done, ['COLLECTOR', pending]])});
-          return {moduleSha256: fileHash(PATHS.tool + '/trusted-time.mjs', {mode: 0o644}),
-            dropinSha256: fileHash(PATHS.collectorDropin), collectorUid: '_chrony'};
+          const currentText = existsSync(PATHS.collectorDropin) ? protectedBytes(PATHS.collectorDropin).toString() : null;
+          const plan = collectorSwitchPlan({currentText, oldText: before.text, newText: after.text});
+          if (plan.write) atomicReplaceFile({path: PATHS.collectorDropin, text: after.text, flush: flushDirectory});
+          if (plan.reload || properties().NeedDaemonReload !== 'no') systemctl('daemon-reload');
+          // A socket instance started before the switch may live for the sealed
+          // 3s runtime + 1s stop budget. Always drain the full bound, including
+          // on a resumed COLLECTOR_INTENT, before sealing COLLECTOR_DONE.
+          assertCollectorDrainBound();
+          await delay(COLLECTOR_DRAIN_MS);
+          if (fileHash(PATHS.tool + '/trusted-time.mjs', {mode: 0o644}) !== targetModule) fail('FORWARD_HOST_TOOL_TARGET_MISMATCH');
+          assertCollectorBinding({...hostState(), pending: null, done: new Map([...hostState().done, ['COLLECTOR', pending]])}, a, null, targetModule);
+          return {moduleSha256: targetModule, dropinSha256: fileHash(PATHS.collectorDropin), collectorUid: '_chrony'};
         }
         case 'START': {
           assertStopped(log[0].data.oldIdentity); assertBarrier(); tuple(a.target.releaseSha);
@@ -892,7 +936,7 @@ async function startGate() {
     || !/^[a-f0-9]{32}$/.test(process.env.INVOCATION_ID ?? '')
     || !readFileSync('/proc/self/cgroup', 'utf8').includes('/system.slice/servora-med.service')
     || !s.done.has('COLLECTOR')) fail('FORWARD_HOST_START_GATE_DENIED');
-  assertCollectorBinding(s);
+  assertCollectorBinding(s, a, null, digest(readFileSync(releaseRoot(a.target.releaseSha) + '/ops/scripts/trusted-time.mjs')));
   for (const path of [PATHS.owner, PATHS.barrier]) if (!same(protectedJson(path), {attemptId: a.attemptId, approvalSha256: authHash})) fail('FORWARD_HOST_START_GATE_DENIED');
   const ticket = protectedJson(PATHS.ticket);
   if (!same(ticket, {attemptId: a.attemptId, authorizationSha256: authHash, intentHash: pending.hash, slot: s.starts, bootId: bootId()})

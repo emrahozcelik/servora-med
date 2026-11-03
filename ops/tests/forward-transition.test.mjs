@@ -23,6 +23,11 @@ import {
   verifyForwardAcceptance,
   assertEmergencySupersession,
   forwardAuthorizationBinding,
+  CONTINUITY_KIND,
+  CONTINUITY_SCOPE,
+  CONTINUITY_RECOVERY_OUTCOME,
+  validateContinuityLineageStructure,
+  validateContinuityLineageBindings,
 } from '../scripts/forward-transition.mjs';
 
 const h = c => c.repeat(64);
@@ -729,4 +734,133 @@ test('FWD-29: a consumed grant requires the journal to exist and the observation
     () => validateForwardChain([...replay(TO_OBSERVATION_STARTED), late]),
     /FORWARD_TRANSITION_OBSERVATION_INVALID|FORWARD_TRANSITION_JOURNAL_INVALID/,
   );
+});
+
+
+// --- release continuity lineage (CONT-01..) --------------------------------
+const LIVE_RELEASE = 'c8efe8a7999f879683a62454ff74b2b649c4dee3';
+function predecessorGrant(overrides = {}) {
+  return authorization({
+    old: {releaseSha: OLD_RELEASE, artifactSha256: h('d'), schemaHead: HEAD, catalog: [...CATALOG]},
+    target: {releaseSha: LIVE_RELEASE, treeSha: TARGET_TREE, artifactSha256: h('e'),
+      ciManifestSha256: h('f'), schemaHead: HEAD, catalog: [...CATALOG]},
+    ...overrides,
+  });
+}
+function recoveryLineage(overrides = {}) {
+  return {
+    type: 'RECOVERY',
+    predecessorAttemptId: NEW_ATTEMPT,
+    predecessorAuthorizationSha256: h('1'),
+    predecessorToolHash: h('2'),
+    predecessorJournalHeadSha256: h('3'),
+    predecessorTerminalPhase: 'OBSERVATION_STARTED',
+    predecessorReleaseSha: LIVE_RELEASE,
+    predecessorArtifactSha256: h('e'),
+    predecessorCollectorModuleSha256: h('4'),
+    predecessorCollectorPath: '/usr/local/libexec/servora-med-forward/trusted-time.mjs',
+    recoveryAuthorizationSha256: h('5'),
+    recoveryJournalHeadSha256: h('6'),
+    recoveryReceiptSha256: h('7'),
+    recoveryOutcome: CONTINUITY_RECOVERY_OUTCOME,
+    ...overrides,
+  };
+}
+function continuityGrant(lineage, overrides = {}) {
+  return authorization({
+    formatVersion: 1,
+    kind: CONTINUITY_KIND,
+    scope: CONTINUITY_SCOPE,
+    authorizationId: '55555555-5555-4555-8555-555555555555',
+    attemptId: '44444444-4444-4444-8444-444444444444',
+    old: {releaseSha: LIVE_RELEASE, artifactSha256: h('e'), schemaHead: HEAD, catalog: [...CATALOG]},
+    target: {releaseSha: 'b'.repeat(40), treeSha: TARGET_TREE, artifactSha256: h('9'),
+      ciManifestSha256: h('8'), schemaHead: HEAD, catalog: [...CATALOG]},
+    lineage,
+    ...overrides,
+  });
+}
+function continuityFacts(lineage, overrides = {}) {
+  return {
+    toolHash: lineage.predecessorToolHash,
+    terminalPhase: lineage.predecessorTerminalPhase,
+    journalHead: lineage.predecessorJournalHeadSha256,
+    collectorModuleSha256: lineage.predecessorCollectorModuleSha256,
+    recovery: lineage.type === 'RECOVERY' ? {authorizationSha256: lineage.recoveryAuthorizationSha256,
+      journalHead: lineage.recoveryJournalHeadSha256, receiptSha256: lineage.recoveryReceiptSha256,
+      outcome: lineage.recoveryOutcome, mode: 'RESTORE_HEALTHY_TARGET', final: true, fallback: false,
+      ownerRetired: true} : undefined,
+    ...overrides,
+  };
+}
+
+test('CONT-01: a recovery continuity grant validates without changing the v2 format', () => {
+  const lineage = recoveryLineage();
+  const grant = continuityGrant(lineage);
+  assert.equal(validateForwardAuthorizationStructure(grant), grant);
+  assert.equal(validateContinuityLineageStructure(lineage), lineage);
+  assert.equal(validateContinuityLineageBindings(grant, predecessorGrant(), continuityFacts(lineage)), true);
+  assert.equal(validateForwardAuthorizationStructure(authorization()).formatVersion, 2);
+});
+
+test('CONT-02: missing, extra or contradictory lineage fields are rejected', () => {
+  for (const bad of [
+    {...recoveryLineage(), type: 'UNKNOWN'},
+    {...recoveryLineage(), recoveryOutcome: 'FORWARD_TARGET_POLICY_RESTORED'},
+    {...recoveryLineage(), predecessorTerminalPhase: 'ACCEPTED'},
+    {...recoveryLineage(), predecessorCollectorPath: '/tmp/trusted-time.mjs'},
+    {...recoveryLineage(), predecessorCollectorPath: '/usr/local/libexec/servora-med-forward-tools/' + 'a'.repeat(63) + '/trusted-time.mjs'},
+    {...recoveryLineage(), predecessorJournalHeadSha256: 'not-hex'},
+  ]) {
+    assert.throws(() => validateContinuityLineageStructure(bad), /FORWARD_TRANSITION_LINEAGE_INVALID/);
+  }
+  const missing = recoveryLineage(); delete missing.recoveryReceiptSha256;
+  assert.throws(() => validateContinuityLineageStructure(missing), /FORWARD_TRANSITION_LINEAGE_INVALID/);
+  const extra = recoveryLineage(); extra.acceptanceContractSha256 = h('a');
+  assert.throws(() => validateContinuityLineageStructure(extra), /FORWARD_TRANSITION_LINEAGE_INVALID/);
+  const self = continuityGrant(recoveryLineage({predecessorAttemptId: '44444444-4444-4444-8444-444444444444'}));
+  assert.throws(() => validateForwardAuthorizationStructure(self), /FORWARD_TRANSITION_LINEAGE_INVALID/);
+});
+
+test('CONT-03: cross-object bindings reject a changed predecessor, parent, host, artifact or collector', () => {
+  const lineage = recoveryLineage();
+  const grant = continuityGrant(lineage);
+  const facts = continuityFacts(lineage);
+  const predecessor = predecessorGrant();
+  assert.equal(validateContinuityLineageBindings(grant, predecessor, facts), true);
+  const variants = [
+    [predecessorGrant({target: {...predecessor.target, artifactSha256: h('0')}}), facts],
+    [predecessorGrant({parent: {...predecessor.parent, approvalSha256: h('0')}}), facts],
+    [predecessorGrant({host: {...predecessor.host, machineId: 'f'.repeat(32)}}), facts],
+    [predecessor, {...facts, journalHead: h('0')}],
+    [predecessor, {...facts, collectorModuleSha256: h('0')}],
+    [predecessor, {...facts, recovery: {...facts.recovery, outcome: 'FORWARD_FAILURE_FENCED_NOT_ACCEPTED'}}],
+    [predecessor, {...facts, recovery: {...facts.recovery, fallback: true}}],
+    [predecessor, {...facts, recovery: {...facts.recovery, ownerRetired: false}}],
+  ];
+  for (const [p, f] of variants) {
+    assert.throws(() => validateContinuityLineageBindings(grant, p, f), /FORWARD_TRANSITION_LINEAGE_MISMATCH/);
+  }
+  const reused = continuityGrant(lineage, {authorizationId: predecessor.authorizationId});
+  assert.throws(() => validateContinuityLineageBindings(reused, predecessor, facts), /FORWARD_TRANSITION_LINEAGE_MISMATCH/);
+});
+
+test('CONT-04: an accepted predecessor uses the same path with its own acceptance binding', () => {
+  const lineage = {...recoveryLineage(), type: 'ACCEPTED', predecessorTerminalPhase: 'ACCEPTED',
+    acceptanceContractSha256: h('a')};
+  delete lineage.recoveryAuthorizationSha256; delete lineage.recoveryJournalHeadSha256;
+  delete lineage.recoveryReceiptSha256; delete lineage.recoveryOutcome;
+  const facts = {toolHash: lineage.predecessorToolHash, terminalPhase: 'ACCEPTED',
+    journalHead: lineage.predecessorJournalHeadSha256,
+    collectorModuleSha256: lineage.predecessorCollectorModuleSha256,
+    acceptance: {contractSha256: lineage.acceptanceContractSha256, handoff: true, retire: true}};
+  const grant = continuityGrant(lineage);
+  assert.equal(validateContinuityLineageBindings(grant, predecessorGrant(), facts), true);
+  for (const bad of [
+    {...facts, acceptance: {...facts.acceptance, handoff: false}},
+    {...facts, acceptance: {...facts.acceptance, contractSha256: h('0')}},
+    {...facts, terminalPhase: 'OBSERVATION_STARTED'},
+  ]) assert.throws(() => validateContinuityLineageBindings(grant, predecessorGrant(), bad), /FORWARD_TRANSITION_LINEAGE_MISMATCH/);
+  assert.throws(() => validateContinuityLineageStructure({...lineage, acceptanceContractSha256: undefined}),
+    /FORWARD_TRANSITION_LINEAGE_INVALID/);
 });
