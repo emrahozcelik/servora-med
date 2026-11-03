@@ -17,6 +17,10 @@ export const CHRONY_CONFIG_SHA256 = '540e7dbc2091f128b0115d0cbab082c9cf360bab478
 export const MAX_REFERENCE_AGE_MS = 768000; // Three maximum 256-second polls.
 export const MAX_ROOT_DISTANCE_MS = 1000;
 export const MAX_CORRECTION_MS = 100;
+// chrony 4.5 ntpdata: "111 111 1111" is RFC 5905/9769 tests 1-3 and 5-7 plus
+// maximum-delay, delay-ratio, delay-dev-ratio/quantile and sync-loop tests.
+const NTP_TESTS_PASS = '111 111 1111';
+const NTP_TESTS_SHAPE = /^[01]{3} [01]{3} [01]{4}$/;
 const exact = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value,key));
 
@@ -139,10 +143,21 @@ export function parseSynchronization(tracking, sources, nowMs, details) {
     const entries = packet.data.trim().split('\n').map(row => row.split(/\s*:\s+/));
     if (entries.some(row => row.length !== 2) || new Set(entries.map(row => row[0].trim())).size !== entries.length) unknown();
     const data = Object.fromEntries(entries.map(([key,value]) => [key.trim(),value]));
+    // A source whose last response failed an RFC 5905/9769 test is not a
+    // trustworthy vote. The selected reference is never degradable; any other
+    // failing source is excluded and the remaining quorum (>= 2) is enforced
+    // below. Every other selection, authentication, age, distance and interval
+    // constraint is unchanged.
+    const tests = data['NTP tests'];
+    if (typeof tests !== 'string' || !NTP_TESTS_SHAPE.test(tests)) unknown();
+    if (tests !== NTP_TESTS_PASS) {
+      if (line[1] === '*') unknown();
+      continue;
+    }
     if (data['Remote address']?.split(' ')[0] !== packet.address || data['Remote port'] !== '123'
       || (line[1] === '*' && !data['Remote address'].endsWith(' ('+fields[0].toUpperCase()+')'))
       || data['Authenticated'] !== 'Yes' || data['Version'] !== '4' || data['Mode'] !== 'Server'
-      || data['Leap status'] !== 'Normal' || data['NTP tests'] !== '111 111 1111'
+      || data['Leap status'] !== 'Normal'
       || !/^[1-9][0-9]*$/.test(data['Total good RX'] ?? '')) unknown();
     selectable.push(name);
   }
