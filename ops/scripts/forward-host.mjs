@@ -17,7 +17,8 @@ import {runFailureRecovery, validateRecoveryLog, recoveryDigest} from './forward
 import {assertEmergencySupersession, validateForwardAuthorizationStructure, validateForwardAuthorizationTime,
   FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 import {validateEmergencyHandoffChain} from './emergency-handoff.mjs';
-import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions, verifyForwardParentBackups} from './forward-host-evidence.mjs';
+import {digest, seal, verifyForwardCIPackage, verifyObservationProof, forwardCIEntryOptions, verifyForwardParentBackups,
+  verifyReleaseArchive} from './forward-host-evidence.mjs';
 import {sampleTrustedTime, elapsedTime, READER_UNIT_SHA256, READER_SOCKET_UNIT_SHA256,
   validateTimeModuleContract, validateReaderSocketMetadata} from './trusted-time.mjs';
 import {canonical, protectedBytes, protectedJson, trustedParents, flushDirectory,
@@ -185,11 +186,15 @@ function verifyRelease(release) {
     else fail('FORWARD_HOST_RELEASE_UNTRUSTED');
   };
   walk('.');
-  entries.sort((a, b) => Buffer.compare(Buffer.from(a.slice(0, a.indexOf(' ', 2) < 0 ? a.length : a.indexOf(' ', 2))), Buffer.from(b.slice(0, b.indexOf(' ', 2) < 0 ? b.length : b.indexOf(' ', 2)))));
+  entries.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
   if (protectedBytes(directory + '/.servora-release-content.sha256').toString() !== entries.join('\n') + '\n') fail('FORWARD_HOST_RELEASE_CONTENT_DRIFT');
-  // Do not trust a self-reported installed manifest: compare bytes with the
-  // retained, grant-hashed archive. Archive reads never execute release code.
-  execute('/usr/bin/tar', ['--compare', '--gzip', '--file', PATHS.state + '/artifacts/' + release.releaseSha + '.tar.gz', '--directory', directory], {timeout: 120000});
+  // Do not trust a self-reported installed manifest: bind the installed tree to
+  // the retained, grant-hashed archive by content. Canonical staging normalizes
+  // owner/mode, so the archive's tar metadata cannot prove identity.
+  verifyReleaseArchive({
+    archive: PATHS.state + '/artifacts/' + release.releaseSha + '.tar.gz',
+    expectedManifest: entries.join('\n') + '\n',
+  });
   const migrations = directory + '/server/dist/db/migrations';
   const catalog = readdirSync(migrations).filter(n => /^\d{3}_[a-z0-9_]+\.sql$/.test(n)).sort().map(name => ({version: name.slice(0, -4), sha256: digest(readFileSync(join(migrations, name)))}));
   if (catalog.length !== 60 || catalog.at(-1).version !== HEAD || !same(catalog, release.catalog) || release.schemaHead !== HEAD) fail('FORWARD_HOST_CATALOG_INVALID');
