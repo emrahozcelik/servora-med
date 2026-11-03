@@ -1,10 +1,75 @@
 // Forward-only host evidence validation.
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {chmodSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync,
+  realpathSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {elapsedTime, validateCurrentTimeEvidence} from './trusted-time.mjs';
 import {FORWARD_OBSERVATION_SECONDS, FORWARD_OBSERVATION_MIN_SAMPLES} from './forward-transition.mjs';
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const seal = body => ({...body, hash: digest(JSON.stringify(body) + '\n')});
 const fail = code => { throw new Error(code); };
+// Canonical staging excludes these two sidecars at any depth.
+const SIDECARS = ['.servora-release-artifact.sha256', '.servora-release-content.sha256'];
+
+/** Reproduce `release_content_manifest()` from deploy-production-host.sh:
+ * `f ./path <sha256>`, `l ./path <target>`, `d ./path`, LC_ALL=C sorted by
+ * whole line. Only regular single-link files, directories and in-root symlinks
+ * are accepted; anything else is untrusted. */
+export function releaseContentManifest(root) {
+  const base = realpathSync(root), entries = [];
+  const walk = relative => {
+    const path = join(root, relative), info = lstatSync(path);
+    const name = relative === '.' ? '.' : './' + relative;
+    if (info.isSymbolicLink()) {
+      if (!realpathSync(path).startsWith(base + '/')) fail('FORWARD_HOST_ARCHIVE_UNTRUSTED');
+      entries.push('l ' + name + ' ' + readlinkSync(path));
+    } else if (info.isDirectory()) {
+      if (relative !== '.') entries.push('d ' + name);
+      for (const child of readdirSync(path)) {
+        if (SIDECARS.includes(child)) continue;
+        if (/[\r\n]/.test(child)) fail('FORWARD_HOST_ARCHIVE_UNTRUSTED');
+        walk(relative === '.' ? child : relative + '/' + child);
+      }
+    } else if (info.isFile() && info.nlink === 1) entries.push('f ' + name + ' ' + digest(readFileSync(path)));
+    else fail('FORWARD_HOST_ARCHIVE_UNTRUSTED');
+  };
+  walk('.');
+  entries.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return entries.join('\n') + '\n';
+}
+
+/** Bind the retained, grant-hashed release archive to the installed release by
+ * CONTENT, not by tar metadata. Canonical staging extracts with
+ * `--no-same-owner --no-same-permissions` and then applies
+ * `set_release_permissions`, so uid/gid/mode legitimately differ from the
+ * archive. The archive is extracted into a private root-only directory and
+ * compared against the release's own `release_content_manifest()` output.
+ * Release code is never executed and the temporary tree is always removed. */
+export function verifyReleaseArchive({archive, expectedManifest, tar = '/usr/bin/tar',
+  run = (file, args) => execFileSync(file, args, {timeout: 120000, maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'], env: {PATH: '/usr/local/bin:/usr/bin:/bin', LC_ALL: 'C'}})}) {
+  // Reject traversal names before any root extraction. GNU tar also refuses
+  // `..` members, but the archive contract is checked here explicitly.
+  const names = run(tar, ['--list', '--gzip', '--file', archive]).toString().split('\n').filter(Boolean);
+  for (const name of names) {
+    if (/[\r\n]/.test(name) || name.startsWith('/') || name.replace(/^\.\//, '').split('/').includes('..')) {
+      fail('FORWARD_HOST_ARCHIVE_UNTRUSTED');
+    }
+  }
+  const root = mkdtempSync(join(tmpdir(), 'servora-release-verify-'));
+  try {
+    chmodSync(root, 0o700);
+    if (readdirSync(root).length) fail('FORWARD_HOST_ARCHIVE_UNTRUSTED');
+    run(tar, ['--extract', '--gzip', '--file', archive, '--directory', root,
+      '--no-same-owner', '--no-same-permissions', '--no-overwrite-dir']);
+    if (releaseContentManifest(root) !== expectedManifest) fail('FORWARD_HOST_RELEASE_CONTENT_DRIFT');
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+  return true;
+}
 
 /** Match the existing forward dump bound, only for the sealed parent's two
  * receipts. The supplied protected reader retains every metadata check. */

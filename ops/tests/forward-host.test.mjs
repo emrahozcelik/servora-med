@@ -611,3 +611,95 @@ for (const event of ['POLICY_DONE', 'HANDOFF_INTENT', 'HANDOFF_DONE', 'RETIRE_IN
     adapter.validateHostLog(f.log, f.authorization, f.log[0].authorizationSha256, f.io.toolHash);
   });
 }
+
+// --- release archive content binding (RELEASE-CONTENT-01..07) ---------------
+// Canonical staging extracts with --no-same-owner --no-same-permissions and
+// then applies set_release_permissions, so the installed tree never carries the
+// archive's uid/gid/mode. Identity must come from release_content_manifest().
+const GNU_TAR = /GNU tar/.test(spawnSync('/usr/bin/tar', ['--version'], {encoding: 'utf8'}).stdout || '');
+const SKIP_NO_GNU_TAR = !GNU_TAR && 'GNU tar required';
+
+function releaseSource(t) {
+  const root = mkdtempSync(join(tmpdir(), 'servora-release-src-'));
+  t.after(() => rmSync(root, {recursive: true, force: true}));
+  mkdirSync(join(root, 'dir'));
+  writeFileSync(join(root, 'a.txt'), 'alpha\n');
+  writeFileSync(join(root, 'dir', 'b.txt'), 'beta\n');
+  symlinkSync('a.txt', join(root, 'link'));
+  chmodSync(join(root, 'a.txt'), 0o644);
+  chmodSync(join(root, 'dir', 'b.txt'), 0o644);
+  return root;
+}
+function pack(t, root) {
+  const holder = mkdtempSync(join(tmpdir(), 'servora-release-arc-'));
+  t.after(() => rmSync(holder, {recursive: true, force: true}));
+  const archive = join(holder, 'release.tar.gz');
+  const built = spawnSync('/usr/bin/tar', ['--create', '--gzip', '--file', archive, '-C', root, '.'], {encoding: 'utf8'});
+  assert.equal(built.status, 0, built.stderr);
+  return archive;
+}
+function staged(root) {
+  for (const entry of readdirSync(root, {withFileTypes: true})) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) { chmodSync(path, 0o750); for (const n of readdirSync(path)) chmodSync(join(path, n), 0o640); }
+    else if (entry.isFile()) chmodSync(path, 0o640);
+  }
+}
+
+test('RELEASE-CONTENT-01: manifest format matches the canonical shell algorithm', t => {
+  const root = releaseSource(t);
+  const manifest = evidence.releaseContentManifest(root);
+  assert.match(manifest, /^d \.\/dir\nf \.\/a\.txt [a-f0-9]{64}\nf \.\/dir\/b\.txt [a-f0-9]{64}\nl \.\/link a\.txt\n$/);
+});
+
+test('RELEASE-CONTENT-02: normalized owner/mode does not break archive binding', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t), archive = pack(t, root);
+  staged(root);
+  assert.equal(evidence.verifyReleaseArchive({archive, expectedManifest: evidence.releaseContentManifest(root)}), true);
+});
+
+test('RELEASE-CONTENT-03: changed file content is rejected', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t);
+  const expected = evidence.releaseContentManifest(root);
+  writeFileSync(join(root, 'a.txt'), 'tampered\n');
+  const archive = pack(t, root);
+  assert.throws(() => evidence.verifyReleaseArchive({archive, expectedManifest: expected}), /FORWARD_HOST_RELEASE_CONTENT_DRIFT/);
+});
+
+test('RELEASE-CONTENT-04: an extra archive entry is rejected', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t);
+  const expected = evidence.releaseContentManifest(root);
+  writeFileSync(join(root, 'extra.txt'), 'extra\n');
+  assert.throws(() => evidence.verifyReleaseArchive({archive: pack(t, root), expectedManifest: expected}), /FORWARD_HOST_RELEASE_CONTENT_DRIFT/);
+});
+
+test('RELEASE-CONTENT-05: escaping symlink in the archive is rejected', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t);
+  const expected = evidence.releaseContentManifest(root);
+  symlinkSync('/etc/hostname', join(root, 'escape'));
+  assert.throws(() => evidence.verifyReleaseArchive({archive: pack(t, root), expectedManifest: expected}), /FORWARD_HOST_ARCHIVE_UNTRUSTED/);
+});
+
+test('RELEASE-CONTENT-06: hard link and special file are rejected', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t);
+  const expected = evidence.releaseContentManifest(root);
+  linkSync(join(root, 'a.txt'), join(root, 'hard.txt'));
+  assert.throws(() => evidence.verifyReleaseArchive({archive: pack(t, root), expectedManifest: expected}), /FORWARD_HOST_ARCHIVE_UNTRUSTED/);
+
+  const fifoRoot = releaseSource(t);
+  const fifoExpected = evidence.releaseContentManifest(fifoRoot);
+  assert.equal(spawnSync('mkfifo', [join(fifoRoot, 'pipe')]).status, 0);
+  assert.throws(() => evidence.verifyReleaseArchive({archive: pack(t, fifoRoot), expectedManifest: fifoExpected}), /FORWARD_HOST_ARCHIVE_UNTRUSTED/);
+});
+
+test('RELEASE-CONTENT-07: traversal member name is rejected before extraction', {skip: SKIP_NO_GNU_TAR}, t => {
+  const root = releaseSource(t);
+  const expected = evidence.releaseContentManifest(root);
+  const holder = mkdtempSync(join(tmpdir(), 'servora-release-arc-'));
+  t.after(() => rmSync(holder, {recursive: true, force: true}));
+  const archive = join(holder, 'release.tar.gz');
+  const built = spawnSync('/usr/bin/tar', ['--create', '--gzip', '--file', archive, '-C', root,
+    '--transform', 's,^\\./,../,', '.'], {encoding: 'utf8'});
+  assert.equal(built.status, 0, built.stderr);
+  assert.throws(() => evidence.verifyReleaseArchive({archive, expectedManifest: expected}), /FORWARD_HOST_ARCHIVE_UNTRUSTED/);
+});
