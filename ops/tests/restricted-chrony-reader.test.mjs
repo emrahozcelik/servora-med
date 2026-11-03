@@ -88,6 +88,15 @@ test('installed collector keeps the strict root-owned module contract',()=>{
  assert.equal(time.validateTimeModuleContract(INSTALLED_MODULE,installedFile(),installedAncestors(),RELEASE_GID),'installed');
 });
 
+test('forward collector accepts only its separately authorized fixed root-owned path',()=>{
+ const path='/usr/local/libexec/servora-med-forward/trusted-time.mjs';
+ assert.equal(time.validateTimeModuleContract(path,installedFile(),installedAncestors(),RELEASE_GID),'installed');
+ for(const file of [installedFile({uid:1}),installedFile({gid:RELEASE_GID}),installedFile({mode:0o664}),installedFile({nlink:2})])
+  assert.throws(()=>time.validateTimeModuleContract(path,file,installedAncestors(),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+ for(const other of ['/usr/local/libexec/servora-med-forward-other/trusted-time.mjs','/tmp/servora-med-forward/trusted-time.mjs'])
+  assert.throws(()=>time.validateTimeModuleContract(other,installedFile(),installedAncestors(),RELEASE_GID),/TRUSTED_TIME_UNKNOWN/);
+});
+
 test('release-path sampler denies writable, foreign or non-release modules',()=>{
  for(const path of [
   '/opt/servora-med/releases/'+'a'.repeat(39)+'/ops/scripts/trusted-time.mjs',

@@ -2281,3 +2281,53 @@ snapshot is introduced. Exact installation/effective unit contracts, new-source
 CI/artifact and isolated UID/sandbox/reboot/continuation acceptance remain gates.
 This amendment does not authorize production connection, config/service/clock
 change, root issuance, deployment, migration, restore or backup trigger.
+
+### Issue369 forward-only collector path amendment (2026-11-01)
+
+Owner-authorized **source and targeted-test scope only** extends the restricted
+reader to one additional fixed installed path:
+`/usr/local/libexec/servora-med-forward/trusted-time.mjs`. It uses the existing
+root:root 0644, single-link and protected-ancestor contract. Arbitrary
+caller-selected paths/endpoints remain forbidden. The release-path contract
+remains root:servora-med 0650 under its existing 0750 directories.
+
+The forward adapter must not overwrite the sealed R4 installed module/profile.
+Its manifested collector bytes must equal the exact TARGET module bytes. A
+separate, exact template drop-in selects the new path only under a durable
+collector intent within `ACTIVATE_INTENT`, with the admitted owner, current DB060
+proof and stopped OLD. TARGET start requires that collector result and effective
+unit/module/socket verification. Base units, `_chrony` UID, empty capabilities,
+sandbox, nonce protocol, source policy, quality, deadlines and evidence formats
+remain unchanged. Client/collector module hashes still match exactly.
+
+The collector selection remains after accepted forward handback; old R4 files
+remain read-only history. Unknown/foreign selection, interrupted publication and
+module/socket drift fail closed; no weaker proof or old-collector fallback is
+authorized. Issuance, installation and production changes remain separately
+gated. This is not genuine NTS/1800-second acceptance or PRODUCTION_GO.
+
+### Issue369 failed forward observation recovery (2026-11-02)
+
+Owner-authorized source implementation and disposable targeted tests introduce
+the [separate failure-recovery contract](docs/operations/forward-only-failure-recovery.md).
+The deployment grant never authorizes its own failed-observation unfencing.
+An exact snapshot/journal/tool/original-grant-bound, one-use root recovery grant
+may restore normal policy for the same healthy TARGET, or close the attempt
+fenced without starting/rolling back a release. Explicit `onFailure=CLOSE_FENCED`
+may only narrow that separate recovery authority if restoration loses its
+healthy process. Unknown processes are not automatically stopped or restarted.
+Recovery has its own durable intents, journal, sealed NOT_ACCEPTED outcome and
+owner custody/retirement rules; original deployment slots and history stay
+unchanged. Any recovery intent revokes even an armed deployment start permit.
+
+Backup503 and Trusted Time UNKNOWN remain failed/unknown. They cannot create
+release acceptance or observation time. R4/emergency sealed history, TT-A
+thresholds, exact060/migration-free rules and independent release evidence are
+unchanged. No production issuer, installation, start, restart, stop, deployment,
+clock/config change or release authorization is granted. Production NO-GO.
+
+Before STOP_INTENT only, a separate `RELEASE_UNCHANGED_OLD` recovery grant may
+seal failure and retire the failed attempt owner while the exact healthy OLD,
+pointer/environment and existing on-failure policy remain unchanged. It cannot
+undo a cutover or authorize any service operation. This also covers predeploy
+backup failure without stranding the protected OLD behind an active owner.
