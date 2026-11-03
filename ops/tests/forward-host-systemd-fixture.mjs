@@ -190,11 +190,26 @@ export function reset(saved) {
 }
 /** Synthetic issuance data only. Positive CLI admission/START still require
  * the real restricted sampler; these fixture values cannot replace it. */
+const SYNTHETIC_TIME_BASE = {
+  boot: Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000,
+  wall: Date.now(),
+};
 export function fixtureTime() {
+  const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+  const timeNamespaceId = readlinkSync('/proc/self/ns/time');
+  if (process.env.FORWARD_FIXTURE_SYNTHETIC_TIME === '1') {
+    // A stable wall/boot mapping removes NTS source-report timing from the
+    // fixture. The bounds stay below the real monotonic clock so the live
+    // authorization clock can still bracket the publication point.
+    const wall = Date.now();
+    const boot = Math.max(0, Math.floor(SYNTHETIC_TIME_BASE.boot + (wall - SYNTHETIC_TIME_BASE.wall)));
+    return timeEvidenceAt(wall, {bootId, timeNamespaceId,
+      bootLowerMs: Math.max(0, boot - 10000), bootUpperMs: Math.max(0, boot - 1000)});
+  }
   const before = Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
   const wall = Date.now(), after = Number(readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 1000;
-  return timeEvidenceAt(wall, {bootId: readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(),
-    timeNamespaceId: readlinkSync('/proc/self/ns/time'), bootLowerMs: Math.max(0, Math.floor(before) - 10), bootUpperMs: Math.ceil(after) + 10});
+  return timeEvidenceAt(wall, {bootId, timeNamespaceId,
+    bootLowerMs: Math.max(0, Math.floor(before) - 10), bootUpperMs: Math.ceil(after) + 10});
 }
 /** Keep raw grants/journals/dumps inside the same private disposable VM.
  * This is not an export or deployment evidence bundle. */
@@ -234,13 +249,19 @@ export function recoveryFixtureGrant(a, mode = 'RESTORE_HEALTHY_TARGET') {
     toolHash: JSON.parse(readFileSync(PATHS.tool + '/manifest.json')).hash, snapshotSha256: recoveryDigest(snapshot)};
   write(attempt + '/recovery-authorization.json', canonical(grant)); return grant;
 }
-export function fault(point, command = 'apply') {
-  assert.match(point, /^[A-Za-z0-9_-]+$/);
+export function faultScript(point, command = 'apply', extraEnv = {}) {
+  assert.ok(point === '' || /^[A-Za-z0-9_-]+$/.test(point));
   assert.ok(['apply', 'smoke', 'finish', 'status', 'preflight', 'observe', 'recover', 'recovery-status'].includes(command));
-  const script = 'exec 9<>/var/lib/servora-med/deploy/host.lock\n/usr/bin/flock -n 9 || exit 90\n' +
+  const extra = Object.entries(extraEnv).map(([key, value]) => {
+    assert.match(key, /^[A-Z][A-Z0-9_]*$/); assert.doesNotMatch(String(value), /[\s'\"]/);
+    return key + '=' + value;
+  }).join(' ');
+  return 'exec 9<>/var/lib/servora-med/deploy/host.lock\n/usr/bin/flock -n 9 || exit 90\n' +
     'exec /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin SERVORA_FORWARD_LOCKED=1 SERVORA_FORWARD_LOCK_FD=9 ' +
-    'FORWARD_FIXTURE_FAULT=' + point + ' /usr/bin/node --import=' + SOURCE + '/ops/tests/forward-host-fault-preload.mjs ' + PATHS.tool + '/forward-host.mjs ' + command;
-  return spawnSync('/usr/bin/bash', ['-c', script], {encoding: 'utf8', timeout: 240000});
+    'FORWARD_FIXTURE_FAULT=' + point + (extra ? ' ' + extra : '') + ' /usr/bin/node --import=' + SOURCE + '/ops/tests/forward-host-fault-preload.mjs ' + PATHS.tool + '/forward-host.mjs ' + command;
+}
+export function fault(point, command = 'apply', extraEnv = {}) {
+  return spawnSync('/usr/bin/bash', ['-c', faultScript(point, command, extraEnv)], {encoding: 'utf8', timeout: 240000});
 }
 export function assertImmutable(saved) { assert.deepEqual(immutableSnapshot(), saved.immutable); }
 export function readOnlySnapshot() {

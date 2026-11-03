@@ -1,9 +1,9 @@
 # Forward release continuity (post-recovery and accepted releases)
 
-Status: **implementation and targeted contract/unit tests prepared; real
-systemd socket-activation handoff proof is NOT_RUN in Local CI. Production
-authorization, tool installation, collector switch and deployment remain a
-separate, explicitly approved operation.**
+Status: **implementation, targeted contract/unit tests, and the real
+`FHOST-CONT-01` systemd socket-activation handoff on the disposable guest PASS.
+Production authorization, tool installation, collector switch, start gate,
+observation and deployment remain a separate, explicitly approved operation.**
 
 This document owns the transition after a forward attempt ended without
 acceptance (recovery `FORWARD_TARGET_POLICY_RESTORED_NOT_ACCEPTED`) and every
@@ -114,10 +114,46 @@ effect: the drop-in is either predecessor or target (never partial), the drain
 is repeated, and the receipt is sealed only after the binding and target module
 hash match. There is no rollback and no second handoff.
 
-The real socket-activation/drop-in/drain test (`FHOST-CONT-01`) runs only on the
-named disposable systemd guest; Local CI proves the contract, atomic decision,
-hash binding and drain bound, not the live socket race. Until that guest test
-passes, the handoff is **NOT_ACCEPTED for production**.
+### 4.1 FHOST-CONT-01 evidence (disposable guest)
+
+`FHOST-CONT-01` ran on the existing disposable `servora-eh-20261101` guest
+(hostname `lima-servora-r4-20261012`, systemd 255, Node 22.23.4, PostgreSQL 17),
+not on production. It installs the versioned tool under
+`/usr/local/libexec/servora-med-forward-tools/<hash>/` and uses the real
+`servora-med-time-evidence.socket`/`@.service` template with
+`RuntimeMaxSec=3` and `TimeoutStopSec=1`.
+
+| Scenario | Result |
+| --- | --- |
+| `FHOST-CONT-01A` predecessor in flight, atomic drop-in, daemon-reload, 4500 ms drain | PASS |
+| `FHOST-CONT-01B` foreign drop-in, altered/missing target module | PASS (fail-closed) |
+| `FHOST-CONT-01C` interrupted during drain, resume/reconcile | PASS |
+| `FHOST-CONT-01D` interrupted after rename, before daemon-reload | PASS |
+
+Key A-run values:
+
+```text
+predecessor module path   /usr/local/libexec/servora-med-forward/trusted-time.mjs
+predecessor module SHA-256 a0c41b8035e29b671e33eb818b465fccb612809ce433e00f4cfc5fc67e22e40f
+target module path        /usr/local/libexec/servora-med-forward-tools/56ca585f…/trusted-time.mjs
+target module SHA-256     d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab
+old unit lifetime         3128.869 ms (inside 3000 + 1000 ms)
+seal after daemon-reload  4504.322 ms
+effective ExecStart       --no-addons .../servora-med-forward-tools/56ca585f…/trusted-time.mjs --collect-chrony
+```
+
+The predecessor process stayed alive with its original argv across the
+`daemon-reload`; a new connection started on the target path; the predecessor
+was gone before the drain ended. The resumed C/D runs produced exactly one
+`COLLECTOR_INTENT` and one `COLLECTOR_DONE`, no observation, no new start slot,
+and unchanged grant bytes. C resumed to `COLLECTOR_DONE` in 16.3 s; D in 15.9 s.
+The raw JSON is retained at `parent-backup-bound-release/fhost-cont-01/`.
+
+The real `ExecStartPre` start gate and the 1,800-second observation were **not**
+part of this collector test. The start gate's NTS sample depends on the guest's
+live chrony source set and is a separate production activation condition. This
+result closes the collector-handoff gate only; it does **not** authorize a
+production transition.
 
 ## 5. First continuity preparation (c8efe8a)
 
