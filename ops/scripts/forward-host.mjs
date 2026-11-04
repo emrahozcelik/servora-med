@@ -691,7 +691,8 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
     },
     reconcileRecovery: async (op, data, records) => io.recoveryEffect(op, data, records),
     effect: async (op, data, log) => {
-      assertOwner(op === 'OWNER');
+      // RETIRE may resume after its unlink; its terminal intent is checked below.
+      assertOwner(op === 'OWNER' || op === 'RETIRE');
       const pending = log.at(-1);
       if (pending.event !== op + '_INTENT') fail('FORWARD_HOST_INTENT_REQUIRED');
       switch (op) {
@@ -881,18 +882,23 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
           }
           return {restart: 'on-failure', startGate: 'REMOVED', normalRuntimeStart: runtimeStart,
             identity: processRelease(a.target.releaseSha)};
-        case 'RETIRE':
-          if (!hostState().done.has('HANDOFF') || existsSync(PATHS.barrier) || existsSync(PATHS.guard)
+        case 'RETIRE': {
+          const state = hostState();
+          if (state.contract?.phase !== 'ACCEPTED' || state.pending?.event !== 'RETIRE_INTENT'
+            || state.pending.hash !== pending.hash || !state.done.has('HANDOFF')
+            || existsSync(PATHS.barrier) || existsSync(PATHS.guard)
             || existsSync(PATHS.policy) || existsSync(PATHS.permit) || existsSync(PATHS.ticket)
             || properties().Restart !== 'on-failure') fail('FORWARD_HOST_RETIREMENT_INVALID');
-          assertOwner(); unlinkSync(PATHS.owner); flushDirectory(PATHS.state); return {ownerRetired: true};
+          if (existsSync(PATHS.owner)) { assertOwner(); unlinkSync(PATHS.owner); flushDirectory(PATHS.state); }
+          return {ownerRetired: true};
+        }
         default: fail('FORWARD_HOST_OPERATION_INVALID');
       }
     },
     reconcile: async (op, pending, log) => {
       // These operations re-observe or align the exact intended destination.
       // Backups/observation require their own already-published sealed result.
-      if (['OWNER', 'FENCE', 'STOP', 'ENV', 'POINTER', 'COLLECTOR', 'POLICY', 'HANDOFF'].includes(op)) return io.effect(op, pending.data, log);
+      if (['OWNER', 'FENCE', 'STOP', 'ENV', 'POINTER', 'COLLECTOR', 'POLICY', 'HANDOFF', 'RETIRE'].includes(op)) return io.effect(op, pending.data, log);
       if (op === 'START') {
         const result = gateResult(pending); // never systemctl start twice
         for (const path of [PATHS.permit, PATHS.ticket]) if (existsSync(path)) {
@@ -911,7 +917,6 @@ export async function createHostIO(a, check = async () => {}, {recovery = false}
         const proof = protectedJson(attempt + '/observation.json', {limit: 1024 * 1024});
         await io.verifyObservation(proof, log); return proof;
       }
-      if (op === 'RETIRE' && !existsSync(PATHS.owner)) return {ownerRetired: true};
       fail('FORWARD_HOST_OUTCOME_UNKNOWN');
     },
   };

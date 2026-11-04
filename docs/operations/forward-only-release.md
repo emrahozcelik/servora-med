@@ -154,6 +154,19 @@ reuse of deployment activation slots. Current health/schema/backup checks still
 gate owner retirement. Historical accepted backup receipts retain their bytes;
 they do not become fresh new-boot observation evidence.
 
+Interrupted `RETIRE_INTENT` resumes the same normal retirement effect. It
+revalidates the accepted journal, exact pending intent, `HANDOFF_DONE`, current
+owner binding when present, absent guard/barrier/policy/permit/ticket and normal
+restart policy. Owner absence alone is not proof of retirement. A crash before
+unlink or before `RETIRE_DONE` must append that result once, preserving sealed
+acceptance, consumed authorization, backup/observation history and start slots.
+`ops/tests/forward-host-retirement.test.mjs` exercises the real `createHostIO`
+effect/reconcile against private files and a read-only systemctl boundary.
+Linux CI checks the exact `9e417f4` baseline RED before the repaired suite GREEN;
+it does not perform real systemd, reboot, production or 1,800-second acceptance.
+This source correction does not invalidate the historical accepted `9e417f4`
+release or authorize deployment of the correction.
+
 There is **no automatic rollback**. A failed transition records the last safe
 phase and stops; an operator decides between completing forward and an
 explicitly authorized recovery. A rollback that rewrites the release pointer
