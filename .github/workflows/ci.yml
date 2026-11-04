@@ -53,6 +53,24 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
+      - name: interrupted RETIRE real adapter RED and GREEN
+        run: |
+          set -Eeuo pipefail
+          RETIRE_BASELINE_DIR="$(mktemp -d)"
+          trap 'rm -r -- "$RETIRE_BASELINE_DIR"' EXIT
+          git -C .. fetch --no-tags --depth=1 origin 9e417f4d57cd31d57554cde095d23514fd5ae38d
+          git -C .. archive 9e417f4d57cd31d57554cde095d23514fd5ae38d ops | tar -x -C "$RETIRE_BASELINE_DIR"
+          cp ../ops/tests/forward-host-retirement.test.mjs "$RETIRE_BASELINE_DIR/ops/tests/"
+          set +e
+          sudo "$(command -v node)" --test --test-name-pattern='^real host RETIRE reconciliation finishes an interrupted owner removal$' \
+            "$RETIRE_BASELINE_DIR/ops/tests/forward-host-retirement.test.mjs" > "$RETIRE_BASELINE_DIR/red.log" 2>&1
+          RETIRE_RED_EXIT=$?
+          set -e
+          cat "$RETIRE_BASELINE_DIR/red.log"
+          test "$RETIRE_RED_EXIT" -eq 1
+          grep -q 'FORWARD_HOST_OUTCOME_UNKNOWN' "$RETIRE_BASELINE_DIR/red.log"
+          grep -q 'Object.reconcile' "$RETIRE_BASELINE_DIR/red.log"
+          sudo "$(command -v node)" --test ../ops/tests/forward-host-retirement.test.mjs
       - run: |
           bash -n \
             ../ops/scripts/backup-postgres.sh \
