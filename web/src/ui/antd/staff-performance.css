@@ -25,7 +25,7 @@
 .staff-performance-mobile-sort select { width: 100%; min-width: 0; min-height: 44px; padding: .6rem; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius-control); font: inherit; }
 .staff-performance-comparison { container: staff-comparison / inline-size; }
 .staff-performance-mobile-sort button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
-@container staff-comparison (max-width: 52rem) {
+@container staff-comparison (max-width: 40rem) {
   .staff-performance-comparison .staff-performance-desktop { display: none; }
   .staff-performance-comparison .staff-performance-mobile { display: block; }
 }
