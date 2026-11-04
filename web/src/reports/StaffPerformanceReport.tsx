@@ -219,11 +219,11 @@ export function StaffPerformanceReport() {
           <div className="staff-performance-results-heading">
             <div>
               <h2 id="staff-performance-period">
-                Personel operasyon analizi — {performanceRangeLabel(report)}
+                Ekip görünümü — {performanceRangeLabel(report)}
               </h2>
               <p>
-                Şu an bölümü mevcut aksiyon kuyruklarını ve iş türü dağılımını; seçilen dönem
-                bölümü ise yönetici onaylı tamamlanmaları ve kayıtlı operasyon kanıtlarını gösterir.
+                Tamamlanan işler seçilen dönemi; açık işler, onay ve düzeltme kuyrukları mevcut durumu gösterir.
+                İş türleri ve gönderim kayıtları için personelin ayrıntılarını açın.
               </p>
               <p className="staff-performance-prior-range">
                 Önceki dönem: {priorRangeLabel(report)}

@@ -15,6 +15,22 @@ export type ResolvedReportRange = Readonly<{
   timezone: string;
 }>;
 
+export type BusinessTrendCounts = { visits: number; followUps: number; sales: number };
+export type BusinessTrendReportResponse = {
+  range: ResolvedReportRange;
+  asOf: string;
+  observedThrough: string | null;
+  partialDay: boolean;
+  totals: BusinessTrendCounts;
+  points: Array<BusinessTrendCounts & { date: string }>;
+  comparison: { range: ResolvedReportRange; totals: BusinessTrendCounts } | null;
+  relationships: {
+    visitsWithFollowUp: number;
+    visitsWithSale: number;
+    followUpsWithSale: number;
+  };
+};
+
 export type StaffOperationalCounters = Readonly<{
   openJobCards: number;
   waitingApproval: number;

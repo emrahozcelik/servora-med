@@ -50,7 +50,7 @@ export function ReportNavigation({
 
 export function ReportRefreshStatus({ label }: { label: string | null }) {
   if (!label) return null;
-  return <p className="report-refresh-status">Son yenileme: {label}</p>;
+  return <span className="report-refresh-status">Son yenileme: {label}</span>;
 }
 
 export function ReportEmptyState({
@@ -250,7 +250,7 @@ export function ReportShell({
   return (
     <main className="workspace report-workspace">
       <PageHeader fallbackTitle={_title}
-        description={<>{description ? <p className="report-intro">{description}</p> : null}
+        description={<>{description ? <span className="report-intro">{description}</span> : null}
           {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}</>}
         actions={<ReportNavigation current={current} range={range} />}
       />

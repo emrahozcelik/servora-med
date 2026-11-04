@@ -61,10 +61,10 @@ describe('Reports dashboard presentation', () => {
     const html = render(<ReportsDashboardView report={report} />);
     const headings = [
       'Genel Durum',
+      'Dikkat Gerektirenler',
       'İş Akışı Eğilimi',
       'Mevcut İş Akışı',
       'İş Türleri',
-      'Dikkat Gerektirenler',
     ];
     const positions = headings.map((heading) => html.indexOf(heading));
 

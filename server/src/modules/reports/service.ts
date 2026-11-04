@@ -152,6 +152,16 @@ export class ReportsService {
     });
   }
 
+  async getBusinessTrend(actor: SafeUser, query: ReportRangeQuery) {
+    requireManagement(actor);
+    return this.reports.getBusinessTrend({
+      organizationId: actor.organizationId,
+      requestedRange: query.requestedRange,
+      ...(query.includeSaleCapability !== undefined ? { includeSaleCapability: query.includeSaleCapability } : {}),
+      requestTime: this.now(),
+    });
+  }
+
   async getOwnStaffReport(actor: SafeUser, query: ReportRangeQuery) {
     if (actor.role !== 'STAFF') throw forbidden();
     return this.staffReport(actor.organizationId, actor.id, query, this.now());

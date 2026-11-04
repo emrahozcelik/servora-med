@@ -9,6 +9,8 @@ import {
 } from '../job-cards/types.js';
 import { currentOverduePredicateSql } from '../job-cards/overdue-contract.js';
 import type { ReportsReadModel } from './ports.js';
+import { ORGANIZATION_RANGE_CTE } from './range-sql.js';
+import { readBusinessTrend } from './business-trend.js';
 import type {
   ApprovalSummary,
   CustomerReportActivity,
@@ -243,17 +245,6 @@ type DeliveryGroupDefinition = {
   group: string;
   order: string;
 };
-
-const ORGANIZATION_RANGE_CTE = `organization_range AS (
-  SELECT o.timezone,
-    COALESCE($2::date,
-      date_trunc('month', $4::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
-    COALESCE($3::date,
-      (date_trunc('month', $4::timestamptz AT TIME ZONE o.timezone)
-        + interval '1 month - 1 day')::date) AS to_date
-  FROM organizations o
-  WHERE o.id = $1
-)`;
 
 /**
  * Canonical overdue predicate, rendered from the single shared contract in
@@ -1572,6 +1563,10 @@ function mapDashboard(row: DashboardRow): DashboardReportResponse {
 
 class PostgresReportsReadModel implements ReportsReadModel {
   constructor(private readonly executor: SqlExecutor) {}
+
+  getBusinessTrend(input: StaffOperationalSummaryScope) {
+    return readBusinessTrend(this.executor, input);
+  }
 
   async getOne(input: StaffOperationalSummaryOneInput) {
     const summaries = await this.getMany({

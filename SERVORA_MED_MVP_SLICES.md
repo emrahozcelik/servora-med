@@ -795,3 +795,33 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   on a branch does not establish merge, production readiness or deployment.
 - OF-01, SOF-1/2, terminal follow-up product decision, #369 and R4 are unchanged.
   Production remains NO-GO.
+
+## REPORT-001 — Activity attribution and reporting contract (2026-11-04)
+
+- [x] Record the owner-accepted product contract for verified performer
+  attribution, the simplified visit-to-sale scenarios and optional lateness
+  context; explicitly amend DOM-006 without rewriting historical acceptance.
+- [ ] Implement submission-bound performer capture, existing-approval binding,
+  unknown attribution and reasoned correction as a complete JobCard slice.
+- [ ] Build the new customer/activity/Sale reporting on that verified evidence;
+  keep existing delivery reports separate and unchanged.
+- [ ] Implement self-scoped voluntary incident explanations and visible manager
+  notes without an approval machine, lifecycle gate or obligation queue.
+- Performer-attribution and lateness-context implementation and runtime
+  verification have not started. The owning
+  [reporting contract](docs/features/reporting/README.md) contains acceptance
+  scenarios, scope boundaries and known implementation gaps. No new API, schema,
+  backfill, production deployment or earlier-slice completion is claimed here.
+
+## Reports overview and team UI (2026-11-04)
+
+- [x] Add the authorized organization-level visit, explicit follow-up visit and
+  approved-sale time series, comparable elapsed-period totals and distinct
+  visit-to-follow-up / visit-to-sale relationship counts.
+- [x] Replace Staff comparison plus controls and crowded grouped headers with
+  a concise summary, explicit details and mobile sorting.
+- [x] Close responsive/accessibility review and record final verification in the
+  [UI/read contract](docs/features/reporting/reports-overview-ui.md).
+- No individual staff-page redesign, verified-performer implementation, new
+  dependencies, schema migration, deployment or production recalculation.
+  Local acceptance is recorded; hosted CI and merge are pending.

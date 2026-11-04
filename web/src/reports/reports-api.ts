@@ -33,6 +33,8 @@ import type {
   CustomerReportPeriod,
   CustomerReportUnassigned,
   DashboardReportResponse,
+  BusinessTrendCounts,
+  BusinessTrendReportResponse,
   DeliveryDayItem,
   DeliveryProductItem,
   DeliveryPurposeItem,
@@ -743,6 +745,43 @@ function query(entries: Record<string, string | number | null | undefined>) {
 function rangeQuery(requestedRange: RequestedReportRange) {
   return { from: requestedRange?.from, to: requestedRange?.to };
 }
+
+function parseBusinessCounts(value: unknown): BusinessTrendCounts {
+  const row = exactObject(value, 'businessCounts', ['visits', 'followUps', 'sales']);
+  const counts = {
+    visits: nonNegativeInteger(row.visits, 'visits'),
+    followUps: nonNegativeInteger(row.followUps, 'followUps'),
+    sales: nonNegativeInteger(row.sales, 'sales'),
+  };
+  if (counts.followUps > counts.visits) invalid('followUps');
+  return counts;
+}
+
+export function parseBusinessTrendReport(value: unknown): BusinessTrendReportResponse {
+  const row = exactObject(value, 'businessTrend', ['range', 'asOf', 'observedThrough', 'partialDay', 'totals', 'points', 'comparison', 'relationships']);
+  const comparison = row.comparison === null ? null : exactObject(row.comparison, 'comparison', ['range', 'totals']);
+  const relationships = exactObject(row.relationships, 'relationships', ['visitsWithFollowUp', 'visitsWithSale', 'followUpsWithSale']);
+  return {
+    range: parseResolvedRange(row.range),
+    asOf: string(row.asOf, 'asOf'),
+    observedThrough: row.observedThrough === null ? null : string(row.observedThrough, 'observedThrough'),
+    partialDay: boolean(row.partialDay, 'partialDay'),
+    totals: parseBusinessCounts(row.totals),
+    points: array(row.points, 'points').map((value) => {
+      const point = exactObject(value, 'point', ['date', 'visits', 'followUps', 'sales']);
+      return { date: string(point.date, 'date'), ...parseBusinessCounts({ visits: point.visits, followUps: point.followUps, sales: point.sales }) };
+    }),
+    comparison: comparison === null ? null : { range: parseResolvedRange(comparison.range), totals: parseBusinessCounts(comparison.totals) },
+    relationships: {
+      visitsWithFollowUp: nonNegativeInteger(relationships.visitsWithFollowUp, 'visitsWithFollowUp'),
+      visitsWithSale: nonNegativeInteger(relationships.visitsWithSale, 'visitsWithSale'),
+      followUpsWithSale: nonNegativeInteger(relationships.followUpsWithSale, 'followUpsWithSale'),
+    },
+  };
+}
+
+export const getBusinessTrendReport = async (requestedRange: RequestedReportRange) =>
+  parseBusinessTrendReport(await request(`/api/reports/business-trend${query(rangeQuery(requestedRange))}`));
 
 export const getDashboardReport = async (requestedRange: RequestedReportRange) =>
   parseDashboardReport(await request(`/api/reports/dashboard${query(rangeQuery(requestedRange))}`));

@@ -40,6 +40,7 @@ function actor(role: SafeUser['role']): SafeUser {
 
 function dependencies() {
   const reports = {
+    getBusinessTrend: vi.fn(async (input) => ({ range: resolvedRange, input })),
     getDashboard: vi.fn(async () => ({
       range: resolvedRange,
       counters: {
@@ -275,7 +276,25 @@ afterEach(async () => {
 });
 
 describe('Reports HTTP routes', () => {
-  it('registers exactly the eight authenticated GET report routes', async () => {
+  it('scopes business trends to authenticated management and validates range/capability', async () => {
+    for (const role of ['ADMIN', 'MANAGER'] as const) {
+      const { app, reports } = await createApp(actor(role));
+      const response = await app.inject({ method: 'GET', url: '/api/reports/business-trend?from=2026-07-01&to=2026-07-03&includeSaleCapability=true' });
+      expect(response.statusCode).toBe(200);
+      expect(reports.getBusinessTrend).toHaveBeenCalledWith({ organizationId: ORG_ONE, requestedRange: { from: '2026-07-01', to: '2026-07-03' }, includeSaleCapability: true, requestTime });
+      expect((await app.inject({ method: 'GET', url: '/api/reports/business-trend?organizationId=another' })).statusCode).toBe(400);
+      expect((await app.inject({ method: 'GET', url: '/api/reports/business-trend?from=2026-07-01' })).statusCode).toBe(400);
+      await app.inject({ method: 'GET', url: '/api/reports/business-trend' });
+      expect(reports.getBusinessTrend.mock.lastCall?.[0].includeSaleCapability).toBe(false);
+    }
+    const staff = await createApp(actor('STAFF'));
+    expect((await staff.app.inject({ method: 'GET', url: '/api/reports/business-trend' })).statusCode).toBe(403);
+    expect(staff.reports.getBusinessTrend).not.toHaveBeenCalled();
+    const anonymous = await createApp(actor('MANAGER'), false);
+    expect((await anonymous.app.inject({ method: 'GET', url: '/api/reports/business-trend' })).statusCode).toBe(401);
+  });
+
+  it('registers the existing authenticated GET report routes', async () => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
 
     const responses = await Promise.all([
@@ -465,7 +484,7 @@ describe('Reports HTTP routes', () => {
       'utf8',
     );
     expect(source).toContain('const secured = { preHandler: options.authenticate }');
-    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(8);
+    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(9);
     expect(source).not.toMatch(/app\.get\([^\n]+options\.authenticate/);
   });
 });

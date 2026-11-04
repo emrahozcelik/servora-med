@@ -23,6 +23,7 @@ async (app, options) => {
   const secured = { preHandler: options.authenticate };
 
   app.get('/dashboard', secured, handlers.dashboard);
+  app.get('/business-trend', secured, handlers.getBusinessTrend);
   app.get('/staff', secured, handlers.getStaffPerformance);
   app.get('/staff/me', secured, handlers.getOwnStaffReport);
   app.get<{ Params: { userId: string } }>(

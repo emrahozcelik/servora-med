@@ -25,6 +25,7 @@ import type {
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
   getDashboardReport: vi.fn(),
+  getBusinessTrendReport: vi.fn(() => new Promise(() => {})),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -86,7 +87,7 @@ describe('Report accessibility contract', () => {
 
     const headings = [...view.querySelectorAll('.report-section h2')].map((heading) => heading.textContent);
     expect(headings).toEqual([
-      'Genel Durum', 'İş Akışı Eğilimi', 'Mevcut İş Akışı', 'İş Türleri', 'Dikkat Gerektirenler',
+      'Genel Durum', 'Dikkat Gerektirenler', 'İş Akışı Eğilimi', 'Mevcut İş Akışı', 'İş Türleri',
     ]);
 
     const workflow = view.querySelector('[data-report-workflow-trend="true"]');

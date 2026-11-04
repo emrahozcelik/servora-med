@@ -10,6 +10,18 @@ import type {
 export type RequestedReportRange = { from: string; to: string } | null;
 export type ResolvedReportRange = { from: string; to: string; timezone: string };
 
+export type BusinessTrendCounts = { visits: number; followUps: number; sales: number };
+export type BusinessTrendReportResponse = {
+  range: ResolvedReportRange;
+  asOf: string;
+  observedThrough: string | null;
+  partialDay: boolean;
+  totals: BusinessTrendCounts;
+  points: Array<BusinessTrendCounts & { date: string }>;
+  comparison: { range: ResolvedReportRange; totals: BusinessTrendCounts } | null;
+  relationships: { visitsWithFollowUp: number; visitsWithSale: number; followUpsWithSale: number };
+};
+
 export type StaffCurrentWorkload = {
   openJobCards: number;
   overdueJobCards: number;
