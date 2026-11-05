@@ -161,8 +161,12 @@ function sampleUtcErrorMs(evidence: CurrentTimeEvidence): number {
     + samplingMs;
 }
 
-/** True when the interval crosses a June/December leap-second boundary. */
-function crossesLeapBoundary(eventWallAtUTC: string, currentWallAtUTC: string): boolean {
+/** True when the interval, widened by its error slack, can cross a leap boundary. */
+function crossesLeapBoundary(
+  eventWallAtUTC: string,
+  currentWallAtUTC: string,
+  slackMs = 0,
+): boolean {
   const start = Date.parse(eventWallAtUTC);
   const end = Date.parse(currentWallAtUTC);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
@@ -172,7 +176,9 @@ function crossesLeapBoundary(eventWallAtUTC: string, currentWallAtUTC: string): 
     // Leap seconds are inserted/deleted at 23:59:60 UTC on 30 June or
     // 31 December; Date.UTC rolls second 60 into 00:00:00 of the next day/year.
     for (const boundary of [Date.UTC(year, 6, 1), Date.UTC(year + 1, 0, 1)]) {
-      if (start < boundary && boundary <= end) return true;
+      // Widen by the endpoint error bound: the true interval may cross even
+      // when the timestamp interval is a second short of the boundary.
+      if (start - slackMs < boundary && boundary <= end + slackMs) return true;
     }
   }
   return false;
@@ -193,7 +199,7 @@ export function twoClockElapsed(event: unknown, current: unknown): TwoClockElaps
   const wallDeltaMs = Date.parse(after.wallAtUTC) - Date.parse(before.wallAtUTC);
   if (!Number.isFinite(wallDeltaMs)) return { status: 'UNKNOWN' };
   const errorMs = sampleUtcErrorMs(before) + sampleUtcErrorMs(after);
-  const leapMs = crossesLeapBoundary(before.wallAtUTC, after.wallAtUTC)
+  const leapMs = crossesLeapBoundary(before.wallAtUTC, after.wallAtUTC, errorMs)
     ? TWO_CLOCK_LEAP_ALLOWANCE_MS
     : 0;
   return {
