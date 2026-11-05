@@ -128,7 +128,6 @@ export function JobRow({ job, user, onCommand }: {
             </div>
           )}
         </dl>
-        <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
         <div className="job-row-signals" data-job-row-signals="true">
           <StatusChip status={job.status} />
           <PriorityChip priority={job.priority} longLabel />
@@ -138,6 +137,7 @@ export function JobRow({ job, user, onCommand }: {
             </span>
           )}
         </div>
+        <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
       </div>
       <dl className="job-row-facts">
         <div>

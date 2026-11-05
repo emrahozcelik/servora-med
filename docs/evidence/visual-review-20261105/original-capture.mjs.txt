@@ -1,0 +1,97 @@
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+const root = '/Users/emrah/Documents/Servora-Med/web';
+const require = createRequire(`${root}/package.json`);
+const { chromium } = require('playwright');
+const { createServer: createViteServer } = await import(pathToFileURL(require.resolve('vite')));
+const out = '/tmp/servora-visual-review-20261105';
+mkdirSync(out,{recursive:true});
+const reportFixture = readFileSync(`${root}/scripts/responsive-staff-report-fixture.tsx`,'utf8');
+const reportBody = reportFixture.match(/<StaffOperationalReport report=\{\{([\s\S]*?)\}\} \/>/)[1];
+const staffReport = Function(`return ({${reportBody}})` )();
+const entry = `
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {BrowserRouter} from 'react-router-dom';
+import {App} from '/src/App';
+import {PRODUCTIVE_JOB_CARD_TYPES} from '/src/jobs/jobs-api';
+import '/src/styles.css';
+const staffRole=new URLSearchParams(location.search).get('auditRole')==='staff';
+const org='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const staffId='11111111-1111-4111-8111-111111111111';
+const managerId='22222222-2222-4222-8222-222222222222';
+const stamp='2026-11-04T09:00:00.000Z';
+const user={id:staffRole?staffId:managerId,organizationId:org,name:staffRole?'Ayşe Örnek':'Deniz Örnek',email:'ornek@example.test',role:staffRole?'STAFF':'ADMIN',mustChangePassword:false,isActive:true,version:1,capabilities:{overviewDashboard:false,calendar:false,messaging:false}};
+const member={id:staffId,organizationId:org,name:'Ayşe Örnek',email:'ayse@example.test',role:'STAFF',mustChangePassword:false,isActive:true,version:1,lastLoginAt:stamp,createdAt:stamp,updatedAt:stamp};
+const profiles=['Ayşe Örnek','Mehmet Örnek','Zeynep Örnek','Ali Örnek'].map((name,i)=>({id:'profile-'+i,user:{...member,id:i?('staff-'+i):staffId,name},title:'Satış ve saha temsilcisi',phone:'+905551110000',region:i%2?'Ankara':'İstanbul',managerUserId:managerId,managerName:'Deniz Örnek',version:1,counters:{open:8,waitingApproval:3,revisionRequested:1,completedThisMonth:14,overdue:2}}));
+const customers=['Merkez Ağız ve Diş Sağlığı Kliniği','Anadolu Dental Polikliniği','Ataşehir Özel Diş Kliniği','Kent Ağız ve Diş Sağlığı','Yeni Nesil Dental'].map((name,i)=>({id:'customer-'+i,organizationId:org,name,customerType:'clinic',taxNumber:null,phone:'+905551110000',email:'klinik@example.test',city:i%2?'Ankara':'İstanbul',district:i%2?'Çankaya':'Ataşehir',address:'Örnek Mahallesi, Örnek Sokak No: 10',assignedStaffUserId:staffId,assignedStaffName:'Ayşe Örnek',status:i%2?'prospect':'active',version:1,primaryContact:{id:'contact-'+i,name:'Dr. Deniz Örnek',title:'Klinik sorumlusu'},contacts:[{id:'contact-'+i,organizationId:org,customerId:'customer-'+i,name:'Dr. Deniz Örnek',title:'Klinik sorumlusu',phone:'+905551110000',email:'doktor@example.test',isPrimary:true,isActive:true,version:1,hasOperationHistory:true}],hasOperationHistory:true,openJobCount:3,completedJobCount:12}));
+const products=['ProSeal Kollajen Membran 20 × 30 mm','NeoBone Greft Materyali 0,5 cc','Steril Cerrahi Örtü Seti','İmplant Bakım ve Hijyen Seti','Dental Muayene Eldiveni'].map((name,i)=>({id:'product-'+i,organizationId:org,name,sku:'MED-'+(1000+i),brand:i%2?'DentalCare':'ProSeal',category:i%2?'Sarf malzemesi':'Cerrahi ürünler',model:i%2?null:'Standart',unit:i%2?'kutu':'adet',referencePrice:null,isActive:true,version:1,createdAt:stamp,updatedAt:stamp,hasOperationHistory:true}));
+const jobs=['Merkez Klinik ürün teslimi','Anadolu Klinik takip görüşmesi','Yeni ürün bilgilendirme ziyareti','Haftalık saha planının hazırlanması'].map((title,i)=>({id:'job-'+i,type:i===3?'GENERAL_TASK':i===0?'PRODUCT_DELIVERY':'SALES_MEETING',status:['WAITING_APPROVAL','IN_PROGRESS','ACCEPTED','NEW'][i],version:3,title,engagementKind:i===1||i===2?'CUSTOMER_VISIT':null,priority:i===0?'urgent':'normal',dueDate:'2026-11-08',scheduledAt:'2026-11-06T09:00:00.000Z',createdAt:stamp,updatedAt:stamp,staffCompletedAt:i===0?stamp:null,customer:{id:'customer-'+i,name:customers[i].name},contact:{id:'contact-'+i,name:'Dr. Deniz Örnek'},assignee:{id:staffId,name:'Ayşe Örnek'},deliveryItemCount:i===0?2:0,allowedCommands:[]}));
+const history=jobs.map((job)=>({...job,completedAt:null,followUp:job.id==='job-1'?{sourceJobCardId:'source-visit'}:null,childCount:0}));
+const report=${JSON.stringify(staffReport)};
+report.staff={userId:staffId,name:'Ayşe Örnek',isActive:true};
+for(const key of ['completionWorkTypes','currentWorkloadByType'])report[key]=PRODUCTIVE_JOB_CARD_TYPES.map(type=>report[key].find(item=>item.type===type)??{type,count:0});
+window.__visualUnexpected=[];
+Object.defineProperty(window,'EventSource',{configurable:true,value:undefined});
+Object.defineProperty(globalThis,'fetch',{configurable:true,value:async(input,options)=>{
+  const url=new URL(typeof input==='string'?input:input.url??input.toString(),location.origin);
+  const p=url.pathname;
+  const method=(options?.method??'GET').toUpperCase();
+  const response=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json'}});
+  if(method!=='GET')return response({error:'Visual review is read-only'},403);
+  if(p==='/api/notifications/unread-count')return response({unreadCount:0});
+  if(p==='/api/web-push/status')return response({enabled:false,vapidPublicKey:null,renewalRequired:false,subscription:null});
+  if(p==='/api/auth/me')return response(user);
+  if(p==='/api/staff')return response(profiles);
+  if(p==='/api/users')return response([member,{...member,id:managerId,name:'Deniz Örnek',role:'ADMIN'}]);
+  if(p==='/api/staff/me')return response(profiles[0]);
+  if(p.match(/^\\/api\\/staff\\/[^/]+\\/weekly-reports$/))return response({items:[],total:0,limit:20,offset:0});
+  if(p.match(/^\\/api\\/staff\\/[^/]+\\/jobs$/))return response({items:history,total:history.length,limit:20,offset:0});
+  if(p.match(/^\\/api\\/staff\\/[^/]+$/))return response(profiles[0]);
+  if(p==='/api/reports/staff/me'||p.match(/^\\/api\\/reports\\/staff\\/[^/]+$/))return response(report);
+  if(p==='/api/products')return response({items:products,total:products.length,limit:25,offset:0});
+  if(p.match(/^\\/api\\/products\\/[^/]+$/))return response(products[0]);
+  if(p==='/api/customers')return response({items:customers,total:customers.length,limit:25,offset:0});
+  if(p.endsWith('/operational-summary'))return response({latestInteraction:{jobCardId:'old-job',title:'Ürün tanıtımı ve ihtiyaç görüşmesi',type:'SALES_MEETING',completedAt:stamp,assignee:{id:staffId,name:'Ayşe Örnek'}},nextPlannedWork:{jobCardId:'next-job',title:'Takip ziyareti',type:'SALES_MEETING',status:'ACCEPTED',scheduledAt:'2026-11-07T09:00:00Z',assignee:{id:staffId,name:'Ayşe Örnek'}},pendingReview:{waitingApprovalCount:1,revisionRequestedCount:0},latestMeetingOutcome:{jobCardId:'old-job',meetingAt:stamp,outcome:'FOLLOW_UP_REQUIRED',unsuccessfulReason:null,meetingSummary:'Ürün bilgisi paylaşıldı. Karar için tekrar ziyaret planlandı.',nextFollowUpAt:null},followUp:{jobCardId:'next-job',kind:'FOLLOW_UP_JOB'}});
+  if(p.match(/^\\/api\\/customers\\/[^/]+\\/jobs$/))return response({items:history,total:history.length,limit:20,offset:0});
+  if(p.endsWith('/enrichment-scope'))return response({canEnrich:true,canCreateContact:true});
+  if(p.match(/^\\/api\\/customers\\/[^/]+$/))return response(customers[0]);
+  if(p==='/api/job-cards')return response({items:jobs,total:jobs.length,limit:25,offset:0});
+  window.__visualUnexpected.push(p);
+  return response({error:'Synthetic visual fixture route not defined'},404);
+}});
+createRoot(document.getElementById('root')).render(<BrowserRouter><App initialUser={user}/></BrowserRouter>);
+`;
+const virtual=`${root}/__visual-audit.tsx`;
+const vite=await createViteServer({root,configFile:false,appType:'custom',logLevel:'error',plugins:[{name:'visual-audit-entry',enforce:'pre',resolveId(id){if(id==='/__visual-audit.tsx')return virtual;},load(id){if(id===virtual)return entry;}}],server:{middlewareMode:true,hmr:false}});
+const server=createServer(async(req,res)=>{
+  const path=req.url.split('?')[0];
+  if(path.startsWith('/api/')){res.writeHead(404);res.end();return;}
+  if(!path.includes('.')&&!path.startsWith('/@')){
+    res.setHeader('Content-Type','text/html;charset=utf-8');
+    res.end(await vite.transformIndexHtml(req.url,'<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/__visual-audit.tsx"></script></body></html>'));
+  }else vite.middlewares(req,res);
+});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const browser=await chromium.launch();
+const records=[];
+try{
+  for(const [name,path,staff] of [['customers','/customers',false],['customer-detail','/customers/customer-0',false],['products','/products',false],['customer-create','/customers/new',false],['staff-directory','/staff',false],['staff-profile','/staff',true],['jobs','/jobs',false]]){
+    for(const width of [1440,390]){
+      const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});
+      const errors=[];page.on('pageerror',e=>errors.push(e.message));
+      await page.goto('http://127.0.0.1:'+server.address().port+path+(staff?'?auditRole=staff':''));
+      await page.locator('main h1').first().waitFor();
+      await page.evaluate(()=>document.fonts.ready);
+      await page.waitForFunction(()=>!document.querySelector('[aria-busy="true"]'),{},{timeout:10000}).catch(()=>{});
+      const metrics=await page.evaluate(()=>({title:document.querySelector('main h1')?.textContent,overflow:document.documentElement.scrollWidth>innerWidth+1,height:document.documentElement.scrollHeight,headings:[...document.querySelectorAll('main h1,main h2,main h3')].map(el=>({text:el.textContent,y:Math.round(el.getBoundingClientRect().top)})),unexpected:window.__visualUnexpected,alert:[...document.querySelectorAll('[role="alert"]')].map(el=>el.textContent)}));
+      await page.screenshot({path:out+'/'+name+'-'+width+'.png',fullPage:true});
+      records.push({name,width,path,errors,...metrics});
+      await page.close();
+    }
+  }
+  writeFileSync(out+'/capture-results.json',JSON.stringify({syntheticData:true,head:'197586f',records},null,2));
+  console.log(JSON.stringify(records));
+}finally{await browser.close();await vite.close();await new Promise(r=>server.close(r));}

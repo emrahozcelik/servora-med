@@ -119,6 +119,31 @@ Firma profili mevcut admin/auth kapsamı içinde; küçük kullanıcı tercihler
 - Firma ayarı audit'i gerekirse JobCard activity tablosuna yazılmaz; ayrı bir audit tasarımı gerektirir.
 - Bildirim tercihleri bildirim sistemi, logo yükleme ise dosya yönetimi kapsamı oluşmadan eklenmez.
 
+## UI-003: Default rendered UI evidence workflow
+
+- **Date:** 2026-11-05
+- **Status:** Accepted by the product owner
+- **Scope:** UI design, visual reviews and visual implementation by all contributors
+
+### Decision
+
+Use local Playwright + headless Chromium with deterministic synthetic data and
+the actual React components as the default visual inspection method. Render
+the real CSS, tokens, Ant provider and relevant shell/router context. Computer
+Use is not the default; an explicit user request or a documented environment
+limitation may justify another method.
+
+The execution and evidence contract is
+[docs/ui/visual-review-workflow.md](docs/ui/visual-review-workflow.md). It covers
+fixture consistency, role/state coverage, responsive captures, reproducibility,
+and bounded verification. Screenshots and mocked API responses establish rendered
+UI behavior only; they do not establish backend correctness, production behavior,
+physical-device behavior or complete accessibility acceptance.
+
+This adds a review method to UI-001 without replacing its design direction,
+skill precedence or accessibility requirements. It authorizes no new UI framework,
+domain policy, blanket redesign or implementation of audit recommendations.
+
 ## DOM-001: Delivery purpose without financial tracking
 
 - **Date:** 2026-07-10

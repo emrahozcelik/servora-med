@@ -30,7 +30,7 @@ export type StaffCurrentWorkload = {
 };
 
 export type StaffHistoricalPerformance = {
-  /** Manager-approved completions currently associated with the Staff member. */
+  /** Manager-approved completions attributed by the recorded submission actor. */
   completedJobs: number;
   completionDays: number;
   jobsPerCompletionDay: number;
@@ -147,7 +147,7 @@ export type StaffReportResponse = {
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by current assignee. */
+  /** Selected-period manager-approved completions by recorded submission actor. */
   completionWorkTypes: CompletionWorkType[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: CompletionWorkType[];
@@ -164,7 +164,7 @@ export type StaffPerformanceItem = {
   staffExecution: StaffExecutionMetrics;
   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
-  /** Selected-period manager-approved completions by current assignee. */
+  /** Selected-period manager-approved completions by recorded submission actor. */
   completionWorkTypes: CompletionWorkType[];
   /** Current active snapshot by current assignee; independent of selected range. */
   currentWorkloadByType: CompletionWorkType[];

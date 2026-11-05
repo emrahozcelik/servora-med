@@ -62,10 +62,10 @@ async function render(path: string, user: CurrentUser = manager) {
 describe('application routes', () => {
   it.each([
     ['/jobs', 'İşler', manager],
-    ['/jobs/new-delivery', 'Ürün teslimi', staff],
-    ['/jobs/new-delivery', 'Ürün teslimi', manager],
-    ['/jobs/new-task', 'Genel görev', staff],
-    ['/jobs/new-task', 'Genel görev', manager],
+    ['/jobs/new-delivery', 'Yeni ürün teslimi', staff],
+    ['/jobs/new-delivery', 'Yeni ürün teslimi', manager],
+    ['/jobs/new-task', 'Yeni genel görev', staff],
+    ['/jobs/new-task', 'Yeni genel görev', manager],
     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', staff],
     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],

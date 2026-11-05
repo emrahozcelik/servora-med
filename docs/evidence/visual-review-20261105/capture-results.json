@@ -1,0 +1,492 @@
+{
+  "syntheticData": true,
+  "head": "197586f",
+  "records": [
+    {
+      "name": "customers",
+      "width": 1440,
+      "path": "/customers",
+      "errors": [],
+      "title": "Müşteriler",
+      "overflow": false,
+      "height": 1000,
+      "headings": [
+        {
+          "text": "Müşteriler",
+          "y": 144
+        },
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 432
+        },
+        {
+          "text": "Anadolu Dental Polikliniği",
+          "y": 536
+        },
+        {
+          "text": "Ataşehir Özel Diş Kliniği",
+          "y": 640
+        },
+        {
+          "text": "Kent Ağız ve Diş Sağlığı",
+          "y": 744
+        },
+        {
+          "text": "Yeni Nesil Dental",
+          "y": 848
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "customers",
+      "width": 390,
+      "path": "/customers",
+      "errors": [],
+      "title": "Müşteriler",
+      "overflow": false,
+      "height": 1607,
+      "headings": [
+        {
+          "text": "Müşteriler",
+          "y": 177
+        },
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 371
+        },
+        {
+          "text": "Anadolu Dental Polikliniği",
+          "y": 587
+        },
+        {
+          "text": "Ataşehir Özel Diş Kliniği",
+          "y": 803
+        },
+        {
+          "text": "Kent Ağız ve Diş Sağlığı",
+          "y": 1019
+        },
+        {
+          "text": "Yeni Nesil Dental",
+          "y": 1235
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "customer-detail",
+      "width": 1440,
+      "path": "/customers/customer-0",
+      "errors": [],
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği",
+      "overflow": false,
+      "height": 2291,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 157
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 301
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1151
+        },
+        {
+          "text": "Dr. Deniz Örnek",
+          "y": 1239
+        },
+        {
+          "text": "Kalıcı silme",
+          "y": 1351
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1463
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1860
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "customer-detail",
+      "width": 390,
+      "path": "/customers/customer-0",
+      "errors": [],
+      "title": "Müşteri",
+      "overflow": false,
+      "height": 2962,
+      "headings": [
+        {
+          "text": "Müşteri",
+          "y": 175
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 285
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1355
+        },
+        {
+          "text": "Dr. Deniz Örnek",
+          "y": 1454
+        },
+        {
+          "text": "Kalıcı silme",
+          "y": 1566
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1696
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 2269
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "products",
+      "width": 1440,
+      "path": "/products",
+      "errors": [],
+      "title": "Ürünler",
+      "overflow": false,
+      "height": 1000,
+      "headings": [
+        {
+          "text": "Ürünler",
+          "y": 148
+        },
+        {
+          "text": "ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 384
+        },
+        {
+          "text": "NeoBone Greft Materyali 0,5 cc",
+          "y": 482
+        },
+        {
+          "text": "Steril Cerrahi Örtü Seti",
+          "y": 580
+        },
+        {
+          "text": "İmplant Bakım ve Hijyen Seti",
+          "y": 678
+        },
+        {
+          "text": "Dental Muayene Eldiveni",
+          "y": 776
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "products",
+      "width": 390,
+      "path": "/products",
+      "errors": [],
+      "title": "Ürünler",
+      "overflow": false,
+      "height": 1847,
+      "headings": [
+        {
+          "text": "Ürünler",
+          "y": 181
+        },
+        {
+          "text": "ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 382
+        },
+        {
+          "text": "NeoBone Greft Materyali 0,5 cc",
+          "y": 644
+        },
+        {
+          "text": "Steril Cerrahi Örtü Seti",
+          "y": 905
+        },
+        {
+          "text": "İmplant Bakım ve Hijyen Seti",
+          "y": 1166
+        },
+        {
+          "text": "Dental Muayene Eldiveni",
+          "y": 1428
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "customer-create",
+      "width": 1440,
+      "path": "/customers/new",
+      "errors": [],
+      "title": "Yeni müşteri",
+      "overflow": false,
+      "height": 1262,
+      "headings": [
+        {
+          "text": "Yeni müşteri",
+          "y": 193
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "customer-create",
+      "width": 390,
+      "path": "/customers/new",
+      "errors": [],
+      "title": "Yeni müşteri",
+      "overflow": false,
+      "height": 1658,
+      "headings": [
+        {
+          "text": "Yeni müşteri",
+          "y": 219
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "staff-directory",
+      "width": 1440,
+      "path": "/staff",
+      "errors": [],
+      "title": "Personel",
+      "overflow": false,
+      "height": 1000,
+      "headings": [
+        {
+          "text": "Personel",
+          "y": 176
+        },
+        {
+          "text": "Ayşe Örnek",
+          "y": 255
+        },
+        {
+          "text": "Mehmet Örnek",
+          "y": 334
+        },
+        {
+          "text": "Zeynep Örnek",
+          "y": 414
+        },
+        {
+          "text": "Ali Örnek",
+          "y": 493
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "staff-directory",
+      "width": 390,
+      "path": "/staff",
+      "errors": [],
+      "title": "Personel",
+      "overflow": false,
+      "height": 1000,
+      "headings": [
+        {
+          "text": "Personel",
+          "y": 137
+        },
+        {
+          "text": "Ayşe Örnek",
+          "y": 183
+        },
+        {
+          "text": "Mehmet Örnek",
+          "y": 262
+        },
+        {
+          "text": "Zeynep Örnek",
+          "y": 342
+        },
+        {
+          "text": "Ali Örnek",
+          "y": 421
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "staff-profile",
+      "width": 1440,
+      "path": "/staff",
+      "errors": [],
+      "title": "Ayşe Örnek",
+      "overflow": false,
+      "height": 3259,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 176
+        },
+        {
+          "text": "Operasyon özeti",
+          "y": 418
+        },
+        {
+          "text": "Personel Operasyon Analizi",
+          "y": 830
+        },
+        {
+          "text": "Şu an — mevcut operasyon yükü",
+          "y": 952
+        },
+        {
+          "text": "Seçilen dönem — yönetici onaylı sonuçlar",
+          "y": 1371
+        },
+        {
+          "text": "Operasyon bağlamı",
+          "y": 2114
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 2710
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 3134
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "staff-profile",
+      "width": 390,
+      "path": "/staff",
+      "errors": [],
+      "title": "Ayşe Örnek",
+      "overflow": false,
+      "height": 5075,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 137
+        },
+        {
+          "text": "Operasyon özeti",
+          "y": 523
+        },
+        {
+          "text": "Personel Operasyon Analizi",
+          "y": 1129
+        },
+        {
+          "text": "Şu an — mevcut operasyon yükü",
+          "y": 1320
+        },
+        {
+          "text": "Seçilen dönem — yönetici onaylı sonuçlar",
+          "y": 2084
+        },
+        {
+          "text": "Operasyon bağlamı",
+          "y": 3243
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 4283
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 4804
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "jobs",
+      "width": 1440,
+      "path": "/jobs",
+      "errors": [],
+      "title": "İşler",
+      "overflow": false,
+      "height": 1432,
+      "headings": [
+        {
+          "text": "İşler",
+          "y": 182
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 512
+        },
+        {
+          "text": "Anadolu Klinik takip görüşmesi",
+          "y": 729
+        },
+        {
+          "text": "Yeni ürün bilgilendirme ziyareti",
+          "y": 946
+        },
+        {
+          "text": "Haftalık saha planının hazırlanması",
+          "y": 1164
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    },
+    {
+      "name": "jobs",
+      "width": 390,
+      "path": "/jobs",
+      "errors": [],
+      "title": "İşler",
+      "overflow": false,
+      "height": 1966,
+      "headings": [
+        {
+          "text": "İşler",
+          "y": 137
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 450
+        },
+        {
+          "text": "Anadolu Klinik takip görüşmesi",
+          "y": 817
+        },
+        {
+          "text": "Yeni ürün bilgilendirme ziyareti",
+          "y": 1130
+        },
+        {
+          "text": "Haftalık saha planının hazırlanması",
+          "y": 1444
+        }
+      ],
+      "unexpected": [],
+      "alert": []
+    }
+  ]
+}

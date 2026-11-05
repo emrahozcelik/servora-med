@@ -1,0 +1,83 @@
+/* Shared rhythm for the three primary JobCard creation pages. */
+.job-create.task-create,
+.job-create.delivery-create {
+  width: min(100% - 2rem, 46rem);
+  min-width: 0;
+  margin: 1.5rem auto 3rem;
+}
+
+.job-create .page-header { margin-bottom: 1.5rem; }
+.job-create .page-header-description { max-width: 65ch; }
+.job-create .job-create-form { margin-top: 0; }
+.job-create-form > fieldset {
+  display: grid;
+  gap: 2rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.job-create-section { display: grid; gap: 1rem; min-width: 0; }
+.job-create-section + .job-create-section {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+}
+.job-create-section > h2 { margin: 0; font-size: 1.125rem; line-height: 1.4; }
+.job-create-form .field-group { min-width: 0; margin-top: 0; }
+.job-create-form .field-label { margin: 0; font-size: 0.9rem; }
+.job-create-form .field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 1rem;
+}
+.job-create-form .form-help { margin: 0; }
+.job-create-form .customer-search-select .customer-option-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.5;
+  white-space: normal;
+}
+.job-create-form .customer-search-select .customer-option-label > span:first-child {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.job-create-form .customer-search-select .customer-option-meta { white-space: normal; }
+.job-create-form input[type="datetime-local"] { max-width: 100%; }
+.job-create-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem;
+  min-width: 0;
+}
+.job-create-form .product-select { margin-top: 0; }
+.job-create-form .product-select-selected-list { container: job-create-products / inline-size; }
+@container job-create-products (max-width: 20rem) {
+  .job-create-form .product-select-selected-list li.product-select-with-quantity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .job-create-form .product-select-quantity { max-width: 6rem; }
+  .job-create-form .product-select-remove { justify-self: end; }
+}
+.job-create-form .job-create-optional { margin: 0; min-width: 0; }
+.job-create-optional > summary {
+  display: list-item;
+  padding-block: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.job-create-optional-hint { margin-left: 0.5rem; color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+.job-create-optional .task-optional-fields { display: grid; gap: 1rem; padding-block: 0.75rem 1.25rem; }
+.job-create-form .form-actions { flex-wrap: wrap; }
+
+@media (max-width: 40rem) {
+  .job-create.task-create,
+  .job-create.delivery-create { margin-top: 0.75rem; }
+  .job-create-pair { grid-template-columns: minmax(0, 1fr); }
+  .job-create-form .form-actions { flex-direction: column; }
+  .job-create-form .form-actions > button { width: 100%; }
+}

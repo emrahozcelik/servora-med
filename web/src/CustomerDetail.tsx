@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { CustomerEnrichmentForm } from './CustomerEnrichmentForm';
 import { addContact, contactFieldsFromFormData, ContactCreateForm, ContactListView } from './ContactManagement';
@@ -183,9 +183,9 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, initialEditOpen = false, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
-  conflict?: boolean; formRevision?: number;
+  conflict?: boolean; formRevision?: number; initialEditOpen?: boolean;
   enrichmentScope?: CustomerEnrichmentScope | null; enrichmentEditing?: boolean;
   enrichmentScopeError?: string; enrichmentScopeLoading?: boolean; onRetryEnrichmentScope?: () => void;
   enrichmentTriggerRef?: RefObject<HTMLButtonElement | null>;
@@ -206,13 +206,19 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
   const canDelete = user.role === 'ADMIN' && customer.hasOperationHistory === false;
   const isReferenced = user.role === 'ADMIN' && customer.hasOperationHistory === true;
   return <main className="customer-detail">
-    <PageHeader eyebrow="Müşteri" fallbackTitle={customer.name} />
+    <PageHeader eyebrow="" fallbackTitle={customer.name} />
     <div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
+    <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
-      {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
+      <CustomerFacts customer={customer} />
+      {canManage && <details className="customer-edit-disclosure" open={initialEditOpen}>
+        <summary>Genel bilgileri düzenle</summary>
+        <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} />
+      </details>}
+    </section>
     {user.role === 'STAFF' && enrichmentScopeError && <div className="form-error" role="alert">{enrichmentScopeError}
       <button className="secondary-button" type="button" disabled={pending || enrichmentScopeLoading} onClick={onRetryEnrichmentScope}>Yetki kontrolünü tekrar dene</button></div>}
     {user.role === 'STAFF' && (enrichmentScope?.canEnrich || (enrichmentEditing && !!enrichmentScopeError)) && <section className="record-section" aria-labelledby="customer-enrichment-title">
@@ -222,6 +228,8 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
     </section>}
     <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage || enrichmentScope?.canCreateContact === true} pending={pending || enrichmentScopeLoading} createButtonRef={createContactButtonRef}
       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
+    <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
+      onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
     {canDelete && <section className="record-section record-commands" aria-labelledby="customer-delete-title">
       <h2 id="customer-delete-title">Kalıcı silme</h2>
       <p>Bu müşteri için operasyon geçmişi bulunmadığı için kalıcı olarak silinebilir.</p>
@@ -231,9 +239,6 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       <h2 id="customer-delete-blocked-title">Kalıcı silme</h2>
       <p>Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.</p>
     </section>}
-    <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
-    <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
-      onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
     <ConfirmationAction
       open={deleteConfirmOpen && canDelete}
       title="Müşteri kalıcı olarak silinsin mi?"
@@ -251,6 +256,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
 }
 
 export function CustomerDetailScreen({ customerId, user }: { customerId: string; user: CurrentUser }) {
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate(); const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
   useEffect(() => {
@@ -440,7 +446,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       setDeletePending(false);
     }
   }
-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
+  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} initialEditOpen={searchParams.get('edit') === '1'}
     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
     summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}
     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}

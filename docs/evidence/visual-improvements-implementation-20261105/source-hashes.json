@@ -1,0 +1,13 @@
+{
+  "web/src/CustomerDetail.tsx": "a7d63eae9a6d9dedc00d085906fb64f35574de66302d3803c5781aad451efe58",
+  "web/src/CustomerList.tsx": "077dc1b363a43cba2c58e69c4f3bdc8568f41ac31723c7b27226afb15b983a89",
+  "web/src/ProductList.tsx": "c80f405e9e76023408cf596370d13ecd2b44b6b1f3166ebb49456ae094d684d1",
+  "web/src/StaffProfiles.tsx": "b9fac02063bb1b9f031474052e799b0a4df42b82ca5e9ff9422728e722730600",
+  "web/src/styles.css": "e0b956f594c8b70751cc680f3ed27b0556e92862352881f31a28ff828b50ed01",
+  "web/src/jobs/JobRow.tsx": "c6f4186b2e863388995afc2a8f5d1d513dfbfb5f847e4ed30c11f4175a153dca",
+  "web/src/reports/StaffOperationalReport.tsx": "c576c420d6c53d257da8d0867b9eeb458d3a82d5b1d1d09c632ca3f2293b2c9e",
+  "web/src/reports/report-types.ts": "2894c1b956a1b33aad6aa539feddb816ddbcdef87ceb2dbf622da238ae2b43e9",
+  "web/src/ui/OperationalTable.tsx": "8764b9fc6531dc4b648abbd3ff4ae9a6e2abb0a5def18fe7938f81702c78ac6d",
+  "web/scripts/visual-improvements-smoke.mjs": "c4bc7632b5f9b6d776584f2ba82f9cdac7ad8ac5ed678fb87fb28a91e9b6252f",
+  "web/scripts/visual-improvements-fixture.ts": "f4c645eec9147dcb532cf1283905d6eb085fbd8042eae78d34cb1a8bf7e93fdb"
+}

@@ -12,6 +12,7 @@ import {
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { PageHeader } from './ui/PageHeader';
+import './jobs/job-create.css';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
@@ -179,16 +180,18 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
 
   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
 
-  return <main className="task-create">
-    <PageHeader eyebrow="Yeni kayıt" description="Genel görev" fallbackTitle="Yeni iş" />
-    <p className="form-intro">Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın. Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.</p>
+  return <main className="task-create job-create">
+    <PageHeader eyebrow="" fallbackTitle="Yeni genel görev"
+      description="Yapılacak işi ve sorumlusunu belirleyin. Müşteri bağlantısı isteğe bağlıdır." />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
-    <form className="task-form" onSubmit={submit} noValidate>
+    <form className="task-form job-create-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending || ambiguous}>
+        <section className="job-create-section" aria-labelledby="task-info-heading">
+          <h2 id="task-info-heading">Görev bilgileri</h2>
         <div className="field-group">
           <label htmlFor="task-title">Başlık</label>
           <input id="task-title" name="title" required maxLength={255} value={title}
-            placeholder="Örn. Havaalanı karşılama — misafir transferi"
+            placeholder="Örn. Klinik eğitim materyallerini hazırla"
             aria-invalid={fieldErrors.title ? true : undefined}
             aria-describedby={fieldErrors.title ? 'task-title-error' : undefined}
             onChange={(event) => setTitle(event.target.value)} />
@@ -196,12 +199,16 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
         </div>
         <div className="field-group">
           <label htmlFor="task-description">Açıklama (isteğe bağlı)</label>
-          <textarea id="task-description" name="description" rows={5} value={description}
-            placeholder="Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle."
+          <textarea id="task-description" name="description" rows={3} value={description}
+            placeholder="Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla."
             aria-describedby="task-description-help"
             onChange={(event) => setDescription(event.target.value)} />
-          <p id="task-description-help" className="form-help">Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.</p>
+          <p id="task-description-help" className="form-help">Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.</p>
         </div>
+        </section>
+        <section className="job-create-section" aria-labelledby="task-plan-heading">
+          <h2 id="task-plan-heading">Planlama</h2>
+          <div className="job-create-pair">
         {user.role === 'STAFF'
           ? <div className="field-group"><span className="field-label">Sorumlu personel</span>
               <p className="fixed-field-value">{user.name}</p></div>
@@ -220,19 +227,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {fieldErrors.assignedTo && <span id="task-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
             </div>}
 
-        <details className="task-optional">
-          <summary>Ek bilgiler</summary>
-          <div className="task-optional-fields">
-            <div className="task-field-pair">
-              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
-                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
-                  <option value="low">Düşük</option><option value="normal">Normal</option>
-                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
-                </select></div>
               <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
-            </div>
+          </div>
+        </section>
+        <details className="task-optional job-create-optional">
+          <summary>Müşteri ve öncelik <span className="job-create-optional-hint">{customerId ? 'Müşteri seçildi' : 'İsteğe bağlı'}</span></summary>
+          <div className="task-optional-fields">
             <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
               <CustomerSearchSelect
                 id="task-customer"
@@ -253,6 +255,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
               {contactState === 'error' && <span className="field-error" role="alert">İlgili kişiler yüklenemedi. Müşteriyi yeniden seçip deneyin.</span>}
             </div>
+              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
+                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+                  <option value="low">Düşük</option><option value="normal">Normal</option>
+                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
+                </select></div>
           </div>
         </details>
       </fieldset>

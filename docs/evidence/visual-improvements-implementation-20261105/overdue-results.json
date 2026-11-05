@@ -1,0 +1,82 @@
+{
+  "phase": "after",
+  "browser": "140.0.7339.186",
+  "playwright": "1.55.1",
+  "fixedTime": "2026-11-05T06:00:00.000Z",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "captures": [
+    {
+      "file": "jobs-staff-1440-baseline",
+      "name": "jobs",
+      "role": "STAFF",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "İşlerim · Dünya Dental",
+      "height": 960,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşlerim",
+          "y": 186
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 525
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "Kontrole göndermek için aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "jobs-staff-390-baseline",
+      "name": "jobs",
+      "role": "STAFF",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "İşlerim · Dünya Dental",
+      "height": 1090,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşlerim",
+          "y": 140
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 463
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "Kontrole göndermek için aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    }
+  ]
+}

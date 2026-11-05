@@ -1,0 +1,11 @@
+{
+  "web/src/SalesMeetingCreate.tsx": "af14a1d2e9055963338452cfd4055eaad922adcec6608f7e9b83327e6b72f754",
+  "web/src/GeneralTaskCreate.tsx": "e1810cd114b31a6612a1d6ef76ac1aa066415251e7dfec6a4512c962fb000d5e",
+  "web/src/DeliveryCreate.tsx": "fe1be1ede92befdefbefe372cfa5be53e4b81b16db58a12750369cf509227aed",
+  "web/src/jobs/job-create.css": "cf65c80b7f2bd9030c8710898a557722c6d2e022e29fb7a4f98284134162e76b",
+  "web/src/jobs/CustomerSearchSelect.tsx": "7924bbf9dc9561ba2c9a895b22e19c88c7475b0469742ee388d774da49476d4a",
+  "web/src/jobs/NewJobMenu.tsx": "32af7295ca18f02fbbec0c6789939fa6e02c53c8f94f0a5a7da534117eae3732",
+  "web/src/shell/route-identity.ts": "c5c123fc2c6ac167c62135dacdca147663b122a2992bb4f8c2709258ebf608b9",
+  "web/src/styles.css": "55727c33f341317bc1a39dcd347bfc729a94aab471703bf40bb60454afdc2fe9",
+  "web/scripts/job-create-ui-smoke.mjs": "da2fe92a74d8a5ea8df387038c936b89b6b9dc8eb2eead69fac95e6079ec620e"
+}

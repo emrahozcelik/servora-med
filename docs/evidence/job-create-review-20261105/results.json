@@ -1,0 +1,1242 @@
+{
+  "sourceHead": "197586fd6254a73ed362fa125f489da3ecb9be47",
+  "browser": "140.0.7339.186",
+  "playwright": "1.55.1",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "fixedTime": "2026-11-05T06:00:00.000Z",
+  "syntheticData": true,
+  "notes": "No create requests sent. Calendar capability off, EventSource disabled, API reads and advisory preview mocked. No real device, screen reader, complete accessibility or backend acceptance.",
+  "captures": [
+    {
+      "name": "meeting-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-initial-manager-1440-viewport.png",
+        "meeting-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1242,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 493
+        },
+        {
+          "text": "Müşteri",
+          "y": 646
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 632
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 748
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 843
+        },
+        {
+          "text": "Öncelik",
+          "y": 1013
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1137,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-filled-manager-1440-viewport.png",
+        "meeting-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1242,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 493
+        },
+        {
+          "text": "Müşteri",
+          "y": 646
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 632
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 748
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 843
+        },
+        {
+          "text": "Öncelik",
+          "y": 1013
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1137,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-initial-manager-1440-viewport.png",
+        "task-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1075,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 493
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 752
+        },
+        {
+          "text": "Öncelik",
+          "y": 920
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 920
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1035
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1137
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 970,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-filled-manager-1440-viewport.png",
+        "task-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1406,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 493
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 752
+        },
+        {
+          "text": "Öncelik",
+          "y": 920
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 920
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1035
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1137
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1301,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-initial-manager-1440-viewport.png",
+        "delivery-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1244,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 391
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 493
+        },
+        {
+          "text": "Ürünler",
+          "y": 588
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 756
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 850
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 951
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1138,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-filled-manager-1440-viewport.png",
+        "delivery-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1425,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 391
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 493
+        },
+        {
+          "text": "Ürünler",
+          "y": 588
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 731
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 836
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 937
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1032
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1132
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1320,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-initial-manager-390-viewport.png",
+        "meeting-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1548,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 497
+        },
+        {
+          "text": "Müşteri",
+          "y": 670
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 772
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 872
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 967
+        },
+        {
+          "text": "Öncelik",
+          "y": 1138
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1321,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-filled-manager-390-viewport.png",
+        "meeting-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1548,
+      "overflow": true,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 497
+        },
+        {
+          "text": "Müşteri",
+          "y": 670
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 772
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 872
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 967
+        },
+        {
+          "text": "Öncelik",
+          "y": 1138
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1321,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-initial-manager-390-viewport.png",
+        "task-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1280,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 497
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 776
+        },
+        {
+          "text": "Öncelik",
+          "y": 944
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 1038
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1153
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1255
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1053,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-filled-manager-390-viewport.png",
+        "task-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1706,
+      "overflow": true,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 497
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 776
+        },
+        {
+          "text": "Öncelik",
+          "y": 944
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 1038
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1153
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1255
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1479,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-initial-manager-390-viewport.png",
+        "delivery-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1488,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 395
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 497
+        },
+        {
+          "text": "Ürünler",
+          "y": 592
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 819
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 914
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1014
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1262,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-filled-manager-390-viewport.png",
+        "delivery-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1673,
+      "overflow": true,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 395
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 497
+        },
+        {
+          "text": "Ürünler",
+          "y": 592
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 794
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 903
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1004
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1099
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1200
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1447,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-initial-staff-1440-viewport.png",
+        "meeting-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1250,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 493
+        },
+        {
+          "text": "Müşteri",
+          "y": 646
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 632
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 748
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 850
+        },
+        {
+          "text": "Öncelik",
+          "y": 1021
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1145,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-initial-staff-1440-viewport.png",
+        "task-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1083,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 395
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 493
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 752
+        },
+        {
+          "text": "Öncelik",
+          "y": 928
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 928
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1042
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1144
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 978,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-initial-staff-1440-viewport.png",
+        "delivery-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1149,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 391
+        },
+        {
+          "text": "Ürünler",
+          "y": 493
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 661
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 756
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 856
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1044,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-initial-staff-390-viewport.png",
+        "meeting-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1555,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 497
+        },
+        {
+          "text": "Müşteri",
+          "y": 670
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 772
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 872
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 975
+        },
+        {
+          "text": "Öncelik",
+          "y": 1146
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1329,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-initial-staff-390-viewport.png",
+        "task-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1287,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 398
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 497
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 776
+        },
+        {
+          "text": "Öncelik",
+          "y": 951
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 1046
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1161
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1263
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1061,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-initial-staff-390-viewport.png",
+        "delivery-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1393,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 395
+        },
+        {
+          "text": "Ürünler",
+          "y": 497
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 724
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 819
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 920
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimi kaydet",
+          "y": 1167,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "new-job-menu",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "new-job-menu-staff-1440-viewport.png",
+        "new-job-menu-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ],
+      "title": "İşlerim · Dünya Dental",
+      "height": 960,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "İş ara",
+          "y": 334
+        },
+        {
+          "text": "Görünüm",
+          "y": 338
+        },
+        {
+          "text": "Durum",
+          "y": 338
+        },
+        {
+          "text": "Öncelik",
+          "y": 484
+        },
+        {
+          "text": "İş türü",
+          "y": 484
+        },
+        {
+          "text": "Müşteri",
+          "y": 484
+        },
+        {
+          "text": "Başlangıç tarihi",
+          "y": 578
+        },
+        {
+          "text": "Bitiş tarihi",
+          "y": 578
+        },
+        {
+          "text": "Yalnız takip işleri",
+          "y": 606
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Ara",
+          "y": 365,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "new-job-menu",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "new-job-menu-staff-390-viewport.png",
+        "new-job-menu-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ],
+      "title": "İşlerim · Dünya Dental",
+      "height": 905,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "İş ara",
+          "y": 274
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Ara",
+          "y": 305,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-required-errors",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-required-errors-manager-390-viewport.png",
+        "meeting-required-errors-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni iş · Dünya Dental",
+      "height": 1780,
+      "overflow": false,
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 492
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 625
+        },
+        {
+          "text": "Müşteri",
+          "y": 833
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 970
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 1070
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 1200
+        },
+        {
+          "text": "Öncelik",
+          "y": 1370
+        }
+      ],
+      "alerts": [
+        "Görüşme veya ziyareti planlamadan önce işaretli alanları düzeltin."
+      ],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1554,
+          "disabled": false
+        }
+      ]
+    }
+  ]
+}

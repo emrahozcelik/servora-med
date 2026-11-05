@@ -170,7 +170,8 @@ html a:focus-visible {
 .login-form-wrap h1, .workspace-empty h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.025em; }
 .form-intro { margin: 0.75rem 0 2rem; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
 .field-group { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
-.field-group label { font-size: 0.9rem; font-weight: 680; }
+.field-group label, label.field-group { font-size: 0.9rem; font-weight: 680; }
+label.field-group > input, label.field-group > select, label.field-group > textarea { font-size: 1rem; font-weight: 400; }
 .field-group input, .field-group select, .field-group textarea,
 .form-control {
   min-width: 0;
@@ -3105,7 +3106,7 @@ html a:focus-visible {
   z-index: 0;
 }
 .customer-identity p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.customer-facts { display: grid; grid-template-columns: repeat(2, minmax(8rem, 1fr)); gap: 1rem; margin: 0; }
+.customer-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; }
 .customer-facts div { display: grid; gap: 0.25rem; }
 .customer-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .customer-facts dd { margin: 0; font-size: 0.875rem; }
@@ -3515,8 +3516,8 @@ html a:focus-visible {
   .customer-filters { grid-template-columns: 1fr; gap: 0.75rem; }
   .customer-row { grid-template-columns: 1fr; gap: 1rem; }
   .customer-facts { grid-template-columns: 1fr 1fr; }
-  .customer-row-commands { align-items: stretch; flex-direction: column; }
-  .customer-row-commands > * { width: 100%; }
+  .customer-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
+  .customer-row-commands > * { width: auto; }
   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
   .form-actions { align-items: stretch; flex-direction: column-reverse; }
   /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
@@ -3538,8 +3539,8 @@ html a:focus-visible {
   .product-filters { grid-template-columns: 1fr; }
   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }
   .product-form-pair { grid-template-columns: 1fr; }
-  .product-row-commands { align-items: stretch; flex-direction: column; }
-  .product-row-commands > * { width: 100%; }
+  .product-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
+  .product-row-commands > * { width: auto; }
   .product-detail .product-detail-facts { grid-template-columns: 1fr; }
   .product-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
   .product-dialog-actions button { width: 100%; }
@@ -4972,7 +4973,8 @@ html a:focus-visible {
   font-size: 0.8125rem;
 }
 
-.customer-option-label { display: inline-flex; min-width: 0; max-width: 100%; }
+.customer-search-select { width: 100%; min-width: 0; }
+.customer-option-label { display: inline-flex; gap: 0.25rem; min-width: 0; max-width: 100%; }
 .customer-option-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .customer-option-meta { flex: none; color: var(--muted); font-size: 0.8125rem; }
 .customer-search-more { padding: 0.4rem 0.75rem; color: var(--muted); font-size: 0.8125rem; }
@@ -5007,3 +5009,53 @@ html a:focus-visible {
 .sale-contact-search button { width: auto; }
 
 .sale-contact-select { height: var(--control-height); }
+
+/* Visual review A–E: compact identity and task-first page composition. */
+.own-staff-profile .profile-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--rule);
+}
+.own-staff-profile .profile-facts > div { padding: 0; border: 0; min-width: 0; }
+.own-staff-profile .profile-facts dd { overflow-wrap: anywhere; font-weight: 600; }
+.own-staff-profile #counter-title { margin: 0; font-size: 1.125rem; }
+.own-staff-profile .counter-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0;
+  border-block: 1px solid var(--rule);
+}
+.own-staff-profile .counter-grid > div { min-width: 0; border: 0; border-radius: 0; }
+.own-staff-profile .counter-grid dt { font-size: 0.875rem; }
+.own-staff-profile .counter-grid dd { font-variant-numeric: tabular-nums; }
+.own-staff-profile .staff-job-history { margin-top: 1.5rem; }
+.customer-edit-disclosure { margin-top: 1.25rem; }
+.customer-edit-disclosure > summary {
+  display: list-item;
+  width: fit-content;
+  min-height: var(--control-height);
+  padding-block: 0.65rem;
+  color: var(--accent);
+  font-weight: 650;
+  cursor: pointer;
+}
+.customer-edit-disclosure > summary:hover { text-decoration: underline; }
+.customer-detail .operational-summary { margin-top: 1.25rem; }
+.customer-detail .operational-summary .record-facts > div { min-width: 0; }
+.customer-detail .operational-summary dd { overflow-wrap: anywhere; }
+.customer-detail .operational-summary dd p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.product-row-commands .product-delete-action { color: var(--muted); background: transparent; }
+.job-list-card .job-row-relations dd { color: var(--ink); font-weight: 600; }
+.job-list-card .compact-workflow:not(.compact-workflow--attention) { font-weight: 400; }
+.job-list-card .compact-workflow:not(.compact-workflow--attention) p { color: var(--muted); font-weight: 400; }
+.job-list-card .compact-workflow { margin-top: 0.5rem; }
+.staff-report-method .report-section-hint { max-width: 75ch; }
+@media (max-width: 40rem) {
+  .own-staff-profile .profile-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .own-staff-profile .counter-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
+}
+
+.customer-list-card .customer-identity,
+.customer-list-card .customer-facts > div { min-width: 0; overflow-wrap: anywhere; }
+.customer-detail .record-facts > div { min-width: 0; }
+.customer-detail .record-facts dd { overflow-wrap: anywhere; }

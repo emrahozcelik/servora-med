@@ -1,0 +1,89 @@
+
+> servora-med-web@0.1.0 bundle:check
+> BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs
+
+JavaScript bundle sizes
+┌─────────┬──────────────────────────────────────────┬────────┬─────────┐
+│ (index) │ file                                     │ rawKiB │ gzipKiB │
+├─────────┼──────────────────────────────────────────┼────────┼─────────┤
+│ 0       │ 'antd-BrMPWehE.js'                       │ 389.5  │ 115.78  │
+│ 1       │ 'useMergeSemantic-BRHuTL4O.js'           │ 253.93 │ 83.56   │
+│ 2       │ 'ServoraCalendar-D9BXbiU3.js'            │ 180.53 │ 57.55   │
+│ 3       │ 'JobDetail-rtfUfB0c.js'                  │ 146.62 │ 36.18   │
+│ 4       │ 'index-Dg7LSkNG.js'                      │ 122.45 │ 34.1    │
+│ 5       │ 'OperationalCard-BDmcluth.js'            │ 76.26  │ 23.96   │
+│ 6       │ 'context-FrcpBYPn.js'                    │ 73.91  │ 25.32   │
+│ 7       │ 'PageHeader-BRLbP9gn.js'                 │ 70.14  │ 22.86   │
+│ 8       │ 'DuplicateCustomers-CZOWm02N.js'         │ 44.74  │ 12.79   │
+│ 9       │ 'UserManagement-CccLfKsX.js'             │ 40.05  │ 11.23   │
+│ 10      │ 'ResultState-DURdnQZH.js'                │ 36.95  │ 11.29   │
+│ 11      │ 'api-B_2e8Jmn.js'                        │ 29.18  │ 8.67    │
+│ 12      │ 'UserAvatar-Da0823BM.js'                 │ 27.71  │ 9.51    │
+│ 13      │ 'MessagingPage-BANpZS8M.js'              │ 26.94  │ 6.79    │
+│ 14      │ 'BackupRecoveryPage-BIX92dBR.js'         │ 25.5   │ 7.33    │
+│ 15      │ 'CustomerDetail-BCVS-8fT.js'             │ 23.29  │ 6.45    │
+│ 16      │ 'DemoDataPage-BdBn7kcc.js'               │ 22.07  │ 6.63    │
+│ 17      │ 'CustomerList-DtlYj2Ay.js'               │ 20.25  │ 6.06    │
+│ 18      │ 'reports-api-DlpBcMmU.js'                │ 19.43  │ 4.75    │
+│ 19      │ 'StaffProfiles-BTZ3A46P.js'              │ 17.65  │ 5.27    │
+│ 20      │ 'FollowUpCreatePage-HfdFNqoz.js'         │ 16.2   │ 4.93    │
+│ 21      │ 'ReportsDashboard-t9MajHbj.js'           │ 15.46  │ 5.19    │
+│ 22      │ 'CalendarPage-DlfGmEEw.js'               │ 14.22  │ 5       │
+│ 23      │ 'SalesFollowUpReport-fdyhxohX.js'        │ 13.2   │ 3.98    │
+│ 24      │ 'ContactManagement-u0_1cKER.js'          │ 12.27  │ 3.53    │
+│ 25      │ 'people-api-DFFD5mkS.js'                 │ 11.94  │ 3.69    │
+│ 26      │ 'WeeklyReportCreate-BGbqPoIX.js'         │ 11.85  │ 3.97    │
+│ 27      │ 'SettingsPages-DI8cJNow.js'              │ 9.68   │ 3.02    │
+│ 28      │ 'skeleton-GCQfz8On.js'                   │ 9.36   │ 3.14    │
+│ 29      │ 'EmptyState-BkxVu0vc.js'                 │ 9.27   │ 3.76    │
+│ 30      │ 'DeliveryCreate-v0v4MSBb.js'             │ 9.27   │ 3.3     │
+│ 31      │ 'StaffOperationalReport-CYFthO-p.js'     │ 9.23   │ 3.12    │
+│ 32      │ 'SalesMeetingCreate-DYRTmQAk.js'         │ 9.09   │ 2.96    │
+│ 33      │ 'OverviewPage-cVWwQxK6.js'               │ 9.03   │ 2.81    │
+│ 34      │ 'CustomerReport-BfU1GF7I.js'             │ 8.93   │ 2.73    │
+│ 35      │ 'ProductDetail-3fwwLgVw.js'              │ 8.74   │ 2.91    │
+│ 36      │ 'GeneralTaskCreate-CnfKfGO-.js'          │ 8.51   │ 2.88    │
+│ 37      │ 'RecordDescriptions-kG3WwEnM.js'         │ 8.47   │ 3.06    │
+│ 38      │ 'DuplicateReviewRegister-CAIB64YX.js'    │ 6.6    │ 2.63    │
+│ 39      │ 'ProductForm-CnmNStcD.js'                │ 6.58   │ 2.19    │
+│ 40      │ 'sale-form-DCsWZYKs.js'                  │ 6.46   │ 2.52    │
+│ 41      │ 'crm-api-CIHTE9gD.js'                    │ 6.34   │ 2.18    │
+│ 42      │ 'ProductList-BeCDYMFU.js'                │ 6.3    │ 2.48    │
+│ 43      │ 'SaleCreate-BTyK5s3J.js'                 │ 6.26   │ 2.57    │
+│ 44      │ 'weekly-report-api-DBi7P6T_.js'          │ 6.25   │ 1.81    │
+│ 45      │ 'DeliveryReport-CIVq6OxR.js'             │ 6.25   │ 2.43    │
+│ 46      │ 'DataManagementPage-Dp9B3SNU.js'         │ 6.13   │ 1.99    │
+│ 47      │ 'SubmissionLateness-3kd0aWtB.js'         │ 5.92   │ 2.06    │
+│ 48      │ 'ContextIsolator-CqiNFsNX.js'            │ 5.35   │ 2.38    │
+│ 49      │ 'CustomerSearchSelect-BitFwcVo.js'       │ 4.94   │ 2.01    │
+│ 50      │ 'report-charts-BxzHOB--.js'              │ 4.92   │ 1.53    │
+│ 51      │ 'report-shell-Cvngp-YA.js'               │ 4.83   │ 2       │
+│ 52      │ 'ProductSelect-CNAzXKGI.js'              │ 4.8    │ 1.81    │
+│ 53      │ 'MetricStatistic-13WHiPBu.js'            │ 4.79   │ 2.13    │
+│ 54      │ 'workspace-content-BWvx7_CD.js'          │ 4.51   │ 1.8     │
+│ 55      │ 'StaffPerformanceReport-BH32IEJh.js'     │ 4.3    │ 1.91    │
+│ 56      │ 'ApprovalReport-Dhqdzmic.js'             │ 3.43   │ 1.52    │
+│ 57      │ 'messaging-api-vGCkUfCK.js'              │ 3.41   │ 1.14    │
+│ 58      │ 'HelpCenterPage-D8PhEER4.js'             │ 3.4    │ 1.48    │
+│ 59      │ 'DocumentationPage-D27n-e5Y.js'          │ 3.02   │ 1.33    │
+│ 60      │ 'useAvailableSlotSearch-CaHByb8N.js'     │ 2.9    │ 1.28    │
+│ 61      │ 'PhoneInput-cibNck8C.js'                 │ 2.46   │ 1.02    │
+│ 62      │ 'ReassignmentSyncPrompt-B5IVFyhh.js'     │ 2.39   │ 1.09    │
+│ 63      │ 'calendar-api-8c7WakJb.js'               │ 2.38   │ 0.95    │
+│ 64      │ 'ConfirmationAction-CgKSHB2W.js'         │ 1.92   │ 0.92    │
+│ 65      │ 'useCustomerSchedulePreview-BdCqSwDQ.js' │ 1.85   │ 0.87    │
+│ 66      │ 'ResponsiveFormDrawer-Bjdvfpdt.js'       │ 1.74   │ 0.77    │
+│ 67      │ 'ResponsiveDrawer-CzLY7hzs.js'           │ 1.69   │ 0.73    │
+│ 68      │ 'follow-up-presentation-BlC6VlCi.js'     │ 1.56   │ 0.84    │
+│ 69      │ 'products-api-CC1Qackg.js'               │ 1.51   │ 0.75    │
+│ 70      │ 'OperationalTable-DM--2NsO.js'           │ 1.29   │ 0.51    │
+│ 71      │ 'overlay-focus-DrD4Gb5U.js'              │ 1.12   │ 0.48    │
+│ 72      │ 'LoadingSkeleton-DigKpld8.js'            │ 0.68   │ 0.36    │
+│ 73      │ 'job-create-Ch4s2kyW.js'                 │ 0.57   │ 0.38    │
+│ 74      │ 'clickable-card-CLtAxzy_.js'             │ 0.4    │ 0.22    │
+│ 75      │ 'SettingsTabs-CQ-Pq120.js'               │ 0.32   │ 0.24    │
+│ 76      │ 'reactNode-B39lUYdZ.js'                  │ 0.31   │ 0.23    │
+│ 77      │ 'file-download-DeAnMfmG.js'              │ 0.26   │ 0.2     │
+│ 78      │ 'mutation-attempt-error-D0mzf-Kv.js'     │ 0.17   │ 0.16    │
+└─────────┴──────────────────────────────────────────┴────────┴─────────┘
+Bundle budget OK: 79 JavaScript chunk, her biri en fazla 500000 byte.

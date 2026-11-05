@@ -12,6 +12,7 @@ defines authority, accepted amendments, and how to report policy/code drift.
 | Accepted product and architecture decisions | [DECISIONS.md](../DECISIONS.md) |
 | Product scope and workflows | [PRODUCT_REQUIREMENTS.md](../PRODUCT_REQUIREMENTS.md) |
 | UI, UX, and accessibility | [DESIGN.md](../DESIGN.md), [PRODUCT.md](../PRODUCT.md), and DECISIONS.md UI-001 |
+| Default visual inspection method for all agents | [Rendered UI evidence workflow](ui/visual-review-workflow.md), DECISIONS.md UI-003 |
 | Architecture and module boundaries | [Architecture baseline](../SERVORA_MED_ARCHITECTURE_PLAN.md), with accepted decision amendments |
 | Data model and API contracts | [Schema baseline](../SERVORA_MED_SCHEMA_DRAFT.md), [API baseline](../SERVORA_MED_API_DRAFT.md), with accepted decision/feature amendments |
 | Delivery order and recorded acceptance | [MVP slice ledger](../SERVORA_MED_MVP_SLICES.md); completed checkpoints are historical |
@@ -55,6 +56,24 @@ Preserve [acceptance evidence](evidence/), [UI screenshots](ui/screenshots/),
 [restore records](operations/restore-rehearsals/), and the recovery contracts above.
 [Backlog](backlog/) entries require their own accepted scope before implementation.
 An old successful CI result belongs to its recorded SHA/tree.
+
+The [2026-11-05 visual improvement review](ui/reviews/2026-11-05-visual-improvements.md)
+prioritizes proposed UI slices and records corrections to the initial review.
+Its [preserved captures](evidence/visual-review-20261105/README.md) are synthetic
+layout evidence with documented fixture limitations, not implementation approval
+or complete application acceptance.
+
+The approved A–E work from that review is tracked in the
+[visual implementation record](ui/reviews/2026-11-05-visual-improvements-implementation.md)
+with [new before/after evidence](evidence/visual-improvements-implementation-20261105/README.md).
+
+The [job creation visual review](ui/reviews/2026-11-05-job-create.md) extends that
+review to the three new-job forms and their menu. Its
+[browser evidence](evidence/job-create-review-20261105/README.md) includes populated
+mobile overflow findings. The approved presentation changes and their current
+verification status are recorded in the
+[implementation follow-up](ui/reviews/2026-11-05-job-create-implementation.md),
+with [final evidence](evidence/job-create-implementation-20261105/README.md).
 
 The [2026-10-17 reconciliation report](evidence/documentation-reconciliation-20261017/README.md)
 and its [machine-readable inventory](evidence/documentation-reconciliation-20261017/inventory.json)

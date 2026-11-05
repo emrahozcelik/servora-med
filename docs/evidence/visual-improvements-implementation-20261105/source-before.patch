@@ -1,0 +1,495 @@
+diff --git a/web/src/DeliveryCreate.tsx b/web/src/DeliveryCreate.tsx
+index e57b697..0ceeeb6 100644
+--- a/web/src/DeliveryCreate.tsx
++++ b/web/src/DeliveryCreate.tsx
+@@ -20,6 +20,7 @@ import type { Product } from './services/products-api';
+ import type { Customer, CustomerSummary } from './services/crm-api';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ 
+ export type DeliveryFormValues = {
+   customerId: string;
+@@ -268,9 +269,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+   const submitDisabled = pending || ambiguous || !customerReady || selectedProducts.length === 0
+     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
+   const semanticInputsDisabled = pending || ambiguous;
+-  return <main className="delivery-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Ürün teslimi" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
++  return <main className="delivery-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Yeni ürün teslimi"
++      description="Müşteriyi, ürünleri ve teslimat planını belirleyin. Tamamlanan teslimat yönetici onayına gönderilir." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+       {calendarConflicts.map((conflict) => (
+         <p key={String(conflict.id)}>
+@@ -283,8 +284,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+       <button type="button" className="primary-button" data-original-retry disabled={pending}
+         onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
+     </div>}
+-    <form className="delivery-form" onSubmit={submit}>
++    <form className="delivery-form job-create-form" onSubmit={submit}>
+       <fieldset disabled={semanticInputsDisabled} className="delivery-form-fieldset">
++      <section className="job-create-section" aria-labelledby="delivery-customer-heading">
++        <h2 id="delivery-customer-heading">Müşteri ve sorumlu</h2>
+       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
+         <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={semanticInputsDisabled} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+         <CustomerSearchSelect
+@@ -299,7 +302,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+           disabled={semanticInputsDisabled}
+         />
+       </div>
+-      {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
++      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div> : <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
+         <select id="delivery-assignee" name="assignedTo" required disabled={semanticInputsDisabled || staffState !== 'ready'} value={assignedTo}
+           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
+           <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+@@ -307,6 +310,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+         {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
+       </div>}
++      </section>
++      <section className="job-create-section" aria-labelledby="delivery-products-heading">
++        <h2 id="delivery-products-heading">Ürünler ve miktarlar</h2>
+       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
+         onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady}
+         renderQuantity={(product) => <>
+@@ -316,15 +322,18 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+             required disabled={semanticInputsDisabled}
+             onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
+         </>} />
+-      <div className="delivery-pair">
++      </section>
++      <section className="job-create-section" aria-labelledby="delivery-plan-heading">
++        <h2 id="delivery-plan-heading">Teslimat planı</h2>
++      <div className="job-create-pair">
+         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
+           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
+             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
+           </select></div>
+-      </div>
+       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
+         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
+           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
++      </div>
+       <CustomerScheduleNotice
+         evaluation={evaluation}
+         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+@@ -336,10 +345,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+       />
+       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
+         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={semanticInputsDisabled} /></div>
++      </section>
+       </fieldset>
+       <div className="form-actions">
+         <button className="secondary-button" type="button" onClick={onCancel} disabled={semanticInputsDisabled}>Vazgeç</button>
+-        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
++        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Teslimat oluşturuluyor…' : 'Teslimat oluştur'}</button>
+       </div>
+     </form>
+     <CustomerCreateSideFlow
+diff --git a/web/src/GeneralTaskCreate.tsx b/web/src/GeneralTaskCreate.tsx
+index 5fd7577..fa318fc 100644
+--- a/web/src/GeneralTaskCreate.tsx
++++ b/web/src/GeneralTaskCreate.tsx
+@@ -12,6 +12,7 @@ import {
+ import { listStaff, type StaffProfile } from './services/people-api';
+ import { createRequestGate } from './services/request-gate';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
+@@ -179,16 +180,18 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+ 
+   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
+ 
+-  return <main className="task-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Genel görev" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın. Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.</p>
++  return <main className="task-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Yeni genel görev"
++      description="Yapılacak işi ve sorumlusunu belirleyin. Müşteri bağlantısı isteğe bağlıdır." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+-    <form className="task-form" onSubmit={submit} noValidate>
++    <form className="task-form job-create-form" onSubmit={submit} noValidate>
+       <fieldset disabled={pending || ambiguous}>
++        <section className="job-create-section" aria-labelledby="task-info-heading">
++          <h2 id="task-info-heading">Görev bilgileri</h2>
+         <div className="field-group">
+           <label htmlFor="task-title">Başlık</label>
+           <input id="task-title" name="title" required maxLength={255} value={title}
+-            placeholder="Örn. Havaalanı karşılama — misafir transferi"
++            placeholder="Örn. Klinik eğitim materyallerini hazırla"
+             aria-invalid={fieldErrors.title ? true : undefined}
+             aria-describedby={fieldErrors.title ? 'task-title-error' : undefined}
+             onChange={(event) => setTitle(event.target.value)} />
+@@ -196,12 +199,16 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+         </div>
+         <div className="field-group">
+           <label htmlFor="task-description">Açıklama (isteğe bağlı)</label>
+-          <textarea id="task-description" name="description" rows={5} value={description}
+-            placeholder="Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle."
++          <textarea id="task-description" name="description" rows={3} value={description}
++            placeholder="Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla."
+             aria-describedby="task-description-help"
+             onChange={(event) => setDescription(event.target.value)} />
+-          <p id="task-description-help" className="form-help">Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.</p>
++          <p id="task-description-help" className="form-help">Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.</p>
+         </div>
++        </section>
++        <section className="job-create-section" aria-labelledby="task-plan-heading">
++          <h2 id="task-plan-heading">Planlama</h2>
++          <div className="job-create-pair">
+         {user.role === 'STAFF'
+           ? <div className="field-group"><span className="field-label">Sorumlu personel</span>
+               <p className="fixed-field-value">{user.name}</p></div>
+@@ -220,19 +227,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+               {fieldErrors.assignedTo && <span id="task-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
+             </div>}
+ 
+-        <details className="task-optional">
+-          <summary>Ek bilgiler</summary>
+-          <div className="task-optional-fields">
+-            <div className="task-field-pair">
+-              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
+-                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+-                  <option value="low">Düşük</option><option value="normal">Normal</option>
+-                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
+-                </select></div>
+               <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
+                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
+                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+-            </div>
++          </div>
++        </section>
++        <details className="task-optional job-create-optional">
++          <summary>Müşteri ve öncelik <span className="job-create-optional-hint">{customerId ? 'Müşteri seçildi' : 'İsteğe bağlı'}</span></summary>
++          <div className="task-optional-fields">
+             <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+               <CustomerSearchSelect
+                 id="task-customer"
+@@ -253,6 +255,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+               {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
+               {contactState === 'error' && <span className="field-error" role="alert">İlgili kişiler yüklenemedi. Müşteriyi yeniden seçip deneyin.</span>}
+             </div>
++              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
++                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
++                  <option value="low">Düşük</option><option value="normal">Normal</option>
++                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
++                </select></div>
+           </div>
+         </details>
+       </fieldset>
+diff --git a/web/src/SalesMeetingCreate.tsx b/web/src/SalesMeetingCreate.tsx
+index 943864f..23f2463 100644
+--- a/web/src/SalesMeetingCreate.tsx
++++ b/web/src/SalesMeetingCreate.tsx
+@@ -24,6 +24,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
+ import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ 
+ type LoadState = 'loading' | 'ready' | 'error';
+ type FieldErrors = {
+@@ -156,12 +157,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+ 
+   const referencesUnavailable = !customerReady
+     || (user.role !== 'STAFF' && staffState !== 'ready');
+-  return <main className="task-create meeting-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Görüşme / ziyaret planla" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">
+-      Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
+-      Görüşme veya ziyaret sonucu daha sonra kaydedilir.
+-    </p>
++  return <main className="task-create meeting-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Görüşme / ziyaret planla"
++      description="Müşteriyi ve ziyaret amacını belirleyin. Görüşme sonucu daha sonra kaydedilir." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+       {calendarConflicts.map((conflict) => (
+         <p key={String(conflict.id)}>
+@@ -169,11 +167,22 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+         </p>
+       ))}
+     </div>}
+-    <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
+-      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
+-        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
+-          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
+-        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
++    <form className="task-form job-create-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
++      <section className="job-create-section" aria-labelledby="meeting-info-heading">
++        <h2 id="meeting-info-heading">Müşteri ve amaç</h2>
++        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
++          <CustomerSearchSelect
++            id="meeting-customer"
++            value={customerId}
++            onChange={setCustomerId}
++            pinnedCustomer={pinnedCustomer}
++            onReadyChange={setCustomerReady}
++            clearValueWhenMissing
++            allowClear
++            invalid={fieldErrors.customerId ? true : undefined}
++            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
++          />
++          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
+       <div className="field-group">
+         <label htmlFor="meeting-engagement-kind">Görüşme / ziyaret türü</label>
+         <select
+@@ -190,33 +199,37 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+           ))}
+         </select>
+         <p id="meeting-engagement-kind-help" className="form-help">
+-          Görüşmenin veya ziyaretin ana amacını seçin. Bu bilgi liste ve raporlarda gösterilir.
++          Liste ve raporlarda gösterilecek ana amacı seçin.
+         </p>
+         {fieldErrors.engagementKind && (
+           <span id="meeting-engagement-kind-error" className="field-error">{fieldErrors.engagementKind}</span>
+         )}
+       </div>
+-      <div className="task-field-pair">
+-        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+-          <CustomerSearchSelect
+-            id="meeting-customer"
+-            value={customerId}
+-            onChange={setCustomerId}
+-            pinnedCustomer={pinnedCustomer}
+-            onReadyChange={setCustomerReady}
+-            clearValueWhenMissing
+-            allowClear
+-            invalid={fieldErrors.customerId ? true : undefined}
+-            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
+-          />
+-          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
++      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
++        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
++          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
++        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
++      </section>
++      <section className="job-create-section" aria-labelledby="meeting-plan-heading">
++        <h2 id="meeting-plan-heading">Planlama</h2>
++        <div className="job-create-pair">
++      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
++        : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
++          <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
++            aria-invalid={fieldErrors.assignedTo ? true : undefined}
++            aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
++            onChange={(event) => setAssignedTo(event.target.value)}>
++            <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
++          {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
++          {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
++          {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
+         <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
+           <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
+             aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+             aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
+             onChange={(event) => setScheduledLocal(event.target.value)} />
+           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
+-      </div>
++        </div>
+       <CustomerScheduleNotice
+         evaluation={evaluation}
+         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+@@ -226,22 +239,16 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+         {...availableSlotSearch}
+         onSelect={useAvailableSlot}
+       />
+-      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
+-        : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
+-          <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
+-            aria-invalid={fieldErrors.assignedTo ? true : undefined}
+-            aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
+-            onChange={(event) => setAssignedTo(event.target.value)}>
+-            <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
+-          {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+-          {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
+-          {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
++      </section>
++      <section className="job-create-section" aria-labelledby="meeting-extra-heading">
++        <h2 id="meeting-extra-heading">Ek bilgiler</h2>
+       <div className="field-group"><label htmlFor="meeting-description">Açıklama (isteğe bağlı)</label>
+-        <textarea id="meeting-description" rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
++        <textarea id="meeting-description" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+       <div className="field-group"><label htmlFor="meeting-priority">Öncelik</label>
+         <select id="meeting-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+           <option value="low">Düşük</option><option value="normal">Normal</option>
+           <option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
++      </section>
+     </fieldset><div className="form-actions">
+       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
+       {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={pending}
+diff --git a/web/src/jobs/CustomerSearchSelect.tsx b/web/src/jobs/CustomerSearchSelect.tsx
+index 0b73133..c929f70 100644
+--- a/web/src/jobs/CustomerSearchSelect.tsx
++++ b/web/src/jobs/CustomerSearchSelect.tsx
+@@ -50,7 +50,7 @@ function renderLabel(customer: CustomerSummary): ReactNode {
+   return (
+     <span className="customer-option-label">
+       <span>{customer.name}</span>
+-      {meta && <span className="customer-option-meta"> · {meta}</span>}
++      {meta && <span className="customer-option-meta">{meta}</span>}
+     </span>
+   );
+ }
+@@ -312,6 +312,7 @@ export function CustomerSearchSelect({
+   return (
+     <>
+       <ServoraSelect
++        className="customer-search-select"
+         id={id}
+         showSearch
+         filterOption={false}
+diff --git a/web/src/jobs/NewJobMenu.tsx b/web/src/jobs/NewJobMenu.tsx
+index 0da313e..cd9988a 100644
+--- a/web/src/jobs/NewJobMenu.tsx
++++ b/web/src/jobs/NewJobMenu.tsx
+@@ -30,7 +30,7 @@ export function NewJobMenu({
+   const menuId = useId();
+   const isSheet = presentation === 'sheet';
+   const options = [
+-    onCreateMeeting ? { key: 'meeting', label: 'Yeni görüşme', run: onCreateMeeting } : null,
++    onCreateMeeting ? { key: 'meeting', label: 'Görüşme / ziyaret planla', run: onCreateMeeting } : null,
+     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
+     onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
+     onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,
+diff --git a/web/src/shell/route-identity.ts b/web/src/shell/route-identity.ts
+index bf31b58..015868a 100644
+--- a/web/src/shell/route-identity.ts
++++ b/web/src/shell/route-identity.ts
+@@ -49,9 +49,9 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
+   calendar: { title: 'Takvim', parentId: null, section: 'Operasyon' },
+   messages: { title: 'Mesajlar', parentId: null, section: 'Operasyon' },
+   jobs: { title: 'İşler', parentId: null, section: 'Operasyon' },
+-  jobCreateDelivery: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+-  jobCreateTask: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+-  jobCreateMeeting: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateDelivery: { title: 'Yeni ürün teslimi', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateTask: { title: 'Yeni genel görev', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateMeeting: { title: 'Görüşme / ziyaret planla', parentId: 'jobs', section: 'Operasyon' },
+   jobCreateWeeklyReport: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+   followUpCreate: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+   saleCreate: { title: 'Satış kaydı oluştur', parentId: 'jobDetail', section: 'Operasyon',
+diff --git a/web/src/styles.css b/web/src/styles.css
+index c9b9684..4c8457b 100644
+--- a/web/src/styles.css
++++ b/web/src/styles.css
+@@ -4972,7 +4972,8 @@ html a:focus-visible {
+   font-size: 0.8125rem;
+ }
+ 
+-.customer-option-label { display: inline-flex; min-width: 0; max-width: 100%; }
++.customer-search-select { width: 100%; min-width: 0; }
++.customer-option-label { display: inline-flex; gap: 0.25rem; min-width: 0; max-width: 100%; }
+ .customer-option-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .customer-option-meta { flex: none; color: var(--muted); font-size: 0.8125rem; }
+ .customer-search-more { padding: 0.4rem 0.75rem; color: var(--muted); font-size: 0.8125rem; }
+diff --git a/web/tests/general-task-create.test.tsx b/web/tests/general-task-create.test.tsx
+index 94b9949..b7452b4 100644
+--- a/web/tests/general-task-create.test.tsx
++++ b/web/tests/general-task-create.test.tsx
+@@ -246,23 +246,23 @@ describe('General Task quick create', () => {
+         <MemoryRouter><GeneralTaskCreateScreen user={creator} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
+       ));
+       await settle();
+-      const intro = container.querySelector('.form-intro')?.textContent ?? '';
+-      expect(intro).toContain('Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın.');
+-      expect(intro).toContain('Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.');
++      const intro = container.querySelector('.page-header-description')?.textContent ?? '';
++      expect(intro).toContain('Yapılacak işi ve sorumlusunu belirleyin.');
++      expect(intro).toContain('Müşteri bağlantısı isteğe bağlıdır.');
+       expect(container.textContent).not.toContain('Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.');
+ 
+       const title = container.querySelector<HTMLInputElement>('#task-title')!;
+-      expect(title.getAttribute('placeholder')).toBe('Örn. Havaalanı karşılama — misafir transferi');
++      expect(title.getAttribute('placeholder')).toBe('Örn. Klinik eğitim materyallerini hazırla');
+ 
+       const description = container.querySelector<HTMLTextAreaElement>('#task-description')!;
+       expect(description.getAttribute('placeholder')).toBe(
+-        "Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle.",
++        "Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla.",
+       );
+-      expect(description.getAttribute('rows')).toBe('5');
++      expect(description.getAttribute('rows')).toBe('3');
+       expect(description.getAttribute('aria-describedby')).toBe('task-description-help');
+       const helper = container.querySelector('#task-description-help');
+       expect(helper?.textContent).toBe(
+-        'Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.',
++        'Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.',
+       );
+       await act(async () => root.unmount());
+       container = document.createElement('div'); document.body.append(container);
+@@ -275,7 +275,10 @@ describe('General Task quick create', () => {
+       <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
+     ));
+     const disclosure = container.querySelector('details.task-optional')!;
+-    expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
++    expect(disclosure.querySelector('summary')?.textContent).toContain('Müşteri ve öncelik');
++    // A default scheduling value must be discoverable without opening optional fields.
++    expect(container.querySelector('#task-scheduled-at')?.closest('details')).toBeNull();
++    expect(container.querySelector<HTMLInputElement>('#task-scheduled-at')?.value).toBe('2026-07-17T14:30');
+     for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Planlanan zaman (isteğe bağlı)',
+       'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
+       expect(container.textContent).toContain(label);
+diff --git a/web/tests/new-job-menu.test.tsx b/web/tests/new-job-menu.test.tsx
+index 112fb01..e34a4ae 100644
+--- a/web/tests/new-job-menu.test.tsx
++++ b/web/tests/new-job-menu.test.tsx
+@@ -33,7 +33,7 @@ describe('NewJobMenu', () => {
+     expect(html).toContain('aria-expanded="false"');
+     expect(html).toContain('aria-controls=');
+     expect(html).not.toContain('aria-haspopup');
+-    expect(html).not.toContain('Yeni görüşme');
++    expect(html).not.toContain('Görüşme / ziyaret planla');
+     expect(html).not.toContain('Yeni görev');
+     expect(html).not.toContain('Yeni teslim');
+   });
+@@ -57,10 +57,10 @@ describe('NewJobMenu', () => {
+     const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+     expect(trigger).toBeTruthy();
+     act(() => { trigger.click(); });
+-    expect(host.textContent).toContain('Yeni görüşme');
++    expect(host.textContent).toContain('Görüşme / ziyaret planla');
+     expect(host.textContent).toContain('Yeni görev');
+     expect(host.textContent).toContain('Yeni teslim');
+-    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Yeni görüşme');
++    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Görüşme / ziyaret planla');
+     act(() => { meeting?.click(); });
+     expect(onCreateMeeting).toHaveBeenCalledTimes(1);
+     expect(onCreateTask).not.toHaveBeenCalled();
+diff --git a/web/tests/route-identity.test.ts b/web/tests/route-identity.test.ts
+index fd3c271..9401a5b 100644
+--- a/web/tests/route-identity.test.ts
++++ b/web/tests/route-identity.test.ts
+@@ -35,6 +35,12 @@ describe('route identity registry', () => {
+     }
+   });
+ 
++  it('names each primary job creation route by the work being planned', () => {
++    expect(matchRouteIdentity(paths.newMeeting)?.identity.title).toBe('Görüşme / ziyaret planla');
++    expect(matchRouteIdentity(paths.newTask)?.identity.title).toBe('Yeni genel görev');
++    expect(matchRouteIdentity(paths.newDelivery)?.identity.title).toBe('Yeni ürün teslimi');
++  });
++
+   it('gives distinct static settings and report routes distinct identities', () => {
+     const ids = [
+       '/settings/profile', '/settings/security',
+diff --git a/web/tests/router.test.tsx b/web/tests/router.test.tsx
+index db118dc..7fbc20e 100644
+--- a/web/tests/router.test.tsx
++++ b/web/tests/router.test.tsx
+@@ -62,10 +62,10 @@ async function render(path: string, user: CurrentUser = manager) {
+ describe('application routes', () => {
+   it.each([
+     ['/jobs', 'İşler', manager],
+-    ['/jobs/new-delivery', 'Ürün teslimi', staff],
+-    ['/jobs/new-delivery', 'Ürün teslimi', manager],
+-    ['/jobs/new-task', 'Genel görev', staff],
+-    ['/jobs/new-task', 'Genel görev', manager],
++    ['/jobs/new-delivery', 'Yeni ürün teslimi', staff],
++    ['/jobs/new-delivery', 'Yeni ürün teslimi', manager],
++    ['/jobs/new-task', 'Yeni genel görev', staff],
++    ['/jobs/new-task', 'Yeni genel görev', manager],
+     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', staff],
+     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', manager],
+     ['/jobs/job-1', 'İş detayları yükleniyor', staff],

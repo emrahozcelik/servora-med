@@ -12,6 +12,8 @@ export type OperationalTableRow = Readonly<{
 
 export type OperationalTableProps = Readonly<{
   caption: string;
+  /** Keep the accessible name when the surrounding section already labels the data. */
+  hideVisibleCaption?: boolean;
   columns: readonly OperationalTableColumn[];
   rows: readonly OperationalTableRow[];
   rowHeaderKey?: string;
@@ -25,6 +27,7 @@ export type OperationalTableProps = Readonly<{
  */
 export function OperationalTable({
   caption,
+  hideVisibleCaption = false,
   columns,
   rows,
   rowHeaderKey,
@@ -35,7 +38,7 @@ export function OperationalTable({
   return (
     <div className="servora-operational-table" data-servora-operational-table="true">
       <table className="report-table servora-operational-table__desktop">
-        <caption>{caption}</caption>
+        <caption className={hideVisibleCaption ? 'sr-only' : undefined}>{caption}</caption>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -63,7 +66,7 @@ export function OperationalTable({
       <div className="servora-operational-table__mobile">
         <p
           id={mobileCaptionId}
-          className="servora-operational-table__mobile-caption"
+          className={`servora-operational-table__mobile-caption${hideVisibleCaption ? ' sr-only' : ''}`}
         >
           {caption}
         </p>

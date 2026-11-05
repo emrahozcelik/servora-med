@@ -1,0 +1,2938 @@
+{
+  "keyboardChecks": "New-job Escape focus; error-summary focus; customer side-flow open/dismiss/focus/draft; customer selection with ArrowDown/Enter",
+  "sourceDiff": "source.patch",
+  "sourceHead": "197586fd6254a73ed362fa125f489da3ecb9be47",
+  "browser": "140.0.7339.186",
+  "playwright": "1.55.1",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "fixedTime": "2026-11-05T06:00:00.000Z",
+  "syntheticData": true,
+  "notes": "No create requests sent. Calendar capability off, EventSource disabled, API reads and advisory preview mocked. No real device, screen reader, complete accessibility or backend acceptance.",
+  "captures": [
+    {
+      "name": "meeting-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-initial-manager-1440-viewport.png",
+        "meeting-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1218,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 281
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 382
+        },
+        {
+          "text": "Başlık",
+          "y": 501
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 678
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 678
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 856
+        },
+        {
+          "text": "Öncelik",
+          "y": 999
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1123,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-filled-manager-1440-viewport.png",
+        "meeting-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1242,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 281
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 405
+        },
+        {
+          "text": "Başlık",
+          "y": 524
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 701
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 701
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 880
+        },
+        {
+          "text": "Öncelik",
+          "y": 1023
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1146,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-initial-manager-1440-viewport.png",
+        "task-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 960,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 270
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 365
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 618
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 618
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 802
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 903
+        },
+        {
+          "text": "Öncelik",
+          "y": 994
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 829,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-filled-manager-1440-viewport.png",
+        "task-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1258,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 270
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 365
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 618
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 618
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 802
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 927
+        },
+        {
+          "text": "Öncelik",
+          "y": 1017
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1162,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-initial-manager-1440-viewport.png",
+        "delivery-initial-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1192,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 305
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 406
+        },
+        {
+          "text": "Ürünler",
+          "y": 579
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 824
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 824
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 921
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1097,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "MANAGER",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-filled-manager-1440-viewport.png",
+        "delivery-filled-manager-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1398,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 305
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 429
+        },
+        {
+          "text": "Ürünler",
+          "y": 602
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 745
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 850
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1029
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1029
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1126
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1302,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-initial-manager-390-viewport.png",
+        "meeting-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1495,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 380
+        },
+        {
+          "text": "Başlık",
+          "y": 499
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 675
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 766
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 945
+        },
+        {
+          "text": "Öncelik",
+          "y": 1087
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1271,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-filled-manager-390-viewport.png",
+        "meeting-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1518,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 403
+        },
+        {
+          "text": "Başlık",
+          "y": 522
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 699
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 790
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 968
+        },
+        {
+          "text": "Öncelik",
+          "y": 1111
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1294,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-initial-manager-390-viewport.png",
+        "task-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1221,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 726
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 911
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1012
+        },
+        {
+          "text": "Öncelik",
+          "y": 1102
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 998,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-filled-manager-390-viewport.png",
+        "task-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1554,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 726
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 911
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1035
+        },
+        {
+          "text": "Öncelik",
+          "y": 1126
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1330,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-initial-manager-390-viewport.png",
+        "delivery-initial-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1504,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 380
+        },
+        {
+          "text": "Ürünler",
+          "y": 553
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 858
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 949
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1045
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1281,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-filled-manager-390-viewport.png",
+        "delivery-filled-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1733,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 403
+        },
+        {
+          "text": "Ürünler",
+          "y": 576
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 779
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 907
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1086
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1177
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1273
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1509,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-initial-staff-1440-viewport.png",
+        "meeting-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1218,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 281
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 382
+        },
+        {
+          "text": "Başlık",
+          "y": 501
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 678
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 678
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 856
+        },
+        {
+          "text": "Öncelik",
+          "y": 999
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1123,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-filled-staff-1440-viewport.png",
+        "meeting-filled-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1242,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 281
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 405
+        },
+        {
+          "text": "Başlık",
+          "y": 524
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 701
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 701
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 880
+        },
+        {
+          "text": "Öncelik",
+          "y": 1023
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1146,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-initial-staff-1440-viewport.png",
+        "task-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 960,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 270
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 365
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 618
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 618
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 802
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 903
+        },
+        {
+          "text": "Öncelik",
+          "y": 994
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 829,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "task-filled-staff-1440-viewport.png",
+        "task-filled-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1258,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 270
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 365
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 618
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 618
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 802
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 927
+        },
+        {
+          "text": "Öncelik",
+          "y": 1017
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1162,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-initial-staff-1440-viewport.png",
+        "delivery-initial-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1191,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 305
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 406
+        },
+        {
+          "text": "Ürünler",
+          "y": 578
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 823
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 823
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 920
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1096,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-filled-staff-1440-viewport.png",
+        "delivery-filled-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1396,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 305
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 429
+        },
+        {
+          "text": "Ürünler",
+          "y": 601
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 744
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 849
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1028
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1028
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1125
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1301,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-initial-staff-390-viewport.png",
+        "meeting-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1494,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 380
+        },
+        {
+          "text": "Başlık",
+          "y": 499
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 675
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 765
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 944
+        },
+        {
+          "text": "Öncelik",
+          "y": 1086
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1270,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-filled-staff-390-viewport.png",
+        "meeting-filled-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1517,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 403
+        },
+        {
+          "text": "Başlık",
+          "y": 522
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 699
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 788
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 967
+        },
+        {
+          "text": "Öncelik",
+          "y": 1110
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1293,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-initial-staff-390-viewport.png",
+        "task-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1220,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 725
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 910
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1011
+        },
+        {
+          "text": "Öncelik",
+          "y": 1101
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 997,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-filled-staff-390-viewport.png",
+        "task-filled-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1553,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 725
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 910
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1034
+        },
+        {
+          "text": "Öncelik",
+          "y": 1125
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1329,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-initial",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-initial-staff-390-viewport.png",
+        "delivery-initial-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1503,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 380
+        },
+        {
+          "text": "Ürünler",
+          "y": 552
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 857
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 948
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1044
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1280,
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-filled-staff-390-viewport.png",
+        "delivery-filled-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1732,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 403
+        },
+        {
+          "text": "Ürünler",
+          "y": 575
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 778
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 906
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1085
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1176
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1272
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1508,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-reflow",
+      "role": "MANAGER",
+      "width": 320,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-reflow-manager-320-viewport.png",
+        "meeting-reflow-manager-320-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1538,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 403
+        },
+        {
+          "text": "Başlık",
+          "y": 542
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 719
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 810
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 988
+        },
+        {
+          "text": "Öncelik",
+          "y": 1131
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1315,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-reflow",
+      "role": "MANAGER",
+      "width": 320,
+      "viewportHeight": 844,
+      "files": [
+        "task-reflow-manager-320-viewport.png",
+        "task-reflow-manager-320-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1576,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 726
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 900
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1057
+        },
+        {
+          "text": "Öncelik",
+          "y": 1148
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1352,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-reflow",
+      "role": "MANAGER",
+      "width": 320,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-reflow-manager-320-viewport.png",
+        "delivery-reflow-manager-320-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 2010,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 303
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 427
+        },
+        {
+          "text": "Ürünler",
+          "y": 600
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 803
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 1058
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1364
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1454
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1551
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1786,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-reflow",
+      "role": "MANAGER",
+      "width": 768,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-reflow-manager-768-viewport.png",
+        "meeting-reflow-manager-768-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1356,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 267
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 391
+        },
+        {
+          "text": "Başlık",
+          "y": 510
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 687
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 687
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 866
+        },
+        {
+          "text": "Öncelik",
+          "y": 1008
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1132,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-reflow",
+      "role": "MANAGER",
+      "width": 768,
+      "viewportHeight": 960,
+      "files": [
+        "task-reflow-manager-768-viewport.png",
+        "task-reflow-manager-768-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1372,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 256
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 350
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 603
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 603
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 788
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 913
+        },
+        {
+          "text": "Öncelik",
+          "y": 1003
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1148,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-reflow",
+      "role": "MANAGER",
+      "width": 768,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-reflow-manager-768-viewport.png",
+        "delivery-reflow-manager-768-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1511,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 291
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 415
+        },
+        {
+          "text": "Ürünler",
+          "y": 588
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 731
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 836
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1015
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1015
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1112
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1288,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-reflow",
+      "role": "MANAGER",
+      "width": 1024,
+      "viewportHeight": 960,
+      "files": [
+        "meeting-reflow-manager-1024-viewport.png",
+        "meeting-reflow-manager-1024-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1242,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 281
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 405
+        },
+        {
+          "text": "Başlık",
+          "y": 524
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 701
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 701
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 880
+        },
+        {
+          "text": "Öncelik",
+          "y": 1023
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1146,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-reflow",
+      "role": "MANAGER",
+      "width": 1024,
+      "viewportHeight": 960,
+      "files": [
+        "task-reflow-manager-1024-viewport.png",
+        "task-reflow-manager-1024-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1258,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 270
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 365
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 618
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 618
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 802
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 927
+        },
+        {
+          "text": "Öncelik",
+          "y": 1017
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1162,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-reflow",
+      "role": "MANAGER",
+      "width": 1024,
+      "viewportHeight": 960,
+      "files": [
+        "delivery-reflow-manager-1024-viewport.png",
+        "delivery-reflow-manager-1024-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1398,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 305
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 429
+        },
+        {
+          "text": "Ürünler",
+          "y": 602
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 745
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 850
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1029
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1029
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1126
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1302,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-filled",
+      "role": "ADMIN",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-filled-admin-390-viewport.png",
+        "meeting-filled-admin-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1518,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 403
+        },
+        {
+          "text": "Başlık",
+          "y": 522
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 699
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 790
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 968
+        },
+        {
+          "text": "Öncelik",
+          "y": 1111
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1294,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-text-200",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-text-200-manager-390-viewport.png",
+        "meeting-text-200-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "POST /api/job-cards/customer-schedule/evaluate"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 2940,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 465
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 709
+        },
+        {
+          "text": "Başlık",
+          "y": 1025
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 1367
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 1546
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 1932
+        },
+        {
+          "text": "Öncelik",
+          "y": 2143
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 2500,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-filled",
+      "role": "ADMIN",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-filled-admin-390-viewport.png",
+        "task-filled-admin-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1554,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 268
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 362
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 636
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 726
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 911
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 1035
+        },
+        {
+          "text": "Öncelik",
+          "y": 1126
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 1330,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "task-text-200",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "task-text-200-manager-390-viewport.png",
+        "task-text-200-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/contacts"
+      ],
+      "title": "Yeni genel görev · Dünya Dental",
+      "heading": "Yeni genel görev",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 3049,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Başlık",
+          "y": 443
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 622
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 1133
+        },
+        {
+          "text": "Planlanan zaman (isteğe bağlı)",
+          "y": 1312
+        },
+        {
+          "text": "Müşteri (isteğe bağlı)",
+          "y": 1724
+        },
+        {
+          "text": "İlgili kişi (isteğe bağlı)",
+          "y": 2033
+        },
+        {
+          "text": "Öncelik",
+          "y": 2212
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Görevi oluştur",
+          "y": 2609,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-filled",
+      "role": "ADMIN",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-filled-admin-390-viewport.png",
+        "delivery-filled-admin-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 1733,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 279
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 403
+        },
+        {
+          "text": "Ürünler",
+          "y": 576
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 779
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 907
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 1086
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 1177
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 1273
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 1509,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "delivery-text-200",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "delivery-text-200-manager-390-viewport.png",
+        "delivery-text-200-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff",
+        "GET /api/products",
+        "GET /api/products"
+      ],
+      "title": "Yeni ürün teslimi · Dünya Dental",
+      "heading": "Yeni ürün teslimi",
+      "narrowProductNames": [],
+      "selectedNames": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "clipped": false
+        }
+      ],
+      "smallTargets": [],
+      "height": 3788,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 489
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 733
+        },
+        {
+          "text": "Ürünler",
+          "y": 1126
+        },
+        {
+          "text": "Miktar: ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 1512
+        },
+        {
+          "text": "Miktar: Steril Cerrahi Örtü Seti",
+          "y": 1973
+        },
+        {
+          "text": "Teslim amacı",
+          "y": 2558
+        },
+        {
+          "text": "Planlanan teslim zamanı",
+          "y": 2738
+        },
+        {
+          "text": "Teslim notu (isteğe bağlı)",
+          "y": 2917
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Teslimat oluştur",
+          "y": 3348,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "new-job-menu",
+      "role": "STAFF",
+      "width": 1440,
+      "viewportHeight": 960,
+      "files": [
+        "new-job-menu-staff-1440-viewport.png",
+        "new-job-menu-staff-1440-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ],
+      "title": "İşlerim · Dünya Dental",
+      "heading": "İşlerim",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 960,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "İş ara",
+          "y": 334
+        },
+        {
+          "text": "Görünüm",
+          "y": 338
+        },
+        {
+          "text": "Durum",
+          "y": 338
+        },
+        {
+          "text": "Öncelik",
+          "y": 484
+        },
+        {
+          "text": "İş türü",
+          "y": 484
+        },
+        {
+          "text": "Müşteri",
+          "y": 484
+        },
+        {
+          "text": "Başlangıç tarihi",
+          "y": 578
+        },
+        {
+          "text": "Bitiş tarihi",
+          "y": 578
+        },
+        {
+          "text": "Yalnız takip işleri",
+          "y": 606
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Ara",
+          "y": 365,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "new-job-menu",
+      "role": "STAFF",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "new-job-menu-staff-390-viewport.png",
+        "new-job-menu-staff-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ],
+      "title": "İşlerim · Dünya Dental",
+      "heading": "İşlerim",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 905,
+      "overflow": false,
+      "overflowing": [
+        {
+          "tag": "A",
+          "cls": "job-quick-view",
+          "width": 183.703125
+        },
+        {
+          "tag": "SPAN",
+          "cls": "job-quick-view-label",
+          "width": 154.515625
+        },
+        {
+          "tag": "A",
+          "cls": "job-quick-view",
+          "width": 106.296875
+        },
+        {
+          "tag": "SPAN",
+          "cls": "job-quick-view-label",
+          "width": 77.109375
+        },
+        {
+          "tag": "A",
+          "cls": "job-quick-view",
+          "width": 91.28125
+        },
+        {
+          "tag": "SPAN",
+          "cls": "job-quick-view-label",
+          "width": 62.09375
+        }
+      ],
+      "labels": [
+        {
+          "text": "İş ara",
+          "y": 274
+        }
+      ],
+      "alerts": [],
+      "submit": [
+        {
+          "text": "Ara",
+          "y": 305,
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "name": "meeting-required-errors",
+      "role": "MANAGER",
+      "width": 390,
+      "viewportHeight": 844,
+      "files": [
+        "meeting-required-errors-manager-390-viewport.png",
+        "meeting-required-errors-manager-390-full.png"
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ],
+      "title": "Görüşme / ziyaret planla · Dünya Dental",
+      "heading": "Görüşme / ziyaret planla",
+      "narrowProductNames": [],
+      "selectedNames": [],
+      "smallTargets": [],
+      "height": 1723,
+      "overflow": false,
+      "overflowing": [],
+      "labels": [
+        {
+          "text": "Müşteri",
+          "y": 368
+        },
+        {
+          "text": "Görüşme / ziyaret türü",
+          "y": 504
+        },
+        {
+          "text": "Başlık",
+          "y": 657
+        },
+        {
+          "text": "Sorumlu personel",
+          "y": 869
+        },
+        {
+          "text": "Planlanan görüşme zamanı",
+          "y": 994
+        },
+        {
+          "text": "Açıklama (isteğe bağlı)",
+          "y": 1173
+        },
+        {
+          "text": "Öncelik",
+          "y": 1316
+        }
+      ],
+      "alerts": [
+        "Görüşme veya ziyareti planlamadan önce işaretli alanları düzeltin."
+      ],
+      "submit": [
+        {
+          "text": "Görüşme / ziyareti planla",
+          "y": 1499,
+          "disabled": false
+        }
+      ]
+    }
+  ]
+}

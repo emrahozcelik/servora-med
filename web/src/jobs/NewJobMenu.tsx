@@ -30,7 +30,7 @@ export function NewJobMenu({
   const menuId = useId();
   const isSheet = presentation === 'sheet';
   const options = [
-    onCreateMeeting ? { key: 'meeting', label: 'Yeni görüşme', run: onCreateMeeting } : null,
+    onCreateMeeting ? { key: 'meeting', label: 'Görüşme / ziyaret planla', run: onCreateMeeting } : null,
     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
     onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
     onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,

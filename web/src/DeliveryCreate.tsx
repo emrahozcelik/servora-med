@@ -20,6 +20,7 @@ import type { Product } from './services/products-api';
 import type { Customer, CustomerSummary } from './services/crm-api';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
+import './jobs/job-create.css';
 
 export type DeliveryFormValues = {
   customerId: string;
@@ -268,9 +269,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
   const submitDisabled = pending || ambiguous || !customerReady || selectedProducts.length === 0
     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   const semanticInputsDisabled = pending || ambiguous;
-  return <main className="delivery-create">
-    <PageHeader eyebrow="Yeni kayıt" description="Ürün teslimi" fallbackTitle="Yeni iş" />
-    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
+  return <main className="delivery-create job-create">
+    <PageHeader eyebrow="" fallbackTitle="Yeni ürün teslimi"
+      description="Müşteriyi, ürünleri ve teslimat planını belirleyin. Tamamlanan teslimat yönetici onayına gönderilir." />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
       {calendarConflicts.map((conflict) => (
         <p key={String(conflict.id)}>
@@ -283,8 +284,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       <button type="button" className="primary-button" data-original-retry disabled={pending}
         onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
     </div>}
-    <form className="delivery-form" onSubmit={submit}>
+    <form className="delivery-form job-create-form" onSubmit={submit}>
       <fieldset disabled={semanticInputsDisabled} className="delivery-form-fieldset">
+      <section className="job-create-section" aria-labelledby="delivery-customer-heading">
+        <h2 id="delivery-customer-heading">Müşteri ve sorumlu</h2>
       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
         <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={semanticInputsDisabled} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
         <CustomerSearchSelect
@@ -299,7 +302,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
           disabled={semanticInputsDisabled}
         />
       </div>
-      {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
+      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div> : <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
         <select id="delivery-assignee" name="assignedTo" required disabled={semanticInputsDisabled || staffState !== 'ready'} value={assignedTo}
           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
           <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
@@ -307,6 +310,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
         {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
       </div>}
+      </section>
+      <section className="job-create-section" aria-labelledby="delivery-products-heading">
+        <h2 id="delivery-products-heading">Ürünler ve miktarlar</h2>
       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
         onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady}
         renderQuantity={(product) => <>
@@ -316,15 +322,18 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
             required disabled={semanticInputsDisabled}
             onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
         </>} />
-      <div className="delivery-pair">
+      </section>
+      <section className="job-create-section" aria-labelledby="delivery-plan-heading">
+        <h2 id="delivery-plan-heading">Teslimat planı</h2>
+      <div className="job-create-pair">
         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
           </select></div>
-      </div>
       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+      </div>
       <CustomerScheduleNotice
         evaluation={evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
@@ -336,10 +345,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
       />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={semanticInputsDisabled} /></div>
+      </section>
       </fieldset>
       <div className="form-actions">
         <button className="secondary-button" type="button" onClick={onCancel} disabled={semanticInputsDisabled}>Vazgeç</button>
-        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
+        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Teslimat oluşturuluyor…' : 'Teslimat oluştur'}</button>
       </div>
     </form>
     <CustomerCreateSideFlow

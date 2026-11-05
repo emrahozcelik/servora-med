@@ -121,7 +121,7 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
           {canManage && <div className="product-row-commands">
             <Link className="secondary-button" to={paths.product(product.id)}
               aria-label={`${product.name} ürününü düzenle`}>Düzenle</Link>
-            <button className="destructive-button" type="button"
+            <button className="secondary-button product-delete-action" type="button"
               aria-label={`${product.name} ürününü sil`}
               onClick={(event) => onRequestDelete?.(product, event.currentTarget)}>Sil</button>
           </div>}
