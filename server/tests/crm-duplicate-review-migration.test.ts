@@ -63,7 +63,7 @@ describe.skipIf(!databaseUrl)('CRM Slice 4A PR2 migration 060', () => {
       const versions = (await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       )).rows.map((row) => row.version);
-      expect(versions.at(-1)).toBe('060_crm_duplicate_review_decisions');
+      expect(versions.at(-1)).toBe('061_backup_worker_trusted_time_evidence');
       const again = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store: new PostgresMigrationStore(pool) });
       expect(again.appliedVersions).toEqual([]);
     });
@@ -82,7 +82,7 @@ describe.skipIf(!databaseUrl)('CRM Slice 4A PR2 migration 060', () => {
         expect(before.appliedVersions).toHaveLength(59);
         expect((await pool.query("SELECT to_regclass(current_schema() || '.customer_duplicate_reviews') AS table").then((result) => result.rows[0]?.table))).toBeNull();
         const upgrade = await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
-        expect(upgrade.appliedVersions).toEqual(['060_crm_duplicate_review_decisions']);
+        expect(upgrade.appliedVersions).toEqual(['060_crm_duplicate_review_decisions', '061_backup_worker_trusted_time_evidence']);
         expect((await pool.query("SELECT to_regclass(current_schema() || '.customer_duplicate_reviews') AS table").then((result) => result.rows[0]?.table))).not.toBeNull();
         expect((await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store })).appliedVersions).toEqual([]);
       } finally {

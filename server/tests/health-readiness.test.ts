@@ -11,7 +11,9 @@ import type { HealthReadinessPort } from '../src/modules/health/service.js';
 import type { BackupHealthReadinessPort } from '../src/modules/health/service.js';
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
 import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
+import type { BackupVerificationProof } from '../src/modules/backup/trusted-evidence.js';
 import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
+import { timeAt } from './backup-time-fixture.js';
 
 const TEST_RELEASE_SHA = '6325e44bf774d2cb0de2c4cd27ba93443b57d4c0';
 
@@ -179,30 +181,136 @@ describe('GET /api/health readiness', () => {
     expect(backup.json()).toMatchObject({ status: 'ok', workerHeartbeatAt: expect.any(String) });
   });
 
+  it('maps rich backup states to exact HTTP status and preserves providerStatus', async () => {
+    const states = [
+      { status: 'ok', providerStatus: 'healthy', code: 200 },
+      { status: 'unavailable', providerStatus: 'stale', code: 503 },
+      { status: 'unavailable', providerStatus: 'failed', code: 503 },
+      { status: 'unavailable', providerStatus: 'unavailable', code: 503 },
+    ] as const;
+    for (const state of states) {
+      const backupReadiness: BackupHealthReadinessPort = {
+        check: async () => ({
+          status: state.status,
+          provider: 'br5-r2',
+          providerStatus: state.providerStatus,
+          latestVerifiedAt: null,
+          latestScheduledVerifiedAt: null,
+          latestRunStatus: null,
+          latestScheduledRunStatus: null,
+          workerHeartbeatAt: null,
+          schedulerLastTickAt: null,
+        }),
+      };
+      const app = await buildApp(testConfig, {
+        healthReadiness: { check: async () => 'ok' },
+        backupHealthReadiness: backupReadiness,
+      });
+      apps.push(app);
+      const response = await app.inject({ method: 'GET', url: '/api/health/backup' });
+      expect(response.statusCode).toBe(state.code);
+      expect(response.json()).toMatchObject({
+        status: state.status,
+        providerStatus: state.providerStatus,
+      });
+    }
+  });
+
+  it('does not expose evidence details through the public health projection', async () => {
+    const backupReadiness: BackupHealthReadinessPort = {
+      check: async () => ({
+        status: 'ok',
+        provider: 'br5-r2',
+        providerStatus: 'healthy',
+        latestVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'SUCCESS',
+        workerHeartbeatAt: '2026-08-23T01:01:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+      }),
+    };
+    const app = await buildApp(testConfig, {
+      healthReadiness: { check: async () => 'ok' },
+      backupHealthReadiness: backupReadiness,
+    });
+    apps.push(app);
+    const response = await app.inject({ method: 'GET', url: '/api/health' });
+    const serialized = JSON.stringify(response.json());
+    for (const forbidden of [
+      'bootId', 'timeNamespaceId', 'sourcePolicy', 'configSha256',
+      'artifactGenerationId', 'remoteAttemptId', 'remoteKey', 'sha256',
+      'verificationTimeEvidence',
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
   it('uses scheduled verified evidence and both liveness timestamps for backup health', async () => {
-    const now = new Date('2026-08-23T02:00:00.000Z');
+    const start = Date.parse('2026-08-23T01:00:00.000Z');
+    const current = timeAt(start + 60 * 60 * 1000);
+    const runId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const generationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const remoteKey = `production/instance/v1/scheduled/${runId}.sbk.age`;
+    const sha256 = 'a'.repeat(64);
+    const proof: BackupVerificationProof = {
+      proofVersion: 2,
+      runId,
+      artifactGenerationId: generationId,
+      artifactSha256: sha256,
+      sizeBytes: 1024,
+      remoteAttemptId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      origin: 'SCHEDULED',
+      remoteKey,
+      generationStartedAt: timeAt(start).wallAtUTC,
+      verificationAttemptStartedAt: new Date(start + 30_000).toISOString(),
+      verifiedAt: timeAt(start + 60_000).wallAtUTC,
+      before: timeAt(start),
+      after: timeAt(start + 60_000),
+    };
+    const row = {
+      id: runId,
+      status: 'SUCCESS',
+      origin: 'SCHEDULED',
+      verified_at: new Date(proof.verifiedAt),
+      remote_key: remoteKey,
+      size_bytes: 1024,
+      sha256,
+      artifact_generation_id: generationId,
+      artifact_generation_time_evidence: proof.before,
+      verification_time_evidence: proof,
+    };
+    const heartbeatEvidence = timeAt(start + 59 * 60 * 1000);
     const pool = {
       query: async (sql: string) => {
-        if (sql.includes("origin = 'SCHEDULED'") && sql.includes('verified_at')) {
-          return { rows: [{ verified_at: new Date('2026-08-23T01:00:00.000Z') }] };
+        if (sql.includes('active_running')) return { rows: [{ active: false }] };
+        if (sql.includes('scheduled_verified') || sql.includes('latest_verified')) {
+          return { rows: [row] };
         }
-        if (sql.includes("origin = 'SCHEDULED'")) return { rows: [{ status: 'SUCCESS' }] };
-        if (sql.includes('worker_heartbeat_at')) {
+        if (sql.includes('scheduled_run_status') || sql.includes('latest_run_status')) {
+          return { rows: [{ status: 'SUCCESS' }] };
+        }
+        if (sql.includes('backup_worker_state')) {
           return {
             rows: [{
-              worker_heartbeat_at: new Date('2026-08-23T01:59:00.000Z'),
-              scheduler_last_tick_at: new Date('2026-08-23T01:58:00.000Z'),
+              worker_heartbeat_at: new Date(heartbeatEvidence.wallAtUTC),
+              scheduler_last_tick_at: new Date(heartbeatEvidence.wallAtUTC),
+              worker_heartbeat_time_evidence: heartbeatEvidence,
+              scheduler_last_tick_time_evidence: heartbeatEvidence,
             }],
           };
         }
-        return { rows: [{ verified_at: new Date('2026-08-23T01:00:00.000Z') }] };
+        throw new Error(`unexpected SQL: ${sql}`);
       },
     };
-    const health = createPostgresBackupHealth(pool as never, { workerEnabled: true, now: () => now });
+    const health = createPostgresBackupHealth(pool as never, {
+      workerEnabled: true,
+      sampleTime: async () => current,
+    });
     await expect(health.check()).resolves.toMatchObject({
       status: 'ok',
-      latestVerifiedAt: '2026-08-23T01:00:00.000Z',
-      latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
+      providerStatus: 'healthy',
+      latestVerifiedAt: proof.verifiedAt,
+      latestScheduledVerifiedAt: proof.verifiedAt,
       latestScheduledRunStatus: 'SUCCESS',
     });
   });

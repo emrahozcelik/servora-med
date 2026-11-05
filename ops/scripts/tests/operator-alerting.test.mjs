@@ -377,109 +377,128 @@ it('PR394-P2 config accepts the explicit host-observation source',()=>{
 });
 
 describe('verified-runs backup source', () => {
+  const br5Backup = (overrides = {}) => ({
+    provider: 'br5-r2',
+    providerStatus: 'healthy',
+    status: 'ok',
+    latestVerifiedAt: '2026-08-23T00:00:00.000Z',
+    latestScheduledVerifiedAt: '2026-08-23T00:00:00.000Z',
+    latestRunStatus: 'SUCCESS',
+    latestScheduledRunStatus: 'SUCCESS',
+    workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
+    schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+    ...overrides,
+  });
+  const config = () => loadConfig({
+    ...BASE_ENV,
+    SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
+  });
+
   it('keeps legacy backup freshness authoritative until V1 is explicitly selected', () => {
     assert.equal(loadConfig(BASE_ENV).backupSource, 'legacy');
   });
 
-  it('uses safe health evidence and the existing freshness threshold', () => {
-    const config = loadConfig({
-      ...BASE_ENV,
-      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
-    });
-    assert.equal(config.backupSource, 'verified-runs');
-    const result = evaluateVerifiedBackup(config, {
+  it('accepts only a backend healthy decision and preserves provider identity', () => {
+    const result = evaluateVerifiedBackup(config(), {
       ok: true,
-      backup: {
-        status: 'ok',
-        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
-        latestScheduledVerifiedAt: '2026-08-23T00:00:00.000Z',
-        latestRunStatus: 'SUCCESS',
-        latestScheduledRunStatus: 'SUCCESS',
-        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
-        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
-      },
-    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+      httpStatus: 200,
+      backup: br5Backup(),
+    });
     assert.equal(result.ok, true);
-    assert.equal(result.ageHours, 2);
+    assert.equal(result.errorCategory, null);
+    assert.equal(result.latestBackupTimestamp, '2026-08-23T00:00:00.000Z');
   });
 
-  it('does not let a manual verified run satisfy scheduled freshness', () => {
-    const config = loadConfig({
-      ...BASE_ENV,
-      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
-    });
-    const result = evaluateVerifiedBackup(config, {
-      ok: true,
-      backup: {
-        status: 'ok',
-        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
-        latestScheduledVerifiedAt: null,
-        latestRunStatus: 'SUCCESS',
-        latestScheduledRunStatus: 'FAILED',
-        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
-        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
-      },
-    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
-    assert.equal(result.ok, false);
-    assert.equal(result.errorCategory, 'scheduled-failure');
-    assert.equal(result.latestProblem, 'FAILED');
+  it('never promotes a backend unavailable, stale, or failed decision locally', () => {
+    for (const providerStatus of ['unavailable', 'stale', 'failed']) {
+      const result = evaluateVerifiedBackup(config(), {
+        ok: true,
+        httpStatus: 200,
+        backup: br5Backup({ providerStatus, status: 'unavailable' }),
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.errorCategory, providerStatus);
+      assert.equal(result.latestProblem, providerStatus);
+    }
   });
 
-  it('treats the latest scheduled failure as unhealthy despite an older verified run', () => {
-    const config = loadConfig({
-      ...BASE_ENV,
-      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
-    });
-    const result = evaluateVerifiedBackup(config, {
+  it('does not calculate a competing local age', () => {
+    const result = evaluateVerifiedBackup(config(), {
       ok: true,
-      backup: {
-        status: 'ok',
-        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
-        latestScheduledVerifiedAt: '2026-08-23T00:00:00.000Z',
-        latestRunStatus: 'FAILED',
-        latestScheduledRunStatus: 'FAILED',
-        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
-        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
-      },
-    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
-    assert.equal(result.ok, false);
-    assert.equal(result.errorCategory, 'scheduled-failure');
+      httpStatus: 200,
+      backup: br5Backup({ latestScheduledVerifiedAt: '2020-01-01T00:00:00.000Z' }),
+    }, { now: () => new Date('2030-01-01T00:00:00.000Z') });
+    assert.equal(result.ok, true);
+    assert.equal(result.ageHours, null);
   });
 
-  it('does not accept SUCCESS without verified_at and fails on stale worker evidence', () => {
-    const config = loadConfig({
-      ...BASE_ENV,
-      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
-    });
-    const missingVerification = evaluateVerifiedBackup(config, {
-      ok: true,
-      backup: {
-        status: 'ok',
-        latestVerifiedAt: null,
-        latestScheduledVerifiedAt: null,
-        latestRunStatus: 'SUCCESS',
-        latestScheduledRunStatus: 'SUCCESS',
-        workerHeartbeatAt: '2026-08-23T01:59:00.000Z',
-        schedulerLastTickAt: '2026-08-23T01:59:00.000Z',
-      },
-    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
-    assert.equal(missingVerification.ok, false);
-    assert.equal(missingVerification.errorCategory, 'no-verified-backup');
+  it('preserves the safe 503 backup body category instead of collapsing it', () => {
+    for (const providerStatus of ['stale', 'failed', 'unavailable']) {
+      const result = evaluateVerifiedBackup(config(), {
+        ok: false,
+        httpStatus: 503,
+        errorCategory: 'http-503',
+        backup: br5Backup({ providerStatus, status: 'unavailable' }),
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.errorCategory, providerStatus);
+      assert.equal(result.latestBackupTimestamp, '2026-08-23T00:00:00.000Z');
+    }
+  });
 
-    const staleWorker = evaluateVerifiedBackup(config, {
+  it('treats a missing/unknown provider as health-unavailable, not BR5', () => {
+    for (const provider of [null, undefined, 'host-observation', 'other']) {
+      const result = evaluateVerifiedBackup(config(), {
+        ok: true,
+        httpStatus: 200,
+        backup: br5Backup({ provider }),
+      });
+      assert.equal(result.ok, false);
+      assert.equal(result.errorCategory, 'health-unavailable');
+    }
+  });
+
+  it('does not accept a 503 healthy body or a 200 unhealthy body', () => {
+    const http503Healthy = evaluateVerifiedBackup(config(), {
+      ok: false,
+      httpStatus: 503,
+      backup: br5Backup(),
+    });
+    assert.equal(http503Healthy.ok, false);
+
+    const http200Unhealthy = evaluateVerifiedBackup(config(), {
       ok: true,
-      backup: {
+      httpStatus: 200,
+      backup: br5Backup({ providerStatus: 'unavailable', status: 'unavailable' }),
+    });
+    assert.equal(http200Unhealthy.ok, false);
+    assert.equal(http200Unhealthy.errorCategory, 'unavailable');
+  });
+
+  it('preserves br5-r2 and safe status through the actual health probe', async () => {
+    const config = loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs' });
+    const deps = fakeDeps({
+      health: healthResponse(503, {
         status: 'unavailable',
-        latestVerifiedAt: '2026-08-23T01:00:00.000Z',
-        latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
-        latestRunStatus: 'SUCCESS',
-        latestScheduledRunStatus: 'SUCCESS',
-        workerHeartbeatAt: '2026-08-22T23:00:00.000Z',
-        schedulerLastTickAt: '2026-08-23T01:59:00.000Z',
-      },
-    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
-    assert.equal(staleWorker.ok, false);
-    assert.equal(staleWorker.errorCategory, 'worker-unavailable');
+        backup: br5Backup({ providerStatus: 'stale', status: 'unavailable' }),
+      }),
+    });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.httpStatus, 503);
+    assert.equal(result.backup.provider, 'br5-r2');
+    assert.equal(result.backup.providerStatus, 'stale');
+    assert.equal(result.backup.status, 'unavailable');
+    assert.equal(evaluateVerifiedBackup(config, result).ok, false);
+    assert.equal(evaluateVerifiedBackup(config, result).errorCategory, 'stale');
+  });
+
+  it('keeps a connection failure unavailable with no fallback scan', async () => {
+    const config = loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs' });
+    const deps = fakeDeps({ health: new Error('connect ECONNREFUSED') });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.backup, null);
+    assert.equal(evaluateVerifiedBackup(config, result).ok, false);
+    assert.equal(evaluateVerifiedBackup(config, result).errorCategory, 'health-unavailable');
   });
 });
 
