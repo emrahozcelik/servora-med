@@ -1,7 +1,11 @@
 # Reports overview and team presentation
 
-Status: implemented 2026-11-04; local acceptance verified, hosted CI and merge
-pending. The individual staff page remains a separate UI/UX slice.
+Status: implemented 2026-11-04; responsive review corrections applied 2026-11-05.
+Hosted CI passed for `bfe72c546275c764ddc9b1341c9876cf3b440a05`
+([run 41910043312](https://github.com/emrahozcelik/servora-med/actions/runs/41910043312)).
+Later revisions require their own successful PR-head run; the current result is
+tracked in [PR #409 checks](https://github.com/emrahozcelik/servora-med/pull/409/checks).
+Merge is pending. The individual staff page remains a separate UI/UX slice.
 
 User-authorized slice: improve Reports / Summary and Reports / Staff in the
 existing Ant Design system. The confirmed main chart is visits, follow-up visits
@@ -35,6 +39,11 @@ and approved sales. The individual staff page remains a separate UI/UX slice.
   verified-performer attribution or lateness explanation mechanisms in
   [REPORT-001](README.md), and must not advertise the existing staff counters
   as that new attribution system.
+- Staff comparison uses the available content width after shell chrome and text
+  enlargement. Narrow tablet/desktop content uses the same sortable cards as
+  mobile; sufficiently wide content retains the comparison table. Header words
+  must remain intact and details controls must stay inside their cells. A raw
+  viewport wider than 720 px does not require the table.
 
 ## Acceptance criteria
 
@@ -56,7 +65,7 @@ and approved sales. The individual staff page remains a separate UI/UX slice.
 
 ## Verification
 
-Recorded 2026-11-04 on the working tree that became branch
+Original acceptance recorded 2026-11-04 on the working tree that became branch
 `codex/reports-overview-20261104`. PostgreSQL 17 preflight passed against an
 isolated database with the schema at repository head
 `060_crm_duplicate_review_decisions`.
@@ -80,6 +89,29 @@ failures. Raw captures and `browser-checks.json` are regenerated local artifacts
 under `.impeccable/review/` and are not committed.
 
 Not verified here and not claimed: screen-reader output, production data,
-hosted CI for this branch, and any device beyond the Chromium viewports above.
+and physical-device behavior. Hosted CI evidence is bound to the commit and run
+above; a successful earlier run does not verify a later revision.
 The verified-performer attribution and lateness explanations in
 [REPORT-001](README.md) remain unimplemented.
+
+### Responsive review corrections — 2026-11-05
+
+- The new header-word geometry assertion failed on the previous 40rem layout at
+  768 px (`bekliyor`, `Geciken` split across lines), then passed after the staff
+  container threshold returned to 52rem. The existing responsive suite now
+  checks that exactly one staff layout is visible instead of forcing the table
+  at every viewport above 720 px.
+- `reports-ui-smoke.mjs` is now a named step in the web CI job. Its captures use
+  the runner's temporary directory. The local-CI fallback runs the same script
+  within its existing `web-geometry` gate and records captures under its owned
+  auxiliary logs; the 27-gate evidence contract is unchanged.
+  The script covers 768/1024 px summary and staff views, 1440/1920 px with 200%
+  root text, existing 390 px mobile and 320 px
+  reflow, full-word headers, in-cell details controls, sorting and keyboard
+  disclosure. These are Chromium fixture checks, not physical-device evidence.
+- Local follow-up verification: server/web builds passed; the complete web suite
+  passed (214 files, 2730 tests); bundle budgets passed; the report browser suite
+  passed all 26 checks; `npm run smoke:responsive` passed. Local-CI shell/static
+  checks and all 25 `ops/tests/ci-resource-cleanup.test.mjs` tests passed.
+  The unchanged server suite was not rerun locally in this correction; its prior
+  result and the PR-head hosted gate remain distinct.

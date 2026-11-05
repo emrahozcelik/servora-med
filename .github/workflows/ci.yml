@@ -223,5 +223,9 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
+      - name: Reports overview and staff browser acceptance
+        run: node scripts/reports-ui-smoke.mjs
+        env:
+          REPORTS_CAPTURE_DIR: ${{ runner.temp }}/servora-reports-ui
       - run: node scripts/follow-up-dialog-geometry.mjs
       - run: npm run audit:high

@@ -21,8 +21,35 @@ const browser = await chromium.launch();
 const errors = [];
 const checks = [];
 const url = `http://127.0.0.1:${server.address().port}/`;
+
+async function assertStaffLayout(page, name) {
+  const desktop = await page.locator('.staff-performance-desktop').isVisible();
+  const cards = await page.locator('.staff-performance-mobile').isVisible();
+  assert.notEqual(desktop, cards, `${name}: exactly one staff layout is visible`);
+  if (!desktop) return;
+  const fragmentedWords = await page.locator('.staff-performance-sort > span').evaluateAll((labels) => labels.flatMap((label) => {
+    const node = label.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return ['Missing sort label'];
+    return [...node.textContent.matchAll(/\S+/gu)].flatMap((word) => {
+      const range = document.createRange();
+      range.setStart(node, word.index);
+      range.setEnd(node, word.index + word[0].length);
+      return range.getClientRects().length > 1 ? [word[0]] : [];
+    });
+  }));
+  assert.deepEqual(fragmentedWords, [], `${name}: staff header words must remain intact`);
+  assert.equal(await page.locator('.staff-performance-expand').evaluateAll((buttons) => buttons.every((button) => {
+    const bounds = button.getBoundingClientRect();
+    const cell = button.closest('td').getBoundingClientRect();
+    return bounds.left >= cell.left && bounds.right <= cell.right + 1 && bounds.height >= 44;
+  })), true, `${name}: details controls fit inside their cells`);
+}
+
 try {
-  for (const [name, width, staff] of [['desktop', 1440, false], ['mobile', 390, false], ['staff-desktop', 1440, true], ['staff-mobile', 390, true]]) {
+  for (const [name, width, staff] of [
+    ['desktop', 1440, false], ['mobile', 390, false], ['tablet-768', 768, false], ['desktop-1024', 1024, false],
+    ['staff-desktop', 1440, true], ['staff-mobile', 390, true], ['staff-tablet-768', 768, true], ['staff-desktop-1024', 1024, true],
+  ]) {
     const page = await browser.newPage({ viewport: { width, height: 960 }, reducedMotion: 'reduce' });
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/?${staff ? 'staff' : ''}`);
@@ -32,11 +59,14 @@ try {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
     if (overflow) throw new Error(`${name}: document overflow`);
     if (staff) {
-      if (width >= 1024) {
+      await assertStaffLayout(page, name);
+      const desktop = await page.locator('.staff-performance-desktop').isVisible();
+      if (name === 'staff-desktop') assert.equal(desktop, true, 'roomy desktop retains the comparison table');
+      if (desktop) {
         const expand = page.getByRole('button', { name: /^Ayşe Demir ayrıntılarını/ });
         await expand.focus(); await page.keyboard.press('Enter');
         assert.equal(await expand.getAttribute('aria-expanded'), 'true');
-        await page.screenshot({ path: resolve(out, 'staff-expanded.png'), fullPage: true });
+        if (name === 'staff-desktop') await page.screenshot({ path: resolve(out, 'staff-expanded.png'), fullPage: true });
         await page.keyboard.press('Enter');
         assert.equal(await expand.getAttribute('aria-expanded'), 'false');
         const sort = page.getByRole('button', { name: /^Tamamlanan sütununu sırala/ });
@@ -67,12 +97,13 @@ try {
     await page.close();
   }
   for (const staff of [false, true]) {
-    for (const [name, width, textScale] of [['text-200', 1440, true], ['reflow-400', 320, false]]) {
+    for (const [name, width, textScale] of [['text-200', 1440, true], ['text-200-wide', 1920, true], ['reflow-400', 320, false]]) {
       const page = await browser.newPage({ viewport: { width, height: 960 } });
       await page.goto(`${url}?${staff ? 'staff' : ''}`);
       await page.locator(staff ? '.staff-performance-comparison' : '.business-trend-plot').waitFor();
       if (textScale) await page.addStyleTag({ content: 'html { font-size: 200%; }' });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `${name} overflow`);
+      if (staff) await assertStaffLayout(page, name);
       if (staff && textScale) {
         assert.equal(await page.locator('.staff-performance-desktop').isVisible(), false, '200% text switches to cards');
         assert.equal(await page.locator('.staff-performance-mobile').isVisible(), true);

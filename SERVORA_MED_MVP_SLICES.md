@@ -824,4 +824,6 @@ See [the accepted SOF-2 contract](docs/features/staff-offboarding-weekly-report-
   [UI/read contract](docs/features/reporting/reports-overview-ui.md).
 - No individual staff-page redesign, verified-performer implementation, new
   dependencies, schema migration, deployment or production recalculation.
-  Local acceptance is recorded; hosted CI and merge are pending.
+  Local acceptance and hosted CI for `bfe72c5` are recorded in the contract.
+  The 2026-11-05 responsive correction adds content-width layout and a dedicated
+  report browser CI gate; later revisions require their own CI. Merge is pending.
