@@ -232,20 +232,23 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
 
   it('keeps one immutable proof under concurrent verification retries', async () => {
     const run = await insertRun();
-    const proof = proofFor(run);
+    const proofA = proofFor(run, timeAt(T0 + MIN));
+    const proofB = proofFor(run, timeAt(T0 + 2 * MIN));
     const results = await Promise.all([
       service.recordVerification(run.id, {
-        remoteKey: run.key, sizeBytes: 1024, sha256: run.sha, proof,
+        remoteKey: run.key, sizeBytes: 1024, sha256: run.sha, proof: proofA,
       }, run.token),
       service.recordVerification(run.id, {
-        remoteKey: run.key, sizeBytes: 1024, sha256: run.sha, proof,
+        remoteKey: run.key, sizeBytes: 1024, sha256: run.sha, proof: proofB,
       }, run.token),
     ]);
-    expect(results[0]?.verificationTimeEvidence?.remoteAttemptId).toBe(proof.remoteAttemptId);
-    expect(results[1]?.verificationTimeEvidence?.remoteAttemptId).toBe(proof.remoteAttemptId);
     const stored = await repository.findRunById(run.id);
-    expect(stored?.verificationTimeEvidence?.remoteAttemptId).toBe(proof.remoteAttemptId);
-    expect(stored?.verificationTimeEvidence?.verifiedAt).toBe(proof.verifiedAt);
+    expect(stored?.verificationTimeEvidence).not.toBeNull();
+    for (const result of results) {
+      expect(result.verificationTimeEvidence).toEqual(stored?.verificationTimeEvidence);
+    }
+    expect([proofA.remoteAttemptId, proofB.remoteAttemptId])
+      .toContain(stored?.verificationTimeEvidence?.remoteAttemptId);
   });
 
   it('rejects proofs with a mismatched run, generation, origin, sha, size, key, or before', async () => {

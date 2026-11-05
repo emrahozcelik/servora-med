@@ -127,9 +127,9 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, failure_code)
-       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), 'PG_DUMP_FAILED')`,
-      [randomUUID(), adminId],
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, sha256, verified_at, failure_code)
+       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), $3, NOW(), 'PG_DUMP_FAILED')`,
+      [randomUUID(), adminId, 'a'.repeat(64)],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
@@ -153,15 +153,15 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
 
   it('rejects malformed sha256, negative sizes, and non-terminal incoherence', async () => {
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256)
-       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), 'ABC')`,
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256, verified_at)
+       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), 'ABC', NOW())`,
       [randomUUID()],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, size_bytes)
-       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), -1)`,
-      [randomUUID()],
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256, verified_at, size_bytes)
+       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), $2, NOW(), -1)`,
+      [randomUUID(), 'a'.repeat(64)],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(

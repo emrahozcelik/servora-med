@@ -2,15 +2,16 @@ import {
   elapsedBootTime,
   elapsedTime,
   validateCurrentTimeEvidence,
-  validateTimeEvidence,
   type CurrentTimeEvidence,
-  type TimeEvidence,
 } from '../../../../ops/scripts/trusted-time.mjs';
 
 import type { BackupOrigin } from './types.js';
 
+import { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS } from './freshness-policy.js';
+
+export { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS };
+
 /** BR5 scheduled freshness is 26 hours inclusive (OPS-TT-004 §2.2). */
-export const BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 
 export type BackupVerificationProof = {
   proofVersion: 2;
@@ -37,7 +38,7 @@ export type VerifiedRunEvidence = {
   sizeBytes: number | null;
   sha256: string | null;
   artifactGenerationId: string | null;
-  artifactGenerationTimeEvidence: TimeEvidence | null;
+  artifactGenerationTimeEvidence: CurrentTimeEvidence | null;
   verificationTimeEvidence: BackupVerificationProof | null;
 };
 
@@ -204,30 +205,4 @@ export function evaluateArtifactFreshness(
     return 'stale';
   }
   return 'unavailable';
-}
-
-/** Validates a persisted JSON value without inventing missing evidence. */
-export function parseStoredVerificationProof(
-  value: unknown,
-  run: VerifiedRunEvidence,
-): BackupVerificationProof | null {
-  return validateVerificationProofBinding(value, run) ? value : null;
-}
-
-/** Used by writers to reject structurally invalid samples before persistence. */
-export function validCurrentEvidence(value: unknown): CurrentTimeEvidence | null {
-  try {
-    return validateCurrentTimeEvidence(value);
-  } catch {
-    return null;
-  }
-}
-
-/** Historical/format-1 evidence remains readable only as history. */
-export function historicalTimeEvidence(value: unknown): TimeEvidence | null {
-  try {
-    return validateTimeEvidence(value);
-  } catch {
-    return null;
-  }
 }

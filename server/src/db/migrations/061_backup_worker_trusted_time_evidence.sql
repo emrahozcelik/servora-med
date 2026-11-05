@@ -56,19 +56,32 @@ ALTER TABLE backup_runs
       AND size_bytes IS NOT NULL AND size_bytes > 0
       AND sha256 IS NOT NULL AND sha256 ~ '^[0-9a-f]{64}$'
       AND verification_time_evidence ? 'proofVersion'
+      AND jsonb_typeof(verification_time_evidence->'proofVersion') = 'number'
       AND verification_time_evidence->>'proofVersion' = '2'
       AND verification_time_evidence ? 'runId'
+      AND jsonb_typeof(verification_time_evidence->'runId') = 'string'
       AND verification_time_evidence->>'runId' = id::text
       AND verification_time_evidence ? 'artifactGenerationId'
+      AND jsonb_typeof(verification_time_evidence->'artifactGenerationId') = 'string'
       AND verification_time_evidence->>'artifactGenerationId' = artifact_generation_id::text
       AND verification_time_evidence ? 'artifactSha256'
+      AND jsonb_typeof(verification_time_evidence->'artifactSha256') = 'string'
       AND verification_time_evidence->>'artifactSha256' = sha256
       AND verification_time_evidence ? 'sizeBytes'
+      AND jsonb_typeof(verification_time_evidence->'sizeBytes') = 'number'
       AND (verification_time_evidence->>'sizeBytes')::bigint = size_bytes
+      AND verification_time_evidence ? 'remoteAttemptId'
+      AND jsonb_typeof(verification_time_evidence->'remoteAttemptId') = 'string'
       AND verification_time_evidence ? 'remoteKey'
+      AND jsonb_typeof(verification_time_evidence->'remoteKey') = 'string'
       AND verification_time_evidence->>'remoteKey' = remote_key
       AND verification_time_evidence ? 'origin'
+      AND jsonb_typeof(verification_time_evidence->'origin') = 'string'
       AND verification_time_evidence->>'origin' = origin
+      AND verification_time_evidence ? 'before'
+      AND jsonb_typeof(verification_time_evidence->'before') = 'object'
+      AND verification_time_evidence ? 'after'
+      AND jsonb_typeof(verification_time_evidence->'after') = 'object'
       AND verification_time_evidence ? 'verifiedAt'
       AND jsonb_typeof(verification_time_evidence->'verifiedAt') = 'string'
       AND (

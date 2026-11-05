@@ -149,6 +149,8 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 migration 061', () => {
       origin: 'SCHEDULED',
       remoteKey: `key/${id}.sbk.age`,
       verifiedAt: '2026-11-04T10:00:00.000Z',
+      before: {},
+      after: {},
     });
 
     await expect(pool.query(
@@ -169,6 +171,24 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 migration 061', () => {
                '{"formatVersion":2}'::jsonb, $3, 1024, $4, $5::jsonb)`,
       [id, generation, `key/${id}.sbk.age`, sha, proof],
     );
+
+    const nullFieldId = randomUUID();
+    const nullFieldGeneration = randomUUID();
+    const nullFieldProof = JSON.stringify({
+      ...JSON.parse(proof),
+      runId: null,
+      artifactGenerationId: nullFieldGeneration,
+      remoteKey: `key/${nullFieldId}.sbk.age`,
+    });
+    await expect(pool.query(
+      `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class,
+                                started_at, artifact_generation_id,
+                                artifact_generation_time_evidence, remote_key, size_bytes, sha256,
+                                verification_time_evidence)
+       VALUES ($1, 'RUNNING', 'REMOTE_VERIFY', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), $2,
+               '{"formatVersion":2}'::jsonb, $3, 1024, $4, $5::jsonb)`,
+      [nullFieldId, nullFieldGeneration, `key/${nullFieldId}.sbk.age`, sha, nullFieldProof],
+    )).rejects.toThrow(/backup_runs_verification_evidence_check/);
 
     await expect(pool.query(
       `UPDATE backup_runs
