@@ -171,7 +171,10 @@ describe('BR5 trusted backup health reader', () => {
     expect(result.latestScheduledVerifiedAt).toBe(new Date(T0 + MIN).toISOString());
   });
 
-  it('keeps the 26-hour boundary inclusive and rejects +1 ms', async () => {
+  it('keeps 26h + 1 ms stale and treats exact 26h with uncertainty conservatively', async () => {
+    // The 1 ms root-distance fixture is a real error bound, so exact 26h is
+    // not provably <= 26h under the two-clock model. The uncertainty-free
+    // positive boundary is covered in backup-trusted-evidence-unit.test.ts.
     const exact = await health({
       row: {
         latestVerified: verifiedRow(),
@@ -182,7 +185,7 @@ describe('BR5 trusted backup health reader', () => {
       },
       current: timeAt(T0 + 26 * HOUR),
     });
-    expect(exact.providerStatus).toBe('healthy');
+    expect(exact.providerStatus).toBe('unavailable');
 
     const over = await health({
       row: {

@@ -1,13 +1,16 @@
 import {
   elapsedBootTime,
-  elapsedTime,
   validateCurrentTimeEvidence,
   type CurrentTimeEvidence,
 } from '../../../../ops/scripts/trusted-time.mjs';
 
 import type { BackupOrigin } from './types.js';
 
-import { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS } from './freshness-policy.js';
+import {
+  BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS,
+  TWO_CLOCK_LEAP_ALLOWANCE_MS,
+  TWO_CLOCK_MAX_SLEW_RATE_PPM,
+} from './freshness-policy.js';
 
 export { BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS };
 
@@ -133,6 +136,75 @@ export function sameTimeEvidence(left: unknown, right: unknown): boolean {
     && sameSync(a.synchronization, b.synchronization);
 }
 
+export type TwoClockElapsed =
+  | { status: 'UNKNOWN' }
+  | {
+      status: 'KNOWN';
+      bootLowerMs: number;
+      bootUpperMs: number;
+      utcLowerMs: number;
+      utcUpperMs: number;
+    };
+
+/**
+ * Chrony's documented absolute clock-error bound at one sample:
+ * `|system time| + root dispersion + 0.5*root delay`, plus a bounded sampling
+ * allowance derived from the sample's own collector window. `wallAtUTC` and the
+ * chrony query are both read inside the `[bootLowerMs, bootUpperMs]` bracket.
+ */
+function sampleUtcErrorMs(evidence: CurrentTimeEvidence): number {
+  const windowMs = Math.max(0, evidence.bootUpperMs - evidence.bootLowerMs);
+  const samplingMs = windowMs
+    + Math.ceil((windowMs * TWO_CLOCK_MAX_SLEW_RATE_PPM) / 1_000_000);
+  return Math.abs(evidence.synchronization.correctionMs)
+    + evidence.synchronization.rootDistanceMs
+    + samplingMs;
+}
+
+/** True when the interval crosses a June/December leap-second boundary. */
+function crossesLeapBoundary(eventWallAtUTC: string, currentWallAtUTC: string): boolean {
+  const start = Date.parse(eventWallAtUTC);
+  const end = Date.parse(currentWallAtUTC);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+  const firstYear = new Date(start).getUTCFullYear();
+  const lastYear = new Date(end).getUTCFullYear();
+  for (let year = firstYear; year <= lastYear; year += 1) {
+    // Leap seconds are inserted/deleted at 23:59:60 UTC on 30 June or
+    // 31 December; Date.UTC rolls second 60 into 00:00:00 of the next day/year.
+    for (const boundary of [Date.UTC(year, 6, 1), Date.UTC(year + 1, 0, 1)]) {
+      if (start < boundary && boundary <= end) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * BR5-only conservative elapsed-time evaluator. It does not compare the two
+ * clocks' rates (the old `elapsedTime` coherence veto); it bounds each sample's
+ * absolute UTC error independently and combines the boot and UTC upper bounds.
+ * `elapsedTime` itself is unchanged for TT-A/TT-B.
+ */
+export function twoClockElapsed(event: unknown, current: unknown): TwoClockElapsed {
+  const before = parseTimeEvidence(event);
+  const after = parseTimeEvidence(current);
+  if (!before || !after) return { status: 'UNKNOWN' };
+  const boot = elapsedBootTime(before, after);
+  if (boot.status !== 'KNOWN') return { status: 'UNKNOWN' };
+  const wallDeltaMs = Date.parse(after.wallAtUTC) - Date.parse(before.wallAtUTC);
+  if (!Number.isFinite(wallDeltaMs)) return { status: 'UNKNOWN' };
+  const errorMs = sampleUtcErrorMs(before) + sampleUtcErrorMs(after);
+  const leapMs = crossesLeapBoundary(before.wallAtUTC, after.wallAtUTC)
+    ? TWO_CLOCK_LEAP_ALLOWANCE_MS
+    : 0;
+  return {
+    status: 'KNOWN',
+    bootLowerMs: boot.lowerMs,
+    bootUpperMs: boot.upperMs,
+    utcLowerMs: wallDeltaMs - errorMs - leapMs,
+    utcUpperMs: wallDeltaMs + errorMs + leapMs,
+  };
+}
+
 /**
  * Validates a proof against the run row it claims to prove. This is used both
  * when persisting a proof and when reading one; a proof with any mismatched
@@ -161,7 +233,16 @@ export function validateVerificationProofBinding(
   if (!before || !after) return false;
   if (value.generationStartedAt !== before.wallAtUTC) return false;
   if (value.verifiedAt !== after.wallAtUTC) return false;
-  if (elapsedTime(before, after).status !== 'KNOWN') return false;
+  // BR5 event ordering is boot-based, not rate-coherence-based. The verification
+  // sample must start after the generation sample ends, and UTC must not run
+  // backwards between them. A normal NTP frequency correction no longer rejects
+  // a genuine proof; a rollback or an ambiguous overlap still fails closed.
+  const bootOrder = elapsedBootTime(before, after);
+  if (bootOrder.status !== 'KNOWN') return false;
+  if (after.bootLowerMs < before.bootUpperMs) return false;
+  const beforeWallMs = Date.parse(before.wallAtUTC);
+  const afterWallMs = Date.parse(after.wallAtUTC);
+  if (afterWallMs < beforeWallMs) return false;
 
   if (run.id !== value.runId) return false;
   if (run.origin !== value.origin) return false;
@@ -176,9 +257,10 @@ export function validateVerificationProofBinding(
 }
 
 /**
- * Classifies a verified run's freshness from its generation `before`, the
- * verification `after`, and a current trusted sample. The generation start is
- * the healthy upper bound; either event's lower bound can prove staleness.
+ * Classifies a verified run's freshness from its generation `before` and a
+ * current trusted sample. Healthy requires both independent upper bounds:
+ * BOOTTIME and the chrony-bounded UTC interval. Either lower bound can prove
+ * staleness. See TWO_CLOCK_SECURITY_DESIGN.md for the proof.
  */
 export function evaluateArtifactFreshness(
   run: VerifiedRunEvidence,
@@ -189,19 +271,28 @@ export function evaluateArtifactFreshness(
   const proof = run.verificationTimeEvidence;
   if (!proof) return 'unavailable';
   if (!validateVerificationProofBinding(proof, run)) return 'unavailable';
+  // The current sample must not precede the verification: same boot/namespace,
+  // the boot interval must reach the verification's end, and UTC must not run
+  // backwards. Equality is allowed (the current sample may be the `after` one).
+  if (elapsedBootTime(proof.after, now).status !== 'KNOWN') return 'unavailable';
   if (Date.parse(proof.after.wallAtUTC) > Date.parse(now.wallAtUTC)) return 'unavailable';
 
-  const healthy = elapsedTime(proof.before, now);
-  if (healthy.status === 'KNOWN' && healthy.upperMs <= BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS) {
+  const before = twoClockElapsed(proof.before, now);
+  if (before.status === 'KNOWN'
+    && before.bootUpperMs <= BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS
+    && before.utcUpperMs <= BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS) {
     return 'healthy';
   }
-
-  const beforeStale = elapsedBootTime(proof.before, now);
-  if (beforeStale.status === 'KNOWN' && beforeStale.lowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS) {
+  if (before.status === 'KNOWN'
+    && (before.bootLowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS
+      || before.utcLowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS)) {
     return 'stale';
   }
-  const afterStale = elapsedBootTime(proof.after, now);
-  if (afterStale.status === 'KNOWN' && afterStale.lowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS) {
+
+  const after = twoClockElapsed(proof.after, now);
+  if (after.status === 'KNOWN'
+    && (after.bootLowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS
+      || after.utcLowerMs > BACKUP_LOCAL_FRESHNESS_MAX_AGE_MS)) {
     return 'stale';
   }
   return 'unavailable';

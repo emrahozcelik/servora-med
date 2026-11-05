@@ -6,12 +6,12 @@ import {
   type TrustedTimeSampler,
 } from './trusted-time-sampler.js';
 import {
-  elapsedTime,
   type CurrentTimeEvidence,
 } from '../../../../ops/scripts/trusted-time.mjs';
 import {
   evaluateArtifactFreshness,
   parseTimeEvidence,
+  twoClockElapsed,
   type BackupVerificationProof,
   type VerifiedRunEvidence,
 } from '../backup/trusted-evidence.js';
@@ -88,8 +88,13 @@ function heartbeatFresh(
   if (!evidence) return false;
   // Timestamp and evidence must come from the same atomic write.
   if (evidence.wallAtUTC !== at.toISOString()) return false;
-  const elapsed = elapsedTime(evidence, current);
-  return elapsed.status === 'KNOWN' && elapsed.upperMs <= maxAgeMs;
+  // BR5 two-clock liveness: both the BOOTTIME and the chrony-bounded UTC upper
+  // bounds must be within the liveness window. A rate difference between the
+  // boot clock and the NTP-disciplined wall clock no longer denies liveness.
+  const elapsed = twoClockElapsed(evidence, current);
+  return elapsed.status === 'KNOWN'
+    && elapsed.bootUpperMs <= maxAgeMs
+    && elapsed.utcUpperMs <= maxAgeMs;
 }
 
 /** Safe, aggregate-only backup health surface for the operator monitor.

@@ -53,6 +53,15 @@ function run(overrides: Partial<VerifiedRunEvidence> = {}): VerifiedRunEvidence 
   };
 }
 
+/** Deterministic boundary fixture: no chrony measurement uncertainty. */
+function zeroUncertainty(ms: number) {
+  const base = timeAt(ms);
+  return {
+    ...base,
+    synchronization: { ...base.synchronization, rootDistanceMs: 0, correctionMs: 0 },
+  };
+}
+
 describe('BR5 verification proof binding', () => {
   it('accepts the exact run/generation/artifact/attempt binding', () => {
     expect(validateVerificationProofBinding(proof(), run())).toBe(true);
@@ -107,12 +116,71 @@ describe('BR5 verification proof binding', () => {
 });
 
 describe('BR5 artifact freshness classification', () => {
-  it('is healthy at exactly 26 hours inclusive', () => {
-    expect(evaluateArtifactFreshness(run(), timeAt(T0 + 26 * HOUR))).toBe('healthy');
+  it('is healthy at exactly 26 hours with an uncertainty-free deterministic proof', () => {
+    const before = zeroUncertainty(T0);
+    const after = timeAt(T0 + HOUR);
+    const deterministic = proof({
+      before,
+      after,
+      generationStartedAt: before.wallAtUTC,
+      verifiedAt: after.wallAtUTC,
+    });
+    const deterministicRun = run({
+      artifactGenerationTimeEvidence: before,
+      verificationTimeEvidence: deterministic,
+    });
+    expect(evaluateArtifactFreshness(deterministicRun, zeroUncertainty(T0 + 26 * HOUR))).toBe('healthy');
+  });
+
+  it('is unavailable at exactly 26 hours when the UTC bound has any uncertainty', () => {
+    // The 1 ms root-distance fixture is a real error bound, so 26h + 2 ms is
+    // not provably <= 26h. This is stricter than the old rate-coherence model
+    // and is the authorized conservative boundary.
+    expect(evaluateArtifactFreshness(run(), timeAt(T0 + 26 * HOUR))).toBe('unavailable');
   });
 
   it('is stale at 26 hours + 1 ms', () => {
     expect(evaluateArtifactFreshness(run(), timeAt(T0 + 26 * HOUR + 1))).toBe('stale');
+  });
+
+  it('accepts a genuine proof with a normal NTP rate divergence', () => {
+    // Measured real pair: 20.15 s boot delta, 20.00 s wall delta (-150 ms).
+    const before = timeAt(T0);
+    const after = timeAt(T0 + 20_150, {
+      wallAtUTC: new Date(T0 + 20_000).toISOString(),
+    });
+    const divergent = proof({
+      before,
+      after,
+      generationStartedAt: before.wallAtUTC,
+      verificationAttemptStartedAt: new Date(T0 + 10_000).toISOString(),
+      verifiedAt: after.wallAtUTC,
+    });
+    const divergentRun = run({
+      artifactGenerationTimeEvidence: before,
+      verificationTimeEvidence: divergent,
+      verifiedAt: new Date(after.wallAtUTC),
+    });
+    expect(validateVerificationProofBinding(divergent, divergentRun)).toBe(true);
+    expect(evaluateArtifactFreshness(divergentRun, after)).toBe('healthy');
+  });
+
+  it('rejects a proof whose UTC ordering runs backwards', () => {
+    const before = timeAt(T0);
+    const after = timeAt(T0 + 20_150, {
+      wallAtUTC: new Date(T0 - 1_000).toISOString(),
+    });
+    const backwards = proof({
+      before,
+      after,
+      generationStartedAt: before.wallAtUTC,
+      verifiedAt: after.wallAtUTC,
+    });
+    expect(validateVerificationProofBinding(backwards, run({
+      artifactGenerationTimeEvidence: before,
+      verificationTimeEvidence: backwards,
+      verifiedAt: new Date(after.wallAtUTC),
+    }))).toBe(false);
   });
 
   it('is healthy at 20 hours after a same-generation re-encryption', () => {
