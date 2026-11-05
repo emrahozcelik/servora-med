@@ -296,7 +296,9 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       scheduledFor: new Date('2026-08-23T02:30:00Z'),
     };
     await expect(repository.enqueueScheduledRun(input)).resolves.toMatchObject({ kind: 'created' });
+    expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(input.id);
     await expect(repository.enqueueScheduledRun({ ...input, id: randomUUID() })).resolves.toEqual({ kind: 'already-consumed' });
+    expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(input.id);
     const audit = await pool.query<{ event_type: string; actor_user_id: string | null }>(
       `SELECT event_type, actor_user_id FROM audit_events WHERE subject_id = $1 ORDER BY created_at`,
       [input.id],
@@ -330,6 +332,11 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       repository.enqueueScheduledRun({ ...base, id: secondId }),
     ]);
     expect(results.map((result) => result.kind).sort()).toEqual(['already-consumed', 'created']);
+    const created = results.find((result) => result.kind === 'created');
+    expect(created?.kind).toBe('created');
+    if (created?.kind === 'created') {
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(created.run.id);
+    }
     const rows = await pool.query<{ id: string }>(
       `SELECT id FROM backup_runs WHERE origin = 'SCHEDULED' AND created_at = $1`,
       [base.createdAt],

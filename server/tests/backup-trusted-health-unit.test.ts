@@ -74,6 +74,7 @@ function poolFixture(row: {
   scheduledVerified?: Row | null;
   latestStatus?: string | null;
   scheduledStatus?: string | null;
+  scheduledPointer?: { id: string; status: string; origin: string } | null;
   worker?: Row | null;
   activeRunning?: boolean;
 }) {
@@ -86,8 +87,23 @@ function poolFixture(row: {
       if (sql.includes('latest_verified')) {
         return { rows: row.latestVerified ? [row.latestVerified] : [] };
       }
-      if (sql.includes('scheduled_run_status')) {
-        return { rows: row.scheduledStatus ? [{ status: row.scheduledStatus }] : [] };
+      if (sql.includes('scheduled_pointer_run')) {
+        const pointer = row.scheduledPointer === undefined
+          ? (row.scheduledStatus ? { id: RUN_ID, status: row.scheduledStatus, origin: 'SCHEDULED' } : null)
+          : row.scheduledPointer;
+        return {
+          rows: [pointer
+            ? {
+              scheduled_pointer_id: pointer.id,
+              scheduled_pointer_status: pointer.status,
+              scheduled_pointer_origin: pointer.origin,
+            }
+            : {
+              scheduled_pointer_id: null,
+              scheduled_pointer_status: null,
+              scheduled_pointer_origin: null,
+            }],
+        };
       }
       if (sql.includes('latest_run_status')) {
         return { rows: row.latestStatus ? [{ status: row.latestStatus }] : [] };
@@ -111,22 +127,28 @@ async function health(options: {
   row: Parameters<typeof poolFixture>[0];
   current: ReturnType<typeof timeAt>;
   workerEnabled?: boolean;
+  defaultThreshold?: boolean;
 }) {
   const reader = createPostgresBackupHealth(poolFixture(options.row) as never, {
     workerEnabled: options.workerEnabled ?? true,
-    workerStaleAfterMs: 2 * MIN,
-    schedulerStaleAfterMs: 2 * MIN,
+    ...(options.defaultThreshold
+      ? {}
+      : { workerStaleAfterMs: 2 * MIN, schedulerStaleAfterMs: 2 * MIN }),
     sampleTime: async () => options.current,
   });
   return reader.check();
 }
 
 function freshWorker(current: number): Row {
+  return workerAt(current - MIN);
+}
+
+function workerAt(at: number): Row {
   return {
-    worker_heartbeat_at: new Date(current - MIN),
-    scheduler_last_tick_at: new Date(current - MIN),
-    worker_heartbeat_time_evidence: timeAt(current - MIN),
-    scheduler_last_tick_time_evidence: timeAt(current - MIN),
+    worker_heartbeat_at: new Date(at),
+    scheduler_last_tick_at: new Date(at),
+    worker_heartbeat_time_evidence: timeAt(at),
+    scheduler_last_tick_time_evidence: timeAt(at),
   };
 }
 
@@ -208,6 +230,65 @@ describe('BR5 trusted backup health reader', () => {
     expect(result.status).toBe('unavailable');
   });
 
+  it('uses the durable scheduled pointer instead of wall-clock ordering', async () => {
+    const current = T0 + HOUR;
+    const result = await health({
+      row: {
+        latestVerified: verifiedRow(),
+        scheduledVerified: verifiedRow(),
+        latestStatus: 'SUCCESS',
+        scheduledStatus: 'SUCCESS',
+        scheduledPointer: {
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          status: 'FAILED',
+          origin: 'SCHEDULED',
+        },
+        worker: freshWorker(current),
+      },
+      current: timeAt(current),
+    });
+    expect(result.latestScheduledRunStatus).toBe('FAILED');
+    expect(result.providerStatus).toBe('failed');
+    expect(result.status).toBe('unavailable');
+  });
+
+  it('fails closed when the durable scheduled pointer is missing', async () => {
+    const current = T0 + HOUR;
+    const result = await health({
+      row: {
+        latestVerified: verifiedRow(),
+        scheduledVerified: verifiedRow(),
+        latestStatus: 'SUCCESS',
+        scheduledPointer: null,
+        worker: freshWorker(current),
+      },
+      current: timeAt(current),
+    });
+    expect(result.latestScheduledRunStatus).toBeNull();
+    expect(result.providerStatus).toBe('unavailable');
+    expect(result.status).toBe('unavailable');
+  });
+
+  it('fails closed when the durable pointer references a non-scheduled run', async () => {
+    const current = T0 + HOUR;
+    const result = await health({
+      row: {
+        latestVerified: verifiedRow(),
+        scheduledVerified: verifiedRow(),
+        latestStatus: 'SUCCESS',
+        scheduledPointer: {
+          id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          status: 'SUCCESS',
+          origin: 'MANUAL',
+        },
+        worker: freshWorker(current),
+      },
+      current: timeAt(current),
+    });
+    expect(result.latestScheduledRunStatus).toBeNull();
+    expect(result.providerStatus).toBe('unavailable');
+  });
+
   it('does not treat a running scheduled attempt as a failure or erase a fresh prior proof', async () => {
     const current = T0 + HOUR;
     const result = await health({
@@ -256,6 +337,36 @@ describe('BR5 trusted backup health reader', () => {
       current: timeAt(current),
     });
     expect(staleScheduler.providerStatus).toBe('unavailable');
+  });
+
+  it('uses the 120s default liveness window and fails closed beyond it', async () => {
+    const current = T0 + HOUR;
+    const at119 = await health({
+      row: {
+        latestVerified: verifiedRow(),
+        scheduledVerified: verifiedRow(),
+        latestStatus: 'SUCCESS',
+        scheduledStatus: 'SUCCESS',
+        worker: workerAt(current - 119_000),
+      },
+      current: timeAt(current),
+      defaultThreshold: true,
+    });
+    expect(at119.providerStatus).toBe('healthy');
+
+    const at121 = await health({
+      row: {
+        latestVerified: verifiedRow(),
+        scheduledVerified: verifiedRow(),
+        latestStatus: 'SUCCESS',
+        scheduledStatus: 'SUCCESS',
+        worker: workerAt(current - 121_000),
+      },
+      current: timeAt(current),
+      defaultThreshold: true,
+    });
+    expect(at121.providerStatus).toBe('unavailable');
+    expect(at121.status).toBe('unavailable');
   });
 
   it('accepts the active-run scheduler liveness exception without a fake tick', async () => {

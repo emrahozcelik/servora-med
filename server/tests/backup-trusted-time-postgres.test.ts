@@ -95,6 +95,17 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
         input.verifiedAt ?? null,
       ],
     );
+    if ((input.origin ?? 'SCHEDULED') === 'SCHEDULED') {
+      await pool.query(
+        `UPDATE backup_worker_state
+            SET last_scheduled_slot_key = 'Europe/Istanbul|2026-11-04|02:30',
+                last_scheduled_local_date = '2026-11-04',
+                last_scheduled_for = $2,
+                last_scheduled_run_id = $1
+          WHERE singleton`,
+        [id, new Date(T0)],
+      );
+    }
     return { id, token, generationId, before, sha, key };
   }
 
@@ -373,6 +384,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     expect(created.kind).toBe('created');
     let state = await repository.getWorkerState();
     expect(state?.schedulerLastTickTimeEvidence?.wallAtUTC).toBe(new Date(T0).toISOString());
+    expect(state?.lastScheduledRunId).toBe(created.kind === 'created' ? created.run.id : null);
 
     const consumed = await repository.enqueueScheduledRun(
       { ...input, id: randomUUID() },
@@ -382,6 +394,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     expect(consumed.kind).toBe('already-consumed');
     state = await repository.getWorkerState();
     expect(state?.schedulerLastTickAt?.toISOString()).toBe(new Date(T0 + MIN).toISOString());
+    expect(state?.lastScheduledRunId).toBe(created.kind === 'created' ? created.run.id : null);
 
     await pool.query(
       `UPDATE backup_worker_state
@@ -403,6 +416,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     expect(blocked.kind).toBe('blocked');
     state = await repository.getWorkerState();
     expect(state?.schedulerLastTickAt?.toISOString()).toBe(new Date(T0 + 2 * MIN).toISOString());
+    expect(state?.lastScheduledRunId).toBeNull();
   });
 
   it('does not advance the scheduler tick when no valid sample exists', async () => {
@@ -420,6 +434,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     const state = await repository.getWorkerState();
     expect(state?.schedulerLastTickAt).toBeNull();
     expect(state?.schedulerLastTickTimeEvidence).toBeNull();
+    expect(state?.lastScheduledRunId).toBe(created.kind === 'created' ? created.run.id : null);
   });
 
   it('keeps the same local-day slot consumed across a boot identity change', async () => {
@@ -466,6 +481,12 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
 
     // Same generation, new remote attempt 27h later: the proof binding still
     // carries the original before, so it cannot become fresh.
+    await pool.query(
+      `UPDATE backup_worker_state
+          SET last_scheduled_slot_key = NULL, last_scheduled_local_date = NULL,
+              last_scheduled_for = NULL, last_scheduled_run_id = NULL
+        WHERE singleton`,
+    );
     await pool.query('DELETE FROM backup_runs');
     const retry = await insertRun();
     await service.recordVerification(retry.id, {
@@ -479,6 +500,12 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     expect((await healthStatus(timeAt(T0 + 27 * HOUR))).providerStatus).toBe('stale');
 
     // A genuinely new dump generation starts at T0+27h and is healthy.
+    await pool.query(
+      `UPDATE backup_worker_state
+          SET last_scheduled_slot_key = NULL, last_scheduled_local_date = NULL,
+              last_scheduled_for = NULL, last_scheduled_run_id = NULL
+        WHERE singleton`,
+    );
     await pool.query('DELETE FROM backup_runs');
     const freshBefore = timeAt(T0 + 27 * HOUR);
     const fresh = await insertRun({ before: freshBefore });
@@ -533,6 +560,18 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
        VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), NOW(),
                $2, 1024, $3, NOW())`,
       [randomUUID(), `legacy/${randomUUID()}.sbk.age`, 'd'.repeat(64)],
+    );
+    const legacyId = (await pool.query<{ id: string }>(
+      `SELECT id FROM backup_runs WHERE remote_key LIKE 'legacy/%' ORDER BY created_at DESC LIMIT 1`,
+    )).rows[0]!.id;
+    await pool.query(
+      `UPDATE backup_worker_state
+          SET last_scheduled_slot_key = 'Europe/Istanbul|2026-11-04|02:30',
+              last_scheduled_local_date = '2026-11-04',
+              last_scheduled_for = $2,
+              last_scheduled_run_id = $1
+        WHERE singleton`,
+      [legacyId, new Date(T0)],
     );
     const result = await healthStatus(timeAt(T0 + HOUR));
     expect(result.providerStatus).toBe('unavailable');

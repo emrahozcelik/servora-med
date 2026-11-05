@@ -49,6 +49,11 @@ type WorkerRow = {
 };
 
 type StatusRow = { status: string };
+type ScheduledPointerRow = {
+  scheduled_pointer_id: string | null;
+  scheduled_pointer_status: string | null;
+  scheduled_pointer_origin: string | null;
+};
 type ActiveRow = { active: boolean };
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -125,7 +130,7 @@ export function createPostgresBackupHealth(
         providerStatus: 'unavailable',
       };
       try {
-        const [latestVerified, scheduledVerified, latestRun, scheduledRun, worker, active] = await Promise.all([
+        const [latestVerified, scheduledVerified, latestRun, scheduledPointer, worker, active] = await Promise.all([
           pool.query<VerifiedRow>(
             `SELECT id, status, origin, verified_at, remote_key, size_bytes, sha256,
                     artifact_generation_id, artifact_generation_time_evidence,
@@ -148,9 +153,14 @@ export function createPostgresBackupHealth(
             `SELECT status FROM backup_runs
               ORDER BY created_at DESC, id DESC LIMIT 1 -- latest_run_status`,
           ),
-          pool.query<StatusRow>(
-            `SELECT status FROM backup_runs WHERE origin = 'SCHEDULED'
-              ORDER BY created_at DESC, id DESC LIMIT 1 -- scheduled_run_status`,
+          pool.query<ScheduledPointerRow>(
+            `SELECT r.id AS scheduled_pointer_id,
+                    r.status AS scheduled_pointer_status,
+                    r.origin AS scheduled_pointer_origin
+               FROM backup_worker_state w
+               LEFT JOIN backup_runs r ON r.id = w.last_scheduled_run_id
+              WHERE w.singleton
+              LIMIT 1 -- scheduled_pointer_run`,
           ),
           pool.query<WorkerRow>(
             `SELECT worker_heartbeat_at, scheduler_last_tick_at,
@@ -169,7 +179,17 @@ export function createPostgresBackupHealth(
         const verifiedRun = toVerifiedRun(latestVerified.rows[0]);
         const scheduledVerifiedRun = toVerifiedRun(scheduledVerified.rows[0]);
         const latestRunStatus = latestRun.rows[0]?.status ?? null;
-        const latestScheduledRunStatus = scheduledRun.rows[0]?.status ?? null;
+        const pointer = scheduledPointer.rows[0] ?? null;
+        // The scheduler writes this identity in the same transaction as the
+        // scheduled run. Wall-clock created_at ordering can be reversed by a
+        // clock rollback and must never hide a later FAILED attempt.
+        const scheduledPointerValid = pointer !== null
+          && pointer.scheduled_pointer_id !== null
+          && pointer.scheduled_pointer_status !== null
+          && pointer.scheduled_pointer_origin === 'SCHEDULED';
+        const latestScheduledRunStatus = scheduledPointerValid
+          ? pointer.scheduled_pointer_status
+          : null;
         const workerHeartbeatAt = workerRow?.worker_heartbeat_at ?? null;
         const schedulerLastTickAt = workerRow?.scheduler_last_tick_at ?? null;
 
@@ -183,6 +203,11 @@ export function createPostgresBackupHealth(
           provider: 'br5-r2' as const,
         };
 
+        // A missing or foreign durable pointer is not evidence of a healthy
+        // schedule. Legacy rows without a scheduler identity stay unavailable.
+        if (!scheduledPointerValid) {
+          return { ...unavailable, ...projection };
+        }
         // Failure priority does not depend on a current sample or liveness.
         if (latestScheduledRunStatus === 'FAILED') {
           return {

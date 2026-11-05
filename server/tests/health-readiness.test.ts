@@ -286,7 +286,16 @@ describe('GET /api/health readiness', () => {
         if (sql.includes('scheduled_verified') || sql.includes('latest_verified')) {
           return { rows: [row] };
         }
-        if (sql.includes('scheduled_run_status') || sql.includes('latest_run_status')) {
+        if (sql.includes('scheduled_pointer_run')) {
+          return {
+            rows: [{
+              scheduled_pointer_id: runId,
+              scheduled_pointer_status: 'SUCCESS',
+              scheduled_pointer_origin: 'SCHEDULED',
+            }],
+          };
+        }
+        if (sql.includes('latest_run_status')) {
           return { rows: [{ status: 'SUCCESS' }] };
         }
         if (sql.includes('backup_worker_state')) {
