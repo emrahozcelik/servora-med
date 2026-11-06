@@ -1,0 +1,17 @@
+
+> servora-med-server@0.1.0 test
+> node --env-file-if-exists=.env scripts/run-tests.mjs --run tests/reports-weekly-workload-postgres.test.ts
+
+.env not found. Continuing without it.
+TEST_ENV_PREFLIGHT_OK database=servora_med_test_staff_p1_20261106 url=postgresql://servora_pr412@127.0.0.1:55513/servora_med_test_staff_p1_20261106 postgres_major=17 tools=psql:17,pg_dump:17,pg_restore:17
+TEST_ENV_PREFLIGHT_NOTE schema COMPATIBLE (catalogHead=060_crm_duplicate_review_decisions appliedHead=none)
+TEST_ENV_PREFLIGHT_NOTE build artifacts present and fresh
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/staff-report-p1-20261106/server
+
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  20:03:58
+   Duration  1.13s (transform 54ms, setup 0ms, import 75ms, tests 978ms, environment 0ms)
+

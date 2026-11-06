@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-11-06T16:56:10.874Z",
+  "readOnly": true,
+  "stages": [
+    {
+      "stage": "getStaffPerformanceScope",
+      "ok": true
+    }
+  ],
+  "serverVersion": "17.11 (Ubuntu 17.11-1.pgdg24.04+2)",
+  "schema": {
+    "count": 60,
+    "head": "060_crm_duplicate_review_decisions"
+  },
+  "organizationsChecked": 1,
+  "mismatches": [
+    {
+      "operationalCount": 4,
+      "productiveCount": 3,
+      "excludedWeeklyReports": 1,
+      "reconciles": true
+    }
+  ],
+  "status": "READS_PASSED"
+}

@@ -289,7 +289,7 @@ const saleReadableJobsSql = (includeSaleCapability: boolean) => includeSaleCapab
 const STAFF_SUMMARY_SQL = (includeSaleCapability: boolean) => `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), work_types(type, sort_order) AS (
-  VALUES ${workTypeBucketsSql(includeSaleCapability)}
+  VALUES ${workTypeBucketsSql(includeSaleCapability)}, ('WEEKLY_REPORT', 5)
 )
 SELECT requested.staff_user_id,
   to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
