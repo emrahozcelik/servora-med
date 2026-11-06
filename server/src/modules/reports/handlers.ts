@@ -19,6 +19,10 @@ function staffUserId(request: FastifyRequest) {
 
 export function createReportsHandlers(service: ReportsService) {
   return {
+    getBusinessTrend: (request: FastifyRequest) => service.getBusinessTrend(
+      request.currentUser!,
+      { ...parseDashboardReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },
+    ),
     dashboard: (request: FastifyRequest) => service.dashboard(
       request.currentUser!,
       { ...parseDashboardReportQuery(request.query), includeSaleCapability: (request.query as Record<string, unknown>).includeSaleCapability === 'true' },

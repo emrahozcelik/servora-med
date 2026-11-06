@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
@@ -31,6 +31,7 @@ import type {
   DashboardReportResponse,
 } from './report-types';
 import { getDashboardReport } from './reports-api';
+import { BusinessTrend } from './BusinessTrend';
 import {
   ReportDateRangeForm,
   ReportErrorState,
@@ -88,8 +89,10 @@ function buildAttentionCards(dashboard: DashboardReportResponse): AttentionCard[
 
 export function ReportsDashboardView({
   report,
+  businessTrend,
 }: {
   report: DashboardReportResponse;
+  businessTrend?: ReactNode;
 }) {
   const executiveMetrics = [
     { key: 'active', label: 'Aktif İşler', value: report.counters.activeJobCards, scope: 'Mevcut durum' },
@@ -115,7 +118,8 @@ export function ReportsDashboardView({
   }));
 
   return (
-    <>
+    <div className="reports-overview">
+      {businessTrend}
       <section className="report-section" aria-labelledby="overview-kpi-title">
         <h2 id="overview-kpi-title">Genel Durum</h2>
         <dl className="report-metrics report-executive-metrics">
@@ -130,32 +134,6 @@ export function ReportsDashboardView({
           ))}
         </dl>
         <p className="report-section-hint">Aktif işler, geciken işler ve kuyruk sayaçları mevcut durumu; tamamlanan işler seçilen dönemi gösterir.</p>
-      </section>
-
-      <section className="report-section" aria-labelledby="trend-title" data-report-trend-section="true">
-        <h2 id="trend-title">İş Akışı Eğilimi</h2>
-        <p className="report-section-hint">Seçilen dönemde oluşturulan ve tamamlanan işlerin günlük sayısı.</p>
-        <WorkflowTrend created={report.dailyCreatedTrend} completed={report.completedTrend} />
-      </section>
-
-      <section className="report-section" aria-labelledby="active-workflow-title">
-        <h2 id="active-workflow-title">Mevcut İş Akışı</h2>
-        <p className="report-section-hint">Mevcut aktif işlerin iş akışı durumlarına göre dağılımı.</p>
-        <IndependentMeterBars
-          items={activeStatusItems}
-          dataDistribution="active-status"
-          ariaLabel="Mevcut iş akışı durumları"
-        />
-      </section>
-
-      <section className="report-section" aria-labelledby="work-type-title">
-        <h2 id="work-type-title">İş Türleri</h2>
-        <p className="report-section-hint">Seçilen dönemde oluşturulan işlerin tür dağılımı.</p>
-        <IndependentMeterBars
-          items={createdWorkTypeItems}
-          dataDistribution="created-work-type"
-          ariaLabel="Oluşturulan iş türleri"
-        />
       </section>
 
       <section className="report-section" aria-labelledby="attention-title">
@@ -173,7 +151,38 @@ export function ReportsDashboardView({
           ))}
         </ul>
       </section>
-    </>
+      <details className="reports-overview-details">
+        <summary>İş akışı ve tür dağılımları</summary>
+        <section className="report-section" aria-labelledby="trend-title" data-report-trend-section="true">
+          <h2 id="trend-title">İş Akışı Eğilimi</h2>
+          <p className="report-section-hint">Seçilen dönemde oluşturulan ve tamamlanan işlerin günlük sayısı.</p>
+          <WorkflowTrend created={report.dailyCreatedTrend} completed={report.completedTrend} />
+        </section>
+
+        <div className="reports-overview-distributions">
+          <section className="report-section" aria-labelledby="active-workflow-title">
+            <h2 id="active-workflow-title">Mevcut İş Akışı</h2>
+            <p className="report-section-hint">Mevcut aktif işlerin iş akışı durumlarına göre dağılımı.</p>
+            <IndependentMeterBars
+              items={activeStatusItems}
+              dataDistribution="active-status"
+              ariaLabel="Mevcut iş akışı durumları"
+            />
+          </section>
+
+          <section className="report-section" aria-labelledby="work-type-title">
+            <h2 id="work-type-title">İş Türleri</h2>
+            <p className="report-section-hint">Seçilen dönemde oluşturulan işlerin tür dağılımı.</p>
+            <IndependentMeterBars
+              items={createdWorkTypeItems}
+              dataDistribution="created-work-type"
+              ariaLabel="Oluşturulan iş türleri"
+            />
+          </section>
+
+        </div>
+      </details>
+    </div>
   );
 }
 
@@ -273,7 +282,7 @@ export function ReportsDashboard() {
   return (
     <ReportShell
       title="Raporlar"
-      description="Operasyonunuzun genel durumunu ve seçilen dönemdeki hareketini izleyin."
+      description="Müşteri ziyaretlerini, takip çalışmalarını ve onaylı satışların gidişatını izleyin."
       current="summary"
       refreshLabel={refreshLabel}
       range={rangeContext}
@@ -301,7 +310,7 @@ export function ReportsDashboard() {
         />
       )}
       {!loading && !error && report && (
-        <ReportsDashboardView report={report} />
+        <ReportsDashboardView report={report} businessTrend={<BusinessTrend range={report.range} />} />
       )}
     </ReportShell>
   );

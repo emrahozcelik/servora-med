@@ -75,7 +75,7 @@ const COMMANDS = {
   'web-playwright-install': 'lockfile/toolchain match + cached Chromium and WebKit launch/render',
   'web-smoke-dist': 'npm run smoke:production-dist',
   'web-smoke-responsive': 'npm run smoke:responsive',
-  'web-geometry': 'follow-up-dialog-geometry.mjs',
+  'web-geometry': 'reports-ui-smoke.mjs + follow-up-dialog-geometry.mjs',
   'web-audit': 'npm run audit:high',
   'benchmark-smoke': 'auth-kdf-benchmark.mjs --mode=smoke',
   'linux-compat': 'verify-linux-compat.sh',

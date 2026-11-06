@@ -5,6 +5,7 @@ import type {
   CustomerReportReadInput,
   CustomerReportResponse,
   DashboardReportResponse,
+  BusinessTrendReportResponse,
   DeliveryPurposeItem,
   DeliveryReportReadInput,
   DeliveryReportResponse,
@@ -32,6 +33,7 @@ export interface StaffOperationalSummaryPort {
 }
 
 export interface ReportsReadModel extends StaffOperationalSummaryPort {
+  getBusinessTrend(input: StaffOperationalSummaryScope): Promise<BusinessTrendReportResponse>;
   getDashboard(input: StaffOperationalSummaryScope): Promise<DashboardReportResponse>;
   getStaffPerformanceScope(input: StaffPerformanceScopeInput): Promise<StaffPerformanceScope>;
   getStaffCompletionPerformanceMany(input: StaffOperationalSummaryManyInput):

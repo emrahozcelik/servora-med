@@ -275,7 +275,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
         <dl className="customer-facts"><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
           <div><dt>Birincil kişi</dt><dd>{customer.primaryContact?.name ?? 'Belirlenmedi'}</dd></div></dl>
         {canManage && <div className="customer-row-commands">
-          <Link className="secondary-button" to={paths.customer(customer.id)}
+          <Link className="secondary-button" to={`${paths.customer(customer.id)}?edit=1`}
             aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
         </div>}
       </article></li>)}</ul>}

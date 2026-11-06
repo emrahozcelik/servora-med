@@ -249,7 +249,7 @@ describe('shared visual language adoption (T1B)', () => {
   });
 
   it('keeps helper/label/error semantic roles', () => {
-    expect(stylesCss).toMatch(/\.field-group label\s*\{[^}]*font-size:\s*0\.9rem/s);
+    expect(stylesCss).toMatch(/\.field-group label, label\.field-group\s*\{[^}]*font-size:\s*0\.9rem/s);
     // Shared form-level error surface is .form-error (not a missing field-error contract).
     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*color:\s*var\(--error\)/s);
     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*background:\s*var\(--error-soft\)/s);

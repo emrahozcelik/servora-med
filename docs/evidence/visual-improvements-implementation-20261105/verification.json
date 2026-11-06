@@ -1,0 +1,38 @@
+{
+  "sourceHead": "197586fd6254a73ed362fa125f489da3ecb9be47",
+  "workingTreeModified": true,
+  "beforeStates": 22,
+  "afterStates": 63,
+  "overdueStates": 2,
+  "retainedScreenshots": 42,
+  "nodeForTests": "22.23.3",
+  "browserCollectorNode": "26.11.0",
+  "checks": {
+    "webBuild": "passed",
+    "fullWebTests": {
+      "status": "passed",
+      "files": 215,
+      "tests": 2735
+    },
+    "responsiveSmoke": "passed",
+    "bundleCheck": "passed",
+    "fixtureTypeCheck": "passed",
+    "surfaceCapture": "passed",
+    "overdueCapture": "passed",
+    "interactionChecks": "passed",
+    "serverBuildTests": "not run",
+    "hostedCI": "not run",
+    "actual400PercentBrowserZoom": "not run",
+    "manualScreenReaderAcceptance": "not run"
+  },
+  "interactions": [
+    "edit link opens management disclosure",
+    "closing and reopening preserves customer draft",
+    "mocked version conflict preserves draft and focuses error",
+    "Staff enrichment cancel restores trigger focus",
+    "product deletion confirmation Escape restores trigger focus",
+    "weekly report PDF request and browser download",
+    "completed history tab waits for filtered row",
+    "report retry recovers after an expected 503"
+  ]
+}

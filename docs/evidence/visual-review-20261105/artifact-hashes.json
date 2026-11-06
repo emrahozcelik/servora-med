@@ -1,0 +1,25 @@
+{
+  "sourceHead": "197586fd6254a73ed362fa125f489da3ecb9be47",
+  "archivedOn": "2026-11-05",
+  "syntheticData": true,
+  "status": "historical layout evidence; fixture limitations recorded in README.md; not recaptured",
+  "files": {
+    "capture-results.json": "b64f0f4cfc2e05378c3e4286d464eb4b7e30c31373c62500a7df281e92afd494",
+    "customer-create-1440.png": "7a1225f53167b047bd1c5e59e7ff1964424122629b6097e66454663bbcb7d325",
+    "customer-create-390.png": "2b179993540fde8f556b6665191d373a092b8a002e2a5ba826f9697778b05770",
+    "customer-detail-1440.png": "3e6b60dd3e26c72add753452da5ef75e5efc16236f2f8ea1b319c6a2a0d0029f",
+    "customer-detail-390.png": "4309eee43fb6e106a02ebfda3d37284d4e358e8f1226668e3eb8e8c1f4940c68",
+    "customers-1440.png": "93fdfc09501895a3f0cded606dc88a469c355d41afd40e523d75afa93953b5a0",
+    "customers-390.png": "b69c9f4d8e232ce1065362a640a6698dd14cade8b01c37ce361a9eb9d25b1fef",
+    "jobs-1440.png": "a2ecf7ab4a6d5b91ce00fd1c6fe80411f070e1b39415db5778531ea72b867e14",
+    "jobs-390.png": "2f0faccd8ac15cda5398921e366edbdd22ad615b4fa18af830bea9b6f7dd35f6",
+    "original-capture.mjs.txt": "cf40ec3653bd0402731296d66cacb1f6826835919573d868190a2dac8837d38b",
+    "original-review.md": "74f4df05fb7c02e4863f7365f9bbac02bb6dc7c0de96868adcc5b8b434183359",
+    "products-1440.png": "af5d68b6aaddad66453718c5b51f91e58cc225e2ab18e75c9ac02156bf757e51",
+    "products-390.png": "5a5bd1b9e7357caf2356352c644c0e211260af38f9d1b319cbd47fc8e77fdad3",
+    "staff-directory-1440.png": "fd517b0f94e3b54f5bc050299b97aab7792d28c10e0976869e454a1f8a1312e2",
+    "staff-directory-390.png": "35184e0f024e1e24bf78c2d971d8442af656732d0104098f16d454e759ae387c",
+    "staff-profile-1440.png": "28c653a8af2089ed60fc857ee6c366b88ab7e03b098e6abc8f871fbced59f0ba",
+    "staff-profile-390.png": "ca70d983d291ed50943f2dfdbecfd502d2115d2ab5e8180beca290368799c4a3"
+  }
+}

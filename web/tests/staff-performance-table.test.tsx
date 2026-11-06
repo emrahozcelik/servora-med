@@ -66,7 +66,7 @@ const records: StaffPerformanceTableRecord[] = [
 ];
 
 describe('StaffPerformanceTable adapter', () => {
-  it('provides grouped operational headers, keyboard-native expansion, and mobile records', async () => {
+  it('provides concise operational headers, keyboard-native expansion, and mobile records', async () => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
@@ -77,12 +77,12 @@ describe('StaffPerformanceTable adapter', () => {
     ));
 
     const completedHeader = Array.from(container.querySelectorAll('thead th'))
-      .find((header) => header.textContent?.includes('Yönetici onaylı tamamlananlar'))!;
+      .find((header) => header.textContent?.includes('Tamamlanan'))!;
     const sortButton = completedHeader.querySelector<HTMLButtonElement>('button')!;
     expect(sortButton.tabIndex).toBe(0);
-    expect(sortButton.getAttribute('aria-label')).toContain('Yönetici onaylı tamamlananlar sütununu sırala');
-    expect(container.textContent).toContain('ŞU AN');
-    expect(container.textContent).toContain('SEÇİLEN DÖNEM');
+    expect(sortButton.getAttribute('aria-label')).toContain('Tamamlanan sütununu sırala');
+    expect(container.textContent).toContain('Şu an');
+    expect(container.textContent).toContain('Seçilen dönem');
     const desktop = container.querySelector('[data-staff-performance-desktop="true"]')!;
     expect(desktop.textContent).toContain('Ayşe YılmazAktif');
     expect(desktop.textContent).toContain('Mehmet KayaPasif');
@@ -101,10 +101,11 @@ describe('StaffPerformanceTable adapter', () => {
     expect(container.textContent).toContain('Onaya gönderme kaydı');
     const contextNote = container.querySelector('.staff-performance-context-note')!;
     expect(contextNote.textContent).toContain(
-      'Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.',
+      'Onaya gönderme sayısı seçilen dönemdeki gönderim kayıtlarını gösterir.',
     );
     expect(contextNote.textContent).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
-    expect(contextNote.textContent).toContain('hâlen bu personele atanmış');
+    expect(contextNote.textContent).not.toContain('hâlen bu personele atanmış');
+    expect(contextNote.textContent).toContain('bu personelin gönderim kaydına bağlı');
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]'))
       .not.toBeNull();
 
@@ -121,7 +122,7 @@ describe('StaffPerformanceTable adapter', () => {
     container.remove();
   });
 
-  it('expands via row click and keeps button single-toggle with correct aria-expanded', async () => {
+  it('expands only through the explicit action and keeps aria-expanded accurate', async () => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
@@ -136,11 +137,8 @@ describe('StaffPerformanceTable adapter', () => {
     expect(expandButton.getAttribute('aria-expanded')).toBe('false');
 
     await act(async () => firstRow.click());
-    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')?.getAttribute('aria-expanded')).toBe('true');
-    expect(container.textContent).toContain('Mevcut iş yükünün tür dağılımı');
-
-    await act(async () => firstRow.click());
-    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını göster"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(expandButton.getAttribute('aria-expanded')).toBe('false');
+    expect(expandButton.textContent).toBe('Ayrıntı');
 
     await act(async () => expandButton.click());
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')?.getAttribute('aria-expanded')).toBe('true');

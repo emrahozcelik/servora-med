@@ -319,6 +319,23 @@ Managers can view organization staff profiles. Staff can view only their own pro
 
 Financial performance, revenue, margin, accounting, and inventory valuation reports are outside MVP.
 
+### Reporting amendment — REPORT-001, 2026-11-04
+
+The [accepted reporting contract](docs/features/reporting/README.md) defines
+completed customer visits, visits with a linked approved Sale, and independently
+planned sales meetings with a linked approved Sale. New personal activity and
+commercial-result metrics use the explicitly recorded performer verified within
+the existing work approval. Normal Staff submissions fill that identity
+automatically; unknown identity does not block otherwise valid operational work.
+Current assignment, command actor and historical breach responsibility remain
+separate. Existing delivery reports and future Warehouse boundaries are unchanged.
+
+Lateness explanations and visible manager notes are optional, with no excuse
+acceptance/rejection, response obligation or workflow gate. Distinct delayed-job
+and incident counts remain separate; summed lateness duration is outside V1.
+This is accepted product intent, not an implemented or verified feature. The
+owning contract contains the full attribution, history and acceptance rules.
+
 ## Configurability Boundary
 
 Servora-Med may support controlled user preferences and saved views. Configuration cannot modify:

@@ -1,0 +1,1010 @@
+diff --git a/web/src/CustomerDetail.tsx b/web/src/CustomerDetail.tsx
+index d08cb2b..9f2c9ed 100644
+--- a/web/src/CustomerDetail.tsx
++++ b/web/src/CustomerDetail.tsx
+@@ -1,5 +1,5 @@
+ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+-import { Link, useNavigate } from 'react-router-dom';
++import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+ 
+ import { CustomerEnrichmentForm } from './CustomerEnrichmentForm';
+ import { addContact, contactFieldsFromFormData, ContactCreateForm, ContactListView } from './ContactManagement';
+@@ -183,9 +183,9 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel
+       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
+ }
+ 
+-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
++export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, initialEditOpen = false, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
+   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
+-  conflict?: boolean; formRevision?: number;
++  conflict?: boolean; formRevision?: number; initialEditOpen?: boolean;
+   enrichmentScope?: CustomerEnrichmentScope | null; enrichmentEditing?: boolean;
+   enrichmentScopeError?: string; enrichmentScopeLoading?: boolean; onRetryEnrichmentScope?: () => void;
+   enrichmentTriggerRef?: RefObject<HTMLButtonElement | null>;
+@@ -206,13 +206,19 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
+   const canDelete = user.role === 'ADMIN' && customer.hasOperationHistory === false;
+   const isReferenced = user.role === 'ADMIN' && customer.hasOperationHistory === true;
+   return <main className="customer-detail">
+-    <PageHeader eyebrow="Müşteri" fallbackTitle={customer.name} />
++    <PageHeader eyebrow="" fallbackTitle={customer.name} />
+     <div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div>
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
+     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
+       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
++    <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
+     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
+-      {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
++      <CustomerFacts customer={customer} />
++      {canManage && <details className="customer-edit-disclosure" open={initialEditOpen}>
++        <summary>Genel bilgileri düzenle</summary>
++        <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} />
++      </details>}
++    </section>
+     {user.role === 'STAFF' && enrichmentScopeError && <div className="form-error" role="alert">{enrichmentScopeError}
+       <button className="secondary-button" type="button" disabled={pending || enrichmentScopeLoading} onClick={onRetryEnrichmentScope}>Yetki kontrolünü tekrar dene</button></div>}
+     {user.role === 'STAFF' && (enrichmentScope?.canEnrich || (enrichmentEditing && !!enrichmentScopeError)) && <section className="record-section" aria-labelledby="customer-enrichment-title">
+@@ -222,6 +228,8 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
+     </section>}
+     <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage || enrichmentScope?.canCreateContact === true} pending={pending || enrichmentScopeLoading} createButtonRef={createContactButtonRef}
+       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
++    <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
++      onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
+     {canDelete && <section className="record-section record-commands" aria-labelledby="customer-delete-title">
+       <h2 id="customer-delete-title">Kalıcı silme</h2>
+       <p>Bu müşteri için operasyon geçmişi bulunmadığı için kalıcı olarak silinebilir.</p>
+@@ -231,9 +239,6 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
+       <h2 id="customer-delete-blocked-title">Kalıcı silme</h2>
+       <p>Bu müşteri operasyon geçmişinde kullanıldığı için kalıcı olarak silinemez.</p>
+     </section>}
+-    <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
+-    <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
+-      onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
+     <ConfirmationAction
+       open={deleteConfirmOpen && canDelete}
+       title="Müşteri kalıcı olarak silinsin mi?"
+@@ -251,6 +256,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
+ }
+ 
+ export function CustomerDetailScreen({ customerId, user }: { customerId: string; user: CurrentUser }) {
++  const [searchParams] = useSearchParams();
+   const navigate = useNavigate(); const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
+   const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
+   useEffect(() => {
+@@ -440,7 +446,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
+       setDeletePending(false);
+     }
+   }
+-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
++  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} initialEditOpen={searchParams.get('edit') === '1'}
+     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
+     summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}
+     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
+diff --git a/web/src/CustomerList.tsx b/web/src/CustomerList.tsx
+index f7f37a1..92155d3 100644
+--- a/web/src/CustomerList.tsx
++++ b/web/src/CustomerList.tsx
+@@ -275,7 +275,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
+         <dl className="customer-facts"><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
+           <div><dt>Birincil kişi</dt><dd>{customer.primaryContact?.name ?? 'Belirlenmedi'}</dd></div></dl>
+         {canManage && <div className="customer-row-commands">
+-          <Link className="secondary-button" to={paths.customer(customer.id)}
++          <Link className="secondary-button" to={`${paths.customer(customer.id)}?edit=1`}
+             aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
+         </div>}
+       </article></li>)}</ul>}
+diff --git a/web/src/DeliveryCreate.tsx b/web/src/DeliveryCreate.tsx
+index e57b697..0ceeeb6 100644
+--- a/web/src/DeliveryCreate.tsx
++++ b/web/src/DeliveryCreate.tsx
+@@ -20,6 +20,7 @@ import type { Product } from './services/products-api';
+ import type { Customer, CustomerSummary } from './services/crm-api';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ 
+ export type DeliveryFormValues = {
+   customerId: string;
+@@ -268,9 +269,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+   const submitDisabled = pending || ambiguous || !customerReady || selectedProducts.length === 0
+     || referencesPending || (user.role !== 'STAFF' && !assignedTo);
+   const semanticInputsDisabled = pending || ambiguous;
+-  return <main className="delivery-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Ürün teslimi" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
++  return <main className="delivery-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Yeni ürün teslimi"
++      description="Müşteriyi, ürünleri ve teslimat planını belirleyin. Tamamlanan teslimat yönetici onayına gönderilir." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+       {calendarConflicts.map((conflict) => (
+         <p key={String(conflict.id)}>
+@@ -283,8 +284,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+       <button type="button" className="primary-button" data-original-retry disabled={pending}
+         onClick={() => { const attempt = attemptRef.current; if (attempt) void sendAttempt(attempt); }}>Özgün isteği tekrar dene</button>
+     </div>}
+-    <form className="delivery-form" onSubmit={submit}>
++    <form className="delivery-form job-create-form" onSubmit={submit}>
+       <fieldset disabled={semanticInputsDisabled} className="delivery-form-fieldset">
++      <section className="job-create-section" aria-labelledby="delivery-customer-heading">
++        <h2 id="delivery-customer-heading">Müşteri ve sorumlu</h2>
+       <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
+         <button ref={customerCreateTriggerRef} className="inline-action" type="button" disabled={semanticInputsDisabled} onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+         <CustomerSearchSelect
+@@ -299,7 +302,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+           disabled={semanticInputsDisabled}
+         />
+       </div>
+-      {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
++      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div> : <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
+         <select id="delivery-assignee" name="assignedTo" required disabled={semanticInputsDisabled || staffState !== 'ready'} value={assignedTo}
+           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
+           <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+@@ -307,6 +310,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+         {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
+       </div>}
++      </section>
++      <section className="job-create-section" aria-labelledby="delivery-products-heading">
++        <h2 id="delivery-products-heading">Ürünler ve miktarlar</h2>
+       <ProductSelect selectedProducts={selectedProducts.map((entry) => entry.product)}
+         onAdd={addSelectedProduct} onRemove={removeSelectedProduct} disabled={semanticInputsDisabled || !customerReady}
+         renderQuantity={(product) => <>
+@@ -316,15 +322,18 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+             required disabled={semanticInputsDisabled}
+             onChange={(event) => updateSelectedQuantity(product.id, event.target.value)} />
+         </>} />
+-      <div className="delivery-pair">
++      </section>
++      <section className="job-create-section" aria-labelledby="delivery-plan-heading">
++        <h2 id="delivery-plan-heading">Teslimat planı</h2>
++      <div className="job-create-pair">
+         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
+           <select id="delivery-purpose" name="deliveryPurpose" required disabled={semanticInputsDisabled} defaultValue="SALE">
+             <option value="SALE">Satış</option><option value="SAMPLE">Numune</option><option value="CONSIGNMENT">Konsinye</option><option value="RETURN">İade</option><option value="OTHER">Diğer</option>
+           </select></div>
+-      </div>
+       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
+         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={semanticInputsDisabled}
+           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
++      </div>
+       <CustomerScheduleNotice
+         evaluation={evaluation}
+         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+@@ -336,10 +345,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerI
+       />
+       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
+         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={semanticInputsDisabled} /></div>
++      </section>
+       </fieldset>
+       <div className="form-actions">
+         <button className="secondary-button" type="button" onClick={onCancel} disabled={semanticInputsDisabled}>Vazgeç</button>
+-        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
++        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Teslimat oluşturuluyor…' : 'Teslimat oluştur'}</button>
+       </div>
+     </form>
+     <CustomerCreateSideFlow
+diff --git a/web/src/GeneralTaskCreate.tsx b/web/src/GeneralTaskCreate.tsx
+index 5fd7577..fa318fc 100644
+--- a/web/src/GeneralTaskCreate.tsx
++++ b/web/src/GeneralTaskCreate.tsx
+@@ -12,6 +12,7 @@ import {
+ import { listStaff, type StaffProfile } from './services/people-api';
+ import { createRequestGate } from './services/request-gate';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { isDefinitiveMutationError } from './jobs/mutation-attempt-error';
+@@ -179,16 +180,18 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+ 
+   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
+ 
+-  return <main className="task-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Genel görev" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın. Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.</p>
++  return <main className="task-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Yeni genel görev"
++      description="Yapılacak işi ve sorumlusunu belirleyin. Müşteri bağlantısı isteğe bağlıdır." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+-    <form className="task-form" onSubmit={submit} noValidate>
++    <form className="task-form job-create-form" onSubmit={submit} noValidate>
+       <fieldset disabled={pending || ambiguous}>
++        <section className="job-create-section" aria-labelledby="task-info-heading">
++          <h2 id="task-info-heading">Görev bilgileri</h2>
+         <div className="field-group">
+           <label htmlFor="task-title">Başlık</label>
+           <input id="task-title" name="title" required maxLength={255} value={title}
+-            placeholder="Örn. Havaalanı karşılama — misafir transferi"
++            placeholder="Örn. Klinik eğitim materyallerini hazırla"
+             aria-invalid={fieldErrors.title ? true : undefined}
+             aria-describedby={fieldErrors.title ? 'task-title-error' : undefined}
+             onChange={(event) => setTitle(event.target.value)} />
+@@ -196,12 +199,16 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+         </div>
+         <div className="field-group">
+           <label htmlFor="task-description">Açıklama (isteğe bağlı)</label>
+-          <textarea id="task-description" name="description" rows={5} value={description}
+-            placeholder="Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle."
++          <textarea id="task-description" name="description" rows={3} value={description}
++            placeholder="Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla."
+             aria-describedby="task-description-help"
+             onChange={(event) => setDescription(event.target.value)} />
+-          <p id="task-description-help" className="form-help">Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.</p>
++          <p id="task-description-help" className="form-help">Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.</p>
+         </div>
++        </section>
++        <section className="job-create-section" aria-labelledby="task-plan-heading">
++          <h2 id="task-plan-heading">Planlama</h2>
++          <div className="job-create-pair">
+         {user.role === 'STAFF'
+           ? <div className="field-group"><span className="field-label">Sorumlu personel</span>
+               <p className="fixed-field-value">{user.name}</p></div>
+@@ -220,19 +227,14 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+               {fieldErrors.assignedTo && <span id="task-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
+             </div>}
+ 
+-        <details className="task-optional">
+-          <summary>Ek bilgiler</summary>
+-          <div className="task-optional-fields">
+-            <div className="task-field-pair">
+-              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
+-                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+-                  <option value="low">Düşük</option><option value="normal">Normal</option>
+-                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
+-                </select></div>
+               <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
+                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
+                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+-            </div>
++          </div>
++        </section>
++        <details className="task-optional job-create-optional">
++          <summary>Müşteri ve öncelik <span className="job-create-optional-hint">{customerId ? 'Müşteri seçildi' : 'İsteğe bağlı'}</span></summary>
++          <div className="task-optional-fields">
+             <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+               <CustomerSearchSelect
+                 id="task-customer"
+@@ -253,6 +255,11 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
+               {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
+               {contactState === 'error' && <span className="field-error" role="alert">İlgili kişiler yüklenemedi. Müşteriyi yeniden seçip deneyin.</span>}
+             </div>
++              <div className="field-group"><label htmlFor="task-priority">Öncelik</label>
++                <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
++                  <option value="low">Düşük</option><option value="normal">Normal</option>
++                  <option value="high">Yüksek</option><option value="urgent">Acil</option>
++                </select></div>
+           </div>
+         </details>
+       </fieldset>
+diff --git a/web/src/ProductList.tsx b/web/src/ProductList.tsx
+index f520e05..16a4f97 100644
+--- a/web/src/ProductList.tsx
++++ b/web/src/ProductList.tsx
+@@ -121,7 +121,7 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
+           {canManage && <div className="product-row-commands">
+             <Link className="secondary-button" to={paths.product(product.id)}
+               aria-label={`${product.name} ürününü düzenle`}>Düzenle</Link>
+-            <button className="destructive-button" type="button"
++            <button className="secondary-button product-delete-action" type="button"
+               aria-label={`${product.name} ürününü sil`}
+               onClick={(event) => onRequestDelete?.(product, event.currentTarget)}>Sil</button>
+           </div>}
+diff --git a/web/src/SalesMeetingCreate.tsx b/web/src/SalesMeetingCreate.tsx
+index 943864f..23f2463 100644
+--- a/web/src/SalesMeetingCreate.tsx
++++ b/web/src/SalesMeetingCreate.tsx
+@@ -24,6 +24,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
+ import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
+ import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
+ import { PageHeader } from './ui/PageHeader';
++import './jobs/job-create.css';
+ 
+ type LoadState = 'loading' | 'ready' | 'error';
+ type FieldErrors = {
+@@ -156,12 +157,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+ 
+   const referencesUnavailable = !customerReady
+     || (user.role !== 'STAFF' && staffState !== 'ready');
+-  return <main className="task-create meeting-create">
+-    <PageHeader eyebrow="Yeni kayıt" description="Görüşme / ziyaret planla" fallbackTitle="Yeni iş" />
+-    <p className="form-intro">
+-      Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
+-      Görüşme veya ziyaret sonucu daha sonra kaydedilir.
+-    </p>
++  return <main className="task-create meeting-create job-create">
++    <PageHeader eyebrow="" fallbackTitle="Görüşme / ziyaret planla"
++      description="Müşteriyi ve ziyaret amacını belirleyin. Görüşme sonucu daha sonra kaydedilir." />
+     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+       {calendarConflicts.map((conflict) => (
+         <p key={String(conflict.id)}>
+@@ -169,11 +167,22 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+         </p>
+       ))}
+     </div>}
+-    <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
+-      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
+-        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
+-          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
+-        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
++    <form className="task-form job-create-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
++      <section className="job-create-section" aria-labelledby="meeting-info-heading">
++        <h2 id="meeting-info-heading">Müşteri ve amaç</h2>
++        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
++          <CustomerSearchSelect
++            id="meeting-customer"
++            value={customerId}
++            onChange={setCustomerId}
++            pinnedCustomer={pinnedCustomer}
++            onReadyChange={setCustomerReady}
++            clearValueWhenMissing
++            allowClear
++            invalid={fieldErrors.customerId ? true : undefined}
++            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
++          />
++          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
+       <div className="field-group">
+         <label htmlFor="meeting-engagement-kind">Görüşme / ziyaret türü</label>
+         <select
+@@ -190,33 +199,37 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+           ))}
+         </select>
+         <p id="meeting-engagement-kind-help" className="form-help">
+-          Görüşmenin veya ziyaretin ana amacını seçin. Bu bilgi liste ve raporlarda gösterilir.
++          Liste ve raporlarda gösterilecek ana amacı seçin.
+         </p>
+         {fieldErrors.engagementKind && (
+           <span id="meeting-engagement-kind-error" className="field-error">{fieldErrors.engagementKind}</span>
+         )}
+       </div>
+-      <div className="task-field-pair">
+-        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+-          <CustomerSearchSelect
+-            id="meeting-customer"
+-            value={customerId}
+-            onChange={setCustomerId}
+-            pinnedCustomer={pinnedCustomer}
+-            onReadyChange={setCustomerReady}
+-            clearValueWhenMissing
+-            allowClear
+-            invalid={fieldErrors.customerId ? true : undefined}
+-            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
+-          />
+-          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
++      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
++        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
++          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
++        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
++      </section>
++      <section className="job-create-section" aria-labelledby="meeting-plan-heading">
++        <h2 id="meeting-plan-heading">Planlama</h2>
++        <div className="job-create-pair">
++      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
++        : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
++          <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
++            aria-invalid={fieldErrors.assignedTo ? true : undefined}
++            aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
++            onChange={(event) => setAssignedTo(event.target.value)}>
++            <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
++          {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
++          {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
++          {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
+         <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
+           <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
+             aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+             aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
+             onChange={(event) => setScheduledLocal(event.target.value)} />
+           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
+-      </div>
++        </div>
+       <CustomerScheduleNotice
+         evaluation={evaluation}
+         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+@@ -226,22 +239,16 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
+         {...availableSlotSearch}
+         onSelect={useAvailableSlot}
+       />
+-      {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
+-        : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
+-          <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
+-            aria-invalid={fieldErrors.assignedTo ? true : undefined}
+-            aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
+-            onChange={(event) => setAssignedTo(event.target.value)}>
+-            <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
+-          {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+-          {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
+-          {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
++      </section>
++      <section className="job-create-section" aria-labelledby="meeting-extra-heading">
++        <h2 id="meeting-extra-heading">Ek bilgiler</h2>
+       <div className="field-group"><label htmlFor="meeting-description">Açıklama (isteğe bağlı)</label>
+-        <textarea id="meeting-description" rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
++        <textarea id="meeting-description" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+       <div className="field-group"><label htmlFor="meeting-priority">Öncelik</label>
+         <select id="meeting-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+           <option value="low">Düşük</option><option value="normal">Normal</option>
+           <option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
++      </section>
+     </fieldset><div className="form-actions">
+       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
+       {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={pending}
+diff --git a/web/src/StaffProfiles.tsx b/web/src/StaffProfiles.tsx
+index daa9aa5..0b78a90 100644
+--- a/web/src/StaffProfiles.tsx
++++ b/web/src/StaffProfiles.tsx
+@@ -80,12 +80,13 @@ export function StaffJobHistory({ actor, staffUserId }: { actor: CurrentUser; st
+ }
+ 
+ export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile; actor?: CurrentUser }) {
+-  return <main className="workspace">
+-    <PageHeader eyebrow="Profilim" fallbackTitle={profile.user.name} />
++  return <main className="workspace own-staff-profile">
++    <PageHeader eyebrow="" fallbackTitle={profile.user.name} />
+     <ProfileFacts profile={profile} /><section aria-labelledby="counter-title"><h2 id="counter-title">Operasyon özeti</h2><dl className="counter-grid">
+       {(Object.keys(counterLabels) as Array<keyof typeof counterLabels>).map((key) => <div key={key}><dt>{counterLabels[key]}</dt><dd>{profile.counters[key]}</dd></div>)}</dl></section>
+-    <StaffOperationalReportScreen embedded />{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
++    {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
+     {actor && <StaffWeeklyReportHistory actor={actor} staffUserId={profile.user.id} />}
++    <StaffOperationalReportScreen embedded showCurrentWorkloadMetrics={false} />
+   </main>;
+ }
+ 
+diff --git a/web/src/jobs/CustomerSearchSelect.tsx b/web/src/jobs/CustomerSearchSelect.tsx
+index 0b73133..c929f70 100644
+--- a/web/src/jobs/CustomerSearchSelect.tsx
++++ b/web/src/jobs/CustomerSearchSelect.tsx
+@@ -50,7 +50,7 @@ function renderLabel(customer: CustomerSummary): ReactNode {
+   return (
+     <span className="customer-option-label">
+       <span>{customer.name}</span>
+-      {meta && <span className="customer-option-meta"> · {meta}</span>}
++      {meta && <span className="customer-option-meta">{meta}</span>}
+     </span>
+   );
+ }
+@@ -312,6 +312,7 @@ export function CustomerSearchSelect({
+   return (
+     <>
+       <ServoraSelect
++        className="customer-search-select"
+         id={id}
+         showSearch
+         filterOption={false}
+diff --git a/web/src/jobs/JobRow.tsx b/web/src/jobs/JobRow.tsx
+index a8242be..08d80f1 100644
+--- a/web/src/jobs/JobRow.tsx
++++ b/web/src/jobs/JobRow.tsx
+@@ -128,7 +128,6 @@ export function JobRow({ job, user, onCommand }: {
+             </div>
+           )}
+         </dl>
+-        <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
+         <div className="job-row-signals" data-job-row-signals="true">
+           <StatusChip status={job.status} />
+           <PriorityChip priority={job.priority} longLabel />
+@@ -138,6 +137,7 @@ export function JobRow({ job, user, onCommand }: {
+             </span>
+           )}
+         </div>
++        <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
+       </div>
+       <dl className="job-row-facts">
+         <div>
+diff --git a/web/src/jobs/NewJobMenu.tsx b/web/src/jobs/NewJobMenu.tsx
+index 0da313e..cd9988a 100644
+--- a/web/src/jobs/NewJobMenu.tsx
++++ b/web/src/jobs/NewJobMenu.tsx
+@@ -30,7 +30,7 @@ export function NewJobMenu({
+   const menuId = useId();
+   const isSheet = presentation === 'sheet';
+   const options = [
+-    onCreateMeeting ? { key: 'meeting', label: 'Yeni görüşme', run: onCreateMeeting } : null,
++    onCreateMeeting ? { key: 'meeting', label: 'Görüşme / ziyaret planla', run: onCreateMeeting } : null,
+     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
+     onCreateDelivery ? { key: 'delivery', label: 'Yeni teslim', run: onCreateDelivery } : null,
+     onCreateWeeklyReport ? { key: 'weekly-report', label: 'Haftalık Rapor', run: onCreateWeeklyReport } : null,
+diff --git a/web/src/reports/StaffOperationalReport.tsx b/web/src/reports/StaffOperationalReport.tsx
+index 1b8d331..f8c036d 100644
+--- a/web/src/reports/StaffOperationalReport.tsx
++++ b/web/src/reports/StaffOperationalReport.tsx
+@@ -141,6 +141,7 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
+   return (
+     <OperationalTable
+       caption="Onaylı teslimler"
++      hideVisibleCaption
+       columns={DELIVERY_PURPOSE_COLUMNS}
+       rows={deliveryPurposeRows(items)}
+       rowHeaderKey="purpose"
+@@ -155,6 +156,7 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
+     {total === 0 && <p className="report-empty-copy">Bu dönemde onaylı satış görüşmesi bulunmuyor.</p>}
+     <OperationalTable
+       caption="Görüşme sonuçları"
++      hideVisibleCaption
+       columns={MEETING_OUTCOME_COLUMNS}
+       rows={meetingOutcomeRows(items)}
+       rowHeaderKey="outcome"
+@@ -162,7 +164,7 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
+   </section>;
+ }
+ 
+-export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
++export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = true }: { report: StaffReportResponse; showCurrentWorkloadMetrics?: boolean }) {
+   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
+   const submission = report.staffSubmissionAttribution;
+   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
+@@ -177,15 +179,16 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
+     <section className="staff-analysis-group staff-analysis-snapshot" aria-labelledby="staff-current-title">
+       <h3 id="staff-current-title">Şu an — mevcut operasyon yükü</h3>
+       <p className="report-section-hint">
+-        Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını;
+-        diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.
++        {showCurrentWorkloadMetrics
++          ? 'Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını; diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.'
++          : 'Güncel sayaçlar sayfanın üstündeki Operasyon özeti bölümündedir. Buradaki tür dağılımı seçilen dönemden bağımsızdır.'}
+       </p>
+-      <dl className="staff-analysis-metrics staff-current-workload-grid">
++      {showCurrentWorkloadMetrics && <dl className="staff-analysis-metrics staff-current-workload-grid">
+         <div><dt>Aksiyon alınabilir</dt><dd>{report.currentWorkload.openJobCards}</dd></div>
+         <div><dt>Gecikmiş</dt><dd>{report.currentWorkload.overdueJobCards}</dd></div>
+         <div><dt>Onay bekliyor</dt><dd>{report.currentWorkload.waitingApproval}</dd></div>
+         <div><dt>Düzeltme bekliyor</dt><dd>{report.currentWorkload.revisionRequested}</dd></div>
+-      </dl>
++      </dl>}
+       <WorkTypeDistribution
+         headingId="current-workload-types-title"
+         title="Mevcut iş yükünün tür dağılımı"
+@@ -203,15 +206,22 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
+         <div><dt>Eklenen operasyon notları</dt><dd>{report.performance.authoredOperationalNotes}</dd></div>
+       </dl>
+       <p className="report-section-hint">
+-        Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
+-        işleri kapsar. Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+-        Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
+-        {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
++        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan ve onaya gönderme kaydı bu personele ait işleri kapsar.
+       </p>
++      <details className="report-data-disclosure staff-report-method">
++        <summary>Nasıl hesaplanır?</summary>
++        <p className="report-section-hint">
++          Atıf tarihsel onaya gönderme kaydına dayanır; güncel görev atamasına göre değişmez.
++          Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.
++          Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
++          Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
++          {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
++        </p>
++      </details>
+       <WorkTypeDistribution
+         headingId="completion-work-types-title"
+         title="Tamamlanan işlerin türleri"
+-        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, mevcut atama ve iş türüne göre ayrılır."
++        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tarihsel onaya gönderme atfı ve iş türüne göre ayrılır."
+         items={report.completionWorkTypes}
+       />
+       <section className="staff-detail-section staff-completion-trend" aria-labelledby="daily-completion-title">
+@@ -250,10 +260,12 @@ export function StaffOperationalReportScreen({
+   staffUserId,
+   embedded = false,
+   requestedRange = null,
++  showCurrentWorkloadMetrics = true,
+ }: {
+   staffUserId?: string;
+   embedded?: boolean;
+   requestedRange?: RequestedReportRange;
++  showCurrentWorkloadMetrics?: boolean;
+ }) {
+   const [report, setReport] = useState<StaffReportResponse | null>(null);
+   const [loading, setLoading] = useState(true);
+@@ -302,7 +314,7 @@ export function StaffOperationalReportScreen({
+         <h1>{report.staff.name}</h1>
+         <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
+       </header>}
+-      <StaffOperationalReport report={report} />
++      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} />
+     </>}
+   </>;
+ 
+diff --git a/web/src/reports/report-types.ts b/web/src/reports/report-types.ts
+index d44f2ea..e753b37 100644
+--- a/web/src/reports/report-types.ts
++++ b/web/src/reports/report-types.ts
+@@ -30,7 +30,7 @@ export type StaffCurrentWorkload = {
+ };
+ 
+ export type StaffHistoricalPerformance = {
+-  /** Manager-approved completions currently associated with the Staff member. */
++  /** Manager-approved completions attributed by the recorded submission actor. */
+   completedJobs: number;
+   completionDays: number;
+   jobsPerCompletionDay: number;
+@@ -147,7 +147,7 @@ export type StaffReportResponse = {
+   staffExecution: StaffExecutionMetrics;
+   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
+   onTime: StaffOnTimeMetrics;
+-  /** Selected-period manager-approved completions by current assignee. */
++  /** Selected-period manager-approved completions by recorded submission actor. */
+   completionWorkTypes: CompletionWorkType[];
+   /** Current active snapshot by current assignee; independent of selected range. */
+   currentWorkloadByType: CompletionWorkType[];
+@@ -164,7 +164,7 @@ export type StaffPerformanceItem = {
+   staffExecution: StaffExecutionMetrics;
+   staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
+   onTime: StaffOnTimeMetrics;
+-  /** Selected-period manager-approved completions by current assignee. */
++  /** Selected-period manager-approved completions by recorded submission actor. */
+   completionWorkTypes: CompletionWorkType[];
+   /** Current active snapshot by current assignee; independent of selected range. */
+   currentWorkloadByType: CompletionWorkType[];
+diff --git a/web/src/shell/route-identity.ts b/web/src/shell/route-identity.ts
+index bf31b58..015868a 100644
+--- a/web/src/shell/route-identity.ts
++++ b/web/src/shell/route-identity.ts
+@@ -49,9 +49,9 @@ const IDENTITIES: Record<RouteId, IdentityRecord> = {
+   calendar: { title: 'Takvim', parentId: null, section: 'Operasyon' },
+   messages: { title: 'Mesajlar', parentId: null, section: 'Operasyon' },
+   jobs: { title: 'İşler', parentId: null, section: 'Operasyon' },
+-  jobCreateDelivery: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+-  jobCreateTask: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+-  jobCreateMeeting: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateDelivery: { title: 'Yeni ürün teslimi', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateTask: { title: 'Yeni genel görev', parentId: 'jobs', section: 'Operasyon' },
++  jobCreateMeeting: { title: 'Görüşme / ziyaret planla', parentId: 'jobs', section: 'Operasyon' },
+   jobCreateWeeklyReport: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+   followUpCreate: { title: 'Yeni iş', parentId: 'jobs', section: 'Operasyon' },
+   saleCreate: { title: 'Satış kaydı oluştur', parentId: 'jobDetail', section: 'Operasyon',
+diff --git a/web/src/styles.css b/web/src/styles.css
+index c9b9684..2ec07aa 100644
+--- a/web/src/styles.css
++++ b/web/src/styles.css
+@@ -170,7 +170,8 @@ html a:focus-visible {
+ .login-form-wrap h1, .workspace-empty h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.025em; }
+ .form-intro { margin: 0.75rem 0 2rem; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+ .field-group { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
+-.field-group label { font-size: 0.9rem; font-weight: 680; }
++.field-group label, label.field-group { font-size: 0.9rem; font-weight: 680; }
++label.field-group > input, label.field-group > select, label.field-group > textarea { font-size: 1rem; font-weight: 400; }
+ .field-group input, .field-group select, .field-group textarea,
+ .form-control {
+   min-width: 0;
+@@ -3105,7 +3106,7 @@ html a:focus-visible {
+   z-index: 0;
+ }
+ .customer-identity p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
+-.customer-facts { display: grid; grid-template-columns: repeat(2, minmax(8rem, 1fr)); gap: 1rem; margin: 0; }
++.customer-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; }
+ .customer-facts div { display: grid; gap: 0.25rem; }
+ .customer-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
+ .customer-facts dd { margin: 0; font-size: 0.875rem; }
+@@ -3515,8 +3516,8 @@ html a:focus-visible {
+   .customer-filters { grid-template-columns: 1fr; gap: 0.75rem; }
+   .customer-row { grid-template-columns: 1fr; gap: 1rem; }
+   .customer-facts { grid-template-columns: 1fr 1fr; }
+-  .customer-row-commands { align-items: stretch; flex-direction: column; }
+-  .customer-row-commands > * { width: 100%; }
++  .customer-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
++  .customer-row-commands > * { width: auto; }
+   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
+   .form-actions { align-items: stretch; flex-direction: column-reverse; }
+   /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
+@@ -3538,8 +3539,8 @@ html a:focus-visible {
+   .product-filters { grid-template-columns: 1fr; }
+   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }
+   .product-form-pair { grid-template-columns: 1fr; }
+-  .product-row-commands { align-items: stretch; flex-direction: column; }
+-  .product-row-commands > * { width: 100%; }
++  .product-row-commands { align-items: center; justify-content: flex-start; flex-direction: row; }
++  .product-row-commands > * { width: auto; }
+   .product-detail .product-detail-facts { grid-template-columns: 1fr; }
+   .product-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
+   .product-dialog-actions button { width: 100%; }
+@@ -4972,7 +4973,8 @@ html a:focus-visible {
+   font-size: 0.8125rem;
+ }
+ 
+-.customer-option-label { display: inline-flex; min-width: 0; max-width: 100%; }
++.customer-search-select { width: 100%; min-width: 0; }
++.customer-option-label { display: inline-flex; gap: 0.25rem; min-width: 0; max-width: 100%; }
+ .customer-option-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .customer-option-meta { flex: none; color: var(--muted); font-size: 0.8125rem; }
+ .customer-search-more { padding: 0.4rem 0.75rem; color: var(--muted); font-size: 0.8125rem; }
+@@ -5007,3 +5009,53 @@ html a:focus-visible {
+ .sale-contact-search button { width: auto; }
+ 
+ .sale-contact-select { height: var(--control-height); }
++
++/* Visual review A–E: compact identity and task-first page composition. */
++.own-staff-profile .profile-facts {
++  grid-template-columns: repeat(4, minmax(0, 1fr));
++  gap: 1rem 1.5rem;
++  padding-bottom: 1.25rem;
++  border-bottom: 1px solid var(--rule);
++}
++.own-staff-profile .profile-facts > div { padding: 0; border: 0; min-width: 0; }
++.own-staff-profile .profile-facts dd { overflow-wrap: anywhere; font-weight: 600; }
++.own-staff-profile #counter-title { margin: 0; font-size: 1.125rem; }
++.own-staff-profile .counter-grid {
++  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
++  gap: 0;
++  border-block: 1px solid var(--rule);
++}
++.own-staff-profile .counter-grid > div { min-width: 0; border: 0; border-radius: 0; }
++.own-staff-profile .counter-grid dt { font-size: 0.875rem; }
++.own-staff-profile .counter-grid dd { font-variant-numeric: tabular-nums; }
++.own-staff-profile .staff-job-history { margin-top: 1.5rem; }
++.customer-edit-disclosure { margin-top: 1.25rem; }
++.customer-edit-disclosure > summary {
++  display: list-item;
++  width: fit-content;
++  min-height: var(--control-height);
++  padding-block: 0.65rem;
++  color: var(--accent);
++  font-weight: 650;
++  cursor: pointer;
++}
++.customer-edit-disclosure > summary:hover { text-decoration: underline; }
++.customer-detail .operational-summary { margin-top: 1.25rem; }
++.customer-detail .operational-summary .record-facts > div { min-width: 0; }
++.customer-detail .operational-summary dd { overflow-wrap: anywhere; }
++.customer-detail .operational-summary dd p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
++.product-row-commands .product-delete-action { color: var(--muted); background: transparent; }
++.job-list-card .job-row-relations dd { color: var(--ink); font-weight: 600; }
++.job-list-card .compact-workflow:not(.compact-workflow--attention) { font-weight: 400; }
++.job-list-card .compact-workflow:not(.compact-workflow--attention) p { color: var(--muted); font-weight: 400; }
++.job-list-card .compact-workflow { margin-top: 0.5rem; }
++.staff-report-method .report-section-hint { max-width: 75ch; }
++@media (max-width: 40rem) {
++  .own-staff-profile .profile-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .own-staff-profile .counter-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
++}
++
++.customer-list-card .customer-identity,
++.customer-list-card .customer-facts > div { min-width: 0; overflow-wrap: anywhere; }
++.customer-detail .record-facts > div { min-width: 0; }
++.customer-detail .record-facts dd { overflow-wrap: anywhere; }
+diff --git a/web/src/ui/OperationalTable.tsx b/web/src/ui/OperationalTable.tsx
+index 4ff5a54..6d19ef9 100644
+--- a/web/src/ui/OperationalTable.tsx
++++ b/web/src/ui/OperationalTable.tsx
+@@ -12,6 +12,8 @@ export type OperationalTableRow = Readonly<{
+ 
+ export type OperationalTableProps = Readonly<{
+   caption: string;
++  /** Keep the accessible name when the surrounding section already labels the data. */
++  hideVisibleCaption?: boolean;
+   columns: readonly OperationalTableColumn[];
+   rows: readonly OperationalTableRow[];
+   rowHeaderKey?: string;
+@@ -25,6 +27,7 @@ export type OperationalTableProps = Readonly<{
+  */
+ export function OperationalTable({
+   caption,
++  hideVisibleCaption = false,
+   columns,
+   rows,
+   rowHeaderKey,
+@@ -35,7 +38,7 @@ export function OperationalTable({
+   return (
+     <div className="servora-operational-table" data-servora-operational-table="true">
+       <table className="report-table servora-operational-table__desktop">
+-        <caption>{caption}</caption>
++        <caption className={hideVisibleCaption ? 'sr-only' : undefined}>{caption}</caption>
+         <thead>
+           <tr>
+             {columns.map((column) => (
+@@ -63,7 +66,7 @@ export function OperationalTable({
+       <div className="servora-operational-table__mobile">
+         <p
+           id={mobileCaptionId}
+-          className="servora-operational-table__mobile-caption"
++          className={`servora-operational-table__mobile-caption${hideVisibleCaption ? ' sr-only' : ''}`}
+         >
+           {caption}
+         </p>
+diff --git a/web/tests/customer-operational-summary.test.tsx b/web/tests/customer-operational-summary.test.tsx
+index e314729..f080396 100644
+--- a/web/tests/customer-operational-summary.test.tsx
++++ b/web/tests/customer-operational-summary.test.tsx
+@@ -72,6 +72,15 @@ describe('Customer operational summary transport', () => {
+ });
+ 
+ describe('Customer operational summary section', () => {
++  it('shows the relationship summary before management editing and keeps administration after history', () => {
++    const html = render({ ...manager, role: 'ADMIN' });
++    expect(html.indexOf('operational-summary')).toBeLessThan(html.indexOf('detail-customer-name'));
++    expect(html.indexOf('customer-history')).toBeLessThan(html.indexOf('customer-delete-blocked-title'));
++    expect(html).toContain('customer-edit-disclosure');
++    expect(html).toContain('Genel bilgileri düzenle');
++    expect(html).toContain('Ayşe Personel');
++  });
++
+   it('renders all five concepts with JobCard navigation links', () => {
+     const html = render(manager);
+     for (const text of ['Operasyonel özet', 'Son etkileşim', 'Teslimat 1', 'Sonraki planlı iş', 'Revizyonlu İş',
+diff --git a/web/tests/general-task-create.test.tsx b/web/tests/general-task-create.test.tsx
+index 94b9949..b7452b4 100644
+--- a/web/tests/general-task-create.test.tsx
++++ b/web/tests/general-task-create.test.tsx
+@@ -246,23 +246,23 @@ describe('General Task quick create', () => {
+         <MemoryRouter><GeneralTaskCreateScreen user={creator} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
+       ));
+       await settle();
+-      const intro = container.querySelector('.form-intro')?.textContent ?? '';
+-      expect(intro).toContain('Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın.');
+-      expect(intro).toContain('Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.');
++      const intro = container.querySelector('.page-header-description')?.textContent ?? '';
++      expect(intro).toContain('Yapılacak işi ve sorumlusunu belirleyin.');
++      expect(intro).toContain('Müşteri bağlantısı isteğe bağlıdır.');
+       expect(container.textContent).not.toContain('Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.');
+ 
+       const title = container.querySelector<HTMLInputElement>('#task-title')!;
+-      expect(title.getAttribute('placeholder')).toBe('Örn. Havaalanı karşılama — misafir transferi');
++      expect(title.getAttribute('placeholder')).toBe('Örn. Klinik eğitim materyallerini hazırla');
+ 
+       const description = container.querySelector<HTMLTextAreaElement>('#task-description')!;
+       expect(description.getAttribute('placeholder')).toBe(
+-        "Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle.",
++        "Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla.",
+       );
+-      expect(description.getAttribute('rows')).toBe('5');
++      expect(description.getAttribute('rows')).toBe('3');
+       expect(description.getAttribute('aria-describedby')).toBe('task-description-help');
+       const helper = container.querySelector('#task-description-help');
+       expect(helper?.textContent).toBe(
+-        'Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.',
++        'Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.',
+       );
+       await act(async () => root.unmount());
+       container = document.createElement('div'); document.body.append(container);
+@@ -275,7 +275,10 @@ describe('General Task quick create', () => {
+       <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
+     ));
+     const disclosure = container.querySelector('details.task-optional')!;
+-    expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
++    expect(disclosure.querySelector('summary')?.textContent).toContain('Müşteri ve öncelik');
++    // A default scheduling value must be discoverable without opening optional fields.
++    expect(container.querySelector('#task-scheduled-at')?.closest('details')).toBeNull();
++    expect(container.querySelector<HTMLInputElement>('#task-scheduled-at')?.value).toBe('2026-07-17T14:30');
+     for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Planlanan zaman (isteğe bağlı)',
+       'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
+       expect(container.textContent).toContain(label);
+diff --git a/web/tests/new-job-menu.test.tsx b/web/tests/new-job-menu.test.tsx
+index 112fb01..e34a4ae 100644
+--- a/web/tests/new-job-menu.test.tsx
++++ b/web/tests/new-job-menu.test.tsx
+@@ -33,7 +33,7 @@ describe('NewJobMenu', () => {
+     expect(html).toContain('aria-expanded="false"');
+     expect(html).toContain('aria-controls=');
+     expect(html).not.toContain('aria-haspopup');
+-    expect(html).not.toContain('Yeni görüşme');
++    expect(html).not.toContain('Görüşme / ziyaret planla');
+     expect(html).not.toContain('Yeni görev');
+     expect(html).not.toContain('Yeni teslim');
+   });
+@@ -57,10 +57,10 @@ describe('NewJobMenu', () => {
+     const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+     expect(trigger).toBeTruthy();
+     act(() => { trigger.click(); });
+-    expect(host.textContent).toContain('Yeni görüşme');
++    expect(host.textContent).toContain('Görüşme / ziyaret planla');
+     expect(host.textContent).toContain('Yeni görev');
+     expect(host.textContent).toContain('Yeni teslim');
+-    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Yeni görüşme');
++    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Görüşme / ziyaret planla');
+     act(() => { meeting?.click(); });
+     expect(onCreateMeeting).toHaveBeenCalledTimes(1);
+     expect(onCreateTask).not.toHaveBeenCalled();
+diff --git a/web/tests/route-identity.test.ts b/web/tests/route-identity.test.ts
+index fd3c271..9401a5b 100644
+--- a/web/tests/route-identity.test.ts
++++ b/web/tests/route-identity.test.ts
+@@ -35,6 +35,12 @@ describe('route identity registry', () => {
+     }
+   });
+ 
++  it('names each primary job creation route by the work being planned', () => {
++    expect(matchRouteIdentity(paths.newMeeting)?.identity.title).toBe('Görüşme / ziyaret planla');
++    expect(matchRouteIdentity(paths.newTask)?.identity.title).toBe('Yeni genel görev');
++    expect(matchRouteIdentity(paths.newDelivery)?.identity.title).toBe('Yeni ürün teslimi');
++  });
++
+   it('gives distinct static settings and report routes distinct identities', () => {
+     const ids = [
+       '/settings/profile', '/settings/security',
+diff --git a/web/tests/router.test.tsx b/web/tests/router.test.tsx
+index db118dc..7fbc20e 100644
+--- a/web/tests/router.test.tsx
++++ b/web/tests/router.test.tsx
+@@ -62,10 +62,10 @@ async function render(path: string, user: CurrentUser = manager) {
+ describe('application routes', () => {
+   it.each([
+     ['/jobs', 'İşler', manager],
+-    ['/jobs/new-delivery', 'Ürün teslimi', staff],
+-    ['/jobs/new-delivery', 'Ürün teslimi', manager],
+-    ['/jobs/new-task', 'Genel görev', staff],
+-    ['/jobs/new-task', 'Genel görev', manager],
++    ['/jobs/new-delivery', 'Yeni ürün teslimi', staff],
++    ['/jobs/new-delivery', 'Yeni ürün teslimi', manager],
++    ['/jobs/new-task', 'Yeni genel görev', staff],
++    ['/jobs/new-task', 'Yeni genel görev', manager],
+     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', staff],
+     ['/jobs/new-meeting', 'Görüşme / ziyaret planla', manager],
+     ['/jobs/job-1', 'İş detayları yükleniyor', staff],
+diff --git a/web/tests/shared-visual-language-contract.test.ts b/web/tests/shared-visual-language-contract.test.ts
+index f1abf58..833f3f7 100644
+--- a/web/tests/shared-visual-language-contract.test.ts
++++ b/web/tests/shared-visual-language-contract.test.ts
+@@ -249,7 +249,7 @@ describe('shared visual language adoption (T1B)', () => {
+   });
+ 
+   it('keeps helper/label/error semantic roles', () => {
+-    expect(stylesCss).toMatch(/\.field-group label\s*\{[^}]*font-size:\s*0\.9rem/s);
++    expect(stylesCss).toMatch(/\.field-group label, label\.field-group\s*\{[^}]*font-size:\s*0\.9rem/s);
+     // Shared form-level error surface is .form-error (not a missing field-error contract).
+     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*color:\s*var\(--error\)/s);
+     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*background:\s*var\(--error-soft\)/s);
+diff --git a/web/tests/staff-operational-report.test.tsx b/web/tests/staff-operational-report.test.tsx
+index 560dcb5..fe14a6a 100644
+--- a/web/tests/staff-operational-report.test.tsx
++++ b/web/tests/staff-operational-report.test.tsx
+@@ -85,7 +85,9 @@ describe('Staff operational report', () => {
+     expect(html).toContain('Pasif personel');
+     expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
+     expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
+-    expect(html).toContain('hâlen bu personele atanmış');
++    expect(html).not.toContain('hâlen bu personele atanmış');
++    expect(html).toContain('onaya gönderme kaydı bu personele ait');
++    expect(html).toContain('Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.');
+     for (const label of [
+       'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
+       'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',
+@@ -106,8 +108,8 @@ describe('Staff operational report', () => {
+     expect(html).toContain('Görüşme sonuçları');
+     expect(html).toContain('Takip gerekli');
+     expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(3);
+-    expect(html).toContain('<caption>Onaylı teslimler</caption>');
+-    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
++    expect(html).toContain('<caption class="sr-only">Onaylı teslimler</caption>');
++    expect(html).toContain('<caption class="sr-only">Görüşme sonuçları</caption>');
+     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Satış<\/th>/);
+     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Olumlu<\/th>/);
+     for (const heading of ['Amaç', 'Birim', 'Miktar', 'Sonuç', 'Görüşme sayısı']) {
+@@ -120,6 +122,14 @@ describe('Staff operational report', () => {
+     expect(html).not.toMatch(/performans|puan|sıralama|ciro|stok|komisyon|Personelin bitirme zamanı|Mevcut plana göre zamanında|type="date"|select/i);
+   });
+ 
++  it('omits duplicated counters while preserving the current type distribution in a profile', () => {
++    const html = renderToStaticMarkup(<StaffOperationalReport report={report} showCurrentWorkloadMetrics={false} />);
++    expect(html).not.toContain('staff-current-workload-grid');
++    expect(html).toContain('Mevcut iş yükünün tür dağılımı');
++    expect(html).toContain('Seçilen dönem — yönetici onaylı sonuçlar');
++    expect(html).toContain('Güncel sayaçlar sayfanın üstündeki Operasyon özeti bölümündedir.');
++  });
++
+   it('does not promote legacy comparison fields into the operational presentation', () => {
+     const html = renderToStaticMarkup(<StaffOperationalReport report={{
+       ...report,
+@@ -139,8 +149,8 @@ describe('Staff operational report', () => {
+     expect(html).toContain('Bu dönemde onaylı teslim bulunmuyor.');
+     expect(html).toContain('Bu dönemde onaylı satış görüşmesi bulunmuyor.');
+     expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(2);
+-    expect(html).not.toContain('<caption>Onaylı teslimler</caption>');
+-    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
++    expect(html).not.toContain('<caption class="sr-only">Onaylı teslimler</caption>');
++    expect(html).toContain('<caption class="sr-only">Görüşme sonuçları</caption>');
+   });
+ 
+   it('loads the own report independently with the default range', async () => {
+diff --git a/web/tests/staff-profiles.test.tsx b/web/tests/staff-profiles.test.tsx
+index 8b43df6..8474e01 100644
+--- a/web/tests/staff-profiles.test.tsx
++++ b/web/tests/staff-profiles.test.tsx
+@@ -22,6 +22,12 @@ describe('Staff profile views', () => {
+     for (const label of ['Açık işler', 'Onay bekliyor', 'Düzeltme istendi', 'Bu ay tamamlandı', 'Geciken']) expect(html).toContain(label);
+     expect(html).not.toContain('Profili düzenle');
+   });
++  it('places job and weekly-report access before the embedded period analysis', () => {
++    const html = renderToStaticMarkup(<MemoryRouter><OwnStaffProfileView profile={profile}
++      actor={{ ...profile.user }} /></MemoryRouter>);
++    expect(html.indexOf('staff-job-history')).toBeLessThan(html.indexOf('embedded-staff-report'));
++    expect(html.indexOf('staff-weekly-reports')).toBeLessThan(html.indexOf('embedded-staff-report'));
++  });
+   it('renders a structured active Staff directory without internal notes or open/status controls', () => {
+     const html = renderToStaticMarkup(<MemoryRouter><StaffDirectoryView profiles={[profile]} onOpen={() => {}} onBack={() => {}} /></MemoryRouter>);
+     expect(html).toContain('Personel'); expect(html).toContain('Ayşe'); expect(html).toContain('Murat');

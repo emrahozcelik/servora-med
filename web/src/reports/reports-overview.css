@@ -1,0 +1,81 @@
+.business-trend { margin-block: 1.75rem 2.5rem; min-width: 0; font-size: 1rem; }
+.business-trend-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.business-trend-heading h2 { margin: 0; font-size: 1.4rem; letter-spacing: -.025em; }
+.business-trend-heading p { margin: .35rem 0 0; color: var(--muted); }
+.business-trend-period { color: var(--muted); white-space: nowrap; padding-top: .25rem; }
+.business-trend-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); margin: 1.5rem 0 1rem; gap: 1.5rem; }
+.business-trend-totals > div { min-width: 0; border-top: 1px solid var(--rule); padding-top: 1rem; }
+.business-trend-totals dt { display: flex; align-items: center; gap: .5rem; color: var(--ink); font-weight: 600; }
+.business-series-stroke { display: inline-block; width: 1.25rem; flex: 0 0 1.25rem; height: 0; border-top: 3px solid currentColor; vertical-align: middle; }
+.business-series--visits { color: var(--accent); }
+.business-series--followUps { color: var(--muted); }
+.business-series--sales { color: var(--success); }
+.business-series--visits .business-series-stroke { color: var(--accent); }
+.business-series--followUps .business-series-stroke { color: var(--muted); border-top-style: dashed; }
+.business-series--sales .business-series-stroke { color: var(--success); border-top-style: dotted; }
+.business-trend-totals dd:not(.business-trend-prior) { display: flex; flex-wrap: wrap; align-items: baseline; gap: .65rem; margin: .4rem 0 .25rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.business-trend-totals dd strong { font-size: 2rem; line-height: 1.2; letter-spacing: -.035em; }
+.business-trend-change { font-size: .875rem; }
+.business-trend-totals .business-trend-prior { margin: 0; color: var(--muted); font-size: .875rem; }
+.business-trend-prior span { display: block; margin-top: .25rem; }
+.business-trend-figure { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); margin: 1.5rem 0 .75rem; }
+.business-trend-axis { display: flex; flex-direction: column; justify-content: space-between; padding-block: .5rem; font-size: .8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.business-trend-plot { display: block; width: 100%; height: 260px; overflow: visible; }
+.business-trend-grid { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 3 5; }
+.business-trend-line { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.business-series--followUps .business-trend-line { stroke-dasharray: 7 5; }
+.business-series--sales .business-trend-line { stroke-dasharray: 1 5; stroke-width: 3; }
+.business-trend-cursor { stroke: var(--muted); stroke-width: 1; opacity: .7; }
+.business-trend-dates { grid-column: 2; display: flex; justify-content: space-between; gap: .5rem; color: var(--muted); font-size: .8125rem; }
+.business-trend-readout { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-top: 1.25rem; padding: .8rem 1rem; background: var(--canvas); border-radius: var(--radius-control); font-size: .875rem; font-variant-numeric: tabular-nums; }
+.business-trend-readout > span { display: flex; align-items: center; gap: .4rem; }
+.business-trend-inspector { grid-column: 1 / -1; display: flex; align-items: center; gap: 1rem; font-size: .875rem; color: var(--muted); }
+.business-trend-inspector input { min-height: 44px; flex: 1; min-width: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
+.business-trend-footnote { margin: .5rem 0; color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.business-trend-data summary { display: flex; align-items: center; gap: .5rem; min-height: 44px; width: fit-content; color: var(--accent); font-weight: 600; cursor: pointer; }
+.business-trend-data summary svg { flex: 0 0 16px; }
+.business-trend-data[open] summary svg { transform: rotate(90deg); }
+.business-trend-data p { max-width: 75ch; color: var(--muted); }
+.business-trend-table-scroll { max-height: 24rem; overflow: auto; }
+.business-trend-data table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.business-trend-data caption { text-align: left; padding: .75rem; }
+.business-trend-data :is(th, td) { text-align: right; padding: .75rem; border-bottom: 1px solid var(--rule); }
+.business-trend-data th:first-child { text-align: left; }
+.business-relationships { margin-top: 1.75rem; border-top: 1px solid var(--rule); padding-top: 1.5rem; }
+.business-relationships h3 { margin: 0; font-size: 1.125rem; }
+.business-relationships p { margin-top: .4rem; color: var(--muted); }
+.business-relationships dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1.5rem; margin: 1.25rem 0; }
+.business-relationships dt { font-weight: 600; }
+.business-relationships dd { margin: .4rem 0 0; font-size: 1.5rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.business-relationships dd span { display: block; color: var(--muted); font-size: .875rem; font-weight: 400; margin-top: .2rem; }
+.business-trend-report-link { display: inline-flex; align-items: center; min-height: 44px; gap: .75rem; font-weight: 600; }
+.business-trend-empty { padding: 1rem; background: var(--canvas); border-radius: var(--radius-control); }
+.business-trend-loading { min-height: 24rem; }
+.reports-overview-details { margin-top: 1.5rem; border-top: 1px solid var(--rule); }
+.reports-overview-details > summary { min-height: 44px; padding-block: .75rem; font-weight: 600; cursor: pointer; color: var(--accent); }
+.reports-overview .report-executive-metrics { grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
+.reports-overview .report-attention-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
+.reports-overview .report-attention-card { display: flex; flex-direction: column; align-items: start; }
+.reports-overview .report-attention-card a { margin-top: auto; max-width: 100%; white-space: normal; text-align: center; }
+.reports-overview-distributions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
+@media (max-width: 56rem) {
+  .business-trend-heading { flex-direction: column; gap: .5rem; }
+  .business-trend-totals { gap: 1rem; }
+  .reports-overview .report-attention-list { grid-template-columns: 1fr; }
+  .reports-overview .report-attention-card { flex-direction: row; align-items: center; }
+  .reports-overview-distributions { grid-template-columns: 1fr; gap: 0; }
+}
+@media (max-width: 40rem) {
+  .business-trend-totals { grid-template-columns: 1fr; gap: .75rem; }
+  .business-trend-totals > div { display: grid; grid-template-columns: 1fr auto; gap: .25rem .75rem; padding-top: .75rem; }
+  .business-trend-totals dd:not(.business-trend-prior) { grid-column: 2; grid-row: 1 / 3; align-items: end; flex-direction: column; gap: .2rem; margin: 0; }
+  .business-trend-totals dd strong { font-size: 1.75rem; }
+  .business-trend-prior span { display: none; }
+  .business-trend-plot { height: 210px; }
+  .business-trend-readout { display: grid; gap: .4rem; }
+  .business-relationships dl { grid-template-columns: 1fr; gap: 1rem; }
+  .business-relationships dl > div { display: grid; grid-template-columns: 1fr auto; gap: .5rem; }
+  .business-relationships dd { margin: 0; text-align: right; }
+  .business-relationships dd span { max-width: 18ch; }
+  .reports-overview .report-attention-card { flex-direction: column; align-items: stretch; }
+}

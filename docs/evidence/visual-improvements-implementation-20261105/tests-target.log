@@ -1,0 +1,13 @@
+
+> servora-med-web@0.1.0 test
+> vitest --run tests/staff-operational-report.test.tsx tests/staff-profiles.test.tsx tests/customer-detail.test.tsx tests/customer-operational-summary.test.tsx tests/product-list.test.tsx tests/job-list.test.tsx tests/operational-table.test.tsx tests/visual-improvements-fixture.test.ts
+
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/web
+
+
+ Test Files  8 passed (8)
+      Tests  110 passed (110)
+   Start at  21:45:24
+   Duration  2.98s (transform 2.00s, setup 194ms, import 8.00s, tests 2.05s, environment 3.21s)
+

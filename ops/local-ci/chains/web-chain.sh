@@ -38,6 +38,6 @@ check web-tests -- bash -c 'npm test -- --run'
 check web-playwright-install -- node ../ops/local-ci/browser-availability.mjs
 check web-smoke-dist -- bash -c 'npm run smoke:production-dist'
 check web-smoke-responsive -- bash -c 'npm run smoke:responsive'
-check web-geometry -- bash -c 'node scripts/follow-up-dialog-geometry.mjs'
+check web-geometry -- bash -c 'REPORTS_CAPTURE_DIR=/logs/aux/reports-ui node scripts/reports-ui-smoke.mjs && node scripts/follow-up-dialog-geometry.mjs'
 check web-audit -- bash -c 'npm run audit:high'
 echo WEB-CHAIN-COMPLETE

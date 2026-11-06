@@ -85,7 +85,9 @@ describe('Staff operational report', () => {
     expect(html).toContain('Pasif personel');
     expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
     expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
-    expect(html).toContain('hâlen bu personele atanmış');
+    expect(html).not.toContain('hâlen bu personele atanmış');
+    expect(html).toContain('onaya gönderme kaydı bu personele ait');
+    expect(html).toContain('Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.');
     for (const label of [
       'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
       'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',
@@ -106,8 +108,8 @@ describe('Staff operational report', () => {
     expect(html).toContain('Görüşme sonuçları');
     expect(html).toContain('Takip gerekli');
     expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(3);
-    expect(html).toContain('<caption>Onaylı teslimler</caption>');
-    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
+    expect(html).toContain('<caption class="sr-only">Onaylı teslimler</caption>');
+    expect(html).toContain('<caption class="sr-only">Görüşme sonuçları</caption>');
     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Satış<\/th>/);
     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Olumlu<\/th>/);
     for (const heading of ['Amaç', 'Birim', 'Miktar', 'Sonuç', 'Görüşme sayısı']) {
@@ -118,6 +120,14 @@ describe('Staff operational report', () => {
       expect((html.match(new RegExp(value, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
     }
     expect(html).not.toMatch(/performans|puan|sıralama|ciro|stok|komisyon|Personelin bitirme zamanı|Mevcut plana göre zamanında|type="date"|select/i);
+  });
+
+  it('omits duplicated counters while preserving the current type distribution in a profile', () => {
+    const html = renderToStaticMarkup(<StaffOperationalReport report={report} showCurrentWorkloadMetrics={false} />);
+    expect(html).not.toContain('staff-current-workload-grid');
+    expect(html).toContain('Mevcut iş yükünün tür dağılımı');
+    expect(html).toContain('Seçilen dönem — yönetici onaylı sonuçlar');
+    expect(html).toContain('Güncel sayaçlar sayfanın üstündeki Operasyon özeti bölümündedir.');
   });
 
   it('does not promote legacy comparison fields into the operational presentation', () => {
@@ -139,8 +149,8 @@ describe('Staff operational report', () => {
     expect(html).toContain('Bu dönemde onaylı teslim bulunmuyor.');
     expect(html).toContain('Bu dönemde onaylı satış görüşmesi bulunmuyor.');
     expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(2);
-    expect(html).not.toContain('<caption>Onaylı teslimler</caption>');
-    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
+    expect(html).not.toContain('<caption class="sr-only">Onaylı teslimler</caption>');
+    expect(html).toContain('<caption class="sr-only">Görüşme sonuçları</caption>');
   });
 
   it('loads the own report independently with the default range', async () => {

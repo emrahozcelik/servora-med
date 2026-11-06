@@ -119,6 +119,31 @@ Firma profili mevcut admin/auth kapsamı içinde; küçük kullanıcı tercihler
 - Firma ayarı audit'i gerekirse JobCard activity tablosuna yazılmaz; ayrı bir audit tasarımı gerektirir.
 - Bildirim tercihleri bildirim sistemi, logo yükleme ise dosya yönetimi kapsamı oluşmadan eklenmez.
 
+## UI-003: Default rendered UI evidence workflow
+
+- **Date:** 2026-11-05
+- **Status:** Accepted by the product owner
+- **Scope:** UI design, visual reviews and visual implementation by all contributors
+
+### Decision
+
+Use local Playwright + headless Chromium with deterministic synthetic data and
+the actual React components as the default visual inspection method. Render
+the real CSS, tokens, Ant provider and relevant shell/router context. Computer
+Use is not the default; an explicit user request or a documented environment
+limitation may justify another method.
+
+The execution and evidence contract is
+[docs/ui/visual-review-workflow.md](docs/ui/visual-review-workflow.md). It covers
+fixture consistency, role/state coverage, responsive captures, reproducibility,
+and bounded verification. Screenshots and mocked API responses establish rendered
+UI behavior only; they do not establish backend correctness, production behavior,
+physical-device behavior or complete accessibility acceptance.
+
+This adds a review method to UI-001 without replacing its design direction,
+skill precedence or accessibility requirements. It authorizes no new UI framework,
+domain policy, blanket redesign or implementation of audit recommendations.
+
 ## DOM-001: Delivery purpose without financial tracking
 
 - **Date:** 2026-07-10
@@ -394,8 +419,13 @@ ID behavior were verified in Slice 07. Notes do not increment JobCard version.
 ## DOM-006: Operational reports use approved work and canonical event time
 
 - **Date:** 2026-07-14
-- **Status:** Accepted
+- **Status:** Accepted; universal personal-result attribution partially superseded
+  by REPORT-001 (2026-11-04, product contract accepted; implementation pending).
 - **Scope:** Slice 08 Staff Profile and Operational Reports
+
+The original decision below is retained. REPORT-001 replaces current-assignee
+attribution for the new approved personal-activity/commercial-result metrics.
+Current workload and existing delivery-report contracts remain unchanged.
 
 ### Context
 
@@ -2331,3 +2361,60 @@ seal failure and retire the failed attempt owner while the exact healthy OLD,
 pointer/environment and existing on-failure policy remain unchanged. It cannot
 undo a cutover or authorize any service operation. This also covers predeploy
 backup failure without stranding the protected OLD behind an active owner.
+
+## REPORT-001 — Verified activity performer and optional lateness context
+
+- **Date:** 2026-11-04
+- **Status:** Accepted product contract; implementation and runtime verification
+  pending. Current task is documentation-only.
+- **Owner:** [Reporting contract](docs/features/reporting/README.md).
+- **Supersedes:** DOM-006's universal current-assignee ownership rule only for
+  new approved personal-activity/commercial-result metrics and their meeting
+  outcome breakdowns. Its current-workload and existing delivery-report rules
+  remain, as do timezone, quantity and non-financial boundaries. Older universal
+  attribution wording in the architecture/API baseline and Slice 08 spec is
+  subject to this explicit amendment; historical acceptance is not rewritten.
+
+### Decision
+
+1. Reports distinguish a completed customer visit, a customer visit with a
+   linked approved Sale, and an independently planned sales meeting with a
+   linked approved Sale. A sales meeting needs no prior customer visit. No sale
+   yet is not automatically a failed activity; POSITIVE and delivery purpose
+   SALE are not Sale agreements.
+2. Personal activity/result attribution uses an explicitly recorded performer
+   bound to the approved submission, not the current assignee, button-press
+   actor or approver. Normal Staff submission fills this identity automatically.
+   Management explicitly records the performer or unknown. Existing work
+   approval verifies the work and performer together; no performance-approval
+   stage is added. Unknown performer does not block otherwise valid work.
+3. Revisions preserve prior claims; only the approved submission yields the
+   completed result. Reasoned attribution corrections are append-only, visible
+   to affected Staff and do not reopen/edit the approved work. Current
+   assignment and historical breach accountability keep their own meanings.
+4. A Sale has its own verified performer. SALE-001's inherited source assignee
+   remains operational ownership, not sale credit. Prior activities show their
+   own contribution; company totals count each valid approved Sale once.
+   INVALIDATED results are excluded and missing historical attribution is not
+   guessed. Existing delivery reports and MOD-001 future Warehouse boundaries
+   remain unchanged; no delivery, stock or monetary conversion is introduced.
+5. Recorded lateness may receive optional Staff explanations and visible
+   management notes, including optional requests for information. No mandatory
+   response, excuse acceptance/rejection, explanation deadline, reminder loop,
+   penalty or missing-explanation obligation queue is created. Proven historical
+   incidents may receive voluntary context without retroactive expectations.
+   APPROVAL_WAIT is management delay. Notes never change the incident facts.
+6. Distinct delayed-job and incident counts are separate. Comparable median and
+   maximum durations may be shown; total/summed lateness duration is excluded
+   from V1. No combined performance score, ranking or arbitrary sales-conversion
+   time threshold is introduced.
+
+### Implementation boundary
+
+The owner contract defines the accepted product behavior and future acceptance
+cases. Existing `staff_completed_by` and accountability facts are not performer
+declarations. No source code, migration, endpoint, access rule, data backfill or
+deployment changes are authorized by this documentation task. A subsequent
+implementation slice must capture and approve the new evidence before reports
+claim to measure the verified performer. Reports remains read-only; new writes
+stay under JobCard ownership and the existing security/audit/transaction rules.

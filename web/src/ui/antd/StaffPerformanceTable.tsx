@@ -1,3 +1,4 @@
+import './staff-performance.css';
 import { Table, Tag, Tooltip, type TableColumnsType } from 'antd';
 import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -86,7 +87,11 @@ function SortTitle({
       aria-label={`${label} sütununu sırala${definition ? `. ${definition}` : ''}`}
     >
       <span>{label}</span>
-      <span aria-hidden="true">{active ? (direction === 'ascend' ? '↑' : '↓') : '↕'}</span>
+      <svg width="14" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M12 4v16" />
+        {(!active || direction === 'ascend') && <path d="m7 9 5-5 5 5" />}
+        {(!active || direction === 'descend') && <path d="m7 15 5 5 5-5" />}
+      </svg>
     </button>
   );
   if (!definition) return button;
@@ -147,8 +152,8 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
           <div><dt>Eklenen operasyon notları</dt><dd>{record.authoredOperationalNotes}</dd></div>
         </dl>
         <p className="staff-performance-context-note">
-          Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
-          işleri gösterir. Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+          Tamamlananlar, bu personelin gönderim kaydına bağlı ve seçilen dönemde yönetici tarafından onaylanmış
+          işlerdir. Bu kayıt, işi fiilen gerçekleştiren kişinin ayrıca doğrulandığı anlamına gelmez. Onaya gönderme sayısı seçilen dönemdeki gönderim kayıtlarını gösterir.
           Tekrar gönderimlerin olay geçmişini saymaz.
         </p>
       </section>
@@ -157,26 +162,26 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
         <WorkTypeList items={record.completionWorkTypes} emptyCopy="Bu dönemde tamamlanan iş yok." />
       </section>
       <Link className="staff-performance-report-link" to={record.reportHref}>
-        Raporu aç <span aria-hidden="true">→</span>
+        Raporu aç <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6" /></svg>
       </Link>
     </div>
   );
 }
 
 const definitions: Partial<Record<SortKey, string>> = {
-  openJobCards: 'NEW, ACCEPTED ve IN_PROGRESS aşamalarındaki mevcut işler.',
-  completedJobs: 'Seçilen dönemde yönetici tarafından onaylanan ve hâlen bu personele atanmış işler.',
+  openJobCards: 'Hazırlanan, atanan ve uygulanan mevcut işler; onay ve düzeltme kuyrukları ayrıdır.',
+  completedJobs: 'Bu personelin gönderim kaydına bağlı, seçilen dönemde yönetici tarafından onaylanan işler.',
   recordedSubmissionCount:
     'Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir; tekrar gönderimlerin olay geçmişini saymaz.',
 };
 
 const labels: Record<SortKey, string> = {
   name: 'Personel',
-  openJobCards: 'Aksiyon alınabilir',
+  openJobCards: 'Açık işler',
   waitingApproval: 'Onay bekliyor',
   revisionRequested: 'Düzeltme bekliyor',
-  overdueJobCards: 'Gecikmiş',
-  completedJobs: 'Yönetici onaylı tamamlananlar',
+  overdueJobCards: 'Geciken',
+  completedJobs: 'Tamamlanan',
   recordedSubmissionCount: 'Onaya gönderme kaydı',
 };
 
@@ -264,7 +269,7 @@ function MobileRecord({ record }: { record: StaffPerformanceTableRecord }) {
         </dl>
       </section>
       <details>
-        <summary>Ayrıntıları göster</summary>
+        <summary>Ayrıntıları göster <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
         <StaffContext record={record} />
       </details>
     </li>
@@ -276,29 +281,16 @@ function buildColumns(
   onSort: (key: SortKey) => void,
 ): TableColumnsType<StaffPerformanceTableRecord> {
   return [
-    {
-      title: 'PERSONEL',
-      key: 'person',
-      children: [sortableColumn('name', sort, onSort)],
+    { ...sortableColumn('name', sort, onSort), width: '26%' },
+    { ...sortableColumn('completedJobs', sort, onSort), width: '24%' },
+    sortableColumn('openJobCards', sort, onSort),
+    { ...sortableColumn('waitingApproval', sort, onSort),
+      render: (_value: unknown, record: StaffPerformanceTableRecord) => <span className="staff-performance-queue">
+        <strong>{record.currentWorkload.waitingApproval}</strong>
+        <small>{record.currentWorkload.revisionRequested} düzeltme bekliyor</small>
+      </span>,
     },
-    {
-      title: 'ŞU AN',
-      key: 'current',
-      children: [
-        sortableColumn('openJobCards', sort, onSort),
-        sortableColumn('waitingApproval', sort, onSort),
-        sortableColumn('revisionRequested', sort, onSort),
-        sortableColumn('overdueJobCards', sort, onSort),
-      ],
-    },
-    {
-      title: 'SEÇİLEN DÖNEM',
-      key: 'period',
-      children: [
-        sortableColumn('completedJobs', sort, onSort),
-        sortableColumn('recordedSubmissionCount', sort, onSort),
-      ],
-    },
+    sortableColumn('overdueJobCards', sort, onSort),
   ];
 }
 
@@ -335,7 +327,8 @@ export function StaffPerformanceTable({
           expandable={{
             columnTitle: <span className="visually-hidden">Ayrıntı</span>,
             expandedRowRender: (record) => <StaffContext record={record} />,
-            expandRowByClick: true,
+            expandRowByClick: false,
+            columnWidth: '6.25rem',
             expandIcon: ({ expanded, onExpand, record }) => (
               <button
                 type="button"
@@ -347,7 +340,7 @@ export function StaffPerformanceTable({
                   onExpand(record, event);
                 }}
               >
-                <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+                <span>Ayrıntı</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={expanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} /></svg>
               </button>
             ),
           }}
@@ -356,6 +349,18 @@ export function StaffPerformanceTable({
         />
       </div>
       <div data-staff-performance-mobile="true" className="staff-performance-mobile">
+        <div className="staff-performance-mobile-sort">
+          <label>Sırala
+            <select value={sort.key} onChange={(event) => setSort({ key: event.target.value as SortKey, direction: 'ascend' })}>
+              {(Object.keys(labels) as SortKey[]).map((key) => <option key={key} value={key}>{labels[key]}</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary-button" onClick={() => setSort((current) => ({ ...current, direction: current.direction === 'ascend' ? 'descend' : 'ascend' }))}
+            aria-label={`Sıralama yönü: ${sort.direction === 'ascend' ? 'artan' : 'azalan'}. Yönü değiştir.`}>
+            {sort.direction === 'ascend' ? 'Artan' : 'Azalan'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={sort.direction === 'ascend' ? 'M12 20V4m-6 6 6-6 6 6' : 'M12 4v16m-6-6 6 6 6-6'} /></svg>
+          </button>
+        </div>
         <ul aria-label="Personel operasyon kayıtları">
           {sortedRecords.map((record) => <MobileRecord key={record.key} record={record} />)}
         </ul>

@@ -115,9 +115,9 @@ describe('StaffPerformanceReport', () => {
       to: '2026-07-31',
     });
     expect(container.querySelector('h1')?.textContent).toBe('Personel Operasyon Analizi');
-    expect(container.textContent).toContain('Personel operasyon analizi — 1 Temmuz 2026 – 31 Temmuz 2026');
+    expect(container.textContent).toContain('Ekip görünümü — 1 Temmuz 2026 – 31 Temmuz 2026');
     for (const label of [
-      'Personel', 'ŞU AN', 'SEÇİLEN DÖNEM', 'Aksiyon alınabilir',
+      'Personel', 'Şu an', 'Seçilen dönem', 'Açık işler',
       'Onay bekliyor', 'Düzeltme bekliyor', 'Gecikmiş',
       'Yönetici onaylı tamamlananlar', 'Onaya gönderme kaydı',
       'Mevcut iş yükünün tür dağılımı', 'Tamamlanan işlerin türleri',
@@ -140,6 +140,14 @@ describe('StaffPerformanceReport', () => {
 
     const headers = Array.from(container.querySelectorAll('thead th'))
       .map((header) => header.textContent);
+    expect(headers).toContain('Tamamlanan');
+    expect(headers).not.toContain('Onaya gönderme kaydı');
+    const expand = container.querySelector<HTMLButtonElement>('.staff-performance-expand')!;
+    expect(expand.textContent).toBe('Ayrıntı');
+    expect(expand.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => expand.click());
+    expect(expand.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('fiilen gerçekleştiren');
     expect(headers).not.toContain('İş / gün');
     expect(headers).not.toContain('Tamamlama günü');
     expect(headers).not.toContain('Düzeltme isteği');

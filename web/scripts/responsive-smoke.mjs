@@ -1432,6 +1432,7 @@ try {
       }
     }
     if (!m.staffPerformancePresent || m.staffPerformanceOverflow
+      || m.staffPerformanceDesktopVisible === m.staffPerformanceMobileVisible
       || !m.staffPerformanceCurrentLabel) {
       failures.push(`${vp.name}: Staff Performance responsive contract failure`);
     }
@@ -1469,9 +1470,8 @@ try {
       if (m.staffTables.some((table) => !table.desktopVisible || table.mobileVisible)) {
         failures.push(`${vp.name}: Staff must use desktop tables above 720px`);
       }
-      if (!m.staffPerformanceDesktopVisible || m.staffPerformanceMobileVisible) {
-        failures.push(`${vp.name}: Staff Performance must use desktop table above 720px`);
-      }
+      // Staff comparison selects one layout by usable container width. Its
+      // header legibility and controls are checked in reports-ui-smoke.mjs.
     }
     if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
       failures.push(`${vp.name}: RecordDescriptions must use the full summary width`);

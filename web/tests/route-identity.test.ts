@@ -35,6 +35,12 @@ describe('route identity registry', () => {
     }
   });
 
+  it('names each primary job creation route by the work being planned', () => {
+    expect(matchRouteIdentity(paths.newMeeting)?.identity.title).toBe('Görüşme / ziyaret planla');
+    expect(matchRouteIdentity(paths.newTask)?.identity.title).toBe('Yeni genel görev');
+    expect(matchRouteIdentity(paths.newDelivery)?.identity.title).toBe('Yeni ürün teslimi');
+  });
+
   it('gives distinct static settings and report routes distinct identities', () => {
     const ids = [
       '/settings/profile', '/settings/security',

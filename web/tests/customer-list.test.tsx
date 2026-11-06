@@ -98,6 +98,7 @@ describe('Customer list and creation', () => {
     expect(staffHtml).not.toContain('müşterisini sil');
     const managerHtml = list({ kind: 'ready', customers: [customer] }, manager);
     expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini düzenle"');
+    expect(managerHtml).toContain('href="/customers/customer-1?edit=1"');
     expect(managerHtml).toContain('Düzenle');
     expect(managerHtml).not.toContain('müşterisini sil');
     expect(list({ kind: 'ready', customers: [customer] }, admin)).not.toContain('müşterisini sil');

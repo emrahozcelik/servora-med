@@ -24,6 +24,7 @@ import { listStaff, type StaffProfile } from './services/people-api';
 import { CustomerSearchSelect } from './jobs/CustomerSearchSelect';
 import { CustomerCreateSideFlow } from './CustomerCreateSideFlow';
 import { PageHeader } from './ui/PageHeader';
+import './jobs/job-create.css';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type FieldErrors = {
@@ -156,12 +157,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
 
   const referencesUnavailable = !customerReady
     || (user.role !== 'STAFF' && staffState !== 'ready');
-  return <main className="task-create meeting-create">
-    <PageHeader eyebrow="Yeni kayıt" description="Görüşme / ziyaret planla" fallbackTitle="Yeni iş" />
-    <p className="form-intro">
-      Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
-      Görüşme veya ziyaret sonucu daha sonra kaydedilir.
-    </p>
+  return <main className="task-create meeting-create job-create">
+    <PageHeader eyebrow="" fallbackTitle="Görüşme / ziyaret planla"
+      description="Müşteriyi ve ziyaret amacını belirleyin. Görüşme sonucu daha sonra kaydedilir." />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
       {calendarConflicts.map((conflict) => (
         <p key={String(conflict.id)}>
@@ -169,11 +167,22 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         </p>
       ))}
     </div>}
-    <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
-      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
-        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
-          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
-        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
+    <form className="task-form job-create-form" onSubmit={submit} noValidate><fieldset disabled={pending || ambiguous}>
+      <section className="job-create-section" aria-labelledby="meeting-info-heading">
+        <h2 id="meeting-info-heading">Müşteri ve amaç</h2>
+        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
+          <CustomerSearchSelect
+            id="meeting-customer"
+            value={customerId}
+            onChange={setCustomerId}
+            pinnedCustomer={pinnedCustomer}
+            onReadyChange={setCustomerReady}
+            clearValueWhenMissing
+            allowClear
+            invalid={fieldErrors.customerId ? true : undefined}
+            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
+          />
+          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
       <div className="field-group">
         <label htmlFor="meeting-engagement-kind">Görüşme / ziyaret türü</label>
         <select
@@ -190,42 +199,20 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           ))}
         </select>
         <p id="meeting-engagement-kind-help" className="form-help">
-          Görüşmenin veya ziyaretin ana amacını seçin. Bu bilgi liste ve raporlarda gösterilir.
+          Liste ve raporlarda gösterilecek ana amacı seçin.
         </p>
         {fieldErrors.engagementKind && (
           <span id="meeting-engagement-kind-error" className="field-error">{fieldErrors.engagementKind}</span>
         )}
       </div>
-      <div className="task-field-pair">
-        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><button ref={customerCreateTriggerRef} className="inline-action" type="button" onClick={() => setCustomerCreateOpen(true)}>Yeni müşteri ekle</button></div>
-          <CustomerSearchSelect
-            id="meeting-customer"
-            value={customerId}
-            onChange={setCustomerId}
-            pinnedCustomer={pinnedCustomer}
-            onReadyChange={setCustomerReady}
-            clearValueWhenMissing
-            allowClear
-            invalid={fieldErrors.customerId ? true : undefined}
-            describedBy={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
-          />
-          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
-        <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
-          <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
-            aria-invalid={fieldErrors.scheduledAt ? true : undefined}
-            aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
-            onChange={(event) => setScheduledLocal(event.target.value)} />
-          {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
-      </div>
-      <CustomerScheduleNotice
-        evaluation={evaluation}
-        mode={user.role === 'STAFF' ? 'staff' : 'manager'}
-      />
-      {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
-      <AvailableSlotsNotice
-        {...availableSlotSearch}
-        onSelect={useAvailableSlot}
-      />
+      <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
+        <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
+          aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
+        {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
+      </section>
+      <section className="job-create-section" aria-labelledby="meeting-plan-heading">
+        <h2 id="meeting-plan-heading">Planlama</h2>
+        <div className="job-create-pair">
       {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
         : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
           <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
@@ -236,12 +223,32 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
           {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
           {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
+        <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
+          <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
+            aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+            aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
+            onChange={(event) => setScheduledLocal(event.target.value)} />
+          {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
+        </div>
+      <CustomerScheduleNotice
+        evaluation={evaluation}
+        mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+      />
+      {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+      <AvailableSlotsNotice
+        {...availableSlotSearch}
+        onSelect={useAvailableSlot}
+      />
+      </section>
+      <section className="job-create-section" aria-labelledby="meeting-extra-heading">
+        <h2 id="meeting-extra-heading">Ek bilgiler</h2>
       <div className="field-group"><label htmlFor="meeting-description">Açıklama (isteğe bağlı)</label>
-        <textarea id="meeting-description" rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+        <textarea id="meeting-description" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
       <div className="field-group"><label htmlFor="meeting-priority">Öncelik</label>
         <select id="meeting-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
           <option value="low">Düşük</option><option value="normal">Normal</option>
           <option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
+      </section>
     </fieldset><div className="form-actions">
       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending || ambiguous}>Vazgeç</button>
       {ambiguous && <button data-original-retry className="secondary-button" type="button" disabled={pending}

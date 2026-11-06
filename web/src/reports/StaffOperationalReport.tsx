@@ -141,6 +141,7 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
   return (
     <OperationalTable
       caption="Onaylı teslimler"
+      hideVisibleCaption
       columns={DELIVERY_PURPOSE_COLUMNS}
       rows={deliveryPurposeRows(items)}
       rowHeaderKey="purpose"
@@ -155,6 +156,7 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
     {total === 0 && <p className="report-empty-copy">Bu dönemde onaylı satış görüşmesi bulunmuyor.</p>}
     <OperationalTable
       caption="Görüşme sonuçları"
+      hideVisibleCaption
       columns={MEETING_OUTCOME_COLUMNS}
       rows={meetingOutcomeRows(items)}
       rowHeaderKey="outcome"
@@ -162,7 +164,7 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
   </section>;
 }
 
-export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
+export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = true }: { report: StaffReportResponse; showCurrentWorkloadMetrics?: boolean }) {
   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
   const submission = report.staffSubmissionAttribution;
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
@@ -177,15 +179,16 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
     <section className="staff-analysis-group staff-analysis-snapshot" aria-labelledby="staff-current-title">
       <h3 id="staff-current-title">Şu an — mevcut operasyon yükü</h3>
       <p className="report-section-hint">
-        Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını;
-        diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.
+        {showCurrentWorkloadMetrics
+          ? 'Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını; diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.'
+          : 'Güncel sayaçlar sayfanın üstündeki Operasyon özeti bölümündedir. Buradaki tür dağılımı seçilen dönemden bağımsızdır.'}
       </p>
-      <dl className="staff-analysis-metrics staff-current-workload-grid">
+      {showCurrentWorkloadMetrics && <dl className="staff-analysis-metrics staff-current-workload-grid">
         <div><dt>Aksiyon alınabilir</dt><dd>{report.currentWorkload.openJobCards}</dd></div>
         <div><dt>Gecikmiş</dt><dd>{report.currentWorkload.overdueJobCards}</dd></div>
         <div><dt>Onay bekliyor</dt><dd>{report.currentWorkload.waitingApproval}</dd></div>
         <div><dt>Düzeltme bekliyor</dt><dd>{report.currentWorkload.revisionRequested}</dd></div>
-      </dl>
+      </dl>}
       <WorkTypeDistribution
         headingId="current-workload-types-title"
         title="Mevcut iş yükünün tür dağılımı"
@@ -203,15 +206,22 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
         <div><dt>Eklenen operasyon notları</dt><dd>{report.performance.authoredOperationalNotes}</dd></div>
       </dl>
       <p className="report-section-hint">
-        Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
-        işleri kapsar. Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
-        Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
-        {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
+        Tamamlananlar, seçilen dönemde yönetici tarafından onaylanan ve onaya gönderme kaydı bu personele ait işleri kapsar.
       </p>
+      <details className="report-data-disclosure staff-report-method">
+        <summary>Nasıl hesaplanır?</summary>
+        <p className="report-section-hint">
+          Atıf tarihsel onaya gönderme kaydına dayanır; güncel görev atamasına göre değişmez.
+          Çalışmayı fiilen yapan kişinin ayrıca doğrulandığı anlamına gelmez.
+          Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+          Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
+          {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
+        </p>
+      </details>
       <WorkTypeDistribution
         headingId="completion-work-types-title"
         title="Tamamlanan işlerin türleri"
-        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, mevcut atama ve iş türüne göre ayrılır."
+        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, tarihsel onaya gönderme atfı ve iş türüne göre ayrılır."
         items={report.completionWorkTypes}
       />
       <section className="staff-detail-section staff-completion-trend" aria-labelledby="daily-completion-title">
@@ -250,10 +260,12 @@ export function StaffOperationalReportScreen({
   staffUserId,
   embedded = false,
   requestedRange = null,
+  showCurrentWorkloadMetrics = true,
 }: {
   staffUserId?: string;
   embedded?: boolean;
   requestedRange?: RequestedReportRange;
+  showCurrentWorkloadMetrics?: boolean;
 }) {
   const [report, setReport] = useState<StaffReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -302,7 +314,7 @@ export function StaffOperationalReportScreen({
         <h1>{report.staff.name}</h1>
         <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
       </header>}
-      <StaffOperationalReport report={report} />
+      <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} />
     </>}
   </>;
 

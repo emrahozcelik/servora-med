@@ -43,8 +43,8 @@ describe('Customer detail phone editing', () => {
   async function render(record: CustomerDetail) {
     const saves: FormData[] = [];
     await act(async () => root.render(<MemoryRouter><CustomerDetailView
-      customer={record} user={manager} staff={[]} pending={false} error="" notice=""
-      onBack={() => {}} onSave={(event) => { event.preventDefault(); saves.push(new FormData(event.currentTarget)); }}
+      customer={record} user={manager} staff={[]} pending={false} error="" notice="" editOpen
+      onSave={(event) => { event.preventDefault(); saves.push(new FormData(event.currentTarget)); }}
       onCreateContact={() => {}} historyStatus="all" historyPage={{ items: [], total: 0, limit: 20, offset: 0 }}
       historyLoading={false} historyError="" onHistoryStatusChange={() => {}} onHistoryPageChange={() => {}} /></MemoryRouter>));
     return saves;

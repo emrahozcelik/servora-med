@@ -25,6 +25,7 @@ vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
   getCustomerReport: vi.fn(),
   getDashboardReport: vi.fn(),
+  getBusinessTrendReport: vi.fn(() => new Promise(() => {})),
   getDeliveryReport: vi.fn(),
 }));
 

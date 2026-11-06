@@ -906,6 +906,7 @@ Completed and cancelled records are represented only by filtered counts in the b
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
 | GET | `/dashboard` | admin, manager | organization operational counters |
+| GET | `/business-trend` | admin, manager | daily approved visits, linked follow-up visits and sale agreements; equal observed-period comparison and explicit relationship counts |
 | GET | `/staff/me` | staff | own operational summary |
 | GET | `/staff/:userId` | admin, manager | organization Staff operational summary |
 | GET | `/deliveries` | admin, manager | quantity by date, product, staff, and purpose |
@@ -941,6 +942,23 @@ Approval elapsed time is clamped with `GREATEST(requestTime - staff_completed_at
 Approval `items` use the canonical `JobCardListItem` projection plus a non-negative integer `waitingMinutes` containing completed whole minutes.
 
 The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibility contract is defined in `docs/superpowers/specs/2026-07-14-operational-reports-design.md`.
+
+### Business trend extension (2026-11-04)
+
+`GET /business-trend` accepts the same paired `from`/`to` range (at most 366
+calendar dates) and the existing scalar `includeSaleCapability=true` opt-in.
+Without that opt-in, sale totals and sale relationships are zero. It never
+accepts a client-selected organization or staff identity.
+
+The response has `range`, `asOf`, nullable `observedThrough`, `partialDay`,
+`totals: { visits, followUps, sales }`, daily `points` with those counts plus
+`date`, nullable `comparison: { range, totals }`, and
+`relationships: { visitsWithFollowUp, visitsWithSale, followUpsWithSale }`.
+Counts are non-negative integers; `followUps` is a subset of `visits`.
+All facts come from one read statement. Calendar bounds, partial-day comparison,
+actual event timestamps and distinct relationship scope are specified in the
+[overview UI/read contract](docs/features/reporting/reports-overview-ui.md).
+This endpoint does not implement verified personal performer attribution.
 
 ## 17. Health `/api/health`
 

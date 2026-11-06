@@ -33,7 +33,7 @@ describe('NewJobMenu', () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls=');
     expect(html).not.toContain('aria-haspopup');
-    expect(html).not.toContain('Yeni görüşme');
+    expect(html).not.toContain('Görüşme / ziyaret planla');
     expect(html).not.toContain('Yeni görev');
     expect(html).not.toContain('Yeni teslim');
   });
@@ -57,10 +57,10 @@ describe('NewJobMenu', () => {
     const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
     expect(trigger).toBeTruthy();
     act(() => { trigger.click(); });
-    expect(host.textContent).toContain('Yeni görüşme');
+    expect(host.textContent).toContain('Görüşme / ziyaret planla');
     expect(host.textContent).toContain('Yeni görev');
     expect(host.textContent).toContain('Yeni teslim');
-    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Yeni görüşme');
+    const meeting = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Görüşme / ziyaret planla');
     act(() => { meeting?.click(); });
     expect(onCreateMeeting).toHaveBeenCalledTimes(1);
     expect(onCreateTask).not.toHaveBeenCalled();

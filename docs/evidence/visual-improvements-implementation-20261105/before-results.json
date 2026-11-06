@@ -1,0 +1,1054 @@
+{
+  "phase": "before",
+  "browser": "140.0.7339.186",
+  "playwright": "1.55.1",
+  "fixedTime": "2026-11-05T06:00:00.000Z",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "captures": [
+    {
+      "file": "staff-profile-staff-1440-baseline",
+      "name": "staff-profile",
+      "role": "STAFF",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Ayşe Örnek · Dünya Dental",
+      "height": 3724,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 176
+        },
+        {
+          "text": "Operasyon özeti",
+          "y": 439
+        },
+        {
+          "text": "Personel Operasyon Analizi",
+          "y": 893
+        },
+        {
+          "text": "Şu an — mevcut operasyon yükü",
+          "y": 1019
+        },
+        {
+          "text": "Seçilen dönem — yönetici onaylı sonuçlar",
+          "y": 1464
+        },
+        {
+          "text": "Operasyon bağlamı",
+          "y": 2239
+        },
+        {
+          "text": "Onaylı teslim bulunmuyor",
+          "y": 2464
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 2981
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 3526
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff/me",
+        "GET /api/reports/staff/me",
+        "GET /api/staff/me/jobs",
+        "GET /api/staff/me/weekly-reports"
+      ]
+    },
+    {
+      "file": "staff-profile-staff-390-baseline",
+      "name": "staff-profile",
+      "role": "STAFF",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Ayşe Örnek · Dünya Dental",
+      "height": 5614,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 140
+        },
+        {
+          "text": "Operasyon özeti",
+          "y": 568
+        },
+        {
+          "text": "Personel Operasyon Analizi",
+          "y": 1243
+        },
+        {
+          "text": "Şu an — mevcut operasyon yükü",
+          "y": 1417
+        },
+        {
+          "text": "Seçilen dönem — yönetici onaylı sonuçlar",
+          "y": 2234
+        },
+        {
+          "text": "Operasyon bağlamı",
+          "y": 3433
+        },
+        {
+          "text": "Onaylı teslim bulunmuyor",
+          "y": 3679
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 4491
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 5235
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff/me",
+        "GET /api/reports/staff/me",
+        "GET /api/staff/me/jobs",
+        "GET /api/staff/me/weekly-reports"
+      ]
+    },
+    {
+      "file": "customer-detail-admin-1440-baseline",
+      "name": "customer-detail",
+      "role": "ADMIN",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 2535,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 167
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 311
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1249
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 1345
+        },
+        {
+          "text": "Kalıcı silme",
+          "y": 1467
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1591
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1982
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customer-detail-admin-390-baseline",
+      "name": "customer-detail",
+      "role": "ADMIN",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 3305,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 178
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 289
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1474
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 1580
+        },
+        {
+          "text": "Kalıcı silme",
+          "y": 1703
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1851
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 2447
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customer-detail-manager-1440-baseline",
+      "name": "customer-detail",
+      "role": "MANAGER",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 2411,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 167
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 311
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1249
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 1345
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1467
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1858
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customer-detail-manager-390-baseline",
+      "name": "customer-detail",
+      "role": "MANAGER",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 3157,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 178
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 289
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 1474
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 1580
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1703
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 2299
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/staff",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customer-detail-staff-1440-baseline",
+      "name": "customer-detail",
+      "role": "STAFF",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 1959,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 167
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 311
+        },
+        {
+          "text": "İletişim bilgilerini tamamla",
+          "y": 655
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 797
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 893
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1015
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1407
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/enrichment",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customer-detail-staff-390-baseline",
+      "name": "customer-detail",
+      "role": "STAFF",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Merkez Ağız ve Diş Sağlığı Kliniği · Dünya Dental",
+      "height": 2638,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 178
+        },
+        {
+          "text": "Genel bilgiler",
+          "y": 289
+        },
+        {
+          "text": "İletişim bilgilerini tamamla",
+          "y": 824
+        },
+        {
+          "text": "İlgili kişiler",
+          "y": 955
+        },
+        {
+          "text": "Dr. Ece Örnek",
+          "y": 1061
+        },
+        {
+          "text": "Operasyonel özet",
+          "y": 1184
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1780
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/enrichment",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/jobs",
+        "GET /api/customers/33333333-3333-4333-8333-333333333333/operational-summary"
+      ]
+    },
+    {
+      "file": "customers-manager-1440-baseline",
+      "name": "customers",
+      "role": "MANAGER",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Müşteriler · Dünya Dental",
+      "height": 960,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Müşteriler",
+          "y": 151
+        },
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 453
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [
+        {
+          "text": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        }
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ]
+    },
+    {
+      "file": "customers-manager-390-baseline",
+      "name": "customers",
+      "role": "MANAGER",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Müşteriler · Dünya Dental",
+      "height": 844,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Müşteriler",
+          "y": 184
+        },
+        {
+          "text": "Merkez Ağız ve Diş Sağlığı Kliniği",
+          "y": 391
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [
+        {
+          "text": "Düzenle",
+          "width": 350,
+          "height": 47.75
+        }
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/customers",
+        "GET /api/staff"
+      ]
+    },
+    {
+      "file": "products-admin-1440-baseline",
+      "name": "products",
+      "role": "ADMIN",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Ürünler · Dünya Dental",
+      "height": 960,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ürünler",
+          "y": 152
+        },
+        {
+          "text": "ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 401
+        },
+        {
+          "text": "Steril Cerrahi Örtü Seti",
+          "y": 513
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [
+        {
+          "text": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "text": "Sil",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "text": "Düzenle",
+          "width": 112,
+          "height": 47.75
+        },
+        {
+          "text": "Sil",
+          "width": 112,
+          "height": 47.75
+        }
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/products"
+      ]
+    },
+    {
+      "file": "products-admin-390-baseline",
+      "name": "products",
+      "role": "ADMIN",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Ürünler · Dünya Dental",
+      "height": 1122,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ürünler",
+          "y": 184
+        },
+        {
+          "text": "ProSeal Kollajen Membran 20 × 30 mm",
+          "y": 399
+        },
+        {
+          "text": "Steril Cerrahi Örtü Seti",
+          "y": 689
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [
+        {
+          "text": "Düzenle",
+          "width": 350,
+          "height": 47.75
+        },
+        {
+          "text": "Sil",
+          "width": 350,
+          "height": 47.75
+        },
+        {
+          "text": "Düzenle",
+          "width": 350,
+          "height": 47.75
+        },
+        {
+          "text": "Sil",
+          "width": 350,
+          "height": 47.75
+        }
+      ],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/products"
+      ]
+    },
+    {
+      "file": "customer-create-admin-1440-baseline",
+      "name": "customer-create",
+      "role": "ADMIN",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Yeni müşteri · Dünya Dental",
+      "height": 1347,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Yeni müşteri",
+          "y": 200
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff"
+      ]
+    },
+    {
+      "file": "customer-create-admin-390-baseline",
+      "name": "customer-create",
+      "role": "ADMIN",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Yeni müşteri · Dünya Dental",
+      "height": 1750,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Yeni müşteri",
+          "y": 213
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff"
+      ]
+    },
+    {
+      "file": "product-create-admin-1440-baseline",
+      "name": "product-create",
+      "role": "ADMIN",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Yeni ürün · Dünya Dental",
+      "height": 960,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Yeni ürün",
+          "y": 200
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "product-create-admin-390-baseline",
+      "name": "product-create",
+      "role": "ADMIN",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Yeni ürün · Dünya Dental",
+      "height": 1365,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Yeni ürün",
+          "y": 213
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "staff-edit-manager-1440-baseline",
+      "name": "staff-edit",
+      "role": "MANAGER",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "Ayşe Örnek · Dünya Dental",
+      "height": 2208,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 189
+        },
+        {
+          "text": "Gizli yönetim notları",
+          "y": 778
+        },
+        {
+          "text": "Not bulunmuyor",
+          "y": 1295
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1448
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 1993
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/confidential-notes",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/jobs",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/weekly-reports"
+      ]
+    },
+    {
+      "file": "staff-edit-manager-390-baseline",
+      "name": "staff-edit",
+      "role": "MANAGER",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "Ayşe Örnek · Dünya Dental",
+      "height": 2671,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "Ayşe Örnek",
+          "y": 242
+        },
+        {
+          "text": "Gizli yönetim notları",
+          "y": 853
+        },
+        {
+          "text": "Not bulunmuyor",
+          "y": 1391
+        },
+        {
+          "text": "İş geçmişi",
+          "y": 1543
+        },
+        {
+          "text": "Haftalık Raporlar",
+          "y": 2287
+        }
+      ],
+      "alerts": [],
+      "commands": [],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/web-push/status",
+        "GET /api/staff",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/confidential-notes",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/jobs",
+        "GET /api/staff/11111111-1111-4111-8111-111111111111/weekly-reports"
+      ]
+    },
+    {
+      "file": "jobs-staff-1440-baseline",
+      "name": "jobs",
+      "role": "STAFF",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "İşlerim · Dünya Dental",
+      "height": 1626,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşlerim",
+          "y": 186
+        },
+        {
+          "text": "Müşteri ihtiyaç görüşmesi",
+          "y": 525
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 796
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 1067
+        },
+        {
+          "text": "Ürün teklifini değerlendirmek için takip",
+          "y": 1290
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "İşi başlatmak için aç",
+          "height": 47.75
+        },
+        {
+          "text": "Kontrole göndermek için aç",
+          "height": 47.75
+        },
+        {
+          "text": "Düzeltmeye başlamak için aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "jobs-staff-390-baseline",
+      "name": "jobs",
+      "role": "STAFF",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "İşlerim · Dünya Dental",
+      "height": 2169,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşlerim",
+          "y": 140
+        },
+        {
+          "text": "Müşteri ihtiyaç görüşmesi",
+          "y": 463
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 832
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 1200
+        },
+        {
+          "text": "Ürün teklifini değerlendirmek için takip",
+          "y": 1565
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "İşi başlatmak için aç",
+          "height": 47.75
+        },
+        {
+          "text": "Kontrole göndermek için aç",
+          "height": 47.75
+        },
+        {
+          "text": "Düzeltmeye başlamak için aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "jobs-manager-1440-baseline",
+      "name": "jobs",
+      "role": "MANAGER",
+      "width": 1440,
+      "scenario": "baseline",
+      "title": "İşler · Dünya Dental",
+      "height": 1531,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşler",
+          "y": 186
+        },
+        {
+          "text": "Müşteri ihtiyaç görüşmesi",
+          "y": 525
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 748
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 971
+        },
+        {
+          "text": "Ürün teklifini değerlendirmek için takip",
+          "y": 1242
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "Yönetici kontrolünü aç",
+          "height": 47.75
+        },
+        {
+          "text": "Düzeltme kararını aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    },
+    {
+      "file": "jobs-manager-390-baseline",
+      "name": "jobs",
+      "role": "MANAGER",
+      "width": 390,
+      "scenario": "baseline",
+      "title": "İşler · Dünya Dental",
+      "height": 2094,
+      "overflow": false,
+      "headings": [
+        {
+          "text": "İşler",
+          "y": 140
+        },
+        {
+          "text": "Müşteri ihtiyaç görüşmesi",
+          "y": 463
+        },
+        {
+          "text": "Klinik eğitim materyallerini hazırla",
+          "y": 770
+        },
+        {
+          "text": "Merkez Klinik ürün teslimi",
+          "y": 1078
+        },
+        {
+          "text": "Ürün teklifini değerlendirmek için takip",
+          "y": 1551
+        }
+      ],
+      "alerts": [],
+      "commands": [
+        {
+          "text": "Yönetici kontrolünü aç",
+          "height": 47.75
+        },
+        {
+          "text": "Düzeltme kararını aç",
+          "height": 47.75
+        }
+      ],
+      "rowActions": [],
+      "errors": [],
+      "unexpected": [],
+      "calls": [
+        "GET /api/notifications/unread-count",
+        "GET /api/web-push/status",
+        "GET /api/job-cards",
+        "GET /api/web-push/status"
+      ]
+    }
+  ]
+}

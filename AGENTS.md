@@ -244,6 +244,17 @@ Rules:
 * Staff and manager views may differ, but permission enforcement must remain backend-owned.
 * Avoid adding large UI frameworks unless explicitly requested.
 
+### Default visual review workflow
+
+For UI design, visual review and visual implementation, follow
+[the rendered UI evidence workflow](docs/ui/visual-review-workflow.md), accepted
+in `DECISIONS.md` UI-003. The default is local Playwright + headless Chromium
+screenshots of the real React components with deterministic synthetic data,
+the actual providers and production CSS. Use Computer Use only when explicitly
+requested or when a documented environment limitation requires an alternative;
+it is not the default. Record evidence limits and preserve UI-001's accessibility
+completion requirements.
+
 ---
 
 ## 9. Testing and Verification Rules

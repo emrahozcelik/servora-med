@@ -80,12 +80,13 @@ export function StaffJobHistory({ actor, staffUserId }: { actor: CurrentUser; st
 }
 
 export function OwnStaffProfileView({ profile, actor }: { profile: StaffProfile; actor?: CurrentUser }) {
-  return <main className="workspace">
-    <PageHeader eyebrow="Profilim" fallbackTitle={profile.user.name} />
+  return <main className="workspace own-staff-profile">
+    <PageHeader eyebrow="" fallbackTitle={profile.user.name} />
     <ProfileFacts profile={profile} /><section aria-labelledby="counter-title"><h2 id="counter-title">Operasyon özeti</h2><dl className="counter-grid">
       {(Object.keys(counterLabels) as Array<keyof typeof counterLabels>).map((key) => <div key={key}><dt>{counterLabels[key]}</dt><dd>{profile.counters[key]}</dd></div>)}</dl></section>
-    <StaffOperationalReportScreen embedded />{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
+    {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
     {actor && <StaffWeeklyReportHistory actor={actor} staffUserId={profile.user.id} />}
+    <StaffOperationalReportScreen embedded showCurrentWorkloadMetrics={false} />
   </main>;
 }
 

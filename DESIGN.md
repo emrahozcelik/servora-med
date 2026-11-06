@@ -418,6 +418,14 @@ use the owned Ant Design boundary in later implementation PRs.
   reflow without clipped meaning or horizontal task scroll, `prefers-reduced-motion`
   disables optional workflow motion, one primary action per responsibility region on mobile.
 
+## Visual review evidence
+
+Follow [the rendered UI evidence workflow](docs/ui/visual-review-workflow.md)
+under DECISIONS.md UI-003 for design and visual implementation. Its default is
+Playwright + headless Chromium rendering real React components with consistent
+synthetic data. Use the existing design tokens and owned Ant adapters in those
+captures. UI-001 and PRODUCT.md continue to own accessibility completion.
+
 ## Do's and Don'ts
 
 ### Do:

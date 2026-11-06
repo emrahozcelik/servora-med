@@ -49,8 +49,8 @@ function render(user: CurrentUser, props: {
   summary?: CustomerOperationalSummary | null; summaryLoading?: boolean; summaryError?: string;
 } = { summary }) {
   return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer}
-    user={user} staff={[]} pending={false} error="" notice=""
-    onBack={() => {}} onSave={() => {}} onCreateContact={() => {}}
+    user={user} staff={[]} pending={false} error="" notice="" editOpen
+    onSave={() => {}} onCreateContact={() => {}}
     historyStatus="all" historyPage={{ items: [], total: 0, limit: 20, offset: 0 }}
     historyLoading={false} historyError="" onHistoryStatusChange={() => {}} onHistoryPageChange={() => {}}
     summary={props.summary ?? null} summaryLoading={props.summaryLoading ?? false}
@@ -72,6 +72,15 @@ describe('Customer operational summary transport', () => {
 });
 
 describe('Customer operational summary section', () => {
+  it('shows the relationship summary before management editing and keeps administration after history', () => {
+    const html = render({ ...manager, role: 'ADMIN' });
+    expect(html.indexOf('operational-summary')).toBeLessThan(html.indexOf('detail-customer-name'));
+    expect(html.indexOf('customer-history')).toBeLessThan(html.indexOf('customer-delete-blocked-title'));
+    expect(html).toContain('customer-edit-disclosure');
+    expect(html).toContain('Genel bilgileri düzenle');
+    expect(html).toContain('Ayşe Personel');
+  });
+
   it('renders all five concepts with JobCard navigation links', () => {
     const html = render(manager);
     for (const text of ['Operasyonel özet', 'Son etkileşim', 'Teslimat 1', 'Sonraki planlı iş', 'Revizyonlu İş',

@@ -246,23 +246,23 @@ describe('General Task quick create', () => {
         <MemoryRouter><GeneralTaskCreateScreen user={creator} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
       ));
       await settle();
-      const intro = container.querySelector('.form-intro')?.textContent ?? '';
-      expect(intro).toContain('Yapılacak görevi açık ve yeterli ayrıntıyla tanımlayın.');
-      expect(intro).toContain('Müşteriyle ilişkili olmayan saha ve operasyon işleri de buradan oluşturulabilir.');
+      const intro = container.querySelector('.page-header-description')?.textContent ?? '';
+      expect(intro).toContain('Yapılacak işi ve sorumlusunu belirleyin.');
+      expect(intro).toContain('Müşteri bağlantısı isteğe bağlıdır.');
       expect(container.textContent).not.toContain('Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.');
 
       const title = container.querySelector<HTMLInputElement>('#task-title')!;
-      expect(title.getAttribute('placeholder')).toBe('Örn. Havaalanı karşılama — misafir transferi');
+      expect(title.getAttribute('placeholder')).toBe('Örn. Klinik eğitim materyallerini hazırla');
 
       const description = container.querySelector<HTMLTextAreaElement>('#task-description')!;
       expect(description.getAttribute('placeholder')).toBe(
-        "Örn. Saat 14.30'da havaalanına git, gelen misafiri karşıla, otele bırak ve işlem tamamlandığında görev notuna bilgi ekle.",
+        "Örn. Cuma günkü ürün eğitimi için sunumu ve broşürleri hazırla.",
       );
-      expect(description.getAttribute('rows')).toBe('5');
+      expect(description.getAttribute('rows')).toBe('3');
       expect(description.getAttribute('aria-describedby')).toBe('task-description-help');
       const helper = container.querySelector('#task-description-help');
       expect(helper?.textContent).toBe(
-        'Görevin nerede, ne zaman ve nasıl yapılacağını; gerekli teslim/alım bilgilerini ve dikkat edilmesi gereken noktaları mümkün olduğunca açık yazın.',
+        'Görevin nerede ve nasıl yapılacağını, varsa dikkat edilecek noktaları yazın.',
       );
       await act(async () => root.unmount());
       container = document.createElement('div'); document.body.append(container);
@@ -275,7 +275,10 @@ describe('General Task quick create', () => {
       <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
     ));
     const disclosure = container.querySelector('details.task-optional')!;
-    expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
+    expect(disclosure.querySelector('summary')?.textContent).toContain('Müşteri ve öncelik');
+    // A default scheduling value must be discoverable without opening optional fields.
+    expect(container.querySelector('#task-scheduled-at')?.closest('details')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('#task-scheduled-at')?.value).toBe('2026-07-17T14:30');
     for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Planlanan zaman (isteğe bağlı)',
       'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
       expect(container.textContent).toContain(label);

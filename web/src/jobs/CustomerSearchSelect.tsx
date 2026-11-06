@@ -50,7 +50,7 @@ function renderLabel(customer: CustomerSummary): ReactNode {
   return (
     <span className="customer-option-label">
       <span>{customer.name}</span>
-      {meta && <span className="customer-option-meta"> · {meta}</span>}
+      {meta && <span className="customer-option-meta">{meta}</span>}
     </span>
   );
 }
@@ -312,6 +312,7 @@ export function CustomerSearchSelect({
   return (
     <>
       <ServoraSelect
+        className="customer-search-select"
         id={id}
         showSearch
         filterOption={false}
