@@ -10,6 +10,8 @@ export function createHealthHandlers(
 ) {
   return {
     async getHealth(_request: FastifyRequest, reply: FastifyReply) {
+      // Health admission is live state; intermediaries must not cache old verdicts.
+      reply.header('Cache-Control', 'no-store');
       const result = await readiness.check();
       const statusCode = result === 'ok' ? 200 : 503;
       const body = getPublicHealthStatus(result, releaseSha);
@@ -22,6 +24,7 @@ export function createHealthHandlers(
       return reply.code(statusCode).send(body);
     },
     async getBackupHealth(_request: FastifyRequest, reply: FastifyReply) {
+      reply.header('Cache-Control', 'no-store');
       if (!backupReadiness) {
         return reply.code(404).send({ status: 'unavailable' });
       }

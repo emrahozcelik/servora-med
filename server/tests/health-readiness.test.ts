@@ -59,6 +59,7 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual({ status: 'ok', releaseSha: TEST_RELEASE_SHA });
   });
 
@@ -79,6 +80,7 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(503);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual({ status: 'unavailable', releaseSha: TEST_RELEASE_SHA });
     expect(JSON.stringify(response.json())).not.toMatch(/database|migration|error|host/i);
   });
@@ -98,6 +100,7 @@ describe('GET /api/health readiness', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
     expect(response.statusCode).toBe(503);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual({ status: 'unavailable', releaseSha: TEST_RELEASE_SHA });
     expect(JSON.stringify(response.json())).not.toContain('secret-db-host');
   });
@@ -209,6 +212,7 @@ describe('GET /api/health readiness', () => {
       apps.push(app);
       const response = await app.inject({ method: 'GET', url: '/api/health/backup' });
       expect(response.statusCode).toBe(state.code);
+      expect(response.headers['cache-control']).toBe('no-store');
       expect(response.json()).toMatchObject({
         status: state.status,
         providerStatus: state.providerStatus,
