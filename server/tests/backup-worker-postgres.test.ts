@@ -366,6 +366,8 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     try {
       await expect(repository.enqueueScheduledRun(slot(firstId, '2026-09-04')))
         .resolves.toMatchObject({ kind: 'created' });
+      expect((await repository.getWorkerState())?.lastScheduledLocalDate)
+        .toBe('2026-09-04');
       // Terminalize the first run so a later valid day is not blocked by an
       // intentionally still-queued test run.
       await pool.query(
@@ -390,6 +392,8 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       await expect(repository.enqueueScheduledRun(slot(followingId, '2026-09-05')))
         .resolves.toMatchObject({ kind: 'created' });
       expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(followingId);
+      expect((await repository.getWorkerState())?.lastScheduledLocalDate)
+        .toBe('2026-09-05');
     } finally {
       await pool.query(
         `UPDATE backup_runs

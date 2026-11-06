@@ -591,7 +591,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     const result = await this.pool.query<BackupWorkerStateRow>(
       `SELECT worker_heartbeat_at, scheduler_last_tick_at,
               worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence,
-              last_scheduled_slot_key, last_scheduled_local_date,
+              last_scheduled_slot_key,
+                to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
               last_scheduled_for, last_scheduled_run_id
          FROM backup_worker_state
         WHERE singleton
@@ -1067,7 +1068,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       const state = await client.query<BackupWorkerStateRow>(
         `SELECT worker_heartbeat_at, scheduler_last_tick_at,
                 worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence,
-                last_scheduled_slot_key, last_scheduled_local_date,
+                last_scheduled_slot_key,
+                to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
                 last_scheduled_for, last_scheduled_run_id
            FROM backup_worker_state
           WHERE singleton
