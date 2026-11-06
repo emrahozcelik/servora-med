@@ -43,7 +43,9 @@ export type StaffOperationalSummary = Readonly<{
   staffUserId: string;
   range: ResolvedReportRange;
   counters: StaffOperationalCounters;
-  /** Current snapshot buckets; selected range never changes these counts. */
+  /** Internal count for reconciling administrative obligations with workload. */
+  weeklyReportWorkload: number;
+  /** Productive snapshot buckets; selected range never changes these counts. */
   currentWorkloadByType: WorkTypeDistributionItem[];
 }>;
 

@@ -92,6 +92,7 @@ describe.skipIf(!databaseUrl)('weekly reports excluded from productive-work aggr
       };
       const summary = (await repository.getMany(input)).get(staffId)!;
       expect(summary.counters.completedInPeriod).toBe(1);
+      expect(summary.weeklyReportWorkload).toBe(1);
       expect(summary.currentWorkloadByType).toEqual([
         { type: 'PRODUCT_DELIVERY', count: 0 },
         { type: 'GENERAL_TASK', count: 1 },

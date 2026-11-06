@@ -1,0 +1,12 @@
+{
+  "server/src/modules/reports/repository.ts": "1ef349a548fc08ac3c37a1ac1f33904af15af10149f7c2fedd2f9d9858f45e49",
+  "server/src/modules/reports/service.ts": "36e426153623f2856c5e273fa638a91d98110afc10d6bbea87c6933b44f881c7",
+  "server/src/modules/reports/types.ts": "20b077447ee06ea67de2beba663c111e1b1b8c113a1e79b5b589c26aaaf45ea4",
+  "server/tests/reports-routes.test.ts": "77e0b2c154dc61d36190db6d607c334bcebe8cc73336fbc61a00542adc7c49b9",
+  "server/tests/reports-service.test.ts": "9b9526ba790b0c174028be162643ba618fc8dec6b6fa9c23d48bf92a8db8c35a",
+  "server/tests/reports-staff-performance.test.ts": "75eb22e3c61a4a6ead369d709e54982f52110c5220642e06e6b6a86b89a69896",
+  "server/tests/reports-staff-summary.test.ts": "98ad3fac65a14e44514f316e91f55bbbc35729a6e2f0b3d76834122f75dc3628",
+  "server/tests/reports-staff.test.ts": "a9ef9131a57dbe0e75cbe5c84774d74638227831f0e976f76aeb73b76cf23833",
+  "server/tests/reports-weekly-workload-postgres.test.ts": "7fc6ec7c115cb7a980de98d3fbaa3c2083e3c122bbf9fe565ab41baa8db5c67e",
+  "server/tests/weekly-report-reporting-exclusion-postgres.test.ts": "ca8ca59d1fd2522efc4b9a18df7911c46eeb010b6820545d36844b2d233e1099"
+}

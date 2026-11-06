@@ -73,6 +73,7 @@ function dependencies() {
     })),
     getOne: vi.fn(async ({ staffUserId }) => ({
       staffUserId,
+      weeklyReportWorkload: 0,
       range: resolvedRange,
       counters: {
         openJobCards: 1,
@@ -89,7 +90,7 @@ function dependencies() {
     })),
     getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
       staffUserId,
-      { staffUserId, range: resolvedRange, counters: {
+      { staffUserId, range: resolvedRange, weeklyReportWorkload: 0, counters: {
         openJobCards: 1, waitingApproval: 1, revisionRequested: 0,
         overdueJobCards: 0, completedInPeriod: 0,
       }, currentWorkloadByType: [

@@ -56,6 +56,7 @@ type StaffSummaryRow = {
   revision_requested: string | number;
   overdue_job_cards: string | number;
   completed_in_period: string | number;
+  weekly_report_workload: string | number;
   current_workload_by_type?: Array<{ type: string; count: string | number }>;
 };
 
@@ -304,6 +305,10 @@ SELECT requested.staff_user_id,
   COUNT(jc.id) FILTER (
     WHERE jc.status = 'REVISION_REQUESTED'
   )::int AS revision_requested,
+  COUNT(jc.id) FILTER (
+    WHERE jc.type = 'WEEKLY_REPORT'
+      AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})
+  )::int AS weekly_report_workload,
   COUNT(jc.id) FILTER (
     WHERE jc.status IN (
         ${ACTIVE_STATUS_LIST_SQL}
@@ -1520,6 +1525,7 @@ function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
       overdueJobCards: Number(row.overdue_job_cards),
       completedInPeriod: Number(row.completed_in_period),
     },
+    weeklyReportWorkload: Number(row.weekly_report_workload),
     currentWorkloadByType: (row.current_workload_by_type ?? []).map((item) => ({
       type: item.type,
       count: Number(item.count),

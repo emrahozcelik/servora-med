@@ -1,0 +1,947 @@
+
+> servora-med-server@0.1.0 test
+> node --env-file-if-exists=.env scripts/run-tests.mjs --run tests/reports-weekly-workload-postgres.test.ts
+
+.env not found. Continuing without it.
+TEST_ENV_PREFLIGHT_OK database=servora_med_test_staff_p1_20261106 url=postgresql://servora_pr412@127.0.0.1:55513/servora_med_test_staff_p1_20261106 postgres_major=17 tools=psql:17,pg_dump:17,pg_restore:17
+TEST_ENV_PREFLIGHT_NOTE schema COMPATIBLE (catalogHead=060_crm_duplicate_review_decisions appliedHead=none)
+TEST_ENV_PREFLIGHT_NOTE build artifacts present and fresh
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/staff-report-p1-20261106/server
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 003_people.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 017_calendar.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 018_messaging.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 003_people.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 017_calendar.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 018_messaging.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 003_people.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 017_calendar.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 018_messaging.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 003_people.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 017_calendar.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 018_messaging.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 003_people.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 017_calendar.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 018_messaging.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+ ❯ tests/reports-weekly-workload-postgres.test.ts (5 tests | 5 failed) 935ms
+     × reconciles a NEW weekly obligation without treating it as productive activity 209ms
+     × reconciles a ACCEPTED weekly obligation without treating it as productive activity 183ms
+     × reconciles a IN_PROGRESS weekly obligation without treating it as productive activity 179ms
+     × reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity 178ms
+     × reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity 185ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a NEW weekly obligation without treating it as productive activity
+ FAIL  tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a ACCEPTED weekly obligation without treating it as productive activity
+ FAIL  tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a IN_PROGRESS weekly obligation without treating it as productive activity
+ FAIL  tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a WAITING_APPROVAL weekly obligation without treating it as productive activity
+ FAIL  tests/reports-weekly-workload-postgres.test.ts > Staff report weekly workload reconciliation > reconciles a REVISION_REQUESTED weekly obligation without treating it as productive activity
+Error: Staff current workload type aggregate invariant could not be resolved.
+ ❯ currentWorkloadByType src/modules/reports/service.ts:57:11
+     55|     + summary.counters.revisionRequested;
+     56|   if (total !== expected) {
+     57|     throw new Error('Staff current workload type aggregate invariant c…
+       |           ^
+     58|   }
+     59|   return summary.currentWorkloadByType;
+ ❯ src/modules/reports/service.ts:249:49
+ ❯ src/modules/reports/service.ts:236:28
+ ❯ tests/reports-weekly-workload-postgres.test.ts:36:22
+ ❯ withIntentSchema tests/support/lifecycle-intent-harness.ts:35:5
+ ❯ tests/reports-weekly-workload-postgres.test.ts:11:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  20:03:55
+   Duration  1.10s (transform 55ms, setup 0ms, import 78ms, tests 935ms, environment 0ms)
+

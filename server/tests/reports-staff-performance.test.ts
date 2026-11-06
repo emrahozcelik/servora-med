@@ -33,6 +33,7 @@ function actor(role: SafeUser['role']): SafeUser {
 function servicePorts() {
   const summary = (staffUserId: string, prior: boolean) => ({
     staffUserId,
+    weeklyReportWorkload: 0,
     range: prior ? priorRange : range,
     counters: staffUserId === ACTIVE_STAFF_ID
       ? {
@@ -318,6 +319,7 @@ describe('ReportsService manager-wide Staff performance', () => {
       new Map(staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
         range: requestedRange?.from === priorRange.from ? priorRange : range,
+        weeklyReportWorkload: 0,
         counters: {
           openJobCards: 0,
           overdueJobCards: 0,

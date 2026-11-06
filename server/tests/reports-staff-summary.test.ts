@@ -18,6 +18,7 @@ type StaffSummaryRow = {
   revision_requested: string | number;
   overdue_job_cards: string | number;
   completed_in_period: string | number;
+  weekly_report_workload: string | number;
   current_workload_by_type: Array<{ type: string; count: string | number }>;
 };
 
@@ -35,6 +36,7 @@ function row(
     revision_requested: '0',
     overdue_job_cards: '0',
     completed_in_period: '0',
+    weekly_report_workload: '0',
     current_workload_by_type: [
       { type: 'PRODUCT_DELIVERY', count: 0 },
       { type: 'GENERAL_TASK', count: 0 },
@@ -100,6 +102,7 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
     expect([...summaries.keys()]).toEqual([STAFF_ONE, STAFF_TWO]);
     expect(summaries.get(STAFF_ONE)).toEqual({
       staffUserId: STAFF_ONE,
+      weeklyReportWorkload: 0,
       range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
       counters: {
         openJobCards: 4,
@@ -184,6 +187,6 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
     expect(sql).toContain('completed_job.manager_approved_at');
     expect(sql).not.toMatch(/created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
-    expect(sql).not.toMatch(/jc\.type\s*=/i);
+    expect(sql).toMatch(/AND jc\.assigned_to = requested\.staff_user_id\s+GROUP BY/i);
   });
 });

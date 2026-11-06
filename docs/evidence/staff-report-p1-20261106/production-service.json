@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-11-06T16:54:21.579Z",
+  "readOnly": true,
+  "checks": [
+    {
+      "includeSaleCapability": false,
+      "stage": "service-and-json-serialization",
+      "ok": false,
+      "name": "Error",
+      "sqlstate": null,
+      "message": "Staff current workload type aggregate invariant could not be resolved.",
+      "frames": [
+        "    at currentWorkloadByType (file://<release>/server/dist/modules/reports/service.js:23:15)",
+        "    at file://<release>/server/dist/modules/reports/service.js:178:59",
+        "    at file://<release>/server/dist/modules/reports/service.js:165:36"
+      ]
+    },
+    {
+      "includeSaleCapability": true,
+      "stage": "service-and-json-serialization",
+      "ok": false,
+      "name": "Error",
+      "sqlstate": null,
+      "message": "Staff current workload type aggregate invariant could not be resolved.",
+      "frames": [
+        "    at currentWorkloadByType (file://<release>/server/dist/modules/reports/service.js:23:15)",
+        "    at file://<release>/server/dist/modules/reports/service.js:178:59",
+        "    at file://<release>/server/dist/modules/reports/service.js:165:36"
+      ]
+    }
+  ]
+}

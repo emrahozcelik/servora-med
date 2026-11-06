@@ -74,6 +74,7 @@ function ports() {
     getOne: vi.fn(async (input) => input.staffUserId === MISSING_STAFF
       ? null
       : { staffUserId: input.staffUserId, range,
+          weeklyReportWorkload: 0,
           counters: input.staffUserId === INACTIVE_STAFF
             ? { openJobCards: 0, waitingApproval: 0, revisionRequested: 0,
                 overdueJobCards: 0, completedInPeriod: 0 }
@@ -92,6 +93,7 @@ function ports() {
     getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
       staffUserId,
       { staffUserId, range,
+        weeklyReportWorkload: 0,
         counters: staffUserId === INACTIVE_STAFF
           ? { openJobCards: 0, waitingApproval: 0, revisionRequested: 0,
               overdueJobCards: 0, completedInPeriod: 0 }

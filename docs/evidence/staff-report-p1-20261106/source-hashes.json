@@ -1,0 +1,6 @@
+{
+  "server/src/modules/reports/repository.ts": "398dbe159ca5d711e063fa20cb1666ac09ed2b5d22512054040350dedf35e9aa",
+  "server/src/modules/reports/service.ts": "d77a286043ed1610df6ea76b017722913bbb93c50db0383ae8ceedf2a55cb992",
+  "server/src/modules/reports/types.ts": "1bb4b74537810bf7f843c57c9c2eb0264c08d276ded314151a973cdb35f98d8f",
+  "server/tests/reports-weekly-workload-postgres.test.ts": "da925c4f2a237edb6b46a3ef5bde0d90bcb59df7a11a7b1ec3ebe638b8c1ebad"
+}

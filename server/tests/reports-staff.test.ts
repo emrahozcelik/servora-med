@@ -96,6 +96,7 @@ describe('PostgresReportsRepository Staff report reads', () => {
       revision_requested: '4',
       overdue_job_cards: '5',
       completed_in_period: '6',
+      weekly_report_workload: '0',
     }] }]);
     const repository = new PostgresReportsRepository(pool);
 
@@ -119,7 +120,7 @@ describe('PostgresReportsRepository Staff report reads', () => {
     expect(sql).toContain('completed_job.staff_completed_by = requested.staff_user_id');
     expect(sql).not.toMatch(/created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
-    expect(sql).not.toMatch(/jc\.type\s*=/i);
+    expect(sql).toMatch(/AND jc\.assigned_to = requested\.staff_user_id\s+GROUP BY/i);
     expect(sql).toContain('jc.due_date IS NOT NULL');
     expect(sql).toContain(
       'jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date',
@@ -138,6 +139,7 @@ describe('PostgresReportsRepository Staff report reads', () => {
       revision_requested: '1',
       overdue_job_cards: '0',
       completed_in_period: '4',
+      weekly_report_workload: '0',
       current_workload_by_type: [
         { type: 'PRODUCT_DELIVERY', count: 2 },
         { type: 'GENERAL_TASK', count: 1 },
