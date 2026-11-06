@@ -49,8 +49,8 @@ function render(user: CurrentUser, props: {
   summary?: CustomerOperationalSummary | null; summaryLoading?: boolean; summaryError?: string;
 } = { summary }) {
   return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer}
-    user={user} staff={[]} pending={false} error="" notice=""
-    onBack={() => {}} onSave={() => {}} onCreateContact={() => {}}
+    user={user} staff={[]} pending={false} error="" notice="" editOpen
+    onSave={() => {}} onCreateContact={() => {}}
     historyStatus="all" historyPage={{ items: [], total: 0, limit: 20, offset: 0 }}
     historyLoading={false} historyError="" onHistoryStatusChange={() => {}} onHistoryPageChange={() => {}}
     summary={props.summary ?? null} summaryLoading={props.summaryLoading ?? false}

@@ -10,7 +10,7 @@ const staff={id:'staff-1',organizationId:'org-1',name:'Staff',email:'staff@test.
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
 it('renders only the five enrichment fields using a server-confirmed capability for another Staff customer',async()=>{
  const container=document.createElement('div');document.body.append(container);const root=createRoot(container);
- try{await act(async()=>root.render(<MemoryRouter><CustomerDetailView customer={customer} user={staff} staff={[]} pending={false} error="" notice="" enrichmentScope={{canEnrich:true,canCreateContact:true}} enrichmentEditing={true} onBack={()=>{}} onSave={()=>{}} onCreateContact={()=>{}} /></MemoryRouter>));
+ try{await act(async()=>root.render(<MemoryRouter><CustomerDetailView customer={customer} user={staff} staff={[]} pending={false} error="" notice="" enrichmentScope={{canEnrich:true,canCreateContact:true}} enrichmentEditing={true} onSave={()=>{}} onCreateContact={()=>{}} /></MemoryRouter>));
  expect(container.textContent).toContain('İletişim bilgilerini tamamla');
  const form=container.querySelector('form[aria-labelledby="customer-enrichment-title"]')!;
  expect(Array.from(form.querySelectorAll('input,textarea')).map(e=>e.getAttribute('name'))).toEqual(['phone','email','city','district','address']);

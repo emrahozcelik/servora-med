@@ -183,9 +183,10 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, initialEditOpen = false, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, editOpen = false, onEditOpenChange = () => {}, editTriggerRef, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', summary = null, summaryLoading = false, summaryError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, deleteConfirmOpen = false, deletePending = false, deleteTriggerRef, onSave, onCreateContact, onOpenContact, onReloadCurrent, onRequestDelete = () => {}, onConfirmDelete = () => {}, onCancelDelete = () => {}, enrichmentScope = null, enrichmentEditing = false, enrichmentScopeError = '', enrichmentScopeLoading = false, onRetryEnrichmentScope = () => {}, enrichmentTriggerRef, onOpenEnrichment = () => {}, onCancelEnrichment = () => {}, onSaveEnrichment = (event) => event.preventDefault() }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
-  conflict?: boolean; formRevision?: number; initialEditOpen?: boolean;
+  conflict?: boolean; formRevision?: number; editOpen?: boolean; onEditOpenChange?: (open: boolean) => void;
+  editTriggerRef?: RefObject<HTMLElement | null>;
   enrichmentScope?: CustomerEnrichmentScope | null; enrichmentEditing?: boolean;
   enrichmentScopeError?: string; enrichmentScopeLoading?: boolean; onRetryEnrichmentScope?: () => void;
   enrichmentTriggerRef?: RefObject<HTMLButtonElement | null>;
@@ -197,7 +198,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
   createContactButtonRef?: RefObject<HTMLButtonElement | null>;
   deleteConfirmOpen?: boolean; deletePending?: boolean;
   deleteTriggerRef?: RefObject<HTMLButtonElement | null>;
-  onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCreateContact: () => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void; onCreateContact: () => void;
   onOpenContact?: (customerId: string, contactId: string) => void;
   onReloadCurrent?: () => void;
   onRequestDelete?: () => void; onConfirmDelete?: () => void; onCancelDelete?: () => void;
@@ -214,9 +215,11 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
     <OperationalSummarySection summary={summary} loading={summaryLoading} error={summaryError} />
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
       <CustomerFacts customer={customer} />
-      {canManage && <details className="customer-edit-disclosure" open={initialEditOpen}>
-        <summary>Genel bilgileri düzenle</summary>
-        <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} />
+      {canManage && <details className="customer-edit-disclosure" open={editOpen}>
+        <summary ref={editTriggerRef} onClick={(event) => { event.preventDefault(); onEditOpenChange(!editOpen); }}>Genel bilgileri düzenle</summary>
+        {/* The form unmounts on close on purpose: reopening must start from the
+            authoritative Customer record, never an abandoned draft. */}
+        {editOpen && <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={() => onEditOpenChange(false)} />}
       </details>}
     </section>
     {user.role === 'STAFF' && enrichmentScopeError && <div className="form-error" role="alert">{enrichmentScopeError}
@@ -256,7 +259,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
 }
 
 export function CustomerDetailScreen({ customerId, user }: { customerId: string; user: CurrentUser }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate(); const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
   useEffect(() => {
@@ -272,8 +275,18 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
 
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
-  const draftSnapshot = useRef({ customer, editing: enrichmentEditing || creatingContact || user.role !== 'STAFF' });
-  draftSnapshot.current = { customer, editing: enrichmentEditing || creatingContact || user.role !== 'STAFF' };
+  const editRequested = searchParams.get('edit') === '1';
+  const [editOpen, setEditOpen] = useState(editRequested); const editTriggerRef = useRef<HTMLElement>(null); const editRestoreFocusRef = useRef(false);
+  // A new `?edit=1` request opens the editor. Closing it is local state and is
+  // never re-derived from the URL, so stale search parameters cannot reopen it.
+  useEffect(() => { if (editRequested) setEditOpen(true); }, [editRequested]);
+  useEffect(() => {
+    if (!loading && !editOpen && editRestoreFocusRef.current && editTriggerRef.current) {
+      editRestoreFocusRef.current = false; editTriggerRef.current.focus();
+    }
+  }, [editOpen, loading]);
+  const draftSnapshot = useRef({ customer, editing: editOpen || enrichmentEditing || creatingContact });
+  draftSnapshot.current = { customer, editing: editOpen || enrichmentEditing || creatingContact };
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false); const [deletePending, setDeletePending] = useState(false);
   const [historyStatus, setHistoryStatus] = useState<CustomerHistoryStatus>('all'); const [historyPage, setHistoryPage] = useState<Paginated<JobHistoryItem> | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true); const [historyError, setHistoryError] = useState('');
@@ -374,6 +387,19 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     if (pending || enrichmentInFlightRef.current) return;
     enrichmentRestoreFocusRef.current = true; setEnrichmentEditing(false); setError('');
   }
+  function changeEditOpen(open: boolean) {
+    if (open) { setEditOpen(true); return; }
+    if (pending) return;
+    editRestoreFocusRef.current = true; setEditOpen(false);
+    if (editRequested) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    }
+    // A conflicted form is blocked on stale values. Cancelling discards the
+    // draft, so load the authoritative record rather than keep stale facts.
+    if (conflict) void load();
+  }
   async function saveEnrichment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!customer || !enrichmentScope?.canEnrich || enrichmentScopeLoading || pending || conflict || enrichmentInFlightRef.current) return;
@@ -446,14 +472,15 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       setDeletePending(false);
     }
   }
-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} initialEditOpen={searchParams.get('edit') === '1'}
+  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
+    editOpen={editOpen} onEditOpenChange={changeEditOpen} editTriggerRef={editTriggerRef}
     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
     summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}
     onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
     errorRef={errorRef} createContactButtonRef={createContactButtonRef}
     enrichmentScope={enrichmentScope} enrichmentEditing={enrichmentEditing} enrichmentScopeError={enrichmentScopeError} enrichmentScopeLoading={enrichmentScopeLoading} onRetryEnrichmentScope={() => void loadEnrichmentScope()} enrichmentTriggerRef={enrichmentTriggerRef}
     onOpenEnrichment={() => { setError(''); setNotice(''); setEnrichmentEditing(true); }} onCancelEnrichment={cancelEnrichment} onSaveEnrichment={(event) => void saveEnrichment(event)}
-    onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
+    onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
     onOpenContact={(customerIdValue, contactIdValue) => navigate(paths.contact(customerIdValue, contactIdValue))}
     onReloadCurrent={() => void load()} deleteConfirmOpen={deleteConfirmOpen} deletePending={deletePending} deleteTriggerRef={deleteTriggerRef}
     onRequestDelete={() => { setError(''); setNotice(''); setDeleteConfirmOpen(true); }} onConfirmDelete={() => void deleteCurrentCustomer()}

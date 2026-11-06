@@ -13,7 +13,7 @@ accessibility acceptance and deployment.
 | A — Forms | Nested labels and wrapping labels share typography. Wrapping labels preserve regular-sized, regular-weight input text. Customer, product and Staff forms are included in the responsive checks. |
 | B — Own Staff profile | Compact profile facts and a single current-counter group precede job history and weekly reports. Period analytics follow them; the independent report retains its current counters. The embedded report keeps its distinct current type distribution. The monthly completion counter remains separate from period results. |
 | B — Attribution copy | Completion descriptions now explain the recorded submission attribution used by the existing SQL. The explanation explicitly does not claim a separately verified performer. Longer calculation details have a named disclosure. Repeated visible delivery/outcome table captions are removed while accessible names remain. |
-| C — Customer detail | Operational summary precedes general information and editing. Readable facts stay visible; a native disclosure opens the existing management form without remounting it when closed. The list's edit link uses `?edit=1` to open that disclosure directly. History precedes administrative deletion guidance. Staff enrichment stays separate. |
+| C — Customer detail | Operational summary precedes general information and editing. Readable facts stay visible; a native disclosure opens the management form. Cancel or closing unmounts the draft, and reopening mounts it from the authoritative Customer record. The list's edit link uses `?edit=1` to request that disclosure directly. History precedes administrative deletion guidance. Staff enrichment stays separate. |
 | D — Customer/product rows | Names and identifying data remain visible. Mobile row actions use their content width with retained touch targets. Product deletion uses a quiet secondary entry and the existing destructive confirmation. Customer facts reflow without fixed minimum columns. |
 | E — Job rows | Status/priority precede the quieter process summary; customer identity has stronger contrast. Phase, expected actor, assignee, scheduling, lateness and actual role-scoped commands remain distinct. |
 
@@ -51,11 +51,15 @@ existing unit suite covers additional form mutations, ownership, history
 concurrency and role boundaries. Synthetic roles verify presentation rather than
 backend authorization.
 
-The management edit disclosure keeps its child form and existing `formRevision`
-key. Closing/reopening it preserves a draft. Server conflict/reload behavior and
-the Staff-only enrichment flow continue to use their original producers. A
-missing next planned work item is still shown as missing data, without inferring
-that a person failed to follow up.
+The management edit disclosure requests opening through `?edit=1`, keeps its
+existing `formRevision` key for committed values and is closed by local state.
+Cancel discards the unsaved draft, returns to the read-only detail and removes
+the URL open request; reopening mounts the form from the authoritative Customer
+record. Server conflict/reload behavior stays blocking and explicit: a conflicted
+draft is preserved until the user reloads current values, and cancelling a
+conflicted editor also loads the authoritative record. The Staff-only enrichment
+flow continues to use its original producer. A missing next planned work item is
+still shown as missing data, without inferring that a person failed to follow up.
 
 The original 14-image bundle stays historical. The new before/after evidence
 includes the actual providers, reconciled baseline data and explicit readiness

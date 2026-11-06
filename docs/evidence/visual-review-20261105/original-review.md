@@ -10,6 +10,8 @@ Bu belge görsel inceleme ve öneri listesidir; uygulama veya yeni ürün politi
 - Müşteri listesi, müşteri detayı, yeni müşteri, ürün listesi, personel dizini, personelin kendi profili ve iş listesi 1440 ve 390 px'de incelendi: 7 ekran, 14 görünüm.
 - Son yakalamalarda JavaScript sayfa hatası, tanımsız örnek API isteği, hata bildirimi ve yatay taşma bulunmadı. Bu sonuç tam işlevsel kabul, ekran okuyucu veya fiziksel cihaz testi değildir.
 - İnceleme uygulama kodunu değiştirmedi. Yerel sunucu ve Chromium yakalamalar sonunda kapatıldı. Geçici çalışma dosyaları ve kanıtlar bu klasördedir.
+- Ekran görüntüleri ürün sahibi tarafından yerel olarak saklanır; depoda izlenmez.
+  Bu belgedeki dosya adları yerel yakalamaları gösterir, depo bağlantısı değildir.
 
 ## 1. Personelin kendi sayfası — en yüksek öncelik
 
@@ -19,7 +21,7 @@ Bu belge görsel inceleme ve öneri listesidir; uygulama veya yeni ürün politi
 
 **Kaynak:** `web/src/StaffProfiles.tsx:82`, `web/src/reports/StaffOperationalReport.tsx:165`, `web/src/styles.css:351`.
 
-**Kanıt:** [Mobil](staff-profile-390.png), [Masaüstü](staff-profile-1440.png).
+**Kanıt:** Mobil: `staff-profile-390.png` (yerel), Masaüstü: `staff-profile-1440.png` (yerel).
 
 Bu, daha önce ayrı bırakılan personel UI/UX slice'ı için doğrudan başlangıç adayıdır.
 
@@ -31,7 +33,7 @@ Bu, daha önce ayrı bırakılan personel UI/UX slice'ı için doğrudan başlan
 
 **Kaynak:** `web/src/CustomerDetail.tsx:208`; operasyon özeti şu anda `:234`'te.
 
-**Kanıt:** [Mobil](customer-detail-390.png), [Masaüstü](customer-detail-1440.png).
+**Kanıt:** Mobil: `customer-detail-390.png` (yerel), Masaüstü: `customer-detail-1440.png` (yerel).
 
 ## 3. Ürün ve müşteri listeleri — satır ve eylem hiyerarşisi
 
@@ -41,7 +43,7 @@ Bu, daha önce ayrı bırakılan personel UI/UX slice'ı için doğrudan başlan
 
 **Kaynak:** `web/src/ProductList.tsx:114`, `web/src/CustomerList.tsx:269`, `web/src/styles.css:3095`, `web/src/styles.css:3217`.
 
-**Kanıt:** [Ürünler mobil](products-390.png), [Müşteriler mobil](customers-390.png), [Ürünler masaüstü](products-1440.png).
+**Kanıt:** Ürünler mobil: `products-390.png` (yerel), Müşteriler mobil: `customers-390.png` (yerel), Ürünler masaüstü: `products-1440.png` (yerel).
 
 ## 4. İş listesi — aynı bilginin görsel tekrarını azaltmak
 
@@ -51,7 +53,7 @@ Bu, daha önce ayrı bırakılan personel UI/UX slice'ı için doğrudan başlan
 
 **Kaynak:** `web/src/jobs/JobRow.tsx:114`, `web/src/jobs/CompactWorkflowSummary.tsx:18`, `web/src/styles.css:1648`.
 
-**Kanıt:** [Mobil](jobs-390.png), [Masaüstü](jobs-1440.png).
+**Kanıt:** Mobil: `jobs-390.png` (yerel), Masaüstü: `jobs-1440.png` (yerel).
 
 Yakalamadaki “Bitiş saati eksik” uyarısı örnek verinin durumudur; üretim verisinde hata bulunduğu iddiası değildir.
 
@@ -63,13 +65,13 @@ Yakalamadaki “Bitiş saati eksik” uyarısı örnek verinin durumudur; üreti
 
 **Kaynak:** `web/src/styles.css:172`, `web/src/CustomerList.tsx:325` ve `:336`.
 
-**Kanıt:** [Mobil](customer-create-390.png), [Masaüstü](customer-create-1440.png).
+**Kanıt:** Mobil: `customer-create-390.png` (yerel), Masaüstü: `customer-create-1440.png` (yerel).
 
 ## İkincil fırsat: personel dizini
 
 Personel dizini yalnız ad, unvan ve yönetici gösteriyor. Mevcut DTO'da bulunan bölge ve güncel operasyon sayaçları, sonraki bir yönetim görünümünde yardımcı olabilir. Bu bir hata değil, mevcut veriyi daha yararlı sunma fırsatıdır; karşılaştırmalı başarı puanı önerilmez.
 
-**Kaynak:** `web/src/StaffProfiles.tsx:191`. [Masaüstü](staff-directory-1440.png).
+**Kaynak:** `web/src/StaffProfiles.tsx:191`. Masaüstü: `staff-directory-1440.png` (yerel).
 
 ## Korunacak güçlü yönler
 

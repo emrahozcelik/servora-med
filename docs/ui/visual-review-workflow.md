@@ -113,9 +113,14 @@ For each evidence bundle record:
 Use a task-owned temporary output directory while iterating. Retain the small
 set of final evidence needed for the review in the repository's evidence area
 or a durable linked artifact, with enough fixture/runner information to reproduce
-it. A report should not depend only on an expiring `/tmp` path. Do not commit
-browser caches, node_modules, unrelated evidence or sensitive data. Close only
-the local server/browser processes created for the task.
+it. A report should not depend only on an expiring `/tmp` path. Screenshots may be
+retained as a local or durable external artifact instead of committed files when
+the product owner keeps them; describe them as local-only, do not link them as
+repository artifacts, and do not include them in a manifest that claims to
+describe the Git package. Text artifacts, runner snapshots, measurements and
+hashes stay in the repository. Do not commit browser caches, node_modules,
+unrelated evidence or sensitive data. Close only the local server/browser
+processes created for the task.
 
 Documentation-only reviews stay documentation-only. For implementation, run the
 applicable checks from AGENTS.md and the feature contract. A visual fixture run

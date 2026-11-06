@@ -67,29 +67,42 @@ version conflict preserves that draft and focuses the error; Staff enrichment
 cancellation restores focus; deletion confirmation Escape restores focus;
 weekly PDF download and completed-history filtering work; report retry recovers.
 
+These captures predate the current customer-edit correction. The current
+runner asserts that closing the management disclosure discards the draft, that
+reopening reads the authoritative Customer record, and that cancelling a version
+conflict reloads current values. The recorded interaction result above stays
+historical and is not relabeled as current acceptance.
+
 The collectors generated 174 PNGs. This bundle retains **42 representative PNGs**.
 The results also name generated captures that are intentionally not retained;
 they can be regenerated with the runner.
 
+Screenshots are not part of the repository package. The product owner retains
+the 42 named capture files locally, and the `.gitignore` rules for this directory
+keep future captures untracked. `artifact-hashes.json` is the original
+capture-time manifest: its PNG entries describe local-only files, and its README
+entry predates this retention note. The manifest is preserved unchanged as
+historical provenance and is not a live verifier of this directory.
+
 | Surface | Before | After |
 | --- | --- | --- |
-| Own profile, mobile | [390](before/staff-profile-staff-390-baseline-full.png) | [390](after/staff-profile-staff-390-baseline-full.png) |
-| Own profile, desktop | [1440](before/staff-profile-staff-1440-baseline-full.png) | [1440](after/staff-profile-staff-1440-baseline-full.png) |
-| Customer detail, mobile | [390](before/customer-detail-manager-390-baseline-full.png) | [390](after/customer-detail-manager-390-baseline-full.png) |
-| Customer detail, desktop | [1440](before/customer-detail-manager-1440-baseline-full.png) | [1440](after/customer-detail-manager-1440-baseline-full.png) |
-| Products, mobile | [390](before/products-admin-390-baseline-full.png) | [390](after/products-admin-390-baseline-full.png) |
-| Customers, mobile | [390](before/customers-manager-390-baseline-full.png) | [390](after/customers-manager-390-baseline-full.png) |
-| Customer labels, mobile | [390](before/customer-create-admin-390-baseline-viewport.png) | [390](after/customer-create-admin-390-baseline-viewport.png) |
-| Jobs, mobile | [390](before/jobs-staff-390-baseline-full.png) | [390](after/jobs-staff-390-baseline-full.png) |
-| Jobs, desktop | [1440](before/jobs-staff-1440-baseline-full.png) | [1440](after/jobs-staff-1440-baseline-full.png) |
+| Own profile, mobile | 390: `before/staff-profile-staff-390-baseline-full.png` | 390: `after/staff-profile-staff-390-baseline-full.png` |
+| Own profile, desktop | 1440: `before/staff-profile-staff-1440-baseline-full.png` | 1440: `after/staff-profile-staff-1440-baseline-full.png` |
+| Customer detail, mobile | 390: `before/customer-detail-manager-390-baseline-full.png` | 390: `after/customer-detail-manager-390-baseline-full.png` |
+| Customer detail, desktop | 1440: `before/customer-detail-manager-1440-baseline-full.png` | 1440: `after/customer-detail-manager-1440-baseline-full.png` |
+| Products, mobile | 390: `before/products-admin-390-baseline-full.png` | 390: `after/products-admin-390-baseline-full.png` |
+| Customers, mobile | 390: `before/customers-manager-390-baseline-full.png` | 390: `after/customers-manager-390-baseline-full.png` |
+| Customer labels, mobile | 390: `before/customer-create-admin-390-baseline-viewport.png` | 390: `after/customer-create-admin-390-baseline-viewport.png` |
+| Jobs, mobile | 390: `before/jobs-staff-390-baseline-full.png` | 390: `after/jobs-staff-390-baseline-full.png` |
+| Jobs, desktop | 1440: `before/jobs-staff-1440-baseline-full.png` | 1440: `after/jobs-staff-1440-baseline-full.png` |
 
-Representative edge cases: [version conflict](after/customer-detail-manager-390-conflict-full.png),
-[product confirmation](after/products-admin-390-baseline-confirmation-viewport.png),
-[report loading](after/staff-profile-staff-390-loading-viewport.png),
-[report error](after/staff-profile-staff-390-retry-viewport.png),
-[long product identity](after/products-admin-390-long-full.png),
-[overdue job](after/jobs-overdue-staff-390-full.png),
-[200% form text](after/customer-create-admin-390-baseline-text-200-full.png).
+Representative edge cases: version conflict: `after/customer-detail-manager-390-conflict-full.png`,
+product confirmation: `after/products-admin-390-baseline-confirmation-viewport.png`,
+report loading: `after/staff-profile-staff-390-loading-viewport.png`,
+report error: `after/staff-profile-staff-390-retry-viewport.png`,
+long product identity: `after/products-admin-390-long-full.png`,
+overdue job: `after/jobs-overdue-staff-390-full.png`,
+200% form text: `after/customer-create-admin-390-baseline-text-200-full.png`.
 
 In the matched 390 px fixture, work-history heading position changed from
 4491 px to 676 px; customer operational summary from 1703 px to 244 px.
@@ -120,4 +133,7 @@ the collector rather than reported as application defects. A shared-style test's
 old selector expectation was updated. Final build, full tests, responsive suite
 and capture/interaction runs passed. Task-owned browsers and servers were closed.
 
-[Artifact hashes](artifact-hashes.json) bind the retained files, not production state.
+[Artifact hashes](artifact-hashes.json) bind the retained text artifacts, not
+production state. The original manifest also lists the local-only capture files
+and a pre-retention README revision; it is historical provenance, not a live
+verifier of this directory.

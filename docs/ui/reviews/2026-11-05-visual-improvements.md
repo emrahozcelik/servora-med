@@ -11,6 +11,10 @@ Bu sürüm, [ilk raporun](../../evidence/visual-review-20261105/original-review.
 yerini alır. Önceki ekran görüntüleri yeniden incelendi ve bulgular mevcut kaynakla
 karşılaştırıldı. Bu revizyonda yeni ekran yakalaması veya uygulama değişikliği yapılmadı.
 
+Bu belgede adı geçen ekran görüntüleri ürün sahibi tarafından yerel olarak
+saklanır; depoda izlenmez ve `.gitignore` ile korunur. Metin kanıtları, koşucu
+kaydı ve ölçümler izlenmeye devam eder.
+
 ## Değerlendirmem
 
 İlk raporun ana tespitlerine katılıyorum: personelin kendi sayfasında günlük işe
@@ -101,8 +105,8 @@ taşınmamalı.
 [StaffOperationalReport](../../../web/src/reports/StaffOperationalReport.tsx),
 [PeopleService.withCounters](../../../server/src/modules/people/service.ts),
 [ReportsService.currentWorkload](../../../server/src/modules/reports/service.ts).
-[Mobil kanıt](../../evidence/visual-review-20261105/staff-profile-390.png),
-[masaüstü kanıt](../../evidence/visual-review-20261105/staff-profile-1440.png).
+Mobil kanıt: `staff-profile-390.png` (yerel),
+masaüstü kanıt: `staff-profile-1440.png` (yerel).
 
 Bu, Raporlar/Özet çalışmasından ayrı tutulmuş personel UI/UX dilimidir. Yeni
 performans puanı, icracı atfı veya personel satış dönüşüm metriği bu tasarıma eklenmez.
@@ -131,8 +135,8 @@ takip işi ve onaylı SALE farklı kayıtlardır. Yeni dönüşüm iddiası veya
 benzerliğinden üretilmiş ilişki eklenmez.
 
 **Kaynak:** [CustomerDetailView ve CustomerDetailScreen](../../../web/src/CustomerDetail.tsx).
-[Mobil kanıt](../../evidence/visual-review-20261105/customer-detail-390.png),
-[masaüstü kanıt](../../evidence/visual-review-20261105/customer-detail-1440.png).
+Mobil kanıt: `customer-detail-390.png` (yerel),
+masaüstü kanıt: `customer-detail-1440.png` (yerel).
 
 ## 3. Ürün ve müşteri listeleri — eylemleri kullanım sıklığına göre düzenlemek
 
@@ -155,8 +159,8 @@ tek bir genel liste bileşeni bu raporun gereği değil.
 
 **Kaynak:** [ProductResults](../../../web/src/ProductList.tsx),
 [CustomerListView](../../../web/src/CustomerList.tsx), [styles.css](../../../web/src/styles.css).
-[Ürünler mobil](../../evidence/visual-review-20261105/products-390.png),
-[müşteriler mobil](../../evidence/visual-review-20261105/customers-390.png).
+Ürünler mobil: `products-390.png` (yerel),
+müşteriler mobil: `customers-390.png` (yerel).
 
 ## 4. İş listesi — gerekli bilgiyi koruyarak hiyerarşiyi güçlendirmek
 
@@ -178,8 +182,8 @@ planlanmış işlerin tümünde görünüyormuş gibi tasarım kararı alınmama
 **Kaynak:** [JobRow](../../../web/src/jobs/JobRow.tsx),
 [CompactWorkflowSummary](../../../web/src/jobs/CompactWorkflowSummary.tsx),
 [DESIGN.md yaşam döngüsü rehberi](../../../DESIGN.md#job-lifecycle-guidance-detail-first).
-[Masaüstü kanıt](../../evidence/visual-review-20261105/jobs-1440.png),
-[mobil kanıt](../../evidence/visual-review-20261105/jobs-390.png).
+Masaüstü kanıt: `jobs-1440.png` (yerel),
+mobil kanıt: `jobs-390.png` (yerel).
 
 ## 5. Form etiketleri — küçük ve doğrulanabilir ilk iyileştirme
 
@@ -198,8 +202,8 @@ etkisi açısından personel/müşteri detayı hâlâ daha büyük fırsattır.
 
 **Kaynak:** [CustomerCreateForm](../../../web/src/CustomerList.tsx),
 [styles.css](../../../web/src/styles.css).
-[Mobil kanıt](../../evidence/visual-review-20261105/customer-create-390.png),
-[masaüstü kanıt](../../evidence/visual-review-20261105/customer-create-1440.png).
+Mobil kanıt: `customer-create-390.png` (yerel),
+masaüstü kanıt: `customer-create-1440.png` (yerel).
 
 ## 6. Ek bulgu — personel raporunun açıklaması hesapla uyuşmuyor
 

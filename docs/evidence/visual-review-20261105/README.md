@@ -22,10 +22,18 @@ The original artifacts and their hashes below remain historical.
   it is historical provenance, not a portable approved runner. Browser version
   and a fixed clock were not recorded. Reproduction requires restoring that
   source/fixture and adapting the explicit checkout/output paths.
-- [SHA-256 manifest](artifact-hashes.json) covers the original artifacts copied
-  here. It does not assert correct sample data or capture freshness after edits.
+- [SHA-256 manifest](artifact-hashes.json) is the original capture-time record.
+  It also lists the capture files below, which are retained locally only and are
+  not tracked in Git, plus a pre-retention README revision. It does not assert
+  correct sample data or capture freshness after edits, and it is not a live
+  verifier of this directory.
 
 ## Scope
+
+Screenshots are not part of the repository package. The product owner retains
+the 14 capture files below locally, and the `.gitignore` rules for this directory
+keep future captures untracked. Committed text artifacts, the runner snapshot
+and measurements remain tracked.
 
 Each view was captured at 1440×1000 and 390×1000 CSS px, full page, with reduced
 motion. STAFF was used only for the own-profile view; the other six used ADMIN.
@@ -34,13 +42,13 @@ overview/calendar/messaging capabilities disabled. No production data was used.
 
 | View | Desktop | Mobile |
 | --- | --- | --- |
-| Customer list | [1440](customers-1440.png) | [390](customers-390.png) |
-| Customer detail | [1440](customer-detail-1440.png) | [390](customer-detail-390.png) |
-| Customer create | [1440](customer-create-1440.png) | [390](customer-create-390.png) |
-| Product list | [1440](products-1440.png) | [390](products-390.png) |
-| Staff directory | [1440](staff-directory-1440.png) | [390](staff-directory-390.png) |
-| Own staff profile | [1440](staff-profile-1440.png) | [390](staff-profile-390.png) |
-| Job list | [1440](jobs-1440.png) | [390](jobs-390.png) |
+| Customer list | 1440: `customers-1440.png` | 390: `customers-390.png` |
+| Customer detail | 1440: `customer-detail-1440.png` | 390: `customer-detail-390.png` |
+| Customer create | 1440: `customer-create-1440.png` | 390: `customer-create-390.png` |
+| Product list | 1440: `products-1440.png` | 390: `products-390.png` |
+| Staff directory | 1440: `staff-directory-1440.png` | 390: `staff-directory-390.png` |
+| Own staff profile | 1440: `staff-profile-1440.png` | 390: `staff-profile-390.png` |
+| Job list | 1440: `jobs-1440.png` | 390: `jobs-390.png` |
 
 ## Known limitations discovered in the second review
 

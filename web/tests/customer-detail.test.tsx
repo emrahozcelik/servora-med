@@ -31,7 +31,7 @@ const customer: CustomerDetail = {
 
 function render(user: CurrentUser, record: CustomerDetail = customer) {
   return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={record} user={user} staff={[]}
-    pending={false} error="" notice="" onBack={() => {}} onSave={() => {}}
+    pending={false} error="" notice="" editOpen onSave={() => {}}
     onCreateContact={() => {}} historyStatus="all" historyPage={{ items: [...jobs.slice(0, 5), ...completedJobs.slice(0, 5)], total: 12, limit: 20, offset: 0 }}
     historyLoading={false} historyError="" onHistoryStatusChange={() => {}} onHistoryPageChange={() => {}} /></MemoryRouter>);
 }
@@ -90,8 +90,8 @@ describe('Customer detail', () => {
 
   it('explains linked Contact removal in the permanent-delete confirmation', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={admin} staff={[]}
-      pending={false} error="" notice="" deleteConfirmOpen deleteTriggerRef={{ current: null }}
-      onBack={() => {}} onSave={() => {}} onCreateContact={() => {}} /></MemoryRouter>);
+      pending={false} error="" notice="" deleteConfirmOpen deleteTriggerRef={{ current: null }} editOpen
+      onSave={() => {}} onCreateContact={() => {}} /></MemoryRouter>);
     expect(html).toContain('Bu işlem geri alınamaz. Bu müşteri için operasyon geçmişi bulunmuyor. Bağlı 1 ilgili kişi de kalıcı olarak silinecek.');
   });
 
@@ -116,7 +116,7 @@ describe('Customer detail', () => {
 
   it('uses form-actions with Cancel-before-Save DOM order in CustomerEditForm', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
-      pending={false} error="" notice="" onBack={() => {}} onSave={() => {}}
+      pending={false} error="" notice="" editOpen onSave={() => {}}
       onCreateContact={() => {}} /></MemoryRouter>);
     expect(html).toContain('class="form-actions"');
     const cancelIdx = html.indexOf('secondary-button');
@@ -131,7 +131,7 @@ describe('Customer detail', () => {
 
   it('keeps stale form values blocked behind an explicit current-values action', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
-      pending={false} error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}}
+      pending={false} error="Kayıt güncellendi." notice="" conflict editOpen onSave={() => {}}
       onCreateContact={() => {}} onReloadCurrent={() => {}} /></MemoryRouter>);
     expect(html).toContain('value="Demo Dental Klinik"');
     expect(html).toContain('Güncel değerleri yükle');

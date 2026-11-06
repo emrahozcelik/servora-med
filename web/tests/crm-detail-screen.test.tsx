@@ -98,6 +98,7 @@ describe('CRM detail screen concurrency', () => {
     crm.updateCustomer.mockReturnValue(update.promise);
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-a'] });
     await render(router);
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
     await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit());
     await act(async () => { await router.navigate('/customers/customer-b'); }); await settle();
     await act(async () => update.resolve(customer('customer-a', 'A Kliniği güncel', 2)));
@@ -109,6 +110,7 @@ describe('CRM detail screen concurrency', () => {
     crm.updateCustomer.mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.'));
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
     await render(router);
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
     const name = container.querySelector('#detail-customer-name') as HTMLInputElement; name.value = 'Benim değişikliğim';
     await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit()); await settle();
     expect(name.value).toBe('Benim değişikliğim');
@@ -214,6 +216,8 @@ describe('CRM detail screen concurrency', () => {
     await act(async () => confirm.click()); await settle();
     expect(crm.deleteCustomer).toHaveBeenCalledTimes(1);
     expect(crm.getCustomer).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Güncel Klinik');
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
     expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');
     expect(container.textContent).toContain('Dr. Ayşe');
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('Müşteri başka bir kullanıcı tarafından güncellendi');
@@ -424,7 +428,8 @@ describe('CRM detail screen concurrency', () => {
     crm.getCustomer.mockResolvedValueOnce(current).mockResolvedValueOnce({...current, contacts:[contact('contact-new', 'Concurrent contact')]});
     const router = createMemoryRouter([{path:'/customers/:customerId',element:<CustomerRoute user={manager}/>}],{initialEntries:['/customers/customer-1']});
     await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => null}><Suspense fallback={null}><RouterProvider router={router}/></Suspense></RealtimeProvider>));
-    await settle(); const name = container.querySelector('[name="name"]') as HTMLInputElement; name.value = 'Unsaved manager draft'; name.focus();
+    await settle(); await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
+    const name = container.querySelector('[name="name"]') as HTMLInputElement; name.value = 'Unsaved manager draft'; name.focus();
     await act(async () => window.dispatchEvent(new Event('focus'))); await settle();
     expect(container.textContent).toContain('Concurrent contact');
     expect(container.querySelector('[name="name"]')).toBe(name); expect(name.value).toBe('Unsaved manager draft'); expect(document.activeElement).toBe(name);
@@ -472,6 +477,56 @@ describe('CRM detail screen concurrency', () => {
     expect(container.textContent).toContain('Original primary');await act(async()=>button('Bilgileri tamamla').click());
     await act(async()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));await settle();
     expect(crm.enrichCustomer).toHaveBeenCalledWith('customer-1',expect.objectContaining({expectedVersion:2}));
+  });
+
+  it('opens the management editor from the ?edit=1 deep link and cancels without leaving the Customer', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 4));
+    const router = createMemoryRouter([
+      { path: '/customers/:customerId', element: <CustomerRoute user={manager} /> },
+      { path: '/customers', element: <div>Müşteri listesi</div> },
+    ], { initialEntries: ['/customers/customer-1?edit=1'] });
+    await render(router); await settle();
+    const name = container.querySelector('#detail-customer-name') as HTMLInputElement;
+    expect(name).toBeTruthy(); expect(name.value).toBe('Demo Klinik');
+    name.value = 'Kaydedilmemiş taslak';
+    await act(async () => button('Vazgeç').click()); await settle();
+    expect(router.state.location.pathname).toBe('/customers/customer-1');
+    expect(router.state.location.search).toBe('');
+    expect(container.textContent).not.toContain('Müşteri listesi');
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('.customer-edit-disclosure > summary'));
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
+    expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Demo Klinik');
+  });
+
+  it('keeps a conflicted draft until Cancel, then closes and reloads authoritative values', async () => {
+    crm.getCustomer.mockResolvedValueOnce(customer('customer-1', 'Eski Klinik', 3))
+      .mockResolvedValueOnce(customer('customer-1', 'Güncel Klinik', 4));
+    crm.updateCustomer.mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.'));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }],
+      { initialEntries: ['/customers/customer-1?edit=1'] });
+    await render(router); await settle();
+    const name = container.querySelector('#detail-customer-name') as HTMLInputElement;
+    name.value = 'Benim değişikliğim';
+    await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(name.value).toBe('Benim değişikliğim');
+    expect(container.textContent).toContain('Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır');
+    expect(button('Bilgileri kaydet').disabled).toBe(true);
+    await act(async () => button('Vazgeç').click()); await settle();
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(container.textContent).toContain('Sürüm 4');
+    expect(crm.getCustomer).toHaveBeenCalledTimes(2);
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
+    expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');
+  });
+
+  it('keeps the management editor unavailable to STAFF while the enrichment affordance remains', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Visible clinic'));
+    crm.getCustomerEnrichmentScope.mockResolvedValue({ canEnrich: true, canCreateContact: true });
+    await render(staffRouter()); await settle();
+    expect(container.querySelector('.customer-edit-disclosure')).toBeNull();
+    expect(container.querySelector('[name="name"]')).toBeNull();
+    expect(button('Bilgileri tamamla')).toBeTruthy();
   });
 
 });

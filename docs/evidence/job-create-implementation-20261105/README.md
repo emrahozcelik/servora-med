@@ -37,7 +37,7 @@ browser collector; `tr-TR`, `Europe/Istanbul`, fixed time
 `2026-11-05T06:00:00.000Z`, reduced motion. Viewport height 844 below 768 px,
 otherwise 960 px. Touch emulation below 768 px.
 
-## Result and retained images
+## Result and local-only images
 
 **Passed:** no document overflow, clipped selected customer names, product
 identity columns below the runner's 100 px readability floor, unexpected alerts,
@@ -53,16 +53,25 @@ The runner generates 84 PNGs. This bundle retains **23 representative PNGs**;
 `results.json` also lists generated files that were intentionally not retained.
 Those omitted images can be regenerated with the runner.
 
+Screenshots are not part of the repository package. The product owner retains
+the 23 named capture files locally, and the `.gitignore` rules for this directory
+keep future captures untracked. `artifact-hashes.json` is the original
+capture-time manifest: its PNG entries describe local-only files, and its README
+entry predates this retention note. The manifest is preserved unchanged as
+historical provenance and is not a live verifier of this directory. Committed
+text artifacts, the runner snapshot, fixtures, measurements and logs remain
+tracked.
+
 | State | Mobile | Desktop / reflow |
 | --- | --- | --- |
-| Meeting, populated | [390](meeting-filled-manager-390-full.png) | [1440](meeting-filled-manager-1440-full.png) |
-| Task, populated | [390](task-filled-manager-390-full.png) | [1440](task-filled-manager-1440-full.png) |
-| Task, closed optional section | [390](task-initial-manager-390-full.png) | — |
-| Delivery, populated | [390](delivery-filled-manager-390-full.png) | [1440](delivery-filled-manager-1440-full.png) |
-| Delivery, Staff | [390](delivery-filled-staff-390-full.png) | — |
-| Delivery, enlarged text | [200% root font](delivery-text-200-manager-390-full.png) | [320 px](delivery-reflow-manager-320-full.png) |
-| Required errors | [390](meeting-required-errors-manager-390-viewport.png) | — |
-| New job menu | [390](new-job-menu-staff-390-viewport.png) | [1440](new-job-menu-staff-1440-viewport.png) |
+| Meeting, populated | 390: `meeting-filled-manager-390-full.png` | 1440: `meeting-filled-manager-1440-full.png` |
+| Task, populated | 390: `task-filled-manager-390-full.png` | 1440: `task-filled-manager-1440-full.png` |
+| Task, closed optional section | 390: `task-initial-manager-390-full.png` | — |
+| Delivery, populated | 390: `delivery-filled-manager-390-full.png` | 1440: `delivery-filled-manager-1440-full.png` |
+| Delivery, Staff | 390: `delivery-filled-staff-390-full.png` | — |
+| Delivery, enlarged text | 200% root font: `delivery-text-200-manager-390-full.png` | 320 px: `delivery-reflow-manager-320-full.png` |
+| Required errors | 390: `meeting-required-errors-manager-390-viewport.png` | — |
+| New job menu | 390: `new-job-menu-staff-390-viewport.png` | 1440: `new-job-menu-staff-1440-viewport.png` |
 
 Full-page PNGs place fixed bottom navigation at the capture scroll position;
 this is not evidence that the bar permanently covers those fields. Viewport PNGs

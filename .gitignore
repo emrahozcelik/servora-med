@@ -18,3 +18,10 @@ dünya-dental.png
 /.workbuddy-ai/
 /.freebuff/
 /host.md
+
+# Visual-review captures are retained by the product owner outside version
+# control. Text evidence, runners, measurements and hashes below stay tracked.
+/docs/evidence/job-create-implementation-20261105/**/*.png
+/docs/evidence/job-create-review-20261105/**/*.png
+/docs/evidence/visual-improvements-implementation-20261105/**/*.png
+/docs/evidence/visual-review-20261105/**/*.png
