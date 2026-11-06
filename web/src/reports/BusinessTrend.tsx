@@ -78,7 +78,7 @@ export function BusinessTrendView({ report }: { report: BusinessTrendReportRespo
       </figure>
       {report.totals.visits === 0 && report.totals.sales === 0 && <p className="business-trend-empty">Bu dönemde onaylı ziyaret veya satış kaydı bulunmuyor.</p>}
     </> : <p className="business-trend-empty">Seçilen dönem henüz başlamadı. Gelecek günler grafiğe eklenmez.</p>}
-    <p className="business-trend-footnote">Günlük adetler · {report.range.timezone}.
+    <p className="business-trend-footnote">Günlük ziyaret, takip ve satış sayıları.
       {comparison && <> Karşılaştırma: {dateLabel(comparison.range.from)} – {dateLabel(comparison.range.to)}.</>}
       {report.partialDay && ' Bugün henüz tamamlanmadı; önceki dönemin son günü de aynı yerel saate kadar sayılır.'}
       {' Takip ziyaretleri, toplam ziyaretlerin içindedir.'}

@@ -25,9 +25,10 @@ import { FilterSheet, countTruthy } from './ui/FilterSheet';
 export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
+export const CUSTOMER_PAGE_SIZE = 5;
 export type CustomerListState =
   | { kind: 'loading' }
-  | { kind: 'ready'; customers: CustomerSummary[] }
+  | { kind: 'ready'; customers: CustomerSummary[]; total?: number; offset?: number }
   | { kind: 'error'; message: string; retryable: boolean };
 
 export function customerFiltersFromParams(params: URLSearchParams): CustomerFilterValues {
@@ -237,7 +238,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, feedback = '' }: {
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, onPageChange, feedback = '' }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -248,9 +249,12 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   onFilterChange?: (name: string, value: string | boolean) => void;
   onApplyFilters?: (next: CustomerDraft) => void;
   onOpenCustomer?: (customerId: string) => void;
+  onPageChange?: (offset: number) => void;
   feedback?: string;
 }) {
   const canManage = user.role !== 'STAFF';
+  const total = state.kind === 'ready' ? (state.total ?? state.customers.length) : 0;
+  const offset = state.kind === 'ready' ? (state.offset ?? 0) : 0;
 
   return <main className="workspace customer-workspace">
     <PageHeader fallbackTitle="Müşteriler"
@@ -279,6 +283,15 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
             aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
         </div>}
       </article></li>)}</ul>}
+    {state.kind === 'ready' && total > CUSTOMER_PAGE_SIZE && state.customers.length > 0 && (
+      <nav className="customer-pagination" aria-label="Müşteri listesi sayfaları">
+        <button className="secondary-button" type="button" disabled={offset === 0}
+          onClick={() => onPageChange?.(Math.max(0, offset - CUSTOMER_PAGE_SIZE))}>Önceki</button>
+        <span>Sayfa {Math.floor(offset / CUSTOMER_PAGE_SIZE) + 1} / {Math.ceil(total / CUSTOMER_PAGE_SIZE)} · Toplam {total} müşteri</span>
+        <button className="secondary-button" type="button" disabled={offset + CUSTOMER_PAGE_SIZE >= total}
+          onClick={() => onPageChange?.(offset + CUSTOMER_PAGE_SIZE)}>Sonraki</button>
+      </nav>
+    )}
   </main>;
 }
 
@@ -381,7 +394,12 @@ export async function createCustomerWithRecovery(input: CreateCustomerInput, dep
 }
 
 export function customerRequestFilters(filters: CustomerFilterValues, debouncedQuery: string): CustomerFilters {
-  return { ...filters, q: debouncedQuery || undefined };
+  return {
+    ...filters,
+    q: debouncedQuery || undefined,
+    limit: CUSTOMER_PAGE_SIZE,
+    offset: Math.floor(Math.max(0, filters.offset ?? 0) / CUSTOMER_PAGE_SIZE) * CUSTOMER_PAGE_SIZE,
+  };
 }
 
 export function scheduleCustomerSearch(callback: () => void, delay = 250) {
@@ -448,7 +466,22 @@ export function CustomerListScreen({ user, load = listCustomers }: {
     let active = true; setState({ kind: 'loading' });
     const requestFilters = customerRequestFilters(filters, debouncedQuery);
     Promise.all([load(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
-      .then(([result, profiles]) => { if (active) { setState({ kind: 'ready', customers: result.items }); setStaff(profiles); } })
+      .then(([result, profiles]) => {
+        if (!active) return;
+        const requestedOffset = requestFilters.offset ?? 0;
+        if (requestedOffset >= result.total && requestedOffset > 0) {
+          // Deletion or a copied out-of-range URL may invalidate a page.
+          const recoveredOffset = Math.max(0, Math.ceil(result.total / CUSTOMER_PAGE_SIZE) - 1) * CUSTOMER_PAGE_SIZE;
+          const next = new URLSearchParams(params);
+          if (recoveredOffset > 0) next.set('offset', String(recoveredOffset));
+          else next.delete('offset');
+          next.delete('limit');
+          setParams(next, { replace: true });
+          return;
+        }
+        setState({ kind: 'ready', customers: result.items, total: result.total, offset: result.offset });
+        setStaff(profiles);
+      })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
   }, [debouncedQuery, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
@@ -457,6 +490,13 @@ export function CustomerListScreen({ user, load = listCustomers }: {
     if (value === '' || value === false) next.delete(name); else next.set(name, String(value));
     if (name === 'unassigned' && value === true) next.delete('assignedStaffUserId');
     next.delete('offset'); setParams(next);
+  }
+  function changePage(nextOffset: number) {
+    const next = new URLSearchParams(params);
+    if (nextOffset > 0) next.set('offset', String(nextOffset));
+    else next.delete('offset');
+    next.delete('limit');
+    setParams(next);
   }
   function applyManyFilters(draft: CustomerDraft) {
     const next = new URLSearchParams();
@@ -474,6 +514,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
       onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
       onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
       onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}
+      onPageChange={changePage}
       feedback={feedback} />
   </>;
 }

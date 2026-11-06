@@ -36,7 +36,7 @@ const OUTCOME_LABELS: Record<string, string> = {
 const OUTCOME_ORDER = ['POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED'] as const;
 
 const OUTCOME_DISCLOSURE =
-  'Seçilen dönem, görüşme gerçekleşme kaydına (meeting_at) göre belirlenir; dağılım görüşmelerin güncel kayıtlı sonucunu gösterir. Sonuç sonradan değiştirilebilir ve geçmişe dönük yorumlanmamalıdır.';
+  'Seçilen dönemde gerçekleşen görüşmelerin güncel kayıtlı sonuçları gösterilir. Sonuçlar sonradan değişebilir; bu nedenle dağılım geçmişteki durumu kesin olarak yansıtmaz.';
 
 const OVERDUE_HINT =
   'Yalnız teslim tarihi bulunan aktif takip işleri sayılır; otomatik oluşturulan takiplerde tarih bulunmayabilir.';

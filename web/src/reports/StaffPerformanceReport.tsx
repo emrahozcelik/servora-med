@@ -229,7 +229,6 @@ export function StaffPerformanceReport() {
                 Önceki dönem: {priorRangeLabel(report)}
               </p>
             </div>
-            <span>{report.range.timezone}</span>
           </div>
           {records.length === 0 ? (
             <ReportEmptyState

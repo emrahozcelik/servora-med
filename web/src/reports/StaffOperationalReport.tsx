@@ -83,7 +83,7 @@ function formatDate(value: string) {
 }
 
 function formatReportRange(range: ResolvedReportRange) {
-  return `${formatDate(range.from)} – ${formatDate(range.to)} · ${range.timezone}`;
+  return `${formatDate(range.from)} – ${formatDate(range.to)}`;
 }
 
 function dailyCompletionRows(report: StaffReportResponse): OperationalTableRow[] {

@@ -297,9 +297,9 @@ describe('Sales follow-up presentation', () => {
     for (const label of ['Olumlu sonuç', 'Takip gerekli', 'Karar verilmedi', 'İlgilenmedi']) {
       expect(html).toContain(label);
     }
-    expect(html).toContain('Seçilen dönem, görüşme gerçekleşme kaydına (meeting_at) göre belirlenir');
-    expect(html).toContain('güncel kayıtlı sonucunu gösterir');
-    expect(html).toContain('Sonuç sonradan değiştirilebilir');
+    expect(html).toContain('Seçilen dönemde gerçekleşen görüşmelerin güncel kayıtlı sonuçları gösterilir');
+    expect(html).toContain('Sonuçlar sonradan değişebilir');
+    expect(html).not.toContain('meeting_at');
     expect(html).not.toContain('Dönüşüm');
     expect(html).not.toContain('Kazanıldı');
     expect(html).not.toContain('Satış başarısı');
