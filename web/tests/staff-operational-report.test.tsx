@@ -82,6 +82,7 @@ describe('Staff operational report', () => {
     const html = renderToStaticMarkup(<StaffOperationalReport report={report} />);
     expect(html).toContain('1 Temmuz 2026 – 31 Temmuz 2026');
     expect(html).not.toContain('Europe/Istanbul');
+    expect(html).not.toMatch(/\b(?:NEW|ACCEPTED|IN_PROGRESS)\b/);
     expect(html).toContain('Pasif personel');
     expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
     expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');

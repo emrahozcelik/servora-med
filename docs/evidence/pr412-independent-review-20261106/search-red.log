@@ -1,0 +1,33 @@
+
+> servora-med-web@0.1.0 test
+> vitest --run customer-list.test.tsx -t old response while
+
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/pr412-independent-20261106/web
+
+ ❯ tests/customer-list.test.tsx (22 tests | 1 failed | 21 skipped) 29ms
+     × ignores an old response while the next search is being debounced 28ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/customer-list.test.tsx > Customer list navigation feedback > ignores an old response while the next search is being debounced
+AssertionError: expected 'MüşterilerYeni müşteriMüşteri araDuru…' not to contain 'Eski Klinik'
+
+Expected: "Eski Klinik"
+Received: "MüşterilerYeni müşteriMüşteri araDurumAktif ve adayYalnız aktifYalnız adayMüşteri türüTümüKlinikHastaneBayiFirmaDiğerŞehirSorumlu personelTümüAtanmamış müşterilerAktifKlinikEski KlinikİstanbulSorumlu personelAyşe PersonelBirincil kişiDr. Ayşe Yılmaz"
+
+ ❯ tests/customer-list.test.tsx:323:39
+    321|     await act(async () => { await router.navigate('/customers?q=Yeni')…
+    322|     await act(async () => resolveOld({ items: [{ ...customer, name: 'E…
+    323|     expect(container.textContent).not.toContain('Eski Klinik');
+       |                                       ^
+    324|     expect(load).toHaveBeenCalledTimes(1);
+    325|     await act(async () => { vi.advanceTimersByTime(250); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 skipped (22)
+   Start at  19:42:48
+   Duration  899ms (transform 96ms, setup 11ms, import 551ms, tests 29ms, environment 196ms)

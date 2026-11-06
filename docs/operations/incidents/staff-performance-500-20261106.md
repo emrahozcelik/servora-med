@@ -1,12 +1,37 @@
 # Production Staff performance report — HTTP 500 triage (2026-11-06)
 
-**Status: OPEN / ROOT CAUSE UNVERIFIED.** User observed "Personel operasyon analizi yüklenemedi — Beklenmeyen bir hata oluştu." on the deployed `3da00aeeb7863df7196a02f9290ab6cda11b8240` release. Do not label this incident resolved merely because UI or CI passes.
+**Status: OPEN / ROOT CAUSE CONFIRMED / HOTFIX NOT DEPLOYED.** User observed "Personel operasyon analizi yüklenemedi — Beklenmeyen bir hata oluştu." on the deployed `3da00aeeb7863df7196a02f9290ab6cda11b8240` release. Do not label this incident resolved merely because UI or CI passes.
+
+## Independent diagnosis — 2026-11-06
+
+The deployed ReportsService reproduced `Staff current workload type aggregate
+invariant could not be resolved` with both sale capability settings. All preceding
+SQL reads passed. Operational counters include outstanding WEEKLY_REPORT jobs;
+productive-work buckets exclude them. The service incorrectly compared these
+different totals for exact equality. Anonymous read-only reconciliation confirmed
+that the difference equals the active weekly-report count.
+
+Observed release SHA matches the reported SHA; PostgreSQL 17.11 and migration
+head `060_crm_duplicate_review_decisions` (60 migrations) were read-only verified.
+The existing deploy account ran bounded READ ONLY transactions. No production
+data, schema, service, log level or permissions were changed; no session was
+created. No real data was copied into tests. host.md/root credentials were not
+opened. Existing journal records remain inaccessible to the deploy account;
+an authenticated HTTP request was not replayed. The operator-reported HTTP 500
+and the independently reproduced service error are distinct evidence.
+
+The separate [P1 hotfix PR #413](https://github.com/emrahozcelik/servora-med/pull/413)
+keeps strict internal reconciliation and filters the weekly bucket before public
+productive-work output. The same final PostgreSQL regression gave 5 FAIL on
+baseline source and 5 PASS with the fix; all report regressions passed (19 files /
+184 tests). The fix is not part of PR #412. Merge/deployment and authenticated
+post-deployment acceptance remain separate authorization gates.
 
 ## Scope and safety
 
 - Management-only `GET /api/reports/staff` (`server/src/modules/reports/routes.ts`). Do not use unscoped test identities or reveal organization, staff, customer, token, cookie, session or database values.
 - `web/src/reports/StaffPerformanceReport.tsx` displays the API error. `server/src/errors/index.ts` maps uncaught errors to HTTP 500 with safe `INTERNAL_ERROR` and "Beklenmeyen bir hata oluştu." These facts identify the error boundary, **not** its underlying cause.
-- Production access, logs and a read-only investigation require the authorized operator. This PR has not accessed production, migrated data, restarted services or reproduced the 500.
+- Production access and read-only investigation require the authorized operator. The initial UI author had no production evidence; the authorized independent diagnosis above supersedes that limitation without claiming production activation.
 
 ## Authorized read-only evidence collection (no mutations)
 

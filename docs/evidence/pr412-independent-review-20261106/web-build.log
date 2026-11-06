@@ -1,0 +1,96 @@
+
+> servora-med-web@0.1.0 build
+> tsc -b && vite build
+
+vite v8.1.6 building client environment for production...
+[2Ktransforming...✓ 1676 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                       2.61 kB │ gzip:   0.81 kB
+dist/assets/antd-CmufOtdo.css                         2.44 kB │ gzip:   0.68 kB
+dist/assets/job-create-N0QDVeEa.css                   2.44 kB │ gzip:   0.79 kB
+dist/assets/DuplicateCustomers-DvwDyPUi.css           3.55 kB │ gzip:   0.97 kB
+dist/assets/ReportsDashboard-BXeHjIFC.css             6.67 kB │ gzip:   1.59 kB
+dist/assets/MessagingPage-DXzIGkxI.css               12.92 kB │ gzip:   2.73 kB
+dist/assets/index-Bf7Uja8e.css                      154.23 kB │ gzip:  25.39 kB
+dist/assets/mutation-attempt-error-D0mzf-Kv.js        0.17 kB │ gzip:   0.16 kB
+dist/assets/file-download-DeAnMfmG.js                 0.26 kB │ gzip:   0.20 kB
+dist/assets/reactNode-B39lUYdZ.js                     0.31 kB │ gzip:   0.23 kB
+dist/assets/SettingsTabs-CQ-Pq120.js                  0.32 kB │ gzip:   0.24 kB
+dist/assets/clickable-card-CLtAxzy_.js                0.41 kB │ gzip:   0.23 kB
+dist/assets/job-create-BzVSZjDL.js                    0.58 kB │ gzip:   0.39 kB
+dist/assets/LoadingSkeleton-DigKpld8.js               0.69 kB │ gzip:   0.36 kB
+dist/assets/overlay-focus-DrD4Gb5U.js                 1.14 kB │ gzip:   0.48 kB
+dist/assets/OperationalTable-DM--2NsO.js              1.32 kB │ gzip:   0.52 kB
+dist/assets/products-api-CC1Qackg.js                  1.54 kB │ gzip:   0.76 kB
+dist/assets/follow-up-presentation-BlC6VlCi.js        1.59 kB │ gzip:   0.86 kB
+dist/assets/ResponsiveDrawer-CzLY7hzs.js              1.72 kB │ gzip:   0.74 kB
+dist/assets/ResponsiveFormDrawer-Bjdvfpdt.js          1.77 kB │ gzip:   0.79 kB
+dist/assets/useCustomerSchedulePreview-qMx_NJdP.js    1.89 kB │ gzip:   0.89 kB
+dist/assets/ConfirmationAction-CgKSHB2W.js            1.96 kB │ gzip:   0.95 kB
+dist/assets/calendar-api-8c7WakJb.js                  2.43 kB │ gzip:   0.97 kB
+dist/assets/ReassignmentSyncPrompt-B5IVFyhh.js        2.45 kB │ gzip:   1.12 kB
+dist/assets/PhoneInput-cibNck8C.js                    2.51 kB │ gzip:   1.04 kB
+dist/assets/useAvailableSlotSearch-csX4BOhS.js        2.97 kB │ gzip:   1.31 kB
+dist/assets/DocumentationPage-D27n-e5Y.js             3.09 kB │ gzip:   1.36 kB
+dist/assets/HelpCenterPage-D8PhEER4.js                3.48 kB │ gzip:   1.52 kB
+dist/assets/messaging-api-vGCkUfCK.js                 3.49 kB │ gzip:   1.16 kB
+dist/assets/ApprovalReport-CNbNHsg5.js                3.50 kB │ gzip:   1.56 kB
+dist/assets/StaffPerformanceReport-DDzK54nc.js        4.35 kB │ gzip:   1.95 kB
+dist/assets/workspace-content-BWvx7_CD.js             4.61 kB │ gzip:   1.84 kB
+dist/assets/MetricStatistic-13WHiPBu.js               4.90 kB │ gzip:   2.18 kB
+dist/assets/ProductSelect-Co-8mFsN.js                 4.91 kB │ gzip:   1.86 kB
+dist/assets/report-shell-DV9Nrg-p.js                  4.94 kB │ gzip:   2.03 kB
+dist/assets/report-charts-BxzHOB--.js                 5.04 kB │ gzip:   1.56 kB
+dist/assets/CustomerSearchSelect-CKBcr8hU.js          5.05 kB │ gzip:   2.06 kB
+dist/assets/ContextIsolator-CqiNFsNX.js               5.47 kB │ gzip:   2.43 kB
+dist/assets/SubmissionLateness-CLdgkIeW.js            6.06 kB │ gzip:   2.10 kB
+dist/assets/DataManagementPage-Dp9B3SNU.js            6.28 kB │ gzip:   2.02 kB
+dist/assets/DeliveryReport-COBLA-nV.js                6.39 kB │ gzip:   2.49 kB
+dist/assets/weekly-report-api-DBi7P6T_.js             6.40 kB │ gzip:   1.85 kB
+dist/assets/SaleCreate-DixIK9NA.js                    6.41 kB │ gzip:   2.64 kB
+dist/assets/ProductList-BeCDYMFU.js                   6.45 kB │ gzip:   2.55 kB
+dist/assets/crm-api-CIHTE9gD.js                       6.49 kB │ gzip:   2.22 kB
+dist/assets/sale-form-DCsWZYKs.js                     6.61 kB │ gzip:   2.58 kB
+dist/assets/ProductForm-CnmNStcD.js                   6.73 kB │ gzip:   2.23 kB
+dist/assets/DuplicateReviewRegister-CAIB64YX.js       6.75 kB │ gzip:   2.70 kB
+dist/assets/RecordDescriptions-kG3WwEnM.js            8.67 kB │ gzip:   3.15 kB
+dist/assets/GeneralTaskCreate-CV0pRYqf.js             8.71 kB │ gzip:   2.96 kB
+dist/assets/ProductDetail-3fwwLgVw.js                 8.94 kB │ gzip:   2.97 kB
+dist/assets/CustomerReport-DuENvx33.js                9.14 kB │ gzip:   2.80 kB
+dist/assets/OverviewPage-CNjl-Aw8.js                  9.25 kB │ gzip:   2.87 kB
+dist/assets/SalesMeetingCreate-BYwwDpmD.js            9.31 kB │ gzip:   3.03 kB
+dist/assets/StaffOperationalReport-D8LNG1hZ.js        9.42 kB │ gzip:   3.18 kB
+dist/assets/DeliveryCreate-Cu3Zx5pP.js                9.49 kB │ gzip:   3.38 kB
+dist/assets/EmptyState-BkxVu0vc.js                    9.49 kB │ gzip:   3.91 kB
+dist/assets/skeleton-GCQfz8On.js                      9.58 kB │ gzip:   3.25 kB
+dist/assets/SettingsPages-Boge0RuH.js                 9.91 kB │ gzip:   3.08 kB
+dist/assets/WeeklyReportCreate-uPLyR6qD.js           12.13 kB │ gzip:   4.07 kB
+dist/assets/people-api-DFFD5mkS.js                   12.22 kB │ gzip:   3.80 kB
+dist/assets/ContactManagement-BCSl4fYW.js            12.56 kB │ gzip:   3.63 kB
+dist/assets/SalesFollowUpReport-DDCD3K-V.js          13.48 kB │ gzip:   4.08 kB
+dist/assets/CalendarPage-Cgs9NELF.js                 14.56 kB │ gzip:   5.14 kB
+dist/assets/ReportsDashboard-CUCSKVhz.js             15.83 kB │ gzip:   5.32 kB
+dist/assets/FollowUpCreatePage-B3KUKyiT.js           16.58 kB │ gzip:   5.06 kB
+dist/assets/StaffProfiles-BhwJ_zGq.js                18.07 kB │ gzip:   5.40 kB
+dist/assets/reports-api-DlpBcMmU.js                  19.89 kB │ gzip:   4.86 kB
+dist/assets/CustomerList-DddTsc-D.js                 21.82 kB │ gzip:   6.58 kB
+dist/assets/DemoDataPage-BdBn7kcc.js                 22.60 kB │ gzip:   6.84 kB
+dist/assets/CustomerDetail-Dw_UYeJC.js               24.33 kB │ gzip:   6.83 kB
+dist/assets/BackupRecoveryPage-BIX92dBR.js           26.11 kB │ gzip:   7.52 kB
+dist/assets/MessagingPage-BLq7oPdp.js                27.58 kB │ gzip:   6.99 kB
+dist/assets/UserAvatar-Da0823BM.js                   28.37 kB │ gzip:   9.76 kB
+dist/assets/api-B_2e8Jmn.js                          29.88 kB │ gzip:   8.91 kB
+dist/assets/ResultState-DURdnQZH.js                  37.83 kB │ gzip:  11.60 kB
+dist/assets/UserManagement-L0V2QBD6.js               41.01 kB │ gzip:  11.59 kB
+dist/assets/DuplicateCustomers-CZOWm02N.js           45.80 kB │ gzip:  13.18 kB
+dist/assets/PageHeader-BRLbP9gn.js                   71.82 kB │ gzip:  23.59 kB
+dist/assets/context-FrcpBYPn.js                      75.68 kB │ gzip:  26.16 kB
+dist/assets/OperationalCard-BDmcluth.js              78.09 kB │ gzip:  24.81 kB
+dist/assets/index-CSPKeCTQ.js                       125.38 kB │ gzip:  35.20 kB
+dist/assets/JobDetail-DjydFMa-.js                   150.13 kB │ gzip:  37.21 kB
+dist/assets/ServoraCalendar-D9BXbiU3.js             184.86 kB │ gzip:  59.50 kB
+dist/assets/useMergeSemantic-BRHuTL4O.js            260.02 kB │ gzip:  86.76 kB
+dist/assets/antd-BrMPWehE.js                        398.85 kB │ gzip: 119.86 kB
+
+✓ built in 242ms

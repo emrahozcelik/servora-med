@@ -180,7 +180,7 @@ export function StaffOperationalReport({ report, showCurrentWorkloadMetrics = tr
       <h3 id="staff-current-title">Şu an — mevcut operasyon yükü</h3>
       <p className="report-section-hint">
         {showCurrentWorkloadMetrics
-          ? 'Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını; diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.'
+          ? 'Aksiyon alınabilir işler mevcut atamaya göre yeni, atanmış ve devam eden işleri; diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.'
           : 'Güncel sayaçlar sayfanın üstündeki Operasyon özeti bölümündedir. Buradaki tür dağılımı seçilen dönemden bağımsızdır.'}
       </p>
       {showCurrentWorkloadMetrics && <dl className="staff-analysis-metrics staff-current-workload-grid">

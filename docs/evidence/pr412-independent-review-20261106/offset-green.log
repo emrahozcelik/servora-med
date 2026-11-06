@@ -1,0 +1,12 @@
+
+> servora-med-web@0.1.0 test
+> vitest --run customer-list.test.tsx -t malformed or unsafe
+
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/pr412-independent-20261106/web
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 20 skipped (21)
+   Start at  19:42:02
+   Duration  859ms (transform 93ms, setup 11ms, import 526ms, tests 2ms, environment 227ms)

@@ -45,7 +45,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
     ...(params.get('assignedStaffUserId') ? { assignedStaffUserId: params.get('assignedStaffUserId')! } : {}),
     ...(params.get('unassigned') === 'true' ? { unassigned: true } : {}),
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
-    ...(Number.isFinite(offset) && offset >= 0 ? { offset } : {}),
+    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset } : {}),
   };
 }
 
@@ -464,6 +464,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
+    if (debouncedQuery !== (filters.q ?? '')) return;
     const requestFilters = customerRequestFilters(filters, debouncedQuery);
     Promise.all([load(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
       .then(([result, profiles]) => {
@@ -484,7 +485,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
       })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
-  }, [debouncedQuery, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
+  }, [debouncedQuery, filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
   function changeFilter(name: string, value: string | boolean) {
     const next = new URLSearchParams(params);
     if (value === '' || value === false) next.delete(name); else next.set(name, String(value));

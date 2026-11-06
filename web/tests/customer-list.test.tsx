@@ -20,7 +20,7 @@ import {
   type CustomerListState,
 } from '../src/CustomerList';
 import { ApiError, type CurrentUser } from '../src/services/api';
-import type { CustomerSummary } from '../src/services/crm-api';
+import type { CustomerFilters, CustomerSummary, Paginated } from '../src/services/crm-api';
 import type { StaffProfile } from '../src/services/people-api';
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
@@ -132,6 +132,13 @@ describe('Customer list and creation', () => {
     expect(html).toContain('Toplam 11 müşteri');
     expect(html).toContain('Önceki');
     expect(html).toContain('Sonraki');
+  });
+
+  it('does not send malformed or unsafe URL offsets to the server', () => {
+    for (const offset of ['invalid', '-5', '7.5', 'Infinity', '1e100', '9007199254740992']) {
+      const filters = customerFiltersFromParams(new URLSearchParams({ offset }));
+      expect(customerRequestFilters(filters, '').offset, offset).toBe(0);
+    }
   });
 
   it('debounces text search and rejects stale similar-name generations', () => {
@@ -297,7 +304,46 @@ describe('Customer list navigation feedback', () => {
   });
 
   afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+    await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers();
+  });
+
+  it('ignores an old response while the next search is being debounced', async () => {
+    vi.useFakeTimers();
+    let resolveOld!: (page: Paginated<CustomerSummary>) => void;
+    const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
+    const load = vi.fn(async (filters: CustomerFilters) => filters.q === 'Yeni'
+      ? { items: [{ ...customer, name: 'Yeni Klinik' }], total: 1, limit: 5, offset: 0 }
+      : oldPage);
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
+    }], { initialEntries: ['/customers?q=Eski'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await router.navigate('/customers?q=Yeni'); });
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski Klinik' }], total: 1, limit: 5, offset: 0 }));
+    expect(container.textContent).not.toContain('Eski Klinik');
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(250); });
+    expect(container.textContent).toContain('Yeni Klinik');
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Yeni', limit: 5, offset: 0 }));
+  });
+
+  it('keeps the latest page when an older page response arrives later', async () => {
+    let resolveOld!: (page: Paginated<CustomerSummary>) => void;
+    const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
+    const secondPage = Array.from({ length: 5 }, (_, i) => ({ ...customer, id: `page-two-${i}`, name: `İkinci sayfa klinik ${i}` }));
+    const load = vi.fn(async (filters: CustomerFilters) => filters.offset === 5
+      ? { items: secondPage, total: 10, limit: 5, offset: 5 } : oldPage);
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
+    }], { initialEntries: ['/customers'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await router.navigate('/customers?offset=5'); });
+    expect(container.textContent).toContain('İkinci sayfa klinik 0');
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski sayfa' }], total: 10, limit: 5, offset: 0 }));
+    expect(container.textContent).not.toContain('Eski sayfa');
+    expect(container.textContent).toContain('İkinci sayfa klinik 0');
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('pages through the server rather than downloading all customers', async () => {

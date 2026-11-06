@@ -1,0 +1,67 @@
+{
+  "responsive.log": {
+    "originalSha256": "56a2d2f02e28c798986f6f79a9443d1d6d9761c687f7ed546454e950af8091dc",
+    "retainedSha256": "56a2d2f02e28c798986f6f79a9443d1d6d9761c687f7ed546454e950af8091dc",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "existing-ci-test.log": {
+    "originalSha256": "c8de3ad9f829812ddeaa34bf84509f45589f9607f007307c80885d68f01177b1",
+    "retainedSha256": "a1c0378ba29f95a21c8d6059f50e9ae8ff9e01ddcb344bd35cd387cb7dad6307",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "focused-initial.log": {
+    "originalSha256": "c19b73dbb2f852f1baf3658f7639c647edc5485c9dede308687020da66d16cbc",
+    "retainedSha256": "c18f5d8127daa854bef85ae06beb499bb52cbf9d7e9df3e57d6bd37d78a71a72",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "focused-final.log": {
+    "originalSha256": "b9bb8eaf65da40a8a1cc48bd1b01accb3a424c4aef1e037770bc7ee88ad282d6",
+    "retainedSha256": "ff4a2374794e15ae143df210477a9fcb21441db6adc58713a546f7154034b0f3",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "web-suite.log": {
+    "originalSha256": "b0860c1a618575b2d73eefb3f1bd575a12d87e9f65d2ce83037fe82985739288",
+    "retainedSha256": "d2b4414c73c744ecd2ae6ea7388f3d34b2612f4a30cdb5f1769979a6e39c2e53",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "offset-red.log": {
+    "originalSha256": "d7574d6af2da6e1b7a930ee71b8f4ae77761e2735a1e4201bdf354c71e6acc77",
+    "retainedSha256": "65e3801be79587582f63466e6d44c83043151f12e2f5032925b0dc7ad757f9b8",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "server-build.log": {
+    "originalSha256": "d31d00955690f3c3f3cffcfc4a082d9cc17e98d23d69dc82a8d2acdf8d2faed7",
+    "retainedSha256": "a21bfc8f744284d23ac312e9bc0d90165102676a4b34a2bcdb7cb6852b9c9fb8",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "search-red.log": {
+    "originalSha256": "26a2e538246c7af4ed52bfa068ea8e56cc6b6783c539f5cfe20f94a413e6fcc5",
+    "retainedSha256": "b6ae5117791bec73e2b660660c628eb62f3983822f8bb2f459222ccd1635cad2",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "bundle.log": {
+    "originalSha256": "4527622f01c1324bdaeca26c26a5d79a806cb4008a432ca1da850d12af4ca7f8",
+    "retainedSha256": "4527622f01c1324bdaeca26c26a5d79a806cb4008a432ca1da850d12af4ca7f8",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "search-green.log": {
+    "originalSha256": "330264a096f411ae727cbd48831774fffa79923a40178651869b1cfa05f8d652",
+    "retainedSha256": "f38b33a06af5301b1235dade7aceeaa4b59f32bbf4ed37a069f87b8b9fbe8a01",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "web-build.log": {
+    "originalSha256": "3a6947b97a991295d53b61112dfd1179a9c1818bcb919450f5cdb99981431926",
+    "retainedSha256": "3a6947b97a991295d53b61112dfd1179a9c1818bcb919450f5cdb99981431926",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "offset-green.log": {
+    "originalSha256": "2a5d9a3474c87464b9e4e58f1032a6828e8766f6e444e945207eb9f5d5b841b4",
+    "retainedSha256": "05cc795c817178fd5afbe25c3a5b1bcb159bffa02903bcbb310d7dd39b35d341",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  },
+  "server-regressions.log": {
+    "originalSha256": "95cf4560d37fb54dc9a15354a96a527264571e9350349a1b3272aa74475d55e0",
+    "retainedSha256": "4a4b34bc92b88e076edd1a24b9bd5182b5e8b0dd19af936dbe35a399e035acb1",
+    "transformation": "extra blank lines at EOF removed; one final newline retained"
+  }
+}
