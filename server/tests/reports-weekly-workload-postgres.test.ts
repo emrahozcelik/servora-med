@@ -42,6 +42,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Staff report weekly workload re
         { type: 'SALES_MEETING', count: 0 }, { type: 'SALE', count: 0 },
       ]);
       expect(result.items[0].performance.completedJobs).toBe(0);
+      expect(result.items[0]).not.toHaveProperty('weeklyReportWorkload');
       const individual = await service.getStaffReport(actor, staffId, { requestedRange: null, includeSaleCapability: true });
       expect(individual.currentWorkloadByType).toEqual(result.items[0].currentWorkloadByType);
       await pool.query('UPDATE users SET is_active=FALSE WHERE id=$1', [staffId]);

@@ -1,0 +1,231 @@
+
+> servora-med-server@0.1.0 test
+> node --env-file-if-exists=.env scripts/run-tests.mjs --run tests/weekly-report-reporting-exclusion-postgres.test.ts
+
+.env not found. Continuing without it.
+TEST_ENV_PREFLIGHT_OK database=servora_med_test_staff_p1_20261106 url=postgresql://servora_pr412@127.0.0.1:55513/servora_med_test_staff_p1_20261106 postgres_major=17 tools=psql:17,pg_dump:17,pg_restore:17
+TEST_ENV_PREFLIGHT_NOTE schema COMPATIBLE (catalogHead=060_crm_duplicate_review_decisions appliedHead=none)
+TEST_ENV_PREFLIGHT_NOTE build artifacts present and fresh
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/staff-report-p1-20261106/server
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 001_auth_foundation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 002_delivery_tracer.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 003_people.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 004_crm_contacts.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 005_product_catalog.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 006_jobcard_workspace.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 007_sales_meeting.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 008_meeting_approval_withdrawal.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 009_job_acceptance_and_scheduling.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 010_entity_delete_audit.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 011_create_realtime_events.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 012_create_in_app_notifications.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 013_create_job_action_locations.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 014_create_web_push.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 015_job_card_engagement_kind.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 016_google_reverse_geocoding.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 017_calendar.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 018_messaging.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 019_job_card_operational_note_context.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 020_job_card_transition_note_contexts.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 021_job_card_note_added_notification_kind.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 022_job_card_follow_up_links.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 023_staff_confidential_notes.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 024_job_card_notes_invoice_number.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 025_messaging_context_ready.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 026_messaging_participant_lifecycle.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 027_follow_up_proposals.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 028_notification_center_dismissal.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 029_messaging_conversation_archive.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 030_backup_domain_foundation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 031_backup_engine_failure_taxonomy_and_dump_version.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 032_backup_r2_failure_taxonomy.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 033_backup_worker_runtime.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 034_demo_data_foundation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 035_demo_data_purge_foundation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 036_job_card_invalidated.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 037_staff_offboarding_audit.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 038_demo_dataset_audit_types.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 039_contact_deleted_audit.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 040_demo_lifecycle_simplification.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 041_user_lifecycle_reconciliation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 042_unsuccessful_visit_reason.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 043_job_card_schedule_and_assignment_history.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 044_job_card_accountability_facts.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 045_calendar_request_hash.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 046_notification_state_realtime.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 047_job_card_overdue_incidents.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 048_overdue_episode_activation_legacy_first.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 049_job_card_lifecycle_intents.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 050_overdue_incident_scanner_source.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 051_weekly_report_foundation.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 052_weekly_report_recurrence.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 053_overdue_submission_reminders.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 054_job_action_locations_submit_approval.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 055_job_submit_location_comparison.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 056_meeting_met_contact.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 057_sale_from_visit.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 058_sale_integer_quantity.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 059_crm_duplicate_read_indexes.sql
+
+stdout | tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+Migration applied: 060_crm_duplicate_review_decisions.sql
+
+ ❯ tests/weekly-report-reporting-exclusion-postgres.test.ts (1 test | 1 failed) 257ms
+     × keeps completed weekly reports out of completions, buckets, execution and on-time measures 256ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/weekly-report-reporting-exclusion-postgres.test.ts > weekly reports excluded from productive-work aggregates (PostgreSQL) > keeps completed weekly reports out of completions, buckets, execution and on-time measures
+AssertionError: expected [ …(5) ] to deeply equal [ …(4) ]
+
+- Expected
++ Received
+
+@@ -13,6 +13,10 @@
+    },
+    {
+      "count": 0,
+      "type": "SALE",
+    },
++   {
++     "count": 1,
++     "type": "WEEKLY_REPORT",
++   },
+  ]
+
+ ❯ tests/weekly-report-reporting-exclusion-postgres.test.ts:95:45
+     93|       const summary = (await repository.getMany(input)).get(staffId)!;
+     94|       expect(summary.counters.completedInPeriod).toBe(1);
+     95|       expect(summary.currentWorkloadByType).toEqual([
+       |                                             ^
+     96|         { type: 'PRODUCT_DELIVERY', count: 0 },
+     97|         { type: 'GENERAL_TASK', count: 1 },
+ ❯ withSchema tests/weekly-report-reporting-exclusion-postgres.test.ts:33:5
+ ❯ tests/weekly-report-reporting-exclusion-postgres.test.ts:49:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  22:43:09
+   Duration  407ms (transform 44ms, setup 0ms, import 63ms, tests 257ms, environment 0ms)

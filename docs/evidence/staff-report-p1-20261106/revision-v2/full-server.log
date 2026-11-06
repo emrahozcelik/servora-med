@@ -1,0 +1,22 @@
+
+> servora-med-server@0.1.0 test
+> node --env-file-if-exists=.env scripts/run-tests.mjs --run
+
+.env not found. Continuing without it.
+TEST_ENV_PREFLIGHT_OK database=servora_med_test_staff_p1_20261106 url=postgresql://servora_pr412@127.0.0.1:55513/servora_med_test_staff_p1_20261106 postgres_major=17 tools=psql:17,pg_dump:17,pg_restore:17
+TEST_ENV_PREFLIGHT_NOTE schema COMPATIBLE (catalogHead=060_crm_duplicate_review_decisions appliedHead=none)
+TEST_ENV_PREFLIGHT_NOTE build artifacts present and fresh
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/staff-report-p1-20261106/server
+
+ensure-macos-service-identity: no free UID/GID in range 420-425
+ensure-macos-service-identity: partial identity: user servora-med exists but group servora-med is missing
+ensure-macos-service-identity: servora-med is an admin principal; pilot service users must be non-admin
+ensure-macos-service-identity: injected failure at after_group
+ensure-macos-service-identity: injected failure at after_user_create
+ensure-macos-service-identity: injected failure at after_user_uid
+
+ Test Files  373 passed | 5 skipped (378)
+      Tests  4344 passed | 8 skipped (4352)
+   Start at  22:46:10
+   Duration  457.17s (transform 2.67s, setup 0ms, import 17.93s, tests 408.99s, environment 14ms)

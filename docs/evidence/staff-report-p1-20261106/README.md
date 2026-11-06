@@ -38,8 +38,11 @@ Commands: `cd server && npm run build`; with the isolated TEST_DATABASE_URL,
 `npm test -- --run tests/reports-weekly-workload-postgres.test.ts` and
 `npm test -- --run reports-`.
 
-The internal summary includes the weekly bucket to preserve exact reconciliation;
-the service filters it before returning the existing productive-work API buckets.
+The internal summary now supplies a separate weeklyReportWorkload count for exact
+reconciliation. Both internal and public productive-work buckets remain unchanged.
 Counters, completed activity, attribution, date ranges and public DTOs are unchanged.
-Source file hashes are in source-hashes.json. Hosted CI is verified separately
+The original source hashes/logs above describe bbb1f3d, not the revised fix. That
+revision failed hosted CI's existing weekly-report exclusion test. Revision-v2
+evidence is recorded separately and does not reuse that failed CI as a PASS.
+Hosted CI is verified separately
 against the eventual PR commit; local logs do not assert hosted CI success.

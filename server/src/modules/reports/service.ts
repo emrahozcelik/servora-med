@@ -49,15 +49,15 @@ function currentWorkload(summary: StaffOperationalSummary): StaffCurrentWorkload
 }
 
 function currentWorkloadByType(summary: StaffOperationalSummary) {
-  const total = summary.currentWorkloadByType.reduce((sum, item) => sum + item.count, 0);
+  const total = summary.currentWorkloadByType.reduce((sum, item) => sum + item.count, 0)
+    + summary.weeklyReportWorkload;
   const expected = summary.counters.openJobCards
     + summary.counters.waitingApproval
     + summary.counters.revisionRequested;
   if (total !== expected) {
     throw new Error('Staff current workload type aggregate invariant could not be resolved.');
   }
-  // Weekly reports reconcile operational obligations but are not productive activity.
-  return summary.currentWorkloadByType.filter((item) => item.type !== 'WEEKLY_REPORT');
+  return summary.currentWorkloadByType;
 }
 
 function completedWorkTypes(

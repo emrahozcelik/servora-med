@@ -1,0 +1,16 @@
+
+> servora-med-server@0.1.0 test
+> node --env-file-if-exists=.env scripts/run-tests.mjs --run reports- tests/weekly-report-reporting-exclusion-postgres.test.ts
+
+.env not found. Continuing without it.
+TEST_ENV_PREFLIGHT_OK database=servora_med_test_staff_p1_20261106 url=postgresql://servora_pr412@127.0.0.1:55513/servora_med_test_staff_p1_20261106 postgres_major=17 tools=psql:17,pg_dump:17,pg_restore:17
+TEST_ENV_PREFLIGHT_NOTE schema COMPATIBLE (catalogHead=060_crm_duplicate_review_decisions appliedHead=none)
+TEST_ENV_PREFLIGHT_NOTE build artifacts present and fresh
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/staff-report-p1-20261106/server
+
+
+ Test Files  20 passed (20)
+      Tests  185 passed (185)
+   Start at  22:45:24
+   Duration  6.77s (transform 202ms, setup 0ms, import 555ms, tests 4.70s, environment 1ms)

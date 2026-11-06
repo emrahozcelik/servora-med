@@ -1,0 +1,22 @@
+{
+  "ci-contract-red.log": {
+    "originalSha256": "bd55ad51949793adb081a23268f4b85c31cce9575f92cd15eaffdbbfdd189312",
+    "retainedSha256": "139e827404c4651086b93a470311b0431baa271422cfd86b76ad796dfab479dc",
+    "normalization": "extra blank lines at EOF removed; result lines unchanged"
+  },
+  "build.log": {
+    "originalSha256": "d31d00955690f3c3f3cffcfc4a082d9cc17e98d23d69dc82a8d2acdf8d2faed7",
+    "retainedSha256": "a21bfc8f744284d23ac312e9bc0d90165102676a4b34a2bcdb7cb6852b9c9fb8",
+    "normalization": "extra blank lines at EOF removed; result lines unchanged"
+  },
+  "focused.log": {
+    "originalSha256": "0b1adab6054ce59e5b06e931af57147717d6eb9c817bc40d5c72c4e8805aa8e7",
+    "retainedSha256": "399115817bbec6fc60bf34e4f895774d8bfcacf00b2332999c5e7b4ffae3805e",
+    "normalization": "extra blank lines at EOF removed; result lines unchanged"
+  },
+  "full-server.log": {
+    "originalSha256": "6de091e08ac4e72002173099819a98edee51b40f934f99d107a7ae21c6123882",
+    "retainedSha256": "f9a1130b3ad8c02201484ef3ecd4c8bf571b86be7488e4491d0310fcb73ee7b7",
+    "normalization": "extra blank lines at EOF removed; result lines unchanged"
+  }
+}

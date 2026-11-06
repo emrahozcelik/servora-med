@@ -43,8 +43,9 @@ export type StaffOperationalSummary = Readonly<{
   staffUserId: string;
   range: ResolvedReportRange;
   counters: StaffOperationalCounters;
-  /** Internal snapshot buckets include weekly obligations for reconciliation.
-   * Public productive-work distributions omit WEEKLY_REPORT. */
+  /** Internal count for reconciling administrative obligations with workload. */
+  weeklyReportWorkload: number;
+  /** Productive snapshot buckets; selected range never changes these counts. */
   currentWorkloadByType: WorkTypeDistributionItem[];
 }>;
 
