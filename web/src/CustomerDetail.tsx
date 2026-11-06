@@ -277,6 +277,9 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
   const editRequested = searchParams.get('edit') === '1';
   const [editOpen, setEditOpen] = useState(editRequested); const editTriggerRef = useRef<HTMLElement>(null); const editRestoreFocusRef = useRef(false);
+  // Keep this form's save failure separate from page-level errors so cancelling
+  // the editor discards only its own error.
+  const [editError, setEditError] = useState('');
   // A new `?edit=1` request opens the editor. Closing it is local state and is
   // never re-derived from the URL, so stale search parameters cannot reopen it.
   useEffect(() => { if (editRequested) setEditOpen(true); }, [editRequested]);
@@ -320,7 +323,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     if (background && (pending || enrichmentInFlightRef.current || deleteInFlightRef.current)) return;
     const generation = requestGate.current.next();
     if (!background) {
-      setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false); setEnrichmentScope(null); setEnrichmentEditing(false); setCreatingContact(false); setContactError('');
+      setLoading(true); setCustomer(null); setError(''); setEditError(''); setNotice(''); setConflict(false); setDeleteConfirmOpen(false); setEnrichmentScope(null); setEnrichmentEditing(false); setCreatingContact(false); setContactError('');
     }
     void loadEnrichmentScope();
     try {
@@ -368,11 +371,11 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   useEffect(() => { void loadHistory(historyStatus, 0); return () => { historyGate.current.next(); }; }, [customerId, historyStatus]);
   useEffect(() => { void loadSummary(); return () => { summaryGate.current.next(); }; }, [customerId]);
   useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(true); void loadHistory(historyStatus, historyPage?.offset ?? 0); void loadSummary(); });
-  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => { if (error || editError) errorRef.current?.focus(); }, [error, editError]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>Müşteri detayı yükleniyor</h1></main>;
   if (!customer) return <main className="customer-detail"><ResultState status="error" title="Müşteri yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (conflict) return;
-    const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
+    const generation = requestGate.current.current(); setPending(true); setError(''); setEditError(''); setNotice('');
     try {
       const updated = await updateCustomer(customerId, customerFieldsFromFormData(new FormData(event.currentTarget), customer!.version));
       if (!requestGate.current.isCurrent(generation)) return;
@@ -380,7 +383,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     } catch (caught) {
       if (!requestGate.current.isCurrent(generation)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
-      setError(customerMutationErrorMessage(caught));
+      setEditError(customerMutationErrorMessage(caught));
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
   function cancelEnrichment() {
@@ -388,8 +391,11 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     enrichmentRestoreFocusRef.current = true; setEnrichmentEditing(false); setError('');
   }
   function changeEditOpen(open: boolean) {
-    if (open) { setEditOpen(true); return; }
+    if (open) { setEditOpen(true); setEditError(''); return; }
     if (pending) return;
+    // Discard this form's failed-save error with the draft. Page-level errors
+    // from other operations are left untouched.
+    setEditError('');
     editRestoreFocusRef.current = true; setEditOpen(false);
     if (editRequested) {
       const next = new URLSearchParams(searchParams);
@@ -472,7 +478,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       setDeletePending(false);
     }
   }
-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
+  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error || editError} notice={notice} conflict={conflict} formRevision={formRevision}
     editOpen={editOpen} onEditOpenChange={changeEditOpen} editTriggerRef={editTriggerRef}
     historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
     summary={summary} summaryLoading={summaryLoading} summaryError={summaryError}

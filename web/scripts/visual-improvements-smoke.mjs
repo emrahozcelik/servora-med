@@ -84,6 +84,7 @@ async function openPage(name, path, role, width, scenario = 'baseline') {
     const send = json => route.fulfill({ json });
     const empty = scenario === 'empty';
     if (scenario === 'conflict' && p === `/api/customers/${customerId}` && method === 'PATCH') return route.fulfill({ status: 409, json: { code: 'VERSION_CONFLICT', error: 'Kayıt güncellendi.' } });
+    if (scenario === 'save-error' && p === `/api/customers/${customerId}` && method === 'PATCH') return route.fulfill({ status: 503, json: { code: 'SERVICE_UNAVAILABLE', error: 'Kayıt geçici olarak kaydedilemedi.' } });
     if (method === 'GET') {
       if (p === '/api/staff') return send([profile]);
       if (p === '/api/staff/me' || p === `/api/staff/${staffId}`) return send(empty ? { ...profile, counters: { open: 0, overdue: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0 } } : profile);
@@ -148,7 +149,7 @@ async function capture(ctx, suffix = '') {
   await page.screenshot({ path: resolve(out, `${file}-full.png`), fullPage: true });
   assert.deepEqual(errors, [], `${file}: page errors`);
   assert.deepEqual(unexpected, [], `${file}: unexpected requests`);
-  if (!['retry', 'conflict'].includes(scenario)) assert.deepEqual(metrics.alerts, [], `${file}: alerts`);
+  if (!['retry', 'conflict', 'save-error'].includes(scenario)) assert.deepEqual(metrics.alerts, [], `${file}: alerts`);
   if (after) {
     assert.equal(metrics.overflow, false, `${file}: overflow`);
     assert.ok([...metrics.rowActions, ...metrics.commands].every(action => action.height >= 43), `${file}: action target height`);
@@ -226,6 +227,26 @@ try {
     assert.equal(new URL(conflict.page.url()).pathname, `/customers/${customerId}`);
     assert.equal(new URL(conflict.page.url()).searchParams.has('edit'), false);
     await conflict.page.close();
+
+    const saveError = await openPage('customer-detail', `/customers/${customerId}`, 'MANAGER', 390, 'save-error');
+    const saveDisclosure = saveError.page.locator('.customer-edit-disclosure');
+    await saveDisclosure.locator('summary').click();
+    await saveError.page.locator('#detail-customer-name').fill('Kaydedilmeyen müşteri taslağı');
+    await saveError.page.getByRole('button', { name: 'Bilgileri kaydet', exact: true }).click();
+    const saveAlert = saveError.page.locator('main > .form-error[role="alert"]');
+    await saveAlert.waitFor();
+    assert.match(await saveAlert.textContent(), /kaydedilemedi/);
+    await capture(saveError);
+    await saveError.page.getByRole('button', { name: 'Vazgeç', exact: true }).click();
+    await saveDisclosure.locator('summary').waitFor();
+    assert.equal(await saveDisclosure.evaluate(el => el.open), false);
+    assert.equal(await saveError.page.locator('#detail-customer-name').count(), 0);
+    assert.equal(await saveError.page.locator('main > .form-error[role="alert"]').count(), 0);
+    assert.equal(new URL(saveError.page.url()).pathname, `/customers/${customerId}`);
+    assert.equal(new URL(saveError.page.url()).searchParams.has('edit'), false);
+    await saveDisclosure.locator('summary').click();
+    assert.equal(await saveError.page.locator('#detail-customer-name').inputValue(), customer.name);
+    await saveError.page.close();
     const staff = await openPage('customer-detail', `/customers/${customerId}`, 'STAFF', 390);
     const enrich = staff.page.getByRole('button', { name: 'Bilgileri tamamla', exact: true });
     await enrich.click(); await staff.page.locator('#enrichment-phone').waitFor();

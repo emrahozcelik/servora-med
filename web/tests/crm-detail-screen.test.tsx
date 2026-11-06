@@ -529,4 +529,39 @@ describe('CRM detail screen concurrency', () => {
     expect(button('Bilgileri tamamla')).toBeTruthy();
   });
 
+  it('clears a failed edit save error when the editor is cancelled', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 3));
+    crm.updateCustomer.mockRejectedValueOnce(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Kayıt geçici olarak kaydedilemedi.'));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }],
+      { initialEntries: ['/customers/customer-1?edit=1'] });
+    await render(router); await settle();
+    const name = container.querySelector('#detail-customer-name') as HTMLInputElement;
+    name.value = 'Kaydedilmemiş taslak';
+    await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit()); await settle();
+    expect(container.querySelector('main > .form-error[role="alert"]')?.textContent).toContain('Kayıt geçici olarak kaydedilemedi');
+    await act(async () => button('Vazgeç').click()); await settle();
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(container.querySelector('main > .form-error[role="alert"]')).toBeNull();
+    expect(router.state.location.pathname).toBe('/customers/customer-1');
+    expect(router.state.location.search).toBe('');
+    await act(async () => (container.querySelector('.customer-edit-disclosure > summary') as HTMLElement).click());
+    expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Demo Klinik');
+  });
+
+  it('does not clear an unrelated page error when the editor is cancelled', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 3));
+    crm.deleteCustomer.mockRejectedValue(new ApiError(500, 'INTERNAL', 'Silme işlemi tamamlanamadı.'));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={admin} /> }],
+      { initialEntries: ['/customers/customer-1?edit=1'] });
+    await render(router); await settle();
+    await act(async () => button('Kalıcı olarak sil').click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((candidate) => candidate.textContent === 'Kalıcı olarak sil')!;
+    await act(async () => confirm.click()); await settle();
+    expect(container.querySelector('main > .form-error[role="alert"]')?.textContent).toContain('Silme işlemi tamamlanamadı');
+    await act(async () => button('Vazgeç').click()); await settle();
+    expect(container.querySelector('.record-form')).toBeNull();
+    expect(container.querySelector('main > .form-error[role="alert"]')?.textContent).toContain('Silme işlemi tamamlanamadı');
+  });
+
 });
