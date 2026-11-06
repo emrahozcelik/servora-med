@@ -1077,9 +1077,11 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       if (!current) throw new Error('backup worker state singleton is unavailable');
       if (
         current.last_scheduled_slot_key === input.slotKey
-        // A policy timezone change must not create a second run for the same
-        // local calendar day. The scheduler is at-most-once per local day.
-        || current.last_scheduled_local_date === input.localDate
+        // The persisted local date is a high-water mark for scheduled slots.
+        // A clock rollback (or timezone change) must never enqueue an older
+        // local day as a new run. Resume only on a genuinely later local date.
+        || (current.last_scheduled_local_date !== null
+          && current.last_scheduled_local_date >= input.localDate)
       ) {
         await writeTick(client);
         await client.query('COMMIT');

@@ -350,4 +350,55 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       [[firstId, secondId]],
     );
   });
+  it('keeps scheduled slot progress monotonic across a clock rollback', async () => {
+    const firstId = randomUUID();
+    const rolledBackId = randomUUID();
+    const followingId = randomUUID();
+    const slot = (id: string, localDate: string) => ({
+      id,
+      scope: 'DATABASE' as const,
+      retentionClass: 'DAILY' as const,
+      createdAt: new Date(`${localDate}T02:31:00Z`),
+      slotKey: `UTC|${localDate}|02:30`,
+      localDate,
+      scheduledFor: new Date(`${localDate}T02:30:00Z`),
+    });
+    try {
+      await expect(repository.enqueueScheduledRun(slot(firstId, '2026-09-04')))
+        .resolves.toMatchObject({ kind: 'created' });
+      // Terminalize the first run so a later valid day is not blocked by an
+      // intentionally still-queued test run.
+      await pool.query(
+        `UPDATE backup_runs
+            SET status = 'FAILED', failure_code = 'WORKER_LOST',
+                failure_summary = 'test fixture cleanup', completed_at = NOW()
+          WHERE id = $1`,
+        [firstId],
+      );
+      // The wall clock now points at an earlier local day. Its different slot
+      // key cannot consume or rewind the persisted last-scheduled pointer.
+      await expect(repository.enqueueScheduledRun(slot(rolledBackId, '2026-09-03')))
+        .resolves.toEqual({ kind: 'already-consumed' });
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(firstId);
+      const reverted = await pool.query<{ id: string }>(
+        `SELECT id FROM backup_runs WHERE id = $1`,
+        [rolledBackId],
+      );
+      expect(reverted.rows).toHaveLength(0);
+      // Once the observed local date advances past the high-water mark, a new
+      // real scheduled slot is allowed without resetting or rewriting history.
+      await expect(repository.enqueueScheduledRun(slot(followingId, '2026-09-05')))
+        .resolves.toMatchObject({ kind: 'created' });
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(followingId);
+    } finally {
+      await pool.query(
+        `UPDATE backup_runs
+            SET status = 'FAILED', failure_code = 'WORKER_LOST',
+                failure_summary = 'test fixture cleanup', completed_at = NOW()
+          WHERE id = ANY($1::uuid[]) AND status IN ('QUEUED', 'RUNNING')`,
+        [[firstId, followingId]],
+      );
+    }
+  });
+
 });
