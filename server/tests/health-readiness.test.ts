@@ -12,6 +12,7 @@ import type { BackupHealthReadinessPort } from '../src/modules/health/service.js
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
 import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
 import type { BackupVerificationProof } from '../src/modules/backup/trusted-evidence.js';
+import { evaluateBr5PositiveHealthAdmission } from '../src/modules/backup/freshness-policy.js';
 import { loadMigrationCatalog } from '../src/db/migration-catalog.js';
 import { timeAt } from './backup-time-fixture.js';
 
@@ -260,7 +261,7 @@ describe('GET /api/health readiness', () => {
       expect(serialized).not.toContain(forbidden);
     }
   });
-  it('uses scheduled verified evidence and both liveness timestamps for backup health', async () => {
+  it('exposes scheduled evidence but denies healthy while BR5 positive health remains blocked', async () => {
     const start = Date.parse('2026-08-23T01:00:00.000Z');
     const current = timeAt(start + 60 * 60 * 1000);
     const runId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -330,12 +331,17 @@ describe('GET /api/health readiness', () => {
       workerEnabled: true,
       sampleTime: async () => current,
     });
+    // OT3-C/D have not been qualified: valid scheduled proof and live
+    // heartbeats remain visible, but cannot promote BR5 to public healthy.
+    expect(evaluateBr5PositiveHealthAdmission()).toBe('BLOCKED');
     await expect(health.check()).resolves.toMatchObject({
-      status: 'ok',
-      providerStatus: 'healthy',
+      status: 'unavailable',
+      providerStatus: 'unavailable',
       latestVerifiedAt: proof.verifiedAt,
       latestScheduledVerifiedAt: proof.verifiedAt,
       latestScheduledRunStatus: 'SUCCESS',
+      workerHeartbeatAt: heartbeatEvidence.wallAtUTC,
+      schedulerLastTickAt: heartbeatEvidence.wallAtUTC,
     });
   });
 
