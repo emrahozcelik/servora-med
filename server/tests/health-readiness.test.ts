@@ -159,6 +159,17 @@ describe('GET /api/health readiness', () => {
     }
   });
 
+  it('returns 404 with no-store when backup readiness is not configured', async () => {
+    const app = await buildApp(testConfig, {
+      healthReadiness: { check: async () => 'ok' },
+    });
+    apps.push(app);
+    const response = await app.inject({ method: 'GET', url: '/api/health/backup' });
+    expect(response.statusCode).toBe(404);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({ status: 'unavailable' });
+  });
+
   it('surfaces safe backup worker evidence without changing the generic status contract', async () => {
     const backupReadiness: BackupHealthReadinessPort = {
       check: async () => ({
