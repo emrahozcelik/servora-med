@@ -115,6 +115,7 @@ describe('StaffPerformanceReport', () => {
       to: '2026-07-31',
     });
     expect(container.querySelector('h1')?.textContent).toBe('Personel Operasyon Analizi');
+    expect(container.textContent).not.toContain('Europe/Istanbul');
     expect(container.textContent).toContain('Ekip görünümü — 1 Temmuz 2026 – 31 Temmuz 2026');
     for (const label of [
       'Personel', 'Şu an', 'Seçilen dönem', 'Açık işler',

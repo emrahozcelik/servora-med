@@ -1,0 +1,12 @@
+
+> servora-med-web@0.1.0 test
+> vitest --run customer-list.test.tsx -t old response while
+
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/pr412-independent-20261106/web
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 21 skipped (22)
+   Start at  19:43:14
+   Duration  1.35s (transform 125ms, setup 12ms, import 769ms, tests 38ms, environment 396ms)

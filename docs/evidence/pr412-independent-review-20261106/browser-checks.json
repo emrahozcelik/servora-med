@@ -1,0 +1,558 @@
+{
+  "browser": "140.0.7339.186",
+  "fixedTime": "2026-11-06T10:00:00Z",
+  "synthetic": true,
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "checks": [
+    "customers-MANAGER-320",
+    "customers-filtered-MANAGER-320",
+    "customers-STAFF-320",
+    "customers-filtered-STAFF-320",
+    "business-320",
+    "team-320",
+    "staff-period-320",
+    "sales-follow-up-320",
+    "customers-MANAGER-390",
+    "customers-filtered-MANAGER-390",
+    "customers-STAFF-390",
+    "customers-filtered-STAFF-390",
+    "business-390",
+    "team-390",
+    "staff-period-390",
+    "sales-follow-up-390",
+    "customers-MANAGER-1440",
+    "customers-filtered-MANAGER-1440",
+    "customers-STAFF-1440",
+    "customers-filtered-STAFF-1440",
+    "business-1440",
+    "team-1440",
+    "staff-period-1440",
+    "sales-follow-up-1440",
+    "customers-count-0-offset-0",
+    "customers-count-1-offset-0",
+    "customers-count-5-offset-0",
+    "customers-count-6-offset-0",
+    "customers-count-6-offset-5",
+    "customers-count-5-offset-5",
+    "customers-count-12-offset-10",
+    "customers-count-10-offset-10",
+    "customers-count-0-offset-10"
+  ],
+  "errors": [],
+  "unexpected": [],
+  "calls": [
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 320,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "STAFF",
+      "width": 1440,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": "active"
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 10,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 10,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 10,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 5,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 9007199254740990,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 10,
+      "q": null,
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": "Eski",
+      "status": null
+    },
+    {
+      "role": "MANAGER",
+      "width": 390,
+      "limit": 5,
+      "offset": 0,
+      "q": "Klinik 07",
+      "status": null
+    }
+  ]
+}

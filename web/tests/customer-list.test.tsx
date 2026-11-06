@@ -15,11 +15,12 @@ import {
   customerFiltersFromParams,
   customerInputFromFormData,
   customerRequestFilters,
+  CUSTOMER_PAGE_SIZE,
   scheduleCustomerSearch,
   type CustomerListState,
 } from '../src/CustomerList';
 import { ApiError, type CurrentUser } from '../src/services/api';
-import type { CustomerSummary } from '../src/services/crm-api';
+import type { CustomerFilters, CustomerSummary, Paginated } from '../src/services/crm-api';
 import type { StaffProfile } from '../src/services/people-api';
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
@@ -113,9 +114,31 @@ describe('Customer list and creation', () => {
   });
 
   it('maps copied/default URL state to the exact backend filter contract', () => {
-    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined });
+    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined, limit: 5, offset: 0 });
     expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams('status=active&q=Eski')), 'Eski'))
       .toMatchObject({ status: 'active', q: 'Eski' });
+  });
+
+  it('requests five customers at a time and renders bounded pagination controls', () => {
+    expect(CUSTOMER_PAGE_SIZE).toBe(5);
+    const copied = customerFiltersFromParams(new URLSearchParams('limit=50&offset=7&status=active'));
+    expect(customerRequestFilters(copied, '')).toMatchObject({ status: 'active', limit: 5, offset: 5 });
+    const html = renderToStaticMarkup(<MemoryRouter><CustomerListView
+      state={{ kind: 'ready', customers: [customer], total: 11, offset: 5 }} user={manager}
+      hasFilters={false} onRetry={() => {}} onCreate={() => {}} onPageChange={() => {}} />
+    </MemoryRouter>);
+    expect(html).toContain('aria-label="Müşteri listesi sayfaları"');
+    expect(html).toContain('Sayfa 2 / 3');
+    expect(html).toContain('Toplam 11 müşteri');
+    expect(html).toContain('Önceki');
+    expect(html).toContain('Sonraki');
+  });
+
+  it('does not send malformed or unsafe URL offsets to the server', () => {
+    for (const offset of ['invalid', '-5', '7.5', 'Infinity', '1e100', '9007199254740992']) {
+      const filters = customerFiltersFromParams(new URLSearchParams({ offset }));
+      expect(customerRequestFilters(filters, '').offset, offset).toBe(0);
+    }
   });
 
   it('debounces text search and rejects stale similar-name generations', () => {
@@ -281,7 +304,91 @@ describe('Customer list navigation feedback', () => {
   });
 
   afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks();
+    await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers();
+  });
+
+  it('ignores an old response while the next search is being debounced', async () => {
+    vi.useFakeTimers();
+    let resolveOld!: (page: Paginated<CustomerSummary>) => void;
+    const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
+    const load = vi.fn(async (filters: CustomerFilters) => filters.q === 'Yeni'
+      ? { items: [{ ...customer, name: 'Yeni Klinik' }], total: 1, limit: 5, offset: 0 }
+      : oldPage);
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
+    }], { initialEntries: ['/customers?q=Eski'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await router.navigate('/customers?q=Yeni'); });
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski Klinik' }], total: 1, limit: 5, offset: 0 }));
+    expect(container.textContent).not.toContain('Eski Klinik');
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(250); });
+    expect(container.textContent).toContain('Yeni Klinik');
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Yeni', limit: 5, offset: 0 }));
+  });
+
+  it('keeps the latest page when an older page response arrives later', async () => {
+    let resolveOld!: (page: Paginated<CustomerSummary>) => void;
+    const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
+    const secondPage = Array.from({ length: 5 }, (_, i) => ({ ...customer, id: `page-two-${i}`, name: `İkinci sayfa klinik ${i}` }));
+    const load = vi.fn(async (filters: CustomerFilters) => filters.offset === 5
+      ? { items: secondPage, total: 10, limit: 5, offset: 5 } : oldPage);
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
+    }], { initialEntries: ['/customers'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await router.navigate('/customers?offset=5'); });
+    expect(container.textContent).toContain('İkinci sayfa klinik 0');
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski sayfa' }], total: 10, limit: 5, offset: 0 }));
+    expect(container.textContent).not.toContain('Eski sayfa');
+    expect(container.textContent).toContain('İkinci sayfa klinik 0');
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('pages through the server rather than downloading all customers', async () => {
+    const customers = Array.from({ length: 7 }, (_, index) => ({
+      ...customer, id: `customer-${index + 1}`, name: `Klinik ${index + 1}`,
+    }));
+    const load = vi.fn(async (filters: { limit?: number; offset?: number }) => ({
+      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + (filters.limit ?? 5)),
+      total: customers.length, limit: 5, offset: filters.offset ?? 0,
+    }));
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+    }], { initialEntries: ['/customers'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ limit: 5, offset: 0 }));
+    expect(container.textContent).toContain('Klinik 1');
+    expect(container.textContent).not.toContain('Klinik 6');
+    const next = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Sonraki');
+    expect(next).toBeTruthy();
+    await act(async () => next!.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toContain('offset=5');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 5, offset: 5 }));
+    expect(container.textContent).toContain('Klinik 6');
+    expect(container.textContent).not.toContain('Klinik 1');
+  });
+
+  it('recovers an out-of-range page without losing filtered results', async () => {
+    const customers = Array.from({ length: 7 }, (_, index) => ({
+      ...customer, id: `customer-${index + 1}`, name: `Klinik ${index + 1}`,
+    }));
+    const load = vi.fn(async (filters: { limit?: number; offset?: number }) => ({
+      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + 5),
+      total: customers.length, limit: 5, offset: filters.offset ?? 0,
+    }));
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+    }], { initialEntries: ['/customers?status=active&offset=15'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toContain('offset=5');
+    expect(router.state.location.search).toContain('status=active');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 5, offset: 5, status: 'active' }));
+    expect(container.textContent).toContain('Klinik 6');
   });
 
   it('shows the delete success notice after navigation and loads the list once', async () => {

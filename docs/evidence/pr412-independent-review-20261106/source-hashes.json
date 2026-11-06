@@ -1,0 +1,9 @@
+{
+  "web/src/CustomerList.tsx": "134225769c10053240981dacece98f760b42930e358b1a6342665257fafb631c",
+  "web/src/styles.css": "f30088c4c49365048f45883c5b3614ca1cb1a86013c3ab17ead3bb4ce7b68379",
+  "web/src/reports/StaffOperationalReport.tsx": "aa6c8ca7fb249a11b0e43fb4da79ba9193d4cb37e47ec273b0ace9af427aec31",
+  "web/tests/customer-list.test.tsx": "1b3f1e2bdea2657081e8c5cd3a0b9e68285519feab74d8f7d91e5d58ce24561f",
+  "web/tests/staff-operational-report.test.tsx": "d7272e1eae893c0b844d20adcb6344a023e59c472e29b5ce0d0a25e0567c9bdb",
+  "web/scripts/customer-pagination-fixture.ts": "9c5f385a4f447c691e711962f25b15737908c7d08bd8757718e2bd348fb4dcbe",
+  "web/scripts/customer-pagination-smoke.mjs": "c8f2ab5c604fe9fe86c3f06e49b66972a717605a28a8b8a458bb246c9715f515"
+}

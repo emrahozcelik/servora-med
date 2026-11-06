@@ -1,0 +1,16 @@
+[
+  {
+    "tag": "SPAN",
+    "class": "report-customer-chip",
+    "text": "Satış görüşmesi 0",
+    "left": 227.125,
+    "right": 356.453125
+  },
+  {
+    "tag": "SPAN",
+    "class": "report-customer-chip",
+    "text": "Satış kaydı 0",
+    "left": 356.453125,
+    "right": 454.171875
+  }
+]

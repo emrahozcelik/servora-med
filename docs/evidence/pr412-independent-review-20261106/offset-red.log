@@ -1,0 +1,36 @@
+
+> servora-med-web@0.1.0 test
+> vitest --run customer-list.test.tsx -t malformed or unsafe
+
+
+ RUN  v4.1.11 /Users/emrah/Documents/Servora-Med/.worktrees/pr412-independent-20261106/web
+
+ ❯ tests/customer-list.test.tsx (21 tests | 1 failed | 20 skipped) 4ms
+     × does not send malformed or unsafe URL offsets to the server 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/customer-list.test.tsx > Customer list and creation > does not send malformed or unsafe URL offsets to the server
+AssertionError: 7.5: expected 5 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 5
+
+ ❯ tests/customer-list.test.tsx:140:66
+    138|     for (const offset of ['invalid', '-5', '7.5', 'Infinity', '1e100',…
+    139|       const filters = customerFiltersFromParams(new URLSearchParams({ …
+    140|       expect(customerRequestFilters(filters, '').offset, offset).toBe(…
+       |                                                                  ^
+    141|     }
+    142|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 skipped (21)
+   Start at  19:41:37
+   Duration  1.13s (transform 108ms, setup 11ms, import 651ms, tests 4ms, environment 362ms)

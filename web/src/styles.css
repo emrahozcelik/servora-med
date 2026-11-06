@@ -3093,6 +3093,10 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .customer-loading span { min-height: 4.5rem; border-block: 1px solid var(--rule); background: var(--canvas); }
 .customer-list { padding: 0; margin: 0; border-top: 1px solid var(--rule); list-style: none; }
 .customer-list > li { border-bottom: 1px solid var(--rule); }
+.customer-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.25rem; }
+.customer-pagination span { color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; }
+.customer-pagination .secondary-button { flex-shrink: 0; }
+.report-sales-created-types { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .customer-row { display: grid; grid-template-columns: minmax(13rem, 1.2fr) minmax(19rem, 1fr) auto; align-items: center; gap: 1.5rem; padding: 1.15rem 0.25rem; }
 .customer-row.customer-list-card { position: relative; }
 .customer-signals { display: flex; align-items: center; gap: 0.65rem; color: var(--muted); font-size: 0.78rem; }
