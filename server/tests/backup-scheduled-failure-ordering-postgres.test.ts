@@ -209,6 +209,52 @@ describe.skipIf(!databaseUrl)('BR5 scheduled failure ordering', () => {
     return reader.check();
   }
 
+  it('selects the durable successful scheduled generation after wall-clock rollback', async () => {
+    const old = await insertScheduledSuccess({
+      createdAt: T0,
+      beforeMs: T0,
+      verifiedAtMs: T0 + MIN,
+    });
+    // This run is later in scheduler order, but the host clock rolled back:
+    // both created_at and verified_at are earlier than the first success.
+    const latest = await insertScheduledSuccess({
+      createdAt: T0 - 30 * MIN,
+      beforeMs: T0 - 30 * MIN,
+      verifiedAtMs: T0 - 29 * MIN,
+    });
+    await setPointer(latest.id);
+
+    const result = await check({ current: timeAt(T0 + HOUR) });
+    // Global diagnostic latest-by-wall remains the old run. Scheduled slot
+    // progress must use the durable identity and return the second run.
+    expect(result.latestVerifiedAt).toBe(new Date(T0 + MIN).toISOString());
+    expect(result.latestScheduledVerifiedAt).toBe(new Date(T0 - 29 * MIN).toISOString());
+    expect(result.latestScheduledRunStatus).toBe('SUCCESS');
+    expect(result.providerStatus).toBe('unavailable'); // OT3 remains BLOCKED
+    expect(old.id).not.toBe(latest.id);
+  });
+
+  it('does not promote an older success when the durable latest scheduled slot has no proof', async () => {
+    const first = await insertScheduledSuccess({
+      createdAt: T0,
+      beforeMs: T0,
+      verifiedAtMs: T0 + MIN,
+    });
+    const noProof = await insertScheduledSuccess({
+      createdAt: T0 - HOUR,
+      beforeMs: T0 - HOUR,
+      verifiedAtMs: T0 - HOUR + MIN,
+      withEvidence: false,
+    });
+    await setPointer(noProof.id);
+
+    const result = await check({ current: timeAt(T0 + HOUR) });
+    expect(result.latestScheduledRunStatus).toBe('SUCCESS');
+    expect(result.latestScheduledVerifiedAt).toBe(new Date(T0 - HOUR + MIN).toISOString());
+    expect(result.providerStatus).toBe('unavailable');
+    expect(first.id).not.toBe(noProof.id);
+  });
+
   it('uses the durable latest scheduled attempt when clock rollback makes FAILED older', async () => {
     await insertScheduledSuccess({ createdAt: T0, beforeMs: T0, verifiedAtMs: T0 + MIN });
     const failed = await insertScheduledFailure({

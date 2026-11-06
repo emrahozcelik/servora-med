@@ -152,7 +152,13 @@ export function createPostgresBackupHealth(
                     verification_time_evidence
                FROM backup_runs
               WHERE status = 'SUCCESS' AND origin = 'SCHEDULED' AND verified_at IS NOT NULL
-              ORDER BY verified_at DESC, created_at DESC, id DESC
+              -- The last scheduled slot is a durable identity, not the run with
+              -- the greatest wall timestamp. A clock rollback can make the
+              -- newest generation's verified_at earlier than an older one.
+              ORDER BY CASE WHEN id = (
+                SELECT last_scheduled_run_id FROM backup_worker_state WHERE singleton
+              ) THEN 0 ELSE 1 END,
+              verified_at DESC, created_at DESC, id DESC
               LIMIT 1 -- scheduled_verified`,
           ),
           pool.query<StatusRow>(
@@ -222,7 +228,13 @@ export function createPostgresBackupHealth(
             providerStatus: 'failed',
           };
         }
-        if (!scheduledVerifiedRun) {
+        // Positive scheduled freshness must belong to the durable latest
+        // scheduled attempt. An older successful run cannot authorize health
+        // while the latest slot is queued, running, failed or unverifiable.
+        // Historical verification remains visible in the safe projection.
+        if (!scheduledVerifiedRun
+          || latestScheduledRunStatus !== 'SUCCESS'
+          || scheduledVerifiedRun.id !== pointer!.scheduled_pointer_id) {
           return { ...unavailable, ...projection };
         }
 
