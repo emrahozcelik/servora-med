@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
+import { evaluateBr5PositiveHealthAdmission } from '../src/modules/backup/freshness-policy.js';
 import type { BackupVerificationProof } from '../src/modules/backup/trusted-evidence.js';
 import { timeAt } from './backup-time-fixture.js';
 
@@ -153,7 +154,11 @@ function workerAt(at: number): Row {
 }
 
 describe('BR5 trusted backup health reader', () => {
-  it('reports healthy for a fresh scheduled proof and fresh trusted heartbeats', async () => {
+  it('keeps positive admission closed until qualified clock and producer evidence exist', () => {
+    expect(evaluateBr5PositiveHealthAdmission()).toBe('BLOCKED');
+  });
+
+  it('does not promote a candidate fresh scheduled proof while OT3-C/D remain blocked', async () => {
     const current = T0 + HOUR;
     const result = await health({
       row: {
@@ -165,8 +170,8 @@ describe('BR5 trusted backup health reader', () => {
       },
       current: timeAt(current),
     });
-    expect(result.status).toBe('ok');
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.status).toBe('unavailable');
+    expect(result.providerStatus).toBe('unavailable');
     expect(result.provider).toBe('br5-r2');
     expect(result.latestScheduledVerifiedAt).toBe(new Date(T0 + MIN).toISOString());
   });
@@ -292,7 +297,7 @@ describe('BR5 trusted backup health reader', () => {
     expect(result.providerStatus).toBe('unavailable');
   });
 
-  it('does not treat a running scheduled attempt as a failure or erase a fresh prior proof', async () => {
+  it('preserves RUNNING status and prior proof without authorizing positive health', async () => {
     const current = T0 + HOUR;
     const result = await health({
       row: {
@@ -304,7 +309,8 @@ describe('BR5 trusted backup health reader', () => {
       },
       current: timeAt(current),
     });
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.providerStatus).toBe('unavailable');
+    expect(result.latestScheduledRunStatus).toBe('RUNNING');
   });
 
   it('requires both worker and scheduler liveness independently', async () => {
@@ -355,7 +361,7 @@ describe('BR5 trusted backup health reader', () => {
       current: timeAt(current),
       defaultThreshold: true,
     });
-    expect(at119.providerStatus).toBe('healthy');
+    expect(at119.providerStatus).toBe('unavailable'); // Candidate liveness alone is not admission.
 
     const at121 = await health({
       row: {
@@ -372,7 +378,7 @@ describe('BR5 trusted backup health reader', () => {
     expect(at121.status).toBe('unavailable');
   });
 
-  it('accepts the active-run scheduler liveness exception without a fake tick', async () => {
+  it('does not turn an active-run scheduler exception into unqualified positive health', async () => {
     const current = T0 + HOUR;
     const result = await health({
       row: {
@@ -389,7 +395,7 @@ describe('BR5 trusted backup health reader', () => {
       },
       current: timeAt(current),
     });
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.providerStatus).toBe('unavailable');
   });
 
   it('removes the exception when the worker heartbeat is stale or no run is active', async () => {
@@ -429,7 +435,7 @@ describe('BR5 trusted backup health reader', () => {
     expect(inactive.providerStatus).toBe('unavailable');
   });
 
-  it('with workerEnabled=false requires scheduled freshness but not heartbeats', async () => {
+  it('never uses workerEnabled=false as a positive-health maintenance bypass', async () => {
     const current = T0 + HOUR;
     const fresh = await health({
       row: {
@@ -442,7 +448,7 @@ describe('BR5 trusted backup health reader', () => {
       current: timeAt(current),
       workerEnabled: false,
     });
-    expect(fresh.providerStatus).toBe('healthy');
+    expect(fresh.providerStatus).toBe('unavailable');
 
     const stale = await health({
       row: {

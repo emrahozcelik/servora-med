@@ -195,7 +195,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     expect(completed.verificationTimeEvidence).not.toBeNull();
 
     const health = await healthStatus(timeAt(T0 + HOUR));
-    expect(health.providerStatus).toBe('healthy');
+    expect(health.providerStatus).toBe('unavailable');
   });
 
   it('preserves R2 integrity and SUCCESS when trusted time is unavailable', async () => {
@@ -470,7 +470,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
       .toBe('22222222-2222-4222-8222-222222222222');
   });
 
-  it('keeps a 27h retry stale and a genuinely new dump healthy', async () => {
+  it('keeps a 27h retry stale and a new dump unavailable without C/D approval', async () => {
     const old = await insertRun();
     await service.recordVerification(old.id, {
       remoteKey: old.key, sizeBytes: 1024, sha256: old.sha, proof: proofFor(old),
@@ -499,7 +499,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     await service.completeRun(retry.id, {}, retry.token);
     expect((await healthStatus(timeAt(T0 + 27 * HOUR))).providerStatus).toBe('stale');
 
-    // A genuinely new dump generation starts at T0+27h and is healthy.
+    // A genuinely new dump generation starts at T0+27h; evidence remains available for inspection, but public positive admission is blocked.
     await pool.query(
       `UPDATE backup_worker_state
           SET last_scheduled_slot_key = NULL, last_scheduled_local_date = NULL,
@@ -517,10 +517,10 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     }, fresh.token);
     await service.advancePhase(fresh.id, 'CLEANUP', false, fresh.token);
     await service.completeRun(fresh.id, {}, fresh.token);
-    expect((await healthStatus(timeAt(T0 + 28 * HOUR))).providerStatus).toBe('healthy');
+    expect((await healthStatus(timeAt(T0 + 28 * HOUR))).providerStatus).toBe('unavailable');
   });
 
-  it('classifies a 20h re-encryption as healthy but the same generation at 27h as stale', async () => {
+  it('denies unqualified 20h re-encryption and retains definite 27h stale classification', async () => {
     const run = await insertRun();
     const reencryptedSha = 'c'.repeat(64);
     const proof = proofFor(run, timeAt(T0 + 20 * HOUR), { artifactSha256: reencryptedSha });
@@ -532,7 +532,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 trusted evidence PostgreSQL', () => {
     }, run.token);
     await service.advancePhase(run.id, 'CLEANUP', false, run.token);
     await service.completeRun(run.id, {}, run.token);
-    expect((await healthStatus(timeAt(T0 + 20 * HOUR))).providerStatus).toBe('healthy');
+    expect((await healthStatus(timeAt(T0 + 20 * HOUR))).providerStatus).toBe('unavailable');
     expect((await healthStatus(timeAt(T0 + 27 * HOUR))).providerStatus).toBe('stale');
   });
 

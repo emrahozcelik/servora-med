@@ -264,9 +264,12 @@ export function validateVerificationProofBinding(
 
 /**
  * Classifies a verified run's freshness from its generation `before` and a
- * current trusted sample. Healthy requires both independent upper bounds:
- * BOOTTIME and the chrony-bounded UTC interval. Either lower bound can prove
- * staleness. See TWO_CLOCK_SECURITY_DESIGN.md for the proof.
+ * current trusted sample. This is a conditional candidate classifier, NOT a
+ * release qualification or authority to publish public BR5 healthy. The
+ * PostgreSQL health reader applies the independent OT3-C/OT3-D admission gate.
+ * Under a qualified model, positive candidates require both upper bounds;
+ * either lower bound can prove staleness. An unqualified model can NOT use a
+ * candidate healthy as a physical 26h guarantee.
  */
 export function evaluateArtifactFreshness(
   run: VerifiedRunEvidence,

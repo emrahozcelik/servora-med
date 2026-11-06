@@ -8,6 +8,7 @@ import {
 import {
   type CurrentTimeEvidence,
 } from '../../../../ops/scripts/trusted-time.mjs';
+import { evaluateBr5PositiveHealthAdmission } from '../backup/freshness-policy.js';
 import {
   evaluateArtifactFreshness,
   parseTimeEvidence,
@@ -254,6 +255,14 @@ export function createPostgresBackupHealth(
           if (!workerLive || !schedulerLive) {
             return { ...unavailable, ...projection };
           }
+        }
+
+        // Conditional freshness and heartbeat results are not a security
+        // authority: OT3-C clock/anchor bounds and OT3-D immutable generation
+        // provenance have not been qualified. Preserve scheduled failure and
+        // definite stale classifications above; deny only positive promotion.
+        if (evaluateBr5PositiveHealthAdmission() !== 'QUALIFIED') {
+          return { ...unavailable, ...projection };
         }
 
         return {

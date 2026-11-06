@@ -275,7 +275,7 @@ describe.skipIf(!databaseUrl)('BR5 scheduled failure ordering', () => {
     const result = await check({ current: timeAt(T0 + 3 * HOUR) });
     expect(result.latestScheduledRunStatus).toBe('SUCCESS');
     expect(result.latestScheduledVerifiedAt).toBe(new Date(T0 + 2 * HOUR + MIN).toISOString());
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.providerStatus).toBe('unavailable');
     expect(first.id).not.toBe(second.id);
   });
 
@@ -291,7 +291,7 @@ describe.skipIf(!databaseUrl)('BR5 scheduled failure ordering', () => {
     const result = await check({ current: timeAt(T0 + HOUR) });
 
     expect(result.latestScheduledRunStatus).toBe('SUCCESS');
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.providerStatus).toBe('unavailable');
   });
 
   it('keeps a fresh prior proof when the latest scheduled attempt is QUEUED', async () => {
@@ -306,7 +306,7 @@ describe.skipIf(!databaseUrl)('BR5 scheduled failure ordering', () => {
     const result = await check({ current: timeAt(T0 + HOUR + MIN) });
 
     expect(result.latestScheduledRunStatus).toBe('QUEUED');
-    expect(result.providerStatus).toBe('healthy');
+    expect(result.providerStatus).toBe('unavailable');
     expect(success.id).not.toBe(queued.id);
   });
 
