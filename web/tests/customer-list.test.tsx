@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
 import {
   CustomerCreateForm,
   CustomerListScreen,
@@ -294,6 +296,8 @@ describe('Customer list and creation', () => {
 
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+stubDesktopMatchMedia();
 
 describe('Customer list navigation feedback', () => {
   let root: Root;

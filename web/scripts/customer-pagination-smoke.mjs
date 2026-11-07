@@ -71,7 +71,7 @@ async function open(width, role = 'MANAGER') {
   });
   return { page, releaseOld, goto: path => page.goto(`${origin}${path}${path.includes('?') ? '&' : '?'}reviewRole=${role}`) };
 }
-async function ready(page, count = 5) {
+async function ready(page, count = 6) {
   await page.waitForFunction(n => document.querySelectorAll('.customer-list > li').length === n && !document.querySelector('.customer-loading'), count);
 }
 async function inspect(page, name) {

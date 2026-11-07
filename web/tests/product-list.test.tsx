@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
 import {
   ProductListView,
   ProductListScreen,
@@ -16,6 +18,8 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Product } from '../src/services/products-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+stubDesktopMatchMedia();
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
 const staff: CurrentUser = { ...manager, id: 'staff-1', name: 'Ayşe', role: 'STAFF' };

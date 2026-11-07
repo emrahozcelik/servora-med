@@ -3,10 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
 import { ProductSelect } from '../src/ProductSelect';
 import type { Paginated, Product, ProductFilters } from '../src/services/products-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+stubDesktopMatchMedia();
 
 const product = (id: string, name: string): Product => ({
   id, organizationId: 'org-1', name, sku: `${id}-sku`, brand: 'Dünya Dental',
