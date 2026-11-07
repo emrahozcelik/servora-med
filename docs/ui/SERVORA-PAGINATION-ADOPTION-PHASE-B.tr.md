@@ -4,10 +4,10 @@
 
 ## Kapsam
 
-- Müşteriler: 5 → **6** server-side, eski offset normalizasyonu ve son sayfa kurtarma, Ant `ServoraListPagination`; arama/filtre/rol izinleri korunur.
+- Müşteriler: 5 → **6** server-side, eski offset normalizasyonu ve son sayfa kurtarma, Ant `ServoraListPagination`; arama/filtre/rol izinleri korunur. `offset=7` gibi eski URL konumları `replace` navigasyonuyla altılı sınıra (`6`) taşınır; negatif, kesirli ve unsafe offset ilk sayfaya düşer; diğer arama/filtre parametreleri korunur.
 - Ürünler: 25 → **6** server-side, URL'deki 25 gibi eski konumların 24'e getirilmesi, silme sonrası son sayfa kurtarma; Ant `ServoraListPagination`.
 - Ürün seçici: 8 → **6** server-side. Seçilmiş ürünler sayfa dışında ayrı kalır, request generation gate korunur; Ant `ServoraListPagination`.
-- `customer-pagination-smoke.mjs` altılı test fikstürüne uyarlanır. Komutun **çalıştığı** iddia edilmez.
+- `customer-pagination-smoke.mjs` altılı test fikstürüne uyarlanır; eski URL kanonikleştirmesi ve klavye ile ileri/geri etkileşimini de doğrular.
 
 ## İstenen kabul
 
@@ -20,11 +20,32 @@
 7. Yetkiler, organization izolasyonu, backend/API sözleşmeleri, rapor toplamları, migration ve production değişmez.
 8. Tarayıcı testindeki sentetik örnekleri üretim müşteri verisi sayma; log ve screenshot arşivini sır içermeden doğrula.
 
+## Doğrulama
+
+Önceki bağımsız inceleme kanıtları `fb2622ccc6e94f625cdbafb4468624a7ce7d5872` head'ine aittir; yeni commit'ler için otomatik geçerli sayılmaz:
+
+- Odaklı testler: 102 PASS.
+- Tam web suite: 2759 PASS (218 dosya).
+- Web build ve bundle: PASS.
+- Customer Chromium smoke: 33 capture PASS.
+- Exact-head CI: run `42355498176`, 3/3 PASS (yalnızca `fb2622c`).
+
+Bu belge güncellemesinin kod head'i `7320bde4356a84d5299cf15d660ddb4c0ff3a42b` için yeniden alınan sonuçlar:
+
+- Odaklı customer/pagination/report/product testleri: **105 PASS** (6 dosya).
+- Tam web suite: **2761 PASS** (218 dosya).
+- Web build: PASS. Bundle: PASS (84 chunk, her biri < 500.000 byte).
+- Server TypeScript build: PASS.
+- Customer Chromium smoke: **36 capture PASS**; Chromium `140.0.7339.186`; 320/390/1440 px; gerçek ileri/geri, `offset=7 → 6` tek istek, `offset=13 → 12 → 6` sınırlı kurtarma, geçersiz offsetlerde offset kaldırma, arama/filtre offset sıfırlama, Enter/Space klavye ve odak dönüşü; `0` sayfa hatası, `0` beklenmeyen API isteği, yatay taşma yok. Tüm müşteri istekleri `limit=6`.
+- `git diff --check`: PASS.
+- Exact-head CI: bu belge commit'i push edildikten sonra PR #415 kontrolünde çalıştırılır; önceki `42355498176` run'ı yalnızca `fb2622c` head'ine aittir.
+
 ## Sınırlamalar
 
 - `jobs/CustomerSearchSelect.tsx` cursor benzeri append/select davranışı ayrı UX konusudur; bu PR onu değiştirmez.
 - Personel raporu, iş panosu liste görünümü, personel haftalık geçmişi ve diğer raporlar sonraki fazlardadır.
-- Bu GitHub üzerinden hazırlanmıştır; yerel/Chromium testleri **NOT_RUN**. CI sonuçları yalnız başlatılan exact head için geçerlidir.
+- Gerçek ekran okuyucu ve fiziksel cihaz testi yapılmadı; Chromium emülasyonu ve klavye/odak doğrulaması kullanıldı.
+- 200%/400% zoom, 720/320 CSS px reflow eşdeğeriyle doğrulandı; gerçek tarayıcı zoom'u değil.
 
 ## Sıra
 
