@@ -376,6 +376,44 @@ describe('Customer list navigation feedback', () => {
     expect(container.textContent).not.toContain('Klinik 1');
   });
 
+  it('canonicalizes a legacy offset to the six-record boundary with one request', async () => {
+    const load = vi.fn().mockResolvedValue({ items: [customer], total: 13, limit: 6, offset: 6 });
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+    }], { initialEntries: ['/customers?q=Klinik&status=active&offset=7'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe('?q=Klinik&status=active&offset=6');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'Klinik', status: 'active', limit: 6, offset: 6,
+    }));
+  });
+
+  it('realigns valid legacy pages and sends malformed offsets to the first page', async () => {
+    for (const [raw, expectedSearch, expectedOffset, total] of [
+      ['13', '?status=active&offset=12', 12, 20],
+      ['-5', '?status=active', 0, 0],
+      ['7.5', '?status=active', 0, 0],
+      ['9007199254740992', '?status=active', 0, 0],
+    ] as const) {
+      const host = document.createElement('div'); document.body.append(host);
+      const localRoot = createRoot(host);
+      const load = vi.fn().mockResolvedValue({ items: [], total, limit: 6, offset: expectedOffset });
+      const router = createMemoryRouter([{
+        path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+      }], { initialEntries: [`/customers?status=active&offset=${raw}`] });
+      await act(async () => localRoot.render(<RouterProvider router={router} />));
+      await act(async () => { await Promise.resolve(); });
+      expect(router.state.location.search, raw).toBe(expectedSearch);
+      expect(router.state.historyAction, raw).toBe('REPLACE');
+      expect(load, raw).toHaveBeenCalledTimes(1);
+      expect(load, raw).toHaveBeenCalledWith(expect.objectContaining({ offset: expectedOffset, limit: 6 }));
+      await act(async () => localRoot.unmount()); host.remove();
+    }
+  });
+
   it('recovers an out-of-range page without losing filtered results', async () => {
     const customers = Array.from({ length: 7 }, (_, index) => ({
       ...customer, id: `customer-${index + 1}`, name: `Klinik ${index + 1}`,

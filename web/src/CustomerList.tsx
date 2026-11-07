@@ -47,7 +47,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
     ...(params.get('assignedStaffUserId') ? { assignedStaffUserId: params.get('assignedStaffUserId')! } : {}),
     ...(params.get('unassigned') === 'true' ? { unassigned: true } : {}),
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
-    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset } : {}),
+    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset: normalizeListOffset(offset) } : {}),
   };
 }
 
@@ -446,6 +446,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const queryKey = params.toString();
   const filters = customerFiltersFromParams(params);
   const [debouncedQuery, setDebouncedQuery] = useState(filters.q ?? '');
   const [state, setState] = useState<CustomerListState>({ kind: 'loading' });
@@ -464,6 +465,15 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
+    const canonicalOffset = filters.offset ?? 0;
+    if (params.has('offset') && params.get('offset') !== String(canonicalOffset)) {
+      const next = new URLSearchParams(params);
+      if (canonicalOffset > 0) next.set('offset', String(canonicalOffset));
+      else next.delete('offset');
+      next.delete('limit');
+      setParams(next, { replace: true });
+      return;
+    }
     if (debouncedQuery !== (filters.q ?? '')) return;
     const requestFilters = customerRequestFilters(filters, debouncedQuery);
     Promise.all([load(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
@@ -485,7 +495,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
       })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
-  }, [debouncedQuery, filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
+  }, [debouncedQuery, filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load, queryKey]);
   function changeFilter(name: string, value: string | boolean) {
     const next = new URLSearchParams(params);
     if (value === '' || value === false) next.delete(name); else next.set(name, String(value));

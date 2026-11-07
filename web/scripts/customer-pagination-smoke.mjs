@@ -138,19 +138,42 @@ try {
     }
   }
   const { page, goto, releaseOld } = await open(390);
-  for (const [count, offset, expected] of [[0, 0, 0], [1, 0, 1], [5, 0, 5], [6, 0, 6], [7, 0, 6], [7, 6, 1], [12, 6, 6], [12, 12, 6], [0, 12, 0]]) {
+  for (const [count, offset, expected] of [[0, 0, 0], [1, 0, 1], [5, 0, 5], [6, 0, 6], [7, 0, 6], [7, 6, 1], [12, 6, 6], [12, 12, 6], [12, 13, 6], [0, 12, 0]]) {
     const before = calls.length;
     await goto(`/customers?reviewCount=${count}&offset=${offset}`);
     if (expected) await ready(page, expected); else await page.locator('[data-servora-empty-state]').waitFor();
     if (offset >= count && offset > 0) assert.equal(calls.at(-1).offset, Math.max(0, Math.ceil(count / 6) - 1) * 6);
     assert.ok(calls.length - before <= 2, 'out-of-range recovery stays bounded');
     assert.equal(await page.locator('.customer-pagination').count(), count > 6 ? 1 : 0);
+    const urlOffset = new URL(page.url()).searchParams.get('offset');
+    assert.ok(urlOffset === null || urlOffset === String(calls.at(-1).offset), `canonical URL offset for ${count}/${offset}`);
     await inspect(page, `customers-count-${count}-offset-${offset}`);
   }
   for (const offset of ['invalid', '-5', '7.5', '1e100', '9007199254740992', '7', '9007199254740991']) {
+    const before = calls.length;
     await goto(`/customers?offset=${offset}`); await ready(page, 6);
     assert.equal(calls.at(-1).offset, offset === '7' || offset === '9007199254740991' ? 6 : 0);
+    assert.ok(calls.length - before <= 2, 'offset canonicalization stays bounded');
+    const canonicalOffset = new URL(page.url()).searchParams.get('offset');
+    assert.ok(
+      canonicalOffset === null || canonicalOffset === String(calls.at(-1).offset),
+      `${offset}: canonical URL`,
+    );
+    if (offset === '7') assert.equal(calls.length - before, 1, 'aligned legacy offset issues one request');
   }
+  await goto('/customers'); await ready(page, 6);
+  await page.locator('.customer-pagination .servora-ant-pagination-next').focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('link', { name: fixture.customers[6].name, exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('offset'), '6');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('servora-list-pagination')), true);
+  await inspect(page, 'customers-keyboard-next-390');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Space');
+  await page.getByRole('link', { name: fixture.customers[0].name, exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.has('offset'), false);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('servora-list-pagination')), true);
+  await inspect(page, 'customers-keyboard-prev-390');
   await goto('/customers?q=Eski'); await page.locator('#customer-search').waitFor();
   await page.locator('#customer-search').fill('Klinik 07'); await ready(page, 1);
   const oldResponse = page.waitForResponse(r => new URL(r.url()).searchParams.get('q') === 'Eski');
