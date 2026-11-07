@@ -298,6 +298,9 @@ describe('GET /api/health readiness', () => {
     const heartbeatEvidence = timeAt(start + 59 * 60 * 1000);
     const pool = {
       query: async (sql: string) => {
+        if (sql.includes('br5_maintenance_admission')) {
+          return { rows: [{ paused: false, revision: '1' }] };
+        }
         if (sql.includes('active_running')) return { rows: [{ active: false }] };
         if (sql.includes('scheduled_verified') || sql.includes('latest_verified')) {
           return { rows: [row] };

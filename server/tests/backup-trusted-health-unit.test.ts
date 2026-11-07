@@ -78,9 +78,16 @@ function poolFixture(row: {
   scheduledPointer?: { id: string; status: string; origin: string } | null;
   worker?: Row | null;
   activeRunning?: boolean;
+  maintenancePaused?: boolean;
+  maintenanceRevision?: string;
+  maintenanceReads?: { count: number };
 }) {
   return {
     query: async (sql: string) => {
+      if (sql.includes('br5_maintenance_admission')) {
+        if (row.maintenanceReads) row.maintenanceReads.count += 1;
+        return { rows: [{ paused: row.maintenancePaused ?? false, revision: row.maintenanceRevision ?? '1' }] };
+      }
       if (sql.includes('active_running')) return { rows: [{ active: row.activeRunning === true }] };
       if (sql.includes('scheduled_verified')) {
         return { rows: row.scheduledVerified ? [row.scheduledVerified] : [] };
@@ -163,6 +170,35 @@ describe('BR5 trusted backup health reader', () => {
     expect(observedHeartbeatWallRollback(new Date(at.getTime() + 1).toISOString(), at, at)).toBe(false);
     expect(observedHeartbeatWallRollback('invalid-date', at, at)).toBe(true);
     expect(observedHeartbeatWallRollback(before.toISOString(), null, null)).toBe(false);
+  });
+
+  it('reads the database-wide maintenance state for every positive health candidate', async () => {
+    const current = T0 + HOUR;
+    const maintenanceReads = { count: 0 };
+    const base = {
+      latestVerified: verifiedRow(),
+      scheduledVerified: verifiedRow(),
+      latestStatus: 'SUCCESS',
+      scheduledStatus: 'SUCCESS',
+      worker: freshWorker(current),
+      maintenanceReads,
+    };
+    const paused = await health({ row: { ...base, maintenancePaused: true }, current: timeAt(current) });
+    expect(paused.status).toBe('unavailable');
+    expect(paused.providerStatus).toBe('unavailable');
+    expect(maintenanceReads.count).toBe(1);
+
+    const resumed = await health({ row: { ...base, maintenancePaused: false }, current: timeAt(current) });
+    expect(resumed.status).toBe('unavailable'); // OT3 gate remains BLOCKED
+    expect(resumed.providerStatus).toBe('unavailable');
+    expect(maintenanceReads.count).toBe(2); // no cached permit
+
+    const malformed = await health({
+      row: { ...base, maintenancePaused: false, maintenanceRevision: 'invalid' },
+      current: timeAt(current),
+    });
+    expect(malformed.providerStatus).toBe('unavailable');
+    expect(maintenanceReads.count).toBe(3);
   });
 
   it('keeps positive admission closed until qualified clock and producer evidence exist', () => {

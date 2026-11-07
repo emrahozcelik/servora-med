@@ -9,6 +9,7 @@ import {
   type CurrentTimeEvidence,
 } from '../../../../ops/scripts/trusted-time.mjs';
 import { evaluateBr5PositiveHealthAdmission } from '../backup/freshness-policy.js';
+import { maintenanceAllowsPositiveBackupHealth } from './backup-maintenance.js';
 import {
   evaluateArtifactFreshness,
   parseTimeEvidence,
@@ -297,6 +298,14 @@ export function createPostgresBackupHealth(
           if (!workerLive || !schedulerLive) {
             return { ...unavailable, ...projection };
           }
+        }
+
+        // Installation-wide maintenance authority is checked against primary
+        // PostgreSQL on every potential positive result, never cached or
+        // inferred from the workerEnabled flag. Missing migration/state or
+        // query failure fail closed while preserving safe diagnostics.
+        if (!(await maintenanceAllowsPositiveBackupHealth(pool))) {
+          return { ...unavailable, ...projection };
         }
 
         // Conditional freshness and heartbeat results are not a security
