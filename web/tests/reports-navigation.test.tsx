@@ -126,7 +126,7 @@ describe('Management report navigation', () => {
       '?from=2026-07-01&to=2026-07-31&offset=0',
     );
     expect(getCustomerReport).toHaveBeenCalledWith(expect.objectContaining({
-      search: '', status: null, customerType: null, offset: 0, limit: 50,
+      search: '', status: null, customerType: null, offset: 0, limit: 6,
     }));
     await act(async () => root.unmount()); container.remove();
   });
