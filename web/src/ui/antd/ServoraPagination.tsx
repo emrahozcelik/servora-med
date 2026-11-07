@@ -12,6 +12,9 @@ import {
 } from '../pagination';
 import './servora-pagination.css';
 
+/** Survives the loading remount so keyboard paging does not drop focus to body. */
+const pendingPageFocus = new Map<string, number>();
+
 /** Legacy low-level Ant adapter remains available for existing callers. */
 export type ServoraPaginationProps = PaginationProps;
 
@@ -38,6 +41,13 @@ export function ServoraListPagination({
   const pageCount = listPageCount(total, size);
   const current = listPageNumber(offset, total, size);
   const navRef = useRef<HTMLElement>(null);
+  const keyboardActivation = useRef(false);
+
+  useEffect(() => {
+    if (pendingPageFocus.get(label) !== current) return;
+    pendingPageFocus.delete(label);
+    navRef.current?.focus({ preventScroll: true });
+  }, [current, label]);
 
   useEffect(() => {
     const nav = navRef.current;
@@ -57,16 +67,22 @@ export function ServoraListPagination({
   }, [current, disabled, pageCount, size, total]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Enter') {
+      const enterTarget = event.target as HTMLElement;
+      if (enterTarget.getAttribute('role') === 'button') keyboardActivation.current = true;
+      return;
+    }
     if (event.key !== ' ' && event.key !== 'Spacebar') return;
     const target = event.target as HTMLElement;
     if (target.getAttribute('role') !== 'button') return;
     event.preventDefault();
+    keyboardActivation.current = true;
     target.click();
   }
 
   if (!Number.isSafeInteger(total) || total <= size) return null;
   return (
-    <nav ref={navRef} className="servora-list-pagination" aria-label={label} onKeyDown={handleKeyDown}>
+    <nav ref={navRef} tabIndex={-1} className="servora-list-pagination" aria-label={label} onKeyDownCapture={handleKeyDown}>
       <span className="servora-list-pagination__summary" aria-live="polite">
         Sayfa {current} / {listPageCount(total, size)} · Toplam {total} {itemName}
       </span>
@@ -88,7 +104,11 @@ export function ServoraListPagination({
           }
           return element;
         }}
-        onChange={(page) => onOffsetChange(listOffsetForPage(page, total, size))}
+        onChange={(page) => {
+          if (keyboardActivation.current) pendingPageFocus.set(label, page);
+          keyboardActivation.current = false;
+          onOffsetChange(listOffsetForPage(page, total, size));
+        }}
       />
     </nav>
   );

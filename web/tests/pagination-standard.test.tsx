@@ -86,6 +86,7 @@ describe('SERVORA-MED pagination standard v1', () => {
       });
       expect(onOffsetChange).toHaveBeenLastCalledWith(6);
       expect(container.textContent).toContain('Sayfa 2 / 3');
+      expect(document.activeElement).toBe(container.querySelector('.servora-list-pagination'));
       const prevAfter = container.querySelector<HTMLElement>('[class*="pagination-prev"]');
       expect(prevAfter?.tabIndex).toBe(0);
       await act(async () => {
