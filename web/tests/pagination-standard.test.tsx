@@ -14,6 +14,7 @@ import {
   normalizeListOffset,
 } from '../src/ui/pagination';
 import { ServoraListPagination } from '../src/ui/antd/ServoraPagination';
+import { ServoraAntProvider } from '../src/ui/antd/ServoraAntProvider';
 import { stubDesktopMatchMedia } from './antd-match-media';
 
 stubDesktopMatchMedia();
@@ -55,6 +56,17 @@ describe('SERVORA-MED pagination standard v1', () => {
     expect(html).toContain('aria-label="Önceki sayfa"');
     expect(html).toContain('aria-label="Sonraki sayfa"');
     expect(html).not.toContain('pagination-options');
+  });
+
+  it('uses the servora-ant prefix and Turkish item titles under the app provider', () => {
+    const html = renderToStaticMarkup(<ServoraAntProvider><ServoraListPagination
+      total={13} offset={0} label="Müşteri sayfaları" itemName="müşteri" onOffsetChange={() => {}}
+    /></ServoraAntProvider>);
+    expect(html).toContain('servora-ant-pagination');
+    expect(html).toContain('title="Önceki Sayfa"');
+    expect(html).toContain('title="Sonraki Sayfa"');
+    expect(html).toContain('aria-label="Önceki sayfa"');
+    expect(html).toContain('aria-label="Sonraki sayfa"');
   });
 
   it('mounts and pages in jsdom, keeping arrow labels and offsets correct', async () => {
