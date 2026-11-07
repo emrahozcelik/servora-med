@@ -49,6 +49,8 @@ export function ServoraListPagination({
     navRef.current?.focus({ preventScroll: true });
   }, [current, label]);
 
+  // Ant's simple pager leaves Next without a tabIndex on page 1. Restore the
+  // native button semantics and a Turkish name on the focusable item.
   useEffect(() => {
     const nav = navRef.current;
     if (!nav || !Number.isSafeInteger(total) || total <= size) return;
