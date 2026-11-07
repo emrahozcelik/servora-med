@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { jobTypeLabels } from '../jobs/job-labels';
 import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
 import { paths } from '../paths';
-import { DEFAULT_LIST_PAGE_SIZE } from '../ui/pagination';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import {
   customerStatusLabels,
@@ -351,7 +351,7 @@ export function CustomerReport() {
               className="secondary-button"
               onClick={() => setSearch(customerSearch({
                 ...state,
-                offset: Math.max(0, report.offset - report.limit),
+                offset: lastListPageOffset(report.total, report.limit),
                 canonical: true,
               }))}
             >
