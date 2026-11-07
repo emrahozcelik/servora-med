@@ -161,7 +161,7 @@ export function ProductSelect(props: ProductSelectProps) {
         <ServoraListPagination label="Ürün sonuçları sayfaları" itemName="ürün"
           total={state.page.total} offset={state.page.offset} pageSize={state.page.limit}
           disabled={disabled} onOffsetChange={setOffset} />
-      </div>
+      </div>}
     </div>
     {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby={headingId}>
       <h2 id={headingId}>Seçilen ürünler</h2>

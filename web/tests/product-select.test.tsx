@@ -174,7 +174,7 @@ describe('ProductSelect', () => {
     await renderPicker(load);
     await search('vida');
     await act(async () => (Array.from(container.querySelectorAll('button'))
-      .find((button) => button.closest('.servora-ant-pagination-next') !== null) as HTMLButtonElement).click());
+      .find((button) => button.closest('[class*="pagination-next"]') !== null) as HTMLButtonElement).click());
 
     expect(load).toHaveBeenLastCalledWith({ status: 'active', q: 'vida', limit: 6, offset: 6 });
     expect(container.textContent).toContain('İkinci sayfa');
@@ -264,7 +264,7 @@ describe('ProductSelect', () => {
     await search('greft');
     expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
     await act(async () => (Array.from(container.querySelectorAll('button'))
-      .find((button) => button.closest('.servora-ant-pagination-next') !== null) as HTMLButtonElement).click());
+      .find((button) => button.closest('[class*="pagination-next"]') !== null) as HTMLButtonElement).click());
     expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
     expect(container.textContent).toContain('Cerrahi Vida');
   });

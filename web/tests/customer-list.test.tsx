@@ -130,7 +130,7 @@ describe('Customer list and creation', () => {
     expect(html).toContain('aria-label="Müşteri listesi sayfaları"');
     expect(html).toContain('Sayfa 2 / 3');
     expect(html).toContain('Toplam 13 müşteri');
-    expect(html).toContain('servora-ant-pagination');
+    expect(html).toContain('pagination-next');
     expect(html).not.toContain('pagination-options');
   });
 
@@ -362,7 +362,7 @@ describe('Customer list navigation feedback', () => {
     expect(load).toHaveBeenCalledWith(expect.objectContaining({ limit: 6, offset: 0 }));
     expect(container.textContent).toContain('Klinik 1');
     expect(container.textContent).not.toContain('Klinik 7');
-    const next = container.querySelector<HTMLButtonElement>('.customer-pagination .servora-ant-pagination-next button');
+    const next = container.querySelector<HTMLButtonElement>('.customer-pagination [class*="pagination-next"] button');
     expect(next).toBeTruthy();
     await act(async () => next!.click());
     await act(async () => { await Promise.resolve(); });

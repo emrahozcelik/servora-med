@@ -156,7 +156,7 @@ describe('routed Product list screen', () => {
     const search = container.querySelector('#product-search') as HTMLInputElement;
     await act(async () => change(search, 'vida')); await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search).toBe('?q=vida');
-    await act(async () => (container.querySelector('.product-pagination .servora-ant-pagination-next button') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('.product-pagination [class*="pagination-next"] button') as HTMLButtonElement).click());
     expect(router.state.location.search).toBe('?q=vida&offset=6');
   });
 
