@@ -1,4 +1,7 @@
-import { cloneElement, isValidElement, type ReactElement } from 'react';
+import {
+  cloneElement, isValidElement, useEffect, useRef,
+  type KeyboardEvent, type ReactElement,
+} from 'react';
 import { Pagination, type PaginationProps } from 'antd';
 import {
   DEFAULT_LIST_PAGE_SIZE,
@@ -32,10 +35,38 @@ export function ServoraListPagination({
   total, offset, pageSize = DEFAULT_LIST_PAGE_SIZE, label, itemName, disabled = false, onOffsetChange,
 }: ServoraListPaginationProps) {
   const size = listPageSize(pageSize);
-  if (!Number.isSafeInteger(total) || total <= size) return null;
+  const pageCount = listPageCount(total, size);
   const current = listPageNumber(offset, total, size);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || !Number.isSafeInteger(total) || total <= size) return;
+    const prevDisabled = disabled || current <= 1;
+    const nextDisabled = disabled || current >= pageCount;
+    for (const [item, itemLabel, itemDisabled] of [
+      [nav.querySelector<HTMLElement>('[class*="pagination-prev"]'), 'Önceki sayfa', prevDisabled],
+      [nav.querySelector<HTMLElement>('[class*="pagination-next"]'), 'Sonraki sayfa', nextDisabled],
+    ] as const) {
+      if (!item) continue;
+      item.tabIndex = itemDisabled ? -1 : 0;
+      item.setAttribute('role', 'button');
+      item.setAttribute('aria-label', itemLabel);
+      item.setAttribute('aria-disabled', String(itemDisabled));
+    }
+  }, [current, disabled, pageCount, size, total]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== ' ' && event.key !== 'Spacebar') return;
+    const target = event.target as HTMLElement;
+    if (target.getAttribute('role') !== 'button') return;
+    event.preventDefault();
+    target.click();
+  }
+
+  if (!Number.isSafeInteger(total) || total <= size) return null;
   return (
-    <nav className="servora-list-pagination" aria-label={label}>
+    <nav ref={navRef} className="servora-list-pagination" aria-label={label} onKeyDown={handleKeyDown}>
       <span className="servora-list-pagination__summary" aria-live="polite">
         Sayfa {current} / {listPageCount(total, size)} · Toplam {total} {itemName}
       </span>
