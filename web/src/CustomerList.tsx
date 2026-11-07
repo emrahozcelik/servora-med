@@ -21,11 +21,13 @@ import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset, normalizeListOffset } from './ui/pagination';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
 
 export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
-export const CUSTOMER_PAGE_SIZE = 5;
+export const CUSTOMER_PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 export type CustomerListState =
   | { kind: 'loading' }
   | { kind: 'ready'; customers: CustomerSummary[]; total?: number; offset?: number }
@@ -284,13 +286,11 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
         </div>}
       </article></li>)}</ul>}
     {state.kind === 'ready' && total > CUSTOMER_PAGE_SIZE && state.customers.length > 0 && (
-      <nav className="customer-pagination" aria-label="Müşteri listesi sayfaları">
-        <button className="secondary-button" type="button" disabled={offset === 0}
-          onClick={() => onPageChange?.(Math.max(0, offset - CUSTOMER_PAGE_SIZE))}>Önceki</button>
-        <span>Sayfa {Math.floor(offset / CUSTOMER_PAGE_SIZE) + 1} / {Math.ceil(total / CUSTOMER_PAGE_SIZE)} · Toplam {total} müşteri</span>
-        <button className="secondary-button" type="button" disabled={offset + CUSTOMER_PAGE_SIZE >= total}
-          onClick={() => onPageChange?.(offset + CUSTOMER_PAGE_SIZE)}>Sonraki</button>
-      </nav>
+      <div className="customer-pagination">
+        <ServoraListPagination label="Müşteri listesi sayfaları" itemName="müşteri"
+          total={total} offset={offset} pageSize={CUSTOMER_PAGE_SIZE}
+          onOffsetChange={(nextOffset) => onPageChange?.(nextOffset)} />
+      </div>
     )}
   </main>;
 }
@@ -398,7 +398,7 @@ export function customerRequestFilters(filters: CustomerFilterValues, debouncedQ
     ...filters,
     q: debouncedQuery || undefined,
     limit: CUSTOMER_PAGE_SIZE,
-    offset: Math.floor(Math.max(0, filters.offset ?? 0) / CUSTOMER_PAGE_SIZE) * CUSTOMER_PAGE_SIZE,
+    offset: normalizeListOffset(filters.offset ?? 0),
   };
 }
 
@@ -472,7 +472,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
         const requestedOffset = requestFilters.offset ?? 0;
         if (requestedOffset >= result.total && requestedOffset > 0) {
           // Deletion or a copied out-of-range URL may invalidate a page.
-          const recoveredOffset = Math.max(0, Math.ceil(result.total / CUSTOMER_PAGE_SIZE) - 1) * CUSTOMER_PAGE_SIZE;
+          const recoveredOffset = lastListPageOffset(result.total);
           const next = new URLSearchParams(params);
           if (recoveredOffset > 0) next.set('offset', String(recoveredOffset));
           else next.delete('offset');

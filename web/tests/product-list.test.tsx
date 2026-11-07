@@ -33,8 +33,8 @@ function render(state: ProductListState, user = manager, hasFilters = false) {
 describe('Product list', () => {
   it('renders explicit loading, empty, no-results, retry, and forbidden states', () => {
     expect(render({ kind: 'loading' })).toContain('aria-busy="true"');
-    expect(render({ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } })).toContain('Henüz ürün kaydı yok');
-    expect(render({ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } }, manager, true)).toContain('Filtrelere uygun ürün bulunamadı');
+    expect(render({ kind: 'ready', page: { items: [], total: 0, limit: 6, offset: 0 } })).toContain('Henüz ürün kaydı yok');
+    expect(render({ kind: 'ready', page: { items: [], total: 0, limit: 6, offset: 0 } }, manager, true)).toContain('Filtrelere uygun ürün bulunamadı');
     const retry = render({ kind: 'error', code: 'NETWORK_ERROR', message: 'Bağlantı kurulamadı.', retryable: true });
     expect(retry).toContain('role="alert"'); expect(retry).toContain('Tekrar dene');
     const forbidden = render({ kind: 'error', code: 'FORBIDDEN', message: 'Yetkiniz yok.', retryable: false });
@@ -43,14 +43,14 @@ describe('Product list', () => {
 
   it('treats empty catalog without a query as the initial catalog state', () => {
     const filters = productFiltersFromParams(new URLSearchParams());
-    const html = renderToStaticMarkup(<MemoryRouter><ProductListView state={{ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } }}
+    const html = renderToStaticMarkup(<MemoryRouter><ProductListView state={{ kind: 'ready', page: { items: [], total: 0, limit: 6, offset: 0 } }}
       user={manager} filters={filters} hasFilters={false} onFilterChange={() => {}} onRetry={() => {}} /></MemoryRouter>);
     expect(html).toContain('Henüz ürün kaydı yok');
     expect(html).not.toContain('Filtrelere uygun ürün bulunamadı');
   });
 
   it('uses semantic structured rows with visible operational labels', () => {
-    const html = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } });
+    const html = render({ kind: 'ready', page: { items: [product], total: 1, limit: 6, offset: 0 } });
     expect(html).toContain('<ul'); expect(html).toContain('<article');
     expect(html).toContain('Dental İmplant Seti'); expect(html).toContain('İmplant');
     expect(html).toContain('SKU'); expect(html).toContain('IMP-01');
@@ -65,13 +65,13 @@ describe('Product list', () => {
   });
 
   it('keeps Staff read-only while Manager can create, edit, and delete', () => {
-    const ready = { kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } } as const;
+    const ready = { kind: 'ready', page: { items: [], total: 0, limit: 6, offset: 0 } } as const;
     expect(render(ready, staff)).not.toContain('Yeni ürün');
     expect(render(ready, manager)).toContain('Yeni ürün');
-    const staffHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } }, staff);
+    const staffHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 6, offset: 0 } }, staff);
     expect(staffHtml).not.toContain('ürününü düzenle');
     expect(staffHtml).not.toContain('ürününü sil');
-    const managerHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } }, manager);
+    const managerHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 6, offset: 0 } }, manager);
     expect(managerHtml).toContain('aria-label="Dental İmplant Seti ürününü düzenle"');
     expect(managerHtml).toContain('aria-label="Dental İmplant Seti ürününü sil"');
     expect(managerHtml).toContain('Düzenle');
@@ -79,7 +79,7 @@ describe('Product list', () => {
   });
 
   it('keeps one semantic route heading without the redundant catalog eyebrow', () => {
-    const html = render({ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } });
+    const html = render({ kind: 'ready', page: { items: [], total: 0, limit: 6, offset: 0 } });
     expect(html).toContain('<h1');
     expect(html).toContain('page-header-title');
     expect(html).toContain('>Ürünler</h1>');
@@ -88,14 +88,16 @@ describe('Product list', () => {
 
   it('restores q/offset from the URL and resets offset when search changes', () => {
     expect(productFiltersFromParams(new URLSearchParams('q=implant&status=inactive&offset=50')))
-      .toEqual({ q: 'implant', offset: 50 });
+      .toEqual({ q: 'implant', offset: 48 });
+    expect(productFiltersFromParams(new URLSearchParams('offset=25'))).toEqual({ offset: 24 });
     expect(updateProductSearchParams(new URLSearchParams('q=implant&offset=50'), 'q', 'vida').toString())
       .toBe('q=vida');
   });
 
   it('shows explicit previous and next controls from page metadata', () => {
-    const html = render({ kind: 'ready', page: { items: [product], total: 80, limit: 25, offset: 25 } });
-    expect(html).toContain('Önceki'); expect(html).toContain('Sonraki'); expect(html).toContain('26–50 / 80');
+    const html = render({ kind: 'ready', page: { items: [product], total: 80, limit: 6, offset: 6 } });
+    expect(html).toContain('Sayfa 2 / 14');
+    expect(html).toContain('Toplam 80 ürün');
   });
 });
 
@@ -106,7 +108,7 @@ function deferred<T>() {
 }
 
 function page(items: Product[], offset = 0, total = items.length) {
-  return { items, total, limit: 25, offset };
+  return { items, total, limit: 6, offset };
 }
 
 function change(element: HTMLInputElement | HTMLSelectElement, value: string) {
@@ -150,12 +152,12 @@ describe('routed Product list screen', () => {
       expect(filters.status).toBe('active');
       return page([product], filters.offset ?? 0, 80);
     });
-    const router = await mount('/products?q=implant&offset=25', load); await act(async () => { await Promise.resolve(); });
+    const router = await mount('/products?q=implant&offset=6', load); await act(async () => { await Promise.resolve(); });
     const search = container.querySelector('#product-search') as HTMLInputElement;
     await act(async () => change(search, 'vida')); await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search).toBe('?q=vida');
-    await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
-    expect(router.state.location.search).toBe('?q=vida&offset=25');
+    await act(async () => (container.querySelector('.product-pagination .servora-ant-pagination-next button') as HTMLButtonElement).click());
+    expect(router.state.location.search).toBe('?q=vida&offset=6');
   });
 
   it('retries a routed request and classifies empty response as initial-empty', async () => {
@@ -225,13 +227,13 @@ describe('routed Product list screen', () => {
   it('clamps empty trailing page offset after product delete', async () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     const load = vi.fn()
-      .mockResolvedValueOnce(page([product], 25, 26))
-      .mockResolvedValueOnce(page([], 25, 25))
-      .mockResolvedValueOnce(page([product], 0, 25));
+      .mockResolvedValueOnce(page([product], 6, 7))
+      .mockResolvedValueOnce(page([], 6, 6))
+      .mockResolvedValueOnce(page([product], 0, 6));
     const router = createMemoryRouter([{
       path: '/products',
       element: <ProductListScreen user={manager} load={load} remove={remove} />,
-    }], { initialEntries: ['/products?offset=25'] });
+    }], { initialEntries: ['/products?offset=6'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain('Dental İmplant Seti');
