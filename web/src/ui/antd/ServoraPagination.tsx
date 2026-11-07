@@ -65,6 +65,12 @@ export function ServoraListPagination({
       item.setAttribute('role', 'button');
       item.setAttribute('aria-label', itemLabel);
       item.setAttribute('aria-disabled', String(itemDisabled));
+      const innerButton = item.querySelector<HTMLElement>('button');
+      if (innerButton) {
+        innerButton.tabIndex = -1;
+        innerButton.setAttribute('role', 'presentation');
+        innerButton.setAttribute('aria-hidden', 'true');
+      }
     }
   }, [current, disabled, pageCount, size, total]);
 
