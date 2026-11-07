@@ -285,7 +285,7 @@ describe('Customer list and creation', () => {
     expect(customerInputFromFormData(data)).toEqual({ name: 'Yeni Klinik', customerType: 'clinic', taxNumber: 'AB 123',
       phone: null, email: null, city: null, district: null, address: null, assignedStaffUserId: 'staff-1', status: 'prospect' });
     const create = vi.fn().mockRejectedValue(new ApiError(0, 'INVALID_RESPONSE', 'Yanıt okunamadı.'));
-    const refetch = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 60, offset: 0 });
+    const refetch = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 6, offset: 0 });
     await expect(createCustomerWithRecovery(customerInputFromFormData(data), { create, refetch }))
       .resolves.toEqual({ customer: null, resultUnknown: true, matches: [] });
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -368,7 +368,7 @@ describe('Customer list navigation feedback', () => {
     await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search).toContain('offset=6');
     expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 6, offset: 6 }));
-    expect(container.textContent).toContain('Klinik 6');
+    expect(container.textContent).toContain('Klinik 7');
     expect(container.textContent).not.toContain('Klinik 1');
   });
 
@@ -388,11 +388,11 @@ describe('Customer list navigation feedback', () => {
     expect(router.state.location.search).toContain('offset=6');
     expect(router.state.location.search).toContain('status=active');
     expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 6, offset: 6, status: 'active' }));
-    expect(container.textContent).toContain('Klinik 6');
+    expect(container.textContent).toContain('Klinik 7');
   });
 
   it('shows the delete success notice after navigation and loads the list once', async () => {
-    const load = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 60, offset: 0 });
+    const load = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 6, offset: 0 });
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={manager} load={load as never} />,
     }], { initialEntries: [{ pathname: '/customers', state: { customerNotice: 'Demo Klinik kalıcı olarak silindi.' } }] });
