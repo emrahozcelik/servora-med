@@ -1017,8 +1017,10 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     if (!tick) return;
     await this.pool.query(
       `UPDATE backup_worker_state
-          SET worker_heartbeat_at = $1, worker_heartbeat_time_evidence = $2
-        WHERE singleton`,
+          SET worker_heartbeat_at = $1::timestamptz,
+              worker_heartbeat_time_evidence = $2::jsonb
+        WHERE singleton
+          AND (worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz)`,
       [tick.at, JSON.stringify(tick.evidence)],
     );
   }
@@ -1028,20 +1030,34 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     if (!tick) return;
     await this.pool.query(
       `UPDATE backup_worker_state
-          SET scheduler_last_tick_at = $1, scheduler_last_tick_time_evidence = $2
-        WHERE singleton`,
+          SET scheduler_last_tick_at = $1::timestamptz,
+              scheduler_last_tick_time_evidence = $2::jsonb
+        WHERE singleton
+          AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz)`,
       [tick.at, JSON.stringify(tick.evidence)],
     );
   }
 
-  /** One poll's sample advances both dimensions in one statement. */
+  /** One poll atomically advances both heartbeat high-water marks if newer.
+   * UTC rollback samples must not erase the previously observed wall instant;
+   * preserve the timestamp and its evidence together in every SQL path. */
   async touchWorkerAndSchedulerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void> {
     const tick = heartbeatTick(at, evidence);
     if (!tick) return;
     await this.pool.query(
       `UPDATE backup_worker_state
-          SET worker_heartbeat_at = $1, worker_heartbeat_time_evidence = $2,
-              scheduler_last_tick_at = $1, scheduler_last_tick_time_evidence = $2
+          SET worker_heartbeat_at =
+                CASE WHEN worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz
+                  THEN $1::timestamptz ELSE worker_heartbeat_at END,
+              worker_heartbeat_time_evidence =
+                CASE WHEN worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz
+                  THEN $2::jsonb ELSE worker_heartbeat_time_evidence END,
+              scheduler_last_tick_at =
+                CASE WHEN scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz
+                  THEN $1::timestamptz ELSE scheduler_last_tick_at END,
+              scheduler_last_tick_time_evidence =
+                CASE WHEN scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz
+                  THEN $2::jsonb ELSE scheduler_last_tick_time_evidence END
         WHERE singleton`,
       [tick.at, JSON.stringify(tick.evidence)],
     );
@@ -1057,8 +1073,10 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       if (!tick) return;
       await client.query(
         `UPDATE backup_worker_state
-            SET scheduler_last_tick_at = $1, scheduler_last_tick_time_evidence = $2
-          WHERE singleton`,
+            SET scheduler_last_tick_at = $1::timestamptz,
+                scheduler_last_tick_time_evidence = $2::jsonb
+          WHERE singleton
+            AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz)`,
         [tick.at, JSON.stringify(tick.evidence)],
       );
     };
@@ -1126,8 +1144,14 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       );
       await client.query(
         `UPDATE backup_worker_state
-            SET scheduler_last_tick_at = COALESCE($5::timestamptz, scheduler_last_tick_at),
-                scheduler_last_tick_time_evidence = COALESCE($6::jsonb, scheduler_last_tick_time_evidence),
+            SET scheduler_last_tick_at =
+                  CASE WHEN $5::timestamptz IS NOT NULL
+                    AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $5::timestamptz)
+                    THEN $5::timestamptz ELSE scheduler_last_tick_at END,
+                scheduler_last_tick_time_evidence =
+                  CASE WHEN $5::timestamptz IS NOT NULL
+                    AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $5::timestamptz)
+                    THEN $6::jsonb ELSE scheduler_last_tick_time_evidence END,
                 last_scheduled_slot_key = $1,
                 last_scheduled_local_date = $2::date,
                 last_scheduled_for = $3,

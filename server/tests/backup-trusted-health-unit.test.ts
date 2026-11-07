@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
+import { createPostgresBackupHealth, observedHeartbeatWallRollback } from '../src/modules/health/postgres-backup-health.js';
 import { evaluateBr5PositiveHealthAdmission } from '../src/modules/backup/freshness-policy.js';
 import type { BackupVerificationProof } from '../src/modules/backup/trusted-evidence.js';
 import { timeAt } from './backup-time-fixture.js';
@@ -154,6 +154,17 @@ function workerAt(at: number): Row {
 }
 
 describe('BR5 trusted backup health reader', () => {
+  it('detects observed wall rollback against either persisted heartbeat without inventing rate bounds', () => {
+    const at = new Date(T0 + HOUR);
+    const before = new Date(at.getTime() - 1);
+    expect(observedHeartbeatWallRollback(before.toISOString(), at, null)).toBe(true);
+    expect(observedHeartbeatWallRollback(before.toISOString(), null, at)).toBe(true);
+    expect(observedHeartbeatWallRollback(at.toISOString(), at, at)).toBe(false);
+    expect(observedHeartbeatWallRollback(new Date(at.getTime() + 1).toISOString(), at, at)).toBe(false);
+    expect(observedHeartbeatWallRollback('invalid-date', at, at)).toBe(true);
+    expect(observedHeartbeatWallRollback(before.toISOString(), null, null)).toBe(false);
+  });
+
   it('keeps positive admission closed until qualified clock and producer evidence exist', () => {
     expect(evaluateBr5PositiveHealthAdmission()).toBe('BLOCKED');
   });

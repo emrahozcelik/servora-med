@@ -98,6 +98,22 @@ function heartbeatFresh(
     && elapsed.utcUpperMs <= maxAgeMs;
 }
 
+/**
+ * A sampled wall instant earlier than an already persisted heartbeat is an
+ * observable rollback signal. This veto is independent of BOOTTIME arithmetic
+ * and is *not* a complete clock-step or physical-time proof.
+ */
+export function observedHeartbeatWallRollback(
+  currentWallAtUTC: string,
+  workerHeartbeatAt: Date | null,
+  schedulerLastTickAt: Date | null,
+): boolean {
+  const currentMs = Date.parse(currentWallAtUTC);
+  if (!Number.isFinite(currentMs)) return true;
+  return (workerHeartbeatAt !== null && currentMs < workerHeartbeatAt.getTime())
+    || (schedulerLastTickAt !== null && currentMs < schedulerLastTickAt.getTime());
+}
+
 /** Safe, aggregate-only backup health surface for the operator monitor.
  * No keys, paths, evidence details, or raw diagnostics leave the database
  * boundary. */
@@ -249,7 +265,21 @@ export function createPostgresBackupHealth(
           return { ...unavailable, ...projection };
         }
 
-        if (workerEnabled) {
+        // BR5 requires an operational worker, not merely a historic successful
+        // backup. Disabling the worker must never bypass liveness/admission.
+        // This is an extra veto, NOT an all-node maintenance authorization.
+        if (!workerEnabled) return { ...unavailable, ...projection };
+
+        // A backwards wall step may be observed even while the conditional
+        // two-clock candidate appears fresh. Retain the DB high-water marks
+        // across restarts and deny positive health until the wall catches up.
+        if (observedHeartbeatWallRollback(
+          current.wallAtUTC,
+          workerHeartbeatAt,
+          schedulerLastTickAt,
+        )) return { ...unavailable, ...projection };
+
+        {
           const workerLive = heartbeatFresh(
             workerHeartbeatAt,
             workerRow?.worker_heartbeat_time_evidence,
