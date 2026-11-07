@@ -285,6 +285,31 @@ describe('Customer report screen', () => {
     expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }));
   });
 
+  it('recovers an out-of-range page directly to the last six-record page', async () => {
+    vi.mocked(getCustomerReport).mockResolvedValue(
+      baseReport({ total: 13, limit: 6, offset: 48, items: [] }),
+    );
+    function Location() { return <output data-location>{useLocation().search}</output>; }
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&offset=48']}>
+          <CustomerReport />
+          <Location />
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+    const recover = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('Önceki sayfaya dön'))!;
+    await act(async () => { recover.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelector('[data-location]')?.textContent).toBe(
+      '?from=2026-07-01&to=2026-07-31&offset=12',
+    );
+    expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({
+      offset: 12, limit: 6,
+    }));
+  });
+
   it('paginates report customers with a six-record server page and a readable summary', async () => {
     vi.mocked(getCustomerReport).mockResolvedValue(baseReport({ total: 13, limit: 6 }));
     await render('/reports/customers?from=2026-07-01&to=2026-07-31&offset=0');
