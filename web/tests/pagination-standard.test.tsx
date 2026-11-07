@@ -78,10 +78,19 @@ describe('SERVORA-MED pagination standard v1', () => {
       expect(prev).not.toBeNull();
       expect(next?.querySelector('button')?.getAttribute('aria-label')).toBe('Sonraki sayfa');
       expect(prev?.querySelector('button')?.getAttribute('aria-label')).toBe('Önceki sayfa');
-      await act(async () => next!.click());
+      expect(next?.getAttribute('role')).toBe('button');
+      expect(next?.tabIndex).toBe(0);
+      expect(prev?.tabIndex).toBe(-1);
+      await act(async () => {
+        next!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      });
       expect(onOffsetChange).toHaveBeenLastCalledWith(6);
       expect(container.textContent).toContain('Sayfa 2 / 3');
-      await act(async () => prev!.click());
+      const prevAfter = container.querySelector<HTMLElement>('[class*="pagination-prev"]');
+      expect(prevAfter?.tabIndex).toBe(0);
+      await act(async () => {
+        prevAfter!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      });
       expect(onOffsetChange).toHaveBeenLastCalledWith(0);
     } finally {
       await act(async () => root.unmount());
