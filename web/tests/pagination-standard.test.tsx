@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
+import { act, useState } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_LIST_PAGE_SIZE,
@@ -12,6 +14,9 @@ import {
   normalizeListOffset,
 } from '../src/ui/pagination';
 import { ServoraListPagination } from '../src/ui/antd/ServoraPagination';
+import { stubDesktopMatchMedia } from './antd-match-media';
+
+stubDesktopMatchMedia();
 
 describe('SERVORA-MED pagination standard v1', () => {
   it('defaults to six and rejects malformed, fractional, or unsafe offsets', () => {
@@ -47,7 +52,41 @@ describe('SERVORA-MED pagination standard v1', () => {
     expect(html).toContain('Müşteri sayfaları');
     expect(html).toContain('Sayfa 2 / 3');
     expect(html).toContain('Toplam 13 müşteri');
+    expect(html).toContain('aria-label="Önceki sayfa"');
+    expect(html).toContain('aria-label="Sonraki sayfa"');
     expect(html).not.toContain('pagination-options');
+  });
+
+  it('mounts and pages in jsdom, keeping arrow labels and offsets correct', async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    const onOffsetChange = vi.fn();
+    function Harness() {
+      const [offset, setOffset] = useState(0);
+      return <ServoraListPagination
+        total={13} offset={offset} label="Müşteri sayfaları" itemName="müşteri"
+        onOffsetChange={(next) => { setOffset(next); onOffsetChange(next); }}
+      />;
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const next = container.querySelector<HTMLElement>('[class*="pagination-next"]');
+      const prev = container.querySelector<HTMLElement>('[class*="pagination-prev"]');
+      expect(next).not.toBeNull();
+      expect(prev).not.toBeNull();
+      expect(next?.querySelector('button')?.getAttribute('aria-label')).toBe('Sonraki sayfa');
+      expect(prev?.querySelector('button')?.getAttribute('aria-label')).toBe('Önceki sayfa');
+      await act(async () => next!.click());
+      expect(onOffsetChange).toHaveBeenLastCalledWith(6);
+      expect(container.textContent).toContain('Sayfa 2 / 3');
+      await act(async () => prev!.click());
+      expect(onOffsetChange).toHaveBeenLastCalledWith(0);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 
   it('does not show unnecessary pager controls for empty or single-page lists', () => {

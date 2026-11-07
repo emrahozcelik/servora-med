@@ -1,3 +1,4 @@
+import { cloneElement, isValidElement, type ReactElement } from 'react';
 import { Pagination, type PaginationProps } from 'antd';
 import {
   DEFAULT_LIST_PAGE_SIZE,
@@ -47,8 +48,15 @@ export function ServoraListPagination({
         showSizeChanger={false}
         showQuickJumper={false}
         hideOnSinglePage
-        responsive
         size="small"
+        itemRender={(_, type, element) => {
+          if ((type === 'prev' || type === 'next') && isValidElement(element)) {
+            return cloneElement(element as ReactElement<{ 'aria-label'?: string }>, {
+              'aria-label': type === 'prev' ? 'Önceki sayfa' : 'Sonraki sayfa',
+            });
+          }
+          return element;
+        }}
         onChange={(page) => onOffsetChange(listOffsetForPage(page, total, size))}
       />
     </nav>

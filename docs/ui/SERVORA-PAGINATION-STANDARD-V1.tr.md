@@ -1,7 +1,9 @@
 # SERVORA-MED — Liste ve Sayfalama Standardı v1
 
-**Durum:** DRAFT / REVIEW REQUIRED — 7 Kasım 2026  
-**Baz alınan main:** `284b618b0bfabe18b5a27bb3b28bc3e2d208e17f`  
+**Durum:** DRAFT / REVIEW REQUIRED — 7 Kasım 2026
+
+**Baz alınan main:** `284b618b0bfabe18b5a27bb3b28bc3e2d208e17f`
+
 **Karar:** İlk yüklemede **6 kayıt**. Uzun, arama/filtreleme içeren liste yüzeyleri sınırlı sonuç ve ortak sayfalama kullanmalı. Bu bir sayısal rapor kuralı değişikliği değildir.
 
 ## 1. Kaynaklar ve teknoloji
