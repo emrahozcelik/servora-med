@@ -23,6 +23,8 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.get('/weekly-reports/reference', secured, h.getWeeklyReportReference);
   app.get<{ Params: { id: string } }>('/:id/weekly-report', secured, h.getWeeklyReport);
   app.patch<{ Params: { id: string } }>('/:id/weekly-report', secured, h.updateWeeklyReportDraft);
+  app.get<{ Params: { id: string } }>('/:id/weekly-report/removal-preview', secured, h.weeklyReportRemovalPreview);
+  app.post<{ Params: { id: string } }>('/:id/weekly-report/remove', secured, h.removeWeeklyReport);
   app.get<{ Params: { id: string } }>('/:id/weekly-report/submissions', secured, h.listWeeklyReportSubmissions);
   app.get<{ Params: { id: string; seq: string } }>(
     '/:id/weekly-report/submissions/:seq/pdf',

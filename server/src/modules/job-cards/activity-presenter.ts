@@ -278,7 +278,8 @@ function details(
         itemId: value.id, productName: value.productNameSnapshot, quantity,
         previousQuantity: saleCount(previous) };
     }
-    case 'JOB_CREATED': return { kind: 'NONE' };
+    case 'JOB_CREATED':
+    case 'WEEKLY_REPORT_REMOVED': return { kind: 'NONE' };
     // OVR-4 reminder facts carry their semantics in metadata (incident,
     // episode, target, sentAt); the timeline renders them as plain facts.
     case 'JOB_SUBMISSION_REMINDER_SENT':

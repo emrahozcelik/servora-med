@@ -41,7 +41,7 @@ function item(overrides: Partial<WeeklyReportHistoryItem> = {}): WeeklyReportHis
     periodStart: '2026-09-21', periodEnd: '2026-09-27', status: 'IN_PROGRESS',
     dueDate: '2026-09-28', submissionCount: 2, latestSubmissionSeqNo: 2,
     latestSubmittedAt: '2026-09-26T09:00:00.000Z', createdAt: '2026-09-21T06:00:00.000Z',
-    completedAt: null,
+    completedAt: null, removedAt: null,
     ...overrides,
   };
 }
@@ -50,9 +50,9 @@ function page(items: WeeklyReportHistoryItem[], offset = 0, total = items.length
   return { items, total, limit: 20, offset };
 }
 
-const OWN_URL = '/api/staff/me/weekly-reports?limit=20&offset=0';
-const STAFF_URL = '/api/staff/staff-1/weekly-reports?limit=20&offset=0';
-const PAGE_2_URL = '/api/staff/me/weekly-reports?limit=20&offset=20';
+const OWN_URL = '/api/staff/me/weekly-reports?limit=20&offset=0&includeWeeklyReportRemovalCapability=true';
+const STAFF_URL = '/api/staff/staff-1/weekly-reports?limit=20&offset=0&includeWeeklyReportRemovalCapability=true';
+const PAGE_2_URL = '/api/staff/me/weekly-reports?limit=20&offset=20&includeWeeklyReportRemovalCapability=true';
 const PDF_URL = '/api/job-cards/job-1/weekly-report/submissions/2/pdf';
 
 const json = (body: unknown, status = 200) =>

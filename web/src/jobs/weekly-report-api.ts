@@ -7,9 +7,11 @@ import {
   type JobCardStatus,
 } from './jobs-api';
 
-const request: typeof apiRequest = (path, options) => apiRequest(
-  path + (path.includes('?') ? '&' : '?') + 'includeSaleCapability=true', options,
-);
+const request: typeof apiRequest = (path, options) => {
+  const detail = /^\/api\/job-cards\/[^/]+\/weekly-report$/.test(path.split('?')[0]!);
+  return apiRequest(path + (path.includes('?') ? '&' : '?')
+    + (detail ? 'includeWeeklyReportRemovalCapability=true&' : '') + 'includeSaleCapability=true',options);
+};
 
 // Local parser helpers mirror the jobs-api convention (each API module owns
 // its exact-object parsing so contract drift fails closed at the call site).
@@ -74,6 +76,8 @@ export type WeeklyReportSubmissionSummary = {
   submittedBy: string;
 };
 export type WeeklyReportDetail = {
+  canRemove: boolean;
+  removal: WeeklyReportRemoval | null;
   id: string;
   organizationId: string;
   staffUserId: string;
@@ -95,6 +99,37 @@ export type WeeklyReportDetail = {
   createdAt: string;
   updatedAt: string;
 };
+export type WeeklyReportRemoval = { removedAt: string; removedBy: string; reason: string };
+export type WeeklyReportRemovalPreview = {
+  jobCardId: string; reportId: string; staffUserId: string; staffName: string;
+  periodStart: string; periodEnd: string; status: JobCardStatus;
+  expectedVersion: number; expectedReportVersion: number; submissionCount: number;
+  canRemove: boolean; removal: WeeklyReportRemoval | null;
+};
+export type WeeklyReportRemovalInput = {
+  clientActionId: string; expectedVersion: number; expectedReportVersion: number; reason: string;
+};
+
+function parseRemoval(value: unknown): WeeklyReportRemoval | null {
+  if (value === null) return null;
+  const record = exactObject(value,'removal',['removedAt','removedBy','reason']);
+  const removedAt = string(record.removedAt,'removedAt');
+  if (!Number.isFinite(Date.parse(removedAt))) invalid('removedAt');
+  return { removedAt,removedBy: string(record.removedBy,'removedBy'),reason: string(record.reason,'reason') };
+}
+
+export function parseWeeklyReportRemovalPreview(value: unknown): WeeklyReportRemovalPreview {
+  const record = exactObject(value,'removalPreview',['jobCardId','reportId','staffUserId','staffName',
+    'periodStart','periodEnd','status','expectedVersion','expectedReportVersion','submissionCount','canRemove','removal']);
+  const submissionCount = record.submissionCount;
+  if (typeof submissionCount!=='number' || !Number.isSafeInteger(submissionCount) || submissionCount<0) invalid('submissionCount');
+  return { jobCardId: string(record.jobCardId,'jobCardId'),reportId: string(record.reportId,'reportId'),
+    staffUserId: string(record.staffUserId,'staffUserId'),staffName: string(record.staffName,'staffName'),
+    periodStart: dateKey(record.periodStart,'periodStart'),periodEnd: dateKey(record.periodEnd,'periodEnd'),
+    status: oneOf(record.status,'status',JOB_CARD_STATUSES),expectedVersion: positiveCount(record.expectedVersion,'expectedVersion'),
+    expectedReportVersion: positiveCount(record.expectedReportVersion,'expectedReportVersion'),submissionCount,
+    canRemove: booleanValue(record.canRemove,'canRemove'),removal: parseRemoval(record.removal) };
+}
 /**
  * Canonical create-screen reference. The organization timezone owns what
  * "this week" means, so the default period is never derived from the device
@@ -237,12 +272,15 @@ export function parseWeeklyReportDetail(value: unknown): WeeklyReportDetail {
   // (createdAt/updatedAt) are part of the response, so omitting one here
   // fails a valid response closed — the observed field-test blocker.
   const root = exactObject(value, 'weeklyReport', [
+    'canRemove', 'removal',
     'id', 'organizationId', 'staffUserId', 'jobCardId', 'periodStart', 'periodEnd', 'draft',
     'questions', 'answers', 'version', 'jobStatus', 'jobVersion', 'dueDate',
     'assignedTo', 'instructions', 'liveSourceWork', 'submissionSummaries',
     'createdAt', 'updatedAt',
   ]);
   return {
+    canRemove: booleanValue(root.canRemove,'canRemove'),
+    removal: parseRemoval(root.removal),
     id: string(root.id, 'id'),
     organizationId: string(root.organizationId, 'organizationId'),
     staffUserId: string(root.staffUserId, 'staffUserId'),
@@ -369,6 +407,11 @@ export type WeeklyReportDraftPatchInput = {
 };
 
 const weeklyPath = (jobCardId: string) => `/api/job-cards/${encodeURIComponent(jobCardId)}/weekly-report`;
+
+export const getWeeklyReportRemovalPreview = async (jobCardId: string) =>
+  parseWeeklyReportRemovalPreview(await request(`${weeklyPath(jobCardId)}/removal-preview`));
+export const removeWeeklyReport = async (jobCardId: string, input: WeeklyReportRemovalInput) =>
+  parseWeeklyReportDetail(await request(`${weeklyPath(jobCardId)}/remove`,json('POST',input)));
 
 export const createWeeklyReport = async (input: WeeklyReportCreateInput) =>
   parseWeeklyReportCreateResult(await request('/api/job-cards/weekly-reports', json('POST', input)));

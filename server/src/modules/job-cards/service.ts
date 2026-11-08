@@ -157,6 +157,10 @@ import {
   type WeeklyReportCreateInput,
 } from '../weekly-reports/create-input.js';
 import { validateManagerQuestions } from '../weekly-reports/validation.js';
+import {
+  parseWeeklyReportRemovalInput, weeklyReportRemovalRequestHash,
+  type WeeklyReportRemovalInput,
+} from '../weekly-reports/removal-input.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -1480,6 +1484,7 @@ export class JobCardService {
     }
     return {
       ...report,
+      canRemove: actor.role === 'ADMIN' && report.removal === null && report.staffUserId === job.assignedTo,
       jobStatus: job.status,
       jobVersion: job.version,
       dueDate: job.dueDate,
@@ -1492,6 +1497,103 @@ export class JobCardService {
         submittedBy: row.submitted_by,
       })),
     };
+  }
+
+  async weeklyReportRemovalPreview(actor: JobCardActor, jobCardId: string) {
+    assertCanInvalidate(actor);
+    const report = await this.getWeeklyReport(actor, jobCardId);
+    const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
+    if (!job) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    return {
+      jobCardId, reportId: report.id, staffUserId: report.staffUserId, staffName: job.assignee.name,
+      periodStart: report.periodStart, periodEnd: report.periodEnd,
+      status: report.jobStatus, expectedVersion: report.jobVersion, expectedReportVersion: report.version,
+      submissionCount: report.submissionSummaries.length, canRemove: report.canRemove,
+      removal: report.removal,
+    };
+  }
+
+  async removeWeeklyReport(actor: JobCardActor, jobCardId: string, rawInput: WeeklyReportRemovalInput) {
+    assertCanInvalidate(actor);
+    const input = parseWeeklyReportRemovalInput(rawInput);
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>({
+      organizationId: actor.organizationId, userId: actor.id, clientActionId: input.clientActionId,
+      operationKey: `WEEKLY_REPORT_REMOVE:${jobCardId}`,
+      requestHash: weeklyReportRemovalRequestHash(jobCardId, input),
+    }, async (tx) => {
+      // User -> JobCard -> WeeklyReport, matching creation/draft/offboarding.
+      const currentActor = await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
+      if (!currentActor?.isActive || currentActor.role !== 'ADMIN') {
+        throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+      }
+      const snapshot = await tx.getJob(actor.organizationId, jobCardId);
+      if (!snapshot || snapshot.type !== 'WEEKLY_REPORT') {
+        throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+      }
+      const owner = await tx.getAssigneeForUpdate(actor.organizationId, snapshot.assignedTo);
+      const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+      const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, jobCardId);
+      if (!job || !row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+      if (!owner || owner.role !== 'STAFF' || job.type !== 'WEEKLY_REPORT'
+        || row.staff_user_id !== job.assignedTo || job.assignedTo !== snapshot.assignedTo) {
+        throw new AppError('WEEKLY_REPORT_OWNERSHIP_CONFLICT', 409, 'Rapor sahibi doğrulanamadığı için rapor kaldırılamaz.');
+      }
+      if (row.removed_at !== null) {
+        throw new AppError('WEEKLY_REPORT_ALREADY_REMOVED', 409, 'Bu haftalık rapor zaten kaldırılmış.');
+      }
+      if (job.version !== input.expectedVersion || row.version !== input.expectedReportVersion) {
+        throw new AppError('VERSION_CONFLICT', 409, 'Rapor değişti. Güncel kaydı inceleyip yeniden deneyin.');
+      }
+      if ((await tx.listActiveFollowUpChildrenForUpdate(actor.organizationId, jobCardId)).length > 0) {
+        throw new AppError('JOB_HAS_ACTIVE_FOLLOW_UPS', 409, 'Aktif takip işleri bulunan rapor kaldırılamaz.');
+      }
+      const at = this.now();
+      const updated = job.status === 'INVALIDATED'
+        ? await tx.bumpVersion(actor.organizationId, jobCardId, job.version)
+        : await tx.invalidateWithVersion({ organizationId: actor.organizationId, jobCardId,
+          expectedVersion: job.version, invalidatedAt: at, invalidatedBy: actor.id, reasonCode: 'CREATED_BY_MISTAKE' });
+      if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+      const removed = await tx.removeWeeklyReportRow({ organizationId: actor.organizationId,
+        reportId: row.id, expectedVersion: row.version, removedAt: at, removedBy: actor.id, reason: input.reason });
+      if (!removed) throw new AppError('VERSION_CONFLICT', 409, 'Rapor başka bir işlem tarafından güncellendi.');
+      const realtimeEvents: RealtimeEventRecord[] = [];
+      if (job.status !== 'INVALIDATED') {
+        const activity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId,
+          actorId: actor.id, event: 'JOB_INVALIDATED', clientActionId: input.clientActionId,
+          oldValue: { status: job.status, version: job.version },
+          newValue: { status: updated.status, version: updated.version },
+          metadata: { reasonCode: 'CREATED_BY_MISTAKE', reportId: row.id } });
+        await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
+          oldValue: { status: job.status }, newValue: { status: updated.status },
+          metadata: { reasonCode: 'CREATED_BY_MISTAKE', clientActionId: input.clientActionId } });
+        realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+          activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
+          event: 'JOB_INVALIDATED', jobType: job.type, beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
+        }));
+      }
+      const activity = await tx.appendActivity({ organizationId: actor.organizationId, jobCardId,
+        actorId: actor.id, event: 'WEEKLY_REPORT_REMOVED', clientActionId: input.clientActionId,
+        oldValue: { reportVersion: row.version }, newValue: { reportVersion: removed.version },
+        metadata: { reportId: row.id, reason: input.reason } });
+      await tx.appendAudit({ organizationId: actor.organizationId, actorUserId: actor.id, subjectId: jobCardId,
+        eventType: 'WEEKLY_REPORT_REMOVED', oldValue: { reportId: row.id, removedAt: null },
+        newValue: { reportId: row.id, removedAt: at.toISOString() },
+        metadata: { staffUserId: row.staff_user_id, periodStart: mapReport(row).periodStart,
+          reason: input.reason, clientActionId: input.clientActionId } });
+      await tx.synchronizeCalendarReminder({ organizationId: actor.organizationId, jobCardId,
+        assignedUserId: job.assignedTo, startsAt: job.scheduledAt, endsAt: job.scheduledEndsAt,
+        version: updated.version, active: false, now: at, reminderLeadMinutes: this.calendar.reminderLeadMinutes });
+      realtimeEvents.push(...await this.appendRealtimeForActivity(tx, {
+        activity, organizationId: actor.organizationId, jobCardId, actorUserId: actor.id,
+        event: 'WEEKLY_REPORT_REMOVED', jobType: job.type, beforeAssigneeId: job.assignedTo,
+        afterAssigneeId: job.assignedTo, calendarAffected: true, customerId: null,
+      }));
+      return { response: { jobCardId }, realtimeEvents };
+    });
+    if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return this.getWeeklyReport(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
   /**

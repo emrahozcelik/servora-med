@@ -31,6 +31,8 @@ const weeklyApi = vi.hoisted(() => ({
   listWeeklyReportSubmissions: vi.fn(),
   patchWeeklyReportDraft: vi.fn(),
   downloadWeeklyReportSubmissionPdf: vi.fn(),
+  getWeeklyReportRemovalPreview: vi.fn(),
+  removeWeeklyReport: vi.fn(),
 }));
 const realtime = vi.hoisted(() => ({
   latest: null as { keys: string[]; callback: () => void } | null,
@@ -102,6 +104,7 @@ function makeDetail(overrides: Partial<WeeklyReportDetailDto> = {}): WeeklyRepor
     version: 2, jobStatus: 'IN_PROGRESS', jobVersion: 3,
     dueDate: '2026-08-10', assignedTo: 'staff-1', instructions: null,
     liveSourceWork: [], submissionSummaries: [],
+    canRemove: false, removal: null,
     createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-04T10:00:00.000Z',
     ...overrides,
   };
@@ -188,6 +191,122 @@ describe('WeeklyReportDetail', () => {
   function hasButton(text: string): boolean {
     return Array.from(host.querySelectorAll('button')).some((button) => button.textContent === text);
   }
+
+  it('offers backend-authorized removal on a completed Admin report', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({ status: 'COMPLETED', workflowContext: {
+      ...baseWorkflowContext, allowedCommands: [], allowedActions: ['VIEW_NOTES'],
+    } }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(Object.assign(makeDetail({ jobStatus: 'COMPLETED' }), {
+      canRemove: true, removal: null,
+    }));
+    await render({ ...managerUser, id: 'admin-1', role: 'ADMIN' });
+    expect(hasButton('Raporu kaldır')).toBe(true);
+  });
+
+  async function openRemoval() {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({ status: 'COMPLETED',workflowContext: {
+      ...baseWorkflowContext,allowedCommands: [],allowedActions: ['VIEW_NOTES'],
+    } }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED',canRemove: true }));
+    weeklyApi.getWeeklyReportRemovalPreview.mockResolvedValue({ jobCardId:'job-1',reportId:'report-1',
+      staffUserId:'staff-1',staffName:'Ayşe Personel',...WEEK,status:'COMPLETED',
+      expectedVersion:3,expectedReportVersion:2,submissionCount:1,canRemove:true,removal:null });
+    await render({ ...managerUser,id:'admin-1',role:'ADMIN' });
+    click(buttonByText('Raporu kaldır'));await flush();
+  }
+
+  async function confirmRemoval() {
+    const form = host.querySelector('[data-weekly-report-removal] form')!;
+    act(() => { form.dispatchEvent(new Event('submit',{ bubbles:true,cancelable:true })); });
+    await flush();
+    click(buttonByText('Raporu kaldır ve haftayı aç'));await flush();
+  }
+
+  function removalReason() { return host.querySelector('[data-weekly-report-removal] textarea') as HTMLTextAreaElement; }
+
+  it('requires a reason and explicit confirmation with the exact preview target', async () => {
+    await openRemoval();
+    expect(host.querySelector('[data-weekly-report-removal]')?.textContent).toContain('1 gönderim korunacak');
+    await confirmRemovalWithoutReason();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(weeklyApi.removeWeeklyReport).not.toHaveBeenCalled();
+    type(removalReason(),'  Yanlış hafta.  ');
+    weeklyApi.removeWeeklyReport.mockResolvedValue(makeDetail());
+    await confirmRemoval();
+    expect(weeklyApi.removeWeeklyReport).toHaveBeenCalledExactlyOnceWith('job-1',{
+      clientActionId:'action-1',expectedVersion:3,expectedReportVersion:2,reason:'Yanlış hafta.',
+    });
+  });
+
+  async function confirmRemovalWithoutReason() {
+    act(() => { host.querySelector('[data-weekly-report-removal] form')!.dispatchEvent(new Event('submit',{ bubbles:true,cancelable:true })); });
+    await flush();
+  }
+
+  it('keeps an uncertain attempt frozen and retries its identical identity and payload', async () => {
+    await openRemoval();type(removalReason(),'Yanlış hafta.');
+    weeklyApi.removeWeeklyReport.mockRejectedValueOnce(new TypeError('Lost response'));
+    await confirmRemoval();
+    const first = weeklyApi.removeWeeklyReport.mock.calls[0]![1];
+    expect(removalReason().disabled).toBe(true);
+    expect(hasButton('Devam et')).toBe(false);
+    expect(hasButton('Vazgeç')).toBe(false);
+    weeklyApi.removeWeeklyReport.mockResolvedValue(makeDetail());
+    click(buttonByText('Özgün işlemi tekrar dene'));await flush();
+    expect(weeklyApi.removeWeeklyReport.mock.calls[1]).toEqual(['job-1',first]);
+    expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the reason after a version conflict and requires a fresh preview', async () => {
+    await openRemoval();type(removalReason(),'Yanlış hafta.');
+    weeklyApi.removeWeeklyReport.mockRejectedValueOnce(new ApiError(409,'VERSION_CONFLICT','Rapor değişti.'));
+    await confirmRemoval();
+    expect(removalReason().value).toBe('Yanlış hafta.');
+    expect(buttonByText('Devam et').disabled).toBe(true);
+    expect(hasButton('Özgün işlemi tekrar dene')).toBe(false);
+    const priorPreview = await weeklyApi.getWeeklyReportRemovalPreview.mock.results[0]!.value;
+    weeklyApi.getWeeklyReportRemovalPreview.mockResolvedValue({ ...priorPreview,expectedVersion:4 });
+    click(buttonByText('Güncel bilgileri yükle'));await flush();
+    weeklyApi.removeWeeklyReport.mockResolvedValue(makeDetail());
+    await confirmRemoval();
+    expect(weeklyApi.removeWeeklyReport.mock.calls[1]![1]).toMatchObject({ clientActionId:'action-2',expectedVersion:4,reason:'Yanlış hafta.' });
+  });
+
+  it('blocks duplicate clicks and cancellation while removal is pending', async () => {
+    await openRemoval();type(removalReason(),'Yanlış hafta.');
+    let resolve!: () => void;
+    weeklyApi.removeWeeklyReport.mockReturnValue(new Promise<void>(done => { resolve = done; }));
+    await confirmRemoval();
+    expect(buttonByText('Rapor kaldırılıyor…').disabled).toBe(true);
+    expect(buttonByText('Vazgeç').disabled).toBe(true);
+    click(buttonByText('Rapor kaldırılıyor…'));
+    act(() => { host.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown',{ key:'Escape',bubbles:true })); });
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(weeklyApi.removeWeeklyReport).toHaveBeenCalledTimes(1);
+    resolve();await flush();
+  });
+
+  it.each([staffUser,managerUser])('hides removal when the backend denies capability to $role', async user => {
+    await render(user);
+    expect(hasButton('Raporu kaldır')).toBe(false);
+    expect(weeklyApi.getWeeklyReportRemovalPreview).not.toHaveBeenCalled();
+  });
+
+  it('keeps removed content frozen and opens a prefilled normal-create path', async () => {
+    jobsApi.getJobCard.mockResolvedValue(makeJob({ status:'INVALIDATED' }));
+    weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus:'INVALIDATED',removal: {
+      removedAt:'2026-08-09T09:00:00Z',removedBy:'admin-1',reason:'Yanlış hafta.',
+    } }));
+    weeklyApi.listWeeklyReportSubmissions.mockResolvedValue([makeSubmission()]);
+    await render(staffUser);
+    expect(host.textContent).toContain('Bu rapor kaldırıldı.');
+    expect(host.textContent).toContain('Gönderilen özet.');
+    expect(host.textContent).toContain('Klinik ziyareti');
+    const link = Array.from(host.querySelectorAll('a')).find(element => element.textContent==='Aynı hafta için yeni rapor oluştur')!;
+    expect(link.getAttribute('href')).toContain('periodStart=2026-08-03&staffUserId=staff-1');
+    expect(hasButton('Raporu kaldır')).toBe(false);
+    expect(summaryField()).toBeNull();
+  });
 
   /**
    * Text of one labelled section only. Asserting on the whole `host.textContent`

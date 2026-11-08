@@ -2418,3 +2418,22 @@ deployment changes are authorized by this documentation task. A subsequent
 implementation slice must capture and approve the new evidence before reports
 claim to measure the verified performer. Reports remains read-only; new writes
 stay under JobCard ownership and the existing security/audit/transaction rules.
+
+## Weekly Report Admin removal and period release — 2026-11-07
+
+Status: Accepted for implementation by the product owner; PR/CI and production
+activation remain separate gates.
+
+An active same-organization ADMIN may remove an incorrectly created Weekly
+Report with a mandatory reason while preserving its original rows, immutable
+submissions/PDFs and all source work. Its root becomes/remains INVALIDATED;
+explicit report removal releases the Staff/week for a new independent report.
+Generic CANCEL and INVALIDATE alone retain their existing identity semantics.
+
+This supersedes only Weekly Report V1 Slice 1's lifetime Staff/week uniqueness
+and replacement exclusion for explicitly removed reports. WeeklyReport removal
+metadata owns the current identity claim; JobCard remains the lifecycle owner.
+No physical deletion, historical reassignment, terminal reopening or general
+Admin permission expansion is authorized.
+
+Contract: [Admin Weekly Report removal](docs/features/weekly-report-removal.md).

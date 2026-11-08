@@ -11,6 +11,7 @@ import type {
 } from './offboarding.js';
 import type { PeopleService } from './service.js';
 import type { CreateUserInput, StaffProfileInput, StaffStatusFilter } from './types.js';
+import type { PaginatedWeeklyReportHistory } from '../weekly-reports/history-port.js';
 
 function bodyOf(request: FastifyRequest) {
   if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
@@ -169,13 +170,18 @@ function historyQuery(request: FastifyRequest) {
  * Weekly Report history page query. Only `limit`/`offset` are accepted;
  * unknown keys fail closed. Default 20, hard maximum 50.
  */
+function weeklyHistoryResponse(page: PaginatedWeeklyReportHistory, request: FastifyRequest) {
+  if ((request.query as Record<string, unknown>).includeWeeklyReportRemovalCapability === 'true') return page;
+  return { ...page, items: page.items.map(({ removedAt: _removedAt, ...legacy }) => legacy) };
+}
+
 function weeklyReportsQuery(request: FastifyRequest) {
   const value = request.query;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçerli sorgu parametreleri gönderin.');
   }
   const record = value as Record<string, unknown>;
-  const unknown = Object.keys(record).find((key) => !['limit', 'offset'].includes(key));
+  const unknown = Object.keys(record).find((key) => !['limit', 'offset', 'includeWeeklyReportRemovalCapability'].includes(key));
   if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
   const integer = (raw: unknown, field: string, fallback: number, max?: number) => {
     if (raw === undefined) return fallback;
@@ -249,12 +255,12 @@ export function createPeopleHandlers(service: PeopleService, offboardingService?
     listStaffJobHistory: (request: FastifyRequest) => service.listStaffJobHistory(
       request.currentUser!, userId(request), historyQuery(request),
     ),
-    listOwnStaffWeeklyReports: (request: FastifyRequest) => service.listOwnStaffWeeklyReports(
+    listOwnStaffWeeklyReports: async (request: FastifyRequest) => weeklyHistoryResponse(await service.listOwnStaffWeeklyReports(
       request.currentUser!, weeklyReportsQuery(request),
-    ),
-    listStaffWeeklyReports: (request: FastifyRequest) => service.listStaffWeeklyReports(
+    ),request),
+    listStaffWeeklyReports: async (request: FastifyRequest) => weeklyHistoryResponse(await service.listStaffWeeklyReports(
       request.currentUser!, userId(request), weeklyReportsQuery(request),
-    ),
+    ),request),
     listUsers: (request: FastifyRequest) => service.listUsers(request.currentUser!),
     getUser: (request: FastifyRequest) => service.getUser(request.currentUser!, userId(request)),
     deleteUser: async (request: FastifyRequest, reply: FastifyReply) => {

@@ -32,6 +32,7 @@ function jobCard(overrides: Partial<JobCard> = {}): JobCard {
 
 function reportRow(overrides: Partial<WeeklyReportRow> = {}): WeeklyReportRow {
   return {
+    removed_at: null, removed_by: null, removal_reason: null,
     id: 'report-1', organization_id: 'org-1', job_card_id: 'job-1', staff_user_id: 'staff-1',
     period_start: DATE_ROW.periodStart, period_end: DATE_ROW.periodEnd,
     draft_summary: 'Canlı taslak özeti', draft_blockers: null, draft_next_week_plan: 'Canlı plan',

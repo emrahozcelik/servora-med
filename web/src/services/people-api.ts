@@ -326,7 +326,7 @@ export const getOwnStaffProfile = async () => parseProfile(await request('/api/s
 export const getStaffProfile = async (id: string) => parseProfile(await request(`/api/staff/${id}`));
 export const updateStaffProfile = async (id: string, input: StaffProfileFields & { expectedVersion: number }) => parseProfile(await request(`/api/staff/${id}`, json('PATCH', input)));
 
-function historyQuery(filters: { includeSaleCapability?: string; status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number }) {
+function historyQuery(filters: { includeWeeklyReportRemovalCapability?: string; includeSaleCapability?: string; status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined) params.set(key, String(value));
@@ -361,6 +361,7 @@ export type WeeklyReportHistoryItem = {
   periodStart: string; periodEnd: string; status: JobCardStatus; dueDate: string | null;
   submissionCount: number; latestSubmissionSeqNo: number | null; latestSubmittedAt: string | null;
   createdAt: string; completedAt: string | null;
+  removedAt: string | null;
 };
 
 function calendarDate(value: unknown, field: string) {
@@ -376,6 +377,7 @@ function parseWeeklyReportHistoryItem(value: unknown): WeeklyReportHistoryItem {
     'reportId', 'jobCardId', 'staffUserId', 'periodStart', 'periodEnd', 'status',
     'dueDate', 'submissionCount', 'latestSubmissionSeqNo', 'latestSubmittedAt',
     'createdAt', 'completedAt',
+    'removedAt',
   ], 'haftalık rapor geçmişi kaydı');
   const status = string(v.status, 'status');
   if (!(JOB_CARD_STATUSES as readonly string[]).includes(status)) {
@@ -396,6 +398,7 @@ function parseWeeklyReportHistoryItem(value: unknown): WeeklyReportHistoryItem {
     latestSubmittedAt: v.latestSubmittedAt === null ? null : isoDate(v.latestSubmittedAt, 'latestSubmittedAt'),
     createdAt: isoDate(v.createdAt, 'createdAt'),
     completedAt: v.completedAt === null ? null : isoDate(v.completedAt, 'completedAt'),
+    removedAt: v.removedAt === null ? null : isoDate(v.removedAt,'removedAt'),
   };
 }
 
@@ -411,6 +414,6 @@ function parseWeeklyReportHistoryPage(value: unknown): Paginated<WeeklyReportHis
 }
 
 export const listOwnWeeklyReports = async (filters: { limit?: number; offset?: number } = {}) =>
-  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/me/weekly-reports${historyQuery(filters)}`));
+  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/me/weekly-reports${historyQuery({ ...filters,includeWeeklyReportRemovalCapability:'true' })}`));
 export const listStaffWeeklyReports = async (id: string, filters: { limit?: number; offset?: number } = {}) =>
-  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/weekly-reports${historyQuery(filters)}`));
+  parseWeeklyReportHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/weekly-reports${historyQuery({ ...filters,includeWeeklyReportRemovalCapability:'true' })}`));
