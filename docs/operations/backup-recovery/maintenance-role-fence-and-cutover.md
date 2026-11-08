@@ -159,6 +159,37 @@ of the already validated migration 062 is introduced.
 - Even if the role preflight is PASS, keep `OT3_C=BLOCKED`,
   `OT3_D=BLOCKED`, physical-time P1 OPEN and real R2 DR NOT_QUALIFIED.
 
+## Independent disposable PostgreSQL 17.11 evidence (8 November 2026)
+
+PR #416 `3d411f1279c4ffd55c17a40b5ddeea4ed92761bd` has
+independent Node 22 tests **64/64 PASS** and disposable PG17.11 fenced-role
+acceptance **63/63 PASS**. The previous F1–F4 false-PASS attacks were
+reproduced and now reject **before the first CAS** (NOINHERIT owner role
+membership, directly superuser protected owner, unqualified/invoker or
+disabled audit/history definitions, and a hidden GRANT in the transition
+body). The independently checked evidence package contains 62/62 valid
+SHA-256 manifest entries. All tests used disposable roles/database,
+not production. No deployment or BR5 activation occurred.
+
+**F6 attribute-only semantics:** PostgreSQL's `SUPERUSER` and `CREATEROLE`
+role attributes are not inherited by membership; in the disposable test a
+protected owner that was an ordinary member of an elevated NOLOGIN role
+still could not CREATE ROLE (`42501`). Thus this is *not* an observed
+exploit. This statement does not authorize broader owner membership or
+override the operator group/DB owner member checks. Independently review
+any additional owner membership before release.
+
+**F5 trust boundary remains open.** The protected table owner can disable
+triggers and TRUNCATE; the DB/schema owner can DROP protected objects.
+A row-level immutable-history trigger cannot protect against those owners.
+Treat these principals as a separately controlled administrative trust
+boundary; owner custody, distinct migration credentials, independent
+grant/DDL attestation and R4 identity adapter remain release blockers.
+
+The 64 Node regressions are attached to both hosted `ci.yml` server
+checks and the existing local-CI `server-tests` check, without
+adding a 28th local CI gate or changing app/migration/backup behavior.
+
 ## Test responsibility and release decision
 
 This slice introduces **read-only role preflight + unit regression tests**
@@ -168,8 +199,10 @@ Node 22 tests, PG17 real positive/negative grants in an isolated DB, and
 main/PR integration; any missing PG role proof remains a blocker.
 
 ```
-SEC_API_ROLE_FENCING=BLOCKED_PENDING_REAL_PG17
-SEC_OPERATOR_CAS=BLOCKED_PENDING_REAL_PG17
+SEC_F1_F4=DISPOSABLE_PG17_REGRESSION_CLOSED
+SEC_API_ROLE_FENCING=DISPOSABLE_PG17_PASS_PRODUCTION_NOT_QUALIFIED
+SEC_OPERATOR_CAS=DISPOSABLE_PG17_PASS_PRODUCTION_NOT_QUALIFIED
+SEC_F5_TRUSTED_OWNER_DDL=OPEN
 SEC_MIGRATION_IDENTITY=BLOCKED_PENDING_R4_ADAPTATION
 SEC_MIXED_VERSION_DRAIN=BLOCKED_PENDING_HOST_ACCEPTANCE
 BR5_POSITIVE_ADMISSION=BLOCKED
