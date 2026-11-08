@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { jobTypeLabels } from '../jobs/job-labels';
 import { PRODUCTIVE_JOB_CARD_TYPES } from '../jobs/jobs-api';
 import { paths } from '../paths';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
+import { ServoraListPagination } from '../ui/antd/ServoraPagination';
 import {
   customerStatusLabels,
   customerTypeLabels,
@@ -188,7 +190,7 @@ export function CustomerReport() {
         status,
         customerType,
         requestedRange: from && to ? { from, to } : null,
-        limit: 50,
+        limit: DEFAULT_LIST_PAGE_SIZE,
         offset,
       });
       if (requestId !== requestSequence.current) return;
@@ -349,7 +351,7 @@ export function CustomerReport() {
               className="secondary-button"
               onClick={() => setSearch(customerSearch({
                 ...state,
-                offset: Math.max(0, report.offset - report.limit),
+                offset: lastListPageOffset(report.total, report.limit),
                 canonical: true,
               }))}
             >
@@ -364,31 +366,18 @@ export function CustomerReport() {
               onResetFilters={resetFilters}
             />
             {report.items.length > 0 && (
-              <div className="report-pagination report-pagination--wrap">
-                <button
-                  type="button"
-                  disabled={state.offset === 0}
-                  onClick={() => setSearch(customerSearch({
-                    ...state,
-                    offset: Math.max(0, state.offset - report.limit),
-                    canonical: true,
-                  }))}
-                >
-                  Önceki
-                </button>
-                <span>{report.total} müşteri</span>
-                <button
-                  type="button"
-                  disabled={state.offset + report.limit >= report.total}
-                  onClick={() => setSearch(customerSearch({
-                    ...state,
-                    offset: state.offset + report.limit,
-                    canonical: true,
-                  }))}
-                >
-                  Sonraki
-                </button>
-              </div>
+              <ServoraListPagination
+                label="Müşteri operasyon sayfaları"
+                itemName="müşteri"
+                total={report.total}
+                offset={report.offset}
+                pageSize={report.limit}
+                onOffsetChange={(nextOffset) => setSearch(customerSearch({
+                  ...state,
+                  offset: nextOffset,
+                  canonical: true,
+                }))}
+              />
             )}
           </>
         )

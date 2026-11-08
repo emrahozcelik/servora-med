@@ -1,4 +1,5 @@
 import { CUSTOMER_STATUSES, CUSTOMER_TYPES } from '../services/crm-api';
+import { normalizeListOffset } from '../ui/pagination';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -163,7 +164,7 @@ export function readCustomerSearch(search: URLSearchParams): CustomerReportUrlSt
     search: search.has('search') ? (once(search, 'search') ?? '') : '',
     status: readOneOf(search, 'status', CUSTOMER_STATUSES),
     customerType: readOneOf(search, 'customerType', CUSTOMER_TYPES),
-    offset: nonNegativeOffset(search),
+    offset: normalizeListOffset(nonNegativeOffset(search)),
     canonical: true,
   };
   return { ...state, canonical: same(search, customerSearch(state)) };

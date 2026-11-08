@@ -48,7 +48,7 @@ activity: { snapshot, period: zeroPeriod } };
 
 const baseReport = (overrides: Partial<CustomerReportResponse> = {}): CustomerReportResponse => ({
   range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
-  total: 2, limit: 50, offset: 0, items: [activeRow, inactiveRow],
+  total: 2, limit: 6, offset: 0, items: [activeRow, inactiveRow],
   unassigned: { snapshot, period },
   ...overrides,
 });
@@ -218,7 +218,7 @@ describe('Customer report screen', () => {
     await render('/reports/customers?from=2026-07-01&to=2026-07-31&search=Klinik&status=active&customerType=clinic&offset=0');
     expect(getCustomerReport).toHaveBeenCalledWith(expect.objectContaining({
       search: 'Klinik', status: 'active', customerType: 'clinic',
-      requestedRange: { from: '2026-07-01', to: '2026-07-31' }, offset: 0, limit: 50,
+      requestedRange: { from: '2026-07-01', to: '2026-07-31' }, offset: 0, limit: 6,
     }));
     expect(container.textContent).toContain('Klinik A');
   });
@@ -261,12 +261,12 @@ describe('Customer report screen', () => {
 
   it('offers recovery when the page is empty but records exist, without loops', async () => {
     vi.mocked(getCustomerReport).mockResolvedValue(
-      baseReport({ total: 2, limit: 1, offset: 2, items: [] }),
+      baseReport({ total: 2, limit: 6, offset: 6, items: [] }),
     );
     function Location() { return <output data-location>{useLocation().search}</output>; }
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&offset=2']}>
+        <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&offset=6']}>
           <CustomerReport />
           <Location />
         </MemoryRouter>,
@@ -280,19 +280,51 @@ describe('Customer report screen', () => {
       .find((button) => button.textContent?.includes('Önceki sayfaya dön'))!;
     await act(async () => { recover.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(container.querySelector('[data-location]')?.textContent).toBe(
-      '?from=2026-07-01&to=2026-07-31&offset=1',
+      '?from=2026-07-01&to=2026-07-31&offset=0',
     );
-    expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1 }));
+    expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }));
   });
 
-  it('paginates with an N müşteri summary and bounded navigation', async () => {
+  it('recovers an out-of-range page directly to the last six-record page', async () => {
+    vi.mocked(getCustomerReport).mockResolvedValue(
+      baseReport({ total: 13, limit: 6, offset: 48, items: [] }),
+    );
+    function Location() { return <output data-location>{useLocation().search}</output>; }
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&offset=48']}>
+          <CustomerReport />
+          <Location />
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+    const recover = [...container.querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('Önceki sayfaya dön'))!;
+    await act(async () => { recover.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelector('[data-location]')?.textContent).toBe(
+      '?from=2026-07-01&to=2026-07-31&offset=12',
+    );
+    expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({
+      offset: 12, limit: 6,
+    }));
+  });
+
+  it('paginates report customers with a six-record server page and a readable summary', async () => {
+    vi.mocked(getCustomerReport).mockResolvedValue(baseReport({ total: 13, limit: 6 }));
+    await render('/reports/customers?from=2026-07-01&to=2026-07-31&offset=0');
+    const pagination = container.querySelector('.servora-list-pagination');
+    expect(pagination).not.toBeNull();
+    expect(pagination?.getAttribute('aria-label')).toBe('Müşteri operasyon sayfaları');
+    expect(pagination?.textContent).toContain('Sayfa 1 / 3');
+    expect(pagination?.textContent).toContain('Toplam 13 müşteri');
+    expect(getCustomerReport).toHaveBeenCalledWith(expect.objectContaining({ limit: 6, offset: 0 }));
+  });
+
+  it('hides pagination when only one page exists', async () => {
     vi.mocked(getCustomerReport).mockResolvedValue(baseReport());
     await render('/reports/customers?from=2026-07-01&to=2026-07-31&offset=0');
-    const pagination = container.querySelector('.report-pagination')!;
-    expect(pagination.textContent).toContain('2 müşteri');
-    const [previous, next] = pagination.querySelectorAll('button');
-    expect((previous as HTMLButtonElement).disabled).toBe(true);
-    expect((next as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('.servora-list-pagination')).toBeNull();
   });
 
   it('renders the shared date presets disabled until the organization timezone resolves', async () => {
