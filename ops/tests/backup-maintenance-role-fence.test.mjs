@@ -1,4 +1,7 @@
 import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 import {
@@ -7,6 +10,18 @@ import {
 } from '../scripts/backup-maintenance-role-fence.mjs';
 
 const OPERATOR = 'servora_br5_operator';
+const vetted = readFileSync(fileURLToPath(new URL('../../server/src/db/migrations/062_backup_health_maintenance.sql', import.meta.url)), 'utf8');
+function bodyOf(name) {
+  const match = vetted.match(new RegExp('CREATE FUNCTION backup_health_maintenance_' + name
+    + '[\\s\\S]*?AS \\$\\$(.*?)\\$\\$;', 's'));
+  if (!match) throw Error('Missing pinned function body: ' + name);
+  return match[1]
+    .replace('INSERT INTO backup_health_maintenance_events', 'INSERT INTO public.backup_health_maintenance_events')
+    .replace('UPDATE backup_health_maintenance_state', 'UPDATE public.backup_health_maintenance_state');
+}
+const bodies = {
+  transition: bodyOf('transition'), audit: bodyOf('audit'), history: bodyOf('reject_history_mutation'),
+};
 
 function safeRow() {
   return {
@@ -24,31 +39,64 @@ function safeRow() {
     runtimeCreateDb: false,
     runtimeBypassRls: false,
     protectedOwnerCanLogin: false,
+    protectedOwnerSuperuser: false,
+    protectedOwnerCreateRole: false,
+    protectedOwnerCreateDb: false,
+    protectedOwnerBypassRls: false,
+    protectedOwnerReplication: false,
     operatorRole: OPERATOR,
     operatorCanLogin: false,
     operatorSuperuser: false,
     operatorCreateRole: false,
     operatorCreateDb: false,
+    operatorBypassRls: false,
+    operatorReplication: false,
     transitionSecurityDefiner: true,
     transitionConfig: ['search_path=pg_catalog'],
+    transitionLanguage: 'plpgsql',
+    transitionBody: bodies.transition,
+    auditSecurityDefiner: true,
+    auditConfig: ['search_path=pg_catalog'],
+    auditLanguage: 'plpgsql',
+    auditBody: bodies.audit,
+    historySecurityDefiner: true,
+    historyConfig: ['search_path=pg_catalog'],
+    historyLanguage: 'plpgsql',
+    historyBody: bodies.history,
+    maintenanceTriggerCount: 3,
+    auditTriggerValid: true,
+    historyTriggerValid: true,
+    stateNoDeleteTriggerValid: true,
     runtimeCanReadState: true,
     runtimeCanUpdateState: false,
     runtimeCanInsertState: false,
     runtimeCanDeleteState: false,
+    runtimeCanTruncateState: false,
     runtimeCanInsertEvent: false,
     runtimeCanUpdateEvent: false,
     runtimeCanDeleteEvent: false,
+    runtimeCanTruncateEvent: false,
+    runtimeCanAuditFunction: false,
+    runtimeCanHistoryFunction: false,
     runtimeCanTransition: false,
     runtimeCanCreateSchemaObjects: false,
     runtimeCanCreateDatabaseObjects: false,
     runtimeMemberOfOwner: false,
+    runtimeMemberOfDatabaseOwner: false,
+    runtimeMemberOfSchemaOwner: false,
     runtimeMemberOfOperator: false,
     operatorCanTransition: true,
     operatorCanUpdateState: false,
+    operatorCanTruncateState: false,
     operatorCanInsertEvent: false,
+    operatorCanTruncateEvent: false,
+    operatorCanAuditFunction: false,
+    operatorCanHistoryFunction: false,
     operatorCanCreateSchemaObjects: false,
     operatorCanCreateDatabaseObjects: false,
     operatorMemberOfOwner: false,
+    operatorMemberOfDatabaseOwner: false,
+    operatorMemberOfSchemaOwner: false,
   };
 }
 
@@ -92,6 +140,36 @@ describe('BR5 role fencing read-only preflight', () => {
     ['audit function ownership differs', { auditOwner: 'other' }],
     ['history trigger function ownership differs', { historyOwner: 'other' }],
     ['protected owner can login', { protectedOwnerCanLogin: true }],
+    ['protected owner is SUPERUSER', { protectedOwnerSuperuser: true }],
+    ['protected owner CREATEROLE', { protectedOwnerCreateRole: true }],
+    ['protected owner CREATEDB', { protectedOwnerCreateDb: true }],
+    ['protected owner bypassrls', { protectedOwnerBypassRls: true }],
+    ['protected owner replication', { protectedOwnerReplication: true }],
+    ['runtime NOINHERIT member of DB owner', { runtimeMemberOfDatabaseOwner: true }],
+    ['runtime NOINHERIT member of schema owner', { runtimeMemberOfSchemaOwner: true }],
+    ['operator NOINHERIT member of DB owner', { operatorMemberOfDatabaseOwner: true }],
+    ['operator NOINHERIT member of schema owner', { operatorMemberOfSchemaOwner: true }],
+    ['runtime TRUNCATE state', { runtimeCanTruncateState: true }],
+    ['runtime TRUNCATE events', { runtimeCanTruncateEvent: true }],
+    ['operator TRUNCATE state', { operatorCanTruncateState: true }],
+    ['operator TRUNCATE events', { operatorCanTruncateEvent: true }],
+    ['operator bypassrls', { operatorBypassRls: true }],
+    ['operator replication', { operatorReplication: true }],
+    ['runtime can run audit', { runtimeCanAuditFunction: true }],
+    ['operator can run history', { operatorCanHistoryFunction: true }],
+    ['audit is invoker', { auditSecurityDefiner: false }],
+    ['history is invoker', { historySecurityDefiner: false }],
+    ['audit wrong path', { auditConfig: null }],
+    ['history wrong path', { historyConfig: ['search_path=public'] }],
+    ['transition extra config', { transitionConfig: ['search_path=pg_catalog','session_replication_role=replica'] }],
+    ['transition unqualified body', { transitionBody: bodies.transition.replace('public.backup_health_maintenance_state', 'backup_health_maintenance_state') }],
+    ['audit unqualified body', { auditBody: bodies.audit.replace('public.backup_health_maintenance_events', 'backup_health_maintenance_events') }],
+    ['hidden GRANT in transition', { transitionBody: bodies.transition.replace('BEGIN\n', "BEGIN\n  EXECUTE 'GRANT INSERT ON public.backup_health_maintenance_events TO servora_runtime';\n") }],
+    ['hidden GRANT in audit', { auditBody: bodies.audit.replace('BEGIN\n', "BEGIN\n  EXECUTE 'GRANT INSERT ON public.backup_health_maintenance_events TO servora_runtime';\n") }],
+    ['bad trigger count', { maintenanceTriggerCount: 2 }],
+    ['missing audit trigger', { auditTriggerValid: false }],
+    ['disabled history trigger', { historyTriggerValid: false }],
+    ['missing state no-delete trigger', { stateNoDeleteTriggerValid: false }],
     ['runtime superuser', { runtimeSuperuser: true }],
     ['runtime createrole', { runtimeCreateRole: true }],
     ['runtime inherited owner', { runtimeMemberOfOwner: true }],

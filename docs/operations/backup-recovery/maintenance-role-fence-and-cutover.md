@@ -37,6 +37,48 @@ The gate reports PASS only after these conditions are independently verified:
 The helper checks the effective privileges returned by PostgreSQL, not just
 SQL text that happens to contain `REVOKE FROM PUBLIC`. This is a necessary
 condition, not a proof that the wider application code is safe to deploy.
+
+### F1–F4 hardening / exact function-body admission
+
+Independent disposable PG17 testing revealed four earlier **false PASS** cases.
+The follow-up code now rejects them by checking **both direct and indirect
+`MEMBER`** relationships to database/schema owners, even with `INHERIT FALSE`
+(which still permits `SET ROLE`); checking protected-owner `SUPERUSER`,
+`CREATEROLE`, `CREATEDB`, `BYPASSRLS`, replication and NOLOGIN attributes;
+checking the runtime/operator `TRUNCATE` and trigger-function EXECUTE privileges;
+requiring the audit, history and transition functions to be `plpgsql`,
+`SECURITY DEFINER`, and configured with **exactly**
+`search_path=pg_catalog`; and verifying exactly three enabled/expected
+maintenance row triggers, with no unrecognized extra user triggers.
+
+**Function-body attestation is exact and deliberately narrow.** The preflight
+SHA-256-hashes the `pg_proc.prosrc` text for *each* of the three functions and
+requires three reviewed digests embedded in the committed verifier. These
+correspond to the fixed, `public.`-qualified versions of migration 062's
+functions reviewed in disposable PostgreSQL 17.11 evidence. Comments, whitespace,
+`GRANT`, dynamic SQL, unqualified table references or any other body changes
+produce **BLOCKED** rather than an attempted heuristic approval. A deliberate
+function-body update therefore requires an independent source review,
+real-PG negative acceptance and explicit new digest approval. This file is not
+a migration or provisioning implementation.
+
+The verifier checks the **operator group role**, not the privileges of every
+individual operator-login principal; each human/machine operator account's
+other memberships and administration paths must be separately examined before
+release. Permission snapshots are not continuous authorization. After *every*
+operator CAS, compare a fresh catalog/grant snapshot to the previously sealed
+state and verify audit continuity; the PAUSED-only preflight itself will
+properly return BLOCKED during RESUME and must not be misreported as a failing
+CAS. No automatic post-CAS attest-and-seal workflow has been implemented.
+
+**Known trusted-owner residual (F5):** migration 062 still has no statement
+`BEFORE TRUNCATE` triggers; owner `TRUNCATE`, owner removal of any trigger and
+database/schema-owner `DROP` remain outside this runtime/operator fence. A
+future separately approved migration may add statement triggers, but they do
+not protect against the trusted owner dropping them. Distinct migration
+credentials, owner custody, R4 identity adaptation and host tests are still
+release blockers. Never claim that this verifier makes audit rows immutable
+against DBA/superuser/schema-owner authority.
 It does not verify all third-party users, runtime process identity, HTTP
 connections, NTS quality, R2, or physical 26-hour freshness.
 
