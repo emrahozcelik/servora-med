@@ -4,6 +4,7 @@ import { BackupWorker } from '../src/modules/backup/worker.js';
 import type { BackupWorkerRepository } from '../src/modules/backup/repository.js';
 import type { BackupServiceTransitionPrimitives } from '../src/modules/backup/service.js';
 import type { BackupRun, BackupWorkerClaim } from '../src/modules/backup/types.js';
+import { timeAt } from './backup-time-fixture.js';
 
 const RUN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -48,6 +49,7 @@ function serviceSpy(calls: string[]): BackupServiceTransitionPrimitives {
   const current = run();
   return {
     startRun: async (_id, token) => { calls.push(`start:${token}`); return current; },
+    recordArtifactGeneration: async (_id, _before, token) => { calls.push(`generation:${token}`); return current; },
     advancePhase: async (_id, _phase, _files, token) => { calls.push(`advance:${token}`); return current; },
     markFailed: async (_id, code, _summary, token) => { calls.push(`failed:${code}:${token}`); return current; },
     markCancelled: async (_id, token) => { calls.push(`cancel:${token}`); return current; },
@@ -61,12 +63,18 @@ function repositorySpy(overrides: Partial<BackupWorkerRepository> = {}) {
   const calls: string[] = [];
   const repository = {
     tryWithBackupExclusionLock: async <T>(work: () => Promise<T>) => work(),
-    touchWorkerHeartbeat: async () => { calls.push('worker-heartbeat'); },
+    touchWorkerAndSchedulerHeartbeat: async (at: Date | null, evidence: unknown) => {
+      calls.push(`worker-scheduler-heartbeat:${at?.toISOString() ?? 'null'}:${evidence === null ? 'null' : 'evidence'}`);
+    },
+    touchWorkerHeartbeat: async (at: Date | null, evidence: unknown) => {
+      calls.push(`worker-heartbeat:${at?.toISOString() ?? 'null'}:${evidence === null ? 'null' : 'evidence'}`);
+    },
     recoverExpiredRuns: async () => [],
     appendSystemBackupAudit: async (_id: string, event: string) => { calls.push(`audit:${event}`); },
     claimExpiredCleanupRun: async () => null,
     getPolicy: async () => null,
     touchSchedulerHeartbeat: async () => { calls.push('scheduler-heartbeat'); },
+    heartbeatRun: async () => true,
     claimNextRun: async () => null,
     ...overrides,
   } as unknown as BackupWorkerRepository;
@@ -183,7 +191,7 @@ describe('BR5 backup worker runtime', () => {
     'REMOTE_CHECKSUM_MISMATCH',
   ] as const)('does not retry deterministic failure %s', async (failureCode) => {
     const firstClaim = claim();
-    const delays: number[] = [];
+    const delays: string[] = [];
     const { repository, calls } = repositorySpy({
       claimNextRun: async () => firstClaim,
     });
@@ -198,12 +206,101 @@ describe('BR5 backup worker runtime', () => {
       enabled: true,
       now: fixedNow,
       randomId: () => firstClaim.leaseToken,
-      sleep: async (delay) => { delays.push(delay); },
+      sleep: async (delay) => { delays.push(String(delay)); },
     });
 
     await worker.runOnce();
     expect(attempts).toBe(1);
     expect(delays).toEqual([]);
     expect(calls).toContain(`failed:${failureCode}:${firstClaim.leaseToken}`);
+  });
+
+  it('advances both trusted heartbeats from one sample per poll', async () => {
+    const { repository, calls } = repositorySpy();
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async () => ({ kind: 'completed' }),
+      enabled: true,
+      now: fixedNow,
+      sampleTrustedTime: async () => timeAt(fixedNow().getTime()),
+    });
+
+    await worker.runOnce();
+    const heartbeats = calls.filter((call) => call.startsWith('worker-scheduler-heartbeat'));
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]).toContain('evidence');
+  });
+
+  it('does not advance trusted heartbeats when the sample is UNKNOWN', async () => {
+    const { repository, calls } = repositorySpy();
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async () => ({ kind: 'completed' }),
+      enabled: true,
+      now: fixedNow,
+      sampleTrustedTime: async () => null,
+    });
+
+    await worker.runOnce();
+    expect(calls.filter((call) => call.startsWith('worker-scheduler-heartbeat')))
+      .toEqual(['worker-scheduler-heartbeat:null:null']);
+  });
+
+  it('keeps the operational lease alive when trusted-time sampling fails', async () => {
+    const firstClaim = claim();
+    let leaseLost: boolean | null = null;
+    let heartbeats = 0;
+    const { repository, calls } = repositorySpy({
+      claimNextRun: async () => firstClaim,
+      heartbeatRun: async () => { heartbeats += 1; return true; },
+    });
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async (_claim, context) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        leaseLost = context.leaseLost();
+        return { kind: 'completed' };
+      },
+      enabled: true,
+      now: fixedNow,
+      heartbeatIntervalMs: 5,
+      leaseMs: 60_000,
+      randomId: () => firstClaim.leaseToken,
+      sampleTrustedTime: async () => { throw new Error('TRUSTED_TIME_UNKNOWN'); },
+    });
+
+    await worker.runOnce();
+    expect(leaseLost).toBe(false);
+    expect(heartbeats).toBeGreaterThan(0);
+    expect(calls.some((call) => call.startsWith('worker-heartbeat'))).toBe(false);
+  });
+
+  it('does not write a fake scheduler tick from an active-run heartbeat', async () => {
+    const firstClaim = claim();
+    const { repository, calls } = repositorySpy({
+      claimNextRun: async () => firstClaim,
+    });
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { kind: 'completed' };
+      },
+      enabled: true,
+      now: fixedNow,
+      heartbeatIntervalMs: 5,
+      leaseMs: 60_000,
+      randomId: () => firstClaim.leaseToken,
+      sampleTrustedTime: async () => timeAt(fixedNow().getTime()),
+    });
+
+    await worker.runOnce();
+    expect(calls.filter((call) => call.startsWith('worker-heartbeat')).length).toBeGreaterThan(0);
+    expect(calls).not.toContain('scheduler-heartbeat');
+    expect(calls.filter((call) => call.startsWith('worker-scheduler-heartbeat'))).toHaveLength(1);
   });
 });

@@ -3,6 +3,10 @@
 // DECISIONS.md OPS-002. This module owns durable metadata/state-machine
 // vocabulary; execution stays in the BR2/BR3/BR4 engines and BR5 worker.
 
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
+
+import type { BackupVerificationProof } from './trusted-evidence.js';
+
 export const BACKUP_RUN_STATUSES = [
   'QUEUED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED',
 ] as const;
@@ -99,6 +103,10 @@ export type BackupRun = {
   sizeBytes: number | null;
   sha256: string | null;
   verifiedAt: Date | null;
+  /** Trusted event evidence is internal; it is never included in BackupRunDto. */
+  artifactGenerationId?: string | null;
+  artifactGenerationTimeEvidence?: CurrentTimeEvidence | null;
+  verificationTimeEvidence?: BackupVerificationProof | null;
   /** Worker runtime ownership evidence; never included in BackupRunDto. */
   leaseUntil?: Date | null;
   heartbeatAt?: Date | null;
@@ -194,6 +202,8 @@ export type BackupOverviewDto = {
 export type BackupWorkerState = {
   workerHeartbeatAt: Date | null;
   schedulerLastTickAt: Date | null;
+  workerHeartbeatTimeEvidence: CurrentTimeEvidence | null;
+  schedulerLastTickTimeEvidence: CurrentTimeEvidence | null;
   lastScheduledSlotKey: string | null;
   lastScheduledLocalDate: string | null;
   lastScheduledFor: Date | null;

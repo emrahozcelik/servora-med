@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
+
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import { presentRun, type BackupRepository } from './repository.js';
+import {
+  validateVerificationProofBinding,
+  type BackupVerificationProof,
+  type VerifiedRunEvidence,
+} from './trusted-evidence.js';
 import type {
   BackupOverviewDto,
   BackupFailureCode,
@@ -108,10 +115,11 @@ export type ManualBackupRequestInput = {
 
 export type BackupServiceTransitionPrimitives = {
   startRun(id: string, leaseToken?: string): Promise<BackupRun>;
+  recordArtifactGeneration(id: string, before: CurrentTimeEvidence | null, leaseToken?: string): Promise<BackupRun>;
   advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean, leaseToken?: string): Promise<BackupRun>;
   markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, leaseToken?: string): Promise<BackupRun>;
   markCancelled(id: string, leaseToken?: string): Promise<BackupRun>;
-  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun>;
+  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string; proof?: BackupVerificationProof | null }, leaseToken?: string): Promise<BackupRun>;
   completeRun(id: string, options?: { cleanupWarning?: string }, leaseToken?: string): Promise<BackupRun>;
   markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun>;
 };
@@ -313,6 +321,14 @@ export class BackupService implements BackupServiceTransitionPrimitives {
     return updated;
   }
 
+  async recordArtifactGeneration(id: string, before: CurrentTimeEvidence | null, leaseToken?: string): Promise<BackupRun> {
+    const run = await this.requireRun(id);
+    if (run.status !== 'RUNNING') throw invalidTransition();
+    const updated = await this.repository.recordArtifactGeneration(id, before, leaseToken);
+    if (!updated) throw invalidTransition();
+    return updated;
+  }
+
   async advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'RUNNING' || run.phase === null) throw invalidTransition();
@@ -340,14 +356,38 @@ export class BackupService implements BackupServiceTransitionPrimitives {
 
   // REMOTE_VERIFY success: persist verification evidence without terminalizing.
   // The run stays RUNNING; only completeRun (after CLEANUP) may reach SUCCESS.
-  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun> {
+  async recordVerification(
+    id: string,
+    input: { remoteKey: string; sizeBytes: number; sha256: string; proof?: BackupVerificationProof | null },
+    leaseToken?: string,
+  ): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'RUNNING' || run.phase !== 'REMOTE_VERIFY') throw invalidTransition();
     const remoteKey = boundedTrimmedString(input.remoteKey, 'remoteKey', 1, 500);
     if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0) throw validation('sizeBytes');
     const sha256 = input.sha256.trim().toLowerCase();
     if (!SHA256_PATTERN.test(sha256)) throw validation('sha256');
-    const updated = await this.repository.recordVerification(id, { remoteKey, sizeBytes: input.sizeBytes, sha256 }, leaseToken);
+    if (input.proof) {
+      const evidenceRun: VerifiedRunEvidence = {
+        id: run.id,
+        origin: run.origin,
+        verifiedAt: run.verifiedAt,
+        remoteKey,
+        sizeBytes: input.sizeBytes,
+        sha256,
+        artifactGenerationId: run.artifactGenerationId ?? null,
+        artifactGenerationTimeEvidence: run.artifactGenerationTimeEvidence ?? null,
+        verificationTimeEvidence: input.proof,
+      };
+      if (!validateVerificationProofBinding(input.proof, evidenceRun)) {
+        throw new AppError('BACKUP_INVALID_TRANSITION', 409, 'Yedek doğrulama kanıtı bu çalışmaya bağlanamıyor.');
+      }
+    }
+    const updated = await this.repository.recordVerification(
+      id,
+      { remoteKey, sizeBytes: input.sizeBytes, sha256, proof: input.proof ?? null },
+      leaseToken,
+    );
     if (!updated) throw invalidTransition();
     return updated;
   }

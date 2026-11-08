@@ -187,11 +187,11 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store: new PostgresMigrationStore(pool),
       });
-      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison', '056_meeting_met_contact', '057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions']);
+      expect(applied.appliedVersions).toEqual(['044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison', '056_meeting_met_contact', '057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_backup_worker_trusted_time_evidence', '062_backup_health_maintenance']);
 
       const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-      expect(catalog.count).toBe(60);
-      expect(catalog.head?.version).toBe('060_crm_duplicate_review_decisions');
+      expect(catalog.count).toBe(62);
+      expect(catalog.head?.version).toBe('062_backup_health_maintenance');
 
       const after = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM job_cards');
       expect(after.rows[0]!.count).toBe('1');
@@ -740,10 +740,10 @@ describe.skipIf(!databaseUrl)('FOUNDATION-2 accountability facts on real Postgre
       await service.start(staffA, job.id, { clientActionId: randomUUID(), expectedVersion: job.version });
 
       const manifest = {
-        database: { schemaVersion: '060_crm_duplicate_review_decisions' },
+        database: { schemaVersion: '062_backup_health_maintenance' },
       } as unknown as RestoreManifestV1;
       const evidence = await validateRestoredDatabase(url.toString(), manifest, await loadMigrationCatalog(MIGRATIONS_DIRECTORY));
-      expect(evidence.schemaVersion).toBe('060_crm_duplicate_review_decisions');
+      expect(evidence.schemaVersion).toBe('062_backup_health_maintenance');
       expect(evidence.relations).toContain('job_card_accountability_facts');
       expect(evidence.orphanJobCards).toBe(0);
     } finally {

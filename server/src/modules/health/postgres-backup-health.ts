@@ -1,17 +1,123 @@
 import type { Pool } from 'pg';
 
 import type { BackupHealthReadinessPort, PublicBackupHealth } from './service.js';
+import {
+  createTrustedTimeSampler,
+  type TrustedTimeSampler,
+} from './trusted-time-sampler.js';
+import {
+  type CurrentTimeEvidence,
+} from '../../../../ops/scripts/trusted-time.mjs';
+import { evaluateBr5PositiveHealthAdmission } from '../backup/freshness-policy.js';
+import { maintenanceAllowsPositiveBackupHealth } from './backup-maintenance.js';
+import {
+  evaluateArtifactFreshness,
+  parseTimeEvidence,
+  twoClockElapsed,
+  type BackupVerificationProof,
+  type VerifiedRunEvidence,
+} from '../backup/trusted-evidence.js';
 
 export type PostgresBackupHealthOptions = {
   workerEnabled?: boolean;
   workerStaleAfterMs?: number;
   schedulerStaleAfterMs?: number;
+  /** Retained for API compatibility; freshness is never derived from it. */
   now?: () => Date;
+  /** Test seam: one bounded trusted sample per check. */
+  sampleTime?: () => Promise<CurrentTimeEvidence | null>;
+  /** Optional shared sampler; when omitted the reader owns one. */
+  sampler?: TrustedTimeSampler;
 };
 
-/** Safe, aggregate-only backup health surface for the existing operator
- * alerting monitor. No keys, paths, diagnostics, or object contents leave the
- * database boundary. */
+type VerifiedRow = {
+  id: string;
+  status: string;
+  origin: VerifiedRunEvidence['origin'];
+  verified_at: Date | null;
+  remote_key: string | null;
+  size_bytes: string | number | null;
+  sha256: string | null;
+  artifact_generation_id: string | null;
+  artifact_generation_time_evidence: unknown;
+  verification_time_evidence: unknown;
+};
+
+type WorkerRow = {
+  worker_heartbeat_at: Date | null;
+  scheduler_last_tick_at: Date | null;
+  worker_heartbeat_time_evidence: unknown;
+  scheduler_last_tick_time_evidence: unknown;
+};
+
+type StatusRow = { status: string };
+type ScheduledPointerRow = {
+  scheduled_pointer_id: string | null;
+  scheduled_pointer_status: string | null;
+  scheduled_pointer_origin: string | null;
+};
+type ActiveRow = { active: boolean };
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toVerifiedRun(row: VerifiedRow | undefined): VerifiedRunEvidence | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    origin: row.origin,
+    verifiedAt: row.verified_at,
+    remoteKey: row.remote_key,
+    sizeBytes: row.size_bytes === null ? null : Number(row.size_bytes),
+    sha256: row.sha256,
+    artifactGenerationId: row.artifact_generation_id,
+    artifactGenerationTimeEvidence: parseTimeEvidence(row.artifact_generation_time_evidence),
+    verificationTimeEvidence: record(row.verification_time_evidence)
+      ? row.verification_time_evidence as unknown as BackupVerificationProof
+      : null,
+  };
+}
+
+function heartbeatFresh(
+  at: Date | null,
+  rawEvidence: unknown,
+  current: CurrentTimeEvidence,
+  maxAgeMs: number,
+): boolean {
+  if (!at) return false;
+  const evidence = parseTimeEvidence(rawEvidence);
+  if (!evidence) return false;
+  // Timestamp and evidence must come from the same atomic write.
+  if (evidence.wallAtUTC !== at.toISOString()) return false;
+  // BR5 two-clock liveness: both the BOOTTIME and the chrony-bounded UTC upper
+  // bounds must be within the liveness window. A rate difference between the
+  // boot clock and the NTP-disciplined wall clock no longer denies liveness.
+  const elapsed = twoClockElapsed(evidence, current);
+  return elapsed.status === 'KNOWN'
+    && elapsed.bootUpperMs <= maxAgeMs
+    && elapsed.utcUpperMs <= maxAgeMs;
+}
+
+/**
+ * A sampled wall instant earlier than an already persisted heartbeat is an
+ * observable rollback signal. This veto is independent of BOOTTIME arithmetic
+ * and is *not* a complete clock-step or physical-time proof.
+ */
+export function observedHeartbeatWallRollback(
+  currentWallAtUTC: string,
+  workerHeartbeatAt: Date | null,
+  schedulerLastTickAt: Date | null,
+): boolean {
+  const currentMs = Date.parse(currentWallAtUTC);
+  if (!Number.isFinite(currentMs)) return true;
+  return (workerHeartbeatAt !== null && currentMs < workerHeartbeatAt.getTime())
+    || (schedulerLastTickAt !== null && currentMs < schedulerLastTickAt.getTime());
+}
+
+/** Safe, aggregate-only backup health surface for the operator monitor.
+ * No keys, paths, evidence details, or raw diagnostics leave the database
+ * boundary. */
 export function createPostgresBackupHealth(
   pool: Pool,
   options: PostgresBackupHealthOptions = {},
@@ -19,7 +125,19 @@ export function createPostgresBackupHealth(
   const workerEnabled = options.workerEnabled ?? false;
   const workerStaleAfterMs = options.workerStaleAfterMs ?? 120_000;
   const schedulerStaleAfterMs = options.schedulerStaleAfterMs ?? workerStaleAfterMs;
-  const now = options.now ?? (() => new Date());
+  const injectedSampler = options.sampler;
+  const ownsSampler = !options.sampleTime && !injectedSampler;
+  const sampler = injectedSampler
+    ?? (options.sampleTime ? null : createTrustedTimeSampler());
+  const sample = async (): Promise<CurrentTimeEvidence | null> => {
+    try {
+      if (options.sampleTime) return options.sampleTime();
+      if (!sampler) return null;
+      return await sampler.sample();
+    } catch {
+      return null;
+    }
+  };
 
   return {
     async check(): Promise<PublicBackupHealth> {
@@ -35,59 +153,180 @@ export function createPostgresBackupHealth(
         providerStatus: 'unavailable',
       };
       try {
-        const [verified, scheduledVerified, latest, scheduledLatest, worker] = await Promise.all([
-          pool.query<{ verified_at: Date | null }>(
-            `SELECT verified_at FROM backup_runs
+        const [latestVerified, scheduledVerified, latestRun, scheduledPointer, worker, active] = await Promise.all([
+          pool.query<VerifiedRow>(
+            `SELECT id, status, origin, verified_at, remote_key, size_bytes, sha256,
+                    artifact_generation_id, artifact_generation_time_evidence,
+                    verification_time_evidence
+               FROM backup_runs
               WHERE status = 'SUCCESS' AND verified_at IS NOT NULL
-              ORDER BY verified_at DESC LIMIT 1`,
+              ORDER BY verified_at DESC, created_at DESC, id DESC
+              LIMIT 1 -- latest_verified`,
           ),
-          pool.query<{ verified_at: Date | null }>(
-            `SELECT verified_at FROM backup_runs
+          pool.query<VerifiedRow>(
+            `SELECT id, status, origin, verified_at, remote_key, size_bytes, sha256,
+                    artifact_generation_id, artifact_generation_time_evidence,
+                    verification_time_evidence
+               FROM backup_runs
               WHERE status = 'SUCCESS' AND origin = 'SCHEDULED' AND verified_at IS NOT NULL
-              ORDER BY verified_at DESC LIMIT 1`,
+              -- The last scheduled slot is a durable identity, not the run with
+              -- the greatest wall timestamp. A clock rollback can make the
+              -- newest generation's verified_at earlier than an older one.
+              ORDER BY CASE WHEN id = (
+                SELECT last_scheduled_run_id FROM backup_worker_state WHERE singleton
+              ) THEN 0 ELSE 1 END,
+              verified_at DESC, created_at DESC, id DESC
+              LIMIT 1 -- scheduled_verified`,
           ),
-          pool.query<{ status: string }>(
-            `SELECT status FROM backup_runs ORDER BY created_at DESC, id DESC LIMIT 1`,
+          pool.query<StatusRow>(
+            `SELECT status FROM backup_runs
+              ORDER BY created_at DESC, id DESC LIMIT 1 -- latest_run_status`,
           ),
-          pool.query<{ status: string }>(
-            `SELECT status FROM backup_runs WHERE origin = 'SCHEDULED'
-              ORDER BY created_at DESC, id DESC LIMIT 1`,
+          pool.query<ScheduledPointerRow>(
+            `SELECT r.id AS scheduled_pointer_id,
+                    r.status AS scheduled_pointer_status,
+                    r.origin AS scheduled_pointer_origin
+               FROM backup_worker_state w
+               LEFT JOIN backup_runs r ON r.id = w.last_scheduled_run_id
+              WHERE w.singleton
+              LIMIT 1 -- scheduled_pointer_run`,
           ),
-          pool.query<{
-            worker_heartbeat_at: Date | null;
-            scheduler_last_tick_at: Date | null;
-          }>(
-            `SELECT worker_heartbeat_at, scheduler_last_tick_at
+          pool.query<WorkerRow>(
+            `SELECT worker_heartbeat_at, scheduler_last_tick_at,
+                    worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence
                FROM backup_worker_state WHERE singleton LIMIT 1`,
           ),
+          pool.query<ActiveRow>(
+            `SELECT EXISTS(
+               SELECT 1 FROM backup_runs
+                WHERE status = 'RUNNING' AND lease_until > CURRENT_TIMESTAMP
+             ) AS active -- active_running`,
+          ),
         ]);
-        const verifiedAt = verified.rows[0]?.verified_at ?? null;
-        const workerHeartbeatAt = worker.rows[0]?.worker_heartbeat_at ?? null;
-        const schedulerLastTickAt = worker.rows[0]?.scheduler_last_tick_at ?? null;
-        const currentTime = now().getTime();
-        const workerHealthy = !workerEnabled
-          || (workerHeartbeatAt !== null && currentTime - workerHeartbeatAt.getTime() <= workerStaleAfterMs);
-        const schedulerHealthy = !workerEnabled
-          || (schedulerLastTickAt !== null && currentTime - schedulerLastTickAt.getTime() <= schedulerStaleAfterMs);
-        const status = verifiedAt && workerHealthy && schedulerHealthy ? 'ok' : 'unavailable';
-        return {
-          status,
-          latestVerifiedAt: verifiedAt?.toISOString() ?? null,
-          latestScheduledVerifiedAt: scheduledVerified.rows[0]?.verified_at?.toISOString() ?? null,
-          latestRunStatus: latest.rows[0]?.status ?? null,
-          latestScheduledRunStatus: scheduledLatest.rows[0]?.status ?? null,
+
+        const workerRow = worker.rows[0] ?? null;
+        const verifiedRun = toVerifiedRun(latestVerified.rows[0]);
+        const scheduledVerifiedRun = toVerifiedRun(scheduledVerified.rows[0]);
+        const latestRunStatus = latestRun.rows[0]?.status ?? null;
+        const pointer = scheduledPointer.rows[0] ?? null;
+        // The scheduler writes this identity in the same transaction as the
+        // scheduled run. Wall-clock created_at ordering can be reversed by a
+        // clock rollback and must never hide a later FAILED attempt.
+        const scheduledPointerValid = pointer !== null
+          && pointer.scheduled_pointer_id !== null
+          && pointer.scheduled_pointer_status !== null
+          && pointer.scheduled_pointer_origin === 'SCHEDULED';
+        const latestScheduledRunStatus = scheduledPointerValid
+          ? pointer.scheduled_pointer_status
+          : null;
+        const workerHeartbeatAt = workerRow?.worker_heartbeat_at ?? null;
+        const schedulerLastTickAt = workerRow?.scheduler_last_tick_at ?? null;
+
+        const projection = {
+          latestVerifiedAt: verifiedRun?.verifiedAt?.toISOString() ?? null,
+          latestScheduledVerifiedAt: scheduledVerifiedRun?.verifiedAt?.toISOString() ?? null,
+          latestRunStatus,
+          latestScheduledRunStatus,
           workerHeartbeatAt: workerHeartbeatAt?.toISOString() ?? null,
           schedulerLastTickAt: schedulerLastTickAt?.toISOString() ?? null,
-          provider: 'br5-r2',
-          // This provider predates the shared observation evaluator and keeps its
-          // established binary semantics; the label is a faithful 1:1 embedding
-          // so consumers see a uniform provider vocabulary. Adopting the shared
-          // freshness evaluator here belongs to a future BR5 enablement slice.
-          providerStatus: status === 'ok' ? 'healthy' : 'unavailable',
+          provider: 'br5-r2' as const,
+        };
+
+        // A missing or foreign durable pointer is not evidence of a healthy
+        // schedule. Legacy rows without a scheduler identity stay unavailable.
+        if (!scheduledPointerValid) {
+          return { ...unavailable, ...projection };
+        }
+        // Failure priority does not depend on a current sample or liveness.
+        if (latestScheduledRunStatus === 'FAILED') {
+          return {
+            ...unavailable,
+            ...projection,
+            providerStatus: 'failed',
+          };
+        }
+        // Positive scheduled freshness must belong to the durable latest
+        // scheduled attempt. An older successful run cannot authorize health
+        // while the latest slot is queued, running, failed or unverifiable.
+        // Historical verification remains visible in the safe projection.
+        if (!scheduledVerifiedRun
+          || latestScheduledRunStatus !== 'SUCCESS'
+          || scheduledVerifiedRun.id !== pointer!.scheduled_pointer_id) {
+          return { ...unavailable, ...projection };
+        }
+
+        const current = await sample();
+        if (!current) return { ...unavailable, ...projection };
+
+        const freshness = evaluateArtifactFreshness(scheduledVerifiedRun, current);
+        if (freshness === 'stale') {
+          return { ...unavailable, ...projection, providerStatus: 'stale' };
+        }
+        if (freshness !== 'healthy') {
+          return { ...unavailable, ...projection };
+        }
+
+        // BR5 requires an operational worker, not merely a historic successful
+        // backup. Disabling the worker must never bypass liveness/admission.
+        // This is an extra veto, NOT an all-node maintenance authorization.
+        if (!workerEnabled) return { ...unavailable, ...projection };
+
+        // A backwards wall step may be observed even while the conditional
+        // two-clock candidate appears fresh. Retain the DB high-water marks
+        // across restarts and deny positive health until the wall catches up.
+        if (observedHeartbeatWallRollback(
+          current.wallAtUTC,
+          workerHeartbeatAt,
+          schedulerLastTickAt,
+        )) return { ...unavailable, ...projection };
+
+        {
+          const workerLive = heartbeatFresh(
+            workerHeartbeatAt,
+            workerRow?.worker_heartbeat_time_evidence,
+            current,
+            workerStaleAfterMs,
+          );
+          const schedulerLive = active.rows[0]?.active === true && workerLive
+            ? true
+            : heartbeatFresh(
+              schedulerLastTickAt,
+              workerRow?.scheduler_last_tick_time_evidence,
+              current,
+              schedulerStaleAfterMs,
+            );
+          if (!workerLive || !schedulerLive) {
+            return { ...unavailable, ...projection };
+          }
+        }
+
+        // Installation-wide maintenance authority is checked against primary
+        // PostgreSQL on every potential positive result, never cached or
+        // inferred from the workerEnabled flag. Missing migration/state or
+        // query failure fail closed while preserving safe diagnostics.
+        if (!(await maintenanceAllowsPositiveBackupHealth(pool))) {
+          return { ...unavailable, ...projection };
+        }
+
+        // Conditional freshness and heartbeat results are not a security
+        // authority: OT3-C clock/anchor bounds and OT3-D immutable generation
+        // provenance have not been qualified. Preserve scheduled failure and
+        // definite stale classifications above; deny only positive promotion.
+        if (evaluateBr5PositiveHealthAdmission() !== 'QUALIFIED') {
+          return { ...unavailable, ...projection };
+        }
+
+        return {
+          status: 'ok',
+          ...projection,
+          providerStatus: 'healthy',
         };
       } catch {
         return unavailable;
       }
+    },
+    async close() {
+      if (ownsSampler && sampler) await sampler.close();
     },
   };
 }

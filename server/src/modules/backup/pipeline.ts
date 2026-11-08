@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import type { Pool } from 'pg';
 
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
+
 import {
   hashFile,
   LocalBackupEngine,
@@ -37,6 +39,8 @@ export type BackupPipelineOptions = {
   storage: RemoteBackupEngineOptions['storage'];
   instanceId: string;
   application?: LocalBackupEngineOptions['application'];
+  /** Bounded single-flight trusted sample; null never invents a before. */
+  sampleTrustedTime?: () => Promise<CurrentTimeEvidence | null>;
 };
 
 function terminalFailure(
@@ -99,6 +103,17 @@ async function completeCleanup(
   return { kind: 'completed' };
 }
 
+async function sampleBefore(
+  sampleTrustedTime: (() => Promise<CurrentTimeEvidence | null>) | undefined,
+): Promise<CurrentTimeEvidence | null> {
+  if (!sampleTrustedTime) return null;
+  try {
+    return await sampleTrustedTime();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Composes BR2 → BR3 → BR4 with the BR5 cleanup handoff. Engines retain their
  * narrow responsibilities; the worker is the only caller that decides when a
@@ -156,9 +171,15 @@ export function createBackupPipelineExecutor(options: BackupPipelineOptions) {
       tempRoot: options.tempRoot,
       storage: options.storage,
       instanceId: options.instanceId,
+      sampleTrustedTime: options.sampleTrustedTime,
     });
 
     if (run.phase === 'PREFLIGHT') {
+      // The generation is minted once, immediately before dump work. A retry
+      // after a crash re-enters this branch but the repository keeps the
+      // original generation/before; a failed sample never mints synthetic time.
+      const before = await sampleBefore(options.sampleTrustedTime);
+      await service.recordArtifactGeneration(run.id, before);
       const local = await localEngine.buildLocalBackup(run.id);
       if (local.outcome === 'failed') {
         return local.retryable

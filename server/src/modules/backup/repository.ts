@@ -1,6 +1,14 @@
 import type { Pool, PoolClient } from 'pg';
 
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
+
 import { BACKUP_EXCLUSION_ADVISORY_LOCK_KEY } from './types.js';
+import {
+  parseTimeEvidence,
+  validateVerificationProofBinding,
+  type BackupVerificationProof,
+  type VerifiedRunEvidence,
+} from './trusted-evidence.js';
 
 import type {
   BackupAuditInput,
@@ -44,6 +52,9 @@ type BackupRunRow = {
   verified_at: Date | null;
   lease_until: Date | null;
   heartbeat_at: Date | null;
+  artifact_generation_id: string | null;
+  artifact_generation_time_evidence: unknown;
+  verification_time_evidence: unknown;
   warning_code: BackupWarningCode | null;
   warning_summary: string | null;
   failure_code: BackupFailureCode | null;
@@ -89,6 +100,8 @@ type RestoreRunRow = {
 type BackupWorkerStateRow = {
   worker_heartbeat_at: Date | null;
   scheduler_last_tick_at: Date | null;
+  worker_heartbeat_time_evidence: unknown;
+  scheduler_last_tick_time_evidence: unknown;
   last_scheduled_slot_key: string | null;
   last_scheduled_local_date: string | null;
   last_scheduled_for: Date | null;
@@ -98,8 +111,9 @@ type BackupWorkerStateRow = {
 const RUN_COLUMNS = `id, status, phase, origin, scope, retention_class, created_by,
   created_at, started_at, completed_at, format_version, app_version, git_commit,
   schema_version, database_server_version, dump_version, remote_key, size_bytes,
-  sha256, verified_at, lease_until, heartbeat_at, warning_code, warning_summary,
-  failure_code, failure_summary`;
+  sha256, verified_at, lease_until, heartbeat_at, artifact_generation_id,
+  artifact_generation_time_evidence, verification_time_evidence, warning_code,
+  warning_summary, failure_code, failure_summary`;
 
 // UPDATE ... FROM statements have both the target row and a candidate CTE in
 // scope. Qualify every returned column there so PostgreSQL cannot resolve
@@ -112,7 +126,10 @@ const RUN_COLUMNS_QUALIFIED = `r.id AS id, r.status AS status, r.phase AS phase,
   r.schema_version AS schema_version, r.database_server_version AS database_server_version,
   r.dump_version AS dump_version, r.remote_key AS remote_key, r.size_bytes AS size_bytes,
   r.sha256 AS sha256, r.verified_at AS verified_at, r.lease_until AS lease_until,
-  r.heartbeat_at AS heartbeat_at, r.warning_code AS warning_code,
+  r.heartbeat_at AS heartbeat_at, r.artifact_generation_id AS artifact_generation_id,
+  r.artifact_generation_time_evidence AS artifact_generation_time_evidence,
+  r.verification_time_evidence AS verification_time_evidence,
+  r.warning_code AS warning_code,
   r.warning_summary AS warning_summary, r.failure_code AS failure_code,
   r.failure_summary AS failure_summary`;
 
@@ -121,6 +138,20 @@ const POLICY_COLUMNS = `id, enabled, schedule_time_local, timezone, daily_retent
 
 const STORAGE_COLUMNS = `provider, bucket_alias, prefix, enabled,
   last_connection_test_at, last_connection_test_ok`;
+
+function heartbeatTick(
+  at: Date | null,
+  evidence: CurrentTimeEvidence | null,
+): { at: Date; evidence: CurrentTimeEvidence } | null {
+  if (!evidence) return null;
+  const parsed = parseTimeEvidence(evidence);
+  if (!parsed) throw new Error('INVALID_HEARTBEAT_EVIDENCE');
+  const resolved = at ?? new Date(parsed.wallAtUTC);
+  if (resolved.toISOString() !== parsed.wallAtUTC) {
+    throw new Error('HEARTBEAT_EVIDENCE_MISMATCH');
+  }
+  return { at: resolved, evidence: parsed };
+}
 
 function mapRun(row: BackupRunRow): BackupRun {
   return {
@@ -146,6 +177,13 @@ function mapRun(row: BackupRunRow): BackupRun {
     verifiedAt: row.verified_at,
     leaseUntil: row.lease_until,
     heartbeatAt: row.heartbeat_at,
+    artifactGenerationId: row.artifact_generation_id,
+    artifactGenerationTimeEvidence: parseTimeEvidence(row.artifact_generation_time_evidence),
+    verificationTimeEvidence: row.verification_time_evidence !== null
+      && typeof row.verification_time_evidence === 'object'
+      && !Array.isArray(row.verification_time_evidence)
+      ? row.verification_time_evidence as unknown as BackupVerificationProof
+      : null,
     warningCode: row.warning_code,
     warningSummary: row.warning_summary,
     failureCode: row.failure_code,
@@ -183,6 +221,8 @@ function mapWorkerState(row: BackupWorkerStateRow): BackupWorkerState {
   return {
     workerHeartbeatAt: row.worker_heartbeat_at,
     schedulerLastTickAt: row.scheduler_last_tick_at,
+    workerHeartbeatTimeEvidence: parseTimeEvidence(row.worker_heartbeat_time_evidence),
+    schedulerLastTickTimeEvidence: parseTimeEvidence(row.scheduler_last_tick_time_evidence),
     lastScheduledSlotKey: row.last_scheduled_slot_key,
     lastScheduledLocalDate: row.last_scheduled_local_date,
     lastScheduledFor: row.last_scheduled_for,
@@ -294,10 +334,11 @@ export interface BackupRepository {
   getStorageState(): Promise<BackupStorageState | null>;
   recordStorageConnectionTest(ok: boolean, testedAt: Date): Promise<void>;
   startRun(id: string, startedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
+  recordArtifactGeneration(id: string, before: CurrentTimeEvidence | null, leaseToken?: string): Promise<BackupRun | null>;
   advancePhase(id: string, fromPhase: NonNullable<BackupRun['phase']>, toPhase: NonNullable<BackupRun['phase']>, leaseToken?: string): Promise<BackupRun | null>;
   markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
   markCancelled(id: string, completedAt: Date, leaseToken?: string): Promise<BackupRun | null>;
-  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun | null>;
+  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string; proof: BackupVerificationProof | null }, leaseToken?: string): Promise<BackupRun | null>;
   completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }, leaseToken?: string): Promise<BackupRun | null>;
   markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun | null>;
   createRestoreRun(input: CreateRestoreRunInput): Promise<RestoreRun>;
@@ -317,9 +358,14 @@ export interface BackupWorkerRepository extends BackupRepository {
   claimExpiredCleanupRun(now: Date, leaseToken: string, leaseUntil: Date): Promise<BackupWorkerClaim | null>;
   recoverExpiredRuns(now: Date): Promise<BackupRun[]>;
   heartbeatRun(id: string, leaseToken: string, heartbeatAt: Date, leaseUntil: Date): Promise<boolean>;
-  touchWorkerHeartbeat(at: Date): Promise<void>;
-  touchSchedulerHeartbeat(at: Date): Promise<void>;
-  enqueueScheduledRun(input: CreateScheduledBackupRunInput): Promise<
+  touchWorkerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void>;
+  touchSchedulerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void>;
+  touchWorkerAndSchedulerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void>;
+  enqueueScheduledRun(
+    input: CreateScheduledBackupRunInput,
+    tickAt?: Date | null,
+    evidence?: CurrentTimeEvidence | null,
+  ): Promise<
     | { kind: 'created'; run: BackupRun }
     | { kind: 'already-consumed' }
     | { kind: 'blocked' }
@@ -544,7 +590,9 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
   async getWorkerState() {
     const result = await this.pool.query<BackupWorkerStateRow>(
       `SELECT worker_heartbeat_at, scheduler_last_tick_at,
-              last_scheduled_slot_key, last_scheduled_local_date,
+              worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence,
+              last_scheduled_slot_key,
+                to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
               last_scheduled_for, last_scheduled_run_id
          FROM backup_worker_state
         WHERE singleton
@@ -580,6 +628,61 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       [id, startedAt, leaseToken ?? null],
     );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
+  }
+
+  /**
+   * Write-once artifact generation. The first call mints the generation ID and
+   * stores the original before; every retry returns that same row. A later
+   * sample is never allowed to refresh the generation or its before.
+   */
+  async recordArtifactGeneration(id: string, before: CurrentTimeEvidence | null, leaseToken?: string) {
+    const evidence = before === null ? null : parseTimeEvidence(before);
+    if (before !== null && evidence === null) {
+      throw new Error('INVALID_ARTIFACT_GENERATION_EVIDENCE');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const selected = await client.query<BackupRunRow>(
+        `SELECT ${RUN_COLUMNS} FROM backup_runs WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const row = selected.rows[0];
+      if (!row || row.status !== 'RUNNING') {
+        await client.query('COMMIT');
+        return null;
+      }
+      if (leaseToken) {
+        const lease = await client.query<{ ok: boolean }>(
+          `SELECT (lease_token = $2 AND lease_until > CURRENT_TIMESTAMP) AS ok
+             FROM backup_runs WHERE id = $1`,
+          [id, leaseToken],
+        );
+        if (lease.rows[0]?.ok !== true) {
+          await client.query('COMMIT');
+          return null;
+        }
+      }
+      if (row.artifact_generation_id !== null) {
+        await client.query('COMMIT');
+        return mapRun(row);
+      }
+      const updated = await client.query<BackupRunRow>(
+        `UPDATE backup_runs
+            SET artifact_generation_id = gen_random_uuid(),
+                artifact_generation_time_evidence = $2
+          WHERE id = $1 AND artifact_generation_id IS NULL
+          RETURNING ${RUN_COLUMNS}`,
+        [id, evidence === null ? null : JSON.stringify(evidence)],
+      );
+      await client.query('COMMIT');
+      return updated.rows[0] ? mapRun(updated.rows[0]) : null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async advancePhase(
@@ -625,31 +728,114 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
 
-  // REMOTE_VERIFY success: persist the verification result while the run is
-  // still RUNNING. Terminalization happens only in completeRun, after CLEANUP
-  // (BR0 architecture §7.2: UPLOAD → REMOTE_VERIFY → CLEANUP → SUCCESS).
-  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string) {
-    const result = await this.pool.query<BackupRunRow>(
-      `UPDATE backup_runs
-          SET remote_key = $2, size_bytes = $3, sha256 = $4
-        WHERE id = $1 AND status = 'RUNNING' AND phase = 'REMOTE_VERIFY'
-          AND $3::bigint > 0
-          AND ($5::uuid IS NULL OR (lease_token = $5 AND lease_until > CURRENT_TIMESTAMP))
-        RETURNING ${RUN_COLUMNS}`,
-      [id, input.remoteKey, input.sizeBytes, input.sha256, leaseToken ?? null],
-    );
-    return result.rows[0] ? mapRun(result.rows[0]) : null;
+  // REMOTE_VERIFY success: persist the verification result and, when the
+  // generation's original before and a valid attempt after exist, the bound
+  // proof. The run stays RUNNING; terminalization happens only in completeRun.
+  async recordVerification(
+    id: string,
+    input: { remoteKey: string; sizeBytes: number; sha256: string; proof?: BackupVerificationProof | null },
+    leaseToken?: string,
+  ) {
+    const proof = input.proof ?? null;
+    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0) {
+      throw new Error('INVALID_VERIFICATION_SIZE');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const selected = await client.query<BackupRunRow>(
+        `SELECT ${RUN_COLUMNS} FROM backup_runs WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const row = selected.rows[0];
+      if (!row || row.status !== 'RUNNING' || row.phase !== 'REMOTE_VERIFY') {
+        await client.query('COMMIT');
+        return null;
+      }
+      if (leaseToken) {
+        const lease = await client.query<{ ok: boolean }>(
+          `SELECT (lease_token = $2 AND lease_until > CURRENT_TIMESTAMP) AS ok
+             FROM backup_runs WHERE id = $1`,
+          [id, leaseToken],
+        );
+        if (lease.rows[0]?.ok !== true) {
+          await client.query('COMMIT');
+          return null;
+        }
+      }
+
+      // An accepted proof is immutable. A retry with the same integrity fields
+      // returns it unchanged; a conflicting retry is rejected rather than
+      // overwriting the original after.
+      if (row.verification_time_evidence !== null) {
+        if (row.remote_key !== input.remoteKey
+          || row.sha256 !== input.sha256
+          || row.size_bytes === null
+          || Number(row.size_bytes) !== input.sizeBytes) {
+          throw new Error('VERIFICATION_PROOF_CONFLICT');
+        }
+        await client.query('COMMIT');
+        return mapRun(row);
+      }
+
+      if (proof !== null) {
+        const context: VerifiedRunEvidence = {
+          id: row.id,
+          origin: row.origin,
+          verifiedAt: row.verified_at,
+          remoteKey: input.remoteKey,
+          sizeBytes: input.sizeBytes,
+          sha256: input.sha256,
+          artifactGenerationId: row.artifact_generation_id,
+          artifactGenerationTimeEvidence: parseTimeEvidence(row.artifact_generation_time_evidence),
+          verificationTimeEvidence: proof,
+        };
+        if (!validateVerificationProofBinding(proof, context)) {
+          throw new Error('INVALID_VERIFICATION_PROOF');
+        }
+      }
+
+      const updated = await client.query<BackupRunRow>(
+        `UPDATE backup_runs
+            SET remote_key = $2, size_bytes = $3, sha256 = $4,
+                verification_time_evidence = $5::jsonb
+          WHERE id = $1 AND status = 'RUNNING' AND phase = 'REMOTE_VERIFY'
+            AND verification_time_evidence IS NULL
+            AND ($6::uuid IS NULL OR (lease_token = $6 AND lease_until > CURRENT_TIMESTAMP))
+          RETURNING ${RUN_COLUMNS}`,
+        [
+          id,
+          input.remoteKey,
+          input.sizeBytes,
+          input.sha256,
+          proof === null ? null : JSON.stringify(proof),
+          leaseToken ?? null,
+        ],
+      );
+      await client.query('COMMIT');
+      return updated.rows[0] ? mapRun(updated.rows[0]) : null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
-  // Terminal transition after CLEANUP. verified_at is set HERE, never at
-  // REMOTE_VERIFY, so the verified_at → SUCCESS invariant holds while the
-  // verification result itself (sha256/remote_key/size_bytes) was already
-  // recorded by recordVerification. A non-null cleanupWarning records
-  // CLEANUP_FAILED without downgrading the verified restore point.
+  // Terminal transition after CLEANUP. verified_at is derived from the bound
+  // proof when one exists; otherwise it falls back to the normal completion
+  // time so a valid R2 restore point is never blocked by a TT outage. The
+  // proof is immutable and was already written at REMOTE_VERIFY.
   async completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }, leaseToken?: string) {
     const result = await this.pool.query<BackupRunRow>(
       `UPDATE backup_runs
-          SET status = 'SUCCESS', verified_at = $2, completed_at = $2,
+          SET status = 'SUCCESS',
+              verified_at = CASE
+                WHEN verification_time_evidence IS NOT NULL
+                  THEN (verification_time_evidence->>'verifiedAt')::timestamptz
+                ELSE $2
+              END,
+              completed_at = $2,
               warning_code = CASE WHEN $3::text IS NULL THEN NULL ELSE 'CLEANUP_FAILED' END,
               warning_summary = $3,
               failure_code = NULL, failure_summary = NULL,
@@ -826,25 +1012,82 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     return result.rowCount === 1;
   }
 
-  async touchWorkerHeartbeat(_at: Date): Promise<void> {
+  async touchWorkerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void> {
+    const tick = heartbeatTick(at, evidence);
+    if (!tick) return;
     await this.pool.query(
-      `UPDATE backup_worker_state SET worker_heartbeat_at = CURRENT_TIMESTAMP WHERE singleton`,
+      `UPDATE backup_worker_state
+          SET worker_heartbeat_at = $1::timestamptz,
+              worker_heartbeat_time_evidence = $2::jsonb
+        WHERE singleton
+          AND (worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz)`,
+      [tick.at, JSON.stringify(tick.evidence)],
     );
   }
 
-  async touchSchedulerHeartbeat(_at: Date): Promise<void> {
+  async touchSchedulerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void> {
+    const tick = heartbeatTick(at, evidence);
+    if (!tick) return;
     await this.pool.query(
-      `UPDATE backup_worker_state SET scheduler_last_tick_at = CURRENT_TIMESTAMP WHERE singleton`,
+      `UPDATE backup_worker_state
+          SET scheduler_last_tick_at = $1::timestamptz,
+              scheduler_last_tick_time_evidence = $2::jsonb
+        WHERE singleton
+          AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz)`,
+      [tick.at, JSON.stringify(tick.evidence)],
     );
   }
 
-  async enqueueScheduledRun(input: CreateScheduledBackupRunInput) {
+  /** One poll atomically advances both heartbeat high-water marks if newer.
+   * UTC rollback samples must not erase the previously observed wall instant;
+   * preserve the timestamp and its evidence together in every SQL path. */
+  async touchWorkerAndSchedulerHeartbeat(at: Date | null, evidence: CurrentTimeEvidence | null): Promise<void> {
+    const tick = heartbeatTick(at, evidence);
+    if (!tick) return;
+    await this.pool.query(
+      `UPDATE backup_worker_state
+          SET worker_heartbeat_at =
+                CASE WHEN worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz
+                  THEN $1::timestamptz ELSE worker_heartbeat_at END,
+              worker_heartbeat_time_evidence =
+                CASE WHEN worker_heartbeat_at IS NULL OR worker_heartbeat_at < $1::timestamptz
+                  THEN $2::jsonb ELSE worker_heartbeat_time_evidence END,
+              scheduler_last_tick_at =
+                CASE WHEN scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz
+                  THEN $1::timestamptz ELSE scheduler_last_tick_at END,
+              scheduler_last_tick_time_evidence =
+                CASE WHEN scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz
+                  THEN $2::jsonb ELSE scheduler_last_tick_time_evidence END
+        WHERE singleton`,
+      [tick.at, JSON.stringify(tick.evidence)],
+    );
+  }
+
+  async enqueueScheduledRun(
+    input: CreateScheduledBackupRunInput,
+    tickAt: Date | null = null,
+    evidence: CurrentTimeEvidence | null = null,
+  ) {
+    const tick = heartbeatTick(tickAt, evidence);
+    const writeTick = async (client: PoolClient) => {
+      if (!tick) return;
+      await client.query(
+        `UPDATE backup_worker_state
+            SET scheduler_last_tick_at = $1::timestamptz,
+                scheduler_last_tick_time_evidence = $2::jsonb
+          WHERE singleton
+            AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $1::timestamptz)`,
+        [tick.at, JSON.stringify(tick.evidence)],
+      );
+    };
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const state = await client.query<BackupWorkerStateRow>(
         `SELECT worker_heartbeat_at, scheduler_last_tick_at,
-                last_scheduled_slot_key, last_scheduled_local_date,
+                worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence,
+                last_scheduled_slot_key,
+                to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
                 last_scheduled_for, last_scheduled_run_id
            FROM backup_worker_state
           WHERE singleton
@@ -854,13 +1097,13 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       if (!current) throw new Error('backup worker state singleton is unavailable');
       if (
         current.last_scheduled_slot_key === input.slotKey
-        // A policy timezone change must not create a second run for the same
-        // local calendar day. The scheduler is at-most-once per local day.
-        || current.last_scheduled_local_date === input.localDate
+        // The persisted local date is a high-water mark for scheduled slots.
+        // A clock rollback (or timezone change) must never enqueue an older
+        // local day as a new run. Resume only on a genuinely later local date.
+        || (current.last_scheduled_local_date !== null
+          && current.last_scheduled_local_date >= input.localDate)
       ) {
-        await client.query(
-          `UPDATE backup_worker_state SET scheduler_last_tick_at = CURRENT_TIMESTAMP WHERE singleton`,
-        );
+        await writeTick(client);
         await client.query('COMMIT');
         return { kind: 'already-consumed' as const };
       }
@@ -872,9 +1115,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
         `SELECT id FROM restore_runs WHERE status = 'RUNNING' LIMIT 1`,
       );
       if (active.rowCount || restore.rowCount) {
-        await client.query(
-          `UPDATE backup_worker_state SET scheduler_last_tick_at = CURRENT_TIMESTAMP WHERE singleton`,
-        );
+        await writeTick(client);
         await client.query('COMMIT');
         return { kind: 'blocked' as const };
       }
@@ -903,13 +1144,27 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       );
       await client.query(
         `UPDATE backup_worker_state
-            SET scheduler_last_tick_at = CURRENT_TIMESTAMP,
+            SET scheduler_last_tick_at =
+                  CASE WHEN $5::timestamptz IS NOT NULL
+                    AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $5::timestamptz)
+                    THEN $5::timestamptz ELSE scheduler_last_tick_at END,
+                scheduler_last_tick_time_evidence =
+                  CASE WHEN $5::timestamptz IS NOT NULL
+                    AND (scheduler_last_tick_at IS NULL OR scheduler_last_tick_at < $5::timestamptz)
+                    THEN $6::jsonb ELSE scheduler_last_tick_time_evidence END,
                 last_scheduled_slot_key = $1,
                 last_scheduled_local_date = $2::date,
                 last_scheduled_for = $3,
                 last_scheduled_run_id = $4
           WHERE singleton`,
-        [input.slotKey, input.localDate, input.scheduledFor, run.id],
+        [
+          input.slotKey,
+          input.localDate,
+          input.scheduledFor,
+          run.id,
+          tick?.at ?? null,
+          tick === null ? null : JSON.stringify(tick.evidence),
+        ],
       );
       await client.query('COMMIT');
       return { kind: 'created' as const, run };
@@ -920,6 +1175,8 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
         && (error as { code?: string; constraint?: string }).code === '23505'
         && (error as { constraint?: string }).constraint === 'backup_runs_single_active_unique'
       ) {
+        // The race path still records the scheduler evaluation atomically.
+        if (tick) await this.touchSchedulerHeartbeat(tick.at, tick.evidence);
         return { kind: 'blocked' as const };
       }
       throw error;

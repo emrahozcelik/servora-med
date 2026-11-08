@@ -260,6 +260,12 @@ export class RestoreService {
           workspace.ciphertextPath,
           this.options.signal,
         );
+        // An operator-supplied hash is an independent anchor for the ciphertext.
+        // It was previously enforced only for local files; a remote restore
+        // silently ignored it, so a pinned hash proved nothing.
+        if (input.expectedSha256 !== undefined && input.expectedSha256 !== remote.sha256) {
+          throw new RestoreOperationError('remote ciphertext does not match --expected-sha256', 'RESTORE_CHECKSUM_FAILED');
+        }
         ciphertextBytes = remote.contentLength;
         ciphertextSha256 = remote.sha256;
         await decryptAgeArchive({
