@@ -1,7 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
+
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
 
 import { hashFile } from './engine.js';
 import { buildRemoteObjectKey } from './object-keys.js';
@@ -14,6 +16,11 @@ import type { BackupRepository } from './repository.js';
 import type { BackupServiceTransitionPrimitives } from './service.js';
 import type { BackupRun } from './types.js';
 import { validateBackupInstanceId } from './object-keys.js';
+import {
+  validateVerificationProofBinding,
+  type BackupVerificationProof,
+  type VerifiedRunEvidence,
+} from './trusted-evidence.js';
 import { workspacePathsFor } from './workspace.js';
 
 /**
@@ -86,6 +93,10 @@ export type RemoteBackupEngineOptions = {
   /** Test-only lowering is allowed; production can never raise the documented
    * R2 atomic PutObject ceiling. */
   maxAtomicPutBytes?: number;
+  /** Bounded single-flight trusted sample for the verification after. */
+  sampleTrustedTime?: () => Promise<CurrentTimeEvidence | null>;
+  /** Test seam for the remote attempt identity. */
+  randomId?: () => string;
 };
 
 /** Narrow BR3 → BR4 handoff. A full successful LocalEncryptionResult is
@@ -158,6 +169,8 @@ export class RemoteBackupEngine {
     mode: { upload: boolean; enterUpload: boolean },
   ): Promise<RemoteBackupResult> {
     const { service, storage, tempRoot, instanceId } = this.options;
+    const remoteAttemptId = this.options.randomId?.() ?? randomUUID();
+    const remoteAttemptStartedAt = new Date();
     try {
       const artifact = mode.upload
         ? await this.inspectLocalArtifact(run.id, tempRoot, handoff)
@@ -192,10 +205,19 @@ export class RemoteBackupEngine {
       // idempotent re-entry both prove the remote object end-to-end).
       const verified = await this.verifyObjectComposition(remoteKey, artifact, 'fresh');
 
+      const proof = await this.buildVerificationProof(
+        run.id,
+        remoteKey,
+        verified.sizeBytes,
+        verified.sha256,
+        remoteAttemptStartedAt,
+        remoteAttemptId,
+      );
       await service.recordVerification(run.id, {
         remoteKey,
         sizeBytes: verified.sizeBytes,
         sha256: verified.sha256,
+        proof,
       });
       await service.advancePhase(run.id, 'CLEANUP', false);
 
@@ -229,6 +251,56 @@ export class RemoteBackupEngine {
         phase,
       };
     }
+  }
+
+  private async buildVerificationProof(
+    runId: string,
+    remoteKey: string,
+    sizeBytes: number,
+    sha256: string,
+    verificationAttemptStartedAt: Date,
+    remoteAttemptId: string,
+  ): Promise<BackupVerificationProof | null> {
+    const run = await this.options.repository.findRunById(runId);
+    if (!run?.artifactGenerationId || !run.artifactGenerationTimeEvidence) return null;
+    // An accepted proof is immutable; never sample a newer after for it.
+    if (run.verificationTimeEvidence) return null;
+    if (!this.options.sampleTrustedTime) return null;
+    let after: CurrentTimeEvidence | null;
+    try {
+      after = await this.options.sampleTrustedTime();
+    } catch {
+      return null;
+    }
+    if (!after) return null;
+    const before = run.artifactGenerationTimeEvidence;
+    const proof: BackupVerificationProof = {
+      proofVersion: 2,
+      runId: run.id,
+      artifactGenerationId: run.artifactGenerationId,
+      artifactSha256: sha256,
+      sizeBytes,
+      remoteAttemptId,
+      origin: run.origin,
+      remoteKey,
+      generationStartedAt: before.wallAtUTC,
+      verificationAttemptStartedAt: verificationAttemptStartedAt.toISOString(),
+      verifiedAt: after.wallAtUTC,
+      before,
+      after,
+    };
+    const context: VerifiedRunEvidence = {
+      id: run.id,
+      origin: run.origin,
+      verifiedAt: null,
+      remoteKey,
+      sizeBytes,
+      sha256,
+      artifactGenerationId: run.artifactGenerationId,
+      artifactGenerationTimeEvidence: run.artifactGenerationTimeEvidence,
+      verificationTimeEvidence: proof,
+    };
+    return validateVerificationProofBinding(proof, context) ? proof : null;
   }
 
   private validateHandoff(

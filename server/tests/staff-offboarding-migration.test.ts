@@ -91,8 +91,8 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
   it('freshly applies the full chain, preserves the audit allowlist, and adds the D4 audit vocabulary', async () => {
     await withIsolatedDatabase(async (pool) => {
       const result = await runMigrations({ migrationsDirectory, store: new PostgresMigrationStore(pool) });
-      expect(result.appliedVersions).toHaveLength(60);
-      expect(result.appliedVersions.at(-1)).toBe('060_crm_duplicate_review_decisions');
+      expect(result.appliedVersions).toHaveLength(62);
+      expect(result.appliedVersions.at(-1)).toBe('062_backup_health_maintenance');
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED', 'USER_DELETED']));
 
       const { organizationId, actorId } = await createAuditActor(pool);
@@ -112,7 +112,7 @@ describe.skipIf(!databaseUrl)('R4A audit vocabulary migration', () => {
       await insertAuditEvent(pool, organizationId, actorId, 'USER_DEACTIVATED');
 
       const upgrade = await runMigrations({ migrationsDirectory, store });
-      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison', '056_meeting_met_contact', '057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions'] });
+      expect(upgrade).toEqual({ appliedVersions: ['037_staff_offboarding_audit', '038_demo_dataset_audit_types', '039_contact_deleted_audit', '040_demo_lifecycle_simplification', '041_user_lifecycle_reconciliation', '042_unsuccessful_visit_reason', '043_job_card_schedule_and_assignment_history', '044_job_card_accountability_facts', '045_calendar_request_hash', '046_notification_state_realtime', '047_job_card_overdue_incidents', '048_overdue_episode_activation_legacy_first', '049_job_card_lifecycle_intents', '050_overdue_incident_scanner_source', '051_weekly_report_foundation', '052_weekly_report_recurrence', '053_overdue_submission_reminders', '054_job_action_locations_submit_approval', '055_job_submit_location_comparison', '056_meeting_met_contact', '057_sale_from_visit', '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_backup_worker_trusted_time_evidence', '062_backup_health_maintenance'] });
       expect((await pool.query(`SELECT event_type FROM audit_events WHERE event_type = 'USER_DEACTIVATED'`)).rows).toHaveLength(1);
       expect(new Set(await readEventTypes(pool))).toEqual(new Set([...EXISTING_AUDIT_EVENT_TYPES, 'USER_OFFBOARDED', 'DEMO_DATASET_CREATED', 'DEMO_DATASET_PURGED', 'CONTACT_DELETED', 'USER_DELETED']));
       await insertAuditEvent(pool, organizationId, actorId, 'USER_OFFBOARDED');

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import type { CurrentTimeEvidence } from '../../../../ops/scripts/trusted-time.mjs';
+
 import type { BackupServiceTransitionPrimitives } from './service.js';
 import type { BackupWorkerRepository } from './repository.js';
 import { getDueScheduledSlot } from './scheduler.js';
@@ -50,6 +52,8 @@ export type BackupWorkerOptions = {
   now?: () => Date;
   sleep?: (delayMs: number) => Promise<void>;
   randomId?: () => string;
+  /** Bounded single-flight trusted sample; null/UNKNOWN never advances health. */
+  sampleTrustedTime?: () => Promise<CurrentTimeEvidence | null>;
   onError?: (error: unknown) => void;
   reclaimWorkspaces?: () => Promise<void>;
 };
@@ -95,6 +99,10 @@ export class LeaseBoundBackupService implements BackupServiceTransitionPrimitive
     return this.service.startRun(id, this.leaseToken);
   }
 
+  recordArtifactGeneration(id: string, before: CurrentTimeEvidence | null) {
+    return this.service.recordArtifactGeneration(id, before, this.leaseToken);
+  }
+
   advancePhase(
     id: string,
     toPhase: Parameters<BackupServiceTransitionPrimitives['advancePhase']>[1],
@@ -111,7 +119,7 @@ export class LeaseBoundBackupService implements BackupServiceTransitionPrimitive
     return this.service.markCancelled(id, this.leaseToken);
   }
 
-  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }) {
+  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string; proof?: import('./trusted-evidence.js').BackupVerificationProof | null }) {
     return this.service.recordVerification(id, input, this.leaseToken);
   }
 
@@ -217,11 +225,13 @@ export class BackupWorker {
   private async runOnceInternal(): Promise<BackupWorkerRunResult> {
     const { repository } = this.options;
     const tickAt = this.now();
-    await repository.touchWorkerHeartbeat(tickAt);
-    // A scheduler tick is liveness evidence even when another process owns
-    // the shared exclusion lock. The slot is consumed only by the later
-    // short enqueue transaction.
-    await repository.touchSchedulerHeartbeat(tickAt);
+    const sample = await this.sampleTrustedTime();
+    // One poll's sample advances both trusted heartbeats in one statement. A
+    // failed sample advances neither; legacy timestamps remain old history.
+    await repository.touchWorkerAndSchedulerHeartbeat(
+      sample ? new Date(sample.wallAtUTC) : null,
+      sample,
+    );
     const result = await repository.tryWithBackupExclusionLock(async () => {
       await this.options.reclaimWorkspaces?.();
       const recovered = await repository.recoverExpiredRuns(tickAt);
@@ -236,7 +246,7 @@ export class BackupWorker {
       const leaseToken = this.randomId();
       const leaseUntil = new Date(tickAt.getTime() + this.leaseMs);
       const cleanupClaim = await repository.claimExpiredCleanupRun(tickAt, leaseToken, leaseUntil);
-      const claim = cleanupClaim ?? (await this.scheduleAndClaim(tickAt, leaseToken, leaseUntil));
+      const claim = cleanupClaim ?? (await this.scheduleAndClaim(tickAt, leaseToken, leaseUntil, sample));
       if (!claim) return { kind: 'idle' } as const;
 
       await repository.appendSystemBackupAudit(claim.run.id, 'BACKUP_STARTED', {
@@ -256,10 +266,10 @@ export class BackupWorker {
     now: Date,
     leaseToken: string,
     leaseUntil: Date,
+    sample: CurrentTimeEvidence | null,
   ): Promise<BackupWorkerClaim | null> {
     const { repository } = this.options;
     const policy = await repository.getPolicy();
-    await repository.touchSchedulerHeartbeat(now);
     if (policy?.enabled) {
       const due = getDueScheduledSlot(now, policy.scheduleTimeLocal, policy.timezone);
       if (due) {
@@ -271,7 +281,7 @@ export class BackupWorker {
           slotKey: due.slotKey,
           localDate: due.localDate,
           scheduledFor: due.scheduledFor,
-        });
+        }, sample ? new Date(sample.wallAtUTC) : null, sample);
         if (scheduled.kind !== 'created') {
           // The slot is durably consumed (or deliberately blocked by the
           // mutex). Claiming below still lets an already queued manual run
@@ -286,6 +296,14 @@ export class BackupWorker {
     return repository.claimNextRun(now, leaseToken, leaseUntil);
   }
 
+  private async sampleTrustedTime(): Promise<CurrentTimeEvidence | null> {
+    try {
+      return await this.options.sampleTrustedTime?.() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private async executeClaim(claim: BackupWorkerClaim): Promise<void> {
     let leaseLost = false;
     let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -293,19 +311,36 @@ export class BackupWorker {
       // Shutdown stops new claims but keeps the active lease alive until the
       // current atomic pipeline step has finished.
       if (leaseLost) return;
+      let leaseOk = false;
       try {
         const at = this.now();
-        const ok = await this.options.repository.heartbeatRun(
+        leaseOk = await this.options.repository.heartbeatRun(
           claim.run.id,
           claim.leaseToken,
           at,
           new Date(at.getTime() + this.leaseMs),
         );
-        await this.options.repository.touchWorkerHeartbeat(at);
-        if (!ok) leaseLost = true;
       } catch (error) {
         leaseLost = true;
         this.onError(error);
+      }
+      if (leaseOk) {
+        // Trusted-time failure is independent of the operational lease. It may
+        // leave health evidence stale, but it must never abort the backup or
+        // turn the lease into a loss.
+        const sample = await this.sampleTrustedTime();
+        if (sample) {
+          try {
+            await this.options.repository.touchWorkerHeartbeat(
+              new Date(sample.wallAtUTC),
+              sample,
+            );
+          } catch (error) {
+            this.onError(error);
+          }
+        }
+      } else if (!leaseLost) {
+        leaseLost = true;
       }
       if (!leaseLost) {
         heartbeatTimer = setTimeout(() => {

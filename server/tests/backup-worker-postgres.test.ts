@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgresMigrationStore } from '../src/db/index.js';
 import { runMigrations } from '../src/db/migrate-runner.js';
 import { PostgresBackupRepository } from '../src/modules/backup/repository.js';
+import { timeAt } from './backup-time-fixture.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -296,7 +297,9 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       scheduledFor: new Date('2026-08-23T02:30:00Z'),
     };
     await expect(repository.enqueueScheduledRun(input)).resolves.toMatchObject({ kind: 'created' });
+    expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(input.id);
     await expect(repository.enqueueScheduledRun({ ...input, id: randomUUID() })).resolves.toEqual({ kind: 'already-consumed' });
+    expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(input.id);
     const audit = await pool.query<{ event_type: string; actor_user_id: string | null }>(
       `SELECT event_type, actor_user_id FROM audit_events WHERE subject_id = $1 ORDER BY created_at`,
       [input.id],
@@ -330,6 +333,11 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       repository.enqueueScheduledRun({ ...base, id: secondId }),
     ]);
     expect(results.map((result) => result.kind).sort()).toEqual(['already-consumed', 'created']);
+    const created = results.find((result) => result.kind === 'created');
+    expect(created?.kind).toBe('created');
+    if (created?.kind === 'created') {
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(created.run.id);
+    }
     const rows = await pool.query<{ id: string }>(
       `SELECT id FROM backup_runs WHERE origin = 'SCHEDULED' AND created_at = $1`,
       [base.createdAt],
@@ -343,4 +351,156 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       [[firstId, secondId]],
     );
   });
+  it('keeps scheduled slot progress monotonic across a clock rollback', async () => {
+    const firstId = randomUUID();
+    const rolledBackId = randomUUID();
+    const followingId = randomUUID();
+    const slot = (id: string, localDate: string) => ({
+      id,
+      scope: 'DATABASE' as const,
+      retentionClass: 'DAILY' as const,
+      createdAt: new Date(`${localDate}T02:31:00Z`),
+      slotKey: `UTC|${localDate}|02:30`,
+      localDate,
+      scheduledFor: new Date(`${localDate}T02:30:00Z`),
+    });
+    try {
+      await expect(repository.enqueueScheduledRun(slot(firstId, '2026-09-04')))
+        .resolves.toMatchObject({ kind: 'created' });
+      expect((await repository.getWorkerState())?.lastScheduledLocalDate)
+        .toBe('2026-09-04');
+      // Terminalize the first run so a later valid day is not blocked by an
+      // intentionally still-queued test run.
+      await pool.query(
+        `UPDATE backup_runs
+            SET status = 'FAILED', failure_code = 'WORKER_LOST',
+                failure_summary = 'test fixture cleanup', completed_at = NOW()
+          WHERE id = $1`,
+        [firstId],
+      );
+      // The wall clock now points at an earlier local day. Its different slot
+      // key cannot consume or rewind the persisted last-scheduled pointer.
+      await expect(repository.enqueueScheduledRun(slot(rolledBackId, '2026-09-03')))
+        .resolves.toEqual({ kind: 'already-consumed' });
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(firstId);
+      const reverted = await pool.query<{ id: string }>(
+        `SELECT id FROM backup_runs WHERE id = $1`,
+        [rolledBackId],
+      );
+      expect(reverted.rows).toHaveLength(0);
+      // Once the observed local date advances past the high-water mark, a new
+      // real scheduled slot is allowed without resetting or rewriting history.
+      await expect(repository.enqueueScheduledRun(slot(followingId, '2026-09-05')))
+        .resolves.toMatchObject({ kind: 'created' });
+      expect((await repository.getWorkerState())?.lastScheduledRunId).toBe(followingId);
+      expect((await repository.getWorkerState())?.lastScheduledLocalDate)
+        .toBe('2026-09-05');
+    } finally {
+      await pool.query(
+        `UPDATE backup_runs
+            SET status = 'FAILED', failure_code = 'WORKER_LOST',
+                failure_summary = 'test fixture cleanup', completed_at = NOW()
+          WHERE id = ANY($1::uuid[]) AND status IN ('QUEUED', 'RUNNING')`,
+        [[firstId, followingId]],
+      );
+    }
+  });
+
+  it('preserves heartbeat timestamp/evidence high-water across rollback in every write path', async () => {
+    type StateRow = {
+      worker_heartbeat_at: Date | null;
+      scheduler_last_tick_at: Date | null;
+      worker_heartbeat_time_evidence: unknown;
+      scheduler_last_tick_time_evidence: unknown;
+      last_scheduled_slot_key: string | null;
+      last_scheduled_local_date: string | null;
+      last_scheduled_for: Date | null;
+      last_scheduled_run_id: string | null;
+    };
+    const baseline = (await pool.query<StateRow>(
+      `SELECT worker_heartbeat_at, scheduler_last_tick_at,
+              worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence,
+              last_scheduled_slot_key,
+              to_char(last_scheduled_local_date, 'YYYY-MM-DD') AS last_scheduled_local_date,
+              last_scheduled_for, last_scheduled_run_id
+         FROM backup_worker_state WHERE singleton`,
+    )).rows[0]!;
+    const first = new Date('2026-11-10T12:00:00.000Z');
+    const rollback = new Date('2026-11-10T11:55:00.000Z');
+    const later = new Date('2026-11-10T12:01:00.000Z');
+    const scheduledId = randomUUID();
+    const read = async () => (await pool.query<StateRow>(
+      `SELECT worker_heartbeat_at, scheduler_last_tick_at,
+              worker_heartbeat_time_evidence, scheduler_last_tick_time_evidence
+         FROM backup_worker_state WHERE singleton`,
+    )).rows[0]!;
+    const expectPair = (row: StateRow, expected: Date) => {
+      expect(row.worker_heartbeat_at?.toISOString()).toBe(expected.toISOString());
+      expect(row.scheduler_last_tick_at?.toISOString()).toBe(expected.toISOString());
+      expect(row.worker_heartbeat_time_evidence).toMatchObject({ wallAtUTC: expected.toISOString() });
+      expect(row.scheduler_last_tick_time_evidence).toMatchObject({ wallAtUTC: expected.toISOString() });
+    };
+    try {
+      await pool.query(
+        `UPDATE backup_worker_state
+            SET worker_heartbeat_at = NULL, scheduler_last_tick_at = NULL,
+                worker_heartbeat_time_evidence = NULL, scheduler_last_tick_time_evidence = NULL
+          WHERE singleton`,
+      );
+      await repository.touchWorkerAndSchedulerHeartbeat(first, timeAt(first.getTime()));
+      expectPair(await read(), first);
+
+      // Both a combined poll and the independent heartbeat endpoints must
+      // preserve the original timestamp+JSON pair after the wall rolls back.
+      await repository.touchWorkerAndSchedulerHeartbeat(rollback, timeAt(rollback.getTime()));
+      await repository.touchWorkerHeartbeat(rollback, timeAt(rollback.getTime()));
+      await repository.touchSchedulerHeartbeat(rollback, timeAt(rollback.getTime()));
+      expectPair(await read(), first);
+
+      // A successful scheduled enqueue must update the slot pointer without
+      // rolling back the scheduler liveness high-water timestamp/evidence.
+      const scheduled = await repository.enqueueScheduledRun({
+        id: scheduledId,
+        scope: 'DATABASE',
+        retentionClass: 'DAILY',
+        createdAt: rollback,
+        slotKey: 'UTC|2026-12-01|02:30',
+        localDate: '2026-12-01',
+        scheduledFor: new Date('2026-12-01T02:30:00.000Z'),
+      }, rollback, timeAt(rollback.getTime()));
+      expect(scheduled.kind).toBe('created');
+      expectPair(await read(), first);
+
+      // Both independent clocks can resume progressing after catching up,
+      // without resetting the durable scheduled pointer or audit history.
+      await repository.touchWorkerAndSchedulerHeartbeat(later, timeAt(later.getTime()));
+      expectPair(await read(), later);
+    } finally {
+      await pool.query(
+        `UPDATE backup_worker_state
+            SET worker_heartbeat_at = $1::timestamptz,
+                scheduler_last_tick_at = $2::timestamptz,
+                worker_heartbeat_time_evidence = $3::jsonb,
+                scheduler_last_tick_time_evidence = $4::jsonb,
+                last_scheduled_slot_key = $5,
+                last_scheduled_local_date = $6::date,
+                last_scheduled_for = $7::timestamptz,
+                last_scheduled_run_id = $8
+          WHERE singleton`,
+        [
+          baseline.worker_heartbeat_at,
+          baseline.scheduler_last_tick_at,
+          baseline.worker_heartbeat_time_evidence === null ? null : JSON.stringify(baseline.worker_heartbeat_time_evidence),
+          baseline.scheduler_last_tick_time_evidence === null ? null : JSON.stringify(baseline.scheduler_last_tick_time_evidence),
+          baseline.last_scheduled_slot_key,
+          baseline.last_scheduled_local_date,
+          baseline.last_scheduled_for,
+          baseline.last_scheduled_run_id,
+        ],
+      );
+      await pool.query('DELETE FROM backup_runs WHERE id = $1', [scheduledId]);
+    }
+  });
+
+
 });

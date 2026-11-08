@@ -67,7 +67,7 @@ describe.skipIf(!databaseUrl)('SALE-QTY-001 forward migration', () => {
         blocker.release();
         await upgrade;
       }
-      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions'] });
+      expect(await upgrade).toEqual({ appliedVersions: ['058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_backup_worker_trusted_time_evidence', '062_backup_health_maintenance'] });
       const storageAfter = await tableStorage(pool);
       expect(storageBefore.typmod).toBe(786439); // NUMERIC(12,3)
       expect(storageAfter.typmod).toBe(-1); // unrestricted NUMERIC

@@ -63,4 +63,51 @@ describe('BR7 restore service package verification', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('enforces --expected-sha256 for a remote ciphertext', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'br7-remote-pin-'));
+    try {
+      const body = new TextEncoder().encode('ciphertext');
+      const ciphertextSha256 = createHash('sha256').update(body).digest('hex');
+      const backupId = '11111111-2222-4333-8444-555555555555';
+      const key = `production/clinic-01/v1/daily/${backupId}.sbk.age`;
+      const store = {
+        listObjects: async () => ({ objects: [{ key, size: body.byteLength }], nextContinuationToken: null }),
+        headObject: async () => ({
+          contentLength: body.byteLength,
+          metadata: {
+            'servora-backup-id': backupId,
+            'servora-format': '1',
+            'servora-sha256': ciphertextSha256,
+          },
+          etag: null,
+        }),
+        getObject: async () => ({ contentLength: body.byteLength, metadata: {}, body: [body] }),
+      };
+      const service = new RestoreService({
+        workspaceRoot: path.join(root, 'work'),
+        storage: store,
+        instanceId: 'clinic-01',
+        // Deterministic failure past the checksum gate: no operator identity.
+        identityPath: path.join(root, 'missing-identity.txt'),
+      });
+
+      await expect(service.inspect({
+        archiveOrId: backupId,
+        remote: true,
+        expectedSha256: 'f'.repeat(64),
+      })).rejects.toMatchObject({ code: 'RESTORE_CHECKSUM_FAILED' });
+
+      // The correct pinned hash must pass the checksum gate; the deterministic
+      // later failure (missing identity / unsupported format) is not a checksum
+      // failure.
+      await expect(service.inspect({
+        archiveOrId: backupId,
+        remote: true,
+        expectedSha256: ciphertextSha256,
+      })).rejects.not.toMatchObject({ code: 'RESTORE_CHECKSUM_FAILED' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

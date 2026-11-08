@@ -91,7 +91,7 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     const version = await pool!.query<{ version: string }>(
       'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
     );
-    expect(version.rows[0]!.version).toBe('060_crm_duplicate_review_decisions');
+    expect(version.rows[0]!.version).toBe('062_backup_health_maintenance');
 
     const policyCount = await pool!.query<{ count: number }>(
       'SELECT COUNT(*)::int AS count FROM backup_policy',
@@ -127,9 +127,9 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, failure_code)
-       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), 'PG_DUMP_FAILED')`,
-      [randomUUID(), adminId],
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, sha256, verified_at, failure_code)
+       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), $3, NOW(), 'PG_DUMP_FAILED')`,
+      [randomUUID(), adminId, 'a'.repeat(64)],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
@@ -139,9 +139,9 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, completed_at, warning_code, warning_summary)
-       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), NOW(), 'CLEANUP_FAILED', 'geçici dizin silinemedi')`,
-      [randomUUID(), adminId],
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_by, created_at, completed_at, sha256, verified_at, warning_code, warning_summary)
+       VALUES ($1, 'SUCCESS', 'MANUAL', 'DATABASE', 'MANUAL', $2, NOW(), NOW(), $3, NOW(), 'CLEANUP_FAILED', 'geçici dizin silinemedi')`,
+      [randomUUID(), adminId, 'a'.repeat(64)],
     )).resolves.toBeDefined();
 
     await expect(pool!.query(
@@ -153,15 +153,15 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
 
   it('rejects malformed sha256, negative sizes, and non-terminal incoherence', async () => {
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256)
-       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), 'ABC')`,
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256, verified_at)
+       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), 'ABC', NOW())`,
       [randomUUID()],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(
-      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, size_bytes)
-       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), -1)`,
-      [randomUUID()],
+      `INSERT INTO backup_runs (id, status, origin, scope, retention_class, created_at, completed_at, sha256, verified_at, size_bytes)
+       VALUES ($1, 'SUCCESS', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), $2, NOW(), -1)`,
+      [randomUUID(), 'a'.repeat(64)],
     )).rejects.toMatchObject({ code: '23514' });
 
     await expect(pool!.query(

@@ -270,7 +270,7 @@ export async function probeHealth(config, deps) {
     const backup = body?.backup;
     if (backup && typeof backup === 'object') {
       result.backup = {
-        provider: backup.provider === 'host-observation' ? 'host-observation' : null,
+        provider: ['host-observation', 'br5-r2', 'none'].includes(backup.provider) ? backup.provider : null,
         providerStatus: typeof backup.providerStatus === 'string' ? backup.providerStatus : null,
         status: backup.status === 'ok' ? 'ok' : 'unavailable',
         latestVerifiedAt: typeof backup.latestVerifiedAt === 'string' ? backup.latestVerifiedAt : null,
@@ -324,35 +324,30 @@ export function evaluateVerifiedBackup(config, healthResult, deps) {
     schedulerLastTickAt: null,
   };
   const evidence = healthResult?.backup;
-  if (!healthResult?.ok || !evidence) {
+  if (!evidence || evidence.provider !== 'br5-r2') {
     result.errorCategory = 'health-unavailable';
     return result;
   }
-  result.workerHeartbeatAt = evidence.workerHeartbeatAt;
-  result.schedulerLastTickAt = evidence.schedulerLastTickAt;
-  if (evidence.latestScheduledRunStatus === 'FAILED') {
-    result.errorCategory = 'scheduled-failure';
-    result.latestProblem = 'FAILED';
+  result.workerHeartbeatAt = evidence.workerHeartbeatAt ?? null;
+  result.schedulerLastTickAt = evidence.schedulerLastTickAt ?? null;
+  result.latestBackupTimestamp = evidence.latestScheduledVerifiedAt
+    ?? evidence.latestVerifiedAt
+    ?? null;
+  // The backend status/providerStatus is the only decision authority. Do not
+  // compute a second age from Date.now(); display timestamps are not authority.
+  if (healthResult.ok === true
+    && evidence.status === 'ok'
+    && evidence.providerStatus === 'healthy') {
+    result.ok = true;
     return result;
   }
-  const verifiedAt = evidence.latestScheduledVerifiedAt
-    ? new Date(evidence.latestScheduledVerifiedAt)
-    : null;
-  if (!verifiedAt || !Number.isFinite(verifiedAt.getTime())) {
-    result.errorCategory = 'no-verified-backup';
-    result.latestProblem = evidence.latestScheduledRunStatus ?? 'no-scheduled-success';
+  const category = evidence.providerStatus;
+  if (category === 'stale' || category === 'failed' || category === 'unavailable') {
+    result.errorCategory = category;
+    result.latestProblem = category;
     return result;
   }
-  const now = deps.now();
-  if (verifiedAt.getTime() > now) {
-    result.errorCategory = 'invalid-backup';
-    result.latestProblem = 'future-timestamp';
-    return result;
-  }
-  result.latestBackupTimestamp = verifiedAt.toISOString();
-  result.ageHours = (now - verifiedAt.getTime()) / 3_600_000;
-  result.ok = evidence.status === 'ok' && result.ageHours <= config.backupMaxAgeHours;
-  result.errorCategory = result.ok ? null : (evidence.status === 'ok' ? 'stale' : 'worker-unavailable');
+  result.errorCategory = 'health-unavailable';
   return result;
 }
 

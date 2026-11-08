@@ -4,6 +4,7 @@ import { PostgresBackupRepository } from './modules/backup/repository.js';
 import { BackupService } from './modules/backup/service.js';
 import { BackupWorker } from './modules/backup/worker.js';
 import { reclaimTerminalWorkspaces } from './modules/backup/workspace.js';
+import { createTrustedTimeSampler } from './modules/health/trusted-time-sampler.js';
 import { loadConfig } from './config.js';
 import { closeDatabase, createDatabase } from './db/index.js';
 import { createWorkerStopHandler } from './shutdown.js';
@@ -54,12 +55,15 @@ export async function main(): Promise<void> {
   });
   const repository = new PostgresBackupRepository(database.pool);
   const service = new BackupService(repository);
+  const sampler = createTrustedTimeSampler();
+  const sampleTrustedTime = () => sampler.sample();
   try {
     if (!(await repository.getWorkerState())) {
       throw new Error('backup worker runtime migration 033 is not applied');
     }
   } catch (error) {
     storage.destroy();
+    await sampler.close();
     await closeDatabase(database);
     throw error;
   }
@@ -70,6 +74,7 @@ export async function main(): Promise<void> {
     leaseMs: config.backupWorker.leaseMs,
     heartbeatIntervalMs: config.backupWorker.heartbeatIntervalMs,
     pollIntervalMs: config.backupWorker.pollIntervalMs,
+    sampleTrustedTime,
     executeRun: createBackupPipelineExecutor({
       repository,
       pool: database.pool,
@@ -80,6 +85,7 @@ export async function main(): Promise<void> {
       recipient,
       storage,
       instanceId: r2.instanceId,
+      sampleTrustedTime,
     }),
     onError: (error) => {
       console.error('Servora-Med backup worker tick failed', {
@@ -113,6 +119,7 @@ export async function main(): Promise<void> {
   } finally {
     process.removeListener('SIGINT', requestStop);
     process.removeListener('SIGTERM', requestStop);
+    await sampler.close();
     storage.destroy();
     await closeDatabase(database);
   }
