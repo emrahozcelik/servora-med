@@ -238,7 +238,7 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 migration 061', () => {
     });
   });
 
-  it('migrates a real 060 database to 061 once without data loss or backfill', async () => {
+  it('migrates a real 060 database through 061 and 062 once without data loss or backfill', async () => {
     const legacyDirectory = await mkdtemp(path.join(tmpdir(), 'br5tt1-060-'));
     const legacySchema = `br5tt1_mig_${randomUUID().replaceAll('-', '')}`;
     let legacyPool: Pool | null = null;
@@ -273,11 +273,11 @@ describe.skipIf(!databaseUrl)('BR5-TT-1 migration 061', () => {
       );
 
       const after = await runMigrations({ migrationsDirectory, store });
-      expect(after.appliedVersions).toEqual(['061_backup_worker_trusted_time_evidence']);
+      expect(after.appliedVersions).toEqual(['061_backup_worker_trusted_time_evidence', '062_backup_health_maintenance']);
       const head = await legacyPool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]?.version).toBe('061_backup_worker_trusted_time_evidence');
+      expect(head.rows[0]?.version).toBe('062_backup_health_maintenance');
 
       const afterRow = await legacyPool.query(
         `SELECT status, remote_key, size_bytes, sha256, verified_at, warning_code, warning_summary,

@@ -203,6 +203,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '057_sale_from_visit',
           '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions',
           '061_backup_worker_trusted_time_evidence',
+          '062_backup_health_maintenance',
         ],
       });
 
