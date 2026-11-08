@@ -110,7 +110,7 @@ describe('Delivery create CRM defaults', () => {
     });
     crm.createContact.mockResolvedValue({});
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 8, offset: 0 });
+    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 6, offset: 0 });
     api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
@@ -148,7 +148,7 @@ describe('Delivery create CRM defaults', () => {
     await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
-    expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
+    expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 6, offset: 0 });
     expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       customerId: 'customer-a', assignedTo: 'staff-2',
       scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
@@ -538,7 +538,7 @@ describe('Delivery create ambiguous attempt contract', () => {
     });
     crm.createContact.mockResolvedValue({});
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 8, offset: 0 });
+    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 6, offset: 0 });
     api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);

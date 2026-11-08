@@ -13,8 +13,10 @@ import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
+import { DEFAULT_LIST_PAGE_SIZE, normalizeListOffset } from './ui/pagination';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 
 export type ProductFilterValues = Pick<ProductFilters, 'q' | 'offset'>;
 export type ProductListState =
@@ -27,7 +29,7 @@ export function productFiltersFromParams(params: URLSearchParams): ProductFilter
   const offset = offsetValue === null ? NaN : Number(offsetValue);
   return {
     ...(params.get('q') ? { q: params.get('q')! } : {}),
-    ...(Number.isInteger(offset) && offset >= 0 ? { offset } : {}),
+    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset: normalizeListOffset(offset) } : {}),
   };
 }
 
@@ -104,8 +106,6 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
   onOpenProduct?: (productId: string) => void;
   onRequestDelete?: (product: Product, trigger: HTMLButtonElement) => void;
 }) {
-  const first = page.total === 0 ? 0 : page.offset + 1;
-  const last = Math.min(page.offset + page.limit, page.total);
   return <div className="product-results">
     {page.items.length === 0 ? <EmptyState
       title={hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}
@@ -126,11 +126,11 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
               onClick={(event) => onRequestDelete?.(product, event.currentTarget)}>Sil</button>
           </div>}
         </article></li>)}</ul>}
-    {page.total > page.limit && <nav className="product-pagination" aria-label="Ürün sayfaları">
-      <button className="secondary-button" type="button" disabled={page.offset === 0} onClick={() => onOffsetChange?.(Math.max(0, page.offset - page.limit))}>Önceki</button>
-      <span aria-live="polite">{first}–{last} / {page.total}</span>
-      <button className="secondary-button" type="button" disabled={page.offset + page.limit >= page.total} onClick={() => onOffsetChange?.(page.offset + page.limit)}>Sonraki</button>
-    </nav>}
+    {page.total > page.limit && <div className="product-pagination">
+      <ServoraListPagination label="Ürün sayfaları" itemName="ürün"
+        total={page.total} offset={page.offset} pageSize={page.limit}
+        onOffsetChange={(nextOffset) => onOffsetChange?.(nextOffset)} />
+    </div>}
   </div>;
 }
 
@@ -154,6 +154,11 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading' });
+    const rawOffset = params.get('offset');
+    if (rawOffset !== null && rawOffset !== String(filters.offset ?? 0)) {
+      setParams(updateProductSearchParams(params, 'offset', filters.offset ?? 0), { replace: true });
+      return;
+    }
     load({ ...filters, status: 'active', limit: PAGE_SIZE }).then((page) => {
         if (!active) return;
         if (page.total > 0 && page.items.length === 0 && page.offset >= page.total) {
