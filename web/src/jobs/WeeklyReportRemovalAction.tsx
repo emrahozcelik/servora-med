@@ -47,7 +47,9 @@ export function WeeklyReportRemovalAction({ report, disabled, onRemoved, onBusyC
       if (!session.current) return;
       if (next.jobCardId!==report.jobCardId || next.reportId!==report.id) throw new Error('Rapor kimliği doğrulanamadı.');
       setPreview(next);setStale(false);
-      if (!next.canRemove) setError('Raporun kaldırma koşulları değişti. Güncel raporu inceleyin.');
+      if (!next.canRemove) setError(next.removalBlocker === 'ACTIVE_FOLLOW_UPS'
+        ? 'Aktif takip işleri bulunan rapor kaldırılamaz. Önce takip işlerini sonuçlandırın.'
+        : 'Raporun kaldırma koşulları değişti. Güncel raporu inceleyin.');
     } catch (caught) {
       if (session.current) setError(caught instanceof Error ? caught.message : 'Rapor bilgileri yüklenemedi.');
     } finally {

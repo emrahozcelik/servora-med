@@ -104,7 +104,9 @@ export type WeeklyReportRemovalPreview = {
   jobCardId: string; reportId: string; staffUserId: string; staffName: string;
   periodStart: string; periodEnd: string; status: JobCardStatus;
   expectedVersion: number; expectedReportVersion: number; submissionCount: number;
-  canRemove: boolean; removal: WeeklyReportRemoval | null;
+  canRemove: boolean;
+  removalBlocker: 'ACTIVE_FOLLOW_UPS' | null;
+  removal: WeeklyReportRemoval | null;
 };
 export type WeeklyReportRemovalInput = {
   clientActionId: string; expectedVersion: number; expectedReportVersion: number; reason: string;
@@ -120,7 +122,8 @@ function parseRemoval(value: unknown): WeeklyReportRemoval | null {
 
 export function parseWeeklyReportRemovalPreview(value: unknown): WeeklyReportRemovalPreview {
   const record = exactObject(value,'removalPreview',['jobCardId','reportId','staffUserId','staffName',
-    'periodStart','periodEnd','status','expectedVersion','expectedReportVersion','submissionCount','canRemove','removal']);
+    'periodStart','periodEnd','status','expectedVersion','expectedReportVersion','submissionCount',
+    'canRemove','removalBlocker','removal']);
   const submissionCount = record.submissionCount;
   if (typeof submissionCount!=='number' || !Number.isSafeInteger(submissionCount) || submissionCount<0) invalid('submissionCount');
   return { jobCardId: string(record.jobCardId,'jobCardId'),reportId: string(record.reportId,'reportId'),
@@ -128,7 +131,10 @@ export function parseWeeklyReportRemovalPreview(value: unknown): WeeklyReportRem
     periodStart: dateKey(record.periodStart,'periodStart'),periodEnd: dateKey(record.periodEnd,'periodEnd'),
     status: oneOf(record.status,'status',JOB_CARD_STATUSES),expectedVersion: positiveCount(record.expectedVersion,'expectedVersion'),
     expectedReportVersion: positiveCount(record.expectedReportVersion,'expectedReportVersion'),submissionCount,
-    canRemove: booleanValue(record.canRemove,'canRemove'),removal: parseRemoval(record.removal) };
+    canRemove: booleanValue(record.canRemove,'canRemove'),
+    removalBlocker: record.removalBlocker === null ? null
+      : oneOf(record.removalBlocker,'removalBlocker',['ACTIVE_FOLLOW_UPS'] as const),
+    removal: parseRemoval(record.removal) };
 }
 /**
  * Canonical create-screen reference. The organization timezone owns what

@@ -1504,11 +1504,17 @@ export class JobCardService {
     const report = await this.getWeeklyReport(actor, jobCardId);
     const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
+    // Advisory read only; POST repeats this guard under transaction/child locks.
+    const activeFollowUps = report.canRemove
+      ? await this.repository.hasActiveFollowUpChildren(actor.organizationId, jobCardId)
+      : false;
     return {
       jobCardId, reportId: report.id, staffUserId: report.staffUserId, staffName: job.assignee.name,
       periodStart: report.periodStart, periodEnd: report.periodEnd,
       status: report.jobStatus, expectedVersion: report.jobVersion, expectedReportVersion: report.version,
-      submissionCount: report.submissionSummaries.length, canRemove: report.canRemove,
+      submissionCount: report.submissionSummaries.length,
+      canRemove: report.canRemove && !activeFollowUps,
+      removalBlocker: activeFollowUps ? 'ACTIVE_FOLLOW_UPS' as const : null,
       removal: report.removal,
     };
   }

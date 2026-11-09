@@ -1041,6 +1041,8 @@ export interface JobCardRepository extends SubmissionReader {
   }>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
+  /** Advisory lock-free mirror of the transactional active child guard. */
+  hasActiveFollowUpChildren(organizationId: string, sourceJobCardId: string): Promise<boolean>;
   getOrganizationTimezone(organizationId: string): Promise<string>;
   listActiveOnSiteJobs(
     organizationId: string,
@@ -3915,6 +3917,18 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+  }
+
+  async hasActiveFollowUpChildren(organizationId: string, sourceJobCardId: string) {
+    const result = await this.pool.query<{ present: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM job_cards
+        WHERE organization_id = $1 AND source_job_card_id = $2
+          AND status = ANY($3::varchar[])
+      ) AS present`,
+      [organizationId, sourceJobCardId, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    return result.rows[0]?.present === true;
   }
 
   async getOrganizationTimezone(organizationId: string) {

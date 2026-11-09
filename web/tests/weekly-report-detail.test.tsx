@@ -210,10 +210,25 @@ describe('WeeklyReportDetail', () => {
     weeklyApi.getWeeklyReport.mockResolvedValue(makeDetail({ jobStatus: 'COMPLETED',canRemove: true }));
     weeklyApi.getWeeklyReportRemovalPreview.mockResolvedValue({ jobCardId:'job-1',reportId:'report-1',
       staffUserId:'staff-1',staffName:'Ayşe Personel',...WEEK,status:'COMPLETED',
-      expectedVersion:3,expectedReportVersion:2,submissionCount:1,canRemove:true,removal:null });
+      expectedVersion:3,expectedReportVersion:2,submissionCount:1,canRemove:true,
+      removalBlocker:null,removal:null });
     await render({ ...managerUser,id:'admin-1',role:'ADMIN' });
     click(buttonByText('Raporu kaldır'));await flush();
   }
+
+  it('explains active follow-up blockers and disables the removal confirmation', async () => {
+    await openRemoval();
+    const eligible = await weeklyApi.getWeeklyReportRemovalPreview.mock.results[0]!.value;
+    weeklyApi.getWeeklyReportRemovalPreview.mockResolvedValue({
+      ...eligible, canRemove: false, removalBlocker: 'ACTIVE_FOLLOW_UPS',
+    });
+    click(buttonByText('Vazgeç')); await flush();
+    click(buttonByText('Raporu kaldır')); await flush();
+    expect(host.textContent).toContain('Aktif takip işleri bulunan rapor kaldırılamaz');
+    const submit = host.querySelector<HTMLButtonElement>('[data-weekly-report-removal] button[type="submit"]');
+    expect(submit?.disabled).toBe(true);
+    expect(weeklyApi.removeWeeklyReport).not.toHaveBeenCalled();
+  });
 
   async function confirmRemoval() {
     const form = host.querySelector('[data-weekly-report-removal] form')!;

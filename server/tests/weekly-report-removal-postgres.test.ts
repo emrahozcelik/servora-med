@@ -84,6 +84,30 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
+  it('previews active follow-up blockers and preserves the locked removal guard', async () => {
+    await withFixture(async ({ pool, service, admin, staff }) => {
+      const created = await service.createWeeklyReport(staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart }));
+      const childId = (await pool.query(`INSERT INTO job_cards
+        (organization_id,type,status,title,assigned_to,created_by,source_job_card_id)
+        VALUES ($1,'GENERAL_TASK','NEW','Takip işi',$2,$3,$4) RETURNING id`,
+      [staff.organizationId, staff.id, admin.id, created.jobCardId])).rows[0].id;
+      expect(await service.weeklyReportRemovalPreview(admin, created.jobCardId)).toMatchObject({
+        canRemove: false, removalBlocker: 'ACTIVE_FOLLOW_UPS',
+        expectedVersion: 1, expectedReportVersion: 1,
+      });
+      await expect(service.removeWeeklyReport(admin, created.jobCardId, {
+        clientActionId: randomUUID(), expectedVersion: 1, expectedReportVersion: 1,
+        reason: 'Yanlış hafta.',
+      })).rejects.toMatchObject({ code: 'JOB_HAS_ACTIVE_FOLLOW_UPS' });
+      expect((await pool.query('SELECT removed_at FROM weekly_reports WHERE id=$1',[created.reportId]))
+        .rows[0].removed_at).toBeNull();
+      await pool.query("UPDATE job_cards SET status='CANCELLED', version=version+1 WHERE id=$1",[childId]);
+      expect(await service.weeklyReportRemovalPreview(admin, created.jobCardId))
+        .toMatchObject({ canRemove: true, removalBlocker: null });
+    });
+  });
+
   it('rejects Manager/Staff, stale versions and stale Admin authority without changing the report', async () => {
     await withFixture(async ({ pool, service, admin, staff, manager }) => {
       const created = await service.createWeeklyReport(staff,
@@ -263,7 +287,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
-  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {    await withFixture(async ({ service, admin, staff, manager }) => {
+  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
+    await withFixture(async ({ service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
@@ -288,6 +313,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         expect(legacy).not.toHaveProperty('canRemove');expect(legacy).not.toHaveProperty('removal');
         const capable = (await app.inject({ method:'GET',url:`${base}?includeWeeklyReportRemovalCapability=true` })).json();
         expect(capable).toMatchObject({ canRemove:true,removal:null });
+        const advisory = (await app.inject({ method:'GET',url:`${base}/removal-preview` })).json();
+        expect(advisory).toMatchObject({ canRemove: true, removalBlocker: null });
         expect((await app.inject({ method:'POST',url:`${base}/remove`,payload:{ ...payload,reason:' ' } })).statusCode).toBe(400);
         expect((await app.inject({ method:'POST',url:`${base}/remove`,payload:{ ...payload,deleteSourceWork:true } })).statusCode).toBe(400);
         const response = await app.inject({ method:'POST',url:`${base}/remove`,payload });

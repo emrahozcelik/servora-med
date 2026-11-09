@@ -73,7 +73,7 @@ window.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
   if (method==='GET' && path===`/api/job-cards/${id}/weekly-report/removal-preview`) return respond({
     jobCardId: id,reportId,staffUserId: staff.id,staffName: staff.name,periodStart: '2026-11-02',periodEnd: '2026-11-08',
     status: status(),expectedVersion: jobVersion(),expectedReportVersion: reportVersion(),submissionCount: submissions.length,
-    canRemove: role==='ADMIN' && !removed,removal: removal(),
+    canRemove: role==='ADMIN' && !removed,removalBlocker:null,removal: removal(),
   });
   if (method==='GET' && path===`/api/job-cards/${id}`) return respond(job());
   if (method==='GET' && path===`/api/job-cards/${id}/weekly-report`) return respond(report());

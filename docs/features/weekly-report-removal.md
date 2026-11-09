@@ -34,6 +34,9 @@ through the existing detail, submission, PDF and personnel-history paths.
 
 - `GET /api/job-cards/:id/weekly-report/removal-preview`: Admin-only advisory
   target/period/status/version/submission summary and removal eligibility.
+  A lock-free read checks active follow-up children; it returns
+  `canRemove=false, removalBlocker=ACTIVE_FOLLOW_UPS` when a child blocks removal.
+  The POST independently revalidates ownership, versions and children under locks.
 - `POST /api/job-cards/:id/weekly-report/remove`: Admin-only command with
   `clientActionId`, `expectedVersion`, `expectedReportVersion`, mandatory
   trimmed reason (1–2000 Unicode code points). Unknown fields are rejected.
@@ -71,6 +74,11 @@ and applicable reflow checks. No broad Admin redesign or new dependency.
 - Preserve every source JobCard and unrelated report, customer, contact, product, Staff record and history row.
 - Enforce versions, ownership and removal state under locks; serialize removal/create and competing creates.
 - Keep generic cancel/invalidate uniqueness, historical receipts, immutable submissions/PDFs and Staff-only authorship unchanged.
+- Explicitly removed Weekly Report JobCards are terminal INVALIDATED and cease to be
+  unresolved weekly/offboarding job blockers. Independent active jobs, future
+  follow-up proposals and other offboarding blockers remain in force.
+- Durable in-app removal notification is a separate later slice; this PR only
+  emits the existing realtime job.updated event.
 - Roll back all effects on any late error; persist one removal outcome for identical retries and reject changed intent.
 - Prove current-report uniqueness in PostgreSQL, single/bulk convergence and repeated removal/replacement cycles.
 - Verify role visibility, preview, reason/confirmation, uncertain retry, historical display and create link with real rendered components.
