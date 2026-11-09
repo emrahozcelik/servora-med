@@ -51,7 +51,7 @@ export function githubCiProof(run, expectedSha, expectedRunId, { requirePackage 
   return { manifest, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
-if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const args = process.argv.slice(2);
     if (!(args.length === 4 || args.length === 5)
