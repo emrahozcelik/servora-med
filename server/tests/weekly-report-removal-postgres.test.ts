@@ -89,8 +89,8 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       const created = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(), periodStart }));
       const childId = (await pool.query(`INSERT INTO job_cards
-        (organization_id,type,status,title,assigned_to,created_by,source_job_card_id)
-        VALUES ($1,'GENERAL_TASK','NEW','Takip işi',$2,$3,$4) RETURNING id`,
+        (organization_id,type,status,title,assigned_to,created_by,source_job_card_id,follow_up_instructions)
+        VALUES ($1,'GENERAL_TASK','NEW','Takip işi',$2,$3,$4,'Takip ziyaretini planla') RETURNING id`,
       [staff.organizationId, staff.id, admin.id, created.jobCardId])).rows[0].id;
       expect(await service.weeklyReportRemovalPreview(admin, created.jobCardId)).toMatchObject({
         canRemove: false, removalBlocker: 'ACTIVE_FOLLOW_UPS',
@@ -102,7 +102,9 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       })).rejects.toMatchObject({ code: 'JOB_HAS_ACTIVE_FOLLOW_UPS' });
       expect((await pool.query('SELECT removed_at FROM weekly_reports WHERE id=$1',[created.reportId]))
         .rows[0].removed_at).toBeNull();
-      await pool.query("UPDATE job_cards SET status='CANCELLED', version=version+1 WHERE id=$1",[childId]);
+      await pool.query(`UPDATE job_cards SET status='CANCELLED', version=version+1,
+        cancelled_at='2026-08-04T09:00:00.000Z', cancelled_by=$2, cancel_reason='Takip gerekmiyor.'
+        WHERE id=$1`, [childId, admin.id]);
       expect(await service.weeklyReportRemovalPreview(admin, created.jobCardId))
         .toMatchObject({ canRemove: true, removalBlocker: null });
     });
@@ -287,8 +289,101 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
-  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
-    await withFixture(async ({ service, admin, staff, manager }) => {
+  /**
+   * Real SUBMIT vs REMOVE race. SUBMIT holds the JobCard row and then asks for
+   * FOR SHARE on its note author (the report owner); REMOVE asks for the owner
+   * first and then the JobCard. Coordinating the interleaving on the owner's
+   * user row is what would expose an incompatible lock mode as 40P01. Both
+   * sides run the real production commands.
+   */
+  it('serializes a concurrent submit and removal without a deadlock', async () => {
+    await withFixture(async ({ pool, service, admin, staff }) => {
+      const created = await service.createWeeklyReport(staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
+      await service.start(staff, created.jobCardId,
+        { clientActionId: randomUUID(), expectedVersion: 1 });
+      await service.updateWeeklyReportDraft(staff, created.jobCardId,
+        { expectedVersion: 1, draft, answers: [] });
+
+      const actual = PostgresJobCardTransaction.prototype.getNoteAuthorSnapshot;
+      let gateSubmit!: () => void;
+      const submitAtOwnerLock = new Promise<void>(resolve => { gateSubmit = resolve; });
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let paused = false;
+      const spy = vi.spyOn(PostgresJobCardTransaction.prototype,'getNoteAuthorSnapshot')
+        .mockImplementation(async function (organizationId, authorId) {
+          // SUBMIT reaches this holding the JobCard lock; hold it there once.
+          if (!paused && authorId === staff.id) {
+            paused = true; gateSubmit(); await gate;
+          }
+          return actual.call(this, organizationId, authorId);
+        });
+
+      const failure = (error: unknown) =>
+        (error as { code?: string; driverError?: { code?: string } });
+      let submit: ReturnType<JobCardService['submitForApproval']> | undefined;
+      let removal: ReturnType<JobCardService['removeWeeklyReport']> | undefined;
+      try {
+        submit = service.submitForApproval(staff, created.jobCardId,
+          { clientActionId: randomUUID(), expectedVersion: 2, note: 'Onaya gönderildi.' });
+        await submitAtOwnerLock;
+        removal = service.removeWeeklyReport(admin, created.jobCardId,
+          { clientActionId: randomUUID(), expectedVersion: 2, expectedReportVersion: 1, reason: 'Yanlış hafta.' });
+        // Deterministic: wait until REMOVE is genuinely blocked on the JobCard
+        // row held by SUBMIT, then release SUBMIT.
+        const deadline = Date.now() + 5000;
+        for (;;) {
+          const waiting = await pool.query(
+            `SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted`,
+          );
+          if (waiting.rows[0].n > 0) break;
+          if (Date.now() > deadline) throw new Error('REMOVE never blocked on the JobCard lock');
+        }
+        release();
+        const [submitted, removed] = await Promise.allSettled([submit, removal]);
+        // No side may die from a deadlock, whichever one wins the race.
+        for (const settled of [submitted, removed]) {
+          if (settled.status === 'rejected') {
+            const error = failure(settled.reason);
+            expect(error.driverError?.code ?? error.code).not.toBe('40P01');
+          }
+        }
+        expect(submitted.status).toBe('fulfilled');
+        // The winner advanced the JobCard version, so the loser must lose cleanly.
+        expect(removed.status).toBe('rejected');
+        if (removed.status === 'rejected') {
+          expect((removed.reason as { code?: string }).code).toBe('VERSION_CONFLICT');
+        }
+
+        const job = (await pool.query(
+          'SELECT status, version FROM job_cards WHERE id=$1', [created.jobCardId],
+        )).rows[0];
+        expect(job.status).toBe('WAITING_APPROVAL');
+        const report = (await pool.query(
+          'SELECT removed_at, version FROM weekly_reports WHERE id=$1', [created.reportId],
+        )).rows[0];
+        expect(report.removed_at).toBeNull();
+        expect((await pool.query(
+          'SELECT count(*)::int AS n FROM weekly_report_submissions WHERE weekly_report_id=$1',
+          [created.reportId],
+        )).rows[0].n).toBe(1);
+        expect((await pool.query(
+          `SELECT count(*)::int AS n FROM job_card_activity_logs
+            WHERE job_card_id=$1 AND event_type='WEEKLY_REPORT_REMOVED'`, [created.jobCardId],
+        )).rows[0].n).toBe(0);
+        expect((await pool.query(
+          'SELECT count(*)::int AS n FROM weekly_reports WHERE removed_at IS NULL',
+        )).rows[0].n).toBe(1);
+      } finally {
+        release();
+        spy.mockRestore();
+        await Promise.allSettled([submit, removal].filter(Boolean) as Promise<unknown>[]);
+      }
+    });
+  });
+
+  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {    await withFixture(async ({ service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
