@@ -193,7 +193,8 @@ CI_JSON
   fi
   return 1
 }
-verify_exact_main_ci`,
+verify_exact_main_ci
+printf 'GITHUB_CI_STATUS=%s\\n' "$CI_STATUS"`,
   );
 }
 
@@ -1233,7 +1234,7 @@ describe('controlled production deployment automation contract', () => {
 
     const successful = runCiContractFixture('success', 'success');
     expect(successful.status).toBe(0);
-    expect(successful.stdout).toContain('GITHUB_CI');
+    expect(successful.stdout).toContain('GITHUB_CI_STATUS=PASS');
 
     const serverFailed = runCiContractFixture('failure', 'success');
     expect(serverFailed.status).not.toBe(0);
