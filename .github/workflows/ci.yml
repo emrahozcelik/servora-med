@@ -214,7 +214,7 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
-      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs
       - name: forward-only contract and adapter regressions
         run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
       - run: npm audit --audit-level=high
@@ -247,3 +247,43 @@ jobs:
           REPORTS_CAPTURE_DIR: ${{ runner.temp }}/servora-reports-ui
       - run: node scripts/follow-up-dialog-geometry.mjs
       - run: npm run audit:high
+
+  release-package:
+    name: release-package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [benchmark-smoke, server, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web/package-lock.json
+      - name: Install browsers for exact-Linux package smoke
+        working-directory: web
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npx playwright install --with-deps chromium webkit
+      - name: Package exact-main Linux release without deployment
+        run: |
+          set -Eeuo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/servora-release"
+          bash ops/deploy-production.sh --sha "$GITHUB_SHA" --package-only --output-dir "$RUNNER_TEMP/servora-release"
+          test -s "$RUNNER_TEMP/servora-release/servora-med-$GITHUB_SHA.tar.gz"
+          test -s "$RUNNER_TEMP/servora-release/servora-med-$GITHUB_SHA.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: servora-med-release-${{ github.sha }}
+          path: ${{ runner.temp }}/servora-release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
