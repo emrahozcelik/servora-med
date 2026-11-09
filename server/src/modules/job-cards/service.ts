@@ -1522,6 +1522,12 @@ export class JobCardService {
       requestHash: weeklyReportRemovalRequestHash(jobCardId, input),
     }, async (tx) => {
       // User -> JobCard -> WeeklyReport, matching creation/draft/offboarding.
+      // The owner is verified through the same FOR SHARE user snapshot the
+      // draft path uses: it still fences role/deactivation changes (SHARE
+      // conflicts with NO KEY UPDATE) and still serializes against creation,
+      // but stays compatible with SUBMIT's note-author SHARE lock while SUBMIT
+      // holds the JobCard lock. FOR NO KEY UPDATE here would invert that order
+      // and deadlock removal against a concurrent submit.
       const currentActor = await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
       if (!currentActor?.isActive || currentActor.role !== 'ADMIN') {
         throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
@@ -1530,7 +1536,7 @@ export class JobCardService {
       if (!snapshot || snapshot.type !== 'WEEKLY_REPORT') {
         throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');
       }
-      const owner = await tx.getAssigneeForUpdate(actor.organizationId, snapshot.assignedTo);
+      const owner = await tx.getNoteAuthorSnapshot(actor.organizationId, snapshot.assignedTo);
       const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
       const row = await tx.getWeeklyReportByJobForUpdate(actor.organizationId, jobCardId);
       if (!job || !row) throw new AppError('WEEKLY_REPORT_NOT_FOUND', 404, 'Haftalık rapor bulunamadı.');

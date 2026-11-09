@@ -224,8 +224,46 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
     });
   });
 
-  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
-    await withFixture(async ({ service, admin, staff, manager }) => {
+  /**
+   * SUBMIT holds the JobCard lock and then requests FOR SHARE on its note
+   * author — which for a weekly report is the report owner. Removal runs
+   * users -> job_cards, so it must acquire that same row in a mode compatible
+   * with SHARE. A NO KEY UPDATE request would invert the order and deadlock
+   * the two commands.
+   */
+  it('acquires the report owner without a lock mode that deadlocks a concurrent submit', async () => {
+    await withFixture(async ({ pool, service, admin, staff }) => {
+      const original = await service.createWeeklyReport(staff,
+        parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
+      const holder = await pool.connect();
+      let removal: ReturnType<JobCardService['removeWeeklyReport']> | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await holder.query('BEGIN');
+        await holder.query(
+          'SELECT id FROM users WHERE organization_id=$1 AND id=$2 FOR SHARE',
+          [staff.organizationId, staff.id],
+        );
+        removal = service.removeWeeklyReport(admin, original.jobCardId, {
+          clientActionId: randomUUID(), expectedVersion: 1, expectedReportVersion: 1,
+          reason: 'Yanlış hafta seçildi.',
+        });
+        const outcome = await Promise.race([
+          removal.then(() => 'completed' as const),
+          new Promise<'blocked'>(resolve => { timer = setTimeout(() => resolve('blocked'), 3000); }),
+        ]);
+        expect(outcome).toBe('completed');
+        expect((await removal).removal).not.toBeNull();
+      } finally {
+        if (timer) clearTimeout(timer);
+        await holder.query('ROLLBACK').catch(() => {});
+        holder.release();
+        await Promise.allSettled([removal]);
+      }
+    });
+  });
+
+  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {    await withFixture(async ({ service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
