@@ -17,10 +17,32 @@ if (!databaseUrl) throw new Error('DATABASE_URL required');
 const SOURCE = process.env.MIGRATIONS_DIR;
 if (!SOURCE) throw new Error('MIGRATIONS_DIR required');
 
+// Defense in depth: the script runs forward migrations and inserts fixtures.
+// Never trust DATABASE_URL alone, even when invoked from a rehearsal shell.
+// The names are intentionally limited to the two disposable databases used
+// by the 060→061 acceptance and restore rehearsal.
+const permittedDatabases = new Set([
+  'servora_med_rehearsal_060_061',
+  'servora_med_rehearsal_060_061_restored',
+]);
+const targetDatabase = decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
+if (process.env.SERVORA_REHEARSAL_ACK !== 'DISPOSABLE_ONLY'
+  || !permittedDatabases.has(targetDatabase)) {
+  throw new Error('Rehearsal refused: explicit disposable acknowledgement and approved database name required');
+}
+
 const phase = process.argv[2]; // 'baseline' | 'upgrade'
+if (phase !== 'baseline' && phase !== 'upgrade') {
+  throw new Error('phase must be baseline or upgrade');
+}
 const report = (label, value) => console.log(`${label}=${JSON.stringify(value)}`);
 
 const pool = new Pool({ connectionString: databaseUrl });
+const actualDatabase = await pool.query('SELECT current_database() AS name');
+if (actualDatabase.rows[0]?.name !== targetDatabase) {
+  await pool.end();
+  throw new Error('Rehearsal refused: connected database does not match the disposable target');
+}
 
 async function runMigrationsLike(directory) {
   const { runMigrations } = await import('../../dist/db/migrate-runner.js');

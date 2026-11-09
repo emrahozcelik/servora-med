@@ -13,6 +13,13 @@
 
 ## Dry-run migration (disposable database only)
 
+- The acceptance script `server/scripts/acceptance/060-061-rehearsal.mjs`
+  deliberately refuses all database names except
+  `servora_med_rehearsal_060_061` and
+  `servora_med_rehearsal_060_061_restored`. It also requires
+  `SERVORA_REHEARSAL_ACK=DISPOSABLE_ONLY` before connecting or applying SQL.
+  Always verify the actual database host and name are isolated; the guard is
+  defense in depth, not authorization to touch production.
 - Run the **existing forward-only migration runner** for target 061 with the **exact PR head**. Do not hand-apply fragments or rewrite 051/060, and never point this rehearsal at live production.
 - Verify `061` appears once in the migration catalog; target schema readiness and `HEALTH_SCHEMA_VERSION=061` align. Migration 061 must add removal metadata, drop the lifetime Staff/week constraint, create **unique partial index** `weekly_reports_current_staff_week_key` with predicate `removed_at IS NULL`, and expand activity/audit enum-like CHECK lists.
 - Verify old rows have `removed_at IS NULL`, preserve their original staff/week claims, and are *bitwise/content-equivalent* for all other columns and relations.
