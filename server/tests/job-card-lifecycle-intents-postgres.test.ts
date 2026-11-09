@@ -42,19 +42,19 @@ async function withSchema(run: (pool: Pool) => Promise<void>): Promise<void> {
 }
 
 describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => {
-  it('catalog head is 060 with 60 migrations', async () => {
+  it('catalog head is 061 with 61 migrations', async () => {
     const catalog = await loadMigrationCatalog(MIGRATIONS_DIRECTORY);
-    expect(catalog.head?.version).toBe('060_crm_duplicate_review_decisions');
-    expect(catalog.count).toBe(60);
+    expect(catalog.head?.version).toBe('061_weekly_report_removal');
+    expect(catalog.count).toBe(61);
   });
 
-  it('applies 001 -> 060 on an empty schema with an empty intent table', async () => {
+  it('applies 001 -> 061 on an empty schema with an empty intent table', async () => {
     await withSchema(async (pool) => {
       const applied = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version',
       );
-      expect(applied.rows.map((row) => row.version).at(-1)).toBe('060_crm_duplicate_review_decisions');
-      expect(applied.rows).toHaveLength(60);
+      expect(applied.rows.map((row) => row.version).at(-1)).toBe('061_weekly_report_removal');
+      expect(applied.rows).toHaveLength(61);
       const count = await pool.query<{ count: string }>(
         'SELECT COUNT(*) AS count FROM job_card_lifecycle_intents',
       );
@@ -83,7 +83,7 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql',
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql',
         )
         .sort();
       expect(files).toHaveLength(48);
@@ -106,13 +106,13 @@ describe.skipIf(!databaseUrl)('049 job_card_lifecycle_intents migration', () => 
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
           '057_sale_from_visit',
-          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions',
+          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal',
         ],
       });
       const head = await pool.query<{ version: string }>(
         'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
       );
-      expect(head.rows[0]!.version).toBe('060_crm_duplicate_review_decisions');
+      expect(head.rows[0]!.version).toBe('061_weekly_report_removal');
     } finally {
       await pool?.end();
       if (subsetDir) await rm(subsetDir, { recursive: true, force: true });
