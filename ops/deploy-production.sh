@@ -28,8 +28,11 @@ ALLOW_MIGRATIONS=false
 ATTEMPT_ID=""
 FORWARD_RECOVERY=false
 CI_MANIFEST_SHA=""
+CI_RUN_ID_INPUT=""
 ATTEMPT_OLD_SHA=""
 CHECK_ONLY=false
+PACKAGE_ONLY=false
+PACKAGE_OUTPUT_DIR=""
 CI_MODE="github"
 EVIDENCE=""
 EVIDENCE_EXPLICIT=false
@@ -71,10 +74,13 @@ Usage:
   ops/deploy-production.sh --sha <40-character-main-sha> [--allow-migrations]
   ops/deploy-production.sh --sha <40-character-main-sha> --ci-mode local --evidence <manifest-or-bundle>
   ops/deploy-production.sh --check
+  ops/deploy-production.sh --sha SHA --ci-mode github --ci-run-id RUN --artifact ARCHIVE --attempt-id UUID --allow-migrations
+  ops/deploy-production.sh --sha SHA --package-only --output-dir ABSOLUTE_DIRECTORY
   ops/deploy-production.sh --sha SHA --ci-mode local --evidence BUNDLE --artifact ARCHIVE --attempt-id UUID [--allow-migrations|--forward-recovery]
 
 CI mode (default: github):
-  github  require a successful exact-main GitHub Actions CI run (ci.yml, push, main)
+  github  require successful exact-main GitHub Actions CI; attempt-bound mode also
+          requires a pinned run ID, a successful release-package job, and a prebuilt Linux artifact.
   local   require a verified local evidence bundle instead (ops/local-ci).
           The bundle is re-verified fail-closed; GitHub CI is not consulted.
           There is intentionally no --skip-ci/--force/--unsafe bypass.
@@ -142,7 +148,7 @@ cleanup_local() {
 
 write_summary() {
   local exit_code="$1"
-  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+  [[ "$PACKAGE_ONLY" != true && -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
   set +e
   {
     echo '## Production Deployment'
@@ -268,6 +274,7 @@ check_only() {
   node --check "$REPO_ROOT/ops/scripts/migration-state.mjs"
   node --check "$REPO_ROOT/ops/scripts/migration-reconciliation.mjs"
   node --check "$REPO_ROOT/ops/scripts/trusted-time.mjs"
+  node --check "$REPO_ROOT/ops/scripts/github-ci-evidence.mjs"
   node --check "$REPO_ROOT/web/scripts/production-browser-smoke.mjs"
   [[ -f "$REPO_ROOT/.github/workflows/deploy-production.yml" ]] || fail WORKFLOW_MISSING
   [[ -f "$REPO_ROOT/docs/operations/production-deployment.md" ]] || fail DEPLOYMENT_DOC_MISSING
@@ -321,7 +328,8 @@ verify_source() {
 verify_exact_main_ci() {
   PHASE=CI
   [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]] || fail GITHUB_TOKEN_MISSING
-  local runs run_id jobs
+  local runs run_id run_json
+  local -a proof_args=()
   runs="$(gh run list \
     --workflow ci.yml \
     --branch main \
@@ -331,18 +339,22 @@ verify_exact_main_ci() {
     --json databaseId,headSha,status,conclusion,event,headBranch \
     --jq ".[] | select(.headSha == \"${SHA}\" and .status == \"completed\" and .conclusion == \"success\" and .event == \"push\" and .headBranch == \"main\") | .databaseId")" \
     || fail EXACT_MAIN_CI_LOOKUP_FAILED
-  run_id="$(printf '%s\n' "$runs" | sed -n '1p')"
-  [[ "$run_id" =~ ^[0-9]+$ ]] || fail EXACT_MAIN_CI_NOT_GREEN
-  jobs="$(gh run view "$run_id" --json jobs --jq '[.jobs[] | {name, conclusion}]')" \
+  if [[ -n "$CI_RUN_ID_INPUT" ]]; then
+    grep -Fxq -- "$CI_RUN_ID_INPUT" <<<"$runs" || fail EXACT_MAIN_CI_RUN_MISMATCH
+    run_id="$CI_RUN_ID_INPUT"
+  else
+    run_id="$(printf '%s\n' "$runs" | sed -n '1p')"
+  fi
+  [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || fail EXACT_MAIN_CI_NOT_GREEN
+  run_json="$(gh run view "$run_id" --json databaseId,attempt,headSha,headBranch,event,status,conclusion,workflowName,jobs)" \
     || fail EXACT_MAIN_CI_JOBS_LOOKUP_FAILED
-  jq -e 'any(.[]; .name == "server" and .conclusion == "success")' >/dev/null <<<"$jobs" \
-    || fail EXACT_MAIN_CI_SERVER_NOT_GREEN
-  jq -e 'any(.[]; .name == "web" and .conclusion == "success")' >/dev/null <<<"$jobs" \
-    || fail EXACT_MAIN_CI_WEB_NOT_GREEN
+  if [[ -n "$ATTEMPT_ID" ]]; then proof_args=(--require-package); fi
+  CI_MANIFEST_SHA="$(printf '%s\n' "$run_json" | node "$REPO_ROOT/ops/scripts/github-ci-evidence.mjs" \
+    --sha "$SHA" --run-id "$run_id" "${proof_args[@]}")" || fail GITHUB_CI_PROOF_INVALID
+  [[ "$CI_MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]] || fail GITHUB_CI_PROOF_INVALID
   CI_RUN_ID="$run_id"
   CI_STATUS=PASS
 }
-
 verify_local_evidence() {
   PHASE=CI
   [[ "$CI_MODE" == local ]] || fail CI_MODE_NOT_LOCAL
@@ -889,10 +901,13 @@ while [[ "$#" -gt 0 ]]; do
     --sha) SHA="${2:-}"; shift 2 ;;
     --allow-migrations) ALLOW_MIGRATIONS=true; shift ;;
     --attempt-id) ATTEMPT_ID="${2:-}"; shift 2 ;;
+    --ci-run-id) CI_RUN_ID_INPUT="${2:-}"; shift 2 ;;
     --forward-recovery) FORWARD_RECOVERY=true; shift ;;
     --ci-mode) CI_MODE="${2:-}"; shift 2 ;;
     --evidence) EVIDENCE_EXPLICIT=true; EVIDENCE="${2:-}"; shift 2 ;;
     --artifact) ARTIFACT_INPUT="${2:-}"; shift 2 ;;
+    --package-only) PACKAGE_ONLY=true; shift ;;
+    --output-dir) PACKAGE_OUTPUT_DIR="${2:-}"; shift 2 ;;
     --check|--dry-run) CHECK_ONLY=true; shift ;;
     --help|-h) usage; exit 0 ;;
     *) usage; fail UNKNOWN_ARGUMENT ;;
@@ -901,10 +916,41 @@ done
 
 [[ "$CI_MODE" == github || "$CI_MODE" == local ]] || fail INVALID_CI_MODE
 if [[ -n "$ATTEMPT_ID" ]]; then
-  [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ && "$CI_MODE" == local && -n "$ARTIFACT_INPUT" ]] || fail ATTEMPT_ARGUMENTS_INVALID
+  [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ \
+    && -n "$ARTIFACT_INPUT" ]] || fail ATTEMPT_ARGUMENTS_INVALID
+  if [[ "$CI_MODE" == github ]]; then
+    [[ "$CI_RUN_ID_INPUT" =~ ^[1-9][0-9]*$ && "$EVIDENCE_EXPLICIT" == false ]] \
+      || fail ATTEMPT_ARGUMENTS_INVALID
+  else
+    [[ -z "$CI_RUN_ID_INPUT" ]] || fail ATTEMPT_ARGUMENTS_INVALID
+  fi
+else
+  [[ -z "$CI_RUN_ID_INPUT" ]] || fail CI_RUN_ID_REQUIRES_ATTEMPT
 fi
 [[ "$ALLOW_MIGRATIONS" == false || -n "$ATTEMPT_ID" ]] || fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
 [[ "$FORWARD_RECOVERY" == false || ( -n "$ATTEMPT_ID" && "$ALLOW_MIGRATIONS" == false ) ]] || fail RECOVERY_ARGUMENTS_INVALID
+if [[ "$PACKAGE_ONLY" == true ]]; then
+  [[ -n "$SHA" && -n "$PACKAGE_OUTPUT_DIR" && "$PACKAGE_OUTPUT_DIR" == /* \
+    && -d "$PACKAGE_OUTPUT_DIR" && ! -L "$PACKAGE_OUTPUT_DIR" \
+    && -z "$ATTEMPT_ID" && -z "$ARTIFACT_INPUT" && "$ALLOW_MIGRATIONS" == false \
+    && "$FORWARD_RECOVERY" == false && "$CHECK_ONLY" == false \
+    && "$CI_MODE" == github && "$EVIDENCE_EXPLICIT" == false ]] || fail PACKAGE_ONLY_ARGUMENTS_INVALID
+  # Offline release preparation: never attempts SSH, root authorization, or migration.
+  acquire_deploy_lock
+  check_commands
+  verify_source
+  build_artifact
+  package_name="$(basename -- "$ARTIFACT")"
+  package_target="$PACKAGE_OUTPUT_DIR/$package_name"
+  [[ ! -e "$package_target" && ! -L "$package_target" \
+    && ! -e "${package_target}.sha256" && ! -L "${package_target}.sha256" ]] \
+    || fail PACKAGE_OUTPUT_COLLISION
+  cp -- "$ARTIFACT" "$package_target" || fail PACKAGE_OUTPUT_FAILED
+  cp -- "${ARTIFACT}.sha256" "${package_target}.sha256" || fail PACKAGE_OUTPUT_FAILED
+  [[ "$(sha256_file "$package_target")" == "$ARTIFACT_SHA" ]] || fail PACKAGE_OUTPUT_CHECKSUM_INVALID
+  echo "PRODUCTION_ARTIFACT_PACKAGE_ONLY sha=$SHA sha256=$ARTIFACT_SHA"
+  exit 0
+fi
 
 if [[ "$CHECK_ONLY" == true ]]; then
   check_only
