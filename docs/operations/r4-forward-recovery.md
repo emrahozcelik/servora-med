@@ -62,7 +62,13 @@ integrity and bind the request, not cryptographic independent CI authenticity.
 
 The existing wrapper additionally accepts `--attempt-id UUID`. A migration
 requires an explicit grant **and** `--allow-migrations`. Attempt-bound mode
-requires local CI and a prebuilt artifact; it cannot rebuild a Mac runtime.
+requires a prebuilt Linux release artifact. CI evidence may be either a verified
+local bundle (`--ci-mode local`) **or** an exact-main successful GitHub Actions
+push CI receipt (`--ci-mode github --ci-run-id RUN`) with a successful
+`release-package` job. Both bind a genuine 64-hex evidence digest into the
+separately issued root approval; neither the deploy CLI nor the GitHub workflow
+may issue or synthesize an approval. The full contract is documented in
+`docs/operations/production-deployment.md`.
 Before transfer the fixed host `attempt-preflight` phase checks the
 OLD database/release and returns a non-secret approved SHA/tree/artifact/CI/host
 projection. The operator compares every field against verified local inputs.
