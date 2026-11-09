@@ -343,13 +343,13 @@ verify_exact_main_ci() {
     grep -Fxq -- "$CI_RUN_ID_INPUT" <<<"$runs" || fail EXACT_MAIN_CI_RUN_MISMATCH
     run_id="$CI_RUN_ID_INPUT"
   else
-    run_id="$(printf '%s\\n' "$runs" | sed -n '1p')"
+    run_id="$(printf '%s\n' "$runs" | sed -n '1p')"
   fi
   [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || fail EXACT_MAIN_CI_NOT_GREEN
   run_json="$(gh run view "$run_id" --json databaseId,attempt,headSha,headBranch,event,status,conclusion,workflowName,jobs)" \
     || fail EXACT_MAIN_CI_JOBS_LOOKUP_FAILED
   if [[ -n "$ATTEMPT_ID" ]]; then proof_args=(--require-package); fi
-  CI_MANIFEST_SHA="$(printf '%s\\n' "$run_json" | node "$REPO_ROOT/ops/scripts/github-ci-evidence.mjs" \
+  CI_MANIFEST_SHA="$(printf '%s\n' "$run_json" | node "$REPO_ROOT/ops/scripts/github-ci-evidence.mjs" \
     --sha "$SHA" --run-id "$run_id" "${proof_args[@]}")" || fail GITHUB_CI_PROOF_INVALID
   [[ "$CI_MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]] || fail GITHUB_CI_PROOF_INVALID
   CI_RUN_ID="$run_id"
