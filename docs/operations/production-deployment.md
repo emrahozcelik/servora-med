@@ -273,6 +273,75 @@ SERVORA_PROD_FQDN
 
 `SERVORA_PROD_SSH_KEY` is the `servora-deploy` private key, not a root key.
 
+### Hosted-CI, attempt-bound migration deployment (review required)
+
+Migration deployments use an existing, separately issued root-owned approval and
+a **prebuilt Linux/amd64** release archive. Local CI is **optional**, not the
+mandatory source of migration evidence when GitHub Actions `CI` is green.
+The source SHA must be current `main`; do not reuse an older SHA's CI or archive.
+
+After the three mandatory GitHub CI jobs succeed on `push/main`, the
+`release-package` job builds and verifies the exact-SHA Linux release archive,
+then publishes the immutable-name Actions artifact
+`servora-med-release-<sha>` containing
+`servora-med-<sha>.tar.gz` and its `.sha256` sidecar. That job is
+**not** a production deployment and does not contact the VPS. A successful
+previous run without `release-package` (for example, the original 061 merge
+CI) cannot authorize an attempt-bound GitHub artifact.
+
+The release approver independently obtains the exact successful CI run ID,
+downloads the release artifact, verifies the sidecar and its SHA-256, and
+calculates the deterministic CI evidence digest using the *same checked out
+release SHA*. The receipt binds the run ID, attempt number, commit SHA,
+push/main identity and every completed successful job, including the package job:
+
+```bash
+SHA=<exact-40-character-main-SHA>
+CI_RUN_ID=<exact-green-push-main-CI-run-id>
+gh run download "$CI_RUN_ID" --name "servora-med-release-$SHA" --dir "$REVIEW_DIR"
+gh run view "$CI_RUN_ID" \
+  --json databaseId,attempt,headSha,headBranch,event,status,conclusion,workflowName,jobs \
+  | node ops/scripts/github-ci-evidence.mjs --sha "$SHA" --run-id "$CI_RUN_ID" --require-package
+```
+
+The resulting 64-character digest is the **real GitHub CI manifest SHA-256**
+supplied as `ciManifestSha256` to the separately reviewed
+`issueRootApproval(fields, ttlMs)` administrator operation. It is a canonical
+hash of verified GitHub run metadata, **not a local-CI bundle**, forged receipt,
+cryptographic GitHub signature, or permission to self-issue approval. The
+administrator must also independently validate artifact, predecessor release,
+target catalog, host profile, scopes, live host state, and Trusted Time before
+issuing the sealed approval. Nothing in the workflow creates, renews or
+relaxes the host approval or bypasses Chrony/NTS/TT-A bootstrap.
+
+Only *after* a genuine root approval exists, manually dispatch **Production
+Deploy** from `main` with `deploy_sha`, `allow_migrations=true`,
+`attempt_id` (the already approved UUID), and `ci_run_id` (the exact
+CI run that produced the package). The workflow's protected `production`
+environment reviewer still gates access. It downloads the named artifact,
+and the runner enforces:
+
+- current canonical SHA and clean source, exact green `push/main` CI;
+- pinned CI run ID and `release-package` job; deterministic CI digest equal
+  to the root approval projection;
+- package SHA-256/sidecar and source SHA equal to the same approval;
+- actual root-owned approval and attempt preflight **before** artifact transfer;
+- existing host time/profile, migration catalog, predeploy/postdeploy backup,
+  health and browser checks.
+
+If any one of these conditions fails, **HOLD**. Keep the local evidence path
+available as an optional alternative for environments where hosted CI is not
+available. The two modes are separately attested; never synthesize local
+evidence, use an old run, supply an arbitrary digest, or route a migration
+through the no-attempt legacy deployment path.
+
+**Important for migration 061:** this workflow change itself creates a new
+main SHA. The green run for `3287ded4...` has no release artifact and cannot
+be relabeled as a newer run. Obtain fresh exact-main CI and its package after
+this change is merged. Host B1 Trusted Time and B3 privileged-module drift
+remain independent blockers; this section authorizes neither a bootstrap nor
+a production migration.
+
 ### Local-first operation (when GitHub-hosted runners are unavailable)
 
 GitHub remains the source repository and PR/review platform, but GitHub
