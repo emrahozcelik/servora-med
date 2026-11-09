@@ -504,38 +504,60 @@ describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
   it('grants a racing fresh-lock acquisition to exactly one process', async () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock-race');
+    const gate = join(lockBase, 'start-gate');
+    const releaseGate = join(lockBase, 'release-gate');
+    const childrenDone: Promise<void>[] = [];
     try {
       const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
-      const gate = join(lockBase, 'start-gate');
       const { spawn } = await import('node:child_process');
-      // All racers block on a start gate so the thundering herd attempts
-      // within milliseconds of each other, inside the winner's hold.
-      // The winner holds 3s (then releases); every loser must fail. No racer
-      // may start after the hold ends, so a second ACQUIRED always means
-      // simultaneous ownership (the bug), never a legitimate acquisition.
+      // Keep the winner's lock until every contender has attempted acquisition.
+      // A fixed sleep allows late-scheduled contenders to acquire sequentially
+      // after the winner releases, producing a false simultaneous-owner result.
       rmSync(lockDir, { recursive: true, force: true });
       rmSync(gate, { force: true });
-      const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve) => {
-        const hold = 'while [ ! -e "$3" ]; do sleep 0.02; done; acquire_deploy_lock >/dev/null 2>&1 && (echo ACQUIRED; sleep 3; release_deploy_lock) || echo FAILED';
+      rmSync(releaseGate, { force: true });
+      const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve, reject) => {
+        const hold = [
+          'while [ ! -e "$3" ]; do sleep 0.02; done',
+          'acquire_deploy_lock >/dev/null 2>&1',
+          'echo ACQUIRED',
+          'while [ ! -e "$4" ]; do sleep 0.02; done',
+          'release_deploy_lock',
+        ].join('; ');
         const child = spawn('bash', ['-c',
           `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
-          'lock-race', fixture.script, lockDir, gate,
+          'lock-race', fixture.script, lockDir, gate, releaseGate,
         ], { env: { ...process.env, ...fixture.env } });
-        let out = '';
-        child.stdout.on('data', (d) => { out += d; });
-        child.on('close', () => resolve(out));
+        let acquired = false;
+        let stdout = '';
+        child.stdout.on('data', (data) => {
+          stdout += String(data);
+          if (!acquired && stdout.includes('ACQUIRED')) {
+            acquired = true;
+            resolve('ACQUIRED');
+          }
+        });
+        child.on('error', reject);
+        child.on('close', (code) => {
+          if (!acquired) resolve(code === 1 ? 'REJECTED' : `UNEXPECTED_EXIT_${code}`);
+        });
+        childrenDone.push(new Promise<void>((done) => child.on('close', () => done())));
       }));
       const pending = Promise.all(racers);
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       writeFileSync(gate, 'go\n');
       const results = await pending;
-      expect(results.filter((o) => o.includes('ACQUIRED'))).toHaveLength(1);
+      expect(results.filter((outcome) => outcome === 'ACQUIRED')).toHaveLength(1);
+      expect(results.filter((outcome) => outcome === 'REJECTED')).toHaveLength(11);
     } finally {
+      // Release a waiting winner even when an assertion fails.
+      writeFileSync(gate, 'go\n');
+      writeFileSync(releaseGate, 'go\n');
+      await Promise.all(childrenDone);
       fixture.cleanup();
       rmSync(lockBase, { recursive: true, force: true });
     }
   }, 30000);
-
   it('never releases a lock owned by a different process', () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock-other');
