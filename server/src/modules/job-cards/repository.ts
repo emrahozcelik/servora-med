@@ -200,6 +200,7 @@ export type JobCardInvalidationUpdateInput = {
 };
 
 export type JobCardAuditInput = {
+  eventType?: 'JOB_CARD_INVALIDATED' | 'WEEKLY_REPORT_REMOVED';
   organizationId: string;
   actorUserId: string;
   subjectId: string;
@@ -889,6 +890,11 @@ export interface JobCardTransaction extends SubmissionReader {
     organizationId: string,
     jobCardId: string,
   ): Promise<WeeklyReportRow | null>;
+  /** Removal metadata update; caller holds User, JobCard and report locks. */
+  removeWeeklyReportRow(input: {
+    organizationId: string; reportId: string; expectedVersion: number;
+    removedAt: Date; removedBy: string; reason: string;
+  }): Promise<WeeklyReportRow | null>;
   /** Best-effort duplicate pre-check; the UNIQUE constraint stays authoritative. */
   getWeeklyReportByStaffWeek(
     organizationId: string,
@@ -1035,6 +1041,8 @@ export interface JobCardRepository extends SubmissionReader {
   }>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
+  /** Advisory lock-free mirror of the transactional active child guard. */
+  hasActiveFollowUpChildren(organizationId: string, sourceJobCardId: string): Promise<boolean>;
   getOrganizationTimezone(organizationId: string): Promise<string>;
   listActiveOnSiteJobs(
     organizationId: string,
@@ -1379,7 +1387,8 @@ const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery
 const WEEKLY_REPORT_COLUMNS = `id, organization_id, job_card_id, staff_user_id,
   period_start, period_end, draft_summary, draft_blockers, draft_next_week_plan,
   draft_highlights, draft_field_observations, draft_support_needed,
-  manager_questions, manager_answers, version, created_at, updated_at`;
+  manager_questions, manager_answers, version, created_at, updated_at,
+  removed_at, removed_by, removal_reason`;
 const WEEKLY_REPORT_SUBMISSION_COLUMNS = `id, organization_id, weekly_report_id,
   job_card_id, seq_no, submitted_by, submitted_at, period_start, period_end,
   frozen_body, frozen_questions, frozen_answers, frozen_source_work,
@@ -1433,6 +1442,7 @@ async function selectWeeklySourceWork(
 }
 
 type WeeklyReportHistoryRow = {
+  removed_at: Date | null;
   report_id: string;
   job_card_id: string;
   staff_user_id: string;
@@ -1469,6 +1479,7 @@ function mapWeeklyReportHistoryItem(row: WeeklyReportHistoryRow): WeeklyReportHi
     latestSubmittedAt: mapInstant(row.latest_submitted_at),
     createdAt: row.created_at.toISOString(),
     completedAt: mapInstant(row.manager_approved_at),
+    removedAt: mapInstant(row.removed_at),
   };
 }
 
@@ -1479,7 +1490,7 @@ function mapWeeklyReportHistoryItem(row: WeeklyReportHistoryRow): WeeklyReportHi
  * Tenant and owner scope are both enforced in SQL.
  */
 const WEEKLY_REPORT_HISTORY_PAGE_SQL = `SELECT r.id AS report_id, r.job_card_id, r.staff_user_id,
-    r.period_start, r.period_end, r.created_at,
+    r.period_start, r.period_end, r.created_at, r.removed_at,
     j.status, j.due_date, j.manager_approved_at,
     COALESCE(agg.submission_count, 0)::int AS submission_count,
     agg.latest_seq_no, agg.latest_submitted_at
@@ -1494,7 +1505,7 @@ const WEEKLY_REPORT_HISTORY_PAGE_SQL = `SELECT r.id AS report_id, r.job_card_id,
      WHERE ws.organization_id = r.organization_id AND ws.weekly_report_id = r.id
   ) agg ON TRUE
   WHERE r.organization_id = $1 AND r.staff_user_id = $2
-  ORDER BY r.period_start DESC, r.id
+  ORDER BY r.period_start DESC, (r.removed_at IS NOT NULL), r.created_at DESC, r.id
   LIMIT $3 OFFSET $4`;
 
 function mapDelivery(row: DeliveryRow): DeliveryItemRecord {
@@ -2267,7 +2278,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
       `INSERT INTO audit_events
          (organization_id, actor_user_id, subject_type, subject_id,
           event_type, old_value, new_value, metadata)
-       VALUES ($1, $2, 'JOB_CARD', $3, 'JOB_CARD_INVALIDATED', $4, $5, $6)`,
+       VALUES ($1, $2, 'JOB_CARD', $3, $7, $4, $5, $6)`,
       [
         input.organizationId,
         input.actorUserId,
@@ -2275,6 +2286,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
         input.oldValue,
         input.newValue,
         input.metadata ?? {},
+        input.eventType ?? 'JOB_CARD_INVALIDATED',
       ],
     );
   }
@@ -3394,6 +3406,19 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
     return selectWeeklyReportByJob(this.client, organizationId, jobCardId, true);
   }
 
+  async removeWeeklyReportRow(input: {
+    organizationId: string; reportId: string; expectedVersion: number;
+    removedAt: Date; removedBy: string; reason: string;
+  }) {
+    const result = await this.client.query<WeeklyReportRow>(
+      `UPDATE weekly_reports SET removed_at=$4, removed_by=$5, removal_reason=$6,
+        version=version+1, updated_at=$4
+       WHERE organization_id=$1 AND id=$2 AND version=$3 AND removed_at IS NULL
+       RETURNING ${WEEKLY_REPORT_COLUMNS}`,
+      [input.organizationId,input.reportId,input.expectedVersion,input.removedAt,input.removedBy,input.reason]);
+    return result.rows[0] ?? null;
+  }
+
   async getWeeklyReportByStaffWeek(
     organizationId: string,
     staffUserId: string,
@@ -3401,7 +3426,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
   ) {
     const result = await this.client.query<WeeklyReportRow>(
       `SELECT ${WEEKLY_REPORT_COLUMNS} FROM weekly_reports
-       WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3`,
+       WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
       [organizationId, staffUserId, periodStart],
     );
     return result.rows[0] ?? null;
@@ -3429,7 +3454,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
          (organization_id, job_card_id, staff_user_id, period_start, period_end,
           manager_questions, manager_answers)
        VALUES ($1, $2, $3, $4, $5, $6, '[]')
-       ON CONFLICT (organization_id, staff_user_id, period_start) DO NOTHING
+       ON CONFLICT (organization_id, staff_user_id, period_start) WHERE removed_at IS NULL DO NOTHING
        RETURNING ${WEEKLY_REPORT_COLUMNS}`,
       [
         input.organizationId,
@@ -3892,6 +3917,18 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort, WeeklyR
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+  }
+
+  async hasActiveFollowUpChildren(organizationId: string, sourceJobCardId: string) {
+    const result = await this.pool.query<{ present: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM job_cards
+        WHERE organization_id = $1 AND source_job_card_id = $2
+          AND status = ANY($3::varchar[])
+      ) AS present`,
+      [organizationId, sourceJobCardId, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    return result.rows[0]?.present === true;
   }
 
   async getOrganizationTimezone(organizationId: string) {

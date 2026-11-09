@@ -32,6 +32,7 @@ export type WeeklyReportHistoryItem = {
   createdAt: string;
   /** JobCard approval instant; `null` until the report reaches COMPLETED. */
   completedAt: string | null;
+  removedAt: string | null;
 };
 
 export type PaginatedWeeklyReportHistory = {

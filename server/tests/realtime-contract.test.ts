@@ -57,6 +57,7 @@ describe('realtime JobCard contract', () => {
     ['JOB_APPROVAL_WITHDRAWN', 'job.updated'],
     ['NOTE_ADDED', 'job.updated'],
     ['MEETING_DETAILS_UPDATED', 'job.updated'],
+    ['WEEKLY_REPORT_REMOVED', 'job.updated'],
   ] as const)('maps %s to %s', (activity, expected) => {
     expect(mapJobCardActivityToRealtime({
       ...base,

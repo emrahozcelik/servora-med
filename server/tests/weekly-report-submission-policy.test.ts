@@ -30,6 +30,7 @@ const weeklyJob: JobCard = {
 
 function reportRow(overrides: Partial<WeeklyReportRow> = {}): WeeklyReportRow {
   return {
+    removed_at: null, removed_by: null, removal_reason: null,
     id: 'report-1',
     organization_id: 'org-1',
     job_card_id: 'job-1',

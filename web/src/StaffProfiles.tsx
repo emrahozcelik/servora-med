@@ -163,7 +163,7 @@ export function StaffWeeklyReportHistory({ actor, staffUserId }: { actor: Curren
     {!loading && !error && items.length > 0 && <ul className="job-history-list">{items.map((item) => <li key={item.reportId} className="job-history-row">
       <div>
         <Link to={paths.job(item.jobCardId)}>{`${item.periodStart} – ${item.periodEnd}`}</Link>
-        <p>{jobCardStatusLabel(item.status)} · {item.submissionCount === 0 ? 'Gönderim yok' : `${item.submissionCount} gönderim`}
+        <p>{item.removedAt ? 'Kaldırıldı · Geçmiş kayıt' : jobCardStatusLabel(item.status)} · {item.submissionCount === 0 ? 'Gönderim yok' : `${item.submissionCount} gönderim`}
           {item.latestSubmittedAt ? ` · Son gönderim ${new Date(item.latestSubmittedAt).toLocaleDateString('tr-TR')}` : ''}
           {item.dueDate ? ` · Teslim son tarihi ${formatCalendarDay(item.dueDate)}` : ''}
           {item.completedAt ? ` · Tamamlandı ${new Date(item.completedAt).toLocaleDateString('tr-TR')}` : ''}</p>

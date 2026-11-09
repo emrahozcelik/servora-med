@@ -310,7 +310,7 @@ describe('shared JobCard validation', () => {
 describe('canonical JobCard types', () => {
   it('retains the exact activity vocabulary and lifecycle commands', () => {
     expect(JOB_CARD_ACTIVITY_EVENTS).toEqual([
-      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
+      'WEEKLY_REPORT_REMOVED', 'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
       'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',

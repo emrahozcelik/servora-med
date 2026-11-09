@@ -340,6 +340,7 @@ describe('Weekly Report PDF — immutability', () => {
       id: 'report-1', organization_id: 'org-1', job_card_id: 'job-1', staff_user_id: 'staff-1',
       period_start: PERIOD_START, period_end: PERIOD_END,
       draft_summary: 'CANLI TASLAK Ğ', draft_blockers: 'CANLI ENGEL',
+      removed_at: null, removed_by: null, removal_reason: null,
       draft_next_week_plan: 'CANLI PLAN', draft_highlights: 'CANLI ÖNE ÇIKAN',
       draft_field_observations: 'CANLI GÖZLEM', draft_support_needed: 'CANLI DESTEK',
       manager_questions: [{ key: 'q1', prompt: 'Canlı soru?' }],

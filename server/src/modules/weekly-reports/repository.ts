@@ -81,10 +81,9 @@ function constraintName(error: unknown): string | null {
   return typeof name === 'string' ? name : null;
 }
 
-// Auto-generated PostgreSQL constraint names (verified against the live
-// schema; stable unless migration 051 is rewritten, which is forbidden).
+// Identity constraints from 051 / the current-report index introduced by 061.
 const STAFF_WEEK_UNIQUE_CONSTRAINT =
-  'weekly_reports_organization_id_staff_user_id_period_start_key';
+  'weekly_reports_current_staff_week_key';
 const JOB_ATTACH_UNIQUE_CONSTRAINT =
   'weekly_reports_organization_id_job_card_id_key';
 
@@ -119,6 +118,9 @@ export type WeeklyReportRow = {
   version: number;
   created_at: Date;
   updated_at: Date;
+  removed_at: Date | null;
+  removed_by: string | null;
+  removal_reason: string | null;
 };
 
 export type WeeklyReportSubmissionRow = {
@@ -201,6 +203,9 @@ export function mapReport(row: WeeklyReportRow): WeeklyReport {
     version: row.version,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
+    removal: row.removed_at === null ? null : {
+      removedAt: row.removed_at.toISOString(), removedBy: row.removed_by!, reason: row.removal_reason!,
+    },
   };
 }
 
@@ -352,7 +357,7 @@ export class PostgresWeeklyReportRepository {
   ): Promise<WeeklyReport | null> {
     const result = await this.pool.query<WeeklyReportRow>(
       `SELECT * FROM weekly_reports
-        WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3`,
+        WHERE organization_id = $1 AND staff_user_id = $2 AND period_start = $3 AND removed_at IS NULL`,
       [organizationId, staffUserId, periodStart],
     );
     const row = result.rows[0];

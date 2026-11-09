@@ -40,14 +40,16 @@ type CreateAttempt =
 
 const MONDAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export function WeeklyReportCreateScreen({ user, onCancel, onCreated }: {
+export function WeeklyReportCreateScreen({ user, onCancel, onCreated, initialPeriodStart, initialStaffUserId }: {
   user: CurrentUser;
+  initialPeriodStart?: string;
+  initialStaffUserId?: string;
   onCancel: () => void;
   onCreated: (jobCardId: string) => void;
 }) {
   const isStaff = user.role === 'STAFF';
-  const [periodStart, setPeriodStart] = useState('');
-  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [periodStart, setPeriodStart] = useState(initialPeriodStart ?? '');
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>(!isStaff && initialStaffUserId ? [initialStaffUserId] : []);
   const [selectedPresetKeys, setSelectedPresetKeys] = useState<ReadonlySet<string>>(new Set());
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionDraft[]>([]);
   const [questionsError, setQuestionsError] = useState<string | null>(null);

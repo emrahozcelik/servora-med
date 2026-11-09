@@ -181,6 +181,10 @@ function reportFor(state: StateName) {
     version: 2,
     jobStatus: state,
     jobVersion: 3,
+    // Removal capability is server-owned; the layout fixture models the
+    // pre-removal state a normal report always has.
+    canRemove: false,
+    removal: null,
     dueDate: DUE_DATE,
     assignedTo: STAFF_ID,
     instructions: 'Saha ziyaretlerini özetleyin ve gelecek haftanın planını yazın.',
