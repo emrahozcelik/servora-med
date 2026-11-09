@@ -12,6 +12,14 @@ on:
         required: true
         type: boolean
         default: false
+      attempt_id:
+        description: Previously issued root-owned approval UUID (migration only)
+        required: false
+        type: string
+      ci_run_id:
+        description: Successful exact-main push CI run with release-package (migration only)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -41,11 +49,22 @@ jobs:
       - name: Validate immutable deployment identity
         env:
           DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}
+          ATTEMPT_ID: ${{ inputs.attempt_id }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
         run: |
           set -Eeuo pipefail
           [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_DEPLOY_SHA" >&2; exit 1; }
           [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "NON_MAIN_WORKFLOW_REF" >&2; exit 1; }
           [[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]] || { echo "DEPLOY_SHA_EVENT_MISMATCH" >&2; exit 1; }
+          if [[ "$ALLOW_MIGRATIONS" == "true" ]]; then
+            [[ "$ATTEMPT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+              || { echo "MIGRATION_ATTEMPT_ID_REQUIRED" >&2; exit 1; }
+            [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "MIGRATION_CI_RUN_ID_REQUIRED" >&2; exit 1; }
+          else
+            [[ -z "$ATTEMPT_ID" && -z "$CI_RUN_ID" ]] \
+              || { echo "MIGRATION_ARGUMENTS_NOT_ALLOWED" >&2; exit 1; }
+          fi
 
       - name: Checkout exact deployment SHA
         uses: actions/checkout@v6
@@ -60,6 +79,19 @@ jobs:
           set -Eeuo pipefail
           CHECKED_OUT_SHA="$(git rev-parse --verify HEAD)"
           [[ "$CHECKED_OUT_SHA" == "$DEPLOY_SHA" ]] || { echo "CHECKED_OUT_SHA_MISMATCH" >&2; exit 1; }
+
+      - name: Download exact-main release artifact for approved migration
+        if: inputs.allow_migrations
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/servora-release"
+          gh run download "$CI_RUN_ID" \
+            --name "servora-med-release-$DEPLOY_SHA" --dir "$RUNNER_TEMP/servora-release"
+          test -f "$RUNNER_TEMP/servora-release/servora-med-$DEPLOY_SHA.tar.gz"
+          test -f "$RUNNER_TEMP/servora-release/servora-med-$DEPLOY_SHA.tar.gz.sha256"
 
       - name: Setup Node 22
         uses: actions/setup-node@v6
@@ -81,10 +113,14 @@ jobs:
         env:
           DEPLOY_SHA: ${{ inputs.deploy_sha }}
           ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}
+          ATTEMPT_ID: ${{ inputs.attempt_id }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
         run: |
           set -Eeuo pipefail
           deploy_args=(--sha "$DEPLOY_SHA")
           if [[ "$ALLOW_MIGRATIONS" == "true" ]]; then
-            deploy_args+=(--allow-migrations)
+            deploy_args+=(--allow-migrations --attempt-id "$ATTEMPT_ID" \
+              --ci-mode github --ci-run-id "$CI_RUN_ID" \
+              --artifact "$RUNNER_TEMP/servora-release/servora-med-$DEPLOY_SHA.tar.gz")
           fi
           bash ops/deploy-production.sh "${deploy_args[@]}"
