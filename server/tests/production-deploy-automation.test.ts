@@ -165,13 +165,32 @@ function runRunnerSidecarCheck(artifact: string) {
 }
 
 function runCiContractFixture(serverConclusion: string, webConclusion: string, listOutput = '123') {
+  const run = {
+    databaseId: 123,
+    attempt: 1,
+    workflowName: 'CI',
+    headSha: TEST_SHA,
+    headBranch: 'main',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    jobs: [
+      { name: 'Auth KDF benchmark smoke', databaseId: 100, status: 'completed', conclusion: 'success' },
+      { name: 'server', databaseId: 101, status: 'completed', conclusion: serverConclusion },
+      { name: 'web', databaseId: 102, status: 'completed', conclusion: webConclusion },
+    ],
+  };
   return runSourced(
     runner,
     `SHA="${TEST_SHA}"
 GH_TOKEN=fixture-token
 gh() {
   if [[ "$1" == run && "$2" == list ]]; then printf '%s\\n' "${listOutput}"; return 0; fi
-  if [[ "$1" == run && "$2" == view ]]; then printf '[{"name":"server","conclusion":"${serverConclusion}"},{"name":"web","conclusion":"${webConclusion}"}]\\n'; return 0; fi
+  if [[ "$1" == run && "$2" == view ]]; then cat <<'CI_JSON'
+${JSON.stringify(run)}
+CI_JSON
+    return 0
+  fi
   return 1
 }
 verify_exact_main_ci`,
@@ -816,8 +835,10 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('--event push');
     expect(content).toContain('--commit "$SHA"');
     expect(content).toContain('EXACT_MAIN_CI_NOT_GREEN');
-    expect(content).toContain('EXACT_MAIN_CI_SERVER_NOT_GREEN');
-    expect(content).toContain('EXACT_MAIN_CI_WEB_NOT_GREEN');
+    expect(content).toContain('GITHUB_CI_PROOF_INVALID');
+    expect(content).toContain('github-ci-evidence.mjs');
+    expect(content).toContain('--run-id "$run_id"');
+    expect(content).toContain('--require-package');
     expect(content).not.toContain('StrictHostKeyChecking=no');
     expect(content).not.toContain('git pull');
   });
@@ -1210,13 +1231,17 @@ describe('controlled production deployment automation contract', () => {
     expect(stale.status).not.toBe(0);
     expect(`${stale.stdout}${stale.stderr}`).toContain('EXACT_MAIN_CI_NOT_GREEN');
 
+    const successful = runCiContractFixture('success', 'success');
+    expect(successful.status).toBe(0);
+    expect(successful.stdout).toContain('GITHUB_CI');
+
     const serverFailed = runCiContractFixture('failure', 'success');
     expect(serverFailed.status).not.toBe(0);
-    expect(`${serverFailed.stdout}${serverFailed.stderr}`).toContain('EXACT_MAIN_CI_SERVER_NOT_GREEN');
+    expect(`${serverFailed.stdout}${serverFailed.stderr}`).toContain('GITHUB_CI_PROOF_INVALID');
 
     const webFailed = runCiContractFixture('success', 'failure');
     expect(webFailed.status).not.toBe(0);
-    expect(`${webFailed.stdout}${webFailed.stderr}`).toContain('EXACT_MAIN_CI_WEB_NOT_GREEN');
+    expect(`${webFailed.stdout}${webFailed.stderr}`).toContain('GITHUB_CI_PROOF_INVALID');
   });
 
   it('excludes explicit secret artifact names while retaining legitimate source names', () => {
