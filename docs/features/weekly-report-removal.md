@@ -73,7 +73,13 @@ and applicable reflow checks. No broad Admin redesign or new dependency.
 
 ## Implementation / verification ledger
 
-- [ ] Migration, backend command/read model and regression tests.
-- [ ] Weekly Report UI/API, historical display and interaction tests.
-- [ ] Server build/full suite, web build/tests and rendered accessibility evidence.
+- [x] Migration, backend command/read model and regression tests.
+- [x] Weekly Report UI/API, historical display and interaction tests.
+- [x] Server build/full suite, web build/tests and rendered accessibility evidence.
 - [ ] Exact PR-head hosted CI and review-ready PR.
+
+Local evidence (2026-11-08/09, isolated PostgreSQL 17): migration 061 applies on a
+fresh database to full head; server suite 4366 passed / 8 skipped with one
+environment-only `db-auth-contract` failure that passes 11/11 against a
+`scram-sha-256` cluster matching CI; web suite 2771 passed; 11 rendered
+Playwright scenarios passed. Hosted CI on the exact PR head is still pending.
