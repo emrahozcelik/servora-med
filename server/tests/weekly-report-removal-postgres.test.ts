@@ -306,6 +306,7 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         { expectedVersion: 1, draft, answers: [] });
 
       const actual = PostgresJobCardTransaction.prototype.getNoteAuthorSnapshot;
+      const actualGetJobForUpdate = PostgresJobCardTransaction.prototype.getJobForUpdate;
       let gateSubmit!: () => void;
       const submitAtOwnerLock = new Promise<void>(resolve => { gateSubmit = resolve; });
       let release!: () => void;
@@ -319,6 +320,20 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
           }
           return actual.call(this, organizationId, authorId);
         });
+      // Identify the exact backend that runs REMOVE, so the wait can be scoped
+      // to that connection instead of any waiter in the whole instance.
+      let captureRemovalPid = false;
+      let removalPid: number | null = null;
+      const pidSpy = vi.spyOn(PostgresJobCardTransaction.prototype,'getJobForUpdate')
+        .mockImplementation(async function (organizationId: string, jobCardId: string) {
+          if (captureRemovalPid && removalPid === null) {
+            const self = await (this as unknown as {
+              client: { query(sql: string): Promise<{ rows: Array<{ pid: number }> }> };
+            }).client.query('SELECT pg_backend_pid() AS pid');
+            removalPid = self.rows[0]!.pid;
+          }
+          return actualGetJobForUpdate.call(this, organizationId, jobCardId);
+        });
 
       const failure = (error: unknown) =>
         (error as { code?: string; driverError?: { code?: string } });
@@ -328,17 +343,31 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
         submit = service.submitForApproval(staff, created.jobCardId,
           { clientActionId: randomUUID(), expectedVersion: 2, note: 'Onaya gönderildi.' });
         await submitAtOwnerLock;
+        captureRemovalPid = true;
         removal = service.removeWeeklyReport(admin, created.jobCardId,
           { clientActionId: randomUUID(), expectedVersion: 2, expectedReportVersion: 1, reason: 'Yanlış hafta.' });
-        // Deterministic: wait until REMOVE is genuinely blocked on the JobCard
-        // row held by SUBMIT, then release SUBMIT.
-        const deadline = Date.now() + 5000;
+        // Deterministic: wait until the REMOVE backend itself is waiting on the
+        // JobCard transaction held by SUBMIT, then release SUBMIT. Scoping the
+        // probe to that backend pid keeps unrelated, parallel waiters from
+        // satisfying the condition.
+        const deadline = Date.now() + 8000;
+        let observed = 0;
         for (;;) {
-          const waiting = await pool.query(
-            `SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted`,
-          );
-          if (waiting.rows[0].n > 0) break;
-          if (Date.now() > deadline) throw new Error('REMOVE never blocked on the JobCard lock');
+          if (removalPid !== null) {
+            const waiting = await pool.query(
+              `SELECT count(*)::int AS n FROM pg_locks
+                WHERE pid = $1 AND NOT granted AND locktype = 'transactionid'`,
+              [removalPid],
+            );
+            observed = waiting.rows[0].n as number;
+            if (observed > 0) break;
+          }
+          if (Date.now() > deadline) {
+            throw new Error(
+              `REMOVE backend ${removalPid ?? 'unknown'} never waited on the JobCard transaction (observed=${observed})`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
         }
         release();
         const [submitted, removed] = await Promise.allSettled([submit, removal]);
@@ -378,12 +407,14 @@ describe.skipIf(!databaseUrl)('Admin Weekly Report removal (PostgreSQL)', () => 
       } finally {
         release();
         spy.mockRestore();
+        pidSpy.mockRestore();
         await Promise.allSettled([submit, removal].filter(Boolean) as Promise<unknown>[]);
       }
     });
-  });
+  }, 20000);
 
-  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {    await withFixture(async ({ service, admin, staff, manager }) => {
+  it('authenticates HTTP commands, validates input and reader-gates the strict existing detail shape', async () => {
+    await withFixture(async ({ service, admin, staff, manager }) => {
       const original = await service.createWeeklyReport(staff,
         parseWeeklyReportCreateInput({ clientActionId: randomUUID(),periodStart }));
       let current: JobCardActor | null = null;
