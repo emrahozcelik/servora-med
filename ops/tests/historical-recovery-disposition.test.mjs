@@ -314,6 +314,44 @@ test('a changed old approval, adoption, baseline or archived profile is rejected
   }
 });
 
+test('archived disposition copy is independently checked against the live record',async t=>{
+  const {host}=await gateHost();t.after(host.cleanup);
+  const copy=host.files.get(ARCHIVE_DIR+'/preserved/disposition.json');
+  copy.data=Buffer.from(copy.data);copy.data[0]^=0xff;
+  assert.throws(()=>host.controller.verifyHistoricalArchiveGate(),
+    /RECOVERY_HISTORICAL_ARCHIVE/);
+});
+
+test('source mode and nanosecond mtime needed for exact historical restore are sealed',async t=>{
+  const {host}=await gateHost();t.after(host.cleanup);
+  const manifest=read(host,manifestPath);
+  const log=manifest.archivedFiles.find(entry=>entry.archivePath.endsWith('postdeploy-operator-20261101T040551Z.log'));
+  const rc=manifest.archivedFiles.find(entry=>entry.archivePath.endsWith('postdeploy-operator-20261101T040551Z.rc'));
+  assert.equal(log.sourceMode,'0644');assert.equal(rc.sourceMode,'0644');
+  assert.equal(log.mode,'0600');assert.match(log.sourceMtimeNs,/^[0-9]+$/);
+  assert.equal(Object.keys(manifest.removedDirectories).length,2);
+  assert.equal(manifest.sourceDirectories[STATE+'/attempts'].sourceMtimeNs,log.sourceMtimeNs);
+});
+
+test('invalid original metadata or changed archive mtime fails closed',async t=>{
+  const mutated=async edit=>{
+    const {host}=await gateHost();t.after(host.cleanup);
+    const manifest=read(host,manifestPath);edit(manifest);
+    write(host,manifestPath,manifest);reseal(host);
+    assert.throws(()=>host.controller.verifyHistoricalArchiveGate(),
+      /RECOVERY_HISTORICAL_ARCHIVE/);
+  };
+  await mutated(m=>{m.archivedFiles[0].sourceMode='0644';});
+  await mutated(m=>{m.archivedFiles[0].sourceMtimeNs='1762770600000000001';});
+  await mutated(m=>{delete m.sourceDirectories[STATE+'/attempts'].sourceMtimeNs;});
+  await mutated(m=>{delete m.removedDirectories[STATE+'/logs/'+ATTEMPT];});
+  await mutated(m=>{m.removedDirectories[STATE+'/attempts/'+ATTEMPT].mode='0755';});
+  const {host}=await gateHost();t.after(host.cleanup);
+  host.files.get(ARCHIVE_DIR+'/attempts/'+ATTEMPT+'/0000.json').mtimeNs='1762770600000000001';
+  assert.throws(()=>host.controller.verifyHistoricalArchiveGate(),
+    /RECOVERY_HISTORICAL_ARCHIVE/);
+});
+
 test('an extra archive file, foreign owner, hardlink or symlink is rejected',async t=>{
   {
     const {host}=await gateHost();t.after(host.cleanup);

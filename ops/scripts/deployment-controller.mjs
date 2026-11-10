@@ -119,6 +119,10 @@ const HISTORICAL_ARCHIVE_METADATA_PATHS = Object.freeze([
 const HISTORICAL_SOURCE_DIRECTORIES = Object.freeze([
   'attempts','initializations','admission-proofs','backups','logs'
 ]);
+const HISTORICAL_REMOVED_DIRECTORIES = Object.freeze([
+  'attempts/'+HISTORICAL_ATTEMPT_ID,
+  'logs/'+HISTORICAL_ATTEMPT_ID
+]);
 
 export const OPS_R4_003_POLICY = Object.freeze({
   policyId: 'OPS-R4-003',
@@ -188,12 +192,16 @@ const HISTORICAL_DISPOSITION_KEYS = Object.freeze(['formatVersion','kind','dispo
   'oldBaselineManifestSha256','oldBaselineSha256SumsSha256','issuedAtUTC','issuedTime']);
 const HISTORICAL_MANIFEST_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
   'approvalSha256','profileSha256','machineId','oldReleaseSha','targetReleaseSha','targetTreeSha',
-  'targetArtifactSha256','archivedFiles','preservedEvidence','sourceDirectories','checkpoint',
-  'createdAtUTC']);
-const HISTORICAL_ARCHIVE_ENTRY_KEYS = Object.freeze(['sourcePath','archivePath','type','mode','uid',
-  'gid','nlink','size','sha256','symlinkTarget']);
+  'targetArtifactSha256','archivedFiles','preservedEvidence','sourceDirectories','removedDirectories',
+  'checkpoint','createdAtUTC']);
+const HISTORICAL_ARCHIVE_ENTRY_KEYS = Object.freeze(['sourcePath','archivePath','type','mode',
+  'sourceMode','sourceMtimeNs','uid','gid','nlink','size','sha256','symlinkTarget']);
 const HISTORICAL_PRESERVED_KEYS = Object.freeze(['path','role','liveSource','sha256','size']);
-const HISTORICAL_DIRECTORY_KEYS = Object.freeze(['beforeEntries','afterEntries']);
+const HISTORICAL_DIRECTORY_KEYS = Object.freeze(['beforeEntries','afterEntries','sourceMtimeNs']);
+const HISTORICAL_REMOVED_DIRECTORY_KEYS = Object.freeze(['mode','uid','gid','sourceMtimeNs']);
+const historicalMtimeNs = value => typeof value === 'string' && /^(?:0|[1-9][0-9]{0,19})$/.test(value);
+const historicalSourceMode = path => path.startsWith('logs/'+HISTORICAL_ATTEMPT_ID+'/postdeploy-operator-')
+  ? '0644' : '0600';
 const HISTORICAL_PROOF_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
   'manifestSha256','directories','pendingMarkers','verifiedAtUTC']);
 const HISTORICAL_PROOF_DIRECTORY_KEYS = Object.freeze(['exists','type','symlink','uid','gid','mode',
@@ -1052,7 +1060,7 @@ function historicalPreservedKey(entry) {
 
 function verifyHistoricalArchiveRecords({disposition,dispositionBytes,dispositionSha256,manifest,
   manifestSha256,proof,proofSha256,complete,completeSha256,checkpointSummary,archiveBytes,liveBytes,
-  copyBytes,currentTime}) {
+  copyBytes,archiveMtimes,currentTime}) {
   const fail = historicalArchiveFail;
   const policy = OPS_R4_003_POLICY;
   if (!historicalExact(manifest,HISTORICAL_MANIFEST_KEYS) || manifest.formatVersion !== 1
@@ -1076,8 +1084,12 @@ function verifyHistoricalArchiveRecords({disposition,dispositionBytes,dispositio
     if (!historicalExact(entry,HISTORICAL_ARCHIVE_ENTRY_KEYS)
       || !expectedPaths.has(entry.archivePath) || seenPaths.has(entry.archivePath)
       || entry.sourcePath !== STATE_ROOT+'/'+entry.archivePath
-      || entry.type !== 'file' || entry.mode !== '0600' || entry.uid !== 0 || entry.gid !== 0
-      || entry.nlink !== 1 || !Number.isSafeInteger(entry.size) || entry.size <= 0
+      || entry.type !== 'file' || entry.mode !== '0600'
+      || entry.sourceMode !== historicalSourceMode(entry.archivePath)
+      || !historicalMtimeNs(entry.sourceMtimeNs)
+      || entry.sourceMtimeNs !== archiveMtimes.get(entry.archivePath)
+      || entry.uid !== 0 || entry.gid !== 0 || entry.nlink !== 1
+      || !Number.isSafeInteger(entry.size) || entry.size <= 0
       || !HISTORICAL_HEX.test(entry.sha256) || entry.symlinkTarget !== null) fail();
     const bytes = archiveBytes.get(entry.archivePath);
     if (!bytes || bytes.length !== entry.size || digest(bytes) !== entry.sha256) fail();
@@ -1113,7 +1125,17 @@ function verifyHistoricalArchiveRecords({disposition,dispositionBytes,dispositio
   for (const name of HISTORICAL_SOURCE_DIRECTORIES) {
     const entry = manifest.sourceDirectories[STATE_ROOT+'/'+name];
     if (!historicalExact(entry,HISTORICAL_DIRECTORY_KEYS) || !Number.isSafeInteger(entry.beforeEntries)
-      || entry.beforeEntries < 0 || entry.afterEntries !== 0) fail();
+      || entry.beforeEntries < 0 || entry.afterEntries !== 0
+      || !historicalMtimeNs(entry.sourceMtimeNs)) fail();
+  }
+  if (!manifest.removedDirectories || typeof manifest.removedDirectories !== 'object'
+    || Array.isArray(manifest.removedDirectories)
+    || Object.keys(manifest.removedDirectories).length !== HISTORICAL_REMOVED_DIRECTORIES.length) fail();
+  for (const name of HISTORICAL_REMOVED_DIRECTORIES) {
+    const entry = manifest.removedDirectories[STATE_ROOT+'/'+name];
+    if (!historicalExact(entry,HISTORICAL_REMOVED_DIRECTORY_KEYS)
+      || entry.mode !== '0700' || entry.uid !== 0 || entry.gid !== 0
+      || !historicalMtimeNs(entry.sourceMtimeNs)) fail();
   }
   if (!historicalExact(manifest.checkpoint,HISTORICAL_CHECKPOINT_KEYS)
     || manifest.checkpoint.count !== policy.checkpointCount
@@ -1166,7 +1188,7 @@ function walkHistoricalArchive() {
   ]);
   const expectedDirs = new Set(['.','attempts','attempts/'+OPS_R4_003_POLICY.attemptId,
     'admission-proofs','backups','logs','logs/'+OPS_R4_003_POLICY.attemptId,'preserved']);
-  const files = new Set(), directories = new Set();
+  const files = new Set(), directories = new Set(), archiveMtimes = new Map();
   const visit = (path,relative) => {
     let info, names;
     try { info = lstatSync(path); names = readdirSync(path); } catch { historicalArchiveFail(); }
@@ -1182,6 +1204,11 @@ function walkHistoricalArchive() {
       else if (child.isFile()) {
         if (child.uid !== 0 || child.gid !== 0 || child.nlink !== 1
           || (child.mode & 0o7777) !== 0o600) historicalArchiveFail();
+        // Capture the copied file's actual nanosecond timestamp, not just a
+        // purported source timestamp supplied by its manifest.
+        const measured = lstatSync(full,{bigint:true}).mtimeNs;
+        if (typeof measured !== 'bigint') historicalArchiveFail();
+        archiveMtimes.set(childRelative,measured.toString());
         files.add(childRelative);
       } else historicalArchiveFail();
     }
@@ -1191,6 +1218,7 @@ function walkHistoricalArchive() {
     || directories.size !== expectedDirs.size || [...directories].some(path=>!expectedDirs.has(path))) {
     historicalArchiveFail();
   }
+  return archiveMtimes;
 }
 
 /** Read-only OPS-R4-002 precondition. No caller-selected path or mode. */
@@ -1200,6 +1228,9 @@ export function verifyHistoricalArchiveGate() {
   const approval = historicalReadRecord(policy.oldApprovalFile,0o600,'archive');
   const currentProfile = historicalReadRecord(STATE_ROOT+'/profile.json',0o600,'archive');
   const profileCopy = historicalReadRecord(policy.archiveDir+'/preserved/profile.json',0o600,'archive');
+  // Read archived bytes independently; substitution of live disposition bytes
+  // would incorrectly accept corruption of preserved/disposition.json.
+  const dispositionCopy = historicalReadBytes(policy.archiveDir+'/preserved/disposition.json',0o600,'archive');
   const checkpoints = historicalReadCheckpointChain(policy.archiveDir,'archive');
   validateHistoricalCheckpointChain(checkpoints,disposition.record);
   const admission = historicalReadRecord(policy.archiveDir+'/admission-proofs/'+
@@ -1259,13 +1290,13 @@ export function verifyHistoricalArchiveGate() {
     [policy.oldApprovalFile,approval.bytes],[policy.oldBaselineManifestFile,oldBaseline.bytes],
     [policy.oldBaselineSha256SumsFile,oldSums],[policy.emergencyReceiptFile,receipt.bytes]]);
   const copyBytes = new Map([['preserved/profile.json',profileCopy.bytes],
-    ['preserved/disposition.json',disposition.bytes]]);
+    ['preserved/disposition.json',dispositionCopy]]);
+  const archiveMtimes = walkHistoricalArchive();
   const result = verifyHistoricalArchiveRecords({disposition:disposition.record,
     dispositionBytes:disposition.bytes,dispositionSha256:disposition.sha256,manifest:manifest.record,
     manifestSha256:manifest.sha256,proof:proof.record,proofSha256:proof.sha256,
     complete:complete.record,completeSha256:complete.sha256,
-    checkpointSummary:{last:checkpoints.at(-1)},archiveBytes,liveBytes,copyBytes,currentTime});
-  walkHistoricalArchive();
+    checkpointSummary:{last:checkpoints.at(-1)},archiveBytes,liveBytes,copyBytes,archiveMtimes,currentTime});
   return result;
 }
 

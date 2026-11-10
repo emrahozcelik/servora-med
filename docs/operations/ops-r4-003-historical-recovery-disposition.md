@@ -145,12 +145,18 @@ shape and hashes.
 
 - exact attempt, disposition hash, approval hash, old profile hash, machine ID,
   OLD/TARGET release/tree/artifact;
-- 26 `archivedFiles` entries with `sourcePath`, `archivePath`, type, mode,
+- 26 `archivedFiles` entries with `sourcePath`, `archivePath`, type, archive
+  `mode: 0600`, original `sourceMode` (`0600`, except the two original
+  `0644` postdeploy operator files), original nanosecond `sourceMtimeNs`,
   owner, group, link count, size, SHA-256 and `symlinkTarget: null`;
 - seven `preservedEvidence` entries: the live OPS-R4-001 adoption, approval,
   baseline manifest, baseline `SHA256SUMS`, emergency receipt, archived old
   profile copy and archived disposition copy;
-- the five source directories with `afterEntries: 0`;
+- the five source directories with `beforeEntries`, `afterEntries: 0` and
+  original `sourceMtimeNs`; `removedDirectories` captures original root
+  ownership, `0700` mode and `sourceMtimeNs` for the two removed
+  attempt/log subdirectories. Directory timestamps must be captured before
+  removal because they cannot be remeasured afterwards;
 - checkpoint count/head/phase/flags/start budget;
 - a UTC creation time after the disposition time.
 
@@ -190,12 +196,17 @@ with no active deployment, recovery, admission or maintenance operation.
    or other profile-validating maintenance command until the archive is sealed
    and the profile is re-sealed. The host lock and pending-state checks remain
    mandatory.
-4. **Copy:** copy the exact 26 allowlisted files and the old profile/disposition
+4. **Copy:** capture each original file's exact `lstatSync(path,{bigint:true}).mtimeNs`
+   and original mode, plus the five source-directory and two removed-subdirectory
+   timestamps, before modifying any source. Unexpected type, owner, mode or
+   link count is a STOP condition. Copy the 26 allowlisted files and the old profile/disposition
    copies to a sibling staging directory outside the sealed archive directory
    (or remove staging before sealing). Never leave staging or audit scratch
    files inside the sealed archive directory; the gate requires its exact tree.
-   Verify each copy against the pre-state hash and size. Do not remove the live
-   sources.
+   Normalize the two `0644` operator files to `0600` inside the archive
+   while preserving their exact nanosecond mtimes. Verify every copied file's
+   hash, size and mtime; a lost timestamp is a STOP condition. Do not remove
+   the live sources.
 5. **Seal manifest:** write the canonical manifest with the actual copied
    hashes/sizes and the live evidence hashes. Verify it against the copied
    bytes. If any copy or hash differs, stop; the live sources remain intact.
@@ -252,9 +263,12 @@ Rollback is a copy-back, not a move back:
 
 1. Hold the host lock; verify the archive complete/manifest/proof and every
    archived hash.
-2. Restore exact files to staging under the live parent, verify type/mode/
-   owner/size/SHA-256, then publish with exclusive creation. Never overwrite a
-   different existing file.
+2. Restore exact files to staging under the live parent, verify type/owner/
+   size/SHA-256, then restore the original per-file `sourceMode` and exact
+   `sourceMtimeNs` from the sealed manifest. Restore captured directory
+   timestamps after all entries are published. Verify the final metadata
+   and publish with exclusive creation. Never overwrite a different existing
+   file.
 3. Restore the exact checkpoint chain, admission proof, backups and logs;
    verify the pre/post receipt hashes, the admission proof initial hash and the
    approval/disposition bindings.
@@ -266,8 +280,9 @@ Rollback is a copy-back, not a move back:
 Test rollback in a disposable Linux environment with synthetic files. Do not
 copy production dumps, logs, approvals, adoption records or secrets into a
 test workstation. Acceptance: restored tree is byte-identical to the pre-state,
-checkpoint chain is valid, receipt/initial hashes match, and the strict
-empty-state check fails as expected.
+checkpoint chain is valid, receipt/initial hashes match, original file modes
+(including the two `0644` operator files), exact nanosecond mtimes and
+captured directory mtimes match, and the strict empty-state check fails as expected.
 
 ## 8. Sensitive retention
 
@@ -284,6 +299,11 @@ Archive acceptance requires all of the following:
 - root-only `0700` archive root/directories and `0600` regular single-link
   files; no symlinks, hardlinks, devices or foreign owners;
 - exact 26-file moved set, two preserved copies and three metadata files;
+- archived `preserved/disposition.json` independently read and compared
+  byte-for-byte with the root-owned live disposition record;
+- original file mode and nanosecond mtime retained in the manifest, with
+  the actual archived file mtime matching that recorded source value;
+- original timestamps recorded for source directories and removed subdirectories;
 - pre/post dump `pg_restore --list` readability and checkpoint receipt hashes;
 - every OPS-R4-001 baseline payload rehashed against its manifest;
 - manifest/proof/complete hash chain and source-empty proof;
@@ -303,8 +323,9 @@ Stop and do not issue if any of the following is true:
 - disposition missing, malformed, wrong attempt, terminal/`ACCEPTED`, wrong
   start budget, wrong approval/profile/checkpoint/receipt hash;
 - archive manifest, source proof or complete record missing or mismatched;
-- any archived file missing, extra, symlinked, hardlinked, foreign-owned or
-  hash-mismatched;
+- any archived file missing, extra, symlinked, hardlinked, foreign-owned,
+  hash-mismatched, timestamp-mismatched or bearing invalid original metadata;
+- the archived disposition copy differs from the live record;
 - source directories missing, untrusted or nonempty;
 - active/activation/start-permit/recovery marker present;
 - current machine ID differs from the disposition/host profile;

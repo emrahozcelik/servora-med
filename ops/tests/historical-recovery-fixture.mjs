@@ -60,6 +60,8 @@ const PHASES=Object.freeze([
 ]);
 
 const at=ms=>new Date(ms).toISOString();
+// Synthetic precision-preserving file timestamp for archive acceptance fixtures.
+const SOURCE_MTIME_NS='1762770600000000000';
 const T0=Date.parse('2026-10-31T19:46:00.000Z');
 
 export function historicalFixture() {
@@ -177,14 +179,20 @@ export function historicalFixture() {
     dispositionSha256,approvalSha256,profileSha256,machineId:oldProfile.machineId,oldReleaseSha:OLD,
     targetReleaseSha:TARGET,targetTreeSha:TARGET_TREE,targetArtifactSha256:TARGET_ARTIFACT,
     archivedFiles:[...movedFiles].map(([path,bytes])=>({sourcePath:STATE+'/'+path,archivePath:path,
-      type:'file',mode:'0600',uid:0,gid:0,nlink:1,size:bytes.length,sha256:hash(bytes),symlinkTarget:null})),
+      type:'file',mode:'0600',
+      sourceMode:path.startsWith('logs/'+ATTEMPT+'/postdeploy-operator-')?'0644':'0600',
+      sourceMtimeNs:SOURCE_MTIME_NS,uid:0,gid:0,nlink:1,
+      size:bytes.length,sha256:hash(bytes),symlinkTarget:null})),
     preservedEvidence:PRESERVED_EVIDENCE.map(entry=>{
       const bytes=entry.path.startsWith('preserved/')?copies.get(entry.path):liveEvidence.get(entry.path);
       return {...entry,sha256:hash(bytes),size:bytes.length};
     }),
     sourceDirectories:Object.fromEntries([
       ['attempts',1],['initializations',0],['admission-proofs',1],['backups',2],['logs',1]
-    ].map(([name,beforeEntries])=>[STATE+'/'+name,{beforeEntries,afterEntries:0}])),
+    ].map(([name,beforeEntries])=>[STATE+'/'+name,
+      {beforeEntries,afterEntries:0,sourceMtimeNs:SOURCE_MTIME_NS}])),
+    removedDirectories:Object.fromEntries(['attempts/'+ATTEMPT,'logs/'+ATTEMPT]
+      .map(name=>[STATE+'/'+name,{mode:'0700',uid:0,gid:0,sourceMtimeNs:SOURCE_MTIME_NS}])),
     checkpoint:{count:18,lastSequence:17,lastSha256:last.sha256,lastPhase:'POSTDEPLOY_BACKUP_PASSED',
       observationPassed:false,smokePassed:true,starts:2,abortStarts:0},
     createdAtUTC:at(Date.parse(disposition.issuedAtUTC)+1000)};
