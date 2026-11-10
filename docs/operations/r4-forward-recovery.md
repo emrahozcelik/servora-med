@@ -435,6 +435,16 @@ It does not change, renew or reuse the OPS-R4-001 `71ae6df6…` record or slot.
 The recovered archive `ddf12049…` is a content-equivalent reconstruction and is
 never accepted as the missing original `a1db5a8d…`.
 
+### OPS-R4-003 — historical disposition and archive gate
+
+The consumed, nonterminal OPS-R4-001 attempt `6ce4cff0…` has a separate,
+no-argument historical disposition and a sealed-archive precondition for
+OPS-R4-002 issuance in
+[OPS-R4-003 historical recovery disposition](./ops-r4-003-historical-recovery-disposition.md).
+It classifies the attempt `ABANDONED_SUPERSEDED`; it never turns it into
+`COMPLETED` or `ACCEPTED`. The OPS-R4-001 policy remains unchanged and does not
+depend on the new gate.
+
 
 ### OPS-TT-003 source-policy transition (not production authorization)
 

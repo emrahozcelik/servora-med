@@ -172,10 +172,11 @@ test('the old 71ae6df6 record is not rewritten by a failed new-policy attempt', 
   const f = fixture(), host = await adoptionHost(f);
   t.after(host.cleanup);
   host.add(OLD_RECORD, 'preserve me\n');
-  // The synthetic fixture intentionally cannot satisfy the exact 67d3318
-  // content/archive constants, so issuance fails before publication.
+  // The synthetic fixture has no OPS-R4-003 disposition/archive, so issuance
+  // fails at the new gate before any publication.
   assert.throws(() => host.controller.issueInstalledOldAdoption67d3318(
-    f.context.approval.attemptId, f.baseline.baselineId), /RECOVERY_INSTALLED_OLD_ADOPTION_INVALID/);
+    f.context.approval.attemptId, f.baseline.baselineId),
+    /RECOVERY_HISTORICAL_(ARCHIVE|DISPOSITION)|RECOVERY_INSTALLED_OLD_ADOPTION_INVALID/);
   assert.equal(host.files.get(OLD_RECORD).data.toString(), 'preserve me\n');
   assert.equal(host.files.has(NEW_RECORD), false);
 });
