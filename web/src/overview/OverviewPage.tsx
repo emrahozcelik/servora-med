@@ -18,6 +18,14 @@ import { OperationalCard } from '../ui/antd/OperationalCard';
 import { PageHeader } from '../ui/PageHeader';
 import { ResultState } from '../ui/antd/ResultState';
 
+function formatOverviewDate(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(`${value}T12:00:00.000Z`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
 export function OverviewPage({
   user,
   load = getOverview,
@@ -72,19 +80,22 @@ export function OverviewPage({
 
   const { overview } = state;
   const isStaff = overview.scope === 'staff';
+  const distributionTotal = overview.scope === 'management'
+    ? Math.max(1, (overview.workTypeDistribution ?? []).reduce((sum, item) => sum + item.count, 0))
+    : 1;
 
   const kpis = isStaff
     ? [
-        { label: 'Açık işler', value: overview.openJobCards, href: `${paths.jobs}?status=active`, tone: 'default' as const },
-        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: `${paths.jobs}?status=WAITING_APPROVAL`, tone: 'attention' as const },
-        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const },
-        { label: 'Tamamlanan', value: overview.completedInPeriod, href: `${paths.jobs}?status=COMPLETED`, tone: 'success' as const },
+        { label: 'Açık işler', value: overview.openJobCards, href: `${paths.jobs}?status=active`, tone: 'default' as const, statusPhrase: 'Açık görev kayıtları' },
+        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: `${paths.jobs}?status=WAITING_APPROVAL`, tone: 'attention' as const, statusPhrase: 'Yönetici değerlendirmesinde' },
+        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const, statusPhrase: 'Düzeltme bekleyen kayıtlar' },
+        { label: 'Tamamlanan', value: overview.completedInPeriod, href: `${paths.jobs}?status=COMPLETED`, tone: 'success' as const, statusPhrase: 'Bu dönemde tamamlandı' },
       ]
     : [
-        { label: 'Aktif işler', value: overview.active, href: `${paths.jobs}?status=active`, tone: 'default' as const },
-        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?overdue=true`, tone: 'attention' as const },
-        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: paths.approvalReports, tone: 'attention' as const },
-        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const },
+        { label: 'Aktif işler', value: overview.active, href: `${paths.jobs}?status=active`, tone: 'default' as const, statusPhrase: 'Devam eden işler' },
+        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?overdue=true`, tone: 'attention' as const, statusPhrase: 'Termin süresi aşıldı' },
+        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: paths.approvalReports, tone: 'attention' as const, statusPhrase: 'Yönetici değerlendirmesinde' },
+        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const, statusPhrase: 'Düzeltme bekleyen kayıtlar' },
       ];
 
   return (
@@ -92,7 +103,7 @@ export function OverviewPage({
       <PageHeader
         eyebrow={isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}
         fallbackTitle="Genel Bakış"
-        description={`${user.name}, ${overview.range.from} – ${overview.range.to} dönemi.`}
+        description={`${user.name} · ${formatOverviewDate(overview.range.from)} – ${formatOverviewDate(overview.range.to)}`}
       />
 
       <div className="overview-kpis" aria-label="Dönem özeti">
@@ -103,20 +114,24 @@ export function OverviewPage({
             value={kpi.value}
             linkTo={kpi.href}
             tone={kpi.tone}
+            statusPhrase={kpi.statusPhrase}
           />
         ))}
       </div>
 
       <div className="overview-main-grid">
+        <div className="overview-main-column">
         {!isStaff && <OpenSubmissionLateSection />}
         {!isStaff && (
           <section className="overview-section" aria-labelledby="completion-trend-title">
             <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>
-            <p>{overview.completedInPeriod} iş tamamlandı; {overview.cancelledInPeriod} iş iptal edildi.</p>
-            <TrendBars points={overview.completionTrend} className="overview-trend" />
-            <p className="overview-text-summary">
-              Kontrol kuyruğunda {overview.approvalQueueSummary.pendingCount} iş bulunuyor.
-            </p>
+            <OperationalCard title="Tamamlanan ve iptal edilen işler">
+              <p>{overview.completedInPeriod} iş tamamlandı; {overview.cancelledInPeriod} iş iptal edildi.</p>
+              <TrendBars points={overview.completionTrend} className="overview-trend" />
+              <p className="overview-text-summary">
+                Kontrol kuyruğunda {overview.approvalQueueSummary.pendingCount} iş bulunuyor.
+              </p>
+            </OperationalCard>
           </section>
         )}
 
@@ -158,6 +173,8 @@ export function OverviewPage({
           }
         </section>
 
+        </div>
+        <div className="overview-main-column">
         <section className="overview-section" aria-labelledby="recent-notes-title">
           <h2 id="recent-notes-title">Son notlar</h2>
           {overview.recentNotes.length === 0
@@ -180,16 +197,21 @@ export function OverviewPage({
         {!isStaff && overview.workTypeDistribution && overview.workTypeDistribution.length > 0 && (
           <section className="overview-section" aria-labelledby="work-type-dist-title">
             <h2 id="work-type-dist-title">İş dağılımı</h2>
-            <div className="overview-card-stack">
-              {overview.workTypeDistribution.map((item) => {
-                const label = jobTypeLabel(item.type);
-                return (
-                  <OperationalCard key={item.type} title={label} tone="default">
-                    <span>{item.count} iş</span>
-                  </OperationalCard>
-                );
-              })}
-            </div>
+            <OperationalCard title="Türlere göre iş dağılımı">
+              <ul className="overview-distribution-list">
+                {overview.workTypeDistribution.map((item) => (
+                  <li key={item.type}>
+                    <div className="overview-distribution-label">
+                      <strong>{jobTypeLabel(item.type)}</strong>
+                      <span>{item.count} iş · %{Math.round(item.count / distributionTotal * 100)}</span>
+                    </div>
+                    <div className="overview-distribution-track" aria-hidden="true">
+                      <span style={{ width: (Math.round(item.count / distributionTotal * 100)).toString() + '%' }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </OperationalCard>
           </section>
         )}
 
@@ -208,6 +230,7 @@ export function OverviewPage({
             </OperationalCard>
           </section>
         )}
+        </div>
       </div>
     </main>
   );

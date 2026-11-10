@@ -24,6 +24,14 @@ function rootBlock(): string {
 }
 
 describe('overview visual system contract (UX audit slice 1)', () => {
+  it('keeps overview sections unboxed so their cards provide one visible surface', () => {
+    const rules = rulesFor('.overview-section');
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toContain('padding: 0');
+    expect(rules[0]).not.toMatch(/border:\s*1px|background:/);
+    expect(css).toMatch(/\.overview-main-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 7fr\) minmax\(0, 5fr\)/s);
+  });
+
   it('uses the canonical raised radius token on overview sections (VIS-04)', () => {
     const rules = rulesFor('.overview-section');
     expect(rules.length).toBeGreaterThan(0);

@@ -1615,7 +1615,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-filter-checkbox input {
   min-height: 0;
 }
-.job-filter-checkbox .ant-checkbox-wrapper {
+.job-filter-checkbox .servora-ant-checkbox-wrapper {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -3682,15 +3682,19 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .overview-main-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 1.5rem;
 }
+.overview-main-column {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 1.5rem;
+}
+/* Sections are headings/grouping only; the contained record card owns its surface. */
 .overview-section {
   min-width: 0;
-  padding: 1.15rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-raised);
-  background: var(--paper);
+  padding: 0;
 }
 .overview-section h2,
 .content-list h2,
@@ -3714,6 +3718,35 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .overview-section li p,
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .overview-trend { margin-block: 1rem; }
+.overview-distribution-list {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overview-distribution-label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+}
+.overview-distribution-label strong { color: var(--ink); overflow-wrap: anywhere; }
+.overview-distribution-label span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.overview-distribution-track {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: var(--radius-chip);
+  background: var(--canvas);
+}
+.overview-distribution-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
 
 .content-list { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 .content-list > article { min-width: 0; }
@@ -4337,29 +4370,59 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 
-.servora-operational-card .ant-card-head {
+.servora-operational-card .servora-ant-card-head {
   border-bottom: none;
   min-height: auto;
   padding: 0.5rem 0.75rem;
 }
 
-.servora-operational-card .ant-card-body {
+.servora-operational-card .servora-ant-card-body {
   padding: 0.75rem;
 }
 
-.servora-operational-card .ant-card-actions {
+.servora-operational-card .servora-ant-card-actions {
   border-top: 1px solid var(--rule);
   padding: 0.5rem 0.75rem;
 }
 
-.servora-operational-card .ant-card-actions > li {
+.servora-operational-card .servora-ant-card-actions > li {
   margin: 0;
 }
 
+.servora-operational-card--new { border-color: var(--accent); }
+.servora-operational-card--upcoming { border-color: var(--info); }
+.servora-operational-card--attention { border-color: var(--warning); }
+.servora-operational-card--overdue { border-color: var(--warning); }
+.servora-operational-card--success { border-color: var(--success); }
 .servora-operational-card--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--info-soft);
 }
+.servora-operational-card__status-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 100%;
+}
+.servora-tone-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-chip);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.servora-tone-chip--new,
+.servora-tone-chip--selected { color: var(--accent); background: var(--accent-soft); }
+.servora-tone-chip--upcoming { color: var(--info); background: var(--info-soft); }
+.servora-tone-chip--attention,
+.servora-tone-chip--overdue { color: var(--warning); background: var(--warning-soft); }
+.servora-tone-chip--success { color: var(--success); background: var(--success-soft); }
 
 /* Calendar event card inside agenda */
 .calendar-event-card {
@@ -4858,12 +4921,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-radius: var(--radius-raised);
   padding: 1rem;
 }
-.servora-metric-statistic .ant-statistic-title {
+.servora-metric-statistic .servora-ant-statistic-title {
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 600;
 }
-.servora-metric-statistic .ant-statistic-content {
+.servora-metric-statistic .servora-ant-statistic-content {
   color: var(--ink);
   font-weight: 720;
 }
@@ -4872,20 +4935,29 @@ label.field-group > input, label.field-group > select, label.field-group > texta
      borderless card renders as a detached curved fragment (UX audit VIS-02). */
   border: 1px solid var(--warning);
 }
-.servora-metric-statistic--attention .ant-statistic-content {
+.servora-metric-statistic--attention .servora-ant-statistic-content {
   color: var(--warning);
 }
 .servora-metric-statistic--success {
   border: 1px solid var(--success);
 }
-.servora-metric-statistic--success .ant-statistic-content {
+.servora-metric-statistic--success .servora-ant-statistic-content {
   color: var(--success);
 }
 .servora-metric-statistic--warning {
   border: 1px solid var(--warning);
 }
-.servora-metric-statistic--warning .ant-statistic-content {
+.servora-metric-statistic--warning .servora-ant-statistic-content {
   color: var(--warning);
+}
+.servora-metric-statistic__status {
+  margin: 0.55rem 0 0;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .servora-user-avatar {
