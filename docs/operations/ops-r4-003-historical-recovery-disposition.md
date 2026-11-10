@@ -171,7 +171,30 @@ hashes, the exact attempt/archive ID, `complete: true`, `terminal: false`,
 `starts: 2`, 18 checkpoints and the final checkpoint hash. Its completion time
 must be after the proof and not later than the current trusted time.
 
-## 5. Crash-safe order
+## 5. Read-only inventory and independent retention preconditions
+
+Before any authorized disposition/archive operation, the new source-only
+`ops/scripts/historical-archive-preflight.mjs` can collect the exact 26-file
+source inventory with original file modes, nanosecond mtimes and digest values.
+It takes no arguments, requires root and produces JSON on stdout only. It
+**does not** write files, issue disposition, copy evidence, seal any manifest,
+remove sources or authorize adoption. Its output is explicitly marked
+`READ_ONLY_NOT_ARCHIVE_ACCEPTANCE`. Its scan is not a substitute for a
+host-lock-protected quiescence check inside a future reviewed archive sealer.
+
+**Blocker: a production archive sealer remains unimplemented.** Do not use
+the test-only fixture or an improvised shell loop as a production sealer.
+
+**Independent retention acceptance must occur before the first source
+unlink**, not merely before a future DR claim. The operator must define an
+independent, access-controlled retention destination, demonstrate that a
+separately retrievable copy of the staged archive matches all 26 file hashes
+and the old profile/disposition copies, and document a successful isolated
+restore rehearsal. A second directory on the same `/dev/vda3` filesystem
+is not independent retention. Until the retention destination, immutable
+receipt and reviewed restore procedure exist, no source removal is authorized.
+
+## 6. Crash-safe order
 
 The sequence is intentionally **copy → verify → durable seal → source removal
 → empty-state proof → complete**. It must run under the stable host lock and
@@ -210,7 +233,10 @@ with no active deployment, recovery, admission or maintenance operation.
 5. **Seal manifest:** write the canonical manifest with the actual copied
    hashes/sizes and the live evidence hashes. Verify it against the copied
    bytes. If any copy or hash differs, stop; the live sources remain intact.
-6. **Source removal:** only after the manifest and copies verify. Remove the
+6. **Source removal:** only after the manifest/copies verify **and** a
+   separately retrievable, independently verified retention copy and isolated
+   restore rehearsal are recorded. No offsite or separate-device retention
+   evidence means STOP. Remove the
    exact allowlisted files one by one; never use `rm -rf`, globs or
    `find -delete`. Remove the now-empty attempt/log subdirectories, but keep
    `attempts/`, `initializations/`, `admission-proofs/`, `backups/` and `logs/`
@@ -242,7 +268,7 @@ Crash behavior:
 The last row is the reason the gate is mandatory: empty directories alone are
 not evidence that the archive sealed correctly.
 
-## 6. Reference impact
+## 7. Reference impact
 
 After the move, these historical commands no longer resolve the attempt at the
 live path:
@@ -257,7 +283,7 @@ directories; they would violate the strict empty-state check. Historical
 inspection or rollback must restore the archive in an isolated environment,
 not by repopulating the live directories before issuance.
 
-## 7. Rollback and restore
+## 8. Rollback and restore
 
 Rollback is a copy-back, not a move back:
 
@@ -284,7 +310,7 @@ checkpoint chain is valid, receipt/initial hashes match, original file modes
 (including the two `0644` operator files), exact nanosecond mtimes and
 captured directory mtimes match, and the strict empty-state check fails as expected.
 
-## 8. Sensitive retention
+## 9. Sensitive retention
 
 The two PostgreSQL dumps and all historical logs move into the root-only
 archive. The OPS-R4-001 baseline dumps remain in the baseline root and the
@@ -312,7 +338,7 @@ Archive acceptance requires all of the following:
 - a successful synthetic restore rollback test;
 - `verifyHistoricalArchiveGate()` passing without running production issuance.
 
-## 9. Gate scope and stop conditions
+## 10. Gate scope and stop conditions
 
 The new gate is applied only when the issuance policy is exactly
 `OPS_R4_002_POLICY`. `OPS_R4_001_POLICY` keeps its historical behavior and is
