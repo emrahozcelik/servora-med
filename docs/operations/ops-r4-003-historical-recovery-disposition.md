@@ -182,8 +182,19 @@ remove sources or authorize adoption. Its output is explicitly marked
 `READ_ONLY_NOT_ARCHIVE_ACCEPTANCE`. Its scan is not a substitute for a
 host-lock-protected quiescence check inside a future reviewed archive sealer.
 
-**Blocker: a production archive sealer remains unimplemented.** Do not use
-the test-only fixture or an improvised shell loop as a production sealer.
+**Blocker: a production archive sealer remains unimplemented.** OPS-R4-005
+adds a source-preserving staging CLI, `stage-historical-recovery-6ce4cff0.sh`,
+but it is **NOT a sealer**. After separately authorized root-only installation,
+this CLI only copies the exact 26 historical files plus the old profile and
+disposition into `/var/lib/servora-med-recovery-archive-staging/<attemptId>`.
+It preserves exact nanosecond mtimes and normalizes staged permissions to
+0600, writes a receipt marked `NOT_ARCHIVED_NOT_RETAINED_NO_SOURCE_REMOVAL`
+outside the staged archive tree, and refuses an existing stage. A partial
+stage after a crash is an explicit STOP requiring separately reviewed cleanup:
+there is no automatic reset or source removal. The host lock must be held
+throughout. It never creates `ARCHIVE-MANIFEST`, `SOURCE-EMPTY-PROOF` or
+`ARCHIVE-COMPLETE`. Do not use the test fixture or improvised shell loops
+as a production sealer.
 
 **Independent retention acceptance must occur before the first source
 unlink**, not merely before a future DR claim. The operator must define an
