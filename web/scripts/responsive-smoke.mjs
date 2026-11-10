@@ -194,10 +194,12 @@ const overviewCardsFixture = `<!doctype html><html lang="tr"><head><meta charset
 <body>
 <main class="workspace overview-workspace">
   <div class="overview-main-grid">
+    <div class="overview-main-column">
     <section class="overview-section" aria-labelledby="recent-work-title">
       <h2 id="recent-work-title">Son tamamlanan işler</h2>
       <div class="overview-card-stack" id="responsive-overview-cards-root" data-smoke-overview-card-stack></div>
     </section>
+    </div>
   </div>
 </main>
 <script type="module" src="/scripts/responsive-overview-cards-fixture.tsx"></script>
@@ -257,7 +259,8 @@ async function measureOverviewCards(page) {
       return !head || tr.right <= head.getBoundingClientRect().right + 1;
     });
     // VIS-02: semantic metric tones must use a full radius-following outline.
-    // VIS-04: the section radius must resolve to the canonical raised token.
+    // VIS-04: overview sections are unboxed; the operational cards own the
+    // canonical raised radius, keeping the hierarchy free of nested frames.
     const kpiRegion = document.querySelector('[data-smoke-overview-kpis]');
     const kpiVariants = [...(kpiRegion?.querySelectorAll('.servora-metric-statistic') ?? [])]
       .map((card) => {
@@ -272,7 +275,9 @@ async function measureOverviewCards(page) {
           borderRadius: style.borderRadius,
         };
       });
-    const sectionRadius = section ? getComputedStyle(section).borderRadius : '';
+    const sectionStyle = section ? getComputedStyle(section) : null;
+    const cardRadii = [...(stack?.querySelectorAll('.servora-operational-card') ?? [])]
+      .map((card) => getComputedStyle(card).borderRadius);
     return {
       overflowX: root.scrollWidth > root.clientWidth + 1,
       scrollWidth: root.scrollWidth,
@@ -284,7 +289,10 @@ async function measureOverviewCards(page) {
       headCount: heads.length,
       kpiVariantCount: kpiVariants.length,
       kpiVariants,
-      sectionRadius,
+      sectionRadius: sectionStyle?.borderRadius ?? '',
+      sectionBorderTopWidth: sectionStyle?.borderTopWidth ?? '',
+      sectionBackground: sectionStyle?.backgroundColor ?? '',
+      cardRadii,
     };
   });
 }
@@ -1672,9 +1680,16 @@ try {
         failures.push(`${vp.name} overview cards: metric card radius drifted (${kpi.borderRadius})`);
       }
     }
-    // VIS-04: overview panels must resolve the canonical raised radius (12px).
-    if (m.sectionRadius !== '12px') {
-      failures.push(`${vp.name} overview cards: section radius is ${m.sectionRadius}, expected 12px`);
+    // VIS-04: the section is flat and transparent; the cards, not the
+    // structural section, must preserve the canonical 12px raised radius.
+    if (m.sectionRadius !== '0px' || m.sectionBorderTopWidth !== '0px'
+      || m.sectionBackground !== 'rgba(0, 0, 0, 0)') {
+      failures.push(`${vp.name} overview cards: unexpected nested section surface`
+        + ` (radius ${m.sectionRadius}, border ${m.sectionBorderTopWidth}, background ${m.sectionBackground})`);
+    }
+    if (m.cardRadii?.length !== 3 || m.cardRadii.some((radius) => radius !== '12px')) {
+      failures.push(`${vp.name} overview cards: card radius does not match canonical 12px token`
+        + ` (${(m.cardRadii ?? []).join(', ')})`);
     }
     await page.close();
   }
