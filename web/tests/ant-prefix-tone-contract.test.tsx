@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -7,7 +8,7 @@ import { ServoraAntProvider } from '../src/ui/antd/ServoraAntProvider';
 import { OperationalCard } from '../src/ui/antd/OperationalCard';
 import { MetricStatistic } from '../src/ui/antd/MetricStatistic';
 
-const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '');
 
 describe('Ant prefix and operational two-channel contract', () => {
