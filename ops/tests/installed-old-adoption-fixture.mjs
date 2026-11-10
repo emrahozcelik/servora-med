@@ -78,7 +78,8 @@ export async function adoptionHost(f) {
   const files=new Map(),directories=new Map([['/',0o755],[state,0o700]]),fds=new Map(),commands=[];
   let nextFd=10;
   const add=(path,data,mode=0o600)=>{
-    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1});
+    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1,
+      mtimeNs:'1762770600000000000'});
     let parent=path.slice(0,path.lastIndexOf('/'));
     while(parent){if(!directories.has(parent))directories.set(parent,parent.startsWith(state+'/')?0o700:0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
   };
@@ -87,7 +88,8 @@ export async function adoptionHost(f) {
     const file=files.get(path),dir=directories.has(path);
     if(!file&&!dir)throw Object.assign(new Error('not found'),{code:'ENOENT'});
     return {uid:0,gid:0,nlink:1,dev:1,ino:parseInt(hash(path).slice(0,8),16),mode:dir?directories.get(path):file.mode,size:file?.data.length??0,
-      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file};
+      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file,
+      mtimeNs:BigInt(file?.mtimeNs??'1762770600000000000')};
   };
   const children=path=>{
     path=posix.normalize(path);
