@@ -148,25 +148,36 @@ Preserve all historical approval files, the 71ae6df6 adoption record and its
 baseline. Admission remains impossible without a real, unexpired root approval;
 the adoption record never substitutes for it.
 
-### Measured source-PR impact
+### Measured exact-main impact (10 November 2026)
 
-These are the measured hashes at this source change; the bootstrap must
-recompute the live profile from the exact merged target and installed bytes.
+These are the independently checked hashes of merged main `dee9c5f5067eec86d00bbab728f3b24ea01bf358`
+and its Linux release artifact. The projected profile value is an **audit estimate,
+not a production authorization**. The bootstrap must recompute all installed
+bytes, nine live contracts and the final profile; any later main/source update
+invalidates these hashes.
 
 | Item | Value |
 |---|---|
 | Previous installed controller | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| New controller bytes (OPS-R4-003 source) | `339ebb687616d1c13045c17f70daa87ff933a4b5e4051ebfafacd957e3fefc16` |
+| New controller bytes (exact merged main) | `0cf7ffe077d0de8e6c10c7171bc817653e2e43bf5959799d8d895f0e26d7a230` |
 | Previous installed time module | `e76f85d9955d711cc8f89060e778d4bb57ffd77a8022d670af90d19d5fbba7d1` |
 | TT-A time module | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
 | Current profile digest | `7a26bd58923a567992b9c9ca5abc6cad7922b2ac51c5c0a79e7e839ffacdf31d` |
-| Projected profile digest (only the two contract hashes substituted) | `b17b469adf2baa33ef7372594a6a0a7ea1529f213c6a9c63fc0095de864ade47` |
+| Projected profile digest (audit-only, **not** to be blindly installed) | `918f8a98cc986257c47ed0956eab92bd85aeb384c32500c4c5c285b49e7fd4aa` |
 | New OPS-R4-002 administrator CLI | `eaa7209132c3e1f5b84e4f9187a8b61f6c222c5ffd034ec76872d87095c1f378` |
 | New OPS-R4-003 disposition CLI | `b65108636e3a6e298227f3f9bfd237c8ef7674506d00645c6b3a256d62ec61de` |
 
-The current `126e7622…` artifact does **not** contain these controller/CLI
-bytes. A new exact-main CI run and Linux artifact are required after merge; the
-new root approval must bind that new target artifact/CI and the final profile.
+The exact-main GitHub CI run `42822508045` passed and produced artifact
+`servora-med-release-dee9c5f5067eec86d00bbab728f3b24ea01bf358`.
+The inner tarball SHA-256 is
+`294426ad1d6527a354da8195f00f7c7ac33217ef1b6da1836781107e5060b9e9`.
+The new root approval must bind the **live** final profile, this exact artifact
+and target CI evidence, not an obsolete source-PR controller hash.
+
+**Separate blocker:** the reviewed archive-removal/sealing tool and independent
+retention/restore evidence are still absent. The read-only OPS-R4-004 inventory
+tool only checks the old evidence; it does not permit file movement, unlinks,
+disposition, approval, profile re-seal or deployment.
 
 ### Current production state precondition
 
