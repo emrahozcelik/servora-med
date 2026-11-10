@@ -25,7 +25,7 @@
     "audit:high": "node scripts/audit-high-policy.mjs"
   },
   "dependencies": {
-    "antd": "6.5.1",
+    "antd": "6.7.0",
     "dayjs": "1.11.21",
     "react": "19.2.7",
     "react-dom": "19.2.7",
