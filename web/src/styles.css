@@ -4406,6 +4406,27 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   gap: 0.5rem;
   max-width: 100%;
 }
+/* At compact widths a semantic status chip must not compress the title.
+   Give the title its own line and keep the extra/status in normal flow,
+   including at 200% text scaling. */
+@media (max-width: 40rem) {
+  .servora-operational-card .servora-ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+  }
+  .servora-operational-card .servora-operational-card__title {
+    flex: none;
+    width: 100%;
+  }
+  .servora-operational-card .servora-operational-card__extra {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  .servora-operational-card__status-group {
+    justify-content: flex-start;
+  }
+}
 .servora-tone-chip {
   display: inline-flex;
   align-items: center;
