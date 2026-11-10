@@ -14,6 +14,7 @@ bash -n \
   ../ops/scripts/issue-installed-old-adoption.sh \
   ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
   ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
+  ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \
   ../ops/scripts/predeploy-backup-launcher.sh \
   ../ops/scripts/ensure-macos-service-identity.sh \
   ../ops/ci/verify-caddyfile.sh \
@@ -40,6 +41,6 @@ for script in ../ops/local-ci/*.sh ../ops/local-ci/lib/*.sh ../ops/local-ci/chai
 done
 node --check ../ops/local-ci/assemble-manifest.mjs
 
-for module in deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe forward-host-recovery forward-host-continuity preserve-forward-authorization; do
+for module in historical-archive-stage historical-archive-preflight deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe forward-host-recovery forward-host-continuity preserve-forward-authorization; do
   node --check "../ops/scripts/${module}.mjs"
 done
