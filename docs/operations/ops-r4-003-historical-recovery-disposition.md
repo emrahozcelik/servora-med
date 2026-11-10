@@ -191,8 +191,11 @@ with no active deployment, recovery, admission or maintenance operation.
    and the profile is re-sealed. The host lock and pending-state checks remain
    mandatory.
 4. **Copy:** copy the exact 26 allowlisted files and the old profile/disposition
-   copies to a staging area under the fixed archive root. Verify each copy
-   against the pre-state hash and size. Do not remove the live sources.
+   copies to a sibling staging directory outside the sealed archive directory
+   (or remove staging before sealing). Never leave staging or audit scratch
+   files inside the sealed archive directory; the gate requires its exact tree.
+   Verify each copy against the pre-state hash and size. Do not remove the live
+   sources.
 5. **Seal manifest:** write the canonical manifest with the actual copied
    hashes/sizes and the live evidence hashes. Verify it against the copied
    bytes. If any copy or hash differs, stop; the live sources remain intact.
