@@ -83,13 +83,18 @@ export async function adoptionHost(f) {
     let parent=path.slice(0,path.lastIndexOf('/'));
     while(parent){if(!directories.has(parent))directories.set(parent,parent.startsWith(state+'/')?0o700:0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
   };
-  const info=path=>{
+  const info=(path,bigint=false)=>{
     path=posix.normalize(path);
     const file=files.get(path),dir=directories.has(path);
     if(!file&&!dir)throw Object.assign(new Error('not found'),{code:'ENOENT'});
-    return {uid:0,gid:0,nlink:1,dev:1,ino:parseInt(hash(path).slice(0,8),16),mode:dir?directories.get(path):file.mode,size:file?.data.length??0,
-      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file,
-      mtimeNs:BigInt(file?.mtimeNs??'1762770600000000000')};
+    const ino=parseInt(hash(path).slice(0,8),16);
+    const mode=dir?directories.get(path):file.mode;
+    const size=file?.data.length??0;
+    const mtimeNs=BigInt(file?.mtimeNs??'1762770600000000000');
+    if(bigint)return {uid:0n,gid:0n,nlink:1n,dev:1n,ino:BigInt(ino),mode:BigInt(mode),
+      size:BigInt(size),mtimeNs,isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false};
+    return {uid:0,gid:0,nlink:1,dev:1,ino,mode,size,mtimeNs,
+      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file};
   };
   const children=path=>{
     path=posix.normalize(path);
@@ -142,7 +147,11 @@ export async function adoptionHost(f) {
   const fakeFs={...fs,
     mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
     symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
-    lstatSync:info,fstatSync:fd=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});return info(fds.get(fd));},
+    existsSync:path=>{const normalized=posix.normalize(path);
+      return files.has(normalized)||directories.has(normalized);},
+    lstatSync:(path,options)=>info(path,Boolean(options?.bigint)),
+    fstatSync:(fd,options)=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});
+      return info(fds.get(fd),Boolean(options?.bigint));},
     readdirSync:children,realpathSync:path=>path==='/opt/servora-med/current'?root:path,
     openSync:(path,flags)=>{
       path=posix.normalize(path);
@@ -197,7 +206,10 @@ export async function adoptionHost(f) {
     return url(`const process=globalThis[${JSON.stringify(key)}].process;\n`+source
       +`\n// instance ${randomUUID()}\n//# sourceURL=servora-test/${name}\n`);
   };
-  host.restart=()=>import(rewrite('deployment-controller.mjs',{'./deployment-attempt.mjs':rewrite('deployment-attempt.mjs')}));
+  host.restart=()=>import(rewrite('deployment-controller.mjs',{
+    './deployment-attempt.mjs':rewrite('deployment-attempt.mjs'),
+    './historical-recovery-evidence.mjs':rewrite('historical-recovery-evidence.mjs')
+  }));
   host.controller=await host.restart();
   host.rootAttempt=await import(rewrite('deployment-attempt.mjs'));
   host.cleanup=()=>delete globalThis[key];

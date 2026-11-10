@@ -394,3 +394,80 @@ Stop and do not issue if any of the following is true:
 
 There is no force, bypass, alternate path, caller-selected archive or
 "empty directories imply complete" shortcut.
+
+## 12. OPS-R4-002 in-place preservation alternative
+
+`verifyHistoricalArchiveGate()` above is unchanged and remains the first
+accepted branch. When `OPS_R4_002_POLICY` is selected and no sealed archive
+directory exists, `verifyHistoricalPreservationGate()` accepts a second,
+**non-destructive** disposition proof instead of the sealed archive:
+`verifyHistoricalInPlacePreservation()`.
+
+This is not a waiver of the archive contract and not an "empty directories
+imply complete" shortcut. It exists because the sealed branch requires the 26
+historical files to be removed before independent off-host retention exists,
+while the evidence itself must not be erased. The in-place branch keeps every
+source file exactly where it is and proves that fact cryptographically.
+
+### 12.1 Accepted state
+
+```text
+/var/lib/servora-med/deploy/{attempts,initializations,admission-proofs,backups,logs}
+  unchanged, root:root 0700, exact allowlist, no pending marker
+/var/lib/servora-med/deploy/historical-dispositions/<attempt>.json
+  root:root 0600 ABANDONED_SUPERSEDED / NOT_ACCEPTED / terminal:false
+/var/lib/servora-med-recovery-archive-staging/<attempt>/
+  the OPS-R4-005 staged replica (26 files + profile + disposition)
+/var/lib/servora-med-recovery-archive-staging/<attempt>.stage-receipt.json
+  root:root 0600 canonical receipt, 28 entries
+```
+
+No `ARCHIVE-MANIFEST.json`, `SOURCE-EMPTY-PROOF.json` or `ARCHIVE-COMPLETE.json`
+is written, and no source is unlinked, renamed or moved.
+
+### 12.2 Proof chain
+
+1. The OPS-R4-006 readback verifies all 28 staged files, the exact tree, the
+   receipt shape and the `NOT_ARCHIVED_NOT_RETAINED_NO_SOURCE_REMOVAL`
+   authority. A partial stage, extra entry, symlink, hardlink, wrong owner,
+   wrong mode, wrong size or wrong nanosecond mtime fails closed.
+2. The live disposition bytes must hash to `receipt.dispositionSha256`; the
+   staged `preserved/disposition.json` must be byte-identical to it.
+3. The staged `preserved/profile.json` must hash to the disposition
+   `profileSha256` and to `receipt.profileSha256`. This is the durable binding
+   to the profile that was live when the disposition was issued; the later
+   profile re-seal does not invalidate it.
+4. The live OPS-R4-001 approval, the full 18-checkpoint chain, the admission
+   proof, both backup receipts and `pg_dump`-derived hashes, the emergency
+   receipt, the old adoption record, the old baseline manifest and every
+   baseline payload are re-read and re-validated exactly as the sealed gate
+   does.
+5. `captureHistoricalSourceInventory()` re-reads the live tree, and its
+   canonical digest must equal `receipt.sourceInventorySha256`. Every receipt
+   entry must also match the live hash, size and nanosecond mtime. Any missing,
+   extra, modified, re-timestamped, re-linked or foreign-owned entry fails.
+
+### 12.3 Precedence and ordering
+
+- If `/var/lib/servora-med-recovery-archive/<attempt>/` exists for any reason,
+  the sealed gate runs and the in-place branch is never considered. A started
+  or partial archive is a STOP condition.
+- Order is **disposition → stage → profile re-seal → baseline → new root
+  approval → adoption → attempt-preflight/admission**. Staging must happen
+  before the re-seal because it copies the pre-re-seal profile.
+- The adoption issuer must run before the new attempt is admitted. Once any
+  other attempt directory exists under `deploy/attempts/`, the exact-inventory
+  check fails closed; that is intentional and has no bypass.
+- The new deployment still needs its own attempt UUID, its own root approval
+  and the exact-main artifact. Nothing from the historical attempt — chain
+  position, start budget, approval, profile hash — is inherited.
+
+### 12.4 What remains prohibited
+
+- No source deletion, rename, move, overwrite or schema reset.
+- No synthetic terminal state: the disposition stays `ABANDONED_SUPERSEDED`,
+  `NOT_ACCEPTED`, `terminal:false`, `observationPassed:false`.
+- No claim of archiving, independent retention, off-host durability or
+  disaster-recovery coverage. The staging directory is on the same host.
+- No caller-selected path, mode, attempt, archive or force flag, and no
+  fallback from one branch to the other.

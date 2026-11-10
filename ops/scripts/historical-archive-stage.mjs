@@ -9,15 +9,11 @@ import {
   openSync,readFileSync,readdirSync,writeFileSync
 } from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {OPS_R4_003_POLICY,OPS_R4_003_LAYOUT} from './deployment-controller.mjs';
 import {
+  HISTORICAL_STATE_ROOT as STATE,HISTORICAL_STAGING_ROOT as STAGING_PARENT,
+  HISTORICAL_ATTEMPT_ID as ID,HISTORICAL_ARCHIVED_PATHS as BYTES,
   captureHistoricalSourceInventory,validateHistoricalSourceInventory
-} from './historical-archive-preflight.mjs';
-
-const STATE='/var/lib/servora-med/deploy';
-const STAGING_PARENT='/var/lib/servora-med-recovery-archive-staging';
-const ID=OPS_R4_003_POLICY.attemptId;
-const BYTES=OPS_R4_003_LAYOUT.archivedPaths;
+} from './historical-recovery-evidence.mjs';
 const MODE_DIR=0o700,MODE_FILE=0o600;
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=(code='RECOVERY_HISTORICAL_STAGE_INVALID')=>{throw new Error(code);};

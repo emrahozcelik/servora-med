@@ -42,10 +42,12 @@ release. It is **not** the original artifact, does not reproduce
   artifact hash is invalid.
 - The adoption record is not an approval. A genuine, separately issued root
   approval with the new profile digest remains mandatory for admission.
-- OPS-R4-002 issuance also requires the separate OPS-R4-003 historical
-  disposition and sealed-archive gate for the consumed `6ce4…` attempt. Empty
-  `attempts/`, `initializations/`, `admission-proofs/`, `backups/` and `logs/`
-  directories are necessary but not sufficient. See
+- OPS-R4-002 issuance also requires a separate OPS-R4-003 historical
+  disposition of the consumed `6ce4…` attempt and one of two accepted proofs:
+  the sealed archive (source removal, unchanged) or the non-destructive
+  in-place preservation branch. Empty `attempts/`, `initializations/`,
+  `admission-proofs/`, `backups/` and `logs/` directories are never sufficient
+  on their own. See
   [OPS-R4-003 historical recovery disposition](./ops-r4-003-historical-recovery-disposition.md).
 
 ## 3. Baseline runbook (host-side, separately authorized)
@@ -63,12 +65,21 @@ and must be captured on the target host under an explicit operator approval.
   needed).
 - The stable `host.lock` exists; no deployment, admission, recovery or
   maintenance operation is active.
-- **Strict empty recovery state:** the issuer requires
-  `attempts/`, `initializations/`, `admission-proofs/`, `backups/` and `logs/`
-  to be trusted, empty directories. The current production host has historical
-  attempt/backup/log state; a separate authorized archival/quiescence decision
-  is required before issuance. Do not delete or rewrite the historical
-  71ae6df6 adoption record or its baseline.
+- **Historical recovery state:** the issuer accepts exactly one of two proofs
+  for the consumed `6ce4…` attempt:
+  1. the sealed OPS-R4-003 archive plus trusted, empty
+     `attempts/`, `initializations/`, `admission-proofs/`, `backups/` and
+     `logs/`; or
+  2. the non-destructive in-place branch: the exact 26 historical files still
+     at their live paths, an `ABANDONED_SUPERSEDED / NOT_ACCEPTED` disposition
+     and a verified OPS-R4-005 stage receipt whose inventory digest matches the
+     live tree.
+
+  Neither proof is satisfied by deleting files, and there is no third mode. The
+  current production host has the historical attempt/backup/log state, so it
+  takes branch 2 unless a separately authorized archive operation has already
+  sealed branch 1. Do not delete or rewrite the historical 71ae6df6 adoption
+  record or its baseline.
 - A genuine root approval for the target release exists (or will exist) with
   `oldReleaseSha=67d3318…`, `oldArtifactSha256=a1db5a8d…`, OLD catalog digest
   `43f96550…`, the target release/tree/artifact/CI manifest and the new profile
@@ -130,11 +141,15 @@ The controller change alters `controllerModuleSha256`. A production bootstrap
 must, in one separately reviewed sequence:
 
 1. Produce a new exact-main CI run and Linux artifact after the source merge.
-2. Install the new `deployment-controller.mjs`, the reviewed OPS-R4-003
-   disposition CLI and the reviewed TT-A `trusted-time.mjs` (`d28fb396…`) as
-   root-owned modules. Keep the old profile live for the historical binding.
-3. Create the OPS-R4-003 disposition and sealed archive **before** the profile
-   re-seal, as specified in
+2. Install the new `deployment-controller.mjs`, the shared
+   `historical-recovery-evidence.mjs`, the reviewed OPS-R4-003 disposition CLI,
+   the reviewed OPS-R4-005 staging CLI and the reviewed TT-A `trusted-time.mjs`
+   (`d28fb396…`) as root-owned modules. Keep the old profile live for the
+   historical binding.
+3. Create the OPS-R4-003 disposition, keep the old profile live, then either
+   seal the archive (source removal) **or** run the OPS-R4-005 staging CLI to
+   create the in-place preservation record. Both must happen **before** the
+   profile re-seal, as specified in
    [OPS-R4-003 historical recovery disposition](./ops-r4-003-historical-recovery-disposition.md).
 4. Re-seal the host profile with both new contract hashes and the unchanged
    environment/database identity; verify all nine contract digests and
@@ -148,48 +163,67 @@ Preserve all historical approval files, the 71ae6df6 adoption record and its
 baseline. Admission remains impossible without a real, unexpired root approval;
 the adoption record never substitutes for it.
 
-### Measured exact-main impact (10 November 2026)
+### Measured source impact (10 November 2026)
 
-These are the independently checked hashes of merged main `dee9c5f5067eec86d00bbab728f3b24ea01bf358`
-and its Linux release artifact. The projected profile value is an **audit estimate,
-not a production authorization**. The bootstrap must recompute all installed
-bytes, nine live contracts and the final profile; any later main/source update
-invalidates these hashes.
+The OPS-R4-002 historical acceptance contract changed after exact-main
+`402e350af9d057bafe77bfeaeef23fa33b25989a`. These are the current source
+hashes on this branch. They are **audit values for the operator, not a
+production authorization**: the bootstrap must recompute all installed bytes,
+the nine live contracts and the final profile, and any later main/source update
+invalidates them.
 
 | Item | Value |
 |---|---|
-| Previous installed controller | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| New controller bytes (exact merged main) | `0cf7ffe077d0de8e6c10c7171bc817653e2e43bf5959799d8d895f0e26d7a230` |
-| Previous installed time module | `e76f85d9955d711cc8f89060e778d4bb57ffd77a8022d670af90d19d5fbba7d1` |
-| TT-A time module | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
-| Current profile digest | `7a26bd58923a567992b9c9ca5abc6cad7922b2ac51c5c0a79e7e839ffacdf31d` |
-| Projected profile digest (audit-only, **not** to be blindly installed) | `918f8a98cc986257c47ed0956eab92bd85aeb384c32500c4c5c285b49e7fd4aa` |
-| New OPS-R4-002 administrator CLI | `eaa7209132c3e1f5b84e4f9187a8b61f6c222c5ffd034ec76872d87095c1f378` |
-| New OPS-R4-003 disposition CLI | `b65108636e3a6e298227f3f9bfd237c8ef7674506d00645c6b3a256d62ec61de` |
+| Previous installed controller (`71ae6df6` cutover) | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
+| Current controller bytes | `c7020e55794d9e7d73600cd2b1b8cd22733fd61743bd690df574ce1d8462075a` |
+| Current shared evidence-module bytes | `cd6ea7a24423954cc4532f317b279eef358e7eae5855d516c808306934390a38` |
+| Current OPS-R4-002 administrator CLI | `69a655282c72bb85fa2c7d68f99968df46104ba8ac479f8e08aea8c43193264f` |
+| Current OPS-R4-003 disposition CLI | `9417cecb254f8e2e65d33c832b72bd2132634873fa9b736e97273946ccb00094` |
+| TT-A time module (unchanged by this slice) | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
+| Obsolete profile estimate from `dee9c5f` (**audit-only, never install**) | `918f8a98cc986257c47ed0956eab92bd85aeb384c32500c4c5c285b49e7fd4aa` |
 
-The exact-main GitHub CI run `42822508045` passed and produced artifact
-`servora-med-release-dee9c5f5067eec86d00bbab728f3b24ea01bf358`.
-The inner tarball SHA-256 is
-`294426ad1d6527a354da8195f00f7c7ac33217ef1b6da1836781107e5060b9e9`.
-The new root approval must bind the **live** final profile, this exact artifact
-and target CI evidence, not an obsolete source-PR controller hash.
+The earlier GitHub CI run `42822508045` and artifact
+`servora-med-release-dee9c5f5067eec86d00bbab728f3b24ea01bf358` remain context
+only. The new root approval must bind the **live** final profile, the new
+exact-main Linux artifact and its CI evidence, never an obsolete source-PR
+controller hash.
 
-**Separate blocker:** the reviewed archive-removal/sealing tool and independent
-retention/restore evidence are still absent. The read-only OPS-R4-004 inventory
-tool only checks the old evidence; it does not permit file movement, unlinks,
-disposition, approval, profile re-seal or deployment.
+The shared evidence module must be installed as
+`/usr/local/libexec/servora-med/historical-recovery-evidence.mjs`
+`root:root 0750`-directory / `0644`-file, single link, exactly like the other
+controller imports. The administrator wrappers and `r4_controller()` verify it
+before invoking Node; it is not one of the nine profile contract digests, so the
+profile re-seal does not add a tenth key.
+
+**Remaining (non-blocking) gap:** the reviewed archive-removal/sealing tool and
+independent off-host retention/restore evidence are still absent. They are
+**no longer required** for OPS-R4-002 issuance, because the in-place branch
+never removes a source. They remain required for the sealed OPS-R4-003 branch
+and for any disaster-recovery claim.
 
 ### Current production state precondition
 
-The OPS-R4-002 issuer preserves the existing strict empty-state checks
-(`attempts/`, `initializations/`, `admission-proofs/`, `backups/`, `logs/`) and
-adds the OPS-R4-003 sealed-archive gate. The current production host still has
-the historical `6ce4…` attempt/backup/log state from the consumed OPS-R4-001
-cutover. Production issuance remains blocked until a separately authorized
-disposition/archive operation preserves that history and presents both trusted
-empty directories and a valid `ARCHIVE-COMPLETE`/`SOURCE-EMPTY-PROOF` chain.
-The source does not relax the strict check and does not perform that archival
-step.
+`issueInstalledOldAdoptionForPolicy()` no longer requires the five state
+directories to be empty for OPS-R4-002. It calls
+`verifyHistoricalPreservationGate()` and accepts either the sealed
+`ARCHIVE-COMPLETE` chain over trusted empty sources, or the in-place
+`verifyHistoricalInPlacePreservation()` proof described in OPS-R4-003 §12.
+
+So the historical `6ce4…` attempt/backup/log state no longer blocks production
+issuance by itself. The remaining prerequisites are operational, not
+structural:
+
+- the root-only disposition (`issue-historical-recovery-disposition-6ce4cff0`);
+- the root-only OPS-R4-005 stage (`stage-historical-recovery-6ce4cff0`), run
+  after the disposition and before the profile re-seal;
+- the profile re-seal with the new controller and evidence-module bytes;
+- the new 67d3318 baseline;
+- a genuine new root approval bound to the new target CI/artifact/profile;
+- the exact-main Linux artifact.
+
+OPS-R4-001 issuance is unchanged and still requires the trusted empty
+directories; the new branch is selected only by the exact `67d3318` OLD release
+SHA.
 
 ## 5. Stop conditions
 
@@ -197,8 +231,10 @@ step.
   `a1db5a8d…` retained archive instead; no adoption is needed.
 - Any policy, baseline, catalog, content-manifest, archive or profile digest
   differs: stop; do not repair by rewriting the baseline or record.
-- Pending recovery state, a nonempty/untrusted state directory, a non-root
-  caller, a duplicate slot, an UNKNOWN trusted time, or a missing/invalid
-  OPS-R4-003 disposition/sealed archive: stop.
+- Pending recovery state, a non-root caller, a duplicate slot, an UNKNOWN
+  trusted time, or a missing/invalid OPS-R4-003 disposition **and** historical
+  proof: stop. A nonempty or untrusted state directory is accepted only through
+  the exact in-place inventory proof; an extra, missing or modified historical
+  entry is still a stop condition.
 - Never use `ddf12049…` as the original artifact, never create a synthetic
   original hash, and never weaken the existing OPS-R4-001 controls.

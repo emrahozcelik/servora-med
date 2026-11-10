@@ -11,6 +11,12 @@ import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, rea
 import { parseCanonicalRecord } from './deployment-attempt.mjs';
 import { classifyMigrationState } from './migration-reconciliation.mjs';
 import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
+import {
+  HISTORICAL_STATE_ROOT,HISTORICAL_ATTEMPT_ID,HISTORICAL_LOG_NAMES,HISTORICAL_ARCHIVED_PATHS,
+  HISTORICAL_SOURCE_DIRECTORIES,HISTORICAL_REMOVED_DIRECTORIES,historicalSourceMode,
+  HISTORICAL_STAGING_DIR,HISTORICAL_STAGING_RECEIPT,
+  captureHistoricalSourceInventory,readHistoricalStageReceipt,verifyHistoricalStageReadback
+} from './historical-recovery-evidence.mjs';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -19,7 +25,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const INSTALLED = '/usr/local/libexec/servora-med';
 const ENV_FILE = '/etc/servora-med/servora-med.env';
-const STATE_ROOT = '/var/lib/servora-med/deploy';
+const STATE_ROOT = HISTORICAL_STATE_ROOT;
 const PERMIT_DIRECTORY = '/run/servora-med-recovery';
 const PERMIT_FILE = `${PERMIT_DIRECTORY}/start.permit`;
 const PG_RESTORE_BIN = '/usr/bin/pg_restore';
@@ -64,7 +70,6 @@ export const OPS_R4_002_POLICY = Object.freeze({
 // for the one consumed, nonterminal OPS-R4-001 attempt. It is not an approval,
 // not a terminal state, and not a caller-selectable recovery mode. The exact
 // historical attempt is fixed in source; there is no attempt/path selector.
-const HISTORICAL_ATTEMPT_ID = '6ce4cff0-fa73-450e-b540-3f54ae429e7c';
 const HISTORICAL_OLD_RELEASE = '71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
 const HISTORICAL_OLD_ARTIFACT = '6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
 const HISTORICAL_TARGET_RELEASE = 'f5f87d450061ca12ee80451c55eb56e99b80823c';
@@ -88,21 +93,6 @@ const HISTORICAL_POSTDEPLOY_LOG_FILE = STATE_ROOT+'/logs/'+HISTORICAL_ATTEMPT_ID
   '/postdeploy-operator-20261101T040551Z.log';
 const HISTORICAL_POSTDEPLOY_RC_FILE = STATE_ROOT+'/logs/'+HISTORICAL_ATTEMPT_ID+
   '/postdeploy-operator-20261101T040551Z.rc';
-const HISTORICAL_LOG_NAMES = Object.freeze([
-  'migration.log',
-  'observation-80472679-0cbd-49ea-ab59-145af196e01a.log',
-  'observation-8656d395-df6e-4161-b353-ca4589221ec6.log',
-  'postdeploy-operator-20261101T040551Z.log',
-  'postdeploy-operator-20261101T040551Z.rc'
-]);
-const HISTORICAL_ARCHIVED_PATHS = Object.freeze([
-  ...Array.from({length:18},(_,index)=>'attempts/'+HISTORICAL_ATTEMPT_ID+'/'+
-    String(index).padStart(4,'0')+'.json'),
-  'admission-proofs/'+HISTORICAL_ATTEMPT_ID+'.json',
-  'backups/'+HISTORICAL_ATTEMPT_ID+'-pre.dump',
-  'backups/'+HISTORICAL_ATTEMPT_ID+'-post.dump',
-  ...HISTORICAL_LOG_NAMES.map(name=>'logs/'+HISTORICAL_ATTEMPT_ID+'/'+name)
-]);
 const HISTORICAL_PRESERVED_EVIDENCE = Object.freeze([
   {path:ADOPTION_FILE,role:'old-adoption',liveSource:true},
   {path:HISTORICAL_OLD_APPROVAL_FILE,role:'old-approval',liveSource:true},
@@ -115,13 +105,6 @@ const HISTORICAL_PRESERVED_EVIDENCE = Object.freeze([
 ].map(Object.freeze));
 const HISTORICAL_ARCHIVE_METADATA_PATHS = Object.freeze([
   'ARCHIVE-MANIFEST.json','ARCHIVE-COMPLETE.json','SOURCE-EMPTY-PROOF.json'
-]);
-const HISTORICAL_SOURCE_DIRECTORIES = Object.freeze([
-  'attempts','initializations','admission-proofs','backups','logs'
-]);
-const HISTORICAL_REMOVED_DIRECTORIES = Object.freeze([
-  'attempts/'+HISTORICAL_ATTEMPT_ID,
-  'logs/'+HISTORICAL_ATTEMPT_ID
 ]);
 
 export const OPS_R4_003_POLICY = Object.freeze({
@@ -200,8 +183,6 @@ const HISTORICAL_PRESERVED_KEYS = Object.freeze(['path','role','liveSource','sha
 const HISTORICAL_DIRECTORY_KEYS = Object.freeze(['beforeEntries','afterEntries','sourceMtimeNs']);
 const HISTORICAL_REMOVED_DIRECTORY_KEYS = Object.freeze(['mode','uid','gid','sourceMtimeNs']);
 const historicalMtimeNs = value => typeof value === 'string' && /^(?:0|[1-9][0-9]{0,19})$/.test(value);
-const historicalSourceMode = path => path.startsWith('logs/'+HISTORICAL_ATTEMPT_ID+'/postdeploy-operator-')
-  ? '0644' : '0600';
 const HISTORICAL_PROOF_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
   'manifestSha256','directories','pendingMarkers','verifiedAtUTC']);
 const HISTORICAL_PROOF_DIRECTORY_KEYS = Object.freeze(['exists','type','symlink','uid','gid','mode',
@@ -226,10 +207,12 @@ const historicalDispositionFail = () => {
 const historicalArchiveFail = () => {
   throw new Error('RECOVERY_HISTORICAL_ARCHIVE_INVALID');
 };
+const historicalPreservationFail = () => {
+  throw new Error('RECOVERY_HISTORICAL_PRESERVATION_INVALID');
+};
 
 /** Pure disposition validation. Root-private readers must supply every hash. */
-export function validateHistoricalRecoveryDisposition(record, context) {
-  const fail = historicalDispositionFail;
+export function validateHistoricalRecoveryDisposition(record, context, fail = historicalDispositionFail) {
   const policy = OPS_R4_003_POLICY;
   if (!historicalExact(record, HISTORICAL_DISPOSITION_KEYS) || record.formatVersion !== 1
     || record.kind !== 'HISTORICAL_RECOVERY_DISPOSITION' || !HISTORICAL_UUID.test(record.dispositionId)
@@ -474,18 +457,23 @@ function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
     '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
     if (existsSync(path)) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
-  for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs',
-    STATE_ROOT+'/backups',STATE_ROOT+'/logs']) {
-    if (!existsSync(path)) continue;
-    const info = lstatSync(path);
-    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
-      || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
-    if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+  if (policy === OPS_R4_002_POLICY) {
+    // The 67d3318 policy owns its historical proof: either the sealed OPS-R4-003
+    // archive over trusted empty sources, or the exact 26-file attempt preserved
+    // in place with a verified OPS-R4-005 stage receipt. Empty directories alone
+    // establish neither, so the generic check is not reused here.
+    verifyHistoricalPreservationGate();
+  } else {
+    for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs',
+      STATE_ROOT+'/backups',STATE_ROOT+'/logs']) {
+      if (!existsSync(path)) continue;
+      const info = lstatSync(path);
+      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+        || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
+      if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+    }
   }
-  // OPS-R4-001 keeps its historical behavior. The later 67d3318 policy must
-  // also prove that the consumed 6ce4 attempt was dispositioned and archived;
-  // empty directories alone are never sufficient.
-  if (policy === OPS_R4_002_POLICY) verifyHistoricalArchiveGate();
+  // OPS-R4-001 keeps its historical behavior unchanged.
   const context = loadAttempt(attemptId), {approval,profile} = context;
   const root = '/opt/servora-med/releases/'+policy.oldReleaseSha;
   const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
@@ -882,6 +870,8 @@ function historicalReadBytes(path, mode, kind) {
     const missing = error.code === 'ENOENT';
     if (kind === 'disposition') throw new Error(missing
       ? 'RECOVERY_HISTORICAL_DISPOSITION_MISSING' : 'RECOVERY_HISTORICAL_DISPOSITION_INVALID');
+    if (kind === 'preservation') throw new Error(missing
+      ? 'RECOVERY_HISTORICAL_PRESERVATION_REQUIRED' : 'RECOVERY_HISTORICAL_PRESERVATION_INVALID');
     throw new Error(missing ? 'RECOVERY_HISTORICAL_ARCHIVE_REQUIRED' : 'RECOVERY_HISTORICAL_ARCHIVE_INVALID');
   }
 }
@@ -892,6 +882,7 @@ function historicalReadRecord(path, mode, kind) {
   try { record = parseCanonicalRecord(bytes.toString('utf8')); }
   catch {
     if (kind === 'disposition') historicalDispositionFail();
+    else if (kind === 'preservation') historicalPreservationFail();
     else historicalArchiveFail();
   }
   return {record, bytes, sha256: digest(bytes)};
@@ -925,7 +916,8 @@ function historicalCheckpointNames() {
 
 function historicalReadCheckpointChain(root, kind) {
   const read = kind === 'disposition' ? dispositionReadRecord : historicalReadRecord;
-  const fail = kind === 'disposition' ? historicalDispositionFail : historicalArchiveFail;
+  const fail = kind === 'disposition' ? historicalDispositionFail
+    : kind === 'preservation' ? historicalPreservationFail : historicalArchiveFail;
   const directory = root+'/attempts/'+OPS_R4_003_POLICY.attemptId;
   historicalDirectory(directory,fail);
   let names;
@@ -1219,6 +1211,126 @@ function walkHistoricalArchive() {
     historicalArchiveFail();
   }
   return archiveMtimes;
+}
+
+/**
+ * OPS-R4-002 non-destructive acceptance branch.
+ *
+ * The exact 26-file historical attempt stays at its live paths. The OPS-R4-005
+ * staged replica (created after the disposition and before the profile re-seal)
+ * is the immutable record of the bytes: its receipt binds the full source
+ * inventory digest, every staged hash/size/nanosecond mtime, the old profile
+ * copy and the disposition copy. This function re-reads the live evidence and
+ * proves it is byte-identical to that record.
+ *
+ * It never removes, renames or moves a source; never writes ARCHIVE-MANIFEST,
+ * SOURCE-EMPTY-PROOF or ARCHIVE-COMPLETE; and never claims independent
+ * retention or disaster-recovery coverage.
+ */
+export function verifyHistoricalInPlacePreservation() {
+  const policy = OPS_R4_003_POLICY;
+  const fail = historicalPreservationFail;
+  if (!existsSync(HISTORICAL_STAGING_RECEIPT)) {
+    throw new Error('RECOVERY_HISTORICAL_PRESERVATION_REQUIRED');
+  }
+  const staged = readHistoricalStageReceipt({
+    receiptPath: HISTORICAL_STAGING_RECEIPT, uid: 0, gid: 0
+  });
+  verifyHistoricalStageReadback({
+    stageRoot: HISTORICAL_STAGING_DIR, receiptPath: HISTORICAL_STAGING_RECEIPT,
+    uid: 0, gid: 0, receipt: staged.receipt
+  });
+  // The live disposition is the only authority for this attempt; the staged
+  // copies must be the same bytes that were sealed before the profile re-seal.
+  const disposition = historicalReadRecord(policy.dispositionFile, 0o600, 'disposition');
+  if (staged.receipt.dispositionSha256 !== disposition.sha256) fail();
+  const dispositionCopy = historicalReadBytes(HISTORICAL_STAGING_DIR+
+    '/preserved/disposition.json', 0o600, 'preservation');
+  if (!dispositionCopy.equals(disposition.bytes)) fail();
+  const profileCopy = historicalReadBytes(HISTORICAL_STAGING_DIR+'/preserved/profile.json',
+    0o600, 'preservation');
+  const profileSha256 = digest(profileCopy);
+  if (profileSha256 !== disposition.record.profileSha256
+    || staged.receipt.profileSha256 !== profileSha256) fail();
+  let oldProfile;
+  try { oldProfile = parseCanonicalRecord(profileCopy.toString('utf8')); }
+  catch { fail(); }
+
+  const approval = historicalReadRecord(policy.oldApprovalFile, 0o600, 'preservation');
+  // The live profile is the separately re-sealed record. Only its machine
+  // identity is shared with the preserved pre-re-seal copy; the old profile
+  // bytes are never substituted from the live path.
+  const currentProfile = historicalReadRecord(STATE_ROOT+'/profile.json', 0o600, 'preservation');
+  const checkpoints = historicalReadCheckpointChain(STATE_ROOT, 'preservation');
+  validateHistoricalCheckpointChain(checkpoints, disposition.record, historicalPreservationFail);
+  const admission = historicalReadRecord(STATE_ROOT+'/admission-proofs/'+
+    policy.attemptId+'.json', 0o600, 'preservation');
+  validateHistoricalAdmissionProof(admission.record, disposition.record.approvalSha256,
+    checkpoints[0].sha256, historicalPreservationFail);
+  const pre = historicalReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-pre.dump',
+    0o600, 'preservation');
+  const post = historicalReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-post.dump',
+    0o600, 'preservation');
+  const log = historicalReadBytes(policy.postdeployLogFile, 0o644, 'preservation');
+  const rc = historicalReadBytes(policy.postdeployRcFile, 0o644, 'preservation');
+  validateHistoricalPostdeploy(log, rc, historicalPreservationFail);
+  const oldAdoption = historicalReadRecord(policy.oldAdoptionFile, 0o600, 'preservation');
+  const oldBaseline = historicalReadRecord(policy.oldBaselineManifestFile, 0o600, 'preservation');
+  validateHistoricalOldBaselinePayloads(oldBaseline.record, historicalPreservationFail);
+  const oldSums = historicalReadBytes(policy.oldBaselineSha256SumsFile, 0o600, 'preservation');
+  const emergencyReceipt = historicalReadRecord(policy.emergencyReceiptFile, 0o600, 'preservation');
+  const currentTime = sampleTrustedTime();
+  const context = {approval:approval.record,approvalSha256:approval.sha256,
+    profile:oldProfile,profileSha256,machineId:currentProfile.record.machineId,
+    initialCheckpoint:checkpoints[0],lastCheckpoint:checkpoints.at(-1),
+    admissionProof:admission.record,admissionProofSha256:admission.sha256,
+    emergencyReceipt:emergencyReceipt.record,emergencyReceiptSha256:emergencyReceipt.sha256,
+    postdeployLogSha256:digest(log),postdeployRcSha256:digest(rc),
+    oldAdoption:oldAdoption.record,oldAdoptionSha256:oldAdoption.sha256,
+    oldBaselineManifest:oldBaseline.record,oldBaselineManifestSha256:oldBaseline.sha256,
+    oldBaselineSha256SumsSha256:digest(oldSums),currentTime};
+  validateHistoricalRecoveryDisposition(disposition.record, context, historicalPreservationFail);
+  validateHistoricalEmergencyReceipt(emergencyReceipt.record, historicalPreservationFail);
+  validateHistoricalOldEvidence(oldAdoption.record, oldBaseline.record,
+    disposition.record.approvalSha256, profileSha256, oldBaseline.sha256,
+    historicalPreservationFail);
+  const preReceipt = checkpoints[1].record.predeployBackup;
+  const postReceipt = checkpoints.at(-1).record.postdeployBackup;
+  if (!preReceipt || preReceipt.sha256 !== digest(pre)
+    || !postReceipt || postReceipt.sha256 !== digest(post)) fail();
+
+  // Exact live allowlist: any missing, extra, modified, linked, foreign-owned
+  // or re-timestamped entry changes the inventory digest and fails closed.
+  let inventory;
+  try { inventory = captureHistoricalSourceInventory(); }
+  catch { fail(); }
+  if (digest(Buffer.from(JSON.stringify(inventory)+'\n')) !== staged.receipt.sourceInventorySha256) {
+    fail();
+  }
+  const live = new Map(inventory.files.map(entry => [entry.archivePath, entry]));
+  if (live.size !== HISTORICAL_ARCHIVED_PATHS.length
+    || staged.receipt.files.length !== HISTORICAL_ARCHIVED_PATHS.length+2) fail();
+  for (const entry of staged.receipt.files) {
+    if (entry.archivePath.startsWith('preserved/')) continue;
+    const source = live.get(entry.archivePath);
+    if (!source || source.sha256 !== entry.sha256 || source.size !== entry.size
+      || source.mtimeNs !== entry.mtimeNs) fail();
+  }
+  return Object.freeze({attemptId:policy.attemptId,status:'IN_PLACE_PRESERVATION_VERIFIED',
+    authority:'SOURCE_RETAINED_NOT_ARCHIVED_NOT_INDEPENDENTLY_RETAINED',
+    archived:false,sourceRetained:true,terminal:false,
+    r4Acceptance:disposition.record.r4Acceptance,filesVerified:HISTORICAL_ARCHIVED_PATHS.length,
+    dispositionSha256:disposition.sha256,receiptSha256:staged.sha256});
+}
+
+/** OPS-R4-002 policy-owned historical prerequisite. A sealed OPS-R4-003 archive
+ * is still accepted exactly as before; otherwise the exact attempt must remain
+ * provably preserved in place. A started but incomplete archive never falls
+ * back to the in-place branch.
+ */
+export function verifyHistoricalPreservationGate() {
+  if (existsSync(HISTORICAL_ARCHIVE_DIR)) return verifyHistoricalArchiveGate();
+  return verifyHistoricalInPlacePreservation();
 }
 
 /** Read-only OPS-R4-002 precondition. No caller-selected path or mode. */
