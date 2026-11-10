@@ -13,8 +13,14 @@ import {approvalFixture,timeEvidenceAt} from './trusted-time-fixture.mjs';
 const jsonHash=value=>hash(JSON.stringify(value)+'\n');
 const oldSha='71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
 const original='6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
+const oldSha67='67d33183d22e00f231ca21a5807cf49a6c4c2a68';
+const original67='a1db5a8d8faea144f6f18006f09cd9c0f457a6a79782fd5fcd9884f528593ebf';
+const reconstructed67='ddf12049ed483062d00b4a1c0fdd4909d01010d9dc9459c3cb5a5c39c142a220';
+const contentManifest67='059dedcbaf2de186608e7f975f223a5ac659651d67ca56bbb6a26407a9628aef';
 const migrationDirectory=new URL('../../server/src/db/migrations/',import.meta.url);
 const catalog=fs.readdirSync(migrationDirectory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,55)
+  .map(name=>({version:name.slice(0,-4),sha256:hash(fs.readFileSync(new URL(name,migrationDirectory)))}));
+const catalog67=fs.readdirSync(migrationDirectory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,60)
   .map(name=>({version:name.slice(0,-4),sha256:hash(fs.readFileSync(new URL(name,migrationDirectory)))}));
 
 export function adoptionFixture() {
@@ -37,6 +43,33 @@ export function adoptionFixture() {
     targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
     baselineId:baseline.baselineId,baselineManifestSha256:jsonHash(baseline),
     adoptedArchiveSha256:baseline.files['installed-old-release.adopted.tar.gz'].sha256,
+    databaseDumpSha256:baseline.files['database.dump'].sha256,attestedTime:timeEvidenceAt()};
+  return {record,context,baseline,baselineSha256:jsonHash(baseline)};
+}
+
+export function adoptionFixture67d3318() {
+  const approval={...approvalFixture(),oldReleaseSha:oldSha67,oldArtifactSha256:original67,
+    oldCatalog:catalog67,targetCatalog:catalog67};
+  const databaseIdentity={clusterId:'1',databaseName:'servora_med_test_adoption',databaseOid:'1',role:'servora_app',host:'127.0.0.1',port:5432};
+  const profile={machineId:'1'.repeat(32),databaseIdentity};
+  const baseline={formatVersion:1,kind:'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT',
+    baselineId:'20261110T090000Z-ops-r4-002-67d3318',createdAtUTC:approval.issuedAtUTC,completedAtUTC:approval.issuedAtUTC,
+    machineId:profile.machineId,sourceReleaseSha:oldSha67,originalArtifactSha256:original67,
+    installedContentManifestSha256:contentManifest67,databaseIdentity,catalog:catalog67,restoreAcceptance:false,
+    verifications:{dumpList:true,dumpCatalogExact:true,adoptedArchiveComparedToInstalled:true,configurationArchiveCompared:true,
+      originalObservationAndMarkerUnchanged:true,appPidUnchanged:true},
+    files:Object.fromEntries(['database.dump','installed-old-release.adopted.tar.gz','configuration.tar.gz',
+      'database-metadata.json','installed-old-content.sha256'].map(name=>[name,{name,sha256:'6'.repeat(64),bytes:10}]))};
+  baseline.files['installed-old-content.sha256'].sha256=contentManifest67;
+  baseline.files['installed-old-release.adopted.tar.gz'].sha256=reconstructed67;
+  const context={approval,approvalSha256:'4'.repeat(64),profile};
+  const record={formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_OPS_R4_002',attemptId:approval.attemptId,
+    approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
+    oldReleaseSha:oldSha67,originalArtifactSha256:original67,oldCatalogSha256:jsonHash(catalog67),
+    oldContentManifestSha256:contentManifest67,targetReleaseSha:approval.releaseSha,
+    targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
+    baselineId:baseline.baselineId,baselineManifestSha256:jsonHash(baseline),
+    adoptedArchiveSha256:reconstructed67,
     databaseDumpSha256:baseline.files['database.dump'].sha256,attestedTime:timeEvidenceAt()};
   return {record,context,baseline,baselineSha256:jsonHash(baseline)};
 }
@@ -167,6 +200,8 @@ export async function adoptionHost(f) {
   host.rootAttempt=await import(rewrite('deployment-attempt.mjs'));
   host.cleanup=()=>delete globalThis[key];
   host.recordFile=state+'/installed-old-adoption.json';
+  host.oldRecordFile=host.recordFile;
+  host.recordFile67d3318=state+'/installed-old-adoption-67d3318.json';
   // The returned pure lifecycle functions are the real reviewed implementation.
   host.attempt=attempt;
   return host;

@@ -12,6 +12,7 @@ bash -n \
   ../ops/scripts/deploy-production-host.sh \
   ../ops/scripts/host-operation-lock.sh \
   ../ops/scripts/issue-installed-old-adoption.sh \
+  ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
   ../ops/scripts/predeploy-backup-launcher.sh \
   ../ops/scripts/ensure-macos-service-identity.sh \
   ../ops/ci/verify-caddyfile.sh \
