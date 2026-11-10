@@ -205,7 +205,29 @@ restore rehearsal. A second directory on the same `/dev/vda3` filesystem
 is not independent retention. Until the retention destination, immutable
 receipt and reviewed restore procedure exist, no source removal is authorized.
 
-## 6. Crash-safe order
+## 6. Staging readback (OPS-R4-006)
+
+A separate root-only **read-only** CLI, 
+`node /usr/local/libexec/servora-med/historical-stage-readback.mjs`,
+verifies the already-created staged tree and its receipt. No arbitrary
+paths or arguments are exposed in the production entry point.
+
+The verifier independently opens and hashes **all 28** staged files by
+file descriptor, checks root owner/group, `0600` mode, single link,
+recorded byte length and exact nanosecond mtime; it also rejects
+symlinks, unexpected or missing files/directories, and a noncanonical
+or mismatching receipt. Its result is explicitly
+`STAGE_READBACK_VERIFIED_ONLY` and
+`NOT_ARCHIVED_NOT_INDEPENDENTLY_RETAINED`.
+
+**This does not establish independent retention.** It cannot prove a
+separate physical failure domain, remote writer authority, immutable
+receipt or isolated restore rehearsal. A restored off-host copy with
+independently verified hashes, provenance and restore evidence is still
+mandatory **before any historical source removal**. The real archive
+sealer/finalizer remains unimplemented and must be separately reviewed.
+
+## 7. Crash-safe order
 
 The sequence is intentionally **copy → verify → durable seal → source removal
 → empty-state proof → complete**. It must run under the stable host lock and
@@ -279,7 +301,7 @@ Crash behavior:
 The last row is the reason the gate is mandatory: empty directories alone are
 not evidence that the archive sealed correctly.
 
-## 7. Reference impact
+## 8. Reference impact
 
 After the move, these historical commands no longer resolve the attempt at the
 live path:
@@ -294,7 +316,7 @@ directories; they would violate the strict empty-state check. Historical
 inspection or rollback must restore the archive in an isolated environment,
 not by repopulating the live directories before issuance.
 
-## 8. Rollback and restore
+## 9. Rollback and restore
 
 Rollback is a copy-back, not a move back:
 
@@ -321,7 +343,7 @@ checkpoint chain is valid, receipt/initial hashes match, original file modes
 (including the two `0644` operator files), exact nanosecond mtimes and
 captured directory mtimes match, and the strict empty-state check fails as expected.
 
-## 9. Sensitive retention
+## 10. Sensitive retention
 
 The two PostgreSQL dumps and all historical logs move into the root-only
 archive. The OPS-R4-001 baseline dumps remain in the baseline root and the
@@ -349,7 +371,7 @@ Archive acceptance requires all of the following:
 - a successful synthetic restore rollback test;
 - `verifyHistoricalArchiveGate()` passing without running production issuance.
 
-## 10. Gate scope and stop conditions
+## 11. Gate scope and stop conditions
 
 The new gate is applied only when the issuance policy is exactly
 `OPS_R4_002_POLICY`. `OPS_R4_001_POLICY` keeps its historical behavior and is
