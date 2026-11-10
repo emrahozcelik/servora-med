@@ -36,8 +36,11 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     }
     const cli=installed+'/issue-installed-old-adoption';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption.sh',scripts)),cli);chmodSync(cli,0o750);
+    const cli67=installed+'/issue-installed-old-adoption-67d3318';
+    copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption-67d3318.sh',scripts)),cli67);chmodSync(cli67,0o750);
     if(!existsSync('/usr/bin/node')){symlinkSync(process.execPath,'/usr/bin/node');nodeLink=true;}
     const id='11111111-1111-4111-8111-111111111111',baseline='20261012T090000Z-issue369-71ae6df6';
+    const baseline67='20261110T090000Z-ops-r4-002-67d3318';
     const run=(file,args,extra={})=>spawnSync(file,args,{encoding:'utf8',timeout:5000,
       env:{PATH:'/usr/bin:/bin',SERVORA_STATE_ROOT:temporary,NODE_OPTIONS:'untrusted',...extra}});
     const inode=lstatSync(state+'/host.lock').ino;
@@ -46,10 +49,16 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     // the intentionally absent grant. No live authority is issued in this test.
     assert.equal(before.status,1);assert.equal(before.stderr.trim(),'ATTEMPT_APPROVAL_MISSING');
     assert.equal(existsSync(state+'/installed-old-adoption.json'),false);
+    const before67=run('/bin/bash',[cli67,id,baseline67]);
+    assert.equal(before67.status,1);assert.equal(before67.stderr.trim(),'ATTEMPT_APPROVAL_MISSING');
+    assert.equal(existsSync(state+'/installed-old-adoption-67d3318.json'),false);
     const module=JSON.stringify(installed+'/deployment-controller.mjs');
     const direct=`import {issueInstalledOldAdoption as issue} from ${module};try{issue(${JSON.stringify(id)},${JSON.stringify(baseline)})}catch(e){console.error(e.message);process.exitCode=1}`;
     const unlocked=run(process.execPath,['--input-type=module','-e',direct],{NODE_OPTIONS:''});
     assert.equal(unlocked.status,1);assert.equal(unlocked.stderr.trim(),'RECOVERY_ADOPTION_HOST_LOCK_REQUIRED');
+    const direct67=`import {issueInstalledOldAdoption67d3318 as issue} from ${module};try{issue(${JSON.stringify(id)},${JSON.stringify(baseline67)})}catch(e){console.error(e.message);process.exitCode=1}`;
+    const unlocked67=run(process.execPath,['--input-type=module','-e',direct67],{NODE_OPTIONS:''});
+    assert.equal(unlocked67.status,1);assert.equal(unlocked67.stderr.trim(),'RECOVERY_ADOPTION_HOST_LOCK_REQUIRED');
     holder=spawn('/usr/bin/flock',['--exclusive',state+'/host.lock','/bin/bash','-c','printf "ready\\n"; read -r release'],
       {stdio:['pipe','pipe','pipe']});
     await new Promise((resolve,reject)=>{
@@ -58,6 +67,8 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     });
     const busy=run('/bin/bash',[cli,id,baseline]);
     assert.equal(busy.status,1);assert.equal(busy.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
+    const busy67=run('/bin/bash',[cli67,id,baseline67]);
+    assert.equal(busy67.status,1);assert.equal(busy67.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
     assert.equal(lstatSync(state+'/host.lock').ino,inode,'never replace the lock inode');
     holder.stdin.end('release\n');await new Promise(resolve=>holder.once('exit',resolve));holder=null;
     const foreign=join(temporary,'foreign.lock');writeFileSync(foreign,'',{mode:0o600});
@@ -67,6 +78,9 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     writeFileSync(library,Buffer.concat([original,Buffer.from('\n# drift\n')]));
     const drift=run('/bin/bash',[cli,id,baseline]);
     assert.equal(drift.status,1);assert.equal(drift.stderr.trim(),'RECOVERY_ADOPTION_TOOL_UNTRUSTED');
+    const drift67=run('/bin/bash',[cli67,id,baseline67]);
+    assert.equal(drift67.status,1);assert.equal(drift67.stderr.trim(),'RECOVERY_ADOPTION_TOOL_UNTRUSTED');
     assert.equal(existsSync(state+'/installed-old-adoption.json'),false);
+    assert.equal(existsSync(state+'/installed-old-adoption-67d3318.json'),false);
     assert.deepEqual(readFileSync(state+'/host.lock'),Buffer.alloc(0));
   });

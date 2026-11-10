@@ -31,6 +31,46 @@ const BASELINE_ROOT = '/var/lib/servora-med-recovery-baselines';
 const ADOPTABLE_OLD = '71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
 const ORIGINAL_OLD_ARTIFACT = '6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
 const ORIGINAL_OLD_CATALOG = 'd285479365412eaf25133adec8853be75cb97ac87a46980b814e5321333ee62d';
+
+// OPS-R4-002 is a separate, one-time recovery contract for the missing
+// 67d3318 artifact. It never changes the OPS-R4-001 constants, record or slot.
+// Policy selection is by the approval's exact OLD release SHA, never by a
+// caller-supplied path, mode, force flag or arbitrary selector.
+const OPS_R4_001_POLICY = Object.freeze({
+  policyId: 'OPS-R4-001',
+  oldReleaseSha: ADOPTABLE_OLD,
+  originalArtifactSha256: ORIGINAL_OLD_ARTIFACT,
+  reconstructedArtifactSha256: null,
+  contentManifestSha256: null,
+  oldCatalogSha256: ORIGINAL_OLD_CATALOG,
+  baselineIdPattern: /^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/,
+  recordKind: 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',
+  adoptionFile: ADOPTION_FILE
+});
+
+export const OPS_R4_002_POLICY = Object.freeze({
+  policyId: 'OPS-R4-002',
+  oldReleaseSha: '67d33183d22e00f231ca21a5807cf49a6c4c2a68',
+  originalArtifactSha256: 'a1db5a8d8faea144f6f18006f09cd9c0f457a6a79782fd5fcd9884f528593ebf',
+  reconstructedArtifactSha256: 'ddf12049ed483062d00b4a1c0fdd4909d01010d9dc9459c3cb5a5c39c142a220',
+  contentManifestSha256: '059dedcbaf2de186608e7f975f223a5ac659651d67ca56bbb6a26407a9628aef',
+  oldCatalogSha256: '43f96550a71be82e55d855a677fdf2ecbecf4acf9a0dfba6d9f5ae988bc75c28',
+  baselineIdPattern: /^[0-9]{8}T[0-9]{6}Z-ops-r4-002-67d3318$/,
+  recordKind: 'ADOPTED_INSTALLED_OLD_OPS_R4_002',
+  adoptionFile: STATE_ROOT+'/installed-old-adoption-67d3318.json'
+});
+
+const RECOVERY_POLICIES = Object.freeze({
+  [OPS_R4_001_POLICY.oldReleaseSha]: OPS_R4_001_POLICY,
+  [OPS_R4_002_POLICY.oldReleaseSha]: OPS_R4_002_POLICY
+});
+
+function recoveryPolicyForRelease(sha) {
+  const policy = Object.hasOwn(RECOVERY_POLICIES, sha) ? RECOVERY_POLICIES[sha] : null;
+  if (!policy) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  return policy;
+}
+
 const jsonDigest = value => digest(JSON.stringify(value)+'\n');
 const ADOPTION_KEYS = ['formatVersion','kind','attemptId','approvalSha256','profileSha256','machineId',
   'oldReleaseSha','originalArtifactSha256','oldCatalogSha256','oldContentManifestSha256',
@@ -42,18 +82,26 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
   const fail = () => { throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID'); };
   const {approval,approvalSha256,profile} = context;
   validateApprovalStructure(approval);
+  let policy;
+  try { policy = recoveryPolicyForRelease(approval.oldReleaseSha); }
+  catch { fail(); }
   if (!record || Object.keys(record).length !== ADOPTION_KEYS.length
     || ADOPTION_KEYS.some(key=>!Object.hasOwn(record,key)) || record.formatVersion !== 1
-    || record.kind !== 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER'
-    || approval.oldReleaseSha !== ADOPTABLE_OLD || approval.oldArtifactSha256 !== ORIGINAL_OLD_ARTIFACT
-    || jsonDigest(approval.oldCatalog) !== ORIGINAL_OLD_CATALOG
+    || record.kind !== policy.recordKind
+    || approval.oldReleaseSha !== policy.oldReleaseSha
+    || approval.oldArtifactSha256 !== policy.originalArtifactSha256
+    || jsonDigest(approval.oldCatalog) !== policy.oldCatalogSha256
     || record.attemptId !== approval.attemptId || record.approvalSha256 !== approvalSha256
     || record.profileSha256 !== approval.profileSha256 || record.machineId !== profile.machineId
-    || record.oldReleaseSha !== approval.oldReleaseSha || record.originalArtifactSha256 !== approval.oldArtifactSha256
+    || record.oldReleaseSha !== policy.oldReleaseSha
+    || record.oldReleaseSha !== approval.oldReleaseSha
+    || record.originalArtifactSha256 !== policy.originalArtifactSha256
+    || record.originalArtifactSha256 !== approval.oldArtifactSha256
+    || record.oldCatalogSha256 !== policy.oldCatalogSha256
     || record.oldCatalogSha256 !== jsonDigest(approval.oldCatalog)
     || record.targetReleaseSha !== approval.releaseSha || record.targetTreeSha !== approval.treeSha
     || record.targetArtifactSha256 !== approval.artifactSha256
-    || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record.baselineId)
+    || !policy.baselineIdPattern.test(record.baselineId)
     || record.baselineManifestSha256 !== baselineSha256
     || ['approvalSha256','profileSha256','oldCatalogSha256','oldContentManifestSha256',
       'targetArtifactSha256','baselineManifestSha256','adoptedArchiveSha256','databaseDumpSha256']
@@ -63,9 +111,13 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
   validateApproval(approval,record.attestedTime);
   if (!baseline || baseline.formatVersion !== 1 || baseline.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
     || baseline.baselineId !== record.baselineId || baseline.machineId !== profile.machineId
-    || baseline.sourceReleaseSha !== approval.oldReleaseSha || baseline.originalArtifactSha256 !== approval.oldArtifactSha256
+    || baseline.sourceReleaseSha !== policy.oldReleaseSha
+    || baseline.sourceReleaseSha !== approval.oldReleaseSha
+    || baseline.originalArtifactSha256 !== policy.originalArtifactSha256
+    || baseline.originalArtifactSha256 !== approval.oldArtifactSha256
     || baseline.installedContentManifestSha256 !== record.oldContentManifestSha256
-    || jsonDigest(baseline.catalog) !== ORIGINAL_OLD_CATALOG || baseline.restoreAcceptance !== false
+    || jsonDigest(baseline.catalog) !== policy.oldCatalogSha256
+    || baseline.restoreAcceptance !== false
     || !Number.isFinite(Date.parse(baseline.completedAtUTC))
     || Date.parse(baseline.completedAtUTC) > Date.parse(record.attestedTime.wallAtUTC)
     || ['dumpList','dumpCatalogExact','adoptedArchiveComparedToInstalled','configurationArchiveCompared',
@@ -82,11 +134,33 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
     || record.adoptedArchiveSha256 === approval.oldArtifactSha256
     || record.oldContentManifestSha256 !== baseline.files['installed-old-content.sha256'].sha256
     || record.databaseDumpSha256 !== baseline.files['database.dump'].sha256) fail();
+  // OPS-R4-002 pins the recovered archive and content manifest to the exact
+  // published recovery identity. OPS-R4-001 leaves these two historical fields
+  // unpinned, exactly as its already-consumed sealed record was validated.
+  if (policy.contentManifestSha256 !== null
+    && (record.oldContentManifestSha256 !== policy.contentManifestSha256
+      || baseline.installedContentManifestSha256 !== policy.contentManifestSha256
+      || baseline.files['installed-old-content.sha256'].sha256 !== policy.contentManifestSha256)) fail();
+  if (policy.reconstructedArtifactSha256 !== null
+    && (record.adoptedArchiveSha256 !== policy.reconstructedArtifactSha256
+      || baseline.files['installed-old-release.adopted.tar.gz'].sha256 !== policy.reconstructedArtifactSha256)) fail();
   return record;
 }
 
 /** Separate administrator API, deliberately absent from the deploy CLI. */
 export function issueInstalledOldAdoption(attemptId, baselineId) {
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_001_POLICY);
+}
+
+/** OPS-R4-002 separate one-time administrator API; no mode/path selector. */
+export function issueInstalledOldAdoption67d3318(attemptId, baselineId) {
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_002_POLICY);
+}
+
+function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
+  if (![OPS_R4_001_POLICY, OPS_R4_002_POLICY].includes(policy)) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
   if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
   // The administrator CLI inherits the same open-file description as the
   // deployment helper. Verify the stable inode and take/confirm its kernel
@@ -100,12 +174,13 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
     const after = lstatSync(STATE_ROOT+'/host.lock');
     if (held.dev !== after.dev || held.ino !== after.ino) throw new Error();
   } catch { throw new Error('RECOVERY_ADOPTION_HOST_LOCK_REQUIRED'); }
-  if (typeof baselineId !== 'string' || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(baselineId)) {
+  if (typeof baselineId !== 'string' || !policy.baselineIdPattern.test(baselineId)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
-  // One exclusive permanent host slot. Partial publication burns reuse too;
-  // there is no renewal, overwrite, journal repair or deploy-user issuance.
-  if (existsSync(ADOPTION_FILE)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  // One exclusive permanent host slot per policy. Partial publication burns
+  // reuse too; there is no renewal, overwrite, journal repair or deploy-user
+  // issuance. OPS-R4-002 has a different file and never touches OPS-R4-001.
+  if (existsSync(policy.adoptionFile)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
   // Reject pending state before loadAttempt: its normal deployment recovery
   // path can reconcile checkpoint residues in a pending systemd window.
   for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
@@ -121,17 +196,17 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
     if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
   const context = loadAttempt(attemptId), {approval,profile} = context;
-  const root = '/opt/servora-med/releases/'+ADOPTABLE_OLD;
+  const root = '/opt/servora-med/releases/'+policy.oldReleaseSha;
   const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
-  if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== ADOPTABLE_OLD
+  if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== policy.oldReleaseSha
     || tuple.schema !== approval.oldCatalog.at(-1).version
-    || existsSync(`${STATE_ROOT}/artifacts/${ADOPTABLE_OLD}.tar.gz`)
-    || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== ORIGINAL_OLD_ARTIFACT+'\n') {
+    || existsSync(`${STATE_ROOT}/artifacts/${policy.oldReleaseSha}.tar.gz`)
+    || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== policy.originalArtifactSha256+'\n') {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
   const baselineBytes = trustedFile(BASELINE_ROOT+'/'+baselineId+'/baseline-manifest.json',0o600);
   const baseline = parseCanonicalRecord(baselineBytes.toString('utf8'));
-  const record = {formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',attemptId,
+  const record = {formatVersion:1,kind:policy.recordKind,attemptId,
     approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
     oldReleaseSha:approval.oldReleaseSha,originalArtifactSha256:approval.oldArtifactSha256,
     oldCatalogSha256:jsonDigest(approval.oldCatalog),oldContentManifestSha256:baseline.installedContentManifestSha256,
@@ -140,22 +215,23 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
     adoptedArchiveSha256:baseline.files?.['installed-old-release.adopted.tar.gz']?.sha256,
     databaseDumpSha256:baseline.files?.['database.dump']?.sha256,attestedTime:sampleTrustedTime()};
   verifyAttemptCatalog(attemptId,'old');
-  verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root));
+  verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root),policy);
   // The directory is protected by loadAttempt's root-private grant/profile
   // readers. Mode is fixed by open, not by the caller's umask.
-  const fd = openSync(ADOPTION_FILE,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  const fd = openSync(policy.adoptionFile,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
   try { writeFileSync(fd,JSON.stringify(record)+'\n');fsyncSync(fd); } finally {closeSync(fd);}
   flushDirectory(STATE_ROOT);
   validateApproval(approval,sampleTrustedTime());
-  const sealed = readProtectedRecord(ADOPTION_FILE);
+  const sealed = readProtectedRecord(policy.adoptionFile);
   if (sealed.sha256 !== jsonDigest(record)) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   return sealed;
 }
 
-function verifyInstalledOldBaseline(record,context,root,entries) {
+function verifyInstalledOldBaseline(record,context,root,entries,policy) {
   // Validate the ID before using it as a path component, even for a sealed
   // administrator record. No arbitrary filesystem selector is accepted.
-  if (!/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record?.baselineId)) {
+  if (!policy || policy.oldReleaseSha !== context?.approval?.oldReleaseSha
+    || !policy.baselineIdPattern.test(record?.baselineId)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
   const directory = BASELINE_ROOT+'/'+record.baselineId;
@@ -527,8 +603,9 @@ export function verifyAttemptRelease(attemptId, direction) {
       if (digest(trustedFile(retained,0o600)) !== expected) throw new Error('RECOVERY_RELEASE_UNPROVEN');
     } else {
       if (direction !== 'old') throw new Error('RECOVERY_RELEASE_UNPROVEN');
-      const record = readProtectedRecord(ADOPTION_FILE).record;
-      verifyInstalledOldBaseline(record,context,root,entries);
+      const policy = recoveryPolicyForRelease(approval.oldReleaseSha);
+      const record = readProtectedRecord(policy.adoptionFile).record;
+      verifyInstalledOldBaseline(record,context,root,entries,policy);
     }
     if (direction === 'target' && digest(trustedFile(root+'/ops/scripts/deploy-production-host.sh',0o750,null))
       !== digest(trustedFile(INSTALLED+'/deploy-production-host',0o755))) throw new Error('RECOVERY_RELEASE_UNPROVEN');

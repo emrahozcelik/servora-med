@@ -426,6 +426,15 @@ Migration intent/commit still has its existing abort/forward-only rules; the
 fresh candidate PRE backup, scheduled v2 event and postdeploy acceptance remain
 mandatory. This recovery baseline does not replace any of those receipts.
 
+### OPS-R4-002 — separate 67d3318 recovery
+
+The missing original archive for the later OLD release `67d33183…` has its own
+separate one-time contract and baseline pattern in
+[OPS-R4-002 67d3318 installed-OLD recovery](./ops-r4-002-67d3318-installed-old-recovery.md).
+It does not change, renew or reuse the OPS-R4-001 `71ae6df6…` record or slot.
+The recovered archive `ddf12049…` is a content-equivalent reconstruction and is
+never accepted as the missing original `a1db5a8d…`.
+
 
 ### OPS-TT-003 source-policy transition (not production authorization)
 
