@@ -163,6 +163,12 @@ describe('CustomerSearchSelect shared remote selector', () => {
     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
   }
 
+  async function clickLoadMore() {
+    const button = document.querySelector<HTMLButtonElement>('.customer-search-more button');
+    expect(button).not.toBeNull();
+    await act(async () => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+  }
   it('loads only a bounded first page on open, without a full-catalog loop', async () => {
     crm.listCustomers.mockResolvedValue(page([makeSummary(1), makeSummary(2)], 2));
     await renderSelector();
@@ -319,8 +325,7 @@ describe('CustomerSearchSelect shared remote selector', () => {
     await open();
     await settleDebounce();
     expect(document.body.textContent ?? '').toContain('Müşteri 1');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
     expect(crm.listCustomers).toHaveBeenCalledWith(
       expect.objectContaining({ limit: CUSTOMER_SEARCH_PAGE_SIZE, offset: 20 }),
     );
@@ -390,10 +395,8 @@ describe('CustomerSearchSelect shared remote selector', () => {
       return Promise.resolve(page(items, total, filters.offset));
     });
     await search('');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
+    await clickLoadMore();
     expect(options().length).toBeLessThan(60);
   });
 
