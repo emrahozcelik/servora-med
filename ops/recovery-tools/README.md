@@ -82,7 +82,9 @@ reclaim the stable lock.
 
 1. Install the exact-main OPS-R4-002 host modules and CLIs from artifact
    `8aa70edbacfe88c80ef491e7150f99095be46484797862c97c795d8e145488fb`
-   (`411251d8`). Do not install this tool from that artifact; it is excluded.
+   (`411251d8`), including the reviewed M1 `deploy-production-host` helper
+   `3455e5881baf770458bc044ca73c50660b75822ec0827a42c9eb7ea39575363c`.
+   Do not install this tool from that artifact; it is excluded.
 2. Transfer this directory separately, verify the manifest hashes below,
    install the wrapper/module layout above and keep the old profile live.
 3. Verify `sampleTrustedTime()` returns v2 evidence through the installed
