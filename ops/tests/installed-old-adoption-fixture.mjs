@@ -76,29 +76,45 @@ export function adoptionFixture67d3318() {
 
 export async function adoptionHost(f) {
   const files=new Map(),directories=new Map([['/',0o755],[state,0o700]]),fds=new Map(),commands=[];
+  const symlinks=new Map(),lstatErrors=new Map(),owners=new Map();
   let nextFd=10;
-  const add=(path,data,mode=0o600)=>{
-    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1,
-      mtimeNs:'1762770600000000000'});
+  const ensureParents=path=>{
     let parent=path.slice(0,path.lastIndexOf('/'));
     while(parent){if(!directories.has(parent))directories.set(parent,parent.startsWith(state+'/')?0o700:0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
   };
+  const add=(path,data,mode=0o600)=>{
+    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1,
+      mtimeNs:'1762770600000000000'});
+    ensureParents(path);
+  };
+  const addSymlink=(path,target)=>{
+    path=posix.normalize(path);
+    symlinks.set(path,target);
+    ensureParents(path);
+  };
   const info=(path,bigint=false)=>{
     path=posix.normalize(path);
-    const file=files.get(path),dir=directories.has(path);
-    if(!file&&!dir)throw Object.assign(new Error('not found'),{code:'ENOENT'});
+    const errorCode=lstatErrors.get(path);
+    if(errorCode)throw Object.assign(new Error(errorCode),{code:errorCode});
+    const file=files.get(path),dir=directories.has(path),link=symlinks.get(path);
+    if(!file&&!dir&&link===undefined)throw Object.assign(new Error('not found'),{code:'ENOENT'});
     const ino=parseInt(hash(path).slice(0,8),16);
-    const mode=dir?directories.get(path):file.mode;
-    const size=file?.data.length??0;
+    const isLink=link!==undefined;
+    const mode=isLink?0o777:dir?directories.get(path):file.mode;
+    const size=isLink?link.length:file?.data.length??0;
     const mtimeNs=BigInt(file?.mtimeNs??'1762770600000000000');
-    if(bigint)return {uid:0n,gid:0n,nlink:1n,dev:1n,ino:BigInt(ino),mode:BigInt(mode),
-      size:BigInt(size),mtimeNs,isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false};
-    return {uid:0,gid:0,nlink:1,dev:1,ino,mode,size,mtimeNs,
-      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file};
+    const owner=file??owners.get(path)??{uid:0,gid:0};
+    const uid=owner.uid??0,gid=owner.gid??0,nlink=file?.nlink??1;
+    if(bigint)return {uid:BigInt(uid),gid:BigInt(gid),nlink:BigInt(nlink),dev:1n,ino:BigInt(ino),
+      mode:BigInt(mode),size:BigInt(size),mtimeNs,isDirectory:()=>false===isLink&&dir,
+      isFile:()=>!isLink&&!dir,isSymbolicLink:()=>isLink};
+    return {uid,gid,nlink,dev:1,ino,mode,size,mtimeNs,
+      isDirectory:()=>!isLink&&dir,isFile:()=>!isLink&&!dir,isSymbolicLink:()=>isLink,...file};
   };
   const children=path=>{
     path=posix.normalize(path);
-    return [...new Set([...files.keys(),...directories.keys()].filter(p=>p.startsWith(path+'/'))
+    return [...new Set([...files.keys(),...directories.keys(),...symlinks.keys()]
+      .filter(p=>p.startsWith(path+'/'))
       .map(p=>p.slice(path.length+1).split('/')[0]))].sort();
   };
   const root='/opt/servora-med/releases/'+f.context.approval.oldReleaseSha;
@@ -124,6 +140,10 @@ export async function adoptionHost(f) {
     timeModuleSha256:['/usr/local/libexec/servora-med/trusted-time.mjs',0o644],
     timeConfigSha256:['/etc/chrony/chrony.conf',0o644]};
   for(const [path,mode] of Object.values(contractFiles))add(path,'reviewed contract',mode);
+  // The controller pins this module's exact bytes; the fixture supplies the real
+  // repository bytes so the pin is exercised, not bypassed.
+  add('/usr/local/libexec/servora-med/historical-recovery-evidence.mjs',
+    fs.readFileSync(new URL('../scripts/historical-recovery-evidence.mjs',import.meta.url)),0o644);
   f.context.profile={...f.context.profile,formatVersion:2,fqdn:'synthetic.example',envBaselineSha256:hash(''),
     contracts:Object.fromEntries(Object.keys(contractFiles).map(key=>[key,hash('reviewed contract')]))};
   f.context.approval.profileSha256=hash(json(f.context.profile));
@@ -148,7 +168,7 @@ export async function adoptionHost(f) {
     mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
     symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
     existsSync:path=>{const normalized=posix.normalize(path);
-      return files.has(normalized)||directories.has(normalized);},
+      return files.has(normalized)||directories.has(normalized)||symlinks.has(normalized);},
     lstatSync:(path,options)=>info(path,Boolean(options?.bigint)),
     fstatSync:(fd,options)=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});
       return info(fds.get(fd),Boolean(options?.bigint));},
@@ -174,7 +194,7 @@ export async function adoptionHost(f) {
     FragmentPath:'/etc/systemd/system/servora-med.service',DropInPaths:'',
     ExecStart:'{ path=/usr/bin/node ; argv[]=/usr/bin/node dist/index.js ; ignore_errors=no ; mock=yes }',
     EnvironmentFiles:'/etc/servora-med/servora-med.env (ignore_errors=no)',NeedDaemonReload:'no',Restart:'on-failure'};
-  const host={fs:fakeFs,fds,properties,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
+  const host={fs:fakeFs,fds,properties,process:{...process,getuid:()=>0},commands,files,directories,symlinks,lstatErrors,owners,add,addSymlink,root,names,types,failCommand:null};
   host.dumpLedger='COPY public.schema_migrations (version, applied_at) FROM stdin;\n'
     +f.context.approval.oldCatalog.map(entry=>entry.version+'\t2026-10-12 09:00:00+00').join('\n')+'\n\\.\n';
   host.child={spawn:()=>{throw new Error('unexpected subprocess');},execFileSync:(file,args,options)=>{

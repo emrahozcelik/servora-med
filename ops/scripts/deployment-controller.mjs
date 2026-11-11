@@ -81,6 +81,14 @@ const HISTORICAL_DISPOSITION_ROOT = STATE_ROOT+'/historical-dispositions';
 const HISTORICAL_DISPOSITION_FILE = HISTORICAL_DISPOSITION_ROOT+'/'+HISTORICAL_ATTEMPT_ID+'.json';
 const HISTORICAL_ARCHIVE_ROOT = '/var/lib/servora-med-recovery-archive';
 const HISTORICAL_ARCHIVE_DIR = HISTORICAL_ARCHIVE_ROOT+'/'+HISTORICAL_ATTEMPT_ID;
+// The controller's one new import is pinned by hash instead of by a tenth
+// profile contract key: every historical profile carries exactly nine keys and
+// must stay readable for the retained OPS-R4-001 evidence and the emergency
+// handoff. The profile already pins this controller's bytes, so pinning the
+// shared evidence module here closes the dependency without a schema change or
+// a second recovery protocol.
+const HISTORICAL_EVIDENCE_TOOL = INSTALLED+'/historical-recovery-evidence.mjs';
+const HISTORICAL_EVIDENCE_TOOL_SHA256 = 'cd6ea7a24423954cc4532f317b279eef358e7eae5855d516c808306934390a38';
 const HISTORICAL_ARCHIVE_MANIFEST_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-MANIFEST.json';
 const HISTORICAL_ARCHIVE_COMPLETE_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-COMPLETE.json';
 const HISTORICAL_SOURCE_EMPTY_PROOF_FILE = HISTORICAL_ARCHIVE_DIR+'/SOURCE-EMPTY-PROOF.json';
@@ -1233,6 +1241,9 @@ export function verifyHistoricalInPlacePreservation() {
   if (!existsSync(HISTORICAL_STAGING_RECEIPT)) {
     throw new Error('RECOVERY_HISTORICAL_PRESERVATION_REQUIRED');
   }
+  // Verify the exact installed bytes before calling any function from the
+  // shared module; a stale or foreign module must not influence acceptance.
+  verifyHistoricalEvidenceTool();
   const staged = readHistoricalStageReceipt({
     receiptPath: HISTORICAL_STAGING_RECEIPT, uid: 0, gid: 0
   });
@@ -1323,13 +1334,51 @@ export function verifyHistoricalInPlacePreservation() {
     dispositionSha256:disposition.sha256,receiptSha256:staged.sha256});
 }
 
+/** Installed-byte pin for the shared evidence module. The administrator wrappers
+ * check owner/mode/link; this check adds the exact version binding. A missing,
+ * foreign or stale module must never change the acceptance gate. */
+function verifyHistoricalEvidenceTool() {
+  let bytes;
+  try { bytes = trustedFile(HISTORICAL_EVIDENCE_TOOL,0o644); }
+  catch { throw new Error('RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED'); }
+  if (digest(bytes) !== HISTORICAL_EVIDENCE_TOOL_SHA256) {
+    throw new Error('RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED');
+  }
+}
+
+/** Fail-closed sealed-archive presence.
+ *
+ * Only a positively absent archive root and attempt directory mean "no archive
+ * was started". A dangling symlink, a plain file, a symlinked directory, an
+ * unreadable parent or a wrong-owner/mode archive root is never treated as
+ * absent, so the in-place branch can never mask a started or hostile archive.
+ */
+function historicalArchivePresence() {
+  const fail = historicalArchiveFail;
+  let root;
+  try { root = lstatSync(HISTORICAL_ARCHIVE_ROOT); }
+  catch (error) {
+    if (error.code === 'ENOENT') return 'absent';
+    fail();
+  }
+  // A present archive root that is not a plain root-owned, non-writable-by-
+  // others directory is a hostile or broken layout, never "absent".
+  if (!root.isDirectory() || root.isSymbolicLink() || root.uid !== 0 || root.gid !== 0
+    || (root.mode & 0o022) !== 0) fail();
+  try { lstatSync(HISTORICAL_ARCHIVE_DIR); return 'present'; }
+  catch (error) {
+    if (error.code === 'ENOENT') return 'absent';
+    fail();
+  }
+}
+
 /** OPS-R4-002 policy-owned historical prerequisite. A sealed OPS-R4-003 archive
  * is still accepted exactly as before; otherwise the exact attempt must remain
- * provably preserved in place. A started but incomplete archive never falls
- * back to the in-place branch.
+ * provably preserved in place. A started, partial or unreadable archive never
+ * falls back to the in-place branch.
  */
 export function verifyHistoricalPreservationGate() {
-  if (existsSync(HISTORICAL_ARCHIVE_DIR)) return verifyHistoricalArchiveGate();
+  if (historicalArchivePresence() === 'present') return verifyHistoricalArchiveGate();
   return verifyHistoricalInPlacePreservation();
 }
 

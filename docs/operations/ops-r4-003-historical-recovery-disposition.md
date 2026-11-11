@@ -449,9 +449,13 @@ is written, and no source is unlinked, renamed or moved.
 
 ### 12.3 Precedence and ordering
 
-- If `/var/lib/servora-med-recovery-archive/<attempt>/` exists for any reason,
-  the sealed gate runs and the in-place branch is never considered. A started
-  or partial archive is a STOP condition.
+- Archive presence is fail-closed and `lstat`-based. Only a positively absent
+  archive root **and** a positively absent `<attempt>/` directory mean "no
+  archive was started". A dangling symlink, a plain file, a symlinked or
+  foreign-owned archive root, a group/other-writable root, an unreadable parent
+  (`EACCES`, `ENOTDIR`) or any existing `<attempt>/` entry selects the sealed
+  gate, which then rejects its exact tree. The in-place branch can never mask a
+  started, broken or hostile archive path.
 - Order is **disposition → stage → profile re-seal → baseline → new root
   approval → adoption → attempt-preflight/admission**. Staging must happen
   before the re-seal because it copies the pre-re-seal profile.

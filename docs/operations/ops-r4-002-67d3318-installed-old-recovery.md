@@ -175,7 +175,7 @@ invalidates them.
 | Item | Value |
 |---|---|
 | Previous installed controller (`71ae6df6` cutover) | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| Current controller bytes | `c7020e55794d9e7d73600cd2b1b8cd22733fd61743bd690df574ce1d8462075a` |
+| Current controller bytes | `eca174e6dabeabcb1de2b3203ad947fc63733e2200c336d39a5bd0abdfabcbeb` |
 | Current shared evidence-module bytes | `cd6ea7a24423954cc4532f317b279eef358e7eae5855d516c808306934390a38` |
 | Current OPS-R4-002 administrator CLI | `69a655282c72bb85fa2c7d68f99968df46104ba8ac479f8e08aea8c43193264f` |
 | Current OPS-R4-003 disposition CLI | `9417cecb254f8e2e65d33c832b72bd2132634873fa9b736e97273946ccb00094` |
@@ -191,9 +191,14 @@ controller hash.
 The shared evidence module must be installed as
 `/usr/local/libexec/servora-med/historical-recovery-evidence.mjs`
 `root:root 0750`-directory / `0644`-file, single link, exactly like the other
-controller imports. The administrator wrappers and `r4_controller()` verify it
-before invoking Node; it is not one of the nine profile contract digests, so the
-profile re-seal does not add a tenth key.
+controller imports. The administrator wrappers and `r4_controller()` check its
+owner, mode and link count before invoking Node, and
+`verifyHistoricalInPlacePreservation()` additionally pins its **exact SHA-256**
+in the controller before calling any function from it. It is deliberately not a
+tenth profile contract key: every historical profile carries exactly nine keys
+and must stay readable for the retained OPS-R4-001 evidence and the emergency
+handoff. The profile already pins this controller's bytes, so the dependency is
+pinned transitively without a profile schema change or a second protocol.
 
 **Remaining (non-blocking) gap:** the reviewed archive-removal/sealing tool and
 independent off-host retention/restore evidence are still absent. They are

@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {
   adoptionHost,adoptionFixture67d3318 as adoptionFixture
 } from './installed-old-adoption-fixture.mjs';
@@ -21,7 +22,9 @@ import {
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const json=value=>Buffer.from(JSON.stringify(value)+'\n');
 const adoptionRecord=STATE+'/installed-old-adoption-67d3318.json';
-const archiveDir='/var/lib/servora-med-recovery-archive/'+ATTEMPT;
+const archiveRoot='/var/lib/servora-med-recovery-archive';
+const archiveDir=archiveRoot+'/'+ATTEMPT;
+const evidenceTool='/usr/local/libexec/servora-med/historical-recovery-evidence.mjs';
 const readRecord=(host,path)=>JSON.parse(host.files.get(path).data.toString());
 const writeRecord=(host,path,record)=>{
   const bytes=json(record);host.files.get(path).data=bytes;return bytes;
@@ -220,9 +223,63 @@ test('pending deployment state and a lost host lock still fail closed',async t=>
 
 test('a started but incomplete sealed archive never falls back to in-place acceptance',async t=>{
   const {host}=await preservedHost(t);
+  host.directories.set(archiveRoot,0o755);
   host.directories.set(archiveDir,0o700);
   assert.throws(()=>host.controller.verifyHistoricalPreservationGate(),
     /RECOVERY_HISTORICAL_ARCHIVE_/);
+});
+
+test('every present-but-hostile archive path fails closed instead of using in-place',async t=>{
+  const cases=[
+    ['attempt dangling symlink',host=>host.addSymlink(archiveDir,'/nowhere/archive')],
+    ['attempt plain file',host=>host.add(archiveDir,'not a directory',0o600)],
+    ['attempt symlink to directory',host=>host.addSymlink(archiveDir,STATE)],
+    ['root dangling symlink',host=>host.addSymlink(archiveRoot,'/nowhere/root')],
+    ['root plain file',host=>host.add(archiveRoot,'not a directory',0o600)],
+    ['root unreadable',host=>host.lstatErrors.set(archiveRoot,'EACCES')],
+    ['attempt unreadable',host=>{host.directories.set(archiveRoot,0o755);
+      host.lstatErrors.set(archiveDir,'EACCES');}],
+    ['attempt not a directory (ENOTDIR)',host=>{host.directories.set(archiveRoot,0o755);
+      host.lstatErrors.set(archiveDir,'ENOTDIR');}],
+    ['root group-writable',host=>host.directories.set(archiveRoot,0o775)],
+    ['root foreign-owned',host=>{host.directories.set(archiveRoot,0o755);
+      host.owners.set(archiveRoot,{uid:1000,gid:0});}],
+  ];
+  for(const [name,mutate] of cases){
+    const {host}=await preservedHost(t);
+    mutate(host);
+    assert.throws(()=>host.controller.verifyHistoricalPreservationGate(),
+      /RECOVERY_HISTORICAL_ARCHIVE_/,name);
+    // The in-place acceptance must not be produced by any of these states.
+    assert.equal(host.files.has(adoptionRecord),false,name);
+  }
+});
+
+test('the installed evidence module is pinned by exact bytes, owner and mode',async t=>{
+  const mutations=[
+    ['tampered bytes',host=>{host.files.get(evidenceTool).data=Buffer.from('tampered\n');}],
+    ['missing module',host=>{host.files.delete(evidenceTool);}],
+    ['wrong mode',host=>{host.files.get(evidenceTool).mode=0o600;}],
+    ['extra hardlink',host=>{host.files.get(evidenceTool).nlink=2;}],
+  ];
+  for(const [name,mutate] of mutations){
+    const {host,adoption}=await preservedHost(t);
+    mutate(host);
+    assert.throws(()=>host.controller.verifyHistoricalInPlacePreservation(),
+      /RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED/,name);
+    assert.throws(()=>host.controller.issueInstalledOldAdoption67d3318(
+      adoption.context.approval.attemptId,adoption.baseline.baselineId),
+    /RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED/,name);
+    assert.equal(host.files.has(adoptionRecord),false,name);
+  }
+});
+
+test('the controller pin matches the repository evidence module bytes',()=>{
+  const controller=readFileSync(new URL('../scripts/deployment-controller.mjs',import.meta.url),'utf8');
+  const pinned=controller.match(/HISTORICAL_EVIDENCE_TOOL_SHA256 = '([0-9a-f]{64})'/);
+  assert.ok(pinned,'controller must pin the evidence module');
+  assert.equal(pinned[1],hash(readFileSync(
+    new URL('../scripts/historical-recovery-evidence.mjs',import.meta.url))));
 });
 
 test('the OPS-R4-003 sealed archive remains the accepted first branch',async t=>{
