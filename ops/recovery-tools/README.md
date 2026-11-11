@@ -45,6 +45,9 @@ profile-reseal --apply --expected-old <64-hex> --expected-candidate <64-hex>
 - The disposition must bind `profileSha256` to the old profile, be
   `ABANDONED_SUPERSEDED / NOT_ACCEPTED`, `terminal=false`,
   `lastSequence=17` and `starts=2`.
+- Historical acceptance verification is mandatory even in the core API. A missing
+  verifier fails closed; only the exact `IN_PLACE_PRESERVATION_VERIFIED` result
+  from the installed controller allows a candidate to be computed.
 - The OPS-R4-005 stage receipt must bind the same old profile and disposition;
   the OPS-R4-006 readback verifies all 28 staged files and the exact tree.
 - All nine contract values are measured from the live files:
@@ -156,8 +159,8 @@ Reviewed install bytes (2026-11-11):
 
 | File | SHA-256 |
 |---|---|
-| `profile-reseal` (wrapper) | `8e47d9f76efebfe43a91bd1862a1ae15eea5c46c592b74f16b58698d610482c8` |
-| `profile-reseal.mjs` (module) | `0837ea57670903839fa1bd24fe9a0c4c67e71a565b4623dbde6874082aa7b424` |
+| `profile-reseal` (wrapper) | `dc4be7b49edf294ac6ab3d82b7c588ef75746a5b34a0e3685e904b767050548e` |
+| `profile-reseal.mjs` (module) | `c069b9ebdb695987f99525ec481830a1fb5de0c068137053af64c13583f4ca2f` |
 | `host-operation-lock.sh` (unchanged dependency) | `a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e` |
 
 The wrapper pins the module's exact SHA-256; a reviewed module update requires

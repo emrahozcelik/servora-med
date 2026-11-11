@@ -262,7 +262,7 @@ function checkTime(sampleTrustedTime){
 }
 
 function checkHistorical(verifyHistoricalPreservation){
-  if(typeof verifyHistoricalPreservation!=='function')return null;
+  if(typeof verifyHistoricalPreservation!=='function')fail('PROFILE_RESEAL_HISTORICAL_INVALID');
   let result;
   try{result=verifyHistoricalPreservation();}
   catch(error){throw error;}

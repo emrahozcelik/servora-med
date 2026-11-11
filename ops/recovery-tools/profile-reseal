@@ -20,7 +20,7 @@ fail(){ printf '%s\n' "$1" >&2; exit 1; }
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly MODULE="$SCRIPT_DIR/profile-reseal.mjs"
 # Filled from the reviewed module bytes. A mismatch is a STOP.
-readonly MODULE_SHA256=0837ea57670903839fa1bd24fe9a0c4c67e71a565b4623dbde6874082aa7b424
+readonly MODULE_SHA256=c069b9ebdb695987f99525ec481830a1fb5de0c068137053af64c13583f4ca2f
 readonly LIBRARY=/usr/local/libexec/servora-med/host-operation-lock.sh
 readonly LOCK=/var/lib/servora-med/deploy/host.lock
 

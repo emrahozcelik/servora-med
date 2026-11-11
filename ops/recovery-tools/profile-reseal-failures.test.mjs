@@ -24,6 +24,8 @@ const depsFor=(fixture,overrides={})=>({
   environmentBaseline,
   sampleTrustedTime:()=>timeEvidenceAt(),
   readDatabaseIdentity:()=>fixture.profile.databaseIdentity,
+  // The production verifier is required; tests inject a deterministic accepted result.
+  verifyHistoricalPreservation:()=>({status:'IN_PLACE_PRESERVATION_VERIFIED'}),
   readStageReceipt:readHistoricalStageReceipt,
   verifyStageReadback:verifyHistoricalStageReadback,
   assertLock:()=>{},
@@ -124,6 +126,16 @@ test('a tampered staged file is rejected by the 28-file readback',async t=>{
   fs.appendFileSync(path.join(fixture.paths.stagingDir,rel),'tampered\n');
   assert.throws(()=>apply(fixture),/PROFILE_RESEAL_STAGE_INVALID/);
   assertUnchanged(fixture);
+});
+
+test('missing historical verifier fails closed before any profile write',async t=>{
+  for(const absent of [undefined,null]){
+    const fixture=createFixture();
+    t.after(fixture.cleanup);
+    assert.throws(()=>apply(fixture,{verifyHistoricalPreservation:absent}),
+      /PROFILE_RESEAL_HISTORICAL_INVALID/);
+    assertUnchanged(fixture);
+  }
 });
 
 test('a failing historical gate aborts before any write',async t=>{

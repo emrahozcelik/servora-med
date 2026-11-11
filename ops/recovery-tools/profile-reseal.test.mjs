@@ -26,6 +26,8 @@ const depsFor=(fixture,overrides={})=>({
   environmentBaseline,
   sampleTrustedTime:()=>timeEvidenceAt(),
   readDatabaseIdentity:()=>fixture.profile.databaseIdentity,
+  // The production verifier is required; tests inject a deterministic accepted result.
+  verifyHistoricalPreservation:()=>({status:'IN_PLACE_PRESERVATION_VERIFIED'}),
   readStageReceipt:readHistoricalStageReceipt,
   verifyStageReadback:verifyHistoricalStageReadback,
   assertLock:()=>{},
