@@ -123,16 +123,22 @@ approval, not an automatically advancing documentation pin.
    `profile-reseal` tool from the artifact: it is deliberately excluded.
 2. Transfer this directory separately, verify the manifest hashes below,
    install the wrapper/module layout above and keep the old profile live.
-3. Verify `sampleTrustedTime()` returns v2 evidence through the installed
-   TT-A `d28fb396...`.
+3. Verify `sampleTrustedTime()` returns v2 evidence through the
+   **canonical installed** `/usr/local/libexec/servora-med/trusted-time.mjs`
+   with SHA-256 `d28fb396...`. A successful sample from a forward-time
+   overlay alone does not prove that the canonical module has been upgraded.
 4. Issue the historical disposition, then stage and read back the 28 files.
 5. Run `profile-reseal --dry-run` and review the candidate hash and changed
    contracts. The expected M1 candidate is
    `a5f2dbd5b17ed55b2b3f46e46c6772a146b5cffd90bee509b3f9a92183b0c86d`.
    The expected old profile is
    `7a26bd58923a567992b9c9ca5abc6cad7922b2ac51c5c0a79e7e839ffacdf31d`.
-6. Apply only the approved candidate:
-   `profile-reseal --apply --expected-old 7a26bd58... --expected-candidate a5f2dbd5...`
+6. Only after a separately authorized, reviewed `--dry-run`, apply with
+   **both complete 64-character lowercase SHA-256 values** returned by that
+   operation:
+   `profile-reseal --apply --expected-old <full-old-sha256> --expected-candidate <full-candidate-sha256>`.
+   The abbreviated audit examples above are not valid executable inputs and
+   must never be copied as authority.
 7. Verify the new profile hash, all nine contracts, env/machine/DB identity,
    TT-A v2 and `verifyHistoricalPreservationGate()`.
 8. Only then capture the 67d3318 baseline, issue the new root approval, issue
