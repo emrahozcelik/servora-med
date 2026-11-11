@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { createECDH, randomUUID } from 'node:crypto';
 
+import webPush from 'web-push';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { type PushPayloadV1 } from '../src/modules/web-push/payload.js';
@@ -12,13 +14,11 @@ import {
 const subscriberEcdh = createECDH('prime256v1');
 subscriberEcdh.generateKeys();
 
-const vapidEcdh = createECDH('prime256v1');
-vapidEcdh.generateKeys();
-
+// web-push pads rare 31-byte ECDH private scalars to the required 32 bytes.
+// Avoid a shared random short-key fixture that makes all sender tests fail with 400.
 const TEST_VAPID = {
   subject: 'mailto:test@example.com',
-  publicKey: vapidEcdh.getPublicKey().toString('base64url'),
-  privateKey: vapidEcdh.getPrivateKey().toString('base64url'),
+  ...webPush.generateVAPIDKeys(),
 };
 
 const DEFAULT_PAYLOAD: PushPayloadV1 = {
@@ -85,6 +85,11 @@ function mockDelayedResponse(delayMs: number): HttpsRequestFunction {
 }
 
 describe('WebPushSender', () => {
+  it('generates full-length VAPID keys for the shared fixture', () => {
+    expect(Buffer.from(TEST_VAPID.publicKey, 'base64url')).toHaveLength(65);
+    expect(Buffer.from(TEST_VAPID.privateKey, 'base64url')).toHaveLength(32);
+  });
+
   it('returns 2xx status as response result', async () => {
     const request = vi.fn(mockResponseRequest(201));
     const sender = createWebPushSender(TEST_VAPID, request);
