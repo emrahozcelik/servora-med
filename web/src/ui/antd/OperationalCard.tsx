@@ -58,10 +58,13 @@ export function OperationalCard({
 }: OperationalCardProps): ReactNode {
   const toneClass = tone !== 'default' ? ` ${toneClassMap[tone]}` : '';
   const mergedClass = `servora-operational-card${toneClass}${className ? ` ${className}` : ''}`;
+  // Ant renders no card head without title/extra; a headerless card carries
+  // its status cue in the body instead of creating an empty head row.
+  const hasHeader = (title !== undefined && title !== null) || (extra !== undefined && extra !== null);
   const statusCue = tone !== 'default'
     ? <span className={`servora-tone-chip servora-tone-chip--${tone}`}>{statusLabel ?? toneLabels[tone]}</span>
     : null;
-  const displayExtra = statusCue
+  const displayExtra = hasHeader && statusCue
     ? <span className="servora-operational-card__status-group">{statusCue}{extra}</span>
     : extra;
 
@@ -69,7 +72,6 @@ export function OperationalCard({
     <Card
       className={mergedClass}
       classNames={{
-        root: mergedClass,
         header: 'servora-operational-card__header',
         title: 'servora-operational-card__title',
         extra: 'servora-operational-card__extra',
@@ -82,6 +84,9 @@ export function OperationalCard({
       loading={loading}
       size="small"
     >
+      {!hasHeader && statusCue && (
+        <div className="servora-operational-card__body-status">{statusCue}</div>
+      )}
       {children}
     </Card>
   );

@@ -1661,7 +1661,8 @@ try {
     if (!m.titleContained) failures.push(`${vp.name} overview cards: card title expands card width`);
     // VIS-02: every semantic tone must carry a full outline (no left-only stripe)
     // and the canonical raised radius; the value color stays the semantic channel.
-    // The default tone intentionally stays borderless (unchanged appearance).
+    // The default tone carries the neutral rule outline so every KPI in the
+    // row shares one surface; only semantic tones are asserted here.
     if (m.kpiVariantCount !== 4) {
       failures.push(`${vp.name} overview cards: KPI fixture missing variants`);
     }

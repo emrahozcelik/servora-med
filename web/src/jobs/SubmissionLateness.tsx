@@ -305,7 +305,8 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
           <OperationalCard
             key={`${item.jobCardId}:${item.episodeNo}`}
             title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
-            tone="attention"
+            tone="overdue"
+            statusLabel="Gönderim gecikti"
             className="submission-late-card"
           >
             <span>

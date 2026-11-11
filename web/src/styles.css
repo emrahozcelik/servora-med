@@ -4045,6 +4045,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .backup-fact-list--wide { max-width: 48rem; }
 
 @media (max-width: 64rem) {
+  .overview-main-grid { grid-template-columns: 1fr; }
   .backup-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .backup-history-row { grid-template-columns: minmax(10rem, 1fr) minmax(7rem, 0.8fr) minmax(12rem, 1.2fr); }
 }
@@ -4071,6 +4072,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .backup-history-secondary strong { margin-top: 0; }
   .backup-detail-heading { align-items: stretch; flex-direction: column; }
   .backup-detail-heading .ghost-button { align-self: start; }
+}
+
+/* Only the narrowest phones (320px class) stack KPIs; 360/390px keep two columns. */
+@media (max-width: 22rem) {
+  .overview-kpis {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4349,6 +4357,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 
 /* ── OperationalCard adapter styles ── */
+/* Tone selectors use two classes so they beat Ant's bordered-card rule by
+   specificity alone, independent of runtime style-injection order. */
 
 .servora-operational-card {
   border: 1px solid var(--rule);
@@ -4389,14 +4399,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   margin: 0;
 }
 
-.servora-operational-card--new { border-color: var(--accent); }
-.servora-operational-card--upcoming { border-color: var(--info); }
-.servora-operational-card--attention { border-color: var(--warning); }
-.servora-operational-card--overdue { border-color: var(--warning); }
-.servora-operational-card--success { border-color: var(--success); }
-.servora-operational-card--selected {
+.servora-operational-card.servora-operational-card--new { border-color: var(--accent); }
+.servora-operational-card.servora-operational-card--upcoming { border-color: var(--info); }
+.servora-operational-card.servora-operational-card--attention { border-color: var(--warning); }
+.servora-operational-card.servora-operational-card--overdue { border-color: var(--warning); }
+.servora-operational-card.servora-operational-card--success { border-color: var(--success); }
+.servora-operational-card.servora-operational-card--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--info-soft);
+}
+.servora-operational-card__body-status {
+  margin-bottom: 0.4rem;
 }
 .servora-operational-card__status-group {
   display: inline-flex;
@@ -4830,105 +4843,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .calendar-form-times > * {
     width: 100%;
   }
-}
-/* ── Form (inside drawer) ── */
-
-.calendar-form {
-  display: grid;
-  gap: 1rem;
-}
-
-.calendar-form-times > * {
-  flex: 1 1 14rem;
-}
-
-.calendar-help {
-  margin: 0;
-}
-
-/* ── Form drawer ── */
-
-.form-drawer-root {
-  display: contents;
-}
-
-.form-drawer-backdrop {
-  background: oklch(0% 0 0deg / 0.35);
-  border: none;
-  inset: 0;
-  min-height: 0;
-  position: fixed;
-  width: 100%;
-  z-index: 100;
-}
-
-.form-drawer {
-  background: var(--paper);
-  bottom: 0;
-  box-shadow: var(--shadow-raised);
-  display: grid;
-  gap: 1rem;
-  grid-template-rows: auto 1fr;
-  max-height: 100dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 1rem;
-  position: fixed;
-  right: 0;
-  top: 0;
-  width: min(30rem, 90vw);
-  z-index: 101;
-}
-
-.form-drawer-header {
-  align-items: center;
-  border-bottom: 1px solid var(--rule);
-  display: flex;
-  justify-content: space-between;
-  min-width: 0;
-  gap: 0.75rem;
-  padding-bottom: 0.75rem;
-}
-
-.form-drawer-header h2 {
-  font-size: 1.15rem;
-  font-weight: 700;
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.form-drawer-header .compact-button {
-  min-width: var(--control-height);
-}
-
-.form-drawer-body {
-  min-height: 0;
-}
-
-/* Mobile: near-full-width drawer */
-@media (max-width: 40rem) {
-  .form-drawer {
-    width: min(100vw, 30rem);
-    max-height: 90dvh;
-    border-radius: 0.75rem 0.75rem 0 0;
-    bottom: 0;
-    top: auto;
-  }
-
-  .calendar-form-times > * {
-    width: 100%;
-  }
-}
-
-/* Agenda compact */
-@media (max-width: 40rem) {
-  .calendar-toolbar > *,
-  .calendar-toolbar label,
-  .calendar-event-actions > *,
-  .calendar-form-times > * {
-    width: 100%;
-  }
 
   .calendar-event {
     grid-template-columns: minmax(0, 1fr);
@@ -4939,13 +4853,20 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 .servora-metric-statistic {
   background: var(--paper);
+  border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
   padding: 1rem;
 }
-.servora-metric-statistic .servora-ant-statistic-title {
+.servora-metric-statistic .servora-ant-statistic-title,
+.servora-metric-statistic .servora-ant-statistic-header .servora-ant-statistic-title {
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 600;
+}
+.servora-metric-statistic .servora-ant-statistic-title h3 {
+  margin: 0;
+  color: inherit;
+  font: inherit;
 }
 .servora-metric-statistic .servora-ant-statistic-content {
   color: var(--ink);

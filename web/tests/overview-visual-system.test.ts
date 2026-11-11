@@ -32,14 +32,15 @@ describe('overview visual system contract (UX audit slice 1)', () => {
     expect(css).toMatch(/\.overview-main-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 7fr\) minmax\(0, 5fr\)/s);
   });
 
-  it('uses the canonical raised radius token on overview sections (VIS-04)', () => {
-    const rules = rulesFor('.overview-section');
-    expect(rules.length).toBeGreaterThan(0);
-    for (const body of rules) {
-      if (body.includes('border-radius:')) {
-        expect(body).toContain('border-radius: var(--radius-raised)');
-      }
+  it('uses the canonical raised radius token on operational cards inside unboxed overview sections (VIS-04)', () => {
+    const sectionRules = rulesFor('.overview-section');
+    expect(sectionRules.length).toBeGreaterThan(0);
+    for (const body of sectionRules) {
+      expect(body).not.toContain('border-radius:');
     }
+    const cardRules = rulesFor('.servora-operational-card');
+    expect(cardRules.length).toBeGreaterThan(0);
+    expect(cardRules.some((body) => body.includes('border-radius: var(--radius-raised)'))).toBe(true);
     // Historical bug coverage is semantic: the scoped assertion above pins the
     // canonical token, and the "radius family hygiene" test below fails on any
     // referenced-but-undefined radius token (which is exactly what the old
@@ -77,6 +78,9 @@ describe('overview visual system contract (UX audit slice 1)', () => {
   it('gives semantic metric tones a full radius-following outline, not a left-only stripe (VIS-02)', () => {
     const base = rulesFor('.servora-metric-statistic');
     expect(base.some((body) => body.includes('border-radius: var(--radius-raised)'))).toBe(true);
+    // The default KPI shares the neutral outline so a status line never floats
+    // on an unframed surface next to outlined semantic KPIs.
+    expect(base.some((body) => body.includes('border: 1px solid var(--rule)'))).toBe(true);
 
     const expectations: Array<[string, string]> = [
       ['.servora-metric-statistic--attention', 'border: 1px solid var(--warning)'],

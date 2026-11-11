@@ -61,5 +61,18 @@ describe('Ant prefix and operational two-channel contract', () => {
     expect(html).toContain('servora-metric-statistic--attention');
     expect(html).toContain('Termin süresi aşıldı');
     expect(html).toContain('servora-metric-statistic__status');
+    expect(css).toContain('.servora-metric-statistic .servora-ant-statistic-title h3');
+  });
+
+  it('keeps headerless cards free of an empty card head when rendering a tone cue', () => {
+    const html = renderToStaticMarkup(
+      <ServoraAntProvider>
+        <OperationalCard tone="selected">Ajanda kaydı</OperationalCard>
+      </ServoraAntProvider>,
+    );
+    expect(html).toContain('servora-operational-card__body-status');
+    expect(html).toContain('servora-tone-chip--selected');
+    expect(html).not.toContain('servora-ant-card-head');
+    expect(html.match(/servora-operational-card--selected/g)?.length).toBe(1);
   });
 });
