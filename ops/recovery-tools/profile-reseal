@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Root-only OPS-R4-002 atomic profile re-seal entrypoint.
+#
+# Install together with profile-reseal.mjs as root:root in a root-only
+# directory (for example /usr/local/libexec/servora-med-profile-reseal):
+#   profile-reseal      0750
+#   profile-reseal.mjs  0644
+#
+# This tool is intentionally NOT part of the production release artifact. The
+# reviewed bytes are transferred and hash-pinned separately during bootstrap.
+# Never add it to deploy sudoers.
+set -Eeuo pipefail
+umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset NODE_OPTIONS NODE_PATH BASH_ENV ENV
+fail(){ printf '%s\n' "$1" >&2; exit 1; }
+
+[[ "$EUID" -eq 0 ]] || fail PROFILE_RESEAL_ADMIN_REQUIRED
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly MODULE="$SCRIPT_DIR/profile-reseal.mjs"
+# Filled from the reviewed module bytes. A mismatch is a STOP.
+readonly MODULE_SHA256=0837ea57670903839fa1bd24fe9a0c4c67e71a565b4623dbde6874082aa7b424
+readonly LIBRARY=/usr/local/libexec/servora-med/host-operation-lock.sh
+readonly LOCK=/var/lib/servora-med/deploy/host.lock
+
+trusted_file(){
+  local path="$1" mode="$2" directory
+  [[ "$(realpath -e "$path")" == "$path" && -f "$path" && ! -L "$path" \
+    && "$(stat -c '%U:%G:%a:%h' "$path")" == "root:root:$mode:1" ]] \
+      || fail PROFILE_RESEAL_TOOL_UNTRUSTED
+  directory="$(dirname "$path")"
+  while [[ "$directory" != / ]]; do
+    [[ -d "$directory" && ! -L "$directory" && "$(stat -c %u "$directory")" == 0 \
+      && $((8#$(stat -c %a "$directory") & 8#022)) -eq 0 ]] \
+        || fail PROFILE_RESEAL_TOOL_UNTRUSTED
+    directory="$(dirname "$directory")"
+  done
+}
+
+trusted_file "$MODULE" 644
+[[ "$(sha256sum "$MODULE" | awk '{print $1}')" == "$MODULE_SHA256" ]] \
+  || fail PROFILE_RESEAL_TOOL_UNTRUSTED
+
+# The stable lock must already exist; this tool never creates or reclaims it.
+[[ -f "$LOCK" && ! -L "$LOCK" \
+  && "$(stat -c '%U:%G:%a:%h' "$LOCK")" == root:root:600:1 ]] \
+  || fail PROFILE_RESEAL_HOST_LOCK_REQUIRED
+
+trusted_file "$LIBRARY" 644
+[[ "$(sha256sum "$LIBRARY" | awk '{print $1}')" == \
+  a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e ]] \
+  || fail PROFILE_RESEAL_TOOL_UNTRUSTED
+# The library is a runtime, hash-pinned path; shellcheck cannot follow it.
+# shellcheck disable=SC1090,SC1091
+source "$LIBRARY"
+servora_acquire_host_lock
+servora_assert_no_pending_attempt
+
+exec /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C /usr/bin/node --no-addons \
+  "$MODULE" "$@"
