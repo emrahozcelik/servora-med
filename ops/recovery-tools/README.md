@@ -133,12 +133,16 @@ approval, not an automatically advancing documentation pin.
    `a5f2dbd5b17ed55b2b3f46e46c6772a146b5cffd90bee509b3f9a92183b0c86d`.
    The expected old profile is
    `7a26bd58923a567992b9c9ca5abc6cad7922b2ac51c5c0a79e7e839ffacdf31d`.
-6. Only after a separately authorized, reviewed `--dry-run`, apply with
-   **both complete 64-character lowercase SHA-256 values** returned by that
-   operation:
+6. Only after a separately authorized, reviewed `--dry-run` **and
+   a separate, explicit owner authorization for `--apply`**, execute the
+   atomic re-seal. **A dry-run approval does not authorize `--apply`.**
+   The apply authorization must bind the exact live old-profile SHA-256 and
+   the exact candidate SHA-256 measured and reviewed in the dry-run.
+   Supply **both complete 64-character lowercase SHA-256 values**:
    `profile-reseal --apply --expected-old <full-old-sha256> --expected-candidate <full-candidate-sha256>`.
    The abbreviated audit examples above are not valid executable inputs and
-   must never be copied as authority.
+   must never be copied as authority. Any mismatch is STOP; do not force,
+   repair, retry or infer authorization from a prior approval.
 7. Verify the new profile hash, all nine contracts, env/machine/DB identity,
    TT-A v2 and `verifyHistoricalPreservationGate()`.
 8. Only then capture the 67d3318 baseline, issue the new root approval, issue
