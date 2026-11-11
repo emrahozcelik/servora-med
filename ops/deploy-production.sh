@@ -553,7 +553,10 @@ package_artifact() {
     --directory "$REPO_ROOT" \
     --exclude='./.git' \
     --exclude='./host.md' \
+    --exclude='./ops/recovery-tools' \
     --exclude='./ops/recovery-tools/*' \
+    --exclude='ops/recovery-tools' \
+    --exclude='ops/recovery-tools/*' \
     --exclude='*/.env' \
     --exclude='*/.env.*' \
     --exclude='*/credentials/*' \

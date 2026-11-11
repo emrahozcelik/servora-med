@@ -134,15 +134,35 @@ node --test ops/recovery-tools/packaging-exclusion.test.mjs
 ```
 
 The wrapper integration test is hard-gated to a disposable root Linux
-container:
+container. The full acceptance image adds a real PostgreSQL cluster for the
+database-identity probe:
 
 ```bash
+docker build -t servora-profile-reseal-test:bookworm - <<'EOF'
+FROM node:22-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql postgresql-client util-linux \
+ && rm -rf /var/lib/apt/lists/*
+EOF
+
 docker run --rm -e PROFILE_RESEAL_CONTAINER_TEST=1 \
-  -v "$PWD":/work -w /work node:22-bookworm-slim \
-  node --test ops/recovery-tools/profile-reseal-wrapper.test.mjs
+  -v "$PWD":/work:ro -w /work servora-profile-reseal-test:bookworm \
+  node --test --test-concurrency=1 ops/recovery-tools/*.test.mjs
 ```
 
-It must never run on a real host.
+The E2E test (`profile-reseal-e2e.test.mjs`) builds a fully synthetic old host
+state, installs the real wrapper/module and the real host modules, creates a
+real read-only PostgreSQL identity, and runs a successful `--dry-run` and
+`--apply` through the actual root wrapper. It verifies the atomic write,
+post-rename readback, all nine live contracts, the 26/28 historical evidence
+chain, and that every historical byte is unchanged.
+
+A non-privileged container cannot run systemd/chrony/NTS. The E2E therefore
+installs a synthetic TT-A adapter at the installed `trusted-time.mjs` boundary
+that emits a schema-valid v2 record; the real `validateCurrentTimeEvidence`
+still consumes it. Production must install the real `trusted-time.mjs`
+(`d28fb396...`), not this test adapter. The E2E never runs on a real host and
+refuses to start if any production state path already exists.
 
 ## Release-artifact impact
 
