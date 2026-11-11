@@ -15,10 +15,18 @@ subscriberEcdh.generateKeys();
 const vapidEcdh = createECDH('prime256v1');
 vapidEcdh.generateKeys();
 
+function encodeFixedWidthVapidPrivateKey(privateKey: Buffer): string {
+  // Node ECDH can omit a leading zero byte; web-push requires a 32-byte P-256 VAPID scalar.
+  if (privateKey.length < 1 || privateKey.length > 32) {
+    throw new Error('Unexpected P-256 private key length');
+  }
+  return Buffer.concat([Buffer.alloc(32 - privateKey.length), privateKey]).toString('base64url');
+}
+
 const TEST_VAPID = {
   subject: 'mailto:test@example.com',
   publicKey: vapidEcdh.getPublicKey().toString('base64url'),
-  privateKey: vapidEcdh.getPrivateKey().toString('base64url'),
+  privateKey: encodeFixedWidthVapidPrivateKey(vapidEcdh.getPrivateKey()),
 };
 
 const DEFAULT_PAYLOAD: PushPayloadV1 = {
@@ -85,6 +93,16 @@ function mockDelayedResponse(delayMs: number): HttpsRequestFunction {
 }
 
 describe('WebPushSender', () => {
+  it('left-pads a 31-byte P-256 private scalar to a 32-byte VAPID key', () => {
+    const shortenedPrivateKey = Buffer.alloc(31, 0x42);
+    const encoded = encodeFixedWidthVapidPrivateKey(shortenedPrivateKey);
+    const decoded = Buffer.from(encoded, 'base64url');
+
+    expect(decoded).toHaveLength(32);
+    expect(decoded[0]).toBe(0);
+    expect(decoded.subarray(1)).toEqual(shortenedPrivateKey);
+  });
+
   it('returns 2xx status as response result', async () => {
     const request = vi.fn(mockResponseRequest(201));
     const sender = createWebPushSender(TEST_VAPID, request);
