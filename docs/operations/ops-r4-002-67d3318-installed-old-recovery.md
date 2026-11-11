@@ -163,7 +163,7 @@ Preserve all historical approval files, the 71ae6df6 adoption record and its
 baseline. Admission remains impossible without a real, unexpired root approval;
 the adoption record never substitutes for it.
 
-### Measured source impact (10 November 2026)
+### Measured source impact (11 November 2026)
 
 The OPS-R4-002 historical acceptance contract changed after exact-main
 `402e350af9d057bafe77bfeaeef23fa33b25989a`. These are the current source
@@ -175,8 +175,8 @@ invalidates them.
 | Item | Value |
 |---|---|
 | Previous installed controller (`71ae6df6` cutover) | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| Current controller bytes | `eca174e6dabeabcb1de2b3203ad947fc63733e2200c336d39a5bd0abdfabcbeb` |
-| Current shared evidence-module bytes | `cd6ea7a24423954cc4532f317b279eef358e7eae5855d516c808306934390a38` |
+| Current controller bytes | `7f50d0cdea947cb4d22d95cac908a99eab66aecfcbd81f00051cb1aa2b947604` |
+| Current shared evidence-module bytes | `c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f` |
 | Current OPS-R4-002 administrator CLI | `69a655282c72bb85fa2c7d68f99968df46104ba8ac479f8e08aea8c43193264f` |
 | Current OPS-R4-003 disposition CLI | `9417cecb254f8e2e65d33c832b72bd2132634873fa9b736e97273946ccb00094` |
 | TT-A time module (unchanged by this slice) | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
@@ -199,6 +199,11 @@ tenth profile contract key: every historical profile carries exactly nine keys
 and must stay readable for the retained OPS-R4-001 evidence and the emergency
 handoff. The profile already pins this controller's bytes, so the dependency is
 pinned transitively without a profile schema change or a second protocol.
+
+The OPS-R4-002 adoption gate and the in-place source-inventory reader also
+verify all four pending deployment/recovery marker paths using `lstat`: a
+dangling symlink, an unreadable marker (`EACCES`/`ENOTDIR`), or any existing
+entry fails closed. This hardening does not alter the OPS-R4-001 issuance path.
 
 **Remaining (non-blocking) gap:** the reviewed archive-removal/sealing tool and
 independent off-host retention/restore evidence are still absent. They are
