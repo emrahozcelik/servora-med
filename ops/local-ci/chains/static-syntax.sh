@@ -41,6 +41,6 @@ for script in ../ops/local-ci/*.sh ../ops/local-ci/lib/*.sh ../ops/local-ci/chai
 done
 node --check ../ops/local-ci/assemble-manifest.mjs
 
-for module in historical-stage-readback historical-archive-stage historical-archive-preflight deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe forward-host-recovery forward-host-continuity preserve-forward-authorization; do
+for module in historical-recovery-evidence historical-stage-readback historical-archive-stage historical-archive-preflight deployment-attempt deployment-controller deployment-db-guard trusted-time backup-observation backup-observation-writer forward-transition forward-host forward-host-driver forward-host-storage forward-host-evidence forward-host-probe forward-host-recovery forward-host-continuity preserve-forward-authorization; do
   node --check "../ops/scripts/${module}.mjs"
 done

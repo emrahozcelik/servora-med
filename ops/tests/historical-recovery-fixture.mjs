@@ -2,6 +2,11 @@
 // used. The exact historical attempt/release identities are public constants;
 // all record bodies, hashes and backups below are synthetic test fixtures.
 import {createHash} from 'node:crypto';
+import {
+  HISTORICAL_ARCHIVED_PATHS as EVIDENCE_ARCHIVED_PATHS,
+  HISTORICAL_SOURCE_DIRECTORIES,HISTORICAL_REMOVED_DIRECTORIES,
+  HISTORICAL_STAGING_DIR,HISTORICAL_STAGING_RECEIPT,HISTORICAL_STAGING_ROOT,historicalSourceMode
+} from '../scripts/historical-recovery-evidence.mjs';
 import {approvalFixture,timeEvidenceAt} from './trusted-time-fixture.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -253,4 +258,60 @@ export function installHistoricalArchive(host,f){
     ARCHIVE_DIR+'/preserved',STATE+'/historical-dispositions',STATE+'/attempts',STATE+'/initializations',
     STATE+'/admission-proofs',STATE+'/backups',STATE+'/logs',OLD_BASELINE_DIR])host.directories.set(path,0o700);
   host.now=f.currentTime;
+}
+
+// OPS-R4-002 in-place preservation: the exact inventory the staging receipt
+// binds, plus an in-memory stage tree shaped like the OPS-R4-005 CLI output.
+export function historicalInventory(f){
+  const files=EVIDENCE_ARCHIVED_PATHS.map(rel=>{
+    const bytes=f.movedFiles.get(rel);
+    if(!bytes)throw new Error('fixture is missing '+rel);
+    return {sourcePath:STATE+'/'+rel,archivePath:rel,type:'file',uid:0,gid:0,nlink:1,
+      mode:historicalSourceMode(rel),mtimeNs:SOURCE_MTIME_NS,size:bytes.length,sha256:hash(bytes)};
+  });
+  const children={
+    attempts:[ATTEMPT],initializations:[],
+    'admission-proofs':[ATTEMPT+'.json'],
+    backups:[ATTEMPT+'-post.dump',ATTEMPT+'-pre.dump'],
+    logs:[ATTEMPT],
+    ['attempts/'+ATTEMPT]:Array.from({length:18},(_,index)=>String(index).padStart(4,'0')+'.json'),
+    ['logs/'+ATTEMPT]:[...LOG_FILES].sort()
+  };
+  const directories=Object.fromEntries([...HISTORICAL_SOURCE_DIRECTORIES,
+    ...HISTORICAL_REMOVED_DIRECTORIES].map(name=>[STATE+'/'+name,
+      {type:'directory',uid:0,gid:0,mode:'0700',mtimeNs:SOURCE_MTIME_NS,children:children[name]}]));
+  return {formatVersion:1,kind:'HISTORICAL_RECOVERY_SOURCE_INVENTORY',attemptId:ATTEMPT,
+    authority:'READ_ONLY_NOT_ARCHIVE_ACCEPTANCE',files,directories,
+    pendingMarkers:Object.fromEntries([
+      STATE+'/active.json',STATE+'/activation.block',
+      '/run/servora-med-recovery/start.permit',
+      '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf'
+    ].map(path=>[path,false]))};
+}
+
+export function installHistoricalStage(host,f,{mutateReceipt,dispositionBytes,profileBytes}={}){
+  const inventory=historicalInventory(f);
+  const sourceInventorySha256=hash(Buffer.from(JSON.stringify(inventory)+'\n'));
+  const disposition=dispositionBytes??host.files.get(DISPOSITION).data;
+  const profile=profileBytes??host.files.get(STATE+'/profile.json').data;
+  const stagedFiles=[...EVIDENCE_ARCHIVED_PATHS,'preserved/profile.json','preserved/disposition.json'];
+  for(const rel of EVIDENCE_ARCHIVED_PATHS)host.add(HISTORICAL_STAGING_DIR+'/'+rel,f.movedFiles.get(rel),0o600);
+  const copies=new Map([['preserved/profile.json',profile],['preserved/disposition.json',disposition]]);
+  for(const [rel,bytes] of copies)host.add(HISTORICAL_STAGING_DIR+'/'+rel,bytes,0o600);
+  for(const dir of ['.','attempts','attempts/'+ATTEMPT,'admission-proofs','backups',
+    'logs','logs/'+ATTEMPT,'preserved'])
+    host.directories.set(HISTORICAL_STAGING_DIR+(dir==='.'?'':'/'+dir),0o700);
+  host.directories.set(HISTORICAL_STAGING_ROOT,0o700);
+  const receipt={formatVersion:1,kind:'HISTORICAL_RECOVERY_STAGE_ONLY',
+    authority:'NOT_ARCHIVED_NOT_RETAINED_NO_SOURCE_REMOVAL',attemptId:ATTEMPT,
+    sourceInventorySha256,dispositionSha256:hash(disposition),profileSha256:hash(profile),
+    files:stagedFiles.map(rel=>{
+      const bytes=rel.startsWith('preserved/')?copies.get(rel):f.movedFiles.get(rel);
+      return {archivePath:rel,sha256:hash(bytes),size:bytes.length,mtimeNs:SOURCE_MTIME_NS,mode:'0600'};
+    })};
+  if(mutateReceipt)mutateReceipt(receipt);
+  const receiptBytes=Buffer.from(JSON.stringify(receipt)+'\n');
+  host.add(HISTORICAL_STAGING_RECEIPT,receiptBytes,0o600);
+  return {inventory,sourceInventorySha256,receipt,receiptBytes,receiptSha256:hash(receiptBytes),
+    copies};
 }
