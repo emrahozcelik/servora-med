@@ -329,6 +329,10 @@ describe('CustomerSearchSelect shared remote selector', () => {
     expect(crm.listCustomers).toHaveBeenCalledWith(
       expect.objectContaining({ limit: CUSTOMER_SEARCH_PAGE_SIZE, offset: 20 }),
     );
+    // Ant Select virtualizes the appended rows; move the viewport to the
+    // loaded part before checking the new item is actually visible.
+    await act(async () => { scrollDropdownToBottom(); });
+    await flush();
     // Appended page is reachable …
     expect(document.body.textContent ?? '').toContain('Müşteri 21');
     // … while duplicate ids keep their first occurrence (no KOPYA rows rendered).
