@@ -99,11 +99,15 @@ jobs:
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
-            ../ops/launchd/run-alerting.sh.example
+            ../ops/launchd/run-alerting.sh.example \
+            ../ops/recovery-tools/profile-reseal
           node --check ../ops/scripts/backup-observation.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
           node --check ../ops/scripts/migration-state.mjs
           node --check ../ops/scripts/migration-reconciliation.mjs
+          node --check ../ops/recovery-tools/profile-reseal.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
       - name: shellcheck ops scripts
         run: |
@@ -117,6 +121,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
@@ -220,7 +225,7 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
-      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs ../ops/recovery-tools/profile-reseal.test.mjs ../ops/recovery-tools/profile-reseal-failures.test.mjs ../ops/recovery-tools/profile-reseal-cli.test.mjs ../ops/recovery-tools/profile-reseal-lock.test.mjs ../ops/recovery-tools/packaging-exclusion.test.mjs ../ops/recovery-tools/profile-reseal-wrapper.test.mjs ../ops/recovery-tools/profile-reseal-e2e.test.mjs
       - name: forward-only contract and adapter regressions
         run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
       - run: npm audit --audit-level=high
