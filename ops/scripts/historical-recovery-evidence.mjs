@@ -10,7 +10,7 @@
 // nothing here certifies an archive, independent retention or source removal.
 import {createHash} from 'node:crypto';
 import {
-  constants,closeSync,existsSync,fstatSync,lstatSync,openSync,readFileSync,readdirSync
+  constants,closeSync,fstatSync,lstatSync,openSync,readFileSync,readdirSync
 } from 'node:fs';
 
 export const HISTORICAL_STATE_ROOT='/var/lib/servora-med/deploy';
@@ -115,9 +115,14 @@ const statChecked=(path,kind,mode)=>{
 const same=(a,b)=>a.dev===b.dev&&a.ino===b.ino&&a.size===b.size
   &&a.mode===b.mode&&a.mtimeNs===b.mtimeNs&&a.nlink===b.nlink;
 
+const markerPresent=path=>{
+  try{lstatSync(path);return true;}
+  catch(error){if(error?.code==='ENOENT')return false;fail();}
+};
 export function captureHistoricalSourceInventory(){
   if(process.getuid?.()!==0)throw new Error('RECOVERY_HISTORICAL_INVENTORY_ADMIN_REQUIRED');
-  const pendingMarkers=Object.fromEntries(MARKERS.map(p=>[p,existsSync(p)]));
+  // Dangling links and unreadable markers may not masquerade as absence.
+  const pendingMarkers=Object.fromEntries(MARKERS.map(p=>[p,markerPresent(p)]));
   if(Object.values(pendingMarkers).some(Boolean))fail();
   const directories={};
   for(const name of [...HISTORICAL_SOURCE_DIRECTORIES,...HISTORICAL_REMOVED_DIRECTORIES]){

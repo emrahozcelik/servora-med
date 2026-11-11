@@ -168,7 +168,12 @@ export async function adoptionHost(f) {
     mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
     symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
     existsSync:path=>{const normalized=posix.normalize(path);
-      return files.has(normalized)||directories.has(normalized)||symlinks.has(normalized);},
+      // Native existsSync follows symlinks; lstatSync still sees dangling ones.
+      if(symlinks.has(normalized)){
+        const target=symlinks.get(normalized);
+        return files.has(target)||directories.has(target);
+      }
+      return files.has(normalized)||directories.has(normalized);},
     lstatSync:(path,options)=>info(path,Boolean(options?.bigint)),
     fstatSync:(fd,options)=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});
       return info(fds.get(fd),Boolean(options?.bigint));},

@@ -88,7 +88,7 @@ const HISTORICAL_ARCHIVE_DIR = HISTORICAL_ARCHIVE_ROOT+'/'+HISTORICAL_ATTEMPT_ID
 // shared evidence module here closes the dependency without a schema change or
 // a second recovery protocol.
 const HISTORICAL_EVIDENCE_TOOL = INSTALLED+'/historical-recovery-evidence.mjs';
-const HISTORICAL_EVIDENCE_TOOL_SHA256 = 'cd6ea7a24423954cc4532f317b279eef358e7eae5855d516c808306934390a38';
+const HISTORICAL_EVIDENCE_TOOL_SHA256 = 'c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f';
 const HISTORICAL_ARCHIVE_MANIFEST_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-MANIFEST.json';
 const HISTORICAL_ARCHIVE_COMPLETE_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-COMPLETE.json';
 const HISTORICAL_SOURCE_EMPTY_PROOF_FILE = HISTORICAL_ARCHIVE_DIR+'/SOURCE-EMPTY-PROOF.json';
@@ -463,6 +463,16 @@ function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
   // path can reconcile checkpoint residues in a pending systemd window.
   for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
     '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
+    // OPS-R4-002 requires positive absence. existsSync follows symlinks,
+    // masking dangling links and access failures; OPS-R4-001 remains unchanged.
+    if (policy === OPS_R4_002_POLICY) {
+      try { lstatSync(path); }
+      catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
+      }
+      throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+    }
     if (existsSync(path)) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
   if (policy === OPS_R4_002_POLICY) {

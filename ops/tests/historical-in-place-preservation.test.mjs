@@ -221,6 +221,32 @@ test('pending deployment state and a lost host lock still fail closed',async t=>
   assert.equal(locked.files.has(adoptionRecord),false);
 });
 
+test('dangling pending markers and unreadable marker paths fail closed',async t=>{
+  const markers=[
+    STATE+'/active.json',STATE+'/activation.block',
+    '/run/servora-med-recovery/start.permit',
+    '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf'
+  ];
+  for(const marker of markers){
+    const {host,adoption}=await preservedHost(t);
+    host.addSymlink(marker,'/nonexistent/pending-marker-target');
+    invalid(()=>host.controller.verifyHistoricalInPlacePreservation());
+    assert.throws(()=>host.controller.issueInstalledOldAdoption67d3318(
+      adoption.context.approval.attemptId,adoption.baseline.baselineId),
+    /RECOVERY_ADOPTION_STATE_NOT_EMPTY/,marker);
+    assert.equal(host.files.has(adoptionRecord),false);
+  }
+  for(const errorCode of ['EACCES','ENOTDIR']){
+    const {host,adoption}=await preservedHost(t);
+    host.lstatErrors.set(markers[2],errorCode);
+    invalid(()=>host.controller.verifyHistoricalInPlacePreservation());
+    assert.throws(()=>host.controller.issueInstalledOldAdoption67d3318(
+      adoption.context.approval.attemptId,adoption.baseline.baselineId),
+    /RECOVERY_ADOPTION_STATE_UNTRUSTED/,errorCode);
+    assert.equal(host.files.has(adoptionRecord),false);
+  }
+});
+
 test('a started but incomplete sealed archive never falls back to in-place acceptance',async t=>{
   const {host}=await preservedHost(t);
   host.directories.set(archiveRoot,0o755);
