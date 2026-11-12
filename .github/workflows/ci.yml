@@ -53,6 +53,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
+      - name: Persistent bootstrap fence contracts
+        run: node --test ../ops/tests/bootstrap-fence.test.mjs ../ops/tests/bootstrap-fence-reader.test.mjs ../ops/tests/bootstrap-fence-coverage.test.mjs
+      - name: Persistent bootstrap fence isolated Linux acceptance
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_FENCE_CONTAINER_TEST=1 \
+            node:22-bookworm node --test ops/tests/bootstrap-fence-linux.test.mjs
       - name: interrupted RETIRE real adapter RED and GREEN
         run: |
           set -Eeuo pipefail
@@ -80,6 +88,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
@@ -102,6 +111,7 @@ jobs:
             ../ops/launchd/run-alerting.sh.example \
             ../ops/recovery-tools/profile-reseal
           node --check ../ops/scripts/backup-observation.mjs
+          node --check ../ops/scripts/bootstrap-fence.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
           node --check ../ops/scripts/migration-state.mjs
           node --check ../ops/scripts/migration-reconciliation.mjs
@@ -121,6 +131,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
             ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \

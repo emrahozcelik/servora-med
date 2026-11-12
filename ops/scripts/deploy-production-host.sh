@@ -130,6 +130,13 @@ acquire_host_lock() {
   servora_acquire_host_lock
 }
 
+bootstrap_management_guard() {
+  local guard=/usr/local/libexec/servora-med/bootstrap-fence
+  [[ "$(realpath -e "$guard")" == "$guard" && -f "$guard" && ! -L "$guard" \
+    && "$(stat -c '%U:%G:%a:%h' "$guard")" == root:root:755:1 ]] || fail BOOTSTRAP_FENCE_TOOL_UNTRUSTED
+  "$guard" "$PHASE" "$ATTEMPT_ID" >/dev/null || fail BOOTSTRAP_FENCE_DENIED
+}
+
 # Internal operation only: phase admission must establish the approved attempt
 # before calling this. A start condition alone cannot bound automatic restarts.
 r4_suppress_restarts() {
@@ -1655,10 +1662,18 @@ if [[ "$PHASE" == deploy && "$ALLOW_MIGRATIONS" == true && -z "$ATTEMPT_ID" ]]; 
   fail ATTEMPT_REQUIRED_FOR_MIGRATIONS
 fi
 
+# The persistent guard precedes lock creation, staging, backup and service work.
+# Holding the stable lock below serializes later mutations with bootstrap. The
+# second read closes the race with a root-authorized fence closure.
+case "$PHASE" in
+  deploy|postdeploy|rollback|forward-recovery|pre-migration-abort|attempt-preflight) bootstrap_management_guard ;;
+  *) usage; fail INVALID_PHASE ;;
+esac
 case "$PHASE" in
   deploy|postdeploy|rollback|forward-recovery|pre-migration-abort|attempt-preflight) acquire_host_lock ;;
   *) usage; fail INVALID_PHASE ;;
 esac
+bootstrap_management_guard
 
 case "$PHASE" in
   attempt-preflight)

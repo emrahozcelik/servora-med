@@ -39,6 +39,7 @@ trusted_file "$node_path" 755
 # shellcheck source=host-operation-lock.sh
 source "$library"
 servora_acquire_host_lock
+/usr/local/libexec/servora-med/bootstrap-fence adoption "$1" >/dev/null
 exec /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C "$node_path" --input-type=module --eval '
   import {issueInstalledOldAdoption67d3318} from "/usr/local/libexec/servora-med/deployment-controller.mjs";
   try {

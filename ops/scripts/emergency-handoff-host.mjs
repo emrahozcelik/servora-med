@@ -15,6 +15,7 @@
  * refuses any mismatch.
  */
 import {createHash, randomUUID} from 'node:crypto';
+import {assertBootstrapManagementAllowed} from './bootstrap-fence.mjs';
 import {
   closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync,
   openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, unlinkSync,
@@ -1096,7 +1097,9 @@ function main() {
     if (action === 'preflight') { run(preflight()); return; }
     if (action === 'verify') { run(runHandoff({execute: false})); return; }
     if (action === 'apply') {
+      assertBootstrapManagementAllowed('emergency-handoff');
       withHostLock(process.argv.slice(2));
+      assertBootstrapManagementAllowed('emergency-handoff');
       run(runHandoff({execute: true}));
       return;
     }

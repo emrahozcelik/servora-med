@@ -1,5 +1,6 @@
 /** Trusted fixed-path host operations. No candidate code executes as root. */
 import { createHash, randomUUID } from 'node:crypto';
+import {assertBootstrapManagementAllowed} from './bootstrap-fence.mjs';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
   OBSERVATION_SECONDS, publishRootAdmissionConfirmation, validateApprovalStructure,
@@ -2578,6 +2579,7 @@ export async function abortAttempt(attemptId) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const [command, attemptId, ...extra] = process.argv.slice(2);
+    assertBootstrapManagementAllowed('controller', attemptId);
     if (command === 'preflight' && extra.length === 0) {
       process.stdout.write(JSON.stringify(await preflightAttempt(attemptId))+'\n');
     } else if (command === 'inspect' && extra.length === 0) {

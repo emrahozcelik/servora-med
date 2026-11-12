@@ -2,6 +2,16 @@
 
 **Ubuntu 24.04 VPS** reference topology (Slice 11). For the **initial macOS pilot** with Cloudflare Tunnel (no inbound app ports), use [local-macos-cloudflare-tunnel.md](./local-macos-cloudflare-tunnel.md) instead.
 
+## B1-01 bootstrap restriction
+
+The [persistent management fence](./b1-01-persistent-bootstrap-fence.md) is an
+additional source-level prerequisite for the updated host tools. On an installed
+host, legacy attempt-less deployment, generic rollback and in-place legacy
+restore remain disabled after RELEASED. Existing recipes below do not authorize
+those paths or first activation. This source change does not install the guard,
+change production delegation or open a deployment window. Production is NO-GO
+until separate bootstrap, effective-authority and release acceptance are complete.
+
 ## Topology
 
 ```text

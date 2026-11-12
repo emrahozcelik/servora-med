@@ -53,6 +53,17 @@ fi
 
 # R4-bootstrap hosts serialize every maintenance operation with deployment.
 # A test database selector never bypasses the physical host's recovery fence.
+# Only a host with NONE of the fixed production roots can use the historical
+# non-host harness below. Permission errors and non-directories fail closed.
+if ! /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/node -e '
+  const fs = require("node:fs");
+  for (const path of ["/opt/servora-med", "/etc/servora-med", "/var/lib/servora-med"]) {
+    try { fs.lstatSync(path); process.exit(1); }
+    catch (error) { if (error.code !== "ENOENT") process.exit(1); }
+  }
+'; then
+  /usr/local/libexec/servora-med/bootstrap-fence legacy-deploy >/dev/null
+fi
 if [[ -d /var/lib/servora-med/deploy ]]; then
   lock_library=/usr/local/libexec/servora-med/host-operation-lock.sh
   [[ "$(realpath -e "$lock_library")" == "$lock_library" && "$(stat -c '%U:%G:%a:%h' "$lock_library")" == root:root:644:1 ]] || { echo HOST_LOCK_BOOTSTRAP_REQUIRED >&2; exit 1; }
