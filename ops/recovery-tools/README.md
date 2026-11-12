@@ -81,25 +81,68 @@ Install the reviewed bytes together, root-only:
 reviewed `a5564b6e...` file (`0644 root:root:1`). The tool does not create or
 reclaim the stable lock.
 
+## Reviewed release identity (audit snapshot, not standing authorization)
+
+The 2026-11-11 read-only production preflight reviewed the following **exact**
+release identity. This is historical evidence for a specifically frozen target,
+**not** an instruction to use these bytes for a later main commit.
+
+| Field | Reviewed value |
+|---|---|
+| Target commit | `570710a4ce3cb4cd8748c6e94d45781232b78e82` |
+| GitHub push CI | `43079287578` — SUCCESS (server, web, Auth KDF, release-package) |
+| GitHub artifact ID | `13885572970` |
+| Artifact name | `servora-med-release-570710a4ce3cb4cd8748c6e94d45781232b78e82` |
+| Release tarball SHA-256 | `6e68ed862772f691563f47172775deb4fca54ba31716ed985b40f4aa0b89784d` |
+| `ops/deploy-production.sh` source SHA-256 | `22fe69e83eda35dc51d5d979dda665d13af09c79157d0123a0b98b9f2933f810` |
+
+The **old** `411251d8` artifact
+`8aa70edbacfe88c80ef491e7150f99095be46484797862c97c795d8e145488fb`
+must not be substituted for this target; it is not the approved exact-main
+artifact and predates the reviewed packaging exclusion.
+
+Before any separately authorized bootstrap, an operator must freeze the target
+commit and independently verify the corresponding *completed successful*
+exact-head push CI, artifact identity, tarball and one-line checksum sidecar,
+and the absence of `ops/recovery-tools/` members. Require `origin/main` to
+match the frozen exact-main target at that approval gate. A changed main SHA,
+new artifact, differing sidecar, expired/unavailable artifact or live host
+drift is a **STOP**: repeat the source/CI/artifact review and obtain fresh
+release-specific authority. Do not update a SHA in this README and infer
+approval; the release/CI identity belongs in a separately reviewed operator
+approval, not an automatically advancing documentation pin.
+
 ## Bootstrap sequence
 
-1. Install the exact-main OPS-R4-002 host modules and CLIs from artifact
-   `8aa70edbacfe88c80ef491e7150f99095be46484797862c97c795d8e145488fb`
-   (`411251d8`), including the reviewed M1 `deploy-production-host` helper
+1. Install the exact-main OPS-R4-002 host modules and CLIs only from the
+   verified, operator-frozen artifact described above, including the reviewed
+   M1 `deploy-production-host` helper
    `3455e5881baf770458bc044ca73c50660b75822ec0827a42c9eb7ea39575363c`.
-   Do not install this tool from that artifact; it is excluded.
+   Re-check installed bytes against the reviewed manifest; do not assume
+   that a source hash proves the live host bytes. Do **not** install the
+   `profile-reseal` tool from the artifact: it is deliberately excluded.
 2. Transfer this directory separately, verify the manifest hashes below,
    install the wrapper/module layout above and keep the old profile live.
-3. Verify `sampleTrustedTime()` returns v2 evidence through the installed
-   TT-A `d28fb396...`.
+3. Verify `sampleTrustedTime()` returns v2 evidence through the
+   **canonical installed** `/usr/local/libexec/servora-med/trusted-time.mjs`
+   with SHA-256 `d28fb396...`. A successful sample from a forward-time
+   overlay alone does not prove that the canonical module has been upgraded.
 4. Issue the historical disposition, then stage and read back the 28 files.
 5. Run `profile-reseal --dry-run` and review the candidate hash and changed
    contracts. The expected M1 candidate is
    `a5f2dbd5b17ed55b2b3f46e46c6772a146b5cffd90bee509b3f9a92183b0c86d`.
    The expected old profile is
    `7a26bd58923a567992b9c9ca5abc6cad7922b2ac51c5c0a79e7e839ffacdf31d`.
-6. Apply only the approved candidate:
-   `profile-reseal --apply --expected-old 7a26bd58... --expected-candidate a5f2dbd5...`
+6. Only after a separately authorized, reviewed `--dry-run` **and
+   a separate, explicit owner authorization for `--apply`**, execute the
+   atomic re-seal. **A dry-run approval does not authorize `--apply`.**
+   The apply authorization must bind the exact live old-profile SHA-256 and
+   the exact candidate SHA-256 measured and reviewed in the dry-run.
+   Supply **both complete 64-character lowercase SHA-256 values**:
+   `profile-reseal --apply --expected-old <full-old-sha256> --expected-candidate <full-candidate-sha256>`.
+   The abbreviated audit examples above are not valid executable inputs and
+   must never be copied as authority. Any mismatch is STOP; do not force,
+   repair, retry or infer authorization from a prior approval.
 7. Verify the new profile hash, all nine contracts, env/machine/DB identity,
    TT-A v2 and `verifyHistoricalPreservationGate()`.
 8. Only then capture the 67d3318 baseline, issue the new root approval, issue
@@ -166,12 +209,24 @@ refuses to start if any production state path already exists.
 
 ## Release-artifact impact
 
-The directory is excluded from `package_artifact()`; the tool is not shipped.
-The exclusion line itself changes `ops/deploy-production.sh`, so a merge will
-produce a new exact-main artifact hash. The baseline `411251d8` artifact
-`8aa70edb...` remains the only valid bootstrap source until a new CI/artifact
-review is completed. A new artifact invalidates the existing CI/approval
-evidence and requires a new root approval.
+The `ops/recovery-tools/` directory is excluded from `package_artifact()`;
+the profile re-seal tool is not shipped and needs separate reviewed,
+hash-pinned transfer. The `570710a4...` artifact in the audit snapshot above
+was verified to contain no recovery-tool members; the old `411251d8`
+artifact must not be used for that target.
+
+**Even a docs-only merge of this README changes the main commit SHA.** An
+exact-main release built for that new SHA needs a new successful CI run,
+artifact identity, checksum and release-specific approval. Although this
+README is excluded from the tarball, neither the earlier target SHA nor its
+artifact/CI approval may be silently relabelled for a new main. Conversely,
+this README edit does not by itself revoke the integrity of the historical
+`570710a4...` artifact; its use is subject to the separately reviewed
+freeze/authorization policy. Never infer production authorization from this
+document, a successful CI, or an old approval.
+
+The source hashes in the manifest below bind the independently transferred
+tool bytes, not any deployment artifact or live profile.
 
 ## Source manifest
 
