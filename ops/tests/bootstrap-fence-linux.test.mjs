@@ -113,7 +113,9 @@ test('real Linux ownership, fixed entrypoints, interrupted state and process dea
     for (const command of ['apply', 'smoke', 'observe', 'finish', 'recover']) {
       denied(run('/usr/bin/node', ['/usr/local/libexec/servora-med-forward/forward-host.mjs', command]), /BOOTSTRAP_FENCE_CLOSED/);
     }
-    denied(run('/usr/bin/node', ['/usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs', 'apply']), /BOOTSTRAP_FENCE_CLOSED/);
+    for (const command of ['preflight', 'verify', 'apply']) {
+      denied(run('/usr/bin/node', ['/usr/local/libexec/servora-med-emergency/emergency-handoff-host.mjs', command]), /BOOTSTRAP_FENCE_CLOSED/);
+    }
     denied(run('/usr/bin/node', ['/usr/local/libexec/servora-med-emergency/issue-emergency-handoff.mjs', '--parent', ID]), /BOOTSTRAP_FENCE_CLOSED/);
   });
 

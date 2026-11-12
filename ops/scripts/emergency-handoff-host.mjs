@@ -699,10 +699,9 @@ function ensureIntent(directory, latest, predecessor, intent, timestamp) {
 }
 
 /**
- * Runs the handoff. `execute: false` (verify) is strictly read-only: it never
- * creates directories, reloads systemd, reconciles journal residue or writes a
- * reboot observation. Mutations only run on the authorized `apply` path after
- * the authorization and its journal ownership have been validated.
+ * Runs the handoff. `execute: false` never writes handoff state or reloads
+ * systemd. The legacy parent checkpoint reader can reconcile publication
+ * residue, so even verify/preflight CLIs require the management fence and lock.
  */
 export async function runHandoff({execute = true} = {}) {
   assertRoot();
@@ -963,8 +962,8 @@ export async function runHandoff({execute = true} = {}) {
 }
 
 /**
- * Read-only preflight. It can run before any authorization exists and never
- * creates the emergency directory, reloads systemd or touches journal residue.
+ * Handoff preflight can run before emergency authorization exists. Its parent
+ * checkpoint reader can reconcile publication residue; CLI dispatch fences it.
  */
 export async function preflight() {
   assertRoot();
@@ -1094,12 +1093,16 @@ function main() {
       process.stdout.write(JSON.stringify(status()) + '\n');
       return;
     }
-    if (action === 'preflight') { run(preflight()); return; }
-    if (action === 'verify') { run(runHandoff({execute: false})); return; }
-    if (action === 'apply') {
+    // The inherited parent checkpoint reader can write during nominal
+    // preflight/verify. Fence and serialize those paths as management too.
+    if (['preflight', 'verify', 'apply'].includes(action)) {
       assertBootstrapManagementAllowed('emergency-handoff');
       withHostLock(process.argv.slice(2));
       assertBootstrapManagementAllowed('emergency-handoff');
+    }
+    if (action === 'preflight') { run(preflight()); return; }
+    if (action === 'verify') { run(runHandoff({execute: false})); return; }
+    if (action === 'apply') {
       run(runHandoff({execute: true}));
       return;
     }

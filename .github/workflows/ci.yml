@@ -61,6 +61,10 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
             --workdir /source --env BOOTSTRAP_FENCE_CONTAINER_TEST=1 \
             node:22-bookworm node --test ops/tests/bootstrap-fence-linux.test.mjs
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env SERVORA_R4_ISOLATED_CLI_TEST=1 \
+            node:22-bookworm node --test ops/tests/installed-old-adoption-cli-root.test.mjs
       - name: interrupted RETIRE real adapter RED and GREEN
         run: |
           set -Eeuo pipefail
