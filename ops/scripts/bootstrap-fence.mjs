@@ -178,8 +178,10 @@ export function assertBootstrapManagementAllowed(operation, attemptId) {
 
 /** For standalone root maintenance CLIs without an inherited host lock. Never
  * creates, unlinks or reclaims the stable inode. A closed fence is read before
- * locking and again while holding the same kernel lock as the host helper. */
-export function withBootstrapMutationLock(operation, attemptId, action) {
+ * locking and again while holding the same kernel lock as the host helper.
+ * Returns a Promise: callers MUST await it before reporting success or exiting.
+ * Retain the lock until the callback settles, including asynchronous rejection. */
+export async function withBootstrapMutationLock(operation, attemptId, action) {
   assertBootstrapManagementAllowed(operation, attemptId);
   const lock = '/var/lib/servora-med/deploy/host.lock';
   if (readBootstrapTrustedFile(lock, 0o600).length !== 0) fail('LOCK_UNTRUSTED');
@@ -193,7 +195,7 @@ export function withBootstrapMutationLock(operation, attemptId, action) {
     } catch { fail('LOCK_BUSY'); }
     if (!sameStat(before, fs.lstatSync(lock, {bigint: true}))) fail('LOCK_UNTRUSTED');
     assertBootstrapManagementAllowed(operation, attemptId);
-    return action();
+    return await action();
   } finally { fs.closeSync(fd); }
 }
 
