@@ -16,6 +16,9 @@ function makeFakeBin(dir: string, logFile: string) {
     `#!/usr/bin/env bash
 log="${logFile}"
 args="$*"
+# This isolated, rewritten non-host fixture has no production roots. Metadata
+# evaluation is separate from the migration/schema commands logged below.
+if [[ "$1" == "-e" ]]; then exit 0; fi
 if [[ "$args" == *"migrate.js"* ]]; then
   echo "migrate" >> "$log"
   echo "node \$args" >> "$log.details"

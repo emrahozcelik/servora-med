@@ -56,7 +56,10 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     const before=run('/bin/bash',[cli,id,baseline]);
     // Takes the real kernel lock, then refuses the intentionally absent fence.
     // Direct administrator APIs below still prove their own lock boundary.
-    assert.equal(before.status,1);assert.equal(before.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE');
+    assert.equal(before.status,1);
+    assert.equal(before.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE',
+      before.stderr.trim()==='BOOTSTRAP_FENCE_UNREADABLE'?undefined:
+        run('/bin/bash',['-x',cli,id,baseline]).stderr);
     assert.equal(existsSync(state+'/installed-old-adoption.json'),false);
     const before67=run('/bin/bash',[cli67,id,baseline67]);
     assert.equal(before67.status,1);

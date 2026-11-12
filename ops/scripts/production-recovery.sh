@@ -322,7 +322,7 @@ fi
 # A test database selector never bypasses the physical host's recovery fence.
 # The non-host restore harness remains available only when every fixed
 # production root is provably absent, independent of TEST_DATABASE_URL.
-if ! /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/node -e '
+if ! /usr/bin/env -i PATH="$SAFE_PATH" node -e '
   const fs = require("node:fs");
   for (const path of ["/opt/servora-med", "/etc/servora-med", "/var/lib/servora-med"]) {
     try { fs.lstatSync(path); process.exit(1); }

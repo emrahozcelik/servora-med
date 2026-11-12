@@ -55,7 +55,7 @@ fi
 # A test database selector never bypasses the physical host's recovery fence.
 # Only a host with NONE of the fixed production roots can use the historical
 # non-host harness below. Permission errors and non-directories fail closed.
-if ! /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/node -e '
+if ! /usr/bin/env -i PATH="$DEPLOY_SAFE_PATH" node -e '
   const fs = require("node:fs");
   for (const path of ["/opt/servora-med", "/etc/servora-med", "/var/lib/servora-med"]) {
     try { fs.lstatSync(path); process.exit(1); }
