@@ -34,7 +34,7 @@ const info = lstatSync(directory);
 if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
   || (info.mode & 0o7777) !== 0o700) fail('ATTEMPT_DIRECTORY_UNTRUSTED');
 try {
-  const created = withBootstrapMutationLock('preserve-authorization', flags['attempt-id'], () =>
+  const created = await withBootstrapMutationLock('preserve-authorization', flags['attempt-id'], () =>
     preserveAttemptAuthorization({source, destination,
       expectedSha: flags['expected-sha256'], attemptId: flags['attempt-id']}));
   console.log(JSON.stringify({status: 'FORWARD_AUTHORIZATION_PRESERVED',
