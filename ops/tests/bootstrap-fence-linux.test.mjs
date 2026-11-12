@@ -5,7 +5,7 @@ import test from 'node:test';
 import * as fs from 'node:fs';
 import {spawn, spawnSync} from 'node:child_process';
 import {dirname, join} from 'node:path';
-import {REQUIRED_MANAGEMENT_FILES, readBootstrapTrustedFile} from '../scripts/bootstrap-fence.mjs';
+import {REQUIRED_MANAGEMENT_FILES, readBootstrapTrustedFile, withBootstrapMutationLock} from '../scripts/bootstrap-fence.mjs';
 import {fenceFixture, encode, hash, ROOT, LIB, ID} from './bootstrap-fence-fixture.mjs';
 
 const enabled = process.env.BOOTSTRAP_FENCE_CONTAINER_TEST === '1'
@@ -162,6 +162,49 @@ test('real Linux ownership, fixed entrypoints, interrupted state and process dea
     denied(run('/usr/bin/node', [LIB + '/deployment-controller.mjs', 'admit', ID]), /ATTEMPT_APPROVAL_MISSING/);
     assert.equal(fs.existsSync(state + '/active.json'), false);
     assert.equal(fs.existsSync(state + '/initializations'), false);
+  });
+
+  await t.test('async mutation lock stays held through delayed fulfillment and rejection', async () => {
+    const lock = state + '/host.lock';
+    const tryExternalLock = () => run('/usr/bin/flock', ['--nonblock', lock, '/bin/true']);
+    const probe = async (shouldReject) => {
+      let unblock, entered;
+      const waiting = new Promise(resolve => { unblock = resolve; });
+      const callbackStarted = new Promise(resolve => { entered = resolve; });
+      const result = withBootstrapMutationLock('preserve-authorization', ID, async () => {
+        entered();
+        await waiting;
+        if (shouldReject) throw new Error('EXPECTED_ASYNC_REJECTION');
+        return 'LOCKED_CALLBACK_COMPLETED';
+      });
+      await callbackStarted;
+      try {
+        assert.notEqual(tryExternalLock().status, 0, 'external process must not acquire held lock');
+        let secondCallbackRan = false;
+        await assert.rejects(
+          withBootstrapMutationLock('preserve-authorization', ID, () => {
+            secondCallbackRan = true;
+            return 'SHOULD_NOT_RUN';
+          }),
+          /BOOTSTRAP_FENCE_LOCK_BUSY/,
+        );
+        assert.equal(secondCallbackRan, false, 'second management callback must not run');
+      } finally {
+        unblock();
+      }
+      if (shouldReject) {
+        await assert.rejects(result, /EXPECTED_ASYNC_REJECTION/);
+      } else {
+        assert.equal(await result, 'LOCKED_CALLBACK_COMPLETED');
+      }
+      assert.equal(tryExternalLock().status, 0, 'lock must release only after settlement');
+    };
+    await probe(false);
+    await probe(true);
+    await assert.rejects(withBootstrapMutationLock('preserve-authorization', ID, () => {
+      throw new Error('EXPECTED_SYNC_THROW');
+    }), /EXPECTED_SYNC_THROW/);
+    assert.equal(tryExternalLock().status, 0, 'sync throw must release lock');
   });
 
   await t.test('legacy entrypoints refuse after RELEASED even with a test database selector', () => {
