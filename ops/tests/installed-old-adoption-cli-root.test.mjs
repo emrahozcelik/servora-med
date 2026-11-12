@@ -2,7 +2,7 @@
 // Never run this test on a VPS, a general host or an existing R4 installation.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,copyFileSync,chmodSync,
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,copyFileSync,chmodSync,chownSync,
   lstatSync,existsSync,symlinkSync,unlinkSync,rmSync,rmdirSync} from 'node:fs';
 import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -35,17 +35,22 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     for(const name of ['deployment-attempt.mjs','deployment-controller.mjs','deployment-db-guard.mjs',
       'migration-reconciliation.mjs','trusted-time.mjs','host-operation-lock.sh',
       'historical-recovery-evidence.mjs','bootstrap-fence.mjs']){
-      copyFileSync(fileURLToPath(new URL(name,scripts)),installed+'/'+name);chmodSync(installed+'/'+name,0o644);
+      copyFileSync(fileURLToPath(new URL(name,scripts)),installed+'/'+name);
+      chmodSync(installed+'/'+name,0o644);chownSync(installed+'/'+name,0,0);
     }
     copyFileSync(fileURLToPath(new URL('bootstrap-fence.sh',scripts)),installed+'/bootstrap-fence');
     chmodSync(installed+'/bootstrap-fence',0o755);
+    chownSync(installed+'/bootstrap-fence',0,0);
     const cli=installed+'/issue-installed-old-adoption';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption.sh',scripts)),cli);chmodSync(cli,0o750);
+    chownSync(cli,0,0);
     const cli67=installed+'/issue-installed-old-adoption-67d3318';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption-67d3318.sh',scripts)),cli67);chmodSync(cli67,0o750);
+    chownSync(cli67,0,0);
     const cliDisposition=installed+'/issue-historical-recovery-disposition-6ce4cff0';
     copyFileSync(fileURLToPath(new URL('issue-historical-recovery-disposition-6ce4cff0.sh',scripts)),cliDisposition);
     chmodSync(cliDisposition,0o750);
+    chownSync(cliDisposition,0,0);
     if(!existsSync('/usr/bin/node')){symlinkSync(process.execPath,'/usr/bin/node');nodeLink=true;}
     const id='11111111-1111-4111-8111-111111111111',baseline='20261012T090000Z-issue369-71ae6df6';
     const baseline67='20261110T090000Z-ops-r4-002-67d3318';
