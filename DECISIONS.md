@@ -2437,3 +2437,28 @@ No physical deletion, historical reassignment, terminal reopening or general
 Admin permission expansion is authorized.
 
 Contract: [Admin Weekly Report removal](docs/features/weekly-report-removal.md).
+
+## OPS-B1-001 — Persistent bootstrap management fence
+
+Status: Owner-authorized B1-01 source implementation and synthetic testing scope,
+2026-11-12. Draft PR/security review and exact-head hosted CI remain gates.
+Production installation, first activation and release are not authorized.
+
+The accepted A+ direction adds a durable, root-owned, hash-bound management
+fence alongside the existing stable host lock. Missing, closed or uncertain
+state refuses normal management. Process death, elapsed time and reboot do not
+release it. RELEASED requires separate owner authority and verified tooling,
+profile and host evidence; it is only a prerequisite to existing R4/forward/
+emergency authorizations. Attempt-less deployment, legacy rollback and legacy
+in-place restore on an installed production host remain disabled after release.
+
+The fence does not alter ordinary application runtime, scheduled backup, TT-A
+collection, historical OPS-R4-002/003/005/006 meanings, re-seal behavior or
+adoption policy. Root deliberately overriding management policy is outside its
+threat model. Old tools require separately reviewed durable delegation quarantine
+and quiescence before the first canonical tool write; a new marker or flock
+alone does not protect that initial window. B1-01 supplies no production
+record/release writer and no production sudoers/systemd change.
+
+Contract, source inventory, first-activation prerequisites and evidence limits:
+[B1-01 persistent bootstrap fence](docs/operations/b1-01-persistent-bootstrap-fence.md).

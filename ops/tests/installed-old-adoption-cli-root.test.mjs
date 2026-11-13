@@ -2,8 +2,8 @@
 // Never run this test on a VPS, a general host or an existing R4 installation.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,copyFileSync,chmodSync,
-  lstatSync,existsSync,symlinkSync,unlinkSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,copyFileSync,chmodSync,chownSync,
+  lstatSync,existsSync,symlinkSync,unlinkSync,rmSync,rmdirSync} from 'node:fs';
 import {spawn,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -15,6 +15,7 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     assert.equal(process.platform,'linux');assert.equal(process.getuid(),0);
     assert.ok(existsSync('/.dockerenv'),'refuse a real host');
     const state='/var/lib/servora-med/deploy',installed='/usr/local/libexec/servora-med';
+    const parentCreated=!existsSync('/var/lib/servora-med');
     assert.equal(existsSync(state),false,'never replace an existing recovery state');
     assert.equal(existsSync(installed),false,'never replace installed tools');
     const temporary=mkdtempSync(join(tmpdir(),'servora-adoption-cli-'));
@@ -22,6 +23,7 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     t.after(async()=>{
       if(holder&&holder.exitCode===null){holder.stdin.end('release\n');await new Promise(resolve=>holder.once('exit',resolve));}
       if(stateCreated)rmSync(state,{recursive:true});
+      if(parentCreated)rmdirSync('/var/lib/servora-med');
       if(toolsCreated)rmSync(installed,{recursive:true});
       if(nodeLink)unlinkSync('/usr/bin/node');
       rmSync(temporary,{recursive:true});
@@ -31,16 +33,24 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     writeFileSync(state+'/host.lock','',{mode:0o600});
     const scripts=new URL('../scripts/',import.meta.url);
     for(const name of ['deployment-attempt.mjs','deployment-controller.mjs','deployment-db-guard.mjs',
-      'migration-reconciliation.mjs','trusted-time.mjs','host-operation-lock.sh']){
-      copyFileSync(fileURLToPath(new URL(name,scripts)),installed+'/'+name);chmodSync(installed+'/'+name,0o644);
+      'migration-reconciliation.mjs','trusted-time.mjs','host-operation-lock.sh',
+      'historical-recovery-evidence.mjs','bootstrap-fence.mjs']){
+      copyFileSync(fileURLToPath(new URL(name,scripts)),installed+'/'+name);
+      chmodSync(installed+'/'+name,0o644);chownSync(installed+'/'+name,0,0);
     }
+    copyFileSync(fileURLToPath(new URL('bootstrap-fence.sh',scripts)),installed+'/bootstrap-fence');
+    chmodSync(installed+'/bootstrap-fence',0o755);
+    chownSync(installed+'/bootstrap-fence',0,0);
     const cli=installed+'/issue-installed-old-adoption';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption.sh',scripts)),cli);chmodSync(cli,0o750);
+    chownSync(cli,0,0);
     const cli67=installed+'/issue-installed-old-adoption-67d3318';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption-67d3318.sh',scripts)),cli67);chmodSync(cli67,0o750);
+    chownSync(cli67,0,0);
     const cliDisposition=installed+'/issue-historical-recovery-disposition-6ce4cff0';
     copyFileSync(fileURLToPath(new URL('issue-historical-recovery-disposition-6ce4cff0.sh',scripts)),cliDisposition);
     chmodSync(cliDisposition,0o750);
+    chownSync(cliDisposition,0,0);
     if(!existsSync('/usr/bin/node')){symlinkSync(process.execPath,'/usr/bin/node');nodeLink=true;}
     const id='11111111-1111-4111-8111-111111111111',baseline='20261012T090000Z-issue369-71ae6df6';
     const baseline67='20261110T090000Z-ops-r4-002-67d3318';
@@ -49,13 +59,16 @@ test('real root CLI and kernel lock serialize issuance with deployment',
       env:{PATH:'/usr/bin:/bin',SERVORA_STATE_ROOT:temporary,NODE_OPTIONS:'untrusted',...extra}});
     const inode=lstatSync(state+'/host.lock').ino;
     const before=run('/bin/bash',[cli,id,baseline]);
-    // Reaches the real controller under the actual kernel lock, then refuses
-    // the intentionally absent grant. No live authority is issued in this test.
-    assert.equal(before.status,1);assert.equal(before.stderr.trim(),'ATTEMPT_APPROVAL_MISSING');
+    // Takes the real kernel lock, then refuses the intentionally absent fence.
+    // Direct administrator APIs below still prove their own lock boundary.
+    assert.equal(before.status,1);
+    assert.equal(before.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE',
+      before.stderr.trim()==='BOOTSTRAP_FENCE_UNREADABLE'?undefined:
+        run('/bin/bash',['-x',cli,id,baseline]).stderr);
     assert.equal(existsSync(state+'/installed-old-adoption.json'),false);
     const before67=run('/bin/bash',[cli67,id,baseline67]);
     assert.equal(before67.status,1);
-    assert.equal(before67.stderr.trim(),'RECOVERY_HISTORICAL_DISPOSITION_MISSING');
+    assert.equal(before67.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE');
     assert.equal(existsSync(state+'/installed-old-adoption-67d3318.json'),false);
     const beforeDisposition=run('/bin/bash',[cliDisposition]);
     assert.equal(beforeDisposition.status,1);

@@ -163,11 +163,11 @@ Preserve all historical approval files, the 71ae6df6 adoption record and its
 baseline. Admission remains impossible without a real, unexpired root approval;
 the adoption record never substitutes for it.
 
-### Measured source impact (11 November 2026)
+### Measured source impact (B1-01 source tree, 12 November 2026)
 
 The OPS-R4-002 historical acceptance contract changed after exact-main
 `402e350af9d057bafe77bfeaeef23fa33b25989a`. These are the current source
-hashes on this branch. They are **audit values for the operator, not a
+hashes in the B1-01 source tree. They are **audit values for the operator, not a
 production authorization**: the bootstrap must recompute all installed bytes,
 the nine live contracts and the final profile, and any later main/source update
 invalidates them.
@@ -175,9 +175,9 @@ invalidates them.
 | Item | Value |
 |---|---|
 | Previous installed controller (`71ae6df6` cutover) | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| Current controller bytes | `7f50d0cdea947cb4d22d95cac908a99eab66aecfcbd81f00051cb1aa2b947604` |
+| Current controller bytes | `ad6d1ef12986830e6228248f5a9bc34b9aa79f7a7b017f941ed28eb085b1375b` |
 | Current shared evidence-module bytes | `c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f` |
-| Current OPS-R4-002 administrator CLI | `69a655282c72bb85fa2c7d68f99968df46104ba8ac479f8e08aea8c43193264f` |
+| Current OPS-R4-002 administrator CLI | `96aaca06896cd1236424cca6b6695da5e05a3445ade095b1f390f7fd130660af` |
 | Current OPS-R4-003 disposition CLI | `9417cecb254f8e2e65d33c832b72bd2132634873fa9b736e97273946ccb00094` |
 | TT-A time module (unchanged by this slice) | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
 | Obsolete profile estimate from `dee9c5f` (**audit-only, never install**) | `918f8a98cc986257c47ed0956eab92bd85aeb384c32500c4c5c285b49e7fd4aa` |
@@ -190,7 +190,8 @@ controller hash.
 
 The shared evidence module must be installed as
 `/usr/local/libexec/servora-med/historical-recovery-evidence.mjs`
-`root:root 0750`-directory / `0644`-file, single link, exactly like the other
+root-owned, non-group/other-writable physical directory / `0644`-file, single
+link, exactly like the other
 controller imports. The administrator wrappers and `r4_controller()` check its
 owner, mode and link count before invoking Node, and
 `verifyHistoricalInPlacePreservation()` additionally pins its **exact SHA-256**
@@ -199,6 +200,12 @@ tenth profile contract key: every historical profile carries exactly nine keys
 and must stay readable for the retained OPS-R4-001 evidence and the emergency
 handoff. The profile already pins this controller's bytes, so the dependency is
 pinned transitively without a profile schema change or a second protocol.
+
+The shared libexec directory remains 0755 for `_chrony` traversal. The separate
+profile-reseal directory remains 0750; release-directory rules are independent.
+New installation planning must also satisfy the
+[B1-01 fence and first-activation protocol](./b1-01-persistent-bootstrap-fence.md).
+The source table above is not a complete live install manifest or an authorization.
 
 The OPS-R4-002 adoption gate and the in-place source-inventory reader also
 verify all four pending deployment/recovery marker paths using `lstat`: a
