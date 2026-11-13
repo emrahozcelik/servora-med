@@ -19,6 +19,21 @@ export const POLICY_FILES = Object.freeze([
 export const QUARANTINED_POLICY = '# Servora-Med bootstrap sudo quarantine.\n'
   + '# No delegated management command is granted by this file.\n';
 
+// Deliberately not a sudoers parser: only simple positive grants for this
+// account may be removed. Removing a deny, Defaults, alias or include can
+// uncover authority in an otherwise unchanged policy.
+function assertPositivePolicy(bytes) {
+  const text = bytes.toString('utf8');
+  if (!/^[\t\n\x20-\x7e]*$/.test(text)) fail('POLICY_UNSUPPORTED');
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || (line.startsWith('#') && !/^#[ \t]*include/i.test(line))) continue;
+    const grant = /^servora-deploy[ \t]+ALL[ \t]*=[ \t]*\([ \t]*root[ \t]*\)[ \t]*NOPASSWD[ \t]*:[ \t]*(.+)$/.exec(line);
+    if (!grant || !grant[1].split(',').every(command =>
+      /^\/[A-Za-z0-9_./@*?+-]+(?:[ \t]+[A-Za-z0-9_./@*?=+-]+)*$/.test(command.trim()))) fail('POLICY_UNSUPPORTED');
+  }
+}
+
 /** Tests provide synthetic ports. The root CLI provides only fixed paths and
  * real root-owned evidence; no CLI truth flags or filesystem overrides exist. */
 export function createDelegationQuarantine(io) {
@@ -53,6 +68,7 @@ export function createDelegationQuarantine(io) {
     const originals = a.policies.map(entry => {
       const original = io.readTrusted(entry.path, 0o440);
       if (hash(original) !== entry.sha256) fail('POLICY_DRIFT');
+      assertPositivePolicy(original);
       return {...entry, bytes: original};
     });
     if (mode === 'dry-run') return {status: 'DRY_RUN_OK', authorizationSha256: expectedAuthorization,

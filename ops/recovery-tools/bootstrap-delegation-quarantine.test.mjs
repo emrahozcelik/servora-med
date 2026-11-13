@@ -7,8 +7,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const encode = value => Buffer.from(JSON.stringify(value) + '\n');
 const ROOT = '/var/lib/servora-med-bootstrap-quarantine';
 
-function fixture() {
-  const files = new Map(POLICY_FILES.map(path => [path, Buffer.from('# synthetic sudo policy ' + path + '\n')]));
+function fixture(overrides = {}) {
+  const files = new Map(POLICY_FILES.map(path => [path, Buffer.from(overrides[path] ?? '# synthetic sudo policy ' + path + '\n')]));
   const state = {currentRelease: 'a'.repeat(40), profileSha256: 'b'.repeat(64),
     serviceIdentity: 'c'.repeat(64), historicalInventorySha256: 'd'.repeat(64)};
   const authorization = {formatVersion: 1, kind: 'BOOTSTRAP_SUDO_QUARANTINE_AUTHORIZATION',
@@ -34,6 +34,61 @@ function fixture() {
   };
   return {files, authorization, authorizationSha256: hash(bytes), io, events, state};
 }
+
+test('a restrictive sudo rule is refused before reservation even when the next publication would fail', () => {
+  const f = fixture({[POLICY_FILES[0]]: 'servora-deploy ALL=(root) NOPASSWD: !/usr/bin/systemctl restart servora-med.service\n'});
+  const before = new Map(f.files), publish = f.io.replacePolicy;
+  f.io.replacePolicy = (...args) => {
+    if (args[0] === POLICY_FILES[1]) throw Object.assign(new Error('synthetic I/O failure'), {code: 'EIO'});
+    publish(...args);
+  };
+  assert.throws(() => createDelegationQuarantine(f.io)({mode: 'apply', expectedAuthorization: f.authorizationSha256}), /POLICY_UNSUPPORTED/);
+  assert.deepEqual(f.files, before);
+  assert.deepEqual(f.events, []);
+});
+
+test('unsupported sudoers constructs in any of the four files refuse both dry-run and apply before writes', () => {
+  const unsupported = [
+    'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true, !/usr/bin/false\n',
+    'Defaults:servora-deploy noexec\n',
+    'Cmnd_Alias SERVORA = /usr/bin/true\n',
+    'servora-deploy ALL=(root) NOPASSWD: SERVORA\n',
+    '@include /etc/synthetic-policy\n',
+    '@includedir /etc/synthetic-policies\n',
+    '#include /etc/synthetic-policy\n',
+    '#includedir /etc/synthetic-policies\n',
+    'other-user ALL=(root) NOPASSWD: /usr/bin/true\n',
+    'servora-deploy, other-user ALL=(root) NOPASSWD: /usr/bin/true\n',
+    'servora-deploy ALL=(root) PASSWD: /usr/bin/true\n',
+    'servora-deploy ALL=(root) NOPASSWD: NOEXEC: /usr/bin/true\n',
+    'servora-deploy ALL=(root) NOPASSWD: sha256:' + 'a'.repeat(64) + ' /usr/bin/true\n',
+    'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true, \\\n /usr/bin/false\n',
+    'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true\0\n',
+    'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true\r\n',
+    'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true,\n',
+    'servora-deploy ALL=(root) NOPASSWD: ALL\n',
+  ];
+  for (const path of POLICY_FILES) for (const mode of ['dry-run', 'apply']) for (const text of unsupported) {
+    const f = fixture({[path]: text}), before = new Map(f.files);
+    assert.throws(() => createDelegationQuarantine(f.io)({mode, expectedAuthorization: f.authorizationSha256}),
+      /POLICY_UNSUPPORTED/, path + ': ' + JSON.stringify(text));
+    assert.deepEqual(f.files, before);
+    assert.deepEqual(f.events, []);
+  }
+});
+
+test('simple positive grants with comments, whitespace, command lists and fixed-helper arguments remain supported', () => {
+  const f = fixture({
+    [POLICY_FILES[0]]: '# Existing application permissions\n\nservora-deploy\tALL = ( root ) NOPASSWD: /usr/bin/systemctl start servora-med.service, /usr/bin/systemctl restart servora-med.service\n',
+    [POLICY_FILES[1]]: 'servora-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now caddy.service\n',
+    [POLICY_FILES[2]]: 'servora-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start servora-med-predeploy-backup@*.service\n',
+    [POLICY_FILES[3]]: 'servora-deploy ALL=(root) NOPASSWD: /usr/local/libexec/servora-med/deploy-production-host *\n',
+  });
+  assert.equal(createDelegationQuarantine(f.io)({mode: 'dry-run', expectedAuthorization: f.authorizationSha256}).status, 'DRY_RUN_OK');
+  assert.deepEqual(f.events, []);
+  assert.equal(createDelegationQuarantine(f.io)({mode: 'apply', expectedAuthorization: f.authorizationSha256}).status, 'SUDO_MANAGEMENT_QUARANTINED');
+  assert.deepEqual(f.events, ['reserve', ...POLICY_FILES, 'receipt']);
+});
 
 test('unreadable evidence and a replaced stable lock stop before the first state write', () => {
   const f = fixture();

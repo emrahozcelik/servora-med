@@ -73,12 +73,36 @@ path/hash policies. `preservedState` binds current release, profile bytes,
 service identity and the owning module's exact 26-source historical inventory.
 No verification booleans or secret/configuration payloads are accepted.
 
+### Supported policy contents
+
+Both dry-run and apply validate **all four complete original files before any
+reservation or policy write**. The supported subset is deliberately small:
+ASCII/LF text, blank lines, ordinary full-line comments and positive grants of
+the form `servora-deploy ALL=(root) NOPASSWD: /absolute/command arguments`.
+Spaces/tabs, command lists and simple path/argument wildcards are supported.
+Only letters, digits, `_ . / @ * ? + -` and argument `=` are accepted in commands.
+Comment-only files are harmless no-ops. This is not a general sudoers parser.
+
+Negation, Defaults, aliases, both forms of include/include-directory directives,
+other users/groups, additional tags, command digests, continuations, quoting,
+non-ASCII/control bytes and unsupported syntax fail with `POLICY_UNSUPPORTED`.
+A matching owner-authorized hash does not override this check. Nothing is
+normalized, edited into a supported form or automatically retried.
+
+This closes the counterexample where a removed file contains a deny masking an
+allow in another unchanged file. Removing the deny could uncover that allow
+before a later EIO stops publication. Unknown or more complex production policy
+contents require STOP and separate review; these source tests do not establish
+that the observed production files conform to this subset. Independent owner
+review of the other effective policies and policy sources remains necessary.
+
 ## Publication and failure behavior
 
 Before the first write, the tool validates the authorization hash, root
 ownership, all four old policy hashes, machine/lock identity, effective
 `sudo -l -U servora-deploy` output, all other sudo policies and passwd/group,
-the running service, current link, profile and historical inventory.
+the running service, current link, profile and historical inventory. It also
+checks the supported positive-grant subset for every original file.
 
 Apply then performs only these effects:
 
@@ -92,14 +116,21 @@ Apply then performs only these effects:
 4. Rechecks preserved state and exclusively publishes a receipt with authority
    `SUDO_ONLY_NOT_BOOTSTRAP_INSTALL_OR_RELEASE`.
 
-The four replacements are **monotonic permission reductions**, not a global
-atomic transaction. During a partial reduction some old management routes may
-remain available, but this tool has not installed any new helper/module or
+Within that supported subset the replacements remove positive command grants;
+they are not a global atomic transaction or a general safety proof for arbitrary
+sudoers configurations. During a partial reduction some old management routes
+may remain available, but this tool has not installed any new helper/module or
 changed any profile. An incomplete reduction never authorizes bootstrap.
 Unknown outcome, SIGKILL, reboot, EIO, ENOSPC, residue or any changed identity
 requires STOP and a separately reviewed recovery plan. Originals, candidates and
 reservations remain intact; there is no automatic rollback, deletion, retry or
 second apply. Fresh invocations refuse the reserved directory.
+
+Before any separately authorized production apply, independently reopen and
+verify root/console access that does not depend on `servora-deploy` sudo. The
+remaining root-only operations and a reviewed partial-operation recovery
+procedure must be executable through that access. Do not apply quarantine
+first and assume lost delegation can later be restored to continue bootstrap.
 
 No application release, database, migration, service/unit, backup timer, Chrony
 configuration, host profile, historical source, existing approval or adoption
@@ -125,10 +156,21 @@ systemctl/Caddy/backup grants are not automatically restored by this tool.
 Portable tests exercise real orchestration with synthetic ports: exact owner
 authority, proposal rejection, CAS/drift, ENOSPC/EIO, partial publication,
 remaining grants, service/history preservation and refusal of automatic retry.
+The restrictive-rule regression was first RED on `ffcf442` (the second
+publication's synthetic EIO was reached instead of an early refusal), then
+GREEN with the pre-reservation check. Unsupported constructs are tested in
+each fixed file for both dry-run and apply; supported positive grants also run.
 The dedicated Linux image uses real sudo/visudo, root ownership, modes and
 flock. It binds source read-only and runs without network. Service metadata and
 the 26 historical files are explicit synthetic fixtures; real systemd/Chrony
 and kernel reboot acceptance are not claimed.
+
+The Linux regression demonstrates with actual sudo that removing a synthetic
+deny uncovers a shared allow, then verifies that both CLI modes refuse the
+authorized restrictive policy without any reservation or policy change. Its
+execution result is recorded in the exact-head CI evidence, not inferred from
+portable tests. The SIGKILL test terminates a lock holder, not the publisher
+mid-rename. EIO/ENOSPC are synthetic-port injections, not physical disk failures.
 
 The production database backup copied to the owner's Mac was an existing
 scheduled dump. Its checksum and PostgreSQL 17 archive listing were verified;
