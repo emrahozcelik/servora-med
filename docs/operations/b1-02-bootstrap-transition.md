@@ -234,6 +234,16 @@ they do not replace existing gates. No new dependency or full local CI regime
 is introduced. If local Docker is unavailable, report that rather than claiming
 Linux acceptance; exact-head GitHub CI is the source acceptance record.
 
+The first PR #437 run, `43508201688`, passed the new bootstrap Linux tests but
+failed the inherited AUTO-2 PostgreSQL test: its clock-derived one-hour
+expectation landed on organization-local Sunday. The existing automatic
+scheduler correctly selected Monday. The test's parent uses an elapsed
+13:00 Istanbul slot, keeping that conflict-only assertion independent of the DB
+clock hour. The DB clock and production scheduling policy are unchanged;
+the existing SYSTEM-Sunday contract tests remain in the focused regressions.
+This test-only correction requires fresh exact-head CI; the first run is FAIL,
+not a passing source-acceptance record.
+
 Before production: independent security review; resulting-main CI and frozen
 release/root bundle; complete effective host inventory and accepted interrupted
 state procedure; real reboot/systemd/Chrony integration; fresh root-only evidence;
