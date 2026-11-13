@@ -25,7 +25,7 @@ test('the root wrapper pins its entire direct import closure', () => {
     assert.ok(wrapper.includes(sha), 'missing exact import pin: ' + file);
   }
   assert.match(wrapper, /a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e/);
-  assert.match(wrapper, /servora_acquire_host_lock/);
+  assert.doesNotMatch(wrapper, /^source /m);
   assert.match(wrapper, /env -i/);
   assert.match(wrapper, /--no-addons/);
 });

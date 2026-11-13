@@ -52,7 +52,8 @@ bootstrap-delegation-quarantine --apply --expected-authorization <sha256>
 ```
 
 The existing stable, empty root-owned 0600 `host.lock` is mandatory. Its inode
-is checked through inherited fd 9 and actual nonblocking flock. No lock is
+is opened without O_CREAT and checked through an owned descriptor and actual
+nonblocking flock, held until the callback fulfills or rejects. No lock is
 created, reclaimed or deleted. Normal pending markers and the historical
 inventory's positive absence and exact-directory checks must pass.
 

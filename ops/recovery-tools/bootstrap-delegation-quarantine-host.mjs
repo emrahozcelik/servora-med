@@ -35,12 +35,14 @@ function assertRoot() {
   if (process.platform !== 'linux' || process.getuid?.() !== 0) fail('ROOT_LINUX_REQUIRED');
 }
 
-function assertLock() {
+function assertLock(fd) {
   if (read(LOCK, 0o600).length) fail('LOCK_UNTRUSTED');
-  const named = fs.lstatSync(LOCK, {bigint: true}), held = fs.fstatSync(9, {bigint: true});
+  const named = fs.lstatSync(LOCK, {bigint: true}), held = fs.fstatSync(fd, {bigint: true});
   if (!same(named, held)) fail('LOCK_UNTRUSTED');
-  execFileSync('/usr/bin/flock', ['--nonblock', '9'], {env: ENV, timeout: 2000,
-    stdio: ['ignore', 'pipe', 'pipe', ...Array(6).fill('ignore'), 9]});
+  try {
+    execFileSync('/usr/bin/flock', ['--nonblock', '3'], {env: ENV, timeout: 2000,
+      stdio: ['ignore', 'pipe', 'pipe', fd]});
+  } catch { fail('LOCK_BUSY'); }
   if (!same(named, fs.lstatSync(LOCK, {bigint: true}))) fail('LOCK_UNTRUSTED');
   return {device: String(named.dev), inode: String(named.ino)};
 }
@@ -126,10 +128,24 @@ function assertSudoClosed() {
     || !/servora-deploy is not allowed to run sudo/.test(result.stdout + result.stderr)) fail('DELEGATION_REMAINS_OPEN');
 }
 
-export function createRootPort() {
-  return {assertRoot, assertLock, readTrusted: read, machineId, otherPolicyHash, snapshot,
+export function createRootPort(fd) {
+  return {assertRoot, assertLock: () => assertLock(fd), readTrusted: read, machineId, otherPolicyHash, snapshot,
     sudoListingHash, assertFresh, replacePolicy, reserve, assertSudoClosed,
     receipt: bytes => exclusiveFile(ROOT + '/receipt.json', bytes)};
+}
+
+/** Opens the existing inode without O_CREAT and retains it through settlement.
+ * No caller path, fd or synthetic adapter is accepted by the production CLI. */
+export async function withExistingHostLock(action) {
+  assertRoot();
+  if (read(LOCK, 0o600).length) fail('LOCK_UNTRUSTED');
+  const before = fs.lstatSync(LOCK, {bigint: true});
+  const fd = fs.openSync(LOCK, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    if (!same(before, fs.fstatSync(fd, {bigint: true}))) fail('LOCK_UNTRUSTED');
+    assertLock(fd);
+    return await action(createRootPort(fd));
+  } finally { fs.closeSync(fd); }
 }
 
 export function parseArguments(argv) {
@@ -143,19 +159,18 @@ export function parseArguments(argv) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const options = parseArguments(process.argv.slice(2)), io = createRootPort();
-    io.assertRoot();
-    if (options.mode === 'capture') {
+    const options = parseArguments(process.argv.slice(2));
+    const result = await withExistingHostLock(io => {
+      if (options.mode !== 'capture') return createDelegationQuarantine(io)(options);
       // A capture is explicitly NOT an authorization. Independent owner review
       // and a separate root-owned record are required before any write.
       const proposal = {formatVersion: 1, kind: 'BOOTSTRAP_SUDO_QUARANTINE_PROPOSAL',
         authority: 'READ_ONLY_NOT_AUTHORIZATION', machineId: io.machineId(), hostLock: io.assertLock(),
         sudoListingSha256: io.sudoListingHash(), otherPolicySha256: io.otherPolicyHash(),
         preservedState: io.snapshot(), policies: POLICY_FILES.map(path => ({path, sha256: hash(read(path, 0o440))}))};
-      process.stdout.write(canonical(proposal));
-    } else {
-      process.stdout.write(canonical(createDelegationQuarantine(io)(options)));
-    }
+      return proposal;
+    });
+    process.stdout.write(canonical(result));
   } catch (error) {
     console.error(/^BOOTSTRAP_SUDO_QUARANTINE_[A-Z_]+$/.test(error.message) ? error.message : 'BOOTSTRAP_SUDO_QUARANTINE_UNCERTAIN');
     process.exitCode = 1;

@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
 import {dirname} from 'node:path';
 import {POLICY_FILES, QUARANTINED_POLICY} from './bootstrap-delegation-quarantine.mjs';
+import {withExistingHostLock} from './bootstrap-delegation-quarantine-host.mjs';
 import {HISTORICAL_ARCHIVED_PATHS, historicalSourceMode} from '../scripts/historical-recovery-evidence.mjs';
 
 const enabled = process.env.BOOTSTRAP_QUARANTINE_CONTAINER_TEST === '1'
@@ -21,7 +22,7 @@ const run = (file, args = []) => spawnSync(file, args,
   {encoding: 'utf8', timeout: 15000, env: {PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL: 'C'}});
 const text = r => r.stdout + r.stderr;
 
-test('real Linux sudo delegation closes durably while historical and runtime state remain unchanged', {skip: !enabled}, async t => {
+test('real Linux sudo delegation closes durably while historical and runtime state remain unchanged', {skip: !enabled, timeout: 120000}, async t => {
   for (const path of ['/var/lib/servora-med', '/opt/servora-med', ROOT, BASE]) {
     assert.equal(fs.existsSync(path), false, 'refusing an existing host: ' + path);
   }
@@ -71,6 +72,16 @@ test('real Linux sudo delegation closes durably while historical and runtime sta
   assert.equal(run('/usr/sbin/visudo', ['-c']).status, 0);
   const before = new Map(POLICY_FILES.map(path => [path, fs.readFileSync(path)]));
   let authorizationHash;
+
+  await t.test('a missing stable lock is not created by capture', () => {
+    const lock = STATE + '/host.lock';
+    fs.renameSync(lock, lock + '.synthetic-saved');
+    const result = run(TOOL, ['--capture']);
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.existsSync(lock), false);
+    assert.equal(fs.existsSync(ROOT), false);
+    fs.renameSync(lock + '.synthetic-saved', lock);
+  });
 
   await t.test('the actual service and helper sudo grants are reachable in the synthetic old installation', () => {
     for (const command of [['/usr/bin/systemctl', 'restart', 'servora-med.service'],
@@ -133,9 +144,32 @@ test('real Linux sudo delegation closes durably while historical and runtime sta
     }
     assert.equal(observed, true);
     const result = run(TOOL, ['--dry-run', '--expected-authorization', authorizationHash]);
-    assert.notEqual(result.status, 0); assert.match(text(result), /HOST_DEPLOYMENT_LOCK_BUSY/);
+    assert.notEqual(result.status, 0); assert.match(text(result), /BOOTSTRAP_SUDO_QUARANTINE_LOCK_BUSY/);
     const exited = new Promise(resolve => holder.once('exit', resolve));
     killOwnedGroup(); await exited;
+  });
+
+  await t.test('the owned kernel lock persists through async fulfillment and rejection', async () => {
+    for (const reject of [false, true]) {
+      let enter, unblock;
+      const entered = new Promise(resolve => { enter = resolve; });
+      const waiting = new Promise(resolve => { unblock = resolve; });
+      const pending = withExistingHostLock(async () => {
+        enter(); await waiting;
+        if (reject) throw new Error('SYNTHETIC_ASYNC_REJECTION');
+        return 'DONE';
+      });
+      await entered;
+      try {
+        assert.notEqual(run('/usr/bin/flock', ['--nonblock', STATE + '/host.lock', '/bin/true']).status, 0);
+        let secondRan = false;
+        await assert.rejects(withExistingHostLock(() => { secondRan = true; }), /LOCK_BUSY/);
+        assert.equal(secondRan, false);
+      } finally { unblock(); }
+      if (reject) await assert.rejects(pending, /SYNTHETIC_ASYNC_REJECTION/);
+      else assert.equal(await pending, 'DONE');
+      assert.equal(run('/usr/bin/flock', ['--nonblock', STATE + '/host.lock', '/bin/true']).status, 0);
+    }
   });
 
   await t.test('dry-run creates no reservation and changes no grant', () => {
