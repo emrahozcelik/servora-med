@@ -65,6 +65,15 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
             --workdir /source --env SERVORA_R4_ISOLATED_CLI_TEST=1 \
             node:22-bookworm node --test ops/tests/installed-old-adoption-cli-root.test.mjs
+      - name: Bootstrap sudo quarantine contracts
+        run: node --test ../ops/recovery-tools/bootstrap-delegation-quarantine.test.mjs ../ops/recovery-tools/bootstrap-delegation-quarantine-cli.test.mjs
+      - name: Bootstrap sudo quarantine isolated Linux acceptance
+        run: |
+          docker build --tag "servora-bootstrap-quarantine:$GITHUB_SHA" - < ../ops/recovery-tools/bootstrap-quarantine.Dockerfile
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_QUARANTINE_CONTAINER_TEST=1 \
+            "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
       - name: interrupted RETIRE real adapter RED and GREEN
         run: |
           set -Eeuo pipefail
@@ -113,13 +122,16 @@ jobs:
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example \
-            ../ops/recovery-tools/profile-reseal
+            ../ops/recovery-tools/profile-reseal \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine
           node --check ../ops/scripts/backup-observation.mjs
           node --check ../ops/scripts/bootstrap-fence.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
           node --check ../ops/scripts/migration-state.mjs
           node --check ../ops/scripts/migration-reconciliation.mjs
           node --check ../ops/recovery-tools/profile-reseal.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
@@ -138,6 +150,7 @@ jobs:
             ../ops/scripts/bootstrap-fence.sh \
             ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
             ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \

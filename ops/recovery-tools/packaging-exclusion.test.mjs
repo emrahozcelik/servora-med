@@ -41,6 +41,8 @@ test('the real package_artifact tar contains no recovery-tool member',t=>{
   };
   write('ops/recovery-tools/profile-reseal','tool\n');
   write('ops/recovery-tools/profile-reseal.mjs','tool module\n');
+  write('ops/recovery-tools/bootstrap-delegation-quarantine','root-only quarantine\n');
+  write('ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs','root-only quarantine adapter\n');
   write('ops/scripts/deploy-production-host.sh','release helper\n');
   write('server/dist/index.js','release\n');
   write('server/package.json','{}\n');
