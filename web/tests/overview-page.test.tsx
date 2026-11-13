@@ -153,6 +153,23 @@ describe('OverviewPage', () => {
     expect(html).not.toContain('GENERAL_TASK');
   });
 
+  it('keeps two semantic overview columns and a single work-distribution card', async () => {
+    const html = await render(managementOverview);
+    expect((html.match(/class="overview-main-column"/g) ?? []).length).toBe(2);
+    expect(html).toContain('overview-distribution-list');
+    expect(html).toContain('2 iş · %67');
+    expect(html).toContain('1 iş · %33');
+    expect(html).not.toContain('zamanında tamamlanma');
+  });
+
+  it('adds readable second-channel phrases to colored metrics', async () => {
+    const html = await render(managementOverview);
+    expect(html).toContain('Termin süresi aşıldı');
+    expect(html).toContain('Düzeltme bekleyen kayıtlar');
+    expect(html).toContain('Yönetici değerlendirmesinde');
+    expect(html).not.toContain('Europe/Istanbul');
+  });
+
   it('renders OperationalCards for recent notes', async () => {
     const html = await render(staffOverview);
     expect(html).toContain('Operasyon notu eklendi');

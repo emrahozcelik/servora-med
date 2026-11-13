@@ -296,6 +296,7 @@ function PreviewDetails({
   return <div className="demo-data-preview-stack">
     <OperationalCard
       tone={preview.safeToPurge ? 'success' : 'attention'}
+      statusLabel={preview.safeToPurge ? 'Uygun' : 'Engellendi'}
       title={preview.safeToPurge ? 'Silmeye hazır' : 'Silme işlemi kullanılamıyor'}
     >
       <p className="demo-data-preview-message">
@@ -331,7 +332,7 @@ function PreviewDetails({
     </OperationalCard>
 
     {preview.safeToPurge && actionAvailable && (
-      <OperationalCard tone="attention" title="Demo verilerini sil">
+      <OperationalCard tone="attention" statusLabel="Kalıcı işlem" title="Demo verilerini sil">
         <p className="demo-data-preview-message">
           Bu işlem yalnız sunucunun demo olarak doğruladığı kayıtları kalıcı olarak siler.
         </p>

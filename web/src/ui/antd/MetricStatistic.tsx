@@ -13,6 +13,8 @@ export type MetricStatisticProps = {
   loading?: boolean;
   linkTo?: string;
   tone?: 'default' | 'attention' | 'success' | 'warning';
+  /** Readable second channel for a colored operational KPI. */
+  statusPhrase?: string;
 };
 
 const toneModifier: Record<string, string> = {
@@ -29,8 +31,16 @@ export function MetricStatistic({
   loading = false,
   linkTo,
   tone = 'default',
+  statusPhrase,
 }: MetricStatisticProps): ReactNode {
   const toneClass = tone !== 'default' ? ` ${toneModifier[tone]}` : '';
+  const fallbackPhrase = tone === 'attention'
+    ? 'İnceleme veya müdahale bekliyor'
+    : tone === 'warning'
+      ? 'Düzeltme gerekiyor'
+      : tone === 'success'
+        ? 'Tamamlanan kayıtlar'
+        : '';
 
   if (loading) {
     return (
@@ -53,6 +63,9 @@ export function MetricStatistic({
             : undefined
         }
       />
+      {(tone !== 'default' || statusPhrase) && (
+        <p className="servora-metric-statistic__status">{statusPhrase ?? fallbackPhrase}</p>
+      )}
     </div>
   );
 }
