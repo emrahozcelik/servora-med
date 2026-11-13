@@ -243,12 +243,15 @@ export function CustomerSearchSelect({
     }
   }
 
+  function loadNextPage() {
+    if (pageLoading || loadingMore || results.length >= total) return;
+    void fetchPage(committedQuery, results.length, 'append');
+  }
+
   function handlePopupScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.currentTarget;
     const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 80;
-    if (!nearBottom || pageLoading || loadingMore) return;
-    if (results.length >= total) return;
-    void fetchPage(committedQuery, results.length, 'append');
+    if (nearBottom) loadNextPage();
   }
 
   function handleChange(next: string) {
@@ -337,7 +340,17 @@ export function CustomerSearchSelect({
             {menu}
             {hasMore && !pageLoading && (
               <div className="customer-search-more" role="status">
-                {loadingMore ? 'Daha fazla müşteri yükleniyor…' : `${total - results.length} sonuç daha var — kaydırın`}
+                {loadingMore ? 'Daha fazla müşteri yükleniyor…' : (
+                  <button type="button" className="inline-action"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      loadNextPage();
+                    }}>
+                    Daha fazla yükle ({total - results.length})
+                  </button>
+                )}
               </div>
             )}
           </>

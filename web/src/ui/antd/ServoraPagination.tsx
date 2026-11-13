@@ -75,19 +75,17 @@ export function ServoraListPagination({
   }, [current, disabled, pageCount, size, total]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === 'Enter') {
-      const enterTarget = event.target as HTMLElement;
-      if (enterTarget.getAttribute('role') === 'button') keyboardActivation.current = true;
-      return;
-    }
-    if (event.key !== ' ' && event.key !== 'Spacebar') return;
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+    // Ant Design 6.7 renders a button inside the pager item; clicking the
+    // list item itself no longer activates pagination.
     const target = event.target as HTMLElement;
     if (target.getAttribute('role') !== 'button') return;
+    const button = target.querySelector<HTMLButtonElement>('button');
+    if (!button || button.disabled) return;
     event.preventDefault();
     keyboardActivation.current = true;
-    target.click();
+    button.click();
   }
-
   if (!Number.isSafeInteger(total) || total <= size) return null;
   return (
     <nav ref={navRef} tabIndex={-1} className="servora-list-pagination" aria-label={label} onKeyDownCapture={handleKeyDown}>
@@ -106,8 +104,9 @@ export function ServoraListPagination({
         size="small"
         itemRender={(_, type, element) => {
           if ((type === 'prev' || type === 'next') && isValidElement(element)) {
-            return cloneElement(element as ReactElement<{ 'aria-label'?: string }>, {
+            return cloneElement(element as ReactElement<{ 'aria-label'?: string; title?: string }>, {
               'aria-label': type === 'prev' ? 'Önceki sayfa' : 'Sonraki sayfa',
+              title: type === 'prev' ? 'Önceki Sayfa' : 'Sonraki Sayfa',
             });
           }
           return element;

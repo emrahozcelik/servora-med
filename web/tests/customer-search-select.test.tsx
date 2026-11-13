@@ -163,6 +163,12 @@ describe('CustomerSearchSelect shared remote selector', () => {
     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
   }
 
+  async function clickLoadMore() {
+    const button = document.querySelector<HTMLButtonElement>('.customer-search-more button');
+    expect(button).not.toBeNull();
+    await act(async () => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+  }
   it('loads only a bounded first page on open, without a full-catalog loop', async () => {
     crm.listCustomers.mockResolvedValue(page([makeSummary(1), makeSummary(2)], 2));
     await renderSelector();
@@ -319,11 +325,14 @@ describe('CustomerSearchSelect shared remote selector', () => {
     await open();
     await settleDebounce();
     expect(document.body.textContent ?? '').toContain('Müşteri 1');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
     expect(crm.listCustomers).toHaveBeenCalledWith(
       expect.objectContaining({ limit: CUSTOMER_SEARCH_PAGE_SIZE, offset: 20 }),
     );
+    // Ant Select virtualizes the appended rows; move the viewport to the
+    // loaded part before checking the new item is actually visible.
+    await act(async () => { scrollDropdownToBottom(); });
+    await flush();
     // Appended page is reachable …
     expect(document.body.textContent ?? '').toContain('Müşteri 21');
     // … while duplicate ids keep their first occurrence (no KOPYA rows rendered).
@@ -390,10 +399,8 @@ describe('CustomerSearchSelect shared remote selector', () => {
       return Promise.resolve(page(items, total, filters.offset));
     });
     await search('');
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
-    await act(async () => { scrollDropdownToBottom(); });
-    await flush();
+    await clickLoadMore();
+    await clickLoadMore();
     expect(options().length).toBeLessThan(60);
   });
 
