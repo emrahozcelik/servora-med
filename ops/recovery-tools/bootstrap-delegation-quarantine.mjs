@@ -27,7 +27,7 @@ function assertPositivePolicy(bytes) {
   if (!/^[\t\n\x20-\x7e]*$/.test(text)) fail('POLICY_UNSUPPORTED');
   for (const raw of text.split('\n')) {
     const line = raw.trim();
-    if (!line || (line.startsWith('#') && !/^#[ \t]*include/i.test(line))) continue;
+    if (!line || (/^#(?:[ \t]|$)/.test(line) && !/^#[ \t]*include/i.test(line))) continue;
     const grant = /^servora-deploy[ \t]+ALL[ \t]*=[ \t]*\([ \t]*root[ \t]*\)[ \t]*NOPASSWD[ \t]*:[ \t]*(.+)$/.exec(line);
     if (!grant || !grant[1].split(',').every(command =>
       /^\/[A-Za-z0-9_./@*?+-]+(?:[ \t]+[A-Za-z0-9_./@*?=+-]+)*$/.test(command.trim()))) fail('POLICY_UNSUPPORTED');

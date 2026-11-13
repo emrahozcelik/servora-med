@@ -77,15 +77,17 @@ No verification booleans or secret/configuration payloads are accepted.
 
 Both dry-run and apply validate **all four complete original files before any
 reservation or policy write**. The supported subset is deliberately small:
-ASCII/LF text, blank lines, ordinary full-line comments and positive grants of
+ASCII/LF text, blank lines, full-line comments (`#` followed by space/tab or
+end-of-line) and positive grants of
 the form `servora-deploy ALL=(root) NOPASSWD: /absolute/command arguments`.
 Spaces/tabs, command lists and simple path/argument wildcards are supported.
 Only letters, digits, `_ . / @ * ? + -` and argument `=` are accepted in commands.
 Comment-only files are harmless no-ops. This is not a general sudoers parser.
 
 Negation, Defaults, aliases, both forms of include/include-directory directives,
-other users/groups, additional tags, command digests, continuations, quoting,
-non-ASCII/control bytes and unsupported syntax fail with `POLICY_UNSUPPORTED`.
+other users/groups (including numeric `#UID` rules), additional tags, command
+digests, continuations, quoting, non-ASCII/control bytes and unsupported syntax
+fail with `POLICY_UNSUPPORTED`.
 A matching owner-authorized hash does not override this check. Nothing is
 normalized, edited into a supported form or automatically retried.
 
@@ -158,7 +160,9 @@ authority, proposal rejection, CAS/drift, ENOSPC/EIO, partial publication,
 remaining grants, service/history preservation and refusal of automatic retry.
 The restrictive-rule regression was first RED on `ffcf442` (the second
 publication's synthetic EIO was reached instead of an early refusal), then
-GREEN with the pre-reservation check. Unsupported constructs are tested in
+GREEN with the pre-reservation check. A second RED on `5750617` proved numeric
+UID rules could be mistaken for comments; comments now require whitespace or
+end-of-line immediately after `#`. Unsupported constructs are tested in
 each fixed file for both dry-run and apply; supported positive grants also run.
 The dedicated Linux image uses real sudo/visudo, root ownership, modes and
 flock. It binds source read-only and runs without network. Service metadata and
@@ -166,8 +170,9 @@ the 26 historical files are explicit synthetic fixtures; real systemd/Chrony
 and kernel reboot acceptance are not claimed.
 
 The Linux regression demonstrates with actual sudo that removing a synthetic
-deny uncovers a shared allow, then verifies that both CLI modes refuse the
-authorized restrictive policy without any reservation or policy change. Its
+named-user or numeric-UID deny uncovers a shared allow, then verifies that both
+CLI modes refuse the authorized restrictive policy without any reservation or
+policy change. Its
 execution result is recorded in the exact-head CI evidence, not inferred from
 portable tests. The SIGKILL test terminates a lock holder, not the publisher
 mid-rename. EIO/ENOSPC are synthetic-port injections, not physical disk failures.

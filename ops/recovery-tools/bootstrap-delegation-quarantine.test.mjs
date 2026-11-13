@@ -47,6 +47,14 @@ test('a restrictive sudo rule is refused before reservation even when the next p
   assert.deepEqual(f.events, []);
 });
 
+test('a numeric-UID sudo rule is not accepted as an ordinary comment', () => {
+  const f = fixture({[POLICY_FILES[0]]: '#1234 ALL=(root) NOPASSWD: !/usr/bin/systemctl restart servora-med.service\n'});
+  const before = new Map(f.files);
+  assert.throws(() => createDelegationQuarantine(f.io)({mode: 'apply', expectedAuthorization: f.authorizationSha256}), /POLICY_UNSUPPORTED/);
+  assert.deepEqual(f.files, before);
+  assert.deepEqual(f.events, []);
+});
+
 test('unsupported sudoers constructs in any of the four files refuse both dry-run and apply before writes', () => {
   const unsupported = [
     'servora-deploy ALL=(root) NOPASSWD: /usr/bin/true, !/usr/bin/false\n',
@@ -57,6 +65,8 @@ test('unsupported sudoers constructs in any of the four files refuse both dry-ru
     '@includedir /etc/synthetic-policies\n',
     '#include /etc/synthetic-policy\n',
     '#includedir /etc/synthetic-policies\n',
+    '# include /etc/synthetic-policy\n',
+    '#1234 ALL=(root) NOPASSWD: /usr/bin/true\n',
     'other-user ALL=(root) NOPASSWD: /usr/bin/true\n',
     'servora-deploy, other-user ALL=(root) NOPASSWD: /usr/bin/true\n',
     'servora-deploy ALL=(root) PASSWD: /usr/bin/true\n',

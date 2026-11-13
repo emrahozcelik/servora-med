@@ -110,35 +110,40 @@ test('real Linux sudo delegation closes durably while historical and runtime sta
   await t.test('real sudo keeps a shared grant denied when an authorized policy contains a restrictive rule', () => {
     const shared = '/etc/sudoers.d/00-synthetic-shared';
     const grant = 'servora-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart servora-med.service\n';
-    const deny = 'servora-deploy ALL=(root) NOPASSWD: !/usr/bin/systemctl restart servora-med.service\n';
+    const uid = run('/usr/bin/id', ['-u', 'servora-deploy']);
+    assert.equal(uid.status, 0); assert.match(uid.stdout.trim(), /^[0-9]+$/);
     const authorization = ROOT + '/authorization.json', savedAuthorization = fs.readFileSync(authorization);
     const command = ['-u', 'servora-deploy', '--', '/usr/bin/sudo', '-n', '/usr/bin/systemctl', 'restart', 'servora-med.service'];
-    write(shared, grant, 0o440); write(POLICY_FILES[0], deny, 0o440);
+    write(shared, grant, 0o440);
     try {
-      assert.equal(run('/usr/sbin/visudo', ['-c']).status, 0);
-      assert.notEqual(run('/usr/bin/sudo', command).status, 0, 'the later deny must restrict the shared grant');
-      // Demonstrate the actual sudo counterexample within this disposable fixture.
-      write(POLICY_FILES[0], QUARANTINED_POLICY, 0o440);
-      try {
-        assert.equal(run('/usr/bin/sudo', command).status, 0, 'removing the deny would uncover the shared grant');
-      } finally { write(POLICY_FILES[0], deny, 0o440); }
-      const capture = run(TOOL, ['--capture']);
-      assert.equal(capture.status, 0, text(capture));
-      const {authority, ...a} = JSON.parse(capture.stdout);
-      assert.equal(authority, 'READ_ONLY_NOT_AUTHORIZATION');
-      a.kind = 'BOOTSTRAP_SUDO_QUARANTINE_AUTHORIZATION';
-      a.scope = 'CLOSE_SERVORA_DEPLOY_SUDO_ONLY';
-      const bytes = JSON.stringify(a) + '\n';
-      write(authorization, bytes);
-      const policies = new Map(POLICY_FILES.map(path => [path, fs.readFileSync(path)]));
-      for (const mode of ['--dry-run', '--apply']) {
-        const result = run(TOOL, [mode, '--expected-authorization', hash(bytes)]);
-        assert.notEqual(result.status, 0, text(result));
-        assert.match(text(result), /BOOTSTRAP_SUDO_QUARANTINE_POLICY_UNSUPPORTED/);
-        assert.deepEqual(fs.readdirSync(ROOT), ['authorization.json']);
-        for (const [path, original] of policies) assert.deepEqual(fs.readFileSync(path), original);
-        assert.equal(fs.readFileSync(shared, 'utf8'), grant);
-        assert.notEqual(run('/usr/bin/sudo', command).status, 0);
+      for (const user of ['servora-deploy', '#' + uid.stdout.trim()]) {
+        const deny = user + ' ALL=(root) NOPASSWD: !/usr/bin/systemctl restart servora-med.service\n';
+        write(POLICY_FILES[0], deny, 0o440);
+        assert.equal(run('/usr/sbin/visudo', ['-c']).status, 0);
+        assert.notEqual(run('/usr/bin/sudo', command).status, 0, 'the later deny must restrict the shared grant');
+        // Demonstrate the actual sudo counterexample within this disposable fixture.
+        write(POLICY_FILES[0], QUARANTINED_POLICY, 0o440);
+        try {
+          assert.equal(run('/usr/bin/sudo', command).status, 0, 'removing the deny would uncover the shared grant');
+        } finally { write(POLICY_FILES[0], deny, 0o440); }
+        const capture = run(TOOL, ['--capture']);
+        assert.equal(capture.status, 0, text(capture));
+        const {authority, ...a} = JSON.parse(capture.stdout);
+        assert.equal(authority, 'READ_ONLY_NOT_AUTHORIZATION');
+        a.kind = 'BOOTSTRAP_SUDO_QUARANTINE_AUTHORIZATION';
+        a.scope = 'CLOSE_SERVORA_DEPLOY_SUDO_ONLY';
+        const bytes = JSON.stringify(a) + '\n';
+        write(authorization, bytes);
+        const policies = new Map(POLICY_FILES.map(path => [path, fs.readFileSync(path)]));
+        for (const mode of ['--dry-run', '--apply']) {
+          const result = run(TOOL, [mode, '--expected-authorization', hash(bytes)]);
+          assert.notEqual(result.status, 0, text(result));
+          assert.match(text(result), /BOOTSTRAP_SUDO_QUARANTINE_POLICY_UNSUPPORTED/);
+          assert.deepEqual(fs.readdirSync(ROOT), ['authorization.json']);
+          for (const [path, original] of policies) assert.deepEqual(fs.readFileSync(path), original);
+          assert.equal(fs.readFileSync(shared, 'utf8'), grant);
+          assert.notEqual(run('/usr/bin/sudo', command).status, 0);
+        }
       }
     } finally {
       write(POLICY_FILES[0], before.get(POLICY_FILES[0]), 0o440);
