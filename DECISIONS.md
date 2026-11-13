@@ -2462,3 +2462,26 @@ record/release writer and no production sudoers/systemd change.
 
 Contract, source inventory, first-activation prerequisites and evidence limits:
 [B1-01 persistent bootstrap fence](docs/operations/b1-01-persistent-bootstrap-fence.md).
+
+## OPS-B1-002 — Observed deployment-account sudo quarantine
+
+Status: source implementation/review scope following the owner's 2026-11-13
+authorization to retain a production backup and continue toward migration 061.
+This entry authorizes no production permission change, installation or release.
+
+Read-only host evidence shows four sudoers files grant direct application,
+backup and Caddy management in addition to the helper. The single-helper
+candidate in OPS-B1-001 is therefore insufficient on this host. A narrow
+root-only component can replace those four exact policies with comment-only
+files only after all originals pass the supported simple positive-grant grammar.
+Restrictive rules, includes, aliases, Defaults and unsupported syntax refuse
+before reservation; hash-bound owner authority alone cannot override that
+check. This is not a general monotonicity claim for arbitrary sudoers policy.
+The operation runs under independent hash-bound owner authority, retaining all
+original bytes and refusing uncertain/repeated operations. Its receipt proves
+sudo closure only, never all-route closure, CLOSED, RELEASED or install/deploy
+authority. Existing application runtime, scheduled backup, historical recovery,
+profile and adoption contracts stay in force. The full B1-02 installer/release
+and adoption interruption work remain open.
+
+Contract: [B1-02 deployment-account sudo quarantine](docs/operations/b1-02-delegation-quarantine.md).

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Root-only, separately provisioned bootstrap tool; never add to sudoers.
+set -Eeuo pipefail
+umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset NODE_OPTIONS NODE_PATH BASH_ENV ENV
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+[[ "$EUID" -eq 0 ]] || fail BOOTSTRAP_SUDO_QUARANTINE_ROOT_LINUX_REQUIRED
+if [[ "$#" -eq 1 && "$1" == --capture ]]; then
+  :
+elif [[ "$#" -eq 3 && ( "$1" == --dry-run || "$1" == --apply ) \
+  && "$2" == --expected-authorization && "$3" =~ ^[a-f0-9]{64}$ ]]; then
+  :
+else
+  fail BOOTSTRAP_SUDO_QUARANTINE_ARGUMENTS_INVALID
+fi
+
+readonly BASE=/usr/local/libexec/servora-med-bootstrap
+readonly TOOL="$BASE/ops/recovery-tools/bootstrap-delegation-quarantine"
+readonly HOST="$BASE/ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs"
+readonly CORE="$BASE/ops/recovery-tools/bootstrap-delegation-quarantine.mjs"
+readonly READER="$BASE/ops/scripts/bootstrap-fence.mjs"
+readonly HISTORY="$BASE/ops/scripts/historical-recovery-evidence.mjs"
+readonly LIBRARY=/usr/local/libexec/servora-med/host-operation-lock.sh
+readonly LOCK=/var/lib/servora-med/deploy/host.lock
+
+trusted_file() {
+  local file="$1" mode="$2" directory
+  [[ "$(realpath -e "$file")" == "$file" && -f "$file" && ! -L "$file" \
+    && "$(stat -c '%U:%G:%a:%h' "$file")" == "root:root:$mode:1" ]] \
+    || fail BOOTSTRAP_SUDO_QUARANTINE_TOOL_UNTRUSTED
+  directory="$(dirname "$file")"
+  while [[ "$directory" != / ]]; do
+    [[ -d "$directory" && ! -L "$directory" && "$(stat -c %u "$directory")" == 0 \
+      && $((8#$(stat -c %a "$directory") & 8#022)) -eq 0 ]] \
+      || fail BOOTSTRAP_SUDO_QUARANTINE_TOOL_UNTRUSTED
+    directory="$(dirname "$directory")"
+  done
+}
+pin() {
+  trusted_file "$1" 644
+  [[ "$(sha256sum "$1" | awk '{print $1}')" == "$2" ]] \
+    || fail BOOTSTRAP_SUDO_QUARANTINE_TOOL_UNTRUSTED
+}
+[[ "$(realpath -e "${BASH_SOURCE[0]}")" == "$TOOL" \
+  && "$(stat -c '%U:%G:%a' "$BASE")" == root:root:750 ]] \
+  || fail BOOTSTRAP_SUDO_QUARANTINE_TOOL_UNTRUSTED
+trusted_file "$TOOL" 750
+pin "$CORE" e78448ce582e516edabd91c655dd5b243689a1273fd3a1d05186dce7196dfd04
+pin "$HOST" 919cc7cb07aa499091c79e5a6f8c1893eb18d456976c2a90faa31d5e30ccfd41
+pin "$READER" 57aa4bdf712458f13dafdeb3b404731d0080cc57d390cfba6fb60630df68db46
+pin "$HISTORY" c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f
+pin "$LIBRARY" a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e
+trusted_file /usr/bin/node 755
+trusted_file "$LOCK" 600
+[[ "$(stat -c %s "$LOCK")" == 0 ]] || fail BOOTSTRAP_SUDO_QUARANTINE_LOCK_UNTRUSTED
+# Verify the legacy writers' shared-lock contract, but do not source its
+# create-if-missing branch. The Node adapter opens only the existing inode.
+exec /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C /usr/bin/node --no-addons "$HOST" "$@"
