@@ -2485,3 +2485,36 @@ profile and adoption contracts stay in force. The full B1-02 installer/release
 and adoption interruption work remain open.
 
 Contract: [B1-02 deployment-account sudo quarantine](docs/operations/b1-02-delegation-quarantine.md).
+
+## OPS-B1-003 — Separate CLOSED installation and RELEASED issuance
+
+Status: owner-authorized source implementation/review scope following PR #436's
+merge on 2026-11-13 and the request to continue the remaining A+ components.
+Production installation, activation, delegation changes and deployment remain
+unauthorized. No historical recovery or profile re-seal policy is superseded.
+
+A separately provisioned root-only transition CLI consumes a hash-bound
+installation manifest and independent owner permission. The four-policy sudo
+receipt is insufficient: a separate same-boot operator authorization must bind
+all-route quarantine, independently usable root access and drained management
+processes. These are protected operator attestations, not automatically inferred
+Linux facts or caller-supplied verification flags. The CLI never issues them.
+
+Before canonical tools change, the writer durably retains originals and
+publishes the existing B1-01 CLOSED/manifest envelopes. Partial installation
+remains externally quarantined and CLOSED; uncertain state refuses replay,
+repair and rollback. Content-addressed toolsets remain immutable inputs owned
+by their existing factory. Runtime, scheduled backup, shared 0755 libexec,
+current release, profile and historical sources are preserved.
+
+Release uses a different owner authorization and fresh phase-specific evidence.
+It rechecks the eight existing conditions, including all nine profile contract
+hashes and the canonical TT-A v2 reader, before publishing RELEASED last.
+Installation authority cannot authorize release. No sudo grant, approval,
+adoption, backup, migration or deployment is issued by either operation.
+Existing approval/attempt gates and disabled legacy mutation paths remain in
+force after release. The B1-01 record schemas and accepted guard states are
+unchanged; manifest validation and check names are shared with the producer.
+
+Producer protocol, attestation boundaries and remaining production gates:
+[B1-02 transition writer](docs/operations/b1-02-bootstrap-transition.md).

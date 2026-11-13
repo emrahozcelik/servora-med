@@ -185,8 +185,9 @@ The finite remaining work is:
 
 1. Review this component and close effective non-sudo/in-flight management
    routes before any separately authorized production quarantine.
-2. Complete the reviewed CLOSED/tool-install and separate verification/release
-   implementation and acceptance; preserve the running OLD and all history.
+2. Review and accept the [separate CLOSED installation / release producer](b1-02-bootstrap-transition.md).
+   Its source implementation does not complete effective-host acceptance or
+   authorize installation; preserve the running OLD and all history.
 3. Use the existing disposition/staging/re-seal/baseline chain; resolve the
    previously identified approval/adoption interruption issue before issuance.
 4. Obtain the exact target's independent release/attempt authorization; migrate
