@@ -180,7 +180,11 @@ test('real Linux sudo delegation closes durably while historical and runtime sta
 
   await t.test('apply closes real sudo grants, retains originals and preserves the synthetic service', () => {
     const result = run(TOOL, ['--apply', '--expected-authorization', authorizationHash]);
-    assert.equal(result.status, 0, text(result));
+    const listing = run('/usr/bin/sudo', ['-n', '-l', '-U', 'servora-deploy']);
+    t.diagnostic('synthetic sudo list result: ' + JSON.stringify({status: listing.status,
+      targetDenied: /servora-deploy is not allowed to run sudo/.test(text(listing)),
+      listsCommands: /may run the following commands/.test(text(listing))}));
+    assert.equal(result.status, 0, text(result) + '\nSYNTHETIC_SUDO_DIAGNOSTIC=' + JSON.stringify(listing));
     assert.equal(JSON.parse(result.stdout).authority, 'SUDO_ONLY_NOT_BOOTSTRAP_INSTALL_OR_RELEASE');
     for (const path of POLICY_FILES) {
       assert.equal(fs.readFileSync(path, 'utf8'), QUARANTINED_POLICY);

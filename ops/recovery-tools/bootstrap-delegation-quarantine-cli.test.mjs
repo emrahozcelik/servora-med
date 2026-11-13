@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {parseArguments} from './bootstrap-delegation-quarantine-host.mjs';
+import {parseArguments, validateClosedSudoListing} from './bootstrap-delegation-quarantine-host.mjs';
 
 test('the root CLI accepts only capture, dry-run and explicitly hash-bound apply', () => {
   assert.deepEqual(parseArguments(['--capture']), {mode: 'capture'});
@@ -28,4 +28,16 @@ test('the root wrapper pins its entire direct import closure', () => {
   assert.doesNotMatch(wrapper, /^source /m);
   assert.match(wrapper, /env -i/);
   assert.match(wrapper, /--no-addons/);
+});
+
+test('a successful root list query must still require an explicit target-user denial and no granted commands', () => {
+  for (const status of [0, 1]) assert.doesNotThrow(() => validateClosedSudoListing({status,
+    stdout: 'User servora-deploy is not allowed to run sudo on synthetic-host.\n', stderr: ''}));
+  for (const result of [
+    {status: 0, stdout: 'User servora-deploy may run the following commands on synthetic-host:\n    (root) /bin/sh\n', stderr: ''},
+    {status: 1, stdout: '', stderr: 'sudo: policy plugin initialization failed\n'},
+    {status: 2, stdout: 'User servora-deploy is not allowed to run sudo on synthetic-host.\n', stderr: ''},
+    {status: 0, stdout: 'User servora-deploy may run the following commands on synthetic-host:\n    (root) /bin/sh\n',
+      stderr: 'servora-deploy is not allowed to run sudo\n'},
+  ]) assert.throws(() => validateClosedSudoListing(result), /DELEGATION_REMAINS_OPEN/);
 });

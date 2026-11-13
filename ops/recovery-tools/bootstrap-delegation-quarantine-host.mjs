@@ -121,11 +121,19 @@ function reserve(originals, authorizationSha256) {
   for (const original of originals) exclusiveFile(ROOT + '/originals/' + basename(original.path), original.bytes);
 }
 
+export function validateClosedSudoListing(result) {
+  const output = result.stdout + result.stderr;
+  // -U queries another user's policy as root. A completed listing query and
+  // the target's command authority are separate outcomes; never use status 0
+  // alone as evidence either of permission or of a closed policy.
+  if (result.error || ![0, 1].includes(result.status)
+    || !/servora-deploy is not allowed to run sudo/.test(output)
+    || /may run the following commands/.test(output)) fail('DELEGATION_REMAINS_OPEN');
+}
+
 function assertSudoClosed() {
   run('/usr/sbin/visudo', ['-c']);
-  const result = sudoListing();
-  if (result.error || result.status !== 1
-    || !/servora-deploy is not allowed to run sudo/.test(result.stdout + result.stderr)) fail('DELEGATION_REMAINS_OPEN');
+  validateClosedSudoListing(sudoListing());
 }
 
 export function createRootPort(fd) {
