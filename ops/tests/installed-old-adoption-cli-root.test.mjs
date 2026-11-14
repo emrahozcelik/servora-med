@@ -47,6 +47,9 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     const cli67=installed+'/issue-installed-old-adoption-67d3318';
     copyFileSync(fileURLToPath(new URL('issue-installed-old-adoption-67d3318.sh',scripts)),cli67);chmodSync(cli67,0o750);
     chownSync(cli67,0,0);
+    const cliAttestation=installed+'/attest-installed-old-cutover-67d3318';
+    copyFileSync(fileURLToPath(new URL('../recovery-tools/attest-installed-old-cutover-67d3318',import.meta.url)),cliAttestation);
+    chmodSync(cliAttestation,0o750);chownSync(cliAttestation,0,0);
     const cliDisposition=installed+'/issue-historical-recovery-disposition-6ce4cff0';
     copyFileSync(fileURLToPath(new URL('issue-historical-recovery-disposition-6ce4cff0.sh',scripts)),cliDisposition);
     chmodSync(cliDisposition,0o750);
@@ -70,6 +73,10 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     assert.equal(before67.status,1);
     assert.equal(before67.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE');
     assert.equal(existsSync(state+'/installed-old-adoption-67d3318.json'),false);
+    const beforeAttestation=run('/bin/bash',[cliAttestation,id,baseline67]);
+    assert.equal(beforeAttestation.status,1);
+    assert.equal(beforeAttestation.stderr.trim(),'BOOTSTRAP_FENCE_UNREADABLE');
+    assert.equal(existsSync(state+'/installed-old-cutover-attestation-67d3318.json'),false);
     const beforeDisposition=run('/bin/bash',[cliDisposition]);
     assert.equal(beforeDisposition.status,1);
     assert.equal(beforeDisposition.stderr.trim(),'RECOVERY_DISPOSITION_SOURCE_STATE_INVALID');
@@ -81,6 +88,10 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     const direct67=`import {issueInstalledOldAdoption67d3318 as issue} from ${module};try{issue(${JSON.stringify(id)},${JSON.stringify(baseline67)})}catch(e){console.error(e.message);process.exitCode=1}`;
     const unlocked67=run(process.execPath,['--input-type=module','-e',direct67],{NODE_OPTIONS:''});
     assert.equal(unlocked67.status,1);assert.equal(unlocked67.stderr.trim(),'RECOVERY_ADOPTION_HOST_LOCK_REQUIRED');
+    const directAttestation=`import {issueInstalledOldCutoverAttestation67d3318 as issue} from ${module};try{issue(${JSON.stringify(id)},${JSON.stringify(baseline67)})}catch(e){console.error(e.message);process.exitCode=1}`;
+    const unlockedAttestation=run(process.execPath,['--input-type=module','-e',directAttestation],{NODE_OPTIONS:''});
+    assert.equal(unlockedAttestation.status,1);
+    assert.equal(unlockedAttestation.stderr.trim(),'RECOVERY_ADOPTION_HOST_LOCK_REQUIRED');
     const directDisposition=`import {issueHistoricalRecoveryDisposition as issue} from ${module};try{issue()}catch(e){console.error(e.message);process.exitCode=1}`;
     const unlockedDisposition=run(process.execPath,['--input-type=module','-e',directDisposition],{NODE_OPTIONS:''});
     assert.equal(unlockedDisposition.status,1);
@@ -95,6 +106,8 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     assert.equal(busy.status,1);assert.equal(busy.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
     const busy67=run('/bin/bash',[cli67,id,baseline67]);
     assert.equal(busy67.status,1);assert.equal(busy67.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
+    const busyAttestation=run('/bin/bash',[cliAttestation,id,baseline67]);
+    assert.equal(busyAttestation.status,1);assert.equal(busyAttestation.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
     const busyDisposition=run('/bin/bash',[cliDisposition]);
     assert.equal(busyDisposition.status,1);assert.equal(busyDisposition.stderr.trim(),'HOST_DEPLOYMENT_LOCK_BUSY');
     assert.equal(lstatSync(state+'/host.lock').ino,inode,'never replace the lock inode');
@@ -108,10 +121,13 @@ test('real root CLI and kernel lock serialize issuance with deployment',
     assert.equal(drift.status,1);assert.equal(drift.stderr.trim(),'RECOVERY_ADOPTION_TOOL_UNTRUSTED');
     const drift67=run('/bin/bash',[cli67,id,baseline67]);
     assert.equal(drift67.status,1);assert.equal(drift67.stderr.trim(),'RECOVERY_ADOPTION_TOOL_UNTRUSTED');
+    const driftAttestation=run('/bin/bash',[cliAttestation,id,baseline67]);
+    assert.equal(driftAttestation.status,1);assert.equal(driftAttestation.stderr.trim(),'RECOVERY_ADOPTION_TOOL_UNTRUSTED');
     const driftDisposition=run('/bin/bash',[cliDisposition]);
     assert.equal(driftDisposition.status,1);assert.equal(driftDisposition.stderr.trim(),'RECOVERY_DISPOSITION_TOOL_UNTRUSTED');
     assert.equal(existsSync(state+'/installed-old-adoption.json'),false);
     assert.equal(existsSync(state+'/installed-old-adoption-67d3318.json'),false);
+    assert.equal(existsSync(state+'/installed-old-cutover-attestation-67d3318.json'),false);
     assert.equal(existsSync(state+'/historical-dispositions/'+ATTEMPT_ID+'.json'),false);
     assert.deepEqual(readFileSync(state+'/host.lock'),Buffer.alloc(0));
   });

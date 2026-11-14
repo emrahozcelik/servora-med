@@ -11,7 +11,8 @@ test('OPS-R4-002 runbook pins exact source hashes rather than stale pre-merge va
     '../scripts/deployment-controller.mjs',
     '../scripts/trusted-time.mjs',
     '../scripts/issue-historical-recovery-disposition-6ce4cff0.sh',
-    '../scripts/issue-installed-old-adoption-67d3318.sh'
+    '../scripts/issue-installed-old-adoption-67d3318.sh',
+    '../recovery-tools/attest-installed-old-cutover-67d3318'
   ])assert.ok(runbook.includes(hash(path)),path+' SHA-256 does not match runbook');
 });
 

@@ -174,6 +174,12 @@ const ADOPTION_KEYS = ['formatVersion','kind','attemptId','approvalSha256','prof
   'oldReleaseSha','originalArtifactSha256','oldCatalogSha256','oldContentManifestSha256',
   'targetReleaseSha','targetTreeSha','targetArtifactSha256','baselineId','baselineManifestSha256',
   'adoptedArchiveSha256','databaseDumpSha256','attestedTime'];
+const CUTOVER_ATTESTATION_FILE = STATE_ROOT+'/installed-old-cutover-attestation-67d3318.json';
+const CUTOVER_ATTESTATION_KIND = 'INSTALLED_OLD_CUTOVER_ATTESTATION_OPS_R4_002';
+const CUTOVER_SCOPE_KEYS = ['maxStarts','maxAbortStarts','allowMigration','allowForwardRecovery',
+  'allowPreMigrationAbort','allowPostdeployBackup'];
+const CUTOVER_ATTESTATION_KEYS = [...ADOPTION_KEYS.filter(key=>!['attemptId','approvalSha256'].includes(key)),
+  'authority','databaseIdentitySha256','targetCatalogSha256','targetCiManifestSha256','scopeCeiling'];
 
 const HISTORICAL_DISPOSITION_KEYS = Object.freeze(['formatVersion','kind','dispositionId','attemptId',
   'classification','approvalSha256','profileSha256','machineId','oldReleaseSha','targetReleaseSha',
@@ -388,6 +394,53 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
   // Attestation proves a historical root action inside this grant's original
   // window. It never re-anchors current approval age or consumed-attempt scope.
   validateApproval(approval,record.attestedTime);
+  return validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy);
+}
+
+/** Identity/plan evidence only, never an execution grant. Current or consumed
+ * authority must still come from readRootApproval and the admission protocol. */
+export function validateInstalledOldCutoverAttestation(record, context, baseline, baselineSha256) {
+  const fail = () => { throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID'); };
+  const {approval,profile} = context;
+  validateApprovalStructure(approval);
+  const policy = OPS_R4_002_POLICY;
+  if (!record || Object.keys(record).length !== CUTOVER_ATTESTATION_KEYS.length
+    || CUTOVER_ATTESTATION_KEYS.some(key=>!Object.hasOwn(record,key))
+    || record.formatVersion !== 1 || record.kind !== CUTOVER_ATTESTATION_KIND
+    || record.authority !== 'IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION'
+    || record.profileSha256 !== approval.profileSha256 || record.machineId !== profile.machineId
+    || record.databaseIdentitySha256 !== jsonDigest(profile.databaseIdentity)
+    || record.targetReleaseSha !== approval.releaseSha || record.targetTreeSha !== approval.treeSha
+    || record.targetArtifactSha256 !== approval.artifactSha256
+    || record.targetCiManifestSha256 !== approval.ciManifestSha256
+    || record.targetCatalogSha256 !== jsonDigest(approval.targetCatalog)
+    || ['profileSha256','databaseIdentitySha256','targetArtifactSha256','targetCiManifestSha256',
+      'targetCatalogSha256'].some(key=>typeof record[key] !== 'string' || !HISTORICAL_HEX.test(record[key]))) fail();
+  const ceiling = record.scopeCeiling;
+  if (!ceiling || Object.keys(ceiling).length !== CUTOVER_SCOPE_KEYS.length
+    || CUTOVER_SCOPE_KEYS.some(key=>!Object.hasOwn(ceiling,key))
+    || !Number.isInteger(ceiling.maxStarts) || ceiling.maxStarts < 1 || ceiling.maxStarts > 2
+    || !Number.isInteger(ceiling.maxAbortStarts) || ceiling.maxAbortStarts < 0 || ceiling.maxAbortStarts > 1
+    || approval.maxStarts > ceiling.maxStarts || approval.maxAbortStarts > ceiling.maxAbortStarts
+    || CUTOVER_SCOPE_KEYS.slice(2).some(key=>typeof ceiling[key] !== 'boolean' || (approval[key] && !ceiling[key]))) fail();
+  // Historical TT-A v2 proves the attestation action, not the age of a later
+  // grant. No wall-clock expiry, boot or UUID is transferred to that grant.
+  validateCurrentTimeEvidence(record.attestedTime);
+  validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy);
+  return record;
+}
+
+function validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy) {
+  const fail = () => { throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID'); };
+  const {approval,profile} = context;
+  if (approval.oldReleaseSha !== policy.oldReleaseSha
+    || approval.oldArtifactSha256 !== policy.originalArtifactSha256
+    || jsonDigest(approval.oldCatalog) !== policy.oldCatalogSha256
+    || record.oldReleaseSha !== policy.oldReleaseSha
+    || record.originalArtifactSha256 !== policy.originalArtifactSha256
+    || record.oldCatalogSha256 !== policy.oldCatalogSha256
+    || typeof record.baselineId !== 'string' || !policy.baselineIdPattern.test(record.baselineId)
+    || record.baselineManifestSha256 !== baselineSha256) fail();
   if (!baseline || baseline.formatVersion !== 1 || baseline.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
     || baseline.baselineId !== record.baselineId || baseline.machineId !== profile.machineId
     || baseline.sourceReleaseSha !== policy.oldReleaseSha
@@ -436,11 +489,12 @@ export function issueInstalledOldAdoption67d3318(attemptId, baselineId) {
   return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_002_POLICY);
 }
 
-function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
-  if (![OPS_R4_001_POLICY, OPS_R4_002_POLICY].includes(policy)) {
-    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
-  }
-  if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+/** B1-03 future, unused OPS-R4-002 path only. No existing adoption is converted. */
+export function issueInstalledOldCutoverAttestation67d3318(attemptId, baselineId) {
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_002_POLICY, true);
+}
+
+function requireInstalledOldRecoveryLock() {
   // The administrator CLI inherits the same open-file description as the
   // deployment helper. Verify the stable inode and take/confirm its kernel
   // lock before reading state; a direct, unlocked API call cannot race admit.
@@ -453,13 +507,26 @@ function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
     const after = lstatSync(STATE_ROOT+'/host.lock');
     if (held.dev !== after.dev || held.ino !== after.ino) throw new Error();
   } catch { throw new Error('RECOVERY_ADOPTION_HOST_LOCK_REQUIRED'); }
+}
+
+function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy, cutoverAttestation = false) {
+  if (![OPS_R4_001_POLICY, OPS_R4_002_POLICY].includes(policy)) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+  requireInstalledOldRecoveryLock();
   if (typeof baselineId !== 'string' || !policy.baselineIdPattern.test(baselineId)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
   // One exclusive permanent host slot per policy. Partial publication burns
   // reuse too; there is no renewal, overwrite, journal repair or deploy-user
   // issuance. OPS-R4-002 has a different file and never touches OPS-R4-001.
-  if (existsSync(policy.adoptionFile)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  const file = cutoverAttestation ? CUTOVER_ATTESTATION_FILE : policy.adoptionFile;
+  if (existsSync(file)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  if (policy === OPS_R4_002_POLICY
+    && existsSync(cutoverAttestation ? policy.adoptionFile : CUTOVER_ATTESTATION_FILE)) {
+    throw new Error('RECOVERY_CUTOVER_EVIDENCE_CONFLICT');
+  }
   // Reject pending state before loadAttempt: its normal deployment recovery
   // path can reconcile checkpoint residues in a pending systemd window.
   for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
@@ -504,7 +571,7 @@ function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
   }
   const baselineBytes = trustedFile(BASELINE_ROOT+'/'+baselineId+'/baseline-manifest.json',0o600);
   const baseline = parseCanonicalRecord(baselineBytes.toString('utf8'));
-  const record = {formatVersion:1,kind:policy.recordKind,attemptId,
+  let record = {formatVersion:1,kind:policy.recordKind,attemptId,
     approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
     oldReleaseSha:approval.oldReleaseSha,originalArtifactSha256:approval.oldArtifactSha256,
     oldCatalogSha256:jsonDigest(approval.oldCatalog),oldContentManifestSha256:baseline.installedContentManifestSha256,
@@ -512,15 +579,24 @@ function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy) {
     baselineId,baselineManifestSha256:digest(baselineBytes),
     adoptedArchiveSha256:baseline.files?.['installed-old-release.adopted.tar.gz']?.sha256,
     databaseDumpSha256:baseline.files?.['database.dump']?.sha256,attestedTime:sampleTrustedTime()};
+  if (cutoverAttestation) {
+    const {attemptId:unusedAttempt,approvalSha256:unusedGrant,...identity} = record;
+    record = {...identity,kind:CUTOVER_ATTESTATION_KIND,authority:'IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION',
+      databaseIdentitySha256:jsonDigest(profile.databaseIdentity),
+      targetCatalogSha256:jsonDigest(approval.targetCatalog),targetCiManifestSha256:approval.ciManifestSha256,
+      scopeCeiling:Object.fromEntries(CUTOVER_SCOPE_KEYS.map(key=>[key,approval[key]]))};
+    initialAttempt(context,record.attestedTime);
+  }
   verifyAttemptCatalog(attemptId,'old');
   verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root),policy);
+  if (cutoverAttestation) initialAttempt(context); // Full window before the first write, using its existing SSOT.
   // The directory is protected by loadAttempt's root-private grant/profile
   // readers. Mode is fixed by open, not by the caller's umask.
-  const fd = openSync(policy.adoptionFile,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  const fd = openSync(file,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
   try { writeFileSync(fd,JSON.stringify(record)+'\n');fsyncSync(fd); } finally {closeSync(fd);}
   flushDirectory(STATE_ROOT);
   validateApproval(approval,sampleTrustedTime());
-  const sealed = readProtectedRecord(policy.adoptionFile);
+  const sealed = readProtectedRecord(file);
   if (sealed.sha256 !== jsonDigest(record)) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   return sealed;
 }
@@ -535,7 +611,11 @@ function verifyInstalledOldBaseline(record,context,root,entries,policy) {
   const directory = BASELINE_ROOT+'/'+record.baselineId;
   const bytes = trustedFile(directory+'/baseline-manifest.json',0o600);
   const baseline = parseCanonicalRecord(bytes.toString('utf8'));
-  validateInstalledOldAdoption(record,context,baseline,digest(bytes));
+  if (record.kind === CUTOVER_ATTESTATION_KIND && policy === OPS_R4_002_POLICY) {
+    validateInstalledOldCutoverAttestation(record,context,baseline,digest(bytes));
+  } else {
+    validateInstalledOldAdoption(record,context,baseline,digest(bytes));
+  }
   const payloads = Object.entries(baseline.files);
   if (payloads.length > 32) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   for (const [name,entry] of payloads) {
@@ -688,6 +768,11 @@ async function reconcileInitialization(context) {
  */
 export function admitAttempt(attemptId) {
   const context = loadAttempt(attemptId);
+  // The new identity-only exception must prove no prior admission before ANY
+  // initialization write, including callers of this persistence API. It is not
+  // enough for only the public CLI to check OLD earlier in its probe sequence.
+  if (context.approval.oldReleaseSha === OPS_R4_002_POLICY.oldReleaseSha
+    && existsSync(CUTOVER_ATTESTATION_FILE)) verifyAttemptRelease(attemptId,'old');
   // The public CLI reconciles pending initialization only after fresh DB and
   // payload proof. Direct persistence users must not auto-repair that window.
   if (initializationRecord(context)) throw new Error('RECOVERY_INITIALIZATION_REQUIRES_PROBE');
@@ -1578,8 +1663,24 @@ export function verifyAttemptRelease(attemptId, direction) {
     } else {
       if (direction !== 'old') throw new Error('RECOVERY_RELEASE_UNPROVEN');
       const policy = recoveryPolicyForRelease(approval.oldReleaseSha);
-      const record = readProtectedRecord(policy.adoptionFile).record;
-      verifyInstalledOldBaseline(record,context,root,entries,policy);
+      if (policy === OPS_R4_002_POLICY && existsSync(CUTOVER_ATTESTATION_FILE)) {
+        requireInstalledOldRecoveryLock();
+        if (existsSync(policy.adoptionFile)) throw new Error('RECOVERY_CUTOVER_EVIDENCE_CONFLICT');
+        const record = readProtectedRecord(CUTOVER_ATTESTATION_FILE).record;
+        if (record.kind !== CUTOVER_ATTESTATION_KIND) throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID');
+        verifyInstalledOldBaseline(record,context,root,entries,policy);
+        // Only readRootApproval's verified confirmation grants same-attempt
+        // continuation. A bare initializer, starts=0 or caller flag cannot.
+        if (context.initializationPending) throw new Error('RECOVERY_CUTOVER_ADMISSION_UNCERTAIN');
+        const reference = context.admissionTime ?? initialAttempt(context).admissionTime;
+        if (Date.parse(record.attestedTime.wallAtUTC) > Date.parse(reference.wallAtUTC)) {
+          throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID');
+        }
+        if (!context.admissionTime) verifyHistoricalPreservationGate();
+      } else {
+        const record = readProtectedRecord(policy.adoptionFile).record;
+        verifyInstalledOldBaseline(record,context,root,entries,policy);
+      }
     }
     if (direction === 'target' && digest(trustedFile(root+'/ops/scripts/deploy-production-host.sh',0o750,null))
       !== digest(trustedFile(INSTALLED+'/deploy-production-host',0o755))) throw new Error('RECOVERY_RELEASE_UNPROVEN');

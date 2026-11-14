@@ -31,6 +31,8 @@ test('every supported orchestration CLI has an explicit fence boundary', () => {
     ['production-recovery.sh', 'bootstrap-fence legacy-restore'],
   ];
   for (const [file, boundary] of sources) assert.ok(read(file).includes(boundary), file);
+  const attestation=readFileSync(new URL('../recovery-tools/attest-installed-old-cutover-67d3318',import.meta.url),'utf8');
+  assert.ok(attestation.includes('bootstrap-fence adoption'));
   const helper = read('deploy-production-host.sh');
   assert.ok(helper.lastIndexOf('bootstrap_management_guard') < helper.lastIndexOf('deploy_phase\n'));
   assert.ok(helper.includes('esac\nbootstrap_management_guard\n'), 'recheck while host.lock is held');

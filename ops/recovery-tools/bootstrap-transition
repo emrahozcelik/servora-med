@@ -41,7 +41,7 @@ pin "$BASE/ops/scripts/bootstrap-fence.mjs" 068ea5157b89fd2dc3303acd1343b22a57c7
 pin "$BASE/ops/scripts/bootstrap-fence.sh" d3e6195035aacd70c46504e5728fe12647272272dfe29c0aa16e352a23b9b761
 pin "$BASE/ops/scripts/deploy-production-host.sh" 615fecec455ca105e461e4a7ec1822e84886e378a7e7a22ff98245b0c155a4ad
 pin "$BASE/ops/scripts/deployment-attempt.mjs" 955034ccb742efd1a20dd688a5bc62ddff82f8cb68c38d7aee20a9df51f67676
-pin "$BASE/ops/scripts/deployment-controller.mjs" ad6d1ef12986830e6228248f5a9bc34b9aa79f7a7b017f941ed28eb085b1375b
+pin "$BASE/ops/scripts/deployment-controller.mjs" 46e2f41bf2bea67979e5ba485027375eff2a69c853cc35951f2dc6c983d3124d
 pin "$BASE/ops/scripts/deployment-db-guard.mjs" 3ea5931537ff6d1cb71bf02633ca77ae66ba1aa4aafabb16943c062648284552
 pin "$BASE/ops/scripts/historical-recovery-evidence.mjs" c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f
 pin "$BASE/ops/scripts/host-operation-lock.sh" a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e
