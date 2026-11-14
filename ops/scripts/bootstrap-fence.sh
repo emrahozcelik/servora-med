@@ -19,7 +19,7 @@ trusted_file() {
 readonly module=/usr/local/libexec/servora-med/bootstrap-fence.mjs
 trusted_file /usr/local/libexec/servora-med/bootstrap-fence 755
 trusted_file "$module" 644
-[[ "$(sha256sum "$module" | awk '{print $1}')" == 57aa4bdf712458f13dafdeb3b404731d0080cc57d390cfba6fb60630df68db46 ]] || fail
+[[ "$(sha256sum "$module" | awk '{print $1}')" == 068ea5157b89fd2dc3303acd1343b22a57c71b2bcd79ec3d3a42ee6c18174f31 ]] || fail
 node_path="$(realpath -e /usr/bin/node)"
 trusted_file "$node_path" 755
 exec /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C "$node_path" "$module" "$@"

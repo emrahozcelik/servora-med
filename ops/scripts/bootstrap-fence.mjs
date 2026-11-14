@@ -28,8 +28,9 @@ export const REQUIRED_MANAGEMENT_FILES = Object.freeze([
 const ATTEMPT_OPERATIONS = ['deploy', 'postdeploy', 'attempt-preflight', 'forward-recovery', 'pre-migration-abort', 'controller'];
 const OPERATIONS = [...ATTEMPT_OPERATIONS, 'controller', 'forward', 'emergency-handoff',
   'preserve-authorization', 'adoption', 'legacy-deploy', 'rollback', 'legacy-restore'];
-const CHECKS = ['toolClosure', 'mutationCoverage', 'delegatedAccess', 'noPendingOperation',
-  'historicalPreservation', 'canonicalTrustedTime', 'profileContracts', 'serviceUnchanged'];
+export const BOOTSTRAP_RELEASE_CHECKS = Object.freeze(['toolClosure', 'mutationCoverage', 'delegatedAccess', 'noPendingOperation',
+  'historicalPreservation', 'canonicalTrustedTime', 'profileContracts', 'serviceUnchanged']);
+const CHECKS = BOOTSTRAP_RELEASE_CHECKS;
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const sameStat = (a, b) => ['dev', 'ino', 'size', 'uid', 'gid', 'mode', 'nlink', 'mtimeNs', 'ctimeNs']
@@ -70,6 +71,25 @@ export function readBootstrapTrustedFile(file, mode, io = fs) {
     if (error.code === 'ENOENT') throw Object.assign(new Error('BOOTSTRAP_FENCE_UNREADABLE'), {code: 'ENOENT'});
     fail('UNREADABLE');
   }
+}
+
+/** Shared by the read-only guard and separately authorized installation writer.
+ * Validation grants no release or filesystem mutation authority. */
+export function validateBootstrapManagementManifest(body) {
+  if (!exactKeys(body, ['formatVersion', 'kind', 'files']) || body.formatVersion !== 1
+    || body.kind !== 'BOOTSTRAP_MANAGEMENT_MANIFEST') fail('RECORD_INVALID');
+  if (!Array.isArray(body.files) || body.files.length < REQUIRED_MANAGEMENT_FILES.length
+    || body.files.length > 128) fail('MANIFEST_INVALID');
+  let previous = '';
+  for (const tool of body.files) {
+    if (!exactKeys(tool, ['path', 'mode', 'sha256']) || typeof tool.path !== 'string'
+      || !/^\/usr\/local\/libexec\/servora-med(?:-[a-z0-9-]+)?\/[a-zA-Z0-9/_.-]+$/.test(tool.path)
+      || tool.path.slice(1).split('/').some(part => !part || part === '.' || part === '..')
+      || tool.path <= previous || ![0o600, 0o644, 0o750, 0o755].includes(tool.mode) || !SHA.test(tool.sha256)) fail('MANIFEST_INVALID');
+    previous = tool.path;
+  }
+  if (REQUIRED_MANAGEMENT_FILES.some(required => !body.files.some(tool => tool.path === required.path && tool.mode === required.mode))) fail('MANIFEST_INVALID');
+  return body.files;
 }
 
 /** Synthetic port constructor. The production entrypoint never accepts a path,
@@ -135,20 +155,11 @@ export function createBootstrapFenceGuard(io) {
     const lock = io.lockIdentity();
     if (lock.device !== closed.body.hostLock.device || lock.inode !== closed.body.hostLock.inode) fail('LOCK_UNTRUSTED');
     const manifest = readRecord(ROOT + '/manifest.json');
-    kind(manifest.body, 'BOOTSTRAP_MANAGEMENT_MANIFEST', ['files']);
-    if (manifest.sha256 !== a.manifestSha256 || !Array.isArray(manifest.body.files)
-      || manifest.body.files.length < REQUIRED_MANAGEMENT_FILES.length || manifest.body.files.length > 128) fail('MANIFEST_INVALID');
-    const tools = manifest.body.files;
-    let previous = '';
+    if (manifest.sha256 !== a.manifestSha256) fail('MANIFEST_INVALID');
+    const tools = validateBootstrapManagementManifest(manifest.body);
     for (const tool of tools) {
-      if (!exactKeys(tool, ['path', 'mode', 'sha256']) || typeof tool.path !== 'string'
-        || !/^\/usr\/local\/libexec\/servora-med(?:-[a-z0-9-]+)?\/[a-zA-Z0-9/_.-]+$/.test(tool.path)
-        || tool.path.slice(1).split('/').some(part => !part || part === '.' || part === '..')
-        || tool.path <= previous || ![0o600, 0o644, 0o750, 0o755].includes(tool.mode) || !SHA.test(tool.sha256)) fail('MANIFEST_INVALID');
-      previous = tool.path;
       if (hash(read(tool.path, tool.mode)) !== tool.sha256) fail('TOOL_DRIFT');
     }
-    if (REQUIRED_MANAGEMENT_FILES.some(required => !tools.some(tool => tool.path === required.path && tool.mode === required.mode))) fail('MANIFEST_INVALID');
     if (['legacy-deploy', 'rollback', 'legacy-restore'].includes(operation)) fail('LEGACY_MUTATION_DISABLED');
     if (ATTEMPT_OPERATIONS.includes(operation) && !UUID.test(attemptId ?? '')) fail('ATTEMPT_REQUIRED');
     // This permission is a prerequisite, never a deployment approval. The

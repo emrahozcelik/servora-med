@@ -1448,23 +1448,31 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     await withFixture(async ({
       service, calendar, manager, staffA, createInProgressJob,
     }) => {
+      // Keep this one-hour conflict case away from local midnight. After a
+      // target ending at Sunday 00:00 is blocked, reselection skips to Monday,
+      // so target + 1h is not valid at every DB clock hour. Sunday boundaries have
+      // their own working-day contract tests; the DB clock stays untouched.
+      const parentAt = new Date(BASELINE.getTime() - DAY_MS);
+      parentAt.setUTCHours(10, 0, 0, 0); // 13:00 Europe/Istanbul, already elapsed.
+      const targetAt = targetFor(parentAt.toISOString());
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Otomatik takip', assignedTo: staffA.id,
+        scheduledAt: parentAt.toISOString(),
       });
       const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: job.version,
         note: 'Görüşme tamamlandı.',
       });
-      expect(submitted.followUpProposal?.scheduledAt).toBe(PROPOSAL_AT);
+      expect(submitted.followUpProposal?.scheduledAt).toBe(targetAt);
 
       await calendar.create(manager, {
         clientActionId: randomUUID(),
         assignedUserId: staffA.id,
         title: 'Sonradan oluşan engel',
         description: null,
-        startsAt: PROPOSAL_AT,
-        endsAt: PROPOSAL_ENDS_AT,
+        startsAt: targetAt,
+        endsAt: baselineIso(new Date(targetAt), HOUR_MS),
         timezone: 'Europe/Istanbul',
       });
 
@@ -1474,10 +1482,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
       // Approval re-runs from the persisted target (not approvalTime + 7d):
-      // the blocked target moves forward one grid slot, never backward,
+      // the target moves past the one-hour blocker, never backward,
       // and never a second +7 days out.
-      expect(child.scheduledAt).toBe(baselineIso(new Date(PROPOSAL_AT), HOUR_MS));
-      expect(child.scheduledEndsAt).toBe(baselineIso(new Date(PROPOSAL_AT), 2 * HOUR_MS));
+      expect(child.scheduledAt).toBe(baselineIso(new Date(targetAt), HOUR_MS));
+      expect(child.scheduledEndsAt).toBe(baselineIso(new Date(targetAt), 2 * HOUR_MS));
     });
   });
 

@@ -6,6 +6,11 @@ sudoers, systemd, backup, disposition, staging, re-seal or deployment operation.
 Source baseline: `87f1b9d968a615ba1eaa5252165191660bf1ea6e` (origin/main checked
 before starting). Acceptance results belong to the exact PR head and its CI.
 
+The original B1-01 PR supplied only the reader/guard. The later
+[B1-02 producer](b1-02-bootstrap-transition.md) implements separately authorized
+CLOSED installation and RELEASED issuance without changing the record schemas
+below. Its source acceptance does not authorize first activation on a host.
+
 ## 1. Boundary and threat model
 
 The fence protects production **management orchestration** during an A+

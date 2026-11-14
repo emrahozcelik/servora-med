@@ -74,6 +74,17 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
             --workdir /source --env BOOTSTRAP_QUARANTINE_CONTAINER_TEST=1 \
             "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
+      - name: Bootstrap CLOSED installation and release contracts
+        run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs
+      - name: Bootstrap transition isolated Linux acceptance
+        run: |
+          for scenario in install crash release; do
+            docker run --rm --network none \
+              --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+              --workdir /source --env BOOTSTRAP_TRANSITION_CONTAINER_TEST=1 \
+              --env "BOOTSTRAP_TRANSITION_SCENARIO=$scenario" \
+              "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-transition-linux.test.mjs
+          done
       - name: interrupted RETIRE real adapter RED and GREEN
         run: |
           set -Eeuo pipefail
@@ -123,7 +134,8 @@ jobs:
             ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example \
             ../ops/recovery-tools/profile-reseal \
-            ../ops/recovery-tools/bootstrap-delegation-quarantine
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/bootstrap-transition
           node --check ../ops/scripts/backup-observation.mjs
           node --check ../ops/scripts/bootstrap-fence.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
@@ -132,6 +144,8 @@ jobs:
           node --check ../ops/recovery-tools/profile-reseal.mjs
           node --check ../ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs
           node --check ../ops/recovery-tools/bootstrap-delegation-quarantine.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition-host.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
           node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
@@ -151,6 +165,7 @@ jobs:
             ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/bootstrap-transition \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
             ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \
