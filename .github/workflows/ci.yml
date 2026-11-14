@@ -76,6 +76,8 @@ jobs:
             "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
       - name: Bootstrap CLOSED installation and release contracts
         run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs
+      - name: Installed OLD cutover identity and admission separation
+        run: node --test ../ops/tests/installed-old-cutover-attestation.test.mjs ../ops/tests/cutover-attestation-host.test.mjs ../ops/tests/cutover-attestation-faults.test.mjs ../ops/tests/cutover-attestation-cli.test.mjs
       - name: Bootstrap transition isolated Linux acceptance
         run: |
           for scenario in install crash release; do
@@ -135,6 +137,7 @@ jobs:
             ../ops/launchd/run-alerting.sh.example \
             ../ops/recovery-tools/profile-reseal \
             ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
             ../ops/recovery-tools/bootstrap-transition
           node --check ../ops/scripts/backup-observation.mjs
           node --check ../ops/scripts/bootstrap-fence.mjs
@@ -165,6 +168,7 @@ jobs:
             ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
             ../ops/recovery-tools/bootstrap-transition \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \

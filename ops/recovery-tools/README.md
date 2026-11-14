@@ -5,6 +5,11 @@
 artifact. The reviewed bytes must be transferred and hash-pinned separately
 during bootstrap. Never add this tool to deploy sudoers.
 
+The separate `attest-installed-old-cutover-67d3318` wrapper is also outside the
+normal artifact. It issues only the new B1-03 immutable identity/plan record,
+never execution authority. See [B1-03](../../docs/operations/b1-03-cutover-attestation.md)
+for compatibility, same-lock admission and separate production authorization.
+
 ## Fixed paths
 
 The production CLI has no path selector, force flag, recovery mode or archive

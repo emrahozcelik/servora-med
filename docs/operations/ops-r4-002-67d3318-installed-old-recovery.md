@@ -4,6 +4,14 @@
 production baseline capture, adoption issuance, bootstrap, migration or
 deployment. Each of those remains a separately approved operation.
 
+**B1-03 amendment:** the original grant-bound record/CLI below retains its
+same-grant-only meaning. For the future unused path, follow the separate
+[identity/plan attestation contract](./b1-03-cutover-attestation.md), accepted in
+OPS-B1-004. It preserves this document's OLD/baseline/provenance and historical
+gates while separating them from expiring execution authority. Do not create
+both record kinds or convert an existing record. Installation/activation must
+follow the current B1-02 transition contract, not an unfenced sequential update.
+
 ## 1. Identity
 
 | Item | Value |
@@ -159,15 +167,20 @@ must, in one separately reviewed sequence:
 7. Issue the installed-OLD adoption, run `attempt-preflight`, then follow the
    ordinary sealed deployment path.
 
+For an unused path approved under B1-03, step 7 uses the separately provisioned
+`attest-installed-old-cutover-67d3318` wrapper instead. Each future execution
+still needs a genuine fresh approval; only positive absence of admission permits
+a different UUID. The same confirmed attempt retains its original budgets.
+
 Preserve all historical approval files, the 71ae6df6 adoption record and its
 baseline. Admission remains impossible without a real, unexpired root approval;
 the adoption record never substitutes for it.
 
-### Measured source impact (B1-01 source tree, 12 November 2026)
+### Measured source impact (B1-03 source tree, 14 November 2026)
 
 The OPS-R4-002 historical acceptance contract changed after exact-main
 `402e350af9d057bafe77bfeaeef23fa33b25989a`. These are the current source
-hashes in the B1-01 source tree. They are **audit values for the operator, not a
+hashes in the B1-03 source tree. They are **audit values for the operator, not a
 production authorization**: the bootstrap must recompute all installed bytes,
 the nine live contracts and the final profile, and any later main/source update
 invalidates them.
@@ -175,9 +188,10 @@ invalidates them.
 | Item | Value |
 |---|---|
 | Previous installed controller (`71ae6df6` cutover) | `f2f6272b972871d8c8529355629e3132a3375e4591791b499de5202130c9bb81` |
-| Current controller bytes | `ad6d1ef12986830e6228248f5a9bc34b9aa79f7a7b017f941ed28eb085b1375b` |
+| Current controller bytes | `46e2f41bf2bea67979e5ba485027375eff2a69c853cc35951f2dc6c983d3124d` |
 | Current shared evidence-module bytes | `c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f` |
 | Current OPS-R4-002 administrator CLI | `96aaca06896cd1236424cca6b6695da5e05a3445ade095b1f390f7fd130660af` |
+| Separate B1-03 attestation CLI (outside release package) | `51359554db50b7f8c1fd375c29f80d426b5d3d12092c9eb8516da04a5ededf93` |
 | Current OPS-R4-003 disposition CLI | `9417cecb254f8e2e65d33c832b72bd2132634873fa9b736e97273946ccb00094` |
 | TT-A time module (unchanged by this slice) | `d28fb396527bf91a25ab73fd8dd4f5f3138e2279efc1c6414cdf0d44d93717ab` |
 | Obsolete profile estimate from `dee9c5f` (**audit-only, never install**) | `918f8a98cc986257c47ed0956eab92bd85aeb384c32500c4c5c285b49e7fd4aa` |

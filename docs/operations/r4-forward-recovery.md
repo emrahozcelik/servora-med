@@ -435,6 +435,13 @@ It does not change, renew or reuse the OPS-R4-001 `71ae6df6…` record or slot.
 The recovered archive `ddf12049…` is a content-equivalent reconstruction and is
 never accepted as the missing original `a1db5a8d…`.
 
+For the **future unused** 67d3318 path, OPS-B1-004 explicitly permits a separate
+[B1-03 identity/plan attestation](./b1-03-cutover-attestation.md) and fresh genuine
+approval before any admission footprint. The same-grant-only rule above remains
+binding for OPS-R4-001 and every legacy grant-bound OPS-R4-002 record. No existing
+record is renewed, converted or overwritten. Confirmed admission still consumes
+the exception once, even at zero starts; another UUID cannot reset its budgets.
+
 ### OPS-R4-003 — historical disposition and archive gate
 
 The consumed, nonterminal OPS-R4-001 attempt `6ce4cff0…` has a separate,

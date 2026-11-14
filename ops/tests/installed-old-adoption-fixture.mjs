@@ -98,7 +98,7 @@ export async function adoptionHost(f) {
     if(errorCode)throw Object.assign(new Error(errorCode),{code:errorCode});
     const file=files.get(path),dir=directories.has(path),link=symlinks.get(path);
     if(!file&&!dir&&link===undefined)throw Object.assign(new Error('not found'),{code:'ENOENT'});
-    const ino=parseInt(hash(path).slice(0,8),16);
+    const ino=file?.ino??parseInt(hash(path).slice(0,8),16);
     const isLink=link!==undefined;
     const mode=isLink?0o777:dir?directories.get(path):file.mode;
     const size=isLink?link.length:file?.data.length??0;
@@ -164,8 +164,27 @@ export async function adoptionHost(f) {
   const key='adoption-host-'+randomUUID();
   add(state+'/host.lock','');fds.set(9,state+'/host.lock');
   const forbidden=()=>{throw new Error('unexpected host filesystem mutation');};
+  const assertFile=file=>{if(!file)throw Object.assign(new Error('missing'),{code:'ENOENT'});};
   const fakeFs={...fs,
-    mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
+    // Explicit opt-in only for admission persistence tests. Existing issuance
+    // fixtures continue to refuse these operations, so stray writes are caught.
+    mkdirSync:(path,options)=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      if(directories.has(path)||files.has(path))throw Object.assign(new Error('exists'),{code:'EEXIST'});
+      directories.set(path,options.mode);
+    },
+    linkSync:(source,target)=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      if(files.has(target))throw Object.assign(new Error('exists'),{code:'EEXIST'});
+      const file=files.get(source);assertFile(file);
+      file.ino??=parseInt(hash(source).slice(0,8),16);file.nlink++;
+      files.set(target,file);
+    },
+    unlinkSync:path=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      const file=files.get(path);assertFile(file);file.nlink--;files.delete(path);
+    },
+    renameSync:forbidden,
     symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
     existsSync:path=>{const normalized=posix.normalize(path);
       // Native existsSync follows symlinks; lstatSync still sees dangling ones.
@@ -184,7 +203,7 @@ export async function adoptionHost(f) {
       if(flags&fs.constants.O_CREAT)add(path,'');else info(path);
       const fd=nextFd++;fds.set(fd,path);return fd;
     },
-    closeSync:fd=>fds.delete(fd),fsyncSync:()=>{},
+    closeSync:fd=>fds.delete(fd),fsyncSync:fd=>{host.onFsync?.(fds.get(fd));},
     readFileSync:(path,encoding)=>{const value=files.get(typeof path==='number'?fds.get(path):posix.normalize(path))?.data;
       if(!value)throw Object.assign(new Error('missing'),{code:'ENOENT'});return encoding?value.toString():Buffer.from(value);},
     writeFileSync:(fd,data)=>{
@@ -223,7 +242,11 @@ export async function adoptionHost(f) {
   const clockUrl=mockModule('clock',host.clock);
   const scripts=new URL('../scripts/',import.meta.url);
   const rewrite=(name,extra={})=>{
-    const source=fs.readFileSync(new URL(name,scripts),'utf8').replace(/from '([^']+)'/g,(whole,path)=>{
+    let source=fs.readFileSync(new URL(name,scripts),'utf8');
+    // Test-only source transformation for synthetic pinned payloads. Production
+    // CLIs have no equivalent selector. Default fixtures use unmodified pins.
+    if(name==='deployment-controller.mjs'&&host.rewriteController)source=host.rewriteController(source);
+    source=source.replace(/from '([^']+)'/g,(whole,path)=>{
       const target=extra[path]??(path==='node:fs'?fsUrl:path==='node:child_process'?childUrl:
         path==='./trusted-time.mjs'?clockUrl:path.startsWith('.')?new URL(path,scripts).href:path);
       return `from '${target}'`;

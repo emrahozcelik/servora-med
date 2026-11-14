@@ -2521,3 +2521,39 @@ unchanged; manifest validation and check names are shared with the producer.
 
 Producer protocol, attestation boundaries and remaining production gates:
 [B1-02 transition writer](docs/operations/b1-02-bootstrap-transition.md).
+
+## OPS-B1-004 — Separate installed-OLD plan evidence from execution authority
+
+Status: owner accepted the identity/plan versus time-limited approval separation
+on 2026-11-14; source implementation and Draft PR review scope only. No production
+installation, issuance, backup, bootstrap, migration or deployment is authorized.
+
+For the future, unused OPS-R4-002 `67d3318` recovery path, a distinct permanent
+root-only cutover attestation can bind the immutable OLD/baseline, exact TARGET/
+tree/artifact/catalog/CI, host profile/database identity and scope ceilings. It
+is explicitly `IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION`. It neither grants execution
+nor extends, rewrites or renews an approval. Existing OPS-R4-001 and grant-bound
+OPS-R4-002 records keep their original same-grant-only semantics. They cannot be
+converted; a legacy OPS-R4-002 record and this new attestation cannot coexist.
+
+Before any admission footprint exists, a newly issued genuine root approval may
+use that same fixed plan after expiry or reboot. Its own current TT-A evidence,
+maximum 24-hour TTL and full 3600-second admission window remain mandatory.
+Scope/budget ceilings may narrow, never widen. The unchanged exact historical
+preservation gate proves no new attempt/initializer/proof/backup/log or pending
+operation, under the same stable host lock, before initialization writes.
+
+Confirmed admission consumes the exception even with zero starts. Only the
+same UUID and unchanged approval may continue through the existing confirmed
+attempt protocol; terminal/abort or missing active-owner state does not reset
+the exception. Unconfirmed or torn admission refuses automatic continuation
+under this exception and cannot be bypassed with another approval. No new
+claim/succession journal or general renewal protocol is introduced.
+
+This narrowly supersedes the same-grant-only requirement **only for the new
+attestation kind and unused path**, not for any already sealed adoption. All
+original/recovered provenance pins, historical OPS-R4-003/005/006 meanings,
+bootstrap fence, re-seal and current admission budgets remain unchanged.
+
+Contract and evidence limits:
+[B1-03 cutover attestation](docs/operations/b1-03-cutover-attestation.md).
