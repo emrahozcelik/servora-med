@@ -3,6 +3,8 @@ import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {createBootstrapInstaller} from './bootstrap-transition.mjs';
 import {REQUIRED_MANAGEMENT_FILES, createBootstrapFenceGuard} from '../scripts/bootstrap-fence.mjs';
+import {parseCanonicalTimeOutput} from './bootstrap-transition-host.mjs';
+import {timeEvidenceAt} from '../tests/trusted-time-fixture.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const encode = record => Buffer.from(JSON.stringify({record, sha256: hash(JSON.stringify(record) + '\n')}) + '\n');
@@ -27,7 +29,8 @@ function fixture() {
   add('/var/lib/servora-med/deploy/profile.json', profile);
   state.profileSha256 = hash(profile);
   const external = {formatVersion: 1, kind: 'BOOTSTRAP_EXTERNAL_QUARANTINE_AUTHORIZATION',
-    scope: 'ALL_NON_ROOT_MANAGEMENT_CLOSED_AND_PRIVILEGED_MUTATIONS_DRAINED', fenceId: ID,
+    scope: 'ALL_NON_ROOT_MANAGEMENT_CLOSED_AND_PRIVILEGED_MUTATIONS_DRAINED',
+    phase: 'install', reviewId: '33333333-3333-4333-8333-333333333333', fenceId: ID,
     machineId: '1'.repeat(32), bootId: '22222222-2222-4222-8222-222222222222',
     hostLock: {device: '1', inode: '2'}, sudoReceiptSha256: 'e'.repeat(64),
     managementReviewSha256: 'f'.repeat(64), rootAccessProofSha256: '0'.repeat(64), processDrainProofSha256: '9'.repeat(64)};
@@ -61,12 +64,17 @@ function fixture() {
     installReceipt(bytes) {events.push('receipt'); add(PRIVATE + '/install-receipt.json', bytes);},
   };
   const prepareRelease = () => {
-    add(PRIVATE + '/release-external-authorization.json', externalBytes);
+    add(PRIVATE + '/release-external-authorization.json', encode({...external, phase: 'release',
+      reviewId: '44444444-4444-4444-8444-444444444444',
+      installReceiptSha256: hash(files.get(PRIVATE + '/install-receipt.json').bytes)}));
     io.assertFreshRelease = () => {
       if (files.has(PRIVATE + '/release-operation.json') || files.has(ROOT + '/released.json')) throw new Error('STATE_NOT_FRESH');
     };
     io.assertProfileContracts = () => {};
-    io.assertCanonicalTrustedTime = () => ({syntheticTimeEvidence: 'unit port only, never host evidence'});
+    // Synthetic CLI bytes exercise the production decoder; this is not a
+    // claim that a real Chrony collector was contacted by this unit port.
+    io.assertCanonicalTrustedTime = () => parseCanonicalTimeOutput(
+      JSON.stringify(timeEvidenceAt(undefined, {bootId: io.bootId()})), io.bootId());
     io.reserveRelease = bytes => {events.push('reserve-release'); add(PRIVATE + '/release-operation.json', bytes);};
     io.publishReleaseEvidence = bytes => {events.push('release-evidence'); add(PRIVATE + '/release-evidence.json', bytes);};
     io.publishReleased = bytes => {events.push('released'); add(ROOT + '/released.json', bytes);};
@@ -175,6 +183,44 @@ test('release capture measures all checks but leaves CLOSED and never manufactur
   assert.equal(Object.values(result.verification.record.checks).every(v => v === true), true);
   assert.deepEqual(f.files, before); assert.deepEqual(f.events, events);
   assert.throws(() => createBootstrapFenceGuard(f.io)('forward'), /BOOTSTRAP_FENCE_CLOSED/);
+});
+
+test('release refuses reuse of the installation external authorization before any release write', async () => {
+  const {createBootstrapReleaser} = await import('./bootstrap-transition.mjs');
+  const f = fixture();
+  createBootstrapInstaller(f.io)({mode: 'apply', expectedAuthorization: hash(f.authorizationBytes)});
+  f.prepareRelease();
+  f.add(PRIVATE + '/release-external-authorization.json',
+    f.files.get(PRIVATE + '/external-quarantine-authorization.json').bytes);
+  const before = new Map(f.files), events = [...f.events];
+  assert.throws(() => createBootstrapReleaser(f.io)({mode: 'capture'}), /EXTERNAL_AUTHORIZATION_REUSED/);
+  assert.deepEqual(f.files, before); assert.deepEqual(f.events, events);
+});
+
+test('release binds its distinct review to the completed install receipt in capture and apply', async () => {
+  const {createBootstrapReleaser} = await import('./bootstrap-transition.mjs');
+  const f = fixture();
+  createBootstrapInstaller(f.io)({mode: 'apply', expectedAuthorization: hash(f.authorizationBytes)});
+  f.prepareRelease();
+  const proposal = createBootstrapReleaser(f.io)({mode: 'capture'}), v = proposal.verification.record;
+  f.add(ROOT + '/verification.json', encode(v));
+  const auth = encode({formatVersion: 1, kind: 'BOOTSTRAP_RELEASE_AUTHORIZATION',
+    scope: 'ENABLE_APPROVAL_GATED_MANAGEMENT', fenceSha256: v.fenceSha256,
+    manifestSha256: v.manifestSha256, profileSha256: v.profileSha256,
+    verificationSha256: proposal.verificationSha256});
+  f.add(ROOT + '/release-authorization.json', auth);
+  const valid = JSON.parse(f.files.get(PRIVATE + '/release-external-authorization.json').bytes).record;
+  for (const change of [{phase: 'install'}, {phase: undefined}, {reviewId: undefined},
+    {reviewId: '33333333-3333-4333-8333-333333333333'}, {installReceiptSha256: undefined},
+    {installReceiptSha256: '0'.repeat(64)}]) {
+    const invalid = encode({...valid, ...change});
+    f.add(PRIVATE + '/release-external-authorization.json', invalid);
+    const before = new Map(f.files), events = [...f.events];
+    assert.throws(() => createBootstrapReleaser(f.io)({mode: 'capture'}), /EXTERNAL_AUTHORIZATION_INVALID|RELEASE_REVIEW_INVALID/);
+    assert.throws(() => createBootstrapReleaser(f.io)({mode: 'apply', expectedAuthorization: hash(auth),
+      expectedExternalAuthorization: hash(invalid)}), /EXTERNAL_AUTHORIZATION_INVALID|RELEASE_REVIEW_INVALID/);
+    assert.deepEqual(f.files, before); assert.deepEqual(f.events, events);
+  }
 });
 
 test('separate release authority publishes RELEASED last while attempts and disabled legacy paths remain guarded', async () => {

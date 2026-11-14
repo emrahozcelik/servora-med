@@ -34,8 +34,8 @@ pin() {
 trusted_file "$TOOL" 750
 pin "$BASE/ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs" 919cc7cb07aa499091c79e5a6f8c1893eb18d456976c2a90faa31d5e30ccfd41
 pin "$BASE/ops/recovery-tools/bootstrap-delegation-quarantine.mjs" e78448ce582e516edabd91c655dd5b243689a1273fd3a1d05186dce7196dfd04
-pin "$BASE/ops/recovery-tools/bootstrap-transition-host.mjs" 4fff9aa42c6211f8f9eaeaf665d0b6203adcb90b7a2a93d76fe0a26217574af5
-pin "$BASE/ops/recovery-tools/bootstrap-transition.mjs" 899159e10097a8c2bb0bdb69ee4fc205b6bca2a962c1085017ef1b5dc41f212f
+pin "$BASE/ops/recovery-tools/bootstrap-transition-host.mjs" 473c7025c448817fd79d2fb3aae22f93188784eeb32ced3949ca46fc66ed6fb4
+pin "$BASE/ops/recovery-tools/bootstrap-transition.mjs" 3221f4f3fc9f55a386509d2f379301032ef6bbc9612bf33e129782c884cb7a81
 pin "$BASE/ops/recovery-tools/profile-reseal.mjs" c069b9ebdb695987f99525ec481830a1fb5de0c068137053af64c13583f4ca2f
 pin "$BASE/ops/scripts/bootstrap-fence.mjs" 068ea5157b89fd2dc3303acd1343b22a57c71b2bcd79ec3d3a42ee6c18174f31
 pin "$BASE/ops/scripts/bootstrap-fence.sh" d3e6195035aacd70c46504e5728fe12647272272dfe29c0aa16e352a23b9b761

@@ -115,16 +115,18 @@ function proof(directory, name, sha256) {
 /** Checks a protected operator attestation, not an automatic proof that every
  * host route was discovered. The CLI never manufactures these permissions. */
 export function validateOperatorEvidence({external, context, review, access, drain}) {
-  const identity = r => r.formatVersion === 1 && r.machineId === external.machineId && r.bootId === external.bootId;
-  if (!exact(review, ['formatVersion', 'kind', 'machineId', 'bootId', 'sourceSha', 'manifestSha256', 'scope', 'inventorySha256'])
+  const identity = r => r.formatVersion === 1 && r.machineId === external.machineId && r.bootId === external.bootId
+    && r.phase === external.phase && r.reviewId === external.reviewId;
+  if (!['install', 'release'].includes(context.phase) || external.phase !== context.phase || !UUID.test(external.reviewId)
+    || !exact(review, ['formatVersion', 'kind', 'machineId', 'bootId', 'phase', 'reviewId', 'sourceSha', 'manifestSha256', 'scope', 'inventorySha256'])
     || !identity(review) || review.kind !== 'BOOTSTRAP_MANAGEMENT_ROUTE_REVIEW'
     || review.scope !== 'ALL_NON_ROOT_ROUTES_CLOSED' || review.sourceSha !== context.sourceSha
     || review.manifestSha256 !== context.manifestSha256 || !SHA.test(review.inventorySha256)
-    || !exact(access, ['formatVersion', 'kind', 'machineId', 'bootId', 'uid', 'user', 'channel', 'independentOf'])
+    || !exact(access, ['formatVersion', 'kind', 'machineId', 'bootId', 'phase', 'reviewId', 'uid', 'user', 'channel', 'independentOf'])
     || !identity(access) || access.kind !== 'BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF'
     || access.uid !== 0 || access.user !== 'root' || !['SSH', 'CONSOLE'].includes(access.channel)
     || access.independentOf !== 'servora-deploy-sudo'
-    || !exact(drain, ['formatVersion', 'kind', 'machineId', 'bootId', 'scope', 'inventorySha256'])
+    || !exact(drain, ['formatVersion', 'kind', 'machineId', 'bootId', 'phase', 'reviewId', 'scope', 'inventorySha256'])
     || !identity(drain) || drain.kind !== 'BOOTSTRAP_PRIVILEGED_MUTATION_DRAIN_PROOF'
     || drain.scope !== 'NO_INFLIGHT_OR_AUTONOMOUS_MANAGEMENT' || !SHA.test(drain.inventorySha256)) fail('OPERATOR_EVIDENCE_INVALID');
 }
@@ -174,9 +176,10 @@ function assertExternalQuarantine(port, e, context) {
   const drain = proof(directory, 'process-drain-proof', e.processDrainProofSha256);
   validateOperatorEvidence({external: e, context, review, access, drain});
   const inventory = proof(directory, 'management-inventory', review.inventorySha256);
-  if (!exact(inventory, ['formatVersion', 'kind', 'machineId', 'bootId', 'categories'])
+  if (!exact(inventory, ['formatVersion', 'kind', 'machineId', 'bootId', 'phase', 'reviewId', 'categories'])
     || inventory.formatVersion !== 1 || inventory.kind !== 'BOOTSTRAP_MANAGEMENT_ENTRYPOINT_INVENTORY'
     || inventory.machineId !== e.machineId || inventory.bootId !== e.bootId
+    || inventory.phase !== e.phase || inventory.reviewId !== e.reviewId
     || !Array.isArray(inventory.categories) || inventory.categories.length !== categories.length) fail('OPERATOR_EVIDENCE_INVALID');
   trustedDirectory(directory + '/route-evidence', 0o700);
   if (canonical(fs.readdirSync(directory + '/route-evidence').sort()) !== canonical(categories.map(c => c + '.json'))) fail('OPERATOR_EVIDENCE_INVALID');
@@ -186,9 +189,10 @@ function assertExternalQuarantine(port, e, context) {
       || hash(read(directory + '/route-evidence/' + c + '.json', 0o600)) !== entry.evidenceSha256) fail('OPERATOR_EVIDENCE_INVALID');
   }
   const processes = proof(directory, 'management-process-inventory', drain.inventorySha256);
-  if (!exact(processes, ['formatVersion', 'kind', 'machineId', 'bootId', 'scope', 'processes'])
+  if (!exact(processes, ['formatVersion', 'kind', 'machineId', 'bootId', 'phase', 'reviewId', 'scope', 'processes'])
     || processes.formatVersion !== 1 || processes.kind !== 'BOOTSTRAP_MANAGEMENT_PROCESS_INVENTORY'
     || processes.machineId !== e.machineId || processes.bootId !== e.bootId
+    || processes.phase !== e.phase || processes.reviewId !== e.reviewId
     || processes.scope !== 'MANAGEMENT_MUTATION_PROCESSES' || !Array.isArray(processes.processes)
     || processes.processes.length) fail('PRIVILEGED_MANAGEMENT_NOT_DRAINED');
 }
@@ -278,6 +282,16 @@ function assertProfileContracts() {
   }
 }
 
+// --read-chrony already validates/unwraps the restricted socket reply. Its CLI
+// result is TimeEvidence v2 itself, not the collector's identity/time envelope.
+export function parseCanonicalTimeOutput(output, expectedBootId) {
+  try {
+    const time = validateCurrentTimeEvidence(JSON.parse(output));
+    if (time.bootId !== expectedBootId) fail('CANONICAL_TIME_REQUIRED');
+    return time;
+  } catch {fail('CANONICAL_TIME_REQUIRED');}
+}
+
 function assertCanonicalTrustedTime() {
   try {
     trustedDirectory(LIB, 0o755);
@@ -286,12 +300,9 @@ function assertCanonicalTrustedTime() {
     if (hash(before) !== profile.contracts.timeModuleSha256 || profile.contracts.timeConfigSha256 !== CHRONY_CONFIG_SHA256) fail('CANONICAL_TIME_REQUIRED');
     const output = execFileSync('/usr/bin/node', ['--no-addons', module, '--read-chrony'],
       {env: ENV, timeout: 15000, encoding: 'utf8', maxBuffer: 1024 * 1024});
-    const reply = JSON.parse(output);
-    if (reply.identity?.moduleSha256 !== hash(before) || reply.time?.formatVersion !== 2
-      || reply.time.bootId !== bootId() || reply.time.synchronization?.sourcePolicy !== 'nts-quorum-v1'
-      || !read(module, 0o644).equals(before)) fail('CANONICAL_TIME_REQUIRED');
-    validateCurrentTimeEvidence(reply.time);
-    return reply;
+    const time = parseCanonicalTimeOutput(output, bootId());
+    if (!read(module, 0o644).equals(before)) fail('CANONICAL_TIME_REQUIRED');
+    return time;
   } catch {fail('CANONICAL_TIME_REQUIRED');}
 }
 

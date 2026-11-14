@@ -2508,6 +2508,9 @@ by their existing factory. Runtime, scheduled backup, shared 0755 libexec,
 current release, profile and historical sources are preserved.
 
 Release uses a different owner authorization and fresh phase-specific evidence.
+The private external permission and operator witnesses bind the operation phase
+and a review UUID; release requires a distinct review UUID and the completed
+installation receipt hash. Copying installation permission cannot grant release.
 It rechecks the eight existing conditions, including all nine profile contract
 hashes and the canonical TT-A v2 reader, before publishing RELEASED last.
 Installation authority cannot authorize release. No sudo grant, approval,

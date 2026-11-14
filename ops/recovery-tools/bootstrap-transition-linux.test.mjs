@@ -102,27 +102,30 @@ function fixture(t) {
     bootId: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()};
   function operatorReview(phase) {
     const directory = PRIVATE + '/' + phase + '-review';
+    const reviewed = {...identity, phase, reviewId: phase === 'install'
+      ? '33333333-3333-4333-8333-333333333333' : '44444444-4444-4444-8444-444444444444'};
     const store = (name, record) => {const bytes = encode(record); write(directory + '/' + name + '.json', bytes); return hash(bytes);};
     const categories = ['autonomous-management', 'other-identities', 'polkit', 'ssh', 'sudo'];
     const entries = categories.map(category => {
-      const bytes = encode({...identity, kind: 'BOOTSTRAP_ROUTE_EVIDENCE', category,
+      const bytes = encode({...reviewed, kind: 'BOOTSTRAP_ROUTE_EVIDENCE', category,
         observations: ['Dedicated synthetic container; no production inventory.']});
       write(directory + '/route-evidence/' + category + '.json', bytes);
       return {category, evidenceSha256: hash(bytes)};
     });
-    const inventorySha256 = store('management-inventory', {...identity,
+    const inventorySha256 = store('management-inventory', {...reviewed,
       kind: 'BOOTSTRAP_MANAGEMENT_ENTRYPOINT_INVENTORY', categories: entries});
-    const managementReviewSha256 = store('management-review', {...identity, kind: 'BOOTSTRAP_MANAGEMENT_ROUTE_REVIEW',
+    const managementReviewSha256 = store('management-review', {...reviewed, kind: 'BOOTSTRAP_MANAGEMENT_ROUTE_REVIEW',
       sourceSha: SOURCE, manifestSha256: hash(manifestBytes), scope: 'ALL_NON_ROOT_ROUTES_CLOSED', inventorySha256});
-    const rootAccessProofSha256 = store('root-access-proof', {...identity, kind: 'BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF',
+    const rootAccessProofSha256 = store('root-access-proof', {...reviewed, kind: 'BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF',
       uid: 0, user: 'root', channel: 'CONSOLE', independentOf: 'servora-deploy-sudo'});
-    const processesSha = store('management-process-inventory', {...identity,
+    const processesSha = store('management-process-inventory', {...reviewed,
       kind: 'BOOTSTRAP_MANAGEMENT_PROCESS_INVENTORY', scope: 'MANAGEMENT_MUTATION_PROCESSES', processes: []});
-    const processDrainProofSha256 = store('process-drain-proof', {...identity,
+    const processDrainProofSha256 = store('process-drain-proof', {...reviewed,
       kind: 'BOOTSTRAP_PRIVILEGED_MUTATION_DRAIN_PROOF', scope: 'NO_INFLIGHT_OR_AUTONOMOUS_MANAGEMENT', inventorySha256: processesSha});
-    const external = {...identity, kind: 'BOOTSTRAP_EXTERNAL_QUARANTINE_AUTHORIZATION',
+    const external = {...reviewed, kind: 'BOOTSTRAP_EXTERNAL_QUARANTINE_AUTHORIZATION',
       scope: 'ALL_NON_ROOT_MANAGEMENT_CLOSED_AND_PRIVILEGED_MUTATIONS_DRAINED', fenceId: ID, hostLock: q.hostLock,
       sudoReceiptSha256: hash(fs.readFileSync(Q + '/receipt.json')), managementReviewSha256, rootAccessProofSha256, processDrainProofSha256};
+    if (phase === 'release') external.installReceiptSha256 = hash(fs.readFileSync(PRIVATE + '/install-receipt.json'));
     const bytes = encode(external);
     write(PRIVATE + '/' + (phase === 'install' ? 'external-quarantine-authorization.json' : 'release-external-authorization.json'), bytes);
     return bytes;
@@ -225,6 +228,15 @@ test('real Linux bootstrap transition: ' + scenario, {skip: !enabled, timeout: 1
       envBaselineSha256: '0'.repeat(64), contracts};
     write(STATE + '/profile.json', JSON.stringify(profile) + '\n');
     f.operatorReview('release');
+    await t.test('a renamed installation authorization cannot authorize release', () => {
+      const path = PRIVATE + '/release-external-authorization.json', valid = fs.readFileSync(path);
+      fs.writeFileSync(path, fs.readFileSync(PRIVATE + '/external-quarantine-authorization.json'));
+      const reused = run(TOOL, ['release', '--capture']);
+      assert.notEqual(reused.status, 0); assert.match(output(reused), /EXTERNAL_AUTHORIZATION_REUSED/);
+      fs.writeFileSync(path, valid);
+      assert.equal(fs.existsSync(PRIVATE + '/release-operation.json'), false);
+      assert.equal(fs.existsSync(ROOT + '/released.json'), false);
+    });
     const capture = run(TOOL, ['release', '--capture']);
     assert.notEqual(capture.status, 0); assert.match(output(capture), /CANONICAL_TIME_REQUIRED/);
     assert.equal(fs.existsSync(ROOT + '/verification.json'), false);

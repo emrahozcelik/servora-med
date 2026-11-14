@@ -24,18 +24,23 @@ export function decodeBootstrapEnvelope(bytes) {
 }
 const decode = decodeBootstrapEnvelope;
 
-function externalAuthorization(io, a, name = 'external-quarantine-authorization.json') {
+function externalAuthorization(io, a, phase = 'install', releaseBinding) {
+  const name = phase === 'install' ? 'external-quarantine-authorization.json' : 'release-external-authorization.json';
   const bytes = io.readTrusted(PRIVATE + '/' + name, 0o600);
   if (hash(bytes) !== a.externalAuthorizationSha256) fail('EXTERNAL_AUTHORIZATION_MISMATCH');
   const e = decode(bytes);
-  if (!exact(e, ['formatVersion', 'kind', 'scope', 'fenceId', 'machineId', 'bootId', 'hostLock',
-    'sudoReceiptSha256', 'managementReviewSha256', 'rootAccessProofSha256', 'processDrainProofSha256'])
+  if (!exact(e, ['formatVersion', 'kind', 'scope', 'phase', 'reviewId', 'fenceId', 'machineId', 'bootId', 'hostLock',
+    'sudoReceiptSha256', 'managementReviewSha256', 'rootAccessProofSha256', 'processDrainProofSha256',
+    ...(phase === 'release' ? ['installReceiptSha256'] : [])])
     || e.formatVersion !== 1 || e.kind !== 'BOOTSTRAP_EXTERNAL_QUARANTINE_AUTHORIZATION'
     || e.scope !== 'ALL_NON_ROOT_MANAGEMENT_CLOSED_AND_PRIVILEGED_MUTATIONS_DRAINED'
+    || e.phase !== phase || !UUID.test(e.reviewId)
     || e.fenceId !== a.fenceId || e.machineId !== a.machineId || !UUID.test(e.bootId)
     || e.bootId !== io.bootId() || canonical(e.hostLock) !== canonical(a.hostLock)
     || ['sudoReceiptSha256', 'managementReviewSha256', 'rootAccessProofSha256', 'processDrainProofSha256']
       .some(key => !SHA.test(e[key]))) fail('EXTERNAL_AUTHORIZATION_INVALID');
+  if (phase === 'release' && (e.installReceiptSha256 !== releaseBinding.receiptSha256
+    || e.reviewId === releaseBinding.installReviewId)) fail('RELEASE_REVIEW_INVALID');
   return e;
 }
 
@@ -141,7 +146,7 @@ function collectReleaseEvidence(io, expectedExternalAuthorization) {
   if (hash(manifestBytes) !== closed.manifestSha256) fail('MANIFEST_MISMATCH');
   const tools = validateBootstrapManagementManifest(decode(manifestBytes));
   io.assertPreparedClosure(tools);
-  const receipt = decode(io.readTrusted(PRIVATE + '/install-receipt.json', 0o600));
+  const receiptBytes = io.readTrusted(PRIVATE + '/install-receipt.json', 0o600), receipt = decode(receiptBytes);
   if (!exact(receipt, ['formatVersion', 'kind', 'authority', 'installAuthorizationSha256',
     'externalAuthorizationSha256', 'sourceSha', 'fenceSha256', 'manifestSha256', 'preservedState'])
     || receipt.formatVersion !== 1 || receipt.kind !== 'BOOTSTRAP_INSTALLED_CLOSED'
@@ -152,10 +157,14 @@ function collectReleaseEvidence(io, expectedExternalAuthorization) {
   const a = decode(installedAuthorization);
   if (a.kind !== 'BOOTSTRAP_INSTALL_AUTHORIZATION' || a.scope !== 'PUBLISH_CLOSED_AND_INSTALL_TOOLS'
     || a.fenceId !== closed.fenceId || a.sourceSha !== receipt.sourceSha
-    || a.manifestSha256 !== receipt.manifestSha256 || canonical(a.preservedState) !== canonical(receipt.preservedState)) fail('INSTALL_RECEIPT_INVALID');
+    || a.manifestSha256 !== receipt.manifestSha256 || a.externalAuthorizationSha256 !== receipt.externalAuthorizationSha256
+    || canonical(a.preservedState) !== canonical(receipt.preservedState)) fail('INSTALL_RECEIPT_INVALID');
+  const installedExternal = externalAuthorization(io, a);
   const externalBytes = io.readTrusted(PRIVATE + '/release-external-authorization.json', 0o600);
+  if (hash(externalBytes) === a.externalAuthorizationSha256) fail('EXTERNAL_AUTHORIZATION_REUSED');
   if (expectedExternalAuthorization !== undefined && hash(externalBytes) !== expectedExternalAuthorization) fail('EXTERNAL_AUTHORIZATION_MISMATCH');
-  const external = externalAuthorization(io, {...closed, externalAuthorizationSha256: hash(externalBytes)}, 'release-external-authorization.json');
+  const external = externalAuthorization(io, {...closed, externalAuthorizationSha256: hash(externalBytes)}, 'release',
+    {receiptSha256: hash(receiptBytes), installReviewId: installedExternal.reviewId});
   io.assertExternalQuarantine(external, {phase: 'release', sourceSha: receipt.sourceSha, manifestSha256: hash(manifestBytes)});
   for (const tool of tools) if (hash(io.readTrusted(tool.path, tool.mode)) !== tool.sha256) fail('INSTALLED_TOOL_DRIFT');
   const state = io.snapshot();

@@ -3,6 +3,27 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {parseTransitionArguments} from './bootstrap-transition-host.mjs';
+import {timeEvidenceAt} from '../tests/trusted-time-fixture.mjs';
+
+test('canonical --read-chrony output accepts the validated top-level TimeEvidence v2', async () => {
+  const {parseCanonicalTimeOutput} = await import('./bootstrap-transition-host.mjs');
+  const time = timeEvidenceAt();
+  assert.deepEqual(parseCanonicalTimeOutput(JSON.stringify(time), time.bootId), time);
+});
+
+test('canonical output rejects transport envelopes, malformed evidence, foreign boot and invalid NTS proof', async () => {
+  const {parseCanonicalTimeOutput} = await import('./bootstrap-transition-host.mjs');
+  const time = timeEvidenceAt();
+  for (const output of ['not-json', 'null', '{}', JSON.stringify({identity: {}, time}),
+    JSON.stringify({...time, formatVersion: 1}), JSON.stringify({...time, extra: true}),
+    JSON.stringify({...time, synchronization: {...time.synchronization, configSha256: '0'.repeat(64)}}),
+    JSON.stringify({...time, synchronization: {...time.synchronization, sourcePolicy: 'unverified'}}),
+    JSON.stringify({...time, synchronization: {...time.synchronization, authenticatedSourceCount: 0}})]) {
+    assert.throws(() => parseCanonicalTimeOutput(output, time.bootId), /CANONICAL_TIME_REQUIRED/);
+  }
+  assert.throws(() => parseCanonicalTimeOutput(JSON.stringify(time), '22222222-2222-4222-8222-222222222222'),
+    /CANONICAL_TIME_REQUIRED/);
+});
 
 test('the root CLI separates install and release authority and rejects caller paths and truth switches', () => {
   const sha = 'a'.repeat(64), source = 'b'.repeat(40), id = '11111111-1111-4111-8111-111111111111';
@@ -24,9 +45,11 @@ test('the root CLI separates install and release authority and rejects caller pa
 
 test('operator evidence must bind source, manifest, boot and independent root access rather than sudo-only closure', async () => {
   const {validateOperatorEvidence} = await import('./bootstrap-transition-host.mjs');
-  const external = {machineId: '1'.repeat(32), bootId: '22222222-2222-4222-8222-222222222222'};
-  const context = {sourceSha: 'a'.repeat(40), manifestSha256: 'b'.repeat(64)};
-  const base = {formatVersion: 1, machineId: external.machineId, bootId: external.bootId};
+  const external = {machineId: '1'.repeat(32), bootId: '22222222-2222-4222-8222-222222222222',
+    phase: 'install', reviewId: '33333333-3333-4333-8333-333333333333'};
+  const context = {phase: external.phase, sourceSha: 'a'.repeat(40), manifestSha256: 'b'.repeat(64)};
+  const base = {formatVersion: 1, machineId: external.machineId, bootId: external.bootId,
+    phase: external.phase, reviewId: external.reviewId};
   const review = {...base, kind: 'BOOTSTRAP_MANAGEMENT_ROUTE_REVIEW', ...context,
     scope: 'ALL_NON_ROOT_ROUTES_CLOSED', inventorySha256: 'c'.repeat(64)};
   const access = {...base, kind: 'BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF', uid: 0, user: 'root',
@@ -43,6 +66,28 @@ test('operator evidence must bind source, manifest, boot and independent root ac
     {...valid, drain: {...drain, scope: 'NOT_REVIEWED'}},
     {...valid, review: {...review, verified: true}},
   ]) assert.throws(() => validateOperatorEvidence(invalid), /OPERATOR_EVIDENCE_INVALID/);
+});
+
+test('release operator witnesses must carry the same release phase and distinct review identity', async () => {
+  const {validateOperatorEvidence} = await import('./bootstrap-transition-host.mjs');
+  const external = {machineId: '1'.repeat(32), bootId: '22222222-2222-4222-8222-222222222222',
+    phase: 'release', reviewId: '44444444-4444-4444-8444-444444444444'};
+  const context = {phase: 'release', sourceSha: 'a'.repeat(40), manifestSha256: 'b'.repeat(64)};
+  const oldIdentity = {formatVersion: 1, machineId: external.machineId, bootId: external.bootId};
+  const old = {external, context,
+    review: {...oldIdentity, kind: 'BOOTSTRAP_MANAGEMENT_ROUTE_REVIEW', sourceSha: context.sourceSha,
+      manifestSha256: context.manifestSha256, scope: 'ALL_NON_ROOT_ROUTES_CLOSED', inventorySha256: 'c'.repeat(64)},
+    access: {...oldIdentity, kind: 'BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF', uid: 0, user: 'root',
+      channel: 'SSH', independentOf: 'servora-deploy-sudo'},
+    drain: {...oldIdentity, kind: 'BOOTSTRAP_PRIVILEGED_MUTATION_DRAIN_PROOF',
+      scope: 'NO_INFLIGHT_OR_AUTONOMOUS_MANAGEMENT', inventorySha256: 'd'.repeat(64)}};
+  assert.throws(() => validateOperatorEvidence(old), /OPERATOR_EVIDENCE_INVALID/);
+  const valid = {...old, ...Object.fromEntries(['review', 'access', 'drain'].map(key =>
+    [key, {...old[key], phase: external.phase, reviewId: external.reviewId}]))};
+  assert.doesNotThrow(() => validateOperatorEvidence(valid));
+  for (const key of ['review', 'access', 'drain']) for (const change of [
+    {phase: 'install'}, {reviewId: '33333333-3333-4333-8333-333333333333'},
+  ]) assert.throws(() => validateOperatorEvidence({...valid, [key]: {...valid[key], ...change}}), /OPERATOR_EVIDENCE_INVALID/);
 });
 
 test('the separately provisioned wrapper pins all imports and mandatory source payloads', async () => {

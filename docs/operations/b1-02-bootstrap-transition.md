@@ -79,8 +79,15 @@ authorization is a canonical envelope with:
 
 `formatVersion`, `kind=BOOTSTRAP_EXTERNAL_QUARANTINE_AUTHORIZATION`,
 `scope=ALL_NON_ROOT_MANAGEMENT_CLOSED_AND_PRIVILEGED_MUTATIONS_DRAINED`,
-`fenceId`, `machineId`, `bootId`, `hostLock`, `sudoReceiptSha256`,
+`phase`, `reviewId`, `fenceId`, `machineId`, `bootId`, `hostLock`, `sudoReceiptSha256`,
 `managementReviewSha256`, `rootAccessProofSha256`, `processDrainProofSha256`.
+
+`phase` is exactly `install` or `release` for the consuming operation. Each
+review has a UUID-v4 `reviewId`; release must use a different identity from the
+completed installation review. Release permission additionally requires
+`installReceiptSha256`, binding the exact completed installation receipt.
+Identical installation permission bytes cannot authorize release. Renaming a
+file or changing a proof hash cannot substitute for a phase-specific review.
 
 The exact review schemas are validated by `validateOperatorEvidence()`:
 
@@ -91,6 +98,12 @@ The exact review schemas are validated by `validateOperatorEvidence()`:
 | `root-access-proof.json` | `BOOTSTRAP_INDEPENDENT_ROOT_ACCESS_PROOF`; uid 0 / root; SSH or CONSOLE; independent of `servora-deploy-sudo`; same machine/boot. |
 | `process-drain-proof.json` | `BOOTSTRAP_PRIVILEGED_MUTATION_DRAIN_PROOF`; `NO_INFLIGHT_OR_AUTONOMOUS_MANAGEMENT`; same machine/boot and inventory hash. |
 | `management-process-inventory.json` | `BOOTSTRAP_MANAGEMENT_PROCESS_INVENTORY`; `MANAGEMENT_MUTATION_PROCESSES`; empty relevant management process list. App/backup/collector runtime is outside this list. |
+
+The review, root-access, process-drain and both inventory records carry the same
+`phase` and `reviewId` as their external authorization. Reusing install witnesses
+under a release filename fails. These private producer records have not been
+production-installed; records missing these bindings are refused rather than
+silently upgraded. Public B1-01 fence/release record schemas remain unchanged.
 
 These files are **operator attestations**, not automatic proof that all Linux
 routes were discovered or processes independently scanned by this CLI. Root
@@ -188,7 +201,12 @@ rechecks all active tool hashes, original current/service/history, pending
 state, fresh operator authority, all **nine** live profile contracts and the
 canonical `/usr/local/libexec/servora-med/trusted-time.mjs --read-chrony` v2
 reader (same boot, pinned module/config, existing NTS policy). No forward-time
-overlay is accepted. Runtime hash checking of the physical Node executable is
+overlay is accepted. The CLI returns **top-level TimeEvidence v2**: the reader
+has already validated and unwrapped its private socket transport. The producer
+uses the existing TimeEvidence validator and checks the live boot ID, with
+physical canonical-module/profile hash validation before execution and unchanged
+module bytes afterward; it does not expect an `identity/time` CLI envelope.
+Runtime hash checking of the physical Node executable is
 streamed; the shared small-file reader remains bounded. Its output is a
 read-only proposal containing the existing eight-check verification envelope
 and actual canonical time evidence, never owner permission.
@@ -222,8 +240,10 @@ this producer does not change or resolve that contract.
 |---|---|
 | Install/release unit ports | Synthetic record/hash/scope, partial writes, ENOSPC/EIO, boot/service/history drift, no replay, immutable toolsets and separate release authority. Positive release is synthetic only. |
 | Wrapper/parser tests | Exact dependency pins, fixed CLI, rejected caller path/time/check/force switches and operator binding schemas. |
+| Trusted Time response regression | Positive top-level v2 parsing is used by the synthetic full release path; malformed/enveloped/legacy, foreign-boot and invalid NTS evidence fail closed. This is not real Chrony acceptance. |
 | Disposable Linux containers | Actual root file ownership/modes/nlink, no-follow reads, fsync/publication, flock, sudo/visudo, installation and a real SIGKILL after first canonical replacement. A fresh process refuses the partial operation. |
 | Linux release negative | Actual canonical reader fails without real TT-A evidence; no verification, permission or RELEASED is synthesized. |
+| Phase authority regressions | Capture/apply reject install-permission reuse, wrong phase, repeated review identity and wrong/missing receipt binding before writes. Actual Linux CLI also rejects a renamed installation permission. |
 | Runtime preservation in containers | Synthetic service process/current/history stay unchanged; systemctl observations and route reports are explicit test doubles, not real host acceptance. `_chrony` traversal is checked with the actual separate uid. |
 | Real systemd/Chrony, positive host release, reboot, physical disk faults | **NOT_RUN by the portable/container suite**. Require separate owner-authorized disposable Linux integration acceptance. |
 | Production root inventories, external route quarantine, root access | **NOT_RUN by source CI**. Fresh real host evidence and separate installation authority required. |
