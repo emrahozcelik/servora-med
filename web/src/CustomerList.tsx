@@ -21,11 +21,13 @@ import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset, normalizeListOffset } from './ui/pagination';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
 
 export { createRequestGate, createTemporaryReferenceBuffer } from './services/request-gate';
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
-export const CUSTOMER_PAGE_SIZE = 5;
+export const CUSTOMER_PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 export type CustomerListState =
   | { kind: 'loading' }
   | { kind: 'ready'; customers: CustomerSummary[]; total?: number; offset?: number }
@@ -45,7 +47,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
     ...(params.get('assignedStaffUserId') ? { assignedStaffUserId: params.get('assignedStaffUserId')! } : {}),
     ...(params.get('unassigned') === 'true' ? { unassigned: true } : {}),
     ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
-    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset } : {}),
+    ...(Number.isSafeInteger(offset) && offset >= 0 ? { offset: normalizeListOffset(offset) } : {}),
   };
 }
 
@@ -284,13 +286,11 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
         </div>}
       </article></li>)}</ul>}
     {state.kind === 'ready' && total > CUSTOMER_PAGE_SIZE && state.customers.length > 0 && (
-      <nav className="customer-pagination" aria-label="Müşteri listesi sayfaları">
-        <button className="secondary-button" type="button" disabled={offset === 0}
-          onClick={() => onPageChange?.(Math.max(0, offset - CUSTOMER_PAGE_SIZE))}>Önceki</button>
-        <span>Sayfa {Math.floor(offset / CUSTOMER_PAGE_SIZE) + 1} / {Math.ceil(total / CUSTOMER_PAGE_SIZE)} · Toplam {total} müşteri</span>
-        <button className="secondary-button" type="button" disabled={offset + CUSTOMER_PAGE_SIZE >= total}
-          onClick={() => onPageChange?.(offset + CUSTOMER_PAGE_SIZE)}>Sonraki</button>
-      </nav>
+      <div className="customer-pagination">
+        <ServoraListPagination label="Müşteri listesi sayfaları" itemName="müşteri"
+          total={total} offset={offset} pageSize={CUSTOMER_PAGE_SIZE}
+          onOffsetChange={(nextOffset) => onPageChange?.(nextOffset)} />
+      </div>
     )}
   </main>;
 }
@@ -398,7 +398,7 @@ export function customerRequestFilters(filters: CustomerFilterValues, debouncedQ
     ...filters,
     q: debouncedQuery || undefined,
     limit: CUSTOMER_PAGE_SIZE,
-    offset: Math.floor(Math.max(0, filters.offset ?? 0) / CUSTOMER_PAGE_SIZE) * CUSTOMER_PAGE_SIZE,
+    offset: normalizeListOffset(filters.offset ?? 0),
   };
 }
 
@@ -446,6 +446,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const queryKey = params.toString();
   const filters = customerFiltersFromParams(params);
   const [debouncedQuery, setDebouncedQuery] = useState(filters.q ?? '');
   const [state, setState] = useState<CustomerListState>({ kind: 'loading' });
@@ -464,6 +465,15 @@ export function CustomerListScreen({ user, load = listCustomers }: {
   useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
+    const canonicalOffset = filters.offset ?? 0;
+    if (params.has('offset') && params.get('offset') !== String(canonicalOffset)) {
+      const next = new URLSearchParams(params);
+      if (canonicalOffset > 0) next.set('offset', String(canonicalOffset));
+      else next.delete('offset');
+      next.delete('limit');
+      setParams(next, { replace: true });
+      return;
+    }
     if (debouncedQuery !== (filters.q ?? '')) return;
     const requestFilters = customerRequestFilters(filters, debouncedQuery);
     Promise.all([load(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
@@ -472,7 +482,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
         const requestedOffset = requestFilters.offset ?? 0;
         if (requestedOffset >= result.total && requestedOffset > 0) {
           // Deletion or a copied out-of-range URL may invalidate a page.
-          const recoveredOffset = Math.max(0, Math.ceil(result.total / CUSTOMER_PAGE_SIZE) - 1) * CUSTOMER_PAGE_SIZE;
+          const recoveredOffset = lastListPageOffset(result.total);
           const next = new URLSearchParams(params);
           if (recoveredOffset > 0) next.set('offset', String(recoveredOffset));
           else next.delete('offset');
@@ -485,7 +495,7 @@ export function CustomerListScreen({ user, load = listCustomers }: {
       })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
-  }, [debouncedQuery, filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
+  }, [debouncedQuery, filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load, queryKey]);
   function changeFilter(name: string, value: string | boolean) {
     const next = new URLSearchParams(params);
     if (value === '' || value === false) next.delete(name); else next.set(name, String(value));

@@ -2418,3 +2418,183 @@ deployment changes are authorized by this documentation task. A subsequent
 implementation slice must capture and approve the new evidence before reports
 claim to measure the verified performer. Reports remains read-only; new writes
 stay under JobCard ownership and the existing security/audit/transaction rules.
+
+## Weekly Report Admin removal and period release — 2026-11-07
+
+Status: Accepted for implementation by the product owner; PR/CI and production
+activation remain separate gates.
+
+An active same-organization ADMIN may remove an incorrectly created Weekly
+Report with a mandatory reason while preserving its original rows, immutable
+submissions/PDFs and all source work. Its root becomes/remains INVALIDATED;
+explicit report removal releases the Staff/week for a new independent report.
+Generic CANCEL and INVALIDATE alone retain their existing identity semantics.
+
+This supersedes only Weekly Report V1 Slice 1's lifetime Staff/week uniqueness
+and replacement exclusion for explicitly removed reports. WeeklyReport removal
+metadata owns the current identity claim; JobCard remains the lifecycle owner.
+No physical deletion, historical reassignment, terminal reopening or general
+Admin permission expansion is authorized.
+
+Contract: [Admin Weekly Report removal](docs/features/weekly-report-removal.md).
+
+## OPS-B1-001 — Persistent bootstrap management fence
+
+Status: Owner-authorized B1-01 source implementation and synthetic testing scope,
+2026-11-12. Draft PR/security review and exact-head hosted CI remain gates.
+Production installation, first activation and release are not authorized.
+
+The accepted A+ direction adds a durable, root-owned, hash-bound management
+fence alongside the existing stable host lock. Missing, closed or uncertain
+state refuses normal management. Process death, elapsed time and reboot do not
+release it. RELEASED requires separate owner authority and verified tooling,
+profile and host evidence; it is only a prerequisite to existing R4/forward/
+emergency authorizations. Attempt-less deployment, legacy rollback and legacy
+in-place restore on an installed production host remain disabled after release.
+
+The fence does not alter ordinary application runtime, scheduled backup, TT-A
+collection, historical OPS-R4-002/003/005/006 meanings, re-seal behavior or
+adoption policy. Root deliberately overriding management policy is outside its
+threat model. Old tools require separately reviewed durable delegation quarantine
+and quiescence before the first canonical tool write; a new marker or flock
+alone does not protect that initial window. B1-01 supplies no production
+record/release writer and no production sudoers/systemd change.
+
+Contract, source inventory, first-activation prerequisites and evidence limits:
+[B1-01 persistent bootstrap fence](docs/operations/b1-01-persistent-bootstrap-fence.md).
+
+## OPS-B1-002 — Observed deployment-account sudo quarantine
+
+Status: source implementation/review scope following the owner's 2026-11-13
+authorization to retain a production backup and continue toward migration 061.
+This entry authorizes no production permission change, installation or release.
+
+Read-only host evidence shows four sudoers files grant direct application,
+backup and Caddy management in addition to the helper. The single-helper
+candidate in OPS-B1-001 is therefore insufficient on this host. A narrow
+root-only component can replace those four exact policies with comment-only
+files only after all originals pass the supported simple positive-grant grammar.
+Restrictive rules, includes, aliases, Defaults and unsupported syntax refuse
+before reservation; hash-bound owner authority alone cannot override that
+check. This is not a general monotonicity claim for arbitrary sudoers policy.
+The operation runs under independent hash-bound owner authority, retaining all
+original bytes and refusing uncertain/repeated operations. Its receipt proves
+sudo closure only, never all-route closure, CLOSED, RELEASED or install/deploy
+authority. Existing application runtime, scheduled backup, historical recovery,
+profile and adoption contracts stay in force. The full B1-02 installer/release
+and adoption interruption work remain open.
+
+Contract: [B1-02 deployment-account sudo quarantine](docs/operations/b1-02-delegation-quarantine.md).
+
+## OPS-B1-003 — Separate CLOSED installation and RELEASED issuance
+
+Status: owner-authorized source implementation/review scope following PR #436's
+merge on 2026-11-13 and the request to continue the remaining A+ components.
+Production installation, activation, delegation changes and deployment remain
+unauthorized. No historical recovery or profile re-seal policy is superseded.
+
+A separately provisioned root-only transition CLI consumes a hash-bound
+installation manifest and independent owner permission. The four-policy sudo
+receipt is insufficient: a separate same-boot operator authorization must bind
+all-route quarantine, independently usable root access and drained management
+processes. These are protected operator attestations, not automatically inferred
+Linux facts or caller-supplied verification flags. The CLI never issues them.
+
+Before canonical tools change, the writer durably retains originals and
+publishes the existing B1-01 CLOSED/manifest envelopes. Partial installation
+remains externally quarantined and CLOSED; uncertain state refuses replay,
+repair and rollback. Content-addressed toolsets remain immutable inputs owned
+by their existing factory. Runtime, scheduled backup, shared 0755 libexec,
+current release, profile and historical sources are preserved.
+
+Release uses a different owner authorization and fresh phase-specific evidence.
+The private external permission and operator witnesses bind the operation phase
+and a review UUID; release requires a distinct review UUID and the completed
+installation receipt hash. Copying installation permission cannot grant release.
+It rechecks the eight existing conditions, including all nine profile contract
+hashes and the canonical TT-A v2 reader, before publishing RELEASED last.
+Installation authority cannot authorize release. No sudo grant, approval,
+adoption, backup, migration or deployment is issued by either operation.
+Existing approval/attempt gates and disabled legacy mutation paths remain in
+force after release. The B1-01 record schemas and accepted guard states are
+unchanged; manifest validation and check names are shared with the producer.
+
+Producer protocol, attestation boundaries and remaining production gates:
+[B1-02 transition writer](docs/operations/b1-02-bootstrap-transition.md).
+
+## OPS-B1-004 — Separate installed-OLD plan evidence from execution authority
+
+Status: owner accepted the identity/plan versus time-limited approval separation
+on 2026-11-14; source implementation and Draft PR review scope only. No production
+installation, issuance, backup, bootstrap, migration or deployment is authorized.
+
+For the future, unused OPS-R4-002 `67d3318` recovery path, a distinct permanent
+root-only cutover attestation can bind the immutable OLD/baseline, exact TARGET/
+tree/artifact/catalog/CI, host profile/database identity and scope ceilings. It
+is explicitly `IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION`. It neither grants execution
+nor extends, rewrites or renews an approval. Existing OPS-R4-001 and grant-bound
+OPS-R4-002 records keep their original same-grant-only semantics. They cannot be
+converted; a legacy OPS-R4-002 record and this new attestation cannot coexist.
+
+Before any admission footprint exists, a newly issued genuine root approval may
+use that same fixed plan after expiry or reboot. Its own current TT-A evidence,
+maximum 24-hour TTL and full 3600-second admission window remain mandatory.
+Scope/budget ceilings may narrow, never widen. The unchanged exact historical
+preservation gate proves no new attempt/initializer/proof/backup/log or pending
+operation, under the same stable host lock, before initialization writes.
+
+Confirmed admission consumes the exception even with zero starts. Only the
+same UUID and unchanged approval may continue through the existing confirmed
+attempt protocol; terminal/abort or missing active-owner state does not reset
+the exception. Unconfirmed or torn admission refuses automatic continuation
+under this exception and cannot be bypassed with another approval. No new
+claim/succession journal or general renewal protocol is introduced.
+
+This narrowly supersedes the same-grant-only requirement **only for the new
+attestation kind and unused path**, not for any already sealed adoption. All
+original/recovered provenance pins, historical OPS-R4-003/005/006 meanings,
+bootstrap fence, re-seal and current admission budgets remain unchanged.
+
+Contract and evidence limits:
+[B1-03 cutover attestation](docs/operations/b1-03-cutover-attestation.md).
+
+## OPS-DEPLOY-001 — Single approved production deployment workflow
+
+Status: owner explicitly selected the single approved flow ("Tek onaylı akış")
+on 2026-11-16. Source implementation, focused tests and Draft PR review only.
+No production dispatch, approval, attestation, admission, migration, backup,
+host helper/profile change or deployment is authorized by this record.
+
+- `.github/workflows/deploy-production.yml` has exactly one deployment path.
+  Every workflow release requires `deploy_sha`, a previously issued genuine
+  root-owned approval UUID (`attempt_id`), and the exact successful exact-main
+  `ci_run_id`; it always downloads the prebuilt
+  `servora-med-release-<sha>` artifact and its `.sha256` sidecar before any
+  transfer.
+- The advertised `allow_migrations=false` workflow branch and its `inputs`
+  boolean are removed. A migration denial is never translated into the route
+  selector: an approval whose exact catalog has no pending SQL is the ordinary
+  same-catalog release, and a pending migration without matching approval stops
+  at the host migration gate. No workflow deployment omits the attempt, CI, or
+  artifact scope.
+- The surviving invocation always passes `--allow-migrations`, which selects
+  the existing guarded attempt-bound host route. It is not an approval.
+  Permitted SQL remains bounded by the genuine root approval's exact catalogs;
+  an identical catalog applies zero SQL. `PREFIX_WITH_PENDING` still requires
+  that approval, and divergent/ahead/duplicate/invalid catalogs still stop.
+- Root issuance remains separate and per deployment, binding the exact SHA and
+  tree, catalog, CI run/digest, artifact and host profile. The workflow creates
+  no approval, renewal, force/skip switch or broader host privilege.
+- Unchanged: TT-A/Chrony/NTS bootstrap, the 24-hour approval TTL, admission
+  window and start budgets; host helper/controller/guard/lock/time modules;
+  `ops/deploy-production.sh` runtime logic; migrations; systemd units; bootstrap
+  manifest/profile schema; the local operator path; and the manual `production`
+  environment reviewer gate.
+- The OPS-R4-002 `67d3318` installed-OLD cutover attestation remains a one-time
+  identity/plan record for the missing-original-artifact case. It is not a
+  workflow input and does not create another deployment mode.
+
+This supersedes only the workflow's advertised migration-false branch. Earlier
+local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
+unchanged. Owning runbook:
+[docs/operations/production-deployment.md](docs/operations/production-deployment.md).

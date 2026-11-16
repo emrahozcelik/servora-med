@@ -24,8 +24,11 @@ describe('Report URL state', () => {
     expect(readApprovalSearch(approvalSearch({ offset: 25, canonical: true })))
       .toEqual({ offset: 25, canonical: true });
     const customer = { from: '2026-07-01', to: '2026-07-31', search: 'Klinik',
-      status: 'active' as const, customerType: 'clinic' as const, offset: 50, canonical: true };
+      status: 'active' as const, customerType: 'clinic' as const, offset: 48, canonical: true };
     expect(readCustomerSearch(customerSearch(customer))).toEqual(customer);
+    const legacyCustomerOffset = readCustomerSearch(new URLSearchParams('offset=50'));
+    expect(legacyCustomerOffset.offset).toBe(48);
+    expect(legacyCustomerOffset.canonical).toBe(false);
   });
 
   it('round-trips a customer state with only the meaningful filters present', () => {

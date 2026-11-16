@@ -125,10 +125,10 @@ describe('Weekly report create screen', () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(user: CurrentUser = staffUser) {
+  async function render(user: CurrentUser = staffUser, initial: { initialPeriodStart?: string;initialStaffUserId?: string } = {}) {
     await act(async () => root.render(
       <ConfigProvider>
-        <WeeklyReportCreateScreen user={user} onCancel={() => {}} onCreated={onCreated} />
+        <WeeklyReportCreateScreen user={user} onCancel={() => {}} onCreated={onCreated} {...initial} />
       </ConfigProvider>,
     ));
     await flush();
@@ -139,6 +139,23 @@ describe('Weekly report create screen', () => {
     expect(form).not.toBeNull();
     act(() => { form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
   }
+
+  it('prefills the removed report week and Staff without creating or copying content automatically', async () => {
+    await render(manager,{ initialPeriodStart:'2026-07-27',initialStaffUserId:'staff-1' });
+    expect(weeklyApi.bulkRequestWeeklyReports).not.toHaveBeenCalled();
+    expect(weeklyApi.createWeeklyReport).not.toHaveBeenCalled();
+    await act(async () => { submit();await flush(); });
+    expect(bulkInput()).toMatchObject({ periodStart:'2026-07-27',staffUserIds:['staff-1'] });
+    expect(bulkInput()).not.toHaveProperty('instructions');
+    expect(bulkInput()).not.toHaveProperty('questions');
+  });
+
+  it('ignores another Staff preselection on the self-create path', async () => {
+    await render(staffUser,{ initialPeriodStart:'2026-07-27',initialStaffUserId:'staff-2' });
+    await act(async () => { submit();await flush(); });
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).toMatchObject({ periodStart:'2026-07-27' });
+    expect(weeklyApi.createWeeklyReport.mock.calls[0]![0]).not.toHaveProperty('assignedTo');
+  });
 
   // --- multi-select driving helpers (AntD Select renders its popup on body) ---
 
@@ -650,6 +667,7 @@ describe('Weekly report create screen', () => {
       createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-03T09:00:00.000Z',
       jobStatus: 'NEW', jobVersion: 1, dueDate: '2026-08-10', assignedTo: 'staff-1',
       instructions: 'Lütfen doldurun.', liveSourceWork: [], submissionSummaries: [],
+      canRemove: false, removal: null,
     };
     const parsed = parseWeeklyReportDetail(serverDetail);
     expect(parsed.organizationId).toBe('org-1');
@@ -675,6 +693,7 @@ describe('Weekly report create screen', () => {
       createdAt: '2026-08-03T09:00:00.000Z', updatedAt: '2026-08-03T09:00:00.000Z',
       jobStatus: 'ACCEPTED', jobVersion: 1, dueDate: '2026-08-10', assignedTo: 'staff-1',
       instructions: null, liveSourceWork: [], submissionSummaries: [],
+      canRemove: false, removal: null,
     };
     const parsed = parseWeeklyReportDetail(serverDetail);
     expect(parsed.staffUserId).toBe('staff-1');

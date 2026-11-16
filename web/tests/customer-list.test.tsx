@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
 import {
   CustomerCreateForm,
   CustomerListScreen,
@@ -114,24 +116,24 @@ describe('Customer list and creation', () => {
   });
 
   it('maps copied/default URL state to the exact backend filter contract', () => {
-    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined, limit: 5, offset: 0 });
+    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined, limit: 6, offset: 0 });
     expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams('status=active&q=Eski')), 'Eski'))
       .toMatchObject({ status: 'active', q: 'Eski' });
   });
 
-  it('requests five customers at a time and renders bounded pagination controls', () => {
-    expect(CUSTOMER_PAGE_SIZE).toBe(5);
+  it('requests six customers at a time and renders bounded pagination controls', () => {
+    expect(CUSTOMER_PAGE_SIZE).toBe(6);
     const copied = customerFiltersFromParams(new URLSearchParams('limit=50&offset=7&status=active'));
-    expect(customerRequestFilters(copied, '')).toMatchObject({ status: 'active', limit: 5, offset: 5 });
+    expect(customerRequestFilters(copied, '')).toMatchObject({ status: 'active', limit: 6, offset: 6 });
     const html = renderToStaticMarkup(<MemoryRouter><CustomerListView
-      state={{ kind: 'ready', customers: [customer], total: 11, offset: 5 }} user={manager}
+      state={{ kind: 'ready', customers: [customer], total: 13, offset: 6 }} user={manager}
       hasFilters={false} onRetry={() => {}} onCreate={() => {}} onPageChange={() => {}} />
     </MemoryRouter>);
     expect(html).toContain('aria-label="Müşteri listesi sayfaları"');
     expect(html).toContain('Sayfa 2 / 3');
-    expect(html).toContain('Toplam 11 müşteri');
-    expect(html).toContain('Önceki');
-    expect(html).toContain('Sonraki');
+    expect(html).toContain('Toplam 13 müşteri');
+    expect(html).toContain('pagination-next');
+    expect(html).not.toContain('pagination-options');
   });
 
   it('does not send malformed or unsafe URL offsets to the server', () => {
@@ -285,7 +287,7 @@ describe('Customer list and creation', () => {
     expect(customerInputFromFormData(data)).toEqual({ name: 'Yeni Klinik', customerType: 'clinic', taxNumber: 'AB 123',
       phone: null, email: null, city: null, district: null, address: null, assignedStaffUserId: 'staff-1', status: 'prospect' });
     const create = vi.fn().mockRejectedValue(new ApiError(0, 'INVALID_RESPONSE', 'Yanıt okunamadı.'));
-    const refetch = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    const refetch = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 6, offset: 0 });
     await expect(createCustomerWithRecovery(customerInputFromFormData(data), { create, refetch }))
       .resolves.toEqual({ customer: null, resultUnknown: true, matches: [] });
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -294,6 +296,8 @@ describe('Customer list and creation', () => {
 
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+stubDesktopMatchMedia();
 
 describe('Customer list navigation feedback', () => {
   let root: Root;
@@ -312,35 +316,35 @@ describe('Customer list navigation feedback', () => {
     let resolveOld!: (page: Paginated<CustomerSummary>) => void;
     const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
     const load = vi.fn(async (filters: CustomerFilters) => filters.q === 'Yeni'
-      ? { items: [{ ...customer, name: 'Yeni Klinik' }], total: 1, limit: 5, offset: 0 }
+      ? { items: [{ ...customer, name: 'Yeni Klinik' }], total: 1, limit: 6, offset: 0 }
       : oldPage);
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
     }], { initialEntries: ['/customers?q=Eski'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await router.navigate('/customers?q=Yeni'); });
-    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski Klinik' }], total: 1, limit: 5, offset: 0 }));
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski Klinik' }], total: 1, limit: 6, offset: 0 }));
     expect(container.textContent).not.toContain('Eski Klinik');
     expect(load).toHaveBeenCalledTimes(1);
     await act(async () => { vi.advanceTimersByTime(250); });
     expect(container.textContent).toContain('Yeni Klinik');
     expect(load).toHaveBeenCalledTimes(2);
-    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Yeni', limit: 5, offset: 0 }));
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Yeni', limit: 6, offset: 0 }));
   });
 
   it('keeps the latest page when an older page response arrives later', async () => {
     let resolveOld!: (page: Paginated<CustomerSummary>) => void;
     const oldPage = new Promise<Paginated<CustomerSummary>>((resolve) => { resolveOld = resolve; });
-    const secondPage = Array.from({ length: 5 }, (_, i) => ({ ...customer, id: `page-two-${i}`, name: `İkinci sayfa klinik ${i}` }));
-    const load = vi.fn(async (filters: CustomerFilters) => filters.offset === 5
-      ? { items: secondPage, total: 10, limit: 5, offset: 5 } : oldPage);
+    const secondPage = Array.from({ length: 6 }, (_, i) => ({ ...customer, id: `page-two-${i}`, name: `İkinci sayfa klinik ${i}` }));
+    const load = vi.fn(async (filters: CustomerFilters) => filters.offset === 6
+      ? { items: secondPage, total: 12, limit: 6, offset: 6 } : oldPage);
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={staffUser} load={load} />,
     }], { initialEntries: ['/customers'] });
     await act(async () => root.render(<RouterProvider router={router} />));
-    await act(async () => { await router.navigate('/customers?offset=5'); });
+    await act(async () => { await router.navigate('/customers?offset=6'); });
     expect(container.textContent).toContain('İkinci sayfa klinik 0');
-    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski sayfa' }], total: 10, limit: 5, offset: 0 }));
+    await act(async () => resolveOld({ items: [{ ...customer, name: 'Eski sayfa' }], total: 12, limit: 6, offset: 0 }));
     expect(container.textContent).not.toContain('Eski sayfa');
     expect(container.textContent).toContain('İkinci sayfa klinik 0');
     expect(load).toHaveBeenCalledTimes(2);
@@ -351,25 +355,63 @@ describe('Customer list navigation feedback', () => {
       ...customer, id: `customer-${index + 1}`, name: `Klinik ${index + 1}`,
     }));
     const load = vi.fn(async (filters: { limit?: number; offset?: number }) => ({
-      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + (filters.limit ?? 5)),
-      total: customers.length, limit: 5, offset: filters.offset ?? 0,
+      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + (filters.limit ?? 6)),
+      total: customers.length, limit: 6, offset: filters.offset ?? 0,
     }));
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
     }], { initialEntries: ['/customers'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
-    expect(load).toHaveBeenCalledWith(expect.objectContaining({ limit: 5, offset: 0 }));
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ limit: 6, offset: 0 }));
     expect(container.textContent).toContain('Klinik 1');
-    expect(container.textContent).not.toContain('Klinik 6');
-    const next = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Sonraki');
+    expect(container.textContent).not.toContain('Klinik 7');
+    const next = container.querySelector<HTMLButtonElement>('.customer-pagination [class*="pagination-next"] button');
     expect(next).toBeTruthy();
     await act(async () => next!.click());
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toContain('offset=5');
-    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 5, offset: 5 }));
-    expect(container.textContent).toContain('Klinik 6');
+    expect(router.state.location.search).toContain('offset=6');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 6, offset: 6 }));
+    expect(container.textContent).toContain('Klinik 7');
     expect(container.textContent).not.toContain('Klinik 1');
+  });
+
+  it('canonicalizes a legacy offset to the six-record boundary with one request', async () => {
+    const load = vi.fn().mockResolvedValue({ items: [customer], total: 13, limit: 6, offset: 6 });
+    const router = createMemoryRouter([{
+      path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+    }], { initialEntries: ['/customers?q=Klinik&status=active&offset=7'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe('?q=Klinik&status=active&offset=6');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'Klinik', status: 'active', limit: 6, offset: 6,
+    }));
+  });
+
+  it('realigns valid legacy pages and sends malformed offsets to the first page', async () => {
+    for (const [raw, expectedSearch, expectedOffset, total] of [
+      ['13', '?status=active&offset=12', 12, 20],
+      ['-5', '?status=active', 0, 0],
+      ['7.5', '?status=active', 0, 0],
+      ['9007199254740992', '?status=active', 0, 0],
+    ] as const) {
+      const host = document.createElement('div'); document.body.append(host);
+      const localRoot = createRoot(host);
+      const load = vi.fn().mockResolvedValue({ items: [], total, limit: 6, offset: expectedOffset });
+      const router = createMemoryRouter([{
+        path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
+      }], { initialEntries: [`/customers?status=active&offset=${raw}`] });
+      await act(async () => localRoot.render(<RouterProvider router={router} />));
+      await act(async () => { await Promise.resolve(); });
+      expect(router.state.location.search, raw).toBe(expectedSearch);
+      expect(router.state.historyAction, raw).toBe('REPLACE');
+      expect(load, raw).toHaveBeenCalledTimes(1);
+      expect(load, raw).toHaveBeenCalledWith(expect.objectContaining({ offset: expectedOffset, limit: 6 }));
+      await act(async () => localRoot.unmount()); host.remove();
+    }
   });
 
   it('recovers an out-of-range page without losing filtered results', async () => {
@@ -377,22 +419,22 @@ describe('Customer list navigation feedback', () => {
       ...customer, id: `customer-${index + 1}`, name: `Klinik ${index + 1}`,
     }));
     const load = vi.fn(async (filters: { limit?: number; offset?: number }) => ({
-      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + 5),
-      total: customers.length, limit: 5, offset: filters.offset ?? 0,
+      items: customers.slice(filters.offset ?? 0, (filters.offset ?? 0) + 6),
+      total: customers.length, limit: 6, offset: filters.offset ?? 0,
     }));
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={staffUser} load={load as never} />,
     }], { initialEntries: ['/customers?status=active&offset=15'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toContain('offset=5');
+    expect(router.state.location.search).toContain('offset=6');
     expect(router.state.location.search).toContain('status=active');
-    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 5, offset: 5, status: 'active' }));
-    expect(container.textContent).toContain('Klinik 6');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 6, offset: 6, status: 'active' }));
+    expect(container.textContent).toContain('Klinik 7');
   });
 
   it('shows the delete success notice after navigation and loads the list once', async () => {
-    const load = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    const load = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 6, offset: 0 });
     const router = createMemoryRouter([{
       path: '/customers', element: <CustomerListScreen user={manager} load={load as never} />,
     }], { initialEntries: [{ pathname: '/customers', state: { customerNotice: 'Demo Klinik kalıcı olarak silindi.' } }] });

@@ -3,10 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
 import { ProductSelect } from '../src/ProductSelect';
 import type { Paginated, Product, ProductFilters } from '../src/services/products-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+stubDesktopMatchMedia();
 
 const product = (id: string, name: string): Product => ({
   id, organizationId: 'org-1', name, sku: `${id}-sku`, brand: 'Dünya Dental',
@@ -18,7 +22,7 @@ const productOne = product('product-1', 'Dental İmplant');
 const productTwo = product('product-2', 'Cerrahi Vida');
 const productThree = product('product-3', 'Greft Seti');
 
-function page(items: Product[], offset = 0, total = items.length, limit = 8): Paginated<Product> {
+function page(items: Product[], offset = 0, total = items.length, limit = 6): Paginated<Product> {
   return { items, total, limit, offset };
 }
 
@@ -156,29 +160,29 @@ describe('ProductSelect', () => {
     expect(rows.map((row) => (row.querySelector('input') as HTMLInputElement).value)).toEqual(['0.5', '0.001']);
   });
 
-  it('searches with limit 8 and renders at most 8 results', async () => {
-    const results = Array.from({ length: 8 }, (_, index) => product(`product-${index}`, `Ürün ${index}`));
+  it('searches with limit 6 and renders at most 6 results', async () => {
+    const results = Array.from({ length: 6 }, (_, index) => product(`product-${index}`, `Ürün ${index}`));
     const load = vi.fn().mockResolvedValue(page(results, 0, 12));
     await renderPicker(load);
     await search('implant');
 
-    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
-    expect(container.querySelectorAll('[data-product-id]')).toHaveLength(8);
-    expect(container.textContent).toContain('1–8 / 12');
+    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 6, offset: 0 });
+    expect(container.querySelectorAll('[data-product-id]')).toHaveLength(6);
+    expect(container.textContent).toContain('Sayfa 1 / 2');
   });
 
   it('pages server results at the bounded page size', async () => {
     const load = vi.fn()
-      .mockResolvedValueOnce(page(Array.from({ length: 8 }, (_, index) => product(`first-${index}`, `İlk ${index}`)), 0, 17))
-      .mockResolvedValueOnce(page([product('page-2', 'İkinci sayfa')], 8, 17));
+      .mockResolvedValueOnce(page(Array.from({ length: 6 }, (_, index) => product(`first-${index}`, `İlk ${index}`)), 0, 17))
+      .mockResolvedValueOnce(page([product('page-2', 'İkinci sayfa')], 6, 17));
     await renderPicker(load);
     await search('vida');
     await act(async () => (Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
+      .find((button) => button.closest('[class*="pagination-next"]') !== null) as HTMLButtonElement).click());
 
-    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: 'vida', limit: 8, offset: 8 });
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: 'vida', limit: 6, offset: 6 });
     expect(container.textContent).toContain('İkinci sayfa');
-    expect(container.textContent).toContain('9–16 / 17');
+    expect(container.textContent).toContain('Sayfa 2 / 3');
   });
 
   it('commits selection, clears the query, and closes results', async () => {
@@ -259,12 +263,12 @@ describe('ProductSelect', () => {
   it('keeps selected products visible while a new search and page are active', async () => {
     const load = vi.fn()
       .mockResolvedValueOnce(page([productThree], 0, 9))
-      .mockResolvedValueOnce(page([productTwo], 8, 9));
+      .mockResolvedValueOnce(page([productTwo], 6, 9));
     await renderPicker(load, [productOne]);
     await search('greft');
     expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
     await act(async () => (Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
+      .find((button) => button.closest('[class*="pagination-next"]') !== null) as HTMLButtonElement).click());
     expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
     expect(container.textContent).toContain('Cerrahi Vida');
   });
@@ -309,6 +313,6 @@ describe('ProductSelect', () => {
       input(field, 'implant');
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
-    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
+    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 6, offset: 0 });
   });
 });

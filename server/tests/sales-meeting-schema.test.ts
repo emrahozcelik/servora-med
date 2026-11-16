@@ -27,6 +27,7 @@ const EXPECTED_JOB_CARD_TYPES = [
   'SALE',
 ] as const;
 const EXPECTED_ACTIVITY_EVENTS = [
+  'WEEKLY_REPORT_REMOVED',
   'JOB_CREATED',
   'JOB_ASSIGNED',
   'JOB_PLANNED',
@@ -157,8 +158,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(60);
-      expect(firstRun.appliedVersions.at(-1)).toBe('060_crm_duplicate_review_decisions');
+      expect(firstRun.appliedVersions).toHaveLength(61);
+      expect(firstRun.appliedVersions.at(-1)).toBe('061_weekly_report_removal');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -167,7 +168,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       );
       expect(jobCardTypes).toHaveLength(5);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(26);
+      expect(activityEvents).toHaveLength(27);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
       const reasonColumn = await pool.query<{ is_nullable: string }>(
         `SELECT is_nullable
@@ -254,7 +255,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
           '057_sale_from_visit',
-          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions',
+          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -279,7 +280,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           && file !== '053_overdue_submission_reminders.sql'
           && file !== '054_job_action_locations_submit_approval.sql'
           && file !== '055_job_submit_location_comparison.sql'
-          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql')
+          && file !== '056_meeting_met_contact.sql' && file !== '057_sale_from_visit.sql' && file !== '058_sale_integer_quantity.sql' && file !== '059_crm_duplicate_read_indexes.sql' && file !== '060_crm_duplicate_review_decisions.sql' && file !== '061_weekly_report_removal.sql')
         .sort();
       const legacyDirectory = await createMigrationSubset(migrationsBeforeReason);
       await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -320,7 +321,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '055_job_submit_location_comparison',
           '056_meeting_met_contact',
           '057_sale_from_visit',
-          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions',
+          '058_sale_integer_quantity', '059_crm_duplicate_read_indexes', '060_crm_duplicate_review_decisions', '061_weekly_report_removal',
         ],
       });
       await expect(pool.query<{ unsuccessful_reason_code: string | null }>(

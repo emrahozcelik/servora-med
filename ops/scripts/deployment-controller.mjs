@@ -1,5 +1,6 @@
 /** Trusted fixed-path host operations. No candidate code executes as root. */
 import { createHash, randomUUID } from 'node:crypto';
+import {assertBootstrapManagementAllowed} from './bootstrap-fence.mjs';
 import { readRootApproval, readRootProfile, initialAttempt, appendRootCheckpoint,
   readProtectedRecord, readLatestCheckpoint, advanceAttempt, acceptedHandoffDirection,
   OBSERVATION_SECONDS, publishRootAdmissionConfirmation, validateApprovalStructure,
@@ -11,6 +12,12 @@ import { readFileSync, constants, lstatSync, openSync, fstatSync, closeSync, rea
 import { parseCanonicalRecord } from './deployment-attempt.mjs';
 import { classifyMigrationState } from './migration-reconciliation.mjs';
 import { validateDatabaseIdentity } from './deployment-db-guard.mjs';
+import {
+  HISTORICAL_STATE_ROOT,HISTORICAL_ATTEMPT_ID,HISTORICAL_LOG_NAMES,HISTORICAL_ARCHIVED_PATHS,
+  HISTORICAL_SOURCE_DIRECTORIES,HISTORICAL_REMOVED_DIRECTORIES,historicalSourceMode,
+  HISTORICAL_STAGING_DIR,HISTORICAL_STAGING_RECEIPT,
+  captureHistoricalSourceInventory,readHistoricalStageReceipt,verifyHistoricalStageReadback
+} from './historical-recovery-evidence.mjs';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
@@ -19,7 +26,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const INSTALLED = '/usr/local/libexec/servora-med';
 const ENV_FILE = '/etc/servora-med/servora-med.env';
-const STATE_ROOT = '/var/lib/servora-med/deploy';
+const STATE_ROOT = HISTORICAL_STATE_ROOT;
 const PERMIT_DIRECTORY = '/run/servora-med-recovery';
 const PERMIT_FILE = `${PERMIT_DIRECTORY}/start.permit`;
 const PG_RESTORE_BIN = '/usr/bin/pg_restore';
@@ -31,29 +38,355 @@ const BASELINE_ROOT = '/var/lib/servora-med-recovery-baselines';
 const ADOPTABLE_OLD = '71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
 const ORIGINAL_OLD_ARTIFACT = '6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
 const ORIGINAL_OLD_CATALOG = 'd285479365412eaf25133adec8853be75cb97ac87a46980b814e5321333ee62d';
+
+// OPS-R4-002 is a separate, one-time recovery contract for the missing
+// 67d3318 artifact. It never changes the OPS-R4-001 constants, record or slot.
+// Policy selection is by the approval's exact OLD release SHA, never by a
+// caller-supplied path, mode, force flag or arbitrary selector.
+const OPS_R4_001_POLICY = Object.freeze({
+  policyId: 'OPS-R4-001',
+  oldReleaseSha: ADOPTABLE_OLD,
+  originalArtifactSha256: ORIGINAL_OLD_ARTIFACT,
+  reconstructedArtifactSha256: null,
+  contentManifestSha256: null,
+  oldCatalogSha256: ORIGINAL_OLD_CATALOG,
+  baselineIdPattern: /^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/,
+  recordKind: 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',
+  adoptionFile: ADOPTION_FILE
+});
+
+export const OPS_R4_002_POLICY = Object.freeze({
+  policyId: 'OPS-R4-002',
+  oldReleaseSha: '67d33183d22e00f231ca21a5807cf49a6c4c2a68',
+  originalArtifactSha256: 'a1db5a8d8faea144f6f18006f09cd9c0f457a6a79782fd5fcd9884f528593ebf',
+  reconstructedArtifactSha256: 'ddf12049ed483062d00b4a1c0fdd4909d01010d9dc9459c3cb5a5c39c142a220',
+  contentManifestSha256: '059dedcbaf2de186608e7f975f223a5ac659651d67ca56bbb6a26407a9628aef',
+  oldCatalogSha256: '43f96550a71be82e55d855a677fdf2ecbecf4acf9a0dfba6d9f5ae988bc75c28',
+  baselineIdPattern: /^[0-9]{8}T[0-9]{6}Z-ops-r4-002-67d3318$/,
+  recordKind: 'ADOPTED_INSTALLED_OLD_OPS_R4_002',
+  adoptionFile: STATE_ROOT+'/installed-old-adoption-67d3318.json'
+});
+
+// OPS-R4-003 is a separate historical disposition and archive-completion gate
+// for the one consumed, nonterminal OPS-R4-001 attempt. It is not an approval,
+// not a terminal state, and not a caller-selectable recovery mode. The exact
+// historical attempt is fixed in source; there is no attempt/path selector.
+const HISTORICAL_OLD_RELEASE = '71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
+const HISTORICAL_OLD_ARTIFACT = '6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
+const HISTORICAL_TARGET_RELEASE = 'f5f87d450061ca12ee80451c55eb56e99b80823c';
+const HISTORICAL_TARGET_TREE = 'ab6f387460259c29ff3a30ba25e9619b39b7f7c8';
+const HISTORICAL_TARGET_ARTIFACT = 'd85c13c465a4ad5e3ea33ed2a8d8d6271707d3303c000ea731648f1f49153b33';
+const HISTORICAL_OLD_BASELINE_ID = '20261028T055858Z-issue369-71ae6df6';
+const HISTORICAL_OLD_BASELINE_DIR = BASELINE_ROOT+'/'+HISTORICAL_OLD_BASELINE_ID;
+const HISTORICAL_DISPOSITION_ROOT = STATE_ROOT+'/historical-dispositions';
+const HISTORICAL_DISPOSITION_FILE = HISTORICAL_DISPOSITION_ROOT+'/'+HISTORICAL_ATTEMPT_ID+'.json';
+const HISTORICAL_ARCHIVE_ROOT = '/var/lib/servora-med-recovery-archive';
+const HISTORICAL_ARCHIVE_DIR = HISTORICAL_ARCHIVE_ROOT+'/'+HISTORICAL_ATTEMPT_ID;
+// The controller's one new import is pinned by hash instead of by a tenth
+// profile contract key: every historical profile carries exactly nine keys and
+// must stay readable for the retained OPS-R4-001 evidence and the emergency
+// handoff. The profile already pins this controller's bytes, so pinning the
+// shared evidence module here closes the dependency without a schema change or
+// a second recovery protocol.
+const HISTORICAL_EVIDENCE_TOOL = INSTALLED+'/historical-recovery-evidence.mjs';
+const HISTORICAL_EVIDENCE_TOOL_SHA256 = 'c6c4eada519183056a05d8c982ef4eaba311289ed271456182a665b7362d254f';
+const HISTORICAL_ARCHIVE_MANIFEST_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-MANIFEST.json';
+const HISTORICAL_ARCHIVE_COMPLETE_FILE = HISTORICAL_ARCHIVE_DIR+'/ARCHIVE-COMPLETE.json';
+const HISTORICAL_SOURCE_EMPTY_PROOF_FILE = HISTORICAL_ARCHIVE_DIR+'/SOURCE-EMPTY-PROOF.json';
+const HISTORICAL_OLD_APPROVAL_FILE = STATE_ROOT+'/approvals/'+HISTORICAL_ATTEMPT_ID+'.json';
+const HISTORICAL_OLD_BASELINE_MANIFEST_FILE = HISTORICAL_OLD_BASELINE_DIR+'/baseline-manifest.json';
+const HISTORICAL_OLD_BASELINE_SUMS_FILE = HISTORICAL_OLD_BASELINE_DIR+'/SHA256SUMS';
+const HISTORICAL_EMERGENCY_RECEIPT_FILE = STATE_ROOT+
+  '/emergency/52f632ef-ca3e-49ab-a26e-0b562adc2c78/receipt.json';
+const HISTORICAL_POSTDEPLOY_LOG_FILE = STATE_ROOT+'/logs/'+HISTORICAL_ATTEMPT_ID+
+  '/postdeploy-operator-20261101T040551Z.log';
+const HISTORICAL_POSTDEPLOY_RC_FILE = STATE_ROOT+'/logs/'+HISTORICAL_ATTEMPT_ID+
+  '/postdeploy-operator-20261101T040551Z.rc';
+const HISTORICAL_PRESERVED_EVIDENCE = Object.freeze([
+  {path:ADOPTION_FILE,role:'old-adoption',liveSource:true},
+  {path:HISTORICAL_OLD_APPROVAL_FILE,role:'old-approval',liveSource:true},
+  {path:HISTORICAL_OLD_BASELINE_MANIFEST_FILE,role:'old-baseline-manifest',liveSource:true},
+  {path:HISTORICAL_OLD_BASELINE_SUMS_FILE,role:'old-baseline-sha256sums',liveSource:true},
+  {path:HISTORICAL_EMERGENCY_RECEIPT_FILE,role:'emergency-receipt',liveSource:true},
+  {path:'preserved/profile.json',role:'old-profile-copy',liveSource:false},
+  {path:'preserved/disposition.json',role:'disposition-copy',liveSource:true,
+    sourcePath:HISTORICAL_DISPOSITION_FILE}
+].map(Object.freeze));
+const HISTORICAL_ARCHIVE_METADATA_PATHS = Object.freeze([
+  'ARCHIVE-MANIFEST.json','ARCHIVE-COMPLETE.json','SOURCE-EMPTY-PROOF.json'
+]);
+
+export const OPS_R4_003_POLICY = Object.freeze({
+  policyId: 'OPS-R4-003',
+  attemptId: HISTORICAL_ATTEMPT_ID,
+  oldReleaseSha: HISTORICAL_OLD_RELEASE,
+  oldArtifactSha256: HISTORICAL_OLD_ARTIFACT,
+  targetReleaseSha: HISTORICAL_TARGET_RELEASE,
+  targetTreeSha: HISTORICAL_TARGET_TREE,
+  targetArtifactSha256: HISTORICAL_TARGET_ARTIFACT,
+  oldBaselineId: HISTORICAL_OLD_BASELINE_ID,
+  lastSequence: 17,
+  checkpointCount: 18,
+  lastPhase: 'POSTDEPLOY_BACKUP_PASSED',
+  observationPassed: false,
+  smokePassed: true,
+  starts: 2,
+  maxStarts: 2,
+  abortStarts: 0,
+  maxAbortStarts: 1,
+  classification: 'ABANDONED_SUPERSEDED',
+  r4Acceptance: 'NOT_ACCEPTED',
+  r4TerminalState: 'HEALTH_PASSED_FENCED',
+  operationalStatus: 'EMERGENCY_RESTART_POLICY_RESTORED',
+  dispositionFile: HISTORICAL_DISPOSITION_FILE,
+  archiveDir: HISTORICAL_ARCHIVE_DIR,
+  archiveManifestFile: HISTORICAL_ARCHIVE_MANIFEST_FILE,
+  archiveCompleteFile: HISTORICAL_ARCHIVE_COMPLETE_FILE,
+  sourceEmptyProofFile: HISTORICAL_SOURCE_EMPTY_PROOF_FILE,
+  oldApprovalFile: HISTORICAL_OLD_APPROVAL_FILE,
+  oldAdoptionFile: ADOPTION_FILE,
+  oldBaselineManifestFile: HISTORICAL_OLD_BASELINE_MANIFEST_FILE,
+  oldBaselineSha256SumsFile: HISTORICAL_OLD_BASELINE_SUMS_FILE,
+  emergencyReceiptFile: HISTORICAL_EMERGENCY_RECEIPT_FILE,
+  postdeployLogFile: HISTORICAL_POSTDEPLOY_LOG_FILE,
+  postdeployRcFile: HISTORICAL_POSTDEPLOY_RC_FILE
+});
+
+export const OPS_R4_003_LAYOUT = Object.freeze({
+  archivedPaths: HISTORICAL_ARCHIVED_PATHS,
+  preservedEvidence: HISTORICAL_PRESERVED_EVIDENCE,
+  metadataPaths: HISTORICAL_ARCHIVE_METADATA_PATHS
+});
+
+const RECOVERY_POLICIES = Object.freeze({
+  [OPS_R4_001_POLICY.oldReleaseSha]: OPS_R4_001_POLICY,
+  [OPS_R4_002_POLICY.oldReleaseSha]: OPS_R4_002_POLICY
+});
+
+function recoveryPolicyForRelease(sha) {
+  const policy = Object.hasOwn(RECOVERY_POLICIES, sha) ? RECOVERY_POLICIES[sha] : null;
+  if (!policy) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  return policy;
+}
+
 const jsonDigest = value => digest(JSON.stringify(value)+'\n');
 const ADOPTION_KEYS = ['formatVersion','kind','attemptId','approvalSha256','profileSha256','machineId',
   'oldReleaseSha','originalArtifactSha256','oldCatalogSha256','oldContentManifestSha256',
   'targetReleaseSha','targetTreeSha','targetArtifactSha256','baselineId','baselineManifestSha256',
   'adoptedArchiveSha256','databaseDumpSha256','attestedTime'];
+const CUTOVER_ATTESTATION_FILE = STATE_ROOT+'/installed-old-cutover-attestation-67d3318.json';
+const CUTOVER_ATTESTATION_KIND = 'INSTALLED_OLD_CUTOVER_ATTESTATION_OPS_R4_002';
+const CUTOVER_SCOPE_KEYS = ['maxStarts','maxAbortStarts','allowMigration','allowForwardRecovery',
+  'allowPreMigrationAbort','allowPostdeployBackup'];
+const CUTOVER_ATTESTATION_KEYS = [...ADOPTION_KEYS.filter(key=>!['attemptId','approvalSha256'].includes(key)),
+  'authority','databaseIdentitySha256','targetCatalogSha256','targetCiManifestSha256','scopeCeiling'];
+
+const HISTORICAL_DISPOSITION_KEYS = Object.freeze(['formatVersion','kind','dispositionId','attemptId',
+  'classification','approvalSha256','profileSha256','machineId','oldReleaseSha','targetReleaseSha',
+  'targetTreeSha','targetArtifactSha256','initialCheckpointSha256','lastCheckpointSha256',
+  'admissionProofSha256','checkpointCount','lastSequence','lastPhase','observationPassed',
+  'smokePassed','starts','maxStarts','abortStarts','maxAbortStarts','terminal','r4Acceptance',
+  'emergencyReceiptSha256','postdeployLogSha256','postdeployRcSha256','oldAdoptionSha256',
+  'oldBaselineManifestSha256','oldBaselineSha256SumsSha256','issuedAtUTC','issuedTime']);
+const HISTORICAL_MANIFEST_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
+  'approvalSha256','profileSha256','machineId','oldReleaseSha','targetReleaseSha','targetTreeSha',
+  'targetArtifactSha256','archivedFiles','preservedEvidence','sourceDirectories','removedDirectories',
+  'checkpoint','createdAtUTC']);
+const HISTORICAL_ARCHIVE_ENTRY_KEYS = Object.freeze(['sourcePath','archivePath','type','mode',
+  'sourceMode','sourceMtimeNs','uid','gid','nlink','size','sha256','symlinkTarget']);
+const HISTORICAL_PRESERVED_KEYS = Object.freeze(['path','role','liveSource','sha256','size']);
+const HISTORICAL_DIRECTORY_KEYS = Object.freeze(['beforeEntries','afterEntries','sourceMtimeNs']);
+const HISTORICAL_REMOVED_DIRECTORY_KEYS = Object.freeze(['mode','uid','gid','sourceMtimeNs']);
+const historicalMtimeNs = value => typeof value === 'string' && /^(?:0|[1-9][0-9]{0,19})$/.test(value);
+const HISTORICAL_PROOF_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
+  'manifestSha256','directories','pendingMarkers','verifiedAtUTC']);
+const HISTORICAL_PROOF_DIRECTORY_KEYS = Object.freeze(['exists','type','symlink','uid','gid','mode',
+  'entries']);
+const HISTORICAL_PENDING_KEYS = Object.freeze(['active','activation','permit','recoveryDropIn']);
+const HISTORICAL_COMPLETE_KEYS = Object.freeze(['formatVersion','kind','attemptId','dispositionSha256',
+  'manifestSha256','sourceEmptyProofSha256','archiveId','complete','checkpointCount',
+  'lastCheckpointSha256','lastPhase','observationPassed','terminal','starts','completedAtUTC']);
+const HISTORICAL_CHECKPOINT_KEYS = Object.freeze(['count','lastSequence','lastSha256','lastPhase',
+  'observationPassed','smokePassed','starts','abortStarts']);
+const HISTORICAL_HEX = /^[0-9a-f]{64}$/;
+const HISTORICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const HISTORICAL_MACHINE = /^[0-9a-f]{32}$/;
+const historicalUtc = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
+  && new Date(value).toISOString() === value;
+const historicalExact = (value, keys) => value !== null && typeof value === 'object'
+  && !Array.isArray(value) && Object.keys(value).length === keys.length
+  && keys.every(key => Object.hasOwn(value, key));
+const historicalDispositionFail = () => {
+  throw new Error('RECOVERY_HISTORICAL_DISPOSITION_INVALID');
+};
+const historicalArchiveFail = () => {
+  throw new Error('RECOVERY_HISTORICAL_ARCHIVE_INVALID');
+};
+const historicalPreservationFail = () => {
+  throw new Error('RECOVERY_HISTORICAL_PRESERVATION_INVALID');
+};
+
+/** Pure disposition validation. Root-private readers must supply every hash. */
+export function validateHistoricalRecoveryDisposition(record, context, fail = historicalDispositionFail) {
+  const policy = OPS_R4_003_POLICY;
+  if (!historicalExact(record, HISTORICAL_DISPOSITION_KEYS) || record.formatVersion !== 1
+    || record.kind !== 'HISTORICAL_RECOVERY_DISPOSITION' || !HISTORICAL_UUID.test(record.dispositionId)
+    || record.attemptId !== policy.attemptId || record.classification !== policy.classification
+    || record.terminal !== false || record.r4Acceptance !== policy.r4Acceptance
+    || record.lastPhase !== policy.lastPhase || record.observationPassed !== false
+    || record.smokePassed !== true || record.starts !== policy.starts
+    || record.maxStarts !== policy.maxStarts || record.abortStarts !== policy.abortStarts
+    || record.maxAbortStarts !== policy.maxAbortStarts || record.checkpointCount !== policy.checkpointCount
+    || record.lastSequence !== policy.lastSequence || record.oldReleaseSha !== policy.oldReleaseSha
+    || record.targetReleaseSha !== policy.targetReleaseSha
+    || record.targetTreeSha !== policy.targetTreeSha
+    || record.targetArtifactSha256 !== policy.targetArtifactSha256
+    || !HISTORICAL_MACHINE.test(record.machineId)
+    || ['approvalSha256','profileSha256','initialCheckpointSha256','lastCheckpointSha256',
+      'admissionProofSha256','emergencyReceiptSha256','postdeployLogSha256','postdeployRcSha256',
+      'oldAdoptionSha256','oldBaselineManifestSha256','oldBaselineSha256SumsSha256']
+      .some(key => !HISTORICAL_HEX.test(record[key]))) fail();
+  if (!context || !context.approval || !context.profile || !context.initialCheckpoint
+    || !context.lastCheckpoint || !context.admissionProof || !context.emergencyReceipt
+    || !context.oldAdoption || !context.oldBaselineManifest || !context.currentTime) fail();
+  const {approval,profile,initialCheckpoint,lastCheckpoint,admissionProof,emergencyReceipt} = context;
+  try { validateApprovalStructure(approval); } catch { fail(); }
+  if (approval.attemptId !== policy.attemptId || approval.releaseSha !== policy.targetReleaseSha
+    || approval.treeSha !== policy.targetTreeSha || approval.artifactSha256 !== policy.targetArtifactSha256
+    || approval.oldReleaseSha !== policy.oldReleaseSha
+    || approval.oldArtifactSha256 !== policy.oldArtifactSha256
+    || approval.maxStarts !== policy.maxStarts || approval.maxAbortStarts !== policy.maxAbortStarts
+    || jsonDigest(approval.oldCatalog) !== context.oldAdoption.oldCatalogSha256
+    || approval.profileSha256 !== context.profileSha256
+    || record.approvalSha256 !== context.approvalSha256
+    || record.profileSha256 !== context.profileSha256
+    || record.machineId !== context.machineId || profile.machineId !== record.machineId) fail();
+  if (!initialCheckpoint.record || !HISTORICAL_HEX.test(initialCheckpoint.sha256)
+    || initialCheckpoint.record.attemptId !== policy.attemptId
+    || initialCheckpoint.record.sequence !== 0
+    || initialCheckpoint.sha256 !== record.initialCheckpointSha256) fail();
+  if (!lastCheckpoint.record || !HISTORICAL_HEX.test(lastCheckpoint.sha256)
+    || lastCheckpoint.record.attemptId !== policy.attemptId
+    || lastCheckpoint.record.sequence !== policy.lastSequence
+    || lastCheckpoint.record.phase !== policy.lastPhase
+    || lastCheckpoint.record.observationPassed !== false
+    || lastCheckpoint.record.smokePassed !== true
+    || lastCheckpoint.record.starts !== policy.starts
+    || lastCheckpoint.record.abortStarts !== policy.abortStarts
+    || lastCheckpoint.record.approvalSha256 !== record.approvalSha256
+    || lastCheckpoint.record.profileSha256 !== record.profileSha256
+    || lastCheckpoint.sha256 !== record.lastCheckpointSha256) fail();
+  if (admissionProof.formatVersion !== 2 || admissionProof.attemptId !== policy.attemptId
+    || admissionProof.approvalSha256 !== record.approvalSha256
+    || admissionProof.initialSha256 !== record.initialCheckpointSha256
+    || context.admissionProofSha256 !== record.admissionProofSha256) fail();
+  try { validateCurrentTimeEvidence(admissionProof.postFsyncTime); } catch { fail(); }
+  if (emergencyReceipt.kind !== 'EMERGENCY_HANDOFF_RECEIPT'
+    || !emergencyReceipt.parent || emergencyReceipt.parent.attemptId !== policy.attemptId
+    || emergencyReceipt.parent.phase !== policy.lastPhase
+    || emergencyReceipt.parentAttemptCompleted !== false
+    || emergencyReceipt.r4Acceptance !== policy.r4Acceptance
+    || emergencyReceipt.r4TerminalState !== policy.r4TerminalState
+    || emergencyReceipt.operationalStatus !== policy.operationalStatus
+    || emergencyReceipt.observationPassed !== false
+    || !emergencyReceipt.host || emergencyReceipt.host.releaseSha !== policy.targetReleaseSha
+    || context.emergencyReceiptSha256 !== record.emergencyReceiptSha256) fail();
+  if (context.postdeployLogSha256 !== record.postdeployLogSha256
+    || context.postdeployRcSha256 !== record.postdeployRcSha256) fail();
+  if (context.oldAdoption.kind !== 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER'
+    || context.oldAdoption.attemptId !== policy.attemptId
+    || context.oldAdoption.machineId !== record.machineId
+    || context.oldAdoption.approvalSha256 !== record.approvalSha256
+    || context.oldAdoption.profileSha256 !== record.profileSha256
+    || context.oldAdoption.oldReleaseSha !== policy.oldReleaseSha
+    || context.oldAdoption.originalArtifactSha256 !== policy.oldArtifactSha256
+    || context.oldAdoption.targetReleaseSha !== policy.targetReleaseSha
+    || context.oldAdoption.targetTreeSha !== policy.targetTreeSha
+    || context.oldAdoption.targetArtifactSha256 !== policy.targetArtifactSha256
+    || context.oldAdoption.baselineId !== policy.oldBaselineId
+    || context.oldAdoption.baselineManifestSha256 !== context.oldBaselineManifestSha256
+    || context.oldAdoptionSha256 !== record.oldAdoptionSha256) fail();
+  if (context.oldBaselineManifest.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
+    || context.oldBaselineManifest.baselineId !== policy.oldBaselineId
+    || context.oldBaselineManifest.machineId !== record.machineId
+    || context.oldBaselineManifest.sourceReleaseSha !== policy.oldReleaseSha
+    || context.oldBaselineManifest.originalArtifactSha256 !== policy.oldArtifactSha256
+    || context.oldBaselineManifest.restoreAcceptance !== false
+    || context.oldBaselineManifestSha256 !== record.oldBaselineManifestSha256
+    || context.oldBaselineSha256SumsSha256 !== record.oldBaselineSha256SumsSha256) fail();
+  if (record.issuedAtUTC !== record.issuedTime.wallAtUTC || !historicalUtc(record.issuedAtUTC)) fail();
+  try { validateCurrentTimeEvidence(record.issuedTime); validateCurrentTimeEvidence(context.currentTime); }
+  catch (error) { throw error; }
+  if (Date.parse(record.issuedAtUTC) > Date.parse(context.currentTime.wallAtUTC)) fail();
+  return record;
+}
+
+/** Pure builder used by the administrator API and deterministic tests. */
+export function historicalRecoveryDispositionRecord(context) {
+  const record = {
+    formatVersion: 1,
+    kind: 'HISTORICAL_RECOVERY_DISPOSITION',
+    dispositionId: randomUUID(),
+    attemptId: OPS_R4_003_POLICY.attemptId,
+    classification: OPS_R4_003_POLICY.classification,
+    approvalSha256: context.approvalSha256,
+    profileSha256: context.profileSha256,
+    machineId: context.machineId,
+    oldReleaseSha: OPS_R4_003_POLICY.oldReleaseSha,
+    targetReleaseSha: OPS_R4_003_POLICY.targetReleaseSha,
+    targetTreeSha: OPS_R4_003_POLICY.targetTreeSha,
+    targetArtifactSha256: OPS_R4_003_POLICY.targetArtifactSha256,
+    initialCheckpointSha256: context.initialCheckpoint.sha256,
+    lastCheckpointSha256: context.lastCheckpoint.sha256,
+    admissionProofSha256: context.admissionProofSha256,
+    checkpointCount: OPS_R4_003_POLICY.checkpointCount,
+    lastSequence: OPS_R4_003_POLICY.lastSequence,
+    lastPhase: OPS_R4_003_POLICY.lastPhase,
+    observationPassed: false,
+    smokePassed: true,
+    starts: OPS_R4_003_POLICY.starts,
+    maxStarts: OPS_R4_003_POLICY.maxStarts,
+    abortStarts: OPS_R4_003_POLICY.abortStarts,
+    maxAbortStarts: OPS_R4_003_POLICY.maxAbortStarts,
+    terminal: false,
+    r4Acceptance: OPS_R4_003_POLICY.r4Acceptance,
+    emergencyReceiptSha256: context.emergencyReceiptSha256,
+    postdeployLogSha256: context.postdeployLogSha256,
+    postdeployRcSha256: context.postdeployRcSha256,
+    oldAdoptionSha256: context.oldAdoptionSha256,
+    oldBaselineManifestSha256: context.oldBaselineManifestSha256,
+    oldBaselineSha256SumsSha256: context.oldBaselineSha256SumsSha256,
+    issuedAtUTC: context.currentTime.wallAtUTC,
+    issuedTime: context.currentTime
+  };
+  return validateHistoricalRecoveryDisposition(record, context);
+}
 
 /** Pure binding check; callers must obtain records through root-private readers. */
 export function validateInstalledOldAdoption(record, context, baseline, baselineSha256) {
   const fail = () => { throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID'); };
   const {approval,approvalSha256,profile} = context;
   validateApprovalStructure(approval);
+  let policy;
+  try { policy = recoveryPolicyForRelease(approval.oldReleaseSha); }
+  catch { fail(); }
   if (!record || Object.keys(record).length !== ADOPTION_KEYS.length
     || ADOPTION_KEYS.some(key=>!Object.hasOwn(record,key)) || record.formatVersion !== 1
-    || record.kind !== 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER'
-    || approval.oldReleaseSha !== ADOPTABLE_OLD || approval.oldArtifactSha256 !== ORIGINAL_OLD_ARTIFACT
-    || jsonDigest(approval.oldCatalog) !== ORIGINAL_OLD_CATALOG
+    || record.kind !== policy.recordKind
+    || approval.oldReleaseSha !== policy.oldReleaseSha
+    || approval.oldArtifactSha256 !== policy.originalArtifactSha256
+    || jsonDigest(approval.oldCatalog) !== policy.oldCatalogSha256
     || record.attemptId !== approval.attemptId || record.approvalSha256 !== approvalSha256
     || record.profileSha256 !== approval.profileSha256 || record.machineId !== profile.machineId
-    || record.oldReleaseSha !== approval.oldReleaseSha || record.originalArtifactSha256 !== approval.oldArtifactSha256
+    || record.oldReleaseSha !== policy.oldReleaseSha
+    || record.oldReleaseSha !== approval.oldReleaseSha
+    || record.originalArtifactSha256 !== policy.originalArtifactSha256
+    || record.originalArtifactSha256 !== approval.oldArtifactSha256
+    || record.oldCatalogSha256 !== policy.oldCatalogSha256
     || record.oldCatalogSha256 !== jsonDigest(approval.oldCatalog)
     || record.targetReleaseSha !== approval.releaseSha || record.targetTreeSha !== approval.treeSha
     || record.targetArtifactSha256 !== approval.artifactSha256
-    || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record.baselineId)
+    || !policy.baselineIdPattern.test(record.baselineId)
     || record.baselineManifestSha256 !== baselineSha256
     || ['approvalSha256','profileSha256','oldCatalogSha256','oldContentManifestSha256',
       'targetArtifactSha256','baselineManifestSha256','adoptedArchiveSha256','databaseDumpSha256']
@@ -61,11 +394,62 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
   // Attestation proves a historical root action inside this grant's original
   // window. It never re-anchors current approval age or consumed-attempt scope.
   validateApproval(approval,record.attestedTime);
+  return validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy);
+}
+
+/** Identity/plan evidence only, never an execution grant. Current or consumed
+ * authority must still come from readRootApproval and the admission protocol. */
+export function validateInstalledOldCutoverAttestation(record, context, baseline, baselineSha256) {
+  const fail = () => { throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID'); };
+  const {approval,profile} = context;
+  validateApprovalStructure(approval);
+  const policy = OPS_R4_002_POLICY;
+  if (!record || Object.keys(record).length !== CUTOVER_ATTESTATION_KEYS.length
+    || CUTOVER_ATTESTATION_KEYS.some(key=>!Object.hasOwn(record,key))
+    || record.formatVersion !== 1 || record.kind !== CUTOVER_ATTESTATION_KIND
+    || record.authority !== 'IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION'
+    || record.profileSha256 !== approval.profileSha256 || record.machineId !== profile.machineId
+    || record.databaseIdentitySha256 !== jsonDigest(profile.databaseIdentity)
+    || record.targetReleaseSha !== approval.releaseSha || record.targetTreeSha !== approval.treeSha
+    || record.targetArtifactSha256 !== approval.artifactSha256
+    || record.targetCiManifestSha256 !== approval.ciManifestSha256
+    || record.targetCatalogSha256 !== jsonDigest(approval.targetCatalog)
+    || ['profileSha256','databaseIdentitySha256','targetArtifactSha256','targetCiManifestSha256',
+      'targetCatalogSha256'].some(key=>typeof record[key] !== 'string' || !HISTORICAL_HEX.test(record[key]))) fail();
+  const ceiling = record.scopeCeiling;
+  if (!ceiling || Object.keys(ceiling).length !== CUTOVER_SCOPE_KEYS.length
+    || CUTOVER_SCOPE_KEYS.some(key=>!Object.hasOwn(ceiling,key))
+    || !Number.isInteger(ceiling.maxStarts) || ceiling.maxStarts < 1 || ceiling.maxStarts > 2
+    || !Number.isInteger(ceiling.maxAbortStarts) || ceiling.maxAbortStarts < 0 || ceiling.maxAbortStarts > 1
+    || approval.maxStarts > ceiling.maxStarts || approval.maxAbortStarts > ceiling.maxAbortStarts
+    || CUTOVER_SCOPE_KEYS.slice(2).some(key=>typeof ceiling[key] !== 'boolean' || (approval[key] && !ceiling[key]))) fail();
+  // Historical TT-A v2 proves the attestation action, not the age of a later
+  // grant. No wall-clock expiry, boot or UUID is transferred to that grant.
+  validateCurrentTimeEvidence(record.attestedTime);
+  validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy);
+  return record;
+}
+
+function validateInstalledOldRecoveryBaseline(record,context,baseline,baselineSha256,policy) {
+  const fail = () => { throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID'); };
+  const {approval,profile} = context;
+  if (approval.oldReleaseSha !== policy.oldReleaseSha
+    || approval.oldArtifactSha256 !== policy.originalArtifactSha256
+    || jsonDigest(approval.oldCatalog) !== policy.oldCatalogSha256
+    || record.oldReleaseSha !== policy.oldReleaseSha
+    || record.originalArtifactSha256 !== policy.originalArtifactSha256
+    || record.oldCatalogSha256 !== policy.oldCatalogSha256
+    || typeof record.baselineId !== 'string' || !policy.baselineIdPattern.test(record.baselineId)
+    || record.baselineManifestSha256 !== baselineSha256) fail();
   if (!baseline || baseline.formatVersion !== 1 || baseline.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
     || baseline.baselineId !== record.baselineId || baseline.machineId !== profile.machineId
-    || baseline.sourceReleaseSha !== approval.oldReleaseSha || baseline.originalArtifactSha256 !== approval.oldArtifactSha256
+    || baseline.sourceReleaseSha !== policy.oldReleaseSha
+    || baseline.sourceReleaseSha !== approval.oldReleaseSha
+    || baseline.originalArtifactSha256 !== policy.originalArtifactSha256
+    || baseline.originalArtifactSha256 !== approval.oldArtifactSha256
     || baseline.installedContentManifestSha256 !== record.oldContentManifestSha256
-    || jsonDigest(baseline.catalog) !== ORIGINAL_OLD_CATALOG || baseline.restoreAcceptance !== false
+    || jsonDigest(baseline.catalog) !== policy.oldCatalogSha256
+    || baseline.restoreAcceptance !== false
     || !Number.isFinite(Date.parse(baseline.completedAtUTC))
     || Date.parse(baseline.completedAtUTC) > Date.parse(record.attestedTime.wallAtUTC)
     || ['dumpList','dumpCatalogExact','adoptedArchiveComparedToInstalled','configurationArchiveCompared',
@@ -82,12 +466,35 @@ export function validateInstalledOldAdoption(record, context, baseline, baseline
     || record.adoptedArchiveSha256 === approval.oldArtifactSha256
     || record.oldContentManifestSha256 !== baseline.files['installed-old-content.sha256'].sha256
     || record.databaseDumpSha256 !== baseline.files['database.dump'].sha256) fail();
+  // OPS-R4-002 pins the recovered archive and content manifest to the exact
+  // published recovery identity. OPS-R4-001 leaves these two historical fields
+  // unpinned, exactly as its already-consumed sealed record was validated.
+  if (policy.contentManifestSha256 !== null
+    && (record.oldContentManifestSha256 !== policy.contentManifestSha256
+      || baseline.installedContentManifestSha256 !== policy.contentManifestSha256
+      || baseline.files['installed-old-content.sha256'].sha256 !== policy.contentManifestSha256)) fail();
+  if (policy.reconstructedArtifactSha256 !== null
+    && (record.adoptedArchiveSha256 !== policy.reconstructedArtifactSha256
+      || baseline.files['installed-old-release.adopted.tar.gz'].sha256 !== policy.reconstructedArtifactSha256)) fail();
   return record;
 }
 
 /** Separate administrator API, deliberately absent from the deploy CLI. */
 export function issueInstalledOldAdoption(attemptId, baselineId) {
-  if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_001_POLICY);
+}
+
+/** OPS-R4-002 separate one-time administrator API; no mode/path selector. */
+export function issueInstalledOldAdoption67d3318(attemptId, baselineId) {
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_002_POLICY);
+}
+
+/** B1-03 future, unused OPS-R4-002 path only. No existing adoption is converted. */
+export function issueInstalledOldCutoverAttestation67d3318(attemptId, baselineId) {
+  return issueInstalledOldAdoptionForPolicy(attemptId, baselineId, OPS_R4_002_POLICY, true);
+}
+
+function requireInstalledOldRecoveryLock() {
   // The administrator CLI inherits the same open-file description as the
   // deployment helper. Verify the stable inode and take/confirm its kernel
   // lock before reading state; a direct, unlocked API call cannot race admit.
@@ -100,38 +507,71 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
     const after = lstatSync(STATE_ROOT+'/host.lock');
     if (held.dev !== after.dev || held.ino !== after.ino) throw new Error();
   } catch { throw new Error('RECOVERY_ADOPTION_HOST_LOCK_REQUIRED'); }
-  if (typeof baselineId !== 'string' || !/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(baselineId)) {
+}
+
+function issueInstalledOldAdoptionForPolicy(attemptId, baselineId, policy, cutoverAttestation = false) {
+  if (![OPS_R4_001_POLICY, OPS_R4_002_POLICY].includes(policy)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
-  // One exclusive permanent host slot. Partial publication burns reuse too;
-  // there is no renewal, overwrite, journal repair or deploy-user issuance.
-  if (existsSync(ADOPTION_FILE)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  if (process.getuid?.() !== 0) throw new Error('RECOVERY_ADOPTION_ADMIN_REQUIRED');
+  requireInstalledOldRecoveryLock();
+  if (typeof baselineId !== 'string' || !policy.baselineIdPattern.test(baselineId)) {
+    throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
+  }
+  // One exclusive permanent host slot per policy. Partial publication burns
+  // reuse too; there is no renewal, overwrite, journal repair or deploy-user
+  // issuance. OPS-R4-002 has a different file and never touches OPS-R4-001.
+  const file = cutoverAttestation ? CUTOVER_ATTESTATION_FILE : policy.adoptionFile;
+  if (existsSync(file)) throw new Error('RECOVERY_ADOPTION_ALREADY_SEALED');
+  if (policy === OPS_R4_002_POLICY
+    && existsSync(cutoverAttestation ? policy.adoptionFile : CUTOVER_ATTESTATION_FILE)) {
+    throw new Error('RECOVERY_CUTOVER_EVIDENCE_CONFLICT');
+  }
   // Reject pending state before loadAttempt: its normal deployment recovery
   // path can reconcile checkpoint residues in a pending systemd window.
   for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
     '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
+    // OPS-R4-002 requires positive absence. existsSync follows symlinks,
+    // masking dangling links and access failures; OPS-R4-001 remains unchanged.
+    if (policy === OPS_R4_002_POLICY) {
+      try { lstatSync(path); }
+      catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
+      }
+      throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+    }
     if (existsSync(path)) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
   }
-  for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs',
-    STATE_ROOT+'/backups',STATE_ROOT+'/logs']) {
-    if (!existsSync(path)) continue;
-    const info = lstatSync(path);
-    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
-      || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
-    if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+  if (policy === OPS_R4_002_POLICY) {
+    // The 67d3318 policy owns its historical proof: either the sealed OPS-R4-003
+    // archive over trusted empty sources, or the exact 26-file attempt preserved
+    // in place with a verified OPS-R4-005 stage receipt. Empty directories alone
+    // establish neither, so the generic check is not reused here.
+    verifyHistoricalPreservationGate();
+  } else {
+    for (const path of [STATE_ROOT+'/attempts',STATE_ROOT+'/initializations',STATE_ROOT+'/admission-proofs',
+      STATE_ROOT+'/backups',STATE_ROOT+'/logs']) {
+      if (!existsSync(path)) continue;
+      const info = lstatSync(path);
+      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+        || (info.mode & 0o7777) !== 0o700) throw new Error('RECOVERY_ADOPTION_STATE_UNTRUSTED');
+      if (readdirSync(path).length) throw new Error('RECOVERY_ADOPTION_STATE_NOT_EMPTY');
+    }
   }
+  // OPS-R4-001 keeps its historical behavior unchanged.
   const context = loadAttempt(attemptId), {approval,profile} = context;
-  const root = '/opt/servora-med/releases/'+ADOPTABLE_OLD;
+  const root = '/opt/servora-med/releases/'+policy.oldReleaseSha;
   const tuple = validateIdentityTuple(trustedFile(ENV_FILE,0o640,null).toString('utf8'),approval);
-  if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== ADOPTABLE_OLD
+  if (realpathSync('/opt/servora-med/current') !== root || tuple.release !== policy.oldReleaseSha
     || tuple.schema !== approval.oldCatalog.at(-1).version
-    || existsSync(`${STATE_ROOT}/artifacts/${ADOPTABLE_OLD}.tar.gz`)
-    || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== ORIGINAL_OLD_ARTIFACT+'\n') {
+    || existsSync(`${STATE_ROOT}/artifacts/${policy.oldReleaseSha}.tar.gz`)
+    || trustedFile(root+'/.servora-release-artifact.sha256',0o600).toString('utf8') !== policy.originalArtifactSha256+'\n') {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
   const baselineBytes = trustedFile(BASELINE_ROOT+'/'+baselineId+'/baseline-manifest.json',0o600);
   const baseline = parseCanonicalRecord(baselineBytes.toString('utf8'));
-  const record = {formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER',attemptId,
+  let record = {formatVersion:1,kind:policy.recordKind,attemptId,
     approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
     oldReleaseSha:approval.oldReleaseSha,originalArtifactSha256:approval.oldArtifactSha256,
     oldCatalogSha256:jsonDigest(approval.oldCatalog),oldContentManifestSha256:baseline.installedContentManifestSha256,
@@ -139,29 +579,43 @@ export function issueInstalledOldAdoption(attemptId, baselineId) {
     baselineId,baselineManifestSha256:digest(baselineBytes),
     adoptedArchiveSha256:baseline.files?.['installed-old-release.adopted.tar.gz']?.sha256,
     databaseDumpSha256:baseline.files?.['database.dump']?.sha256,attestedTime:sampleTrustedTime()};
+  if (cutoverAttestation) {
+    const {attemptId:unusedAttempt,approvalSha256:unusedGrant,...identity} = record;
+    record = {...identity,kind:CUTOVER_ATTESTATION_KIND,authority:'IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION',
+      databaseIdentitySha256:jsonDigest(profile.databaseIdentity),
+      targetCatalogSha256:jsonDigest(approval.targetCatalog),targetCiManifestSha256:approval.ciManifestSha256,
+      scopeCeiling:Object.fromEntries(CUTOVER_SCOPE_KEYS.map(key=>[key,approval[key]]))};
+    initialAttempt(context,record.attestedTime);
+  }
   verifyAttemptCatalog(attemptId,'old');
-  verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root));
+  verifyInstalledOldBaseline(record,context,root,verifiedReleaseEntries(root),policy);
+  if (cutoverAttestation) initialAttempt(context); // Full window before the first write, using its existing SSOT.
   // The directory is protected by loadAttempt's root-private grant/profile
   // readers. Mode is fixed by open, not by the caller's umask.
-  const fd = openSync(ADOPTION_FILE,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  const fd = openSync(file,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
   try { writeFileSync(fd,JSON.stringify(record)+'\n');fsyncSync(fd); } finally {closeSync(fd);}
   flushDirectory(STATE_ROOT);
   validateApproval(approval,sampleTrustedTime());
-  const sealed = readProtectedRecord(ADOPTION_FILE);
+  const sealed = readProtectedRecord(file);
   if (sealed.sha256 !== jsonDigest(record)) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   return sealed;
 }
 
-function verifyInstalledOldBaseline(record,context,root,entries) {
+function verifyInstalledOldBaseline(record,context,root,entries,policy) {
   // Validate the ID before using it as a path component, even for a sealed
   // administrator record. No arbitrary filesystem selector is accepted.
-  if (!/^[0-9]{8}T[0-9]{6}Z-issue369-71ae6df6$/.test(record?.baselineId)) {
+  if (!policy || policy.oldReleaseSha !== context?.approval?.oldReleaseSha
+    || !policy.baselineIdPattern.test(record?.baselineId)) {
     throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   }
   const directory = BASELINE_ROOT+'/'+record.baselineId;
   const bytes = trustedFile(directory+'/baseline-manifest.json',0o600);
   const baseline = parseCanonicalRecord(bytes.toString('utf8'));
-  validateInstalledOldAdoption(record,context,baseline,digest(bytes));
+  if (record.kind === CUTOVER_ATTESTATION_KIND && policy === OPS_R4_002_POLICY) {
+    validateInstalledOldCutoverAttestation(record,context,baseline,digest(bytes));
+  } else {
+    validateInstalledOldAdoption(record,context,baseline,digest(bytes));
+  }
   const payloads = Object.entries(baseline.files);
   if (payloads.length > 32) throw new Error('RECOVERY_INSTALLED_OLD_ADOPTION_INVALID');
   for (const [name,entry] of payloads) {
@@ -314,6 +768,11 @@ async function reconcileInitialization(context) {
  */
 export function admitAttempt(attemptId) {
   const context = loadAttempt(attemptId);
+  // The new identity-only exception must prove no prior admission before ANY
+  // initialization write, including callers of this persistence API. It is not
+  // enough for only the public CLI to check OLD earlier in its probe sequence.
+  if (context.approval.oldReleaseSha === OPS_R4_002_POLICY.oldReleaseSha
+    && existsSync(CUTOVER_ATTESTATION_FILE)) verifyAttemptRelease(attemptId,'old');
   // The public CLI reconciles pending initialization only after fresh DB and
   // payload proof. Direct persistence users must not auto-repair that window.
   if (initializationRecord(context)) throw new Error('RECOVERY_INITIALIZATION_REQUIRES_PROBE');
@@ -509,6 +968,682 @@ function verifiedReleaseEntries(root) {
   return entries;
 }
 
+function historicalReadBytes(path, mode, kind) {
+  try { return trustedFile(path, mode); }
+  catch (error) {
+    const missing = error.code === 'ENOENT';
+    if (kind === 'disposition') throw new Error(missing
+      ? 'RECOVERY_HISTORICAL_DISPOSITION_MISSING' : 'RECOVERY_HISTORICAL_DISPOSITION_INVALID');
+    if (kind === 'preservation') throw new Error(missing
+      ? 'RECOVERY_HISTORICAL_PRESERVATION_REQUIRED' : 'RECOVERY_HISTORICAL_PRESERVATION_INVALID');
+    throw new Error(missing ? 'RECOVERY_HISTORICAL_ARCHIVE_REQUIRED' : 'RECOVERY_HISTORICAL_ARCHIVE_INVALID');
+  }
+}
+
+function historicalReadRecord(path, mode, kind) {
+  const bytes = historicalReadBytes(path, mode, kind);
+  let record;
+  try { record = parseCanonicalRecord(bytes.toString('utf8')); }
+  catch {
+    if (kind === 'disposition') historicalDispositionFail();
+    else if (kind === 'preservation') historicalPreservationFail();
+    else historicalArchiveFail();
+  }
+  return {record, bytes, sha256: digest(bytes)};
+}
+
+function dispositionReadBytes(path, mode) {
+  try { return trustedFile(path, mode); }
+  catch (error) {
+    throw new Error(error.code === 'ENOENT'
+      ? 'RECOVERY_DISPOSITION_EVIDENCE_MISSING' : 'RECOVERY_DISPOSITION_EVIDENCE_INVALID');
+  }
+}
+
+function dispositionReadRecord(path, mode) {
+  const bytes = dispositionReadBytes(path, mode);
+  try { return {record:parseCanonicalRecord(bytes.toString('utf8')), bytes, sha256:digest(bytes)}; }
+  catch { throw new Error('RECOVERY_DISPOSITION_EVIDENCE_INVALID'); }
+}
+
+function historicalDirectory(path, fail) {
+  let info;
+  try { info = lstatSync(path); } catch { fail(); }
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+    || (info.mode & 0o7777) !== 0o700) fail();
+}
+
+function historicalCheckpointNames() {
+  return Array.from({length:OPS_R4_003_POLICY.checkpointCount},(_,index)=>
+    String(index).padStart(4,'0')+'.json');
+}
+
+function historicalReadCheckpointChain(root, kind) {
+  const read = kind === 'disposition' ? dispositionReadRecord : historicalReadRecord;
+  const fail = kind === 'disposition' ? historicalDispositionFail
+    : kind === 'preservation' ? historicalPreservationFail : historicalArchiveFail;
+  const directory = root+'/attempts/'+OPS_R4_003_POLICY.attemptId;
+  historicalDirectory(directory,fail);
+  let names;
+  try { names = readdirSync(directory).sort(); } catch { fail(); }
+  if (JSON.stringify(names) !== JSON.stringify(historicalCheckpointNames())) fail();
+  return names.map(name => read(directory+'/'+name,0o600,kind));
+}
+
+function validateHistoricalCheckpointChain(checkpoints, disposition, fail = historicalArchiveFail) {
+  const policy = OPS_R4_003_POLICY;
+  if (!Array.isArray(checkpoints) || checkpoints.length !== policy.checkpointCount) fail();
+  let previousHash = null;
+  for (let index = 0; index < checkpoints.length; index += 1) {
+    const {record,sha256} = checkpoints[index];
+    if (!record || record.formatVersion !== 2 || record.attemptId !== policy.attemptId
+      || record.sequence !== index || record.previousHash !== previousHash
+      || record.approvalSha256 !== disposition.approvalSha256
+      || record.profileSha256 !== disposition.profileSha256) fail();
+    previousHash = sha256;
+  }
+  const initial = checkpoints[0], last = checkpoints.at(-1);
+  if (initial.sha256 !== disposition.initialCheckpointSha256
+    || last.sha256 !== disposition.lastCheckpointSha256
+    || last.record.phase !== policy.lastPhase
+    || last.record.observationPassed !== false || last.record.smokePassed !== true
+    || last.record.starts !== policy.starts || last.record.abortStarts !== policy.abortStarts) fail();
+  return {initial,last};
+}
+
+function validateHistoricalAdmissionProof(proof, approvalSha256, initialSha256,
+  fail = historicalArchiveFail) {
+  if (!historicalExact(proof,['formatVersion','attemptId','approvalSha256','initialSha256','postFsyncTime'])
+    || proof.formatVersion !== 2 || proof.attemptId !== OPS_R4_003_POLICY.attemptId
+    || proof.approvalSha256 !== approvalSha256 || proof.initialSha256 !== initialSha256) fail();
+  try { validateCurrentTimeEvidence(proof.postFsyncTime); } catch { fail(); }
+  return proof;
+}
+
+function validateHistoricalEmergencyReceipt(receipt, fail = historicalArchiveFail) {
+  const policy = OPS_R4_003_POLICY;
+  if (!receipt || receipt.kind !== 'EMERGENCY_HANDOFF_RECEIPT' || !receipt.parent
+    || receipt.parent.attemptId !== policy.attemptId || receipt.parent.phase !== policy.lastPhase
+    || receipt.parentAttemptCompleted !== false || receipt.r4Acceptance !== policy.r4Acceptance
+    || receipt.r4TerminalState !== policy.r4TerminalState
+    || receipt.operationalStatus !== policy.operationalStatus
+    || receipt.observationPassed !== false || !receipt.host
+    || receipt.host.releaseSha !== policy.targetReleaseSha) fail();
+  return receipt;
+}
+
+function validateHistoricalOldEvidence(oldAdoption, oldBaseline, approvalSha256, profileSha256,
+  oldBaselineManifestSha256, fail = historicalArchiveFail) {
+  const policy = OPS_R4_003_POLICY;
+  if (!oldAdoption || oldAdoption.kind !== 'ADOPTED_INSTALLED_OLD_FIRST_CUTOVER'
+    || oldAdoption.attemptId !== policy.attemptId
+    || oldAdoption.approvalSha256 !== approvalSha256 || oldAdoption.profileSha256 !== profileSha256
+    || oldAdoption.oldReleaseSha !== policy.oldReleaseSha
+    || oldAdoption.originalArtifactSha256 !== policy.oldArtifactSha256
+    || oldAdoption.targetReleaseSha !== policy.targetReleaseSha
+    || oldAdoption.targetTreeSha !== policy.targetTreeSha
+    || oldAdoption.targetArtifactSha256 !== policy.targetArtifactSha256
+    || oldAdoption.baselineId !== policy.oldBaselineId
+    || oldAdoption.baselineManifestSha256 !== oldBaselineManifestSha256) fail();
+  if (!oldBaseline || oldBaseline.kind !== 'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT'
+    || oldBaseline.baselineId !== policy.oldBaselineId
+    || oldBaseline.sourceReleaseSha !== policy.oldReleaseSha
+    || oldBaseline.originalArtifactSha256 !== policy.oldArtifactSha256
+    || oldBaseline.restoreAcceptance !== false
+    || oldAdoption.oldCatalogSha256 !== jsonDigest(oldBaseline.catalog)
+    || oldAdoption.oldContentManifestSha256 !== oldBaseline.files?.['installed-old-content.sha256']?.sha256
+    || oldAdoption.adoptedArchiveSha256 !== oldBaseline.files?.['installed-old-release.adopted.tar.gz']?.sha256
+    || oldAdoption.databaseDumpSha256 !== oldBaseline.files?.['database.dump']?.sha256) fail();
+}
+
+/** Rehash every OPS-R4-001 baseline payload; the old baseline stays in place. */
+function validateHistoricalOldBaselinePayloads(baseline, fail = historicalArchiveFail) {
+  const files = baseline?.files;
+  if (!files || typeof files !== 'object' || Array.isArray(files)) fail();
+  for (const [name,entry] of Object.entries(files)) {
+    if (!/^[a-z0-9][a-z0-9.-]{0,99}$/.test(name) || !entry || entry.name !== name
+      || !Number.isSafeInteger(entry.bytes) || entry.bytes <= 0
+      || !HISTORICAL_HEX.test(entry.sha256)) fail();
+    let bytes;
+    try { bytes = trustedFile(HISTORICAL_OLD_BASELINE_DIR+'/'+name,0o600); } catch { fail(); }
+    if (bytes.length !== entry.bytes || digest(bytes) !== entry.sha256) fail();
+  }
+  return baseline;
+}
+
+function validateHistoricalPostdeploy(logBytes, rcBytes, fail = historicalArchiveFail) {
+  const text = logBytes.toString('utf8');
+  if (!text.includes('RECOVERY_BACKUP_HEALTH_FAILED')
+    || !text.includes('PRODUCTION_DEPLOYMENT_FAILED')
+    || !rcBytes.equals(Buffer.from('1\n'))) fail();
+}
+
+function assertHistoricalSourceState() {
+  const fail = () => { throw new Error('RECOVERY_DISPOSITION_SOURCE_STATE_INVALID'); };
+  const exact = (path,names) => {
+    historicalDirectory(path,fail);
+    let entries;
+    try { entries = readdirSync(path).sort(); } catch { fail(); }
+    if (JSON.stringify(entries) !== JSON.stringify([...names].sort())) fail();
+  };
+  exact(STATE_ROOT+'/attempts',[OPS_R4_003_POLICY.attemptId]);
+  exact(STATE_ROOT+'/attempts/'+OPS_R4_003_POLICY.attemptId,historicalCheckpointNames());
+  exact(STATE_ROOT+'/initializations',[]);
+  exact(STATE_ROOT+'/admission-proofs',[OPS_R4_003_POLICY.attemptId+'.json']);
+  exact(STATE_ROOT+'/backups',[OPS_R4_003_POLICY.attemptId+'-pre.dump',
+    OPS_R4_003_POLICY.attemptId+'-post.dump']);
+  exact(STATE_ROOT+'/logs',[OPS_R4_003_POLICY.attemptId]);
+  exact(STATE_ROOT+'/logs/'+OPS_R4_003_POLICY.attemptId,HISTORICAL_LOG_NAMES);
+}
+
+function assertHistoricalSourceEmpty() {
+  for (const name of HISTORICAL_SOURCE_DIRECTORIES) {
+    const path = STATE_ROOT+'/'+name;
+    historicalDirectory(path,historicalArchiveFail);
+    let entries;
+    try { entries = readdirSync(path); } catch { historicalArchiveFail(); }
+    if (entries.length) historicalArchiveFail();
+  }
+  for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
+    '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
+    if (existsSync(path)) historicalArchiveFail();
+  }
+}
+
+function historicalPreservedKey(entry) {
+  return [entry.path,entry.role,String(entry.liveSource),entry.sourcePath ?? ''].join('|');
+}
+
+function verifyHistoricalArchiveRecords({disposition,dispositionBytes,dispositionSha256,manifest,
+  manifestSha256,proof,proofSha256,complete,completeSha256,checkpointSummary,archiveBytes,liveBytes,
+  copyBytes,archiveMtimes,currentTime}) {
+  const fail = historicalArchiveFail;
+  const policy = OPS_R4_003_POLICY;
+  if (!historicalExact(manifest,HISTORICAL_MANIFEST_KEYS) || manifest.formatVersion !== 1
+    || manifest.kind !== 'HISTORICAL_RECOVERY_ARCHIVE_MANIFEST'
+    || manifest.attemptId !== policy.attemptId || manifest.dispositionSha256 !== dispositionSha256
+    || manifest.approvalSha256 !== disposition.approvalSha256
+    || manifest.profileSha256 !== disposition.profileSha256
+    || manifest.machineId !== disposition.machineId
+    || manifest.oldReleaseSha !== policy.oldReleaseSha
+    || manifest.targetReleaseSha !== policy.targetReleaseSha
+    || manifest.targetTreeSha !== policy.targetTreeSha
+    || manifest.targetArtifactSha256 !== policy.targetArtifactSha256
+    || !historicalUtc(manifest.createdAtUTC)
+    || Date.parse(manifest.createdAtUTC) < Date.parse(disposition.issuedAtUTC)) fail();
+
+  if (!Array.isArray(manifest.archivedFiles)
+    || manifest.archivedFiles.length !== HISTORICAL_ARCHIVED_PATHS.length) fail();
+  const expectedPaths = new Set(HISTORICAL_ARCHIVED_PATHS);
+  const seenPaths = new Set();
+  for (const entry of manifest.archivedFiles) {
+    if (!historicalExact(entry,HISTORICAL_ARCHIVE_ENTRY_KEYS)
+      || !expectedPaths.has(entry.archivePath) || seenPaths.has(entry.archivePath)
+      || entry.sourcePath !== STATE_ROOT+'/'+entry.archivePath
+      || entry.type !== 'file' || entry.mode !== '0600'
+      || entry.sourceMode !== historicalSourceMode(entry.archivePath)
+      || !historicalMtimeNs(entry.sourceMtimeNs)
+      || entry.sourceMtimeNs !== archiveMtimes.get(entry.archivePath)
+      || entry.uid !== 0 || entry.gid !== 0 || entry.nlink !== 1
+      || !Number.isSafeInteger(entry.size) || entry.size <= 0
+      || !HISTORICAL_HEX.test(entry.sha256) || entry.symlinkTarget !== null) fail();
+    const bytes = archiveBytes.get(entry.archivePath);
+    if (!bytes || bytes.length !== entry.size || digest(bytes) !== entry.sha256) fail();
+    seenPaths.add(entry.archivePath);
+  }
+  if (seenPaths.size !== expectedPaths.size) fail();
+
+  if (!Array.isArray(manifest.preservedEvidence)
+    || manifest.preservedEvidence.length !== HISTORICAL_PRESERVED_EVIDENCE.length) fail();
+  const expectedPreserved = new Set(HISTORICAL_PRESERVED_EVIDENCE.map(historicalPreservedKey));
+  const seenPreserved = new Set();
+  for (const entry of manifest.preservedEvidence) {
+    const keys = entry && Object.hasOwn(entry,'sourcePath')
+      ? [...HISTORICAL_PRESERVED_KEYS,'sourcePath'] : HISTORICAL_PRESERVED_KEYS;
+    if (!historicalExact(entry,keys) || !expectedPreserved.has(historicalPreservedKey(entry))
+      || seenPreserved.has(historicalPreservedKey(entry))
+      || typeof entry.liveSource !== 'boolean' || !HISTORICAL_HEX.test(entry.sha256)
+      || !Number.isSafeInteger(entry.size) || entry.size <= 0) fail();
+    const bytes = entry.path.startsWith('preserved/') ? copyBytes.get(entry.path) : liveBytes.get(entry.path);
+    if (!bytes || bytes.length !== entry.size || digest(bytes) !== entry.sha256) fail();
+    if (entry.role === 'old-profile-copy'
+      && (entry.liveSource !== false || entry.sha256 !== disposition.profileSha256)) fail();
+    if (entry.role === 'disposition-copy'
+      && (entry.liveSource !== true || entry.sourcePath !== policy.dispositionFile
+        || !bytes.equals(dispositionBytes))) fail();
+    seenPreserved.add(historicalPreservedKey(entry));
+  }
+  if (seenPreserved.size !== expectedPreserved.size) fail();
+
+  if (!manifest.sourceDirectories || typeof manifest.sourceDirectories !== 'object'
+    || Array.isArray(manifest.sourceDirectories)
+    || Object.keys(manifest.sourceDirectories).length !== HISTORICAL_SOURCE_DIRECTORIES.length) fail();
+  for (const name of HISTORICAL_SOURCE_DIRECTORIES) {
+    const entry = manifest.sourceDirectories[STATE_ROOT+'/'+name];
+    if (!historicalExact(entry,HISTORICAL_DIRECTORY_KEYS) || !Number.isSafeInteger(entry.beforeEntries)
+      || entry.beforeEntries < 0 || entry.afterEntries !== 0
+      || !historicalMtimeNs(entry.sourceMtimeNs)) fail();
+  }
+  if (!manifest.removedDirectories || typeof manifest.removedDirectories !== 'object'
+    || Array.isArray(manifest.removedDirectories)
+    || Object.keys(manifest.removedDirectories).length !== HISTORICAL_REMOVED_DIRECTORIES.length) fail();
+  for (const name of HISTORICAL_REMOVED_DIRECTORIES) {
+    const entry = manifest.removedDirectories[STATE_ROOT+'/'+name];
+    if (!historicalExact(entry,HISTORICAL_REMOVED_DIRECTORY_KEYS)
+      || entry.mode !== '0700' || entry.uid !== 0 || entry.gid !== 0
+      || !historicalMtimeNs(entry.sourceMtimeNs)) fail();
+  }
+  if (!historicalExact(manifest.checkpoint,HISTORICAL_CHECKPOINT_KEYS)
+    || manifest.checkpoint.count !== policy.checkpointCount
+    || manifest.checkpoint.lastSequence !== policy.lastSequence
+    || manifest.checkpoint.lastSha256 !== disposition.lastCheckpointSha256
+    || manifest.checkpoint.lastPhase !== policy.lastPhase
+    || manifest.checkpoint.observationPassed !== false
+    || manifest.checkpoint.smokePassed !== true
+    || manifest.checkpoint.starts !== policy.starts
+    || manifest.checkpoint.abortStarts !== policy.abortStarts) fail();
+
+  if (!historicalExact(proof,HISTORICAL_PROOF_KEYS) || proof.formatVersion !== 1
+    || proof.kind !== 'HISTORICAL_RECOVERY_SOURCE_EMPTY_PROOF'
+    || proof.attemptId !== policy.attemptId || proof.dispositionSha256 !== dispositionSha256
+    || proof.manifestSha256 !== manifestSha256 || !historicalUtc(proof.verifiedAtUTC)
+    || Date.parse(proof.verifiedAtUTC) < Date.parse(manifest.createdAtUTC)
+    || !historicalExact(proof.pendingMarkers,HISTORICAL_PENDING_KEYS)
+    || HISTORICAL_PENDING_KEYS.some(key => proof.pendingMarkers[key] !== false)) fail();
+  if (!proof.directories || typeof proof.directories !== 'object'
+    || Object.keys(proof.directories).length !== HISTORICAL_SOURCE_DIRECTORIES.length) fail();
+  for (const name of HISTORICAL_SOURCE_DIRECTORIES) {
+    const entry = proof.directories[STATE_ROOT+'/'+name];
+    if (!historicalExact(entry,HISTORICAL_PROOF_DIRECTORY_KEYS) || entry.exists !== true
+      || entry.type !== 'directory' || entry.symlink !== false || entry.uid !== 0 || entry.gid !== 0
+      || entry.mode !== '0700' || entry.entries !== 0) fail();
+  }
+
+  if (!historicalExact(complete,HISTORICAL_COMPLETE_KEYS) || complete.formatVersion !== 1
+    || complete.kind !== 'HISTORICAL_RECOVERY_ARCHIVE_COMPLETE'
+    || complete.attemptId !== policy.attemptId || complete.dispositionSha256 !== dispositionSha256
+    || complete.manifestSha256 !== manifestSha256
+    || complete.sourceEmptyProofSha256 !== proofSha256 || complete.archiveId !== policy.attemptId
+    || complete.complete !== true || complete.checkpointCount !== policy.checkpointCount
+    || complete.lastCheckpointSha256 !== disposition.lastCheckpointSha256
+    || complete.lastPhase !== policy.lastPhase || complete.observationPassed !== false
+    || complete.terminal !== false || complete.starts !== policy.starts
+    || !historicalUtc(complete.completedAtUTC)
+    || Date.parse(complete.completedAtUTC) < Date.parse(proof.verifiedAtUTC)
+    || Date.parse(complete.completedAtUTC) > Date.parse(currentTime.wallAtUTC)) fail();
+  if (!checkpointSummary || checkpointSummary.last.sha256 !== disposition.lastCheckpointSha256) fail();
+  return {attemptId:policy.attemptId,complete:true,terminal:false,dispositionSha256,manifestSha256,
+    sourceEmptyProofSha256:proofSha256,completeSha256};
+}
+
+function walkHistoricalArchive() {
+  const expectedFiles = new Set([
+    ...HISTORICAL_ARCHIVED_PATHS,
+    ...HISTORICAL_PRESERVED_EVIDENCE.filter(entry=>entry.path.startsWith('preserved/')).map(entry=>entry.path),
+    ...HISTORICAL_ARCHIVE_METADATA_PATHS
+  ]);
+  const expectedDirs = new Set(['.','attempts','attempts/'+OPS_R4_003_POLICY.attemptId,
+    'admission-proofs','backups','logs','logs/'+OPS_R4_003_POLICY.attemptId,'preserved']);
+  const files = new Set(), directories = new Set(), archiveMtimes = new Map();
+  const visit = (path,relative) => {
+    let info, names;
+    try { info = lstatSync(path); names = readdirSync(path); } catch { historicalArchiveFail(); }
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0
+      || (info.mode & 0o7777) !== 0o700) historicalArchiveFail();
+    directories.add(relative || '.');
+    for (const name of names) {
+      const full = path+'/'+name, childRelative = relative ? relative+'/'+name : name;
+      let child;
+      try { child = lstatSync(full); } catch { historicalArchiveFail(); }
+      if (child.isSymbolicLink()) historicalArchiveFail();
+      if (child.isDirectory()) visit(full,childRelative);
+      else if (child.isFile()) {
+        if (child.uid !== 0 || child.gid !== 0 || child.nlink !== 1
+          || (child.mode & 0o7777) !== 0o600) historicalArchiveFail();
+        // Capture the copied file's actual nanosecond timestamp, not just a
+        // purported source timestamp supplied by its manifest.
+        const measured = lstatSync(full,{bigint:true}).mtimeNs;
+        if (typeof measured !== 'bigint') historicalArchiveFail();
+        archiveMtimes.set(childRelative,measured.toString());
+        files.add(childRelative);
+      } else historicalArchiveFail();
+    }
+  };
+  visit(HISTORICAL_ARCHIVE_DIR,'');
+  if (files.size !== expectedFiles.size || [...files].some(path=>!expectedFiles.has(path))
+    || directories.size !== expectedDirs.size || [...directories].some(path=>!expectedDirs.has(path))) {
+    historicalArchiveFail();
+  }
+  return archiveMtimes;
+}
+
+/**
+ * OPS-R4-002 non-destructive acceptance branch.
+ *
+ * The exact 26-file historical attempt stays at its live paths. The OPS-R4-005
+ * staged replica (created after the disposition and before the profile re-seal)
+ * is the immutable record of the bytes: its receipt binds the full source
+ * inventory digest, every staged hash/size/nanosecond mtime, the old profile
+ * copy and the disposition copy. This function re-reads the live evidence and
+ * proves it is byte-identical to that record.
+ *
+ * It never removes, renames or moves a source; never writes ARCHIVE-MANIFEST,
+ * SOURCE-EMPTY-PROOF or ARCHIVE-COMPLETE; and never claims independent
+ * retention or disaster-recovery coverage.
+ */
+export function verifyHistoricalInPlacePreservation() {
+  const policy = OPS_R4_003_POLICY;
+  const fail = historicalPreservationFail;
+  if (!existsSync(HISTORICAL_STAGING_RECEIPT)) {
+    throw new Error('RECOVERY_HISTORICAL_PRESERVATION_REQUIRED');
+  }
+  // Verify the exact installed bytes before calling any function from the
+  // shared module; a stale or foreign module must not influence acceptance.
+  verifyHistoricalEvidenceTool();
+  const staged = readHistoricalStageReceipt({
+    receiptPath: HISTORICAL_STAGING_RECEIPT, uid: 0, gid: 0
+  });
+  verifyHistoricalStageReadback({
+    stageRoot: HISTORICAL_STAGING_DIR, receiptPath: HISTORICAL_STAGING_RECEIPT,
+    uid: 0, gid: 0, receipt: staged.receipt
+  });
+  // The live disposition is the only authority for this attempt; the staged
+  // copies must be the same bytes that were sealed before the profile re-seal.
+  const disposition = historicalReadRecord(policy.dispositionFile, 0o600, 'disposition');
+  if (staged.receipt.dispositionSha256 !== disposition.sha256) fail();
+  const dispositionCopy = historicalReadBytes(HISTORICAL_STAGING_DIR+
+    '/preserved/disposition.json', 0o600, 'preservation');
+  if (!dispositionCopy.equals(disposition.bytes)) fail();
+  const profileCopy = historicalReadBytes(HISTORICAL_STAGING_DIR+'/preserved/profile.json',
+    0o600, 'preservation');
+  const profileSha256 = digest(profileCopy);
+  if (profileSha256 !== disposition.record.profileSha256
+    || staged.receipt.profileSha256 !== profileSha256) fail();
+  let oldProfile;
+  try { oldProfile = parseCanonicalRecord(profileCopy.toString('utf8')); }
+  catch { fail(); }
+
+  const approval = historicalReadRecord(policy.oldApprovalFile, 0o600, 'preservation');
+  // The live profile is the separately re-sealed record. Only its machine
+  // identity is shared with the preserved pre-re-seal copy; the old profile
+  // bytes are never substituted from the live path.
+  const currentProfile = historicalReadRecord(STATE_ROOT+'/profile.json', 0o600, 'preservation');
+  const checkpoints = historicalReadCheckpointChain(STATE_ROOT, 'preservation');
+  validateHistoricalCheckpointChain(checkpoints, disposition.record, historicalPreservationFail);
+  const admission = historicalReadRecord(STATE_ROOT+'/admission-proofs/'+
+    policy.attemptId+'.json', 0o600, 'preservation');
+  validateHistoricalAdmissionProof(admission.record, disposition.record.approvalSha256,
+    checkpoints[0].sha256, historicalPreservationFail);
+  const pre = historicalReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-pre.dump',
+    0o600, 'preservation');
+  const post = historicalReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-post.dump',
+    0o600, 'preservation');
+  const log = historicalReadBytes(policy.postdeployLogFile, 0o644, 'preservation');
+  const rc = historicalReadBytes(policy.postdeployRcFile, 0o644, 'preservation');
+  validateHistoricalPostdeploy(log, rc, historicalPreservationFail);
+  const oldAdoption = historicalReadRecord(policy.oldAdoptionFile, 0o600, 'preservation');
+  const oldBaseline = historicalReadRecord(policy.oldBaselineManifestFile, 0o600, 'preservation');
+  validateHistoricalOldBaselinePayloads(oldBaseline.record, historicalPreservationFail);
+  const oldSums = historicalReadBytes(policy.oldBaselineSha256SumsFile, 0o600, 'preservation');
+  const emergencyReceipt = historicalReadRecord(policy.emergencyReceiptFile, 0o600, 'preservation');
+  const currentTime = sampleTrustedTime();
+  const context = {approval:approval.record,approvalSha256:approval.sha256,
+    profile:oldProfile,profileSha256,machineId:currentProfile.record.machineId,
+    initialCheckpoint:checkpoints[0],lastCheckpoint:checkpoints.at(-1),
+    admissionProof:admission.record,admissionProofSha256:admission.sha256,
+    emergencyReceipt:emergencyReceipt.record,emergencyReceiptSha256:emergencyReceipt.sha256,
+    postdeployLogSha256:digest(log),postdeployRcSha256:digest(rc),
+    oldAdoption:oldAdoption.record,oldAdoptionSha256:oldAdoption.sha256,
+    oldBaselineManifest:oldBaseline.record,oldBaselineManifestSha256:oldBaseline.sha256,
+    oldBaselineSha256SumsSha256:digest(oldSums),currentTime};
+  validateHistoricalRecoveryDisposition(disposition.record, context, historicalPreservationFail);
+  validateHistoricalEmergencyReceipt(emergencyReceipt.record, historicalPreservationFail);
+  validateHistoricalOldEvidence(oldAdoption.record, oldBaseline.record,
+    disposition.record.approvalSha256, profileSha256, oldBaseline.sha256,
+    historicalPreservationFail);
+  const preReceipt = checkpoints[1].record.predeployBackup;
+  const postReceipt = checkpoints.at(-1).record.postdeployBackup;
+  if (!preReceipt || preReceipt.sha256 !== digest(pre)
+    || !postReceipt || postReceipt.sha256 !== digest(post)) fail();
+
+  // Exact live allowlist: any missing, extra, modified, linked, foreign-owned
+  // or re-timestamped entry changes the inventory digest and fails closed.
+  let inventory;
+  try { inventory = captureHistoricalSourceInventory(); }
+  catch { fail(); }
+  if (digest(Buffer.from(JSON.stringify(inventory)+'\n')) !== staged.receipt.sourceInventorySha256) {
+    fail();
+  }
+  const live = new Map(inventory.files.map(entry => [entry.archivePath, entry]));
+  if (live.size !== HISTORICAL_ARCHIVED_PATHS.length
+    || staged.receipt.files.length !== HISTORICAL_ARCHIVED_PATHS.length+2) fail();
+  for (const entry of staged.receipt.files) {
+    if (entry.archivePath.startsWith('preserved/')) continue;
+    const source = live.get(entry.archivePath);
+    if (!source || source.sha256 !== entry.sha256 || source.size !== entry.size
+      || source.mtimeNs !== entry.mtimeNs) fail();
+  }
+  return Object.freeze({attemptId:policy.attemptId,status:'IN_PLACE_PRESERVATION_VERIFIED',
+    authority:'SOURCE_RETAINED_NOT_ARCHIVED_NOT_INDEPENDENTLY_RETAINED',
+    archived:false,sourceRetained:true,terminal:false,
+    r4Acceptance:disposition.record.r4Acceptance,filesVerified:HISTORICAL_ARCHIVED_PATHS.length,
+    dispositionSha256:disposition.sha256,receiptSha256:staged.sha256});
+}
+
+/** Installed-byte pin for the shared evidence module. The administrator wrappers
+ * check owner/mode/link; this check adds the exact version binding. A missing,
+ * foreign or stale module must never change the acceptance gate. */
+function verifyHistoricalEvidenceTool() {
+  let bytes;
+  try { bytes = trustedFile(HISTORICAL_EVIDENCE_TOOL,0o644); }
+  catch { throw new Error('RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED'); }
+  if (digest(bytes) !== HISTORICAL_EVIDENCE_TOOL_SHA256) {
+    throw new Error('RECOVERY_HISTORICAL_EVIDENCE_UNTRUSTED');
+  }
+}
+
+/** Fail-closed sealed-archive presence.
+ *
+ * Only a positively absent archive root and attempt directory mean "no archive
+ * was started". A dangling symlink, a plain file, a symlinked directory, an
+ * unreadable parent or a wrong-owner/mode archive root is never treated as
+ * absent, so the in-place branch can never mask a started or hostile archive.
+ */
+function historicalArchivePresence() {
+  const fail = historicalArchiveFail;
+  let root;
+  try { root = lstatSync(HISTORICAL_ARCHIVE_ROOT); }
+  catch (error) {
+    if (error.code === 'ENOENT') return 'absent';
+    fail();
+  }
+  // A present archive root that is not a plain root-owned, non-writable-by-
+  // others directory is a hostile or broken layout, never "absent".
+  if (!root.isDirectory() || root.isSymbolicLink() || root.uid !== 0 || root.gid !== 0
+    || (root.mode & 0o022) !== 0) fail();
+  try { lstatSync(HISTORICAL_ARCHIVE_DIR); return 'present'; }
+  catch (error) {
+    if (error.code === 'ENOENT') return 'absent';
+    fail();
+  }
+}
+
+/** OPS-R4-002 policy-owned historical prerequisite. A sealed OPS-R4-003 archive
+ * is still accepted exactly as before; otherwise the exact attempt must remain
+ * provably preserved in place. A started, partial or unreadable archive never
+ * falls back to the in-place branch.
+ */
+export function verifyHistoricalPreservationGate() {
+  if (historicalArchivePresence() === 'present') return verifyHistoricalArchiveGate();
+  return verifyHistoricalInPlacePreservation();
+}
+
+/** Read-only OPS-R4-002 precondition. No caller-selected path or mode. */
+export function verifyHistoricalArchiveGate() {
+  const policy = OPS_R4_003_POLICY;
+  const disposition = historicalReadRecord(policy.dispositionFile,0o600,'disposition');
+  const approval = historicalReadRecord(policy.oldApprovalFile,0o600,'archive');
+  const currentProfile = historicalReadRecord(STATE_ROOT+'/profile.json',0o600,'archive');
+  const profileCopy = historicalReadRecord(policy.archiveDir+'/preserved/profile.json',0o600,'archive');
+  // Read archived bytes independently; substitution of live disposition bytes
+  // would incorrectly accept corruption of preserved/disposition.json.
+  const dispositionCopy = historicalReadBytes(policy.archiveDir+'/preserved/disposition.json',0o600,'archive');
+  const checkpoints = historicalReadCheckpointChain(policy.archiveDir,'archive');
+  validateHistoricalCheckpointChain(checkpoints,disposition.record);
+  const admission = historicalReadRecord(policy.archiveDir+'/admission-proofs/'+
+    policy.attemptId+'.json',0o600,'archive');
+  validateHistoricalAdmissionProof(admission.record,disposition.record.approvalSha256,
+    checkpoints[0].sha256);
+  const pre = historicalReadBytes(policy.archiveDir+'/backups/'+policy.attemptId+'-pre.dump',0o600,'archive');
+  const post = historicalReadBytes(policy.archiveDir+'/backups/'+policy.attemptId+'-post.dump',0o600,'archive');
+  const log = historicalReadBytes(policy.archiveDir+'/logs/'+policy.attemptId+
+    '/postdeploy-operator-20261101T040551Z.log',0o600,'archive');
+  const rc = historicalReadBytes(policy.archiveDir+'/logs/'+policy.attemptId+
+    '/postdeploy-operator-20261101T040551Z.rc',0o600,'archive');
+  validateHistoricalPostdeploy(log,rc);
+  const oldAdoption = historicalReadRecord(policy.oldAdoptionFile,0o600,'archive');
+  const oldBaseline = historicalReadRecord(policy.oldBaselineManifestFile,0o600,'archive');
+  validateHistoricalOldBaselinePayloads(oldBaseline.record);
+  const oldSums = historicalReadBytes(policy.oldBaselineSha256SumsFile,0o600,'archive');
+  const receipt = historicalReadRecord(policy.emergencyReceiptFile,0o600,'archive');
+  const currentTime = sampleTrustedTime();
+  const context = {approval:approval.record,approvalSha256:approval.sha256,
+    profile:profileCopy.record,profileSha256:profileCopy.sha256,
+    machineId:currentProfile.record.machineId,initialCheckpoint:checkpoints[0],
+    lastCheckpoint:checkpoints.at(-1),admissionProof:admission.record,
+    admissionProofSha256:admission.sha256,emergencyReceipt:receipt.record,
+    emergencyReceiptSha256:receipt.sha256,postdeployLogSha256:digest(log),
+    postdeployRcSha256:digest(rc),oldAdoption:oldAdoption.record,
+    oldAdoptionSha256:oldAdoption.sha256,oldBaselineManifest:oldBaseline.record,
+    oldBaselineManifestSha256:oldBaseline.sha256,
+    oldBaselineSha256SumsSha256:digest(oldSums),currentTime};
+  validateHistoricalRecoveryDisposition(disposition.record,context);
+  validateHistoricalEmergencyReceipt(receipt.record);
+  validateHistoricalOldEvidence(oldAdoption.record,oldBaseline.record,
+    disposition.record.approvalSha256,profileCopy.sha256,oldBaseline.sha256);
+  const preReceipt = checkpoints[1].record.predeployBackup;
+  const postReceipt = checkpoints.at(-1).record.postdeployBackup;
+  if (!preReceipt || preReceipt.sha256 !== digest(pre)
+    || !postReceipt || postReceipt.sha256 !== digest(post)) historicalArchiveFail();
+  assertHistoricalSourceEmpty();
+  const manifest = historicalReadRecord(policy.archiveManifestFile,0o600,'archive');
+  const proof = historicalReadRecord(policy.sourceEmptyProofFile,0o600,'archive');
+  const complete = historicalReadRecord(policy.archiveCompleteFile,0o600,'archive');
+  const archiveBytes = new Map();
+  for (let index = 0; index < checkpoints.length; index += 1) {
+    archiveBytes.set('attempts/'+policy.attemptId+'/'+String(index).padStart(4,'0')+'.json',
+      checkpoints[index].bytes);
+  }
+  archiveBytes.set('admission-proofs/'+policy.attemptId+'.json',admission.bytes);
+  archiveBytes.set('backups/'+policy.attemptId+'-pre.dump',pre);
+  archiveBytes.set('backups/'+policy.attemptId+'-post.dump',post);
+  archiveBytes.set('logs/'+policy.attemptId+'/postdeploy-operator-20261101T040551Z.log',log);
+  archiveBytes.set('logs/'+policy.attemptId+'/postdeploy-operator-20261101T040551Z.rc',rc);
+  for (const name of HISTORICAL_LOG_NAMES.filter(name=>!name.startsWith('postdeploy-operator'))) {
+    archiveBytes.set('logs/'+policy.attemptId+'/'+name,
+      historicalReadBytes(policy.archiveDir+'/logs/'+policy.attemptId+'/'+name,0o600,'archive'));
+  }
+  const liveBytes = new Map([[policy.oldAdoptionFile,oldAdoption.bytes],
+    [policy.oldApprovalFile,approval.bytes],[policy.oldBaselineManifestFile,oldBaseline.bytes],
+    [policy.oldBaselineSha256SumsFile,oldSums],[policy.emergencyReceiptFile,receipt.bytes]]);
+  const copyBytes = new Map([['preserved/profile.json',profileCopy.bytes],
+    ['preserved/disposition.json',dispositionCopy]]);
+  const archiveMtimes = walkHistoricalArchive();
+  const result = verifyHistoricalArchiveRecords({disposition:disposition.record,
+    dispositionBytes:disposition.bytes,dispositionSha256:disposition.sha256,manifest:manifest.record,
+    manifestSha256:manifest.sha256,proof:proof.record,proofSha256:proof.sha256,
+    complete:complete.record,completeSha256:complete.sha256,
+    checkpointSummary:{last:checkpoints.at(-1)},archiveBytes,liveBytes,copyBytes,archiveMtimes,currentTime});
+  return result;
+}
+
+/** Root-only one-time historical disposition. Deliberately absent from deploy. */
+export function issueHistoricalRecoveryDisposition() {
+  const policy = OPS_R4_003_POLICY;
+  if (process.getuid?.() !== 0) throw new Error('RECOVERY_DISPOSITION_ADMIN_REQUIRED');
+  try {
+    trustedFile(STATE_ROOT+'/host.lock',0o600);
+    const held = fstatSync(9), named = lstatSync(STATE_ROOT+'/host.lock');
+    if (!held.isFile() || held.dev !== named.dev || held.ino !== named.ino) throw new Error();
+    execFileSync('/usr/bin/flock',['--nonblock','9'],{timeout:2000,
+      env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},stdio:['ignore','pipe','pipe',...Array(6).fill('ignore'),9]});
+    const after = lstatSync(STATE_ROOT+'/host.lock');
+    if (held.dev !== after.dev || held.ino !== after.ino) throw new Error();
+  } catch { throw new Error('RECOVERY_DISPOSITION_HOST_LOCK_REQUIRED'); }
+  for (const path of [STATE_ROOT+'/active.json',STATE_ROOT+'/activation.block',PERMIT_FILE,
+    '/etc/systemd/system/servora-med.service.d/90-servora-recovery.conf']) {
+    if (existsSync(path)) throw new Error('RECOVERY_DISPOSITION_STATE_NOT_EMPTY');
+  }
+  if (existsSync(policy.dispositionFile)) throw new Error('RECOVERY_DISPOSITION_ALREADY_SEALED');
+  if (existsSync(policy.archiveDir)) throw new Error('RECOVERY_DISPOSITION_ARCHIVE_ALREADY_PRESENT');
+  assertHistoricalSourceState();
+  const approval = dispositionReadRecord(policy.oldApprovalFile,0o600);
+  try { validateApprovalStructure(approval.record); }
+  catch { throw new Error('RECOVERY_DISPOSITION_EVIDENCE_INVALID'); }
+  const profile = dispositionReadRecord(STATE_ROOT+'/profile.json',0o600);
+  if (profile.sha256 !== approval.record.profileSha256
+    || profile.record.machineId !== readFileSync('/etc/machine-id','utf8').trim()) {
+    throw new Error('RECOVERY_DISPOSITION_EVIDENCE_INVALID');
+  }
+  const checkpoints = historicalReadCheckpointChain(STATE_ROOT,'disposition');
+  const dispositionStub = {approvalSha256:approval.sha256,profileSha256:approval.record.profileSha256,
+    initialCheckpointSha256:checkpoints[0].sha256,lastCheckpointSha256:checkpoints.at(-1).sha256};
+  validateHistoricalCheckpointChain(checkpoints,dispositionStub,historicalDispositionFail);
+  const admission = dispositionReadRecord(STATE_ROOT+'/admission-proofs/'+
+    policy.attemptId+'.json',0o600);
+  validateHistoricalAdmissionProof(admission.record,approval.sha256,checkpoints[0].sha256,
+    historicalDispositionFail);
+  const pre = dispositionReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-pre.dump',0o600);
+  const post = dispositionReadBytes(STATE_ROOT+'/backups/'+policy.attemptId+'-post.dump',0o600);
+  const preReceipt = checkpoints[1].record.predeployBackup;
+  const postReceipt = checkpoints.at(-1).record.postdeployBackup;
+  if (!preReceipt || preReceipt.sha256 !== digest(pre)
+    || !postReceipt || postReceipt.sha256 !== digest(post)) {
+    throw new Error('RECOVERY_DISPOSITION_EVIDENCE_INVALID');
+  }
+  const historicalLogs = new Map();
+  for (const name of HISTORICAL_LOG_NAMES) {
+    const mode = name.startsWith('postdeploy-operator') ? 0o644 : 0o600;
+    historicalLogs.set(name,dispositionReadBytes(STATE_ROOT+'/logs/'+policy.attemptId+'/'+name,mode));
+  }
+  const log = historicalLogs.get('postdeploy-operator-20261101T040551Z.log');
+  const rc = historicalLogs.get('postdeploy-operator-20261101T040551Z.rc');
+  validateHistoricalPostdeploy(log,rc,historicalDispositionFail);
+  const oldAdoption = dispositionReadRecord(policy.oldAdoptionFile,0o600);
+  const oldBaseline = dispositionReadRecord(policy.oldBaselineManifestFile,0o600);
+  validateHistoricalOldBaselinePayloads(oldBaseline.record,historicalDispositionFail);
+  const oldSums = dispositionReadBytes(policy.oldBaselineSha256SumsFile,0o600);
+  const receipt = dispositionReadRecord(policy.emergencyReceiptFile,0o600);
+  validateHistoricalEmergencyReceipt(receipt.record,historicalDispositionFail);
+  validateHistoricalOldEvidence(oldAdoption.record,oldBaseline.record,approval.sha256,
+    profile.sha256,oldBaseline.sha256,historicalDispositionFail);
+  const currentTime = sampleTrustedTime();
+  const context = {approval:approval.record,approvalSha256:approval.sha256,
+    profile:profile.record,profileSha256:profile.sha256,machineId:profile.record.machineId,
+    initialCheckpoint:checkpoints[0],lastCheckpoint:checkpoints.at(-1),admissionProof:admission.record,
+    admissionProofSha256:admission.sha256,emergencyReceipt:receipt.record,
+    emergencyReceiptSha256:receipt.sha256,postdeployLogSha256:digest(log),
+    postdeployRcSha256:digest(rc),oldAdoption:oldAdoption.record,oldAdoptionSha256:oldAdoption.sha256,
+    oldBaselineManifest:oldBaseline.record,oldBaselineManifestSha256:oldBaseline.sha256,
+    oldBaselineSha256SumsSha256:digest(oldSums),currentTime};
+  const record = historicalRecoveryDispositionRecord(context);
+  if (!existsSync(HISTORICAL_DISPOSITION_ROOT)) {
+    mkdirSync(HISTORICAL_DISPOSITION_ROOT,{mode:0o700});
+    flushDirectory(STATE_ROOT);
+  }
+  historicalDirectory(HISTORICAL_DISPOSITION_ROOT,historicalDispositionFail);
+  const fd = openSync(policy.dispositionFile,
+    constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  try {
+    writeFileSync(fd,JSON.stringify(record)+'\n');
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
+  flushDirectory(HISTORICAL_DISPOSITION_ROOT);
+  const sealed = trustedFile(policy.dispositionFile,0o600);
+  if (digest(sealed) !== jsonDigest(record)) historicalDispositionFail();
+  return {record,sha256:digest(sealed)};
+}
+
 export function verifyAttemptRelease(attemptId, direction) {
   const context = loadAttempt(attemptId);
   const {approval} = context;
@@ -527,8 +1662,25 @@ export function verifyAttemptRelease(attemptId, direction) {
       if (digest(trustedFile(retained,0o600)) !== expected) throw new Error('RECOVERY_RELEASE_UNPROVEN');
     } else {
       if (direction !== 'old') throw new Error('RECOVERY_RELEASE_UNPROVEN');
-      const record = readProtectedRecord(ADOPTION_FILE).record;
-      verifyInstalledOldBaseline(record,context,root,entries);
+      const policy = recoveryPolicyForRelease(approval.oldReleaseSha);
+      if (policy === OPS_R4_002_POLICY && existsSync(CUTOVER_ATTESTATION_FILE)) {
+        requireInstalledOldRecoveryLock();
+        if (existsSync(policy.adoptionFile)) throw new Error('RECOVERY_CUTOVER_EVIDENCE_CONFLICT');
+        const record = readProtectedRecord(CUTOVER_ATTESTATION_FILE).record;
+        if (record.kind !== CUTOVER_ATTESTATION_KIND) throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID');
+        verifyInstalledOldBaseline(record,context,root,entries,policy);
+        // Only readRootApproval's verified confirmation grants same-attempt
+        // continuation. A bare initializer, starts=0 or caller flag cannot.
+        if (context.initializationPending) throw new Error('RECOVERY_CUTOVER_ADMISSION_UNCERTAIN');
+        const reference = context.admissionTime ?? initialAttempt(context).admissionTime;
+        if (Date.parse(record.attestedTime.wallAtUTC) > Date.parse(reference.wallAtUTC)) {
+          throw new Error('RECOVERY_CUTOVER_ATTESTATION_INVALID');
+        }
+        if (!context.admissionTime) verifyHistoricalPreservationGate();
+      } else {
+        const record = readProtectedRecord(policy.adoptionFile).record;
+        verifyInstalledOldBaseline(record,context,root,entries,policy);
+      }
     }
     if (direction === 'target' && digest(trustedFile(root+'/ops/scripts/deploy-production-host.sh',0o750,null))
       !== digest(trustedFile(INSTALLED+'/deploy-production-host',0o755))) throw new Error('RECOVERY_RELEASE_UNPROVEN');
@@ -1528,6 +2680,7 @@ export async function abortAttempt(attemptId) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const [command, attemptId, ...extra] = process.argv.slice(2);
+    assertBootstrapManagementAllowed('controller', attemptId);
     if (command === 'preflight' && extra.length === 0) {
       process.stdout.write(JSON.stringify(await preflightAttempt(attemptId))+'\n');
     } else if (command === 'inspect' && extra.length === 0) {

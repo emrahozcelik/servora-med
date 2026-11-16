@@ -94,6 +94,7 @@ export function jobCardInvalidationReasonLabel(
 }
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
+  'WEEKLY_REPORT_REMOVED',
   'SALE_FROM_VISIT_CREATED', 'SALE_DETAILS_UPDATED', 'SALE_ITEM_ADDED', 'SALE_ITEM_UPDATED', 'SALE_ITEM_REMOVED',
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
@@ -108,6 +109,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
 const LABELS: Record<KnownJobCardActivityEvent, string> = {
+  WEEKLY_REPORT_REMOVED: 'Haftalık rapor kaldırıldı',
   SALE_FROM_VISIT_CREATED: 'Ziyaretten satış kaydı oluşturuldu',
   SALE_DETAILS_UPDATED: 'Satış bilgileri düzeltildi',
   SALE_ITEM_ADDED: 'Satış ürünü eklendi',

@@ -340,6 +340,9 @@ function WeeklyReportCreateRoute({ user, navigate }: { user: CurrentUser; naviga
       Personel ayrılma ekranına dön ve planı yenile
     </Link>
   </nav>}<WeeklyReportCreateScreen user={user}
+    key={`${search.get('periodStart') ?? ''}:${search.get('staffUserId') ?? ''}`}
+    initialPeriodStart={search.get('periodStart') ?? undefined}
+    initialStaffUserId={search.get('staffUserId') ?? undefined}
     onCancel={() => navigate(offboardingTarget ? `${paths.user(offboardingTarget)}?offboarding=refresh` : paths.jobs)}
     onCreated={(id) => navigate(offboardingTarget
       ? `${paths.job(id)}?offboardingTarget=${encodeURIComponent(offboardingTarget)}` : paths.job(id))} /></>;

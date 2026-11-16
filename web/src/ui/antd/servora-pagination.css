@@ -1,0 +1,30 @@
+.servora-list-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  min-width: 0;
+}
+
+.servora-list-pagination__summary {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.servora-list-pagination .servora-ant-pagination {
+  margin: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .servora-list-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .servora-list-pagination .servora-ant-pagination {
+    align-self: flex-start;
+  }
+}

@@ -117,10 +117,10 @@ describe('runMigrations', () => {
       '055_job_submit_location_comparison.sql',
       '056_meeting_met_contact.sql',
       '057_sale_from_visit.sql',
-      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql',
+      '058_sale_integer_quantity.sql', '059_crm_duplicate_read_indexes.sql', '060_crm_duplicate_review_decisions.sql', '061_weekly_report_removal.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('060_crm_duplicate_review_decisions.sql');
-    expect(expectedSchemaVersion).toBe(60);
+    expect(migrations.at(-1)?.name).toBe('061_weekly_report_removal.sql');
+    expect(expectedSchemaVersion).toBe(61);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

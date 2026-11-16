@@ -20,6 +20,7 @@ import {
  * `Yanıtta weeklyReport alanı geçersiz.`
  */
 const serverDetail = {
+  canRemove: false, removal: null,
   // WeeklyReport (mapped weekly_reports row)
   id: 'report-1',
   organizationId: 'org-1',

@@ -2,6 +2,16 @@
 
 **Ubuntu 24.04 VPS** reference topology (Slice 11). For the **initial macOS pilot** with Cloudflare Tunnel (no inbound app ports), use [local-macos-cloudflare-tunnel.md](./local-macos-cloudflare-tunnel.md) instead.
 
+## B1-01 bootstrap restriction
+
+The [persistent management fence](./b1-01-persistent-bootstrap-fence.md) is an
+additional source-level prerequisite for the updated host tools. On an installed
+host, legacy attempt-less deployment, generic rollback and in-place legacy
+restore remain disabled after RELEASED. Existing recipes below do not authorize
+those paths or first activation. This source change does not install the guard,
+change production delegation or open a deployment window. Production is NO-GO
+until separate bootstrap, effective-authority and release acceptance are complete.
+
 ## Topology
 
 ```text
@@ -225,28 +235,38 @@ The approved operator flow is:
 
 ```text
 merge PR to main
-→ exact main CI push is green
+→ exact main CI push is green, including `release-package`
+→ genuine root approval already issued for this exact SHA/catalog/CI/artifact
 → Actions → Production Deploy (manual start)
 → production environment required-reviewer approval
-→ operator enters the exact current main SHA as `deploy_sha`
+→ operator enters `deploy_sha`, the approved `attempt_id`, and the exact `ci_run_id`
 → workflow dispatch ref remains `main`
-→ exact `deploy_sha` build/package/transfer
+→ exact `deploy_sha` artifact download/verification/transfer
 → preflight → predeploy backup → migration gate
 → atomic current switch → servora-med restart → health
 → public Playwright browser smoke
 → one postdeploy backup → summary
 ```
 
-The workflow must be dispatched from the `main` ref and requires one explicit
-`deploy_sha` string. Before checkout, it requires `deploy_sha` to be a lowercase
-40-character SHA, requires `GITHUB_REF=refs/heads/main`, and requires
-`GITHUB_SHA=deploy_sha`. It then checks out `deploy_sha`, verifies the checked-
-out HEAD again, and passes the same value to `ops/deploy-production.sh --sha`.
-The checked-out commit, remote main SHA, and the successful `push` CI run
-(including `server` and `web` jobs) must be the same 40-character SHA. The
-workflow has `contents: read` and `actions: read` permissions, uses the
-`production-deploy` concurrency group, and does not cancel an in-flight
-deployment.
+The workflow must be dispatched from the `main` ref. Every deployment — not
+only one that applies migrations — requires `deploy_sha`, the previously
+issued root-owned `attempt_id` UUID, and the exact successful `ci_run_id`.
+Before checkout, it requires `deploy_sha` to be a lowercase 40-character SHA,
+`GITHUB_REF=refs/heads/main`, `GITHUB_SHA=deploy_sha`, a canonical UUID v4
+`attempt_id`, and a positive integer `ci_run_id`. It then checks out
+`deploy_sha`, verifies the checked-out HEAD again, downloads the
+`servora-med-release-<sha>` artifact and its `.sha256` sidecar from that CI
+run, and passes the same values to `ops/deploy-production.sh` in its
+attempt-bound GitHub mode. The checked-out commit, remote main SHA, the
+successful `push` CI run (including `server`, `web` and `release-package`
+jobs), and the prebuilt Linux archive must all belong to the same
+40-character SHA. The workflow has `contents: read` and `actions: read`
+permissions, uses the `production-deploy` concurrency group, and does not
+cancel an in-flight deployment. There is no attempt-less workflow branch and
+no workflow input that disables migrations. A migration denial is never
+translated into the route selector: an approval whose exact catalog has no
+pending SQL is the ordinary same-catalog release, and a pending migration
+without matching approval stops at the host migration gate.
 
 Before the deployment gates proceed, the root host helper idempotently runs
 `systemctl enable servora-med.service`. This persists normal-boot startup but
@@ -272,6 +292,93 @@ SERVORA_PROD_FQDN
 ```
 
 `SERVORA_PROD_SSH_KEY` is the `servora-deploy` private key, not a root key.
+
+### Hosted-CI, approved deployment (review required)
+
+Every workflow deployment uses an existing, separately issued genuine
+root-owned approval and a **prebuilt Linux/amd64** release archive. The
+workflow itself issues no approval and has no attempt-less or
+migration-disabled branch. Local CI is **optional**, not the mandatory
+source of deployment evidence when GitHub Actions `CI` is green.
+The source SHA must be current `main`; do not reuse an older SHA's CI or archive.
+
+After the three mandatory GitHub CI jobs succeed on `push/main`, the
+`release-package` job builds and verifies the exact-SHA Linux release archive,
+then publishes the immutable-name Actions artifact
+`servora-med-release-<sha>` containing
+`servora-med-<sha>.tar.gz` and its `.sha256` sidecar. That job is
+**not** a production deployment and does not contact the VPS. A successful
+previous run without `release-package` (for example, the original 061 merge
+CI) cannot authorize an attempt-bound GitHub artifact.
+
+The release approver independently obtains the exact successful CI run ID,
+downloads the release artifact, verifies the sidecar and its SHA-256, and
+calculates the deterministic CI evidence digest using the *same checked out
+release SHA*. The receipt binds the run ID, attempt number, commit SHA,
+push/main identity and every completed successful job, including the package job:
+
+```bash
+SHA=<exact-40-character-main-SHA>
+CI_RUN_ID=<exact-green-push-main-CI-run-id>
+gh run download "$CI_RUN_ID" --name "servora-med-release-$SHA" --dir "$REVIEW_DIR"
+gh run view "$CI_RUN_ID" \
+  --json databaseId,attempt,headSha,headBranch,event,status,conclusion,workflowName,jobs \
+  | node ops/scripts/github-ci-evidence.mjs --sha "$SHA" --run-id "$CI_RUN_ID" --require-package
+```
+
+The resulting 64-character digest is the **real GitHub CI manifest SHA-256**
+supplied as `ciManifestSha256` to the separately reviewed
+`issueRootApproval(fields, ttlMs)` administrator operation. It is a canonical
+hash of verified GitHub run metadata, **not a local-CI bundle**, forged receipt,
+cryptographic GitHub signature, or permission to self-issue approval. The
+administrator must also independently validate artifact, predecessor release,
+target catalog, host profile, scopes, live host state, and Trusted Time before
+issuing the sealed approval. Nothing in the workflow creates, renews or
+relaxes the host approval or bypasses Chrony/NTS/TT-A bootstrap.
+
+Only *after* a genuine root approval exists, manually dispatch **Production
+Deploy** from `main` with `deploy_sha`, `attempt_id` (the already approved
+UUID), and `ci_run_id` (the exact CI run that produced the package). These
+three inputs are mandatory for every release, including an ordinary
+same-catalog release that applies zero SQL. The approval is issued separately
+per deployment for that exact SHA/catalog/CI/artifact; the workflow neither
+creates it nor extends an existing one. The workflow's protected `production`
+environment reviewer still gates access. It downloads the named artifact,
+and the runner enforces:
+
+- current canonical SHA and clean source, exact green `push/main` CI;
+- pinned CI run ID and `release-package` job; deterministic CI digest equal
+  to the root approval projection;
+- package SHA-256/sidecar and source SHA equal to the same approval;
+- actual root-owned approval and attempt preflight **before** artifact transfer;
+- existing host time/profile, migration catalog, predeploy/postdeploy backup,
+  health and browser checks.
+
+If any one of these conditions fails, **HOLD**. Keep the local evidence path
+available as an optional alternative for environments where hosted CI is not
+available. The two modes are separately attested; never synthesize local
+evidence, use an old run, supply an arbitrary digest, or route a migration
+through the no-attempt legacy deployment path.
+
+The workflow passes `--allow-migrations` only to select the existing guarded
+attempt-bound host route. It is not an approval: the genuine root approval's
+exact catalog bounds which migrations (if any) may run, and an identical
+catalog applies zero SQL. The unchanged host approval/TT-A, admission window
+and start budgets still apply; the workflow adds no approval, renewal or
+budget mechanism.
+
+The separate `67d3318` installed-OLD cutover attestation
+([B1-03](./b1-03-cutover-attestation.md)) is a one-time identity/plan record
+for the missing-original-artifact case only. It is not a workflow input, not a
+substitute for the genuine root approval, and this workflow change added no
+second deployment mode for it.
+
+**Important for migration 061:** this workflow change itself creates a new
+main SHA. The green run for `3287ded4...` has no release artifact and cannot
+be relabeled as a newer run. Obtain fresh exact-main CI and its package after
+this change is merged. Host B1 Trusted Time and B3 privileged-module drift
+remain independent blockers; this section authorizes neither a bootstrap nor
+a production migration.
 
 ### Local-first operation (when GitHub-hosted runners are unavailable)
 
@@ -531,18 +638,22 @@ deletes, cleans, stashes, or resets a worktree.
 
 ### Migration, rollback, and backup policy
 
-`allow_migrations` defaults to `false`. The helper compares the candidate
-catalog with production `schema_migrations` before invoking the tracked
-`dist/db/migrate.js` runner using an ordered history contract. Production must
-be either `EXACT` or an exact ordered prefix (`PREFIX_WITH_PENDING`) of the
-candidate catalog. Prefix migrations stop with
-`PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION` unless a reviewer
-deliberately enables the workflow boolean. `DIVERGENT`, `DATABASE_AHEAD`,
-`DUPLICATE_HISTORY`, and `INVALID_CATALOG` states always stop, even when
-migrations are explicitly allowed. It records aggregate organization, admin,
-staff, customer, product, job, and demo-data counts before and after the runner
-and fails if they move unexpectedly. No arbitrary SQL or automatic database
-restore is available.
+The approved workflow always supplies `--allow-migrations` to select the
+existing guarded attempt-bound host route; the flag is a route selector, not an
+approval, and the workflow has no migration-disabled mode. The genuine root
+approval's exact catalog bounds the permitted SQL. The helper compares the
+candidate catalog with production `schema_migrations` before invoking the
+tracked `dist/db/migrate.js` runner using an ordered history contract.
+Production must be either `EXACT` or an exact ordered prefix
+(`PREFIX_WITH_PENDING`) of the candidate catalog. An `EXACT` match applies zero
+SQL. Prefix migrations stop with
+`PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION` unless the genuine root
+approval authorizes those exact pending migrations. `DIVERGENT`,
+`DATABASE_AHEAD`, `DUPLICATE_HISTORY`, and `INVALID_CATALOG` states always stop,
+even when migrations are explicitly allowed. It records aggregate organization,
+admin, staff, customer, product, job, and demo-data counts before and after the
+runner and fails if they move unexpectedly. No arbitrary SQL or automatic
+database restore is available.
 
 This runbook does not assert the current live production schema. The
 deploy-time read-only comparison is authoritative, and derives the pending

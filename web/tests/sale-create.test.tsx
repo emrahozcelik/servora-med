@@ -22,7 +22,7 @@ beforeEach(()=>{
  vi.stubGlobal('matchMedia',vi.fn().mockReturnValue({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn(),addListener:vi.fn(),removeListener:vi.fn()}));
  host=document.createElement('div');document.body.append(host);root=createRoot(host);
  vi.mocked(api.getSaleCreateContext).mockResolvedValue(context);
- vi.mocked(listProducts).mockResolvedValue({items:[product('p1'),product('p2')],total:2,limit:8,offset:0});
+ vi.mocked(listProducts).mockResolvedValue({items:[product('p1'),product('p2')],total:2,limit:6,offset:0});
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.clearAllMocks();vi.unstubAllGlobals();});
 async function render(){await act(async()=>root.render(<SaleCreateScreen visitId="visit" user={{id:'staff',organizationId:'org',role:'STAFF'} as never} onCancel={cancelled} onCreated={created} />));}
@@ -44,7 +44,7 @@ describe('SaleCreate',()=>{
   await input('[aria-label="Ürün p2 satış adedi"]','15');
   await act(async()=>{(host.querySelector('[aria-label="Kaldır: Ürün p1"]') as HTMLButtonElement).click();});
   await add('p1');await submit();
-  expect(listProducts).toHaveBeenCalledWith(expect.objectContaining({status:'active',dataClass:'BUSINESS',limit:8,offset:0}));
+  expect(listProducts).toHaveBeenCalledWith(expect.objectContaining({status:'active',dataClass:'BUSINESS',limit:6,offset:0}));
   expect(api.createSaleFromVisit).toHaveBeenCalledWith('visit',expect.objectContaining({expectedSourceVersion:3,saleContactId:null,items:[{productId:'p2',quantity:15},{productId:'p1',quantity:1}]}));
   expect(created).toHaveBeenCalledWith('sale');
  });

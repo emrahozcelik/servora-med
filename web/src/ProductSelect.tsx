@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { listProducts, type Paginated, type Product, type ProductFilters } from './services/products-api';
+import { DEFAULT_LIST_PAGE_SIZE } from './ui/pagination';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
 import { createRequestGate } from './services/request-gate';
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = DEFAULT_LIST_PAGE_SIZE;
 
 type ProductSelectState =
   | { kind: 'idle' }
@@ -155,13 +157,11 @@ export function ProductSelect(props: ProductSelectProps) {
           </button></li>;
         })}
       </ul>}
-      {searchOpen && state.kind === 'ready' && state.page.total > state.page.limit && <nav className="product-select-pagination" aria-label="Ürün sonuçları sayfaları">
-        <button className="secondary-button" type="button" disabled={disabled || state.page.offset === 0}
-          onClick={() => setOffset(Math.max(0, state.page.offset - state.page.limit))}>Önceki</button>
-        <span>{state.page.offset + 1}–{Math.min(state.page.offset + state.page.limit, state.page.total)} / {state.page.total}</span>
-        <button className="secondary-button" type="button" disabled={disabled || state.page.offset + state.page.limit >= state.page.total}
-          onClick={() => setOffset(state.page.offset + state.page.limit)}>Sonraki</button>
-      </nav>}
+      {searchOpen && state.kind === 'ready' && state.page.total > state.page.limit && <div className="product-select-pagination">
+        <ServoraListPagination label="Ürün sonuçları sayfaları" itemName="ürün"
+          total={state.page.total} offset={state.page.offset} pageSize={state.page.limit}
+          disabled={disabled} onOffsetChange={setOffset} />
+      </div>}
     </div>
     {selectedProducts.length > 0 && <div className="product-select-selected" aria-labelledby={headingId}>
       <h2 id={headingId}>Seçilen ürünler</h2>

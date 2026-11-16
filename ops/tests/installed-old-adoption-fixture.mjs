@@ -13,8 +13,14 @@ import {approvalFixture,timeEvidenceAt} from './trusted-time-fixture.mjs';
 const jsonHash=value=>hash(JSON.stringify(value)+'\n');
 const oldSha='71ae6df6dd0659ed6390a6785d4bab29ddf5b1fa';
 const original='6f9dbb6a211813fd0d6d5e92396b71045d506eb959cd98d883e257663af79672';
+const oldSha67='67d33183d22e00f231ca21a5807cf49a6c4c2a68';
+const original67='a1db5a8d8faea144f6f18006f09cd9c0f457a6a79782fd5fcd9884f528593ebf';
+const reconstructed67='ddf12049ed483062d00b4a1c0fdd4909d01010d9dc9459c3cb5a5c39c142a220';
+const contentManifest67='059dedcbaf2de186608e7f975f223a5ac659651d67ca56bbb6a26407a9628aef';
 const migrationDirectory=new URL('../../server/src/db/migrations/',import.meta.url);
 const catalog=fs.readdirSync(migrationDirectory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,55)
+  .map(name=>({version:name.slice(0,-4),sha256:hash(fs.readFileSync(new URL(name,migrationDirectory)))}));
+const catalog67=fs.readdirSync(migrationDirectory).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort().slice(0,60)
   .map(name=>({version:name.slice(0,-4),sha256:hash(fs.readFileSync(new URL(name,migrationDirectory)))}));
 
 export function adoptionFixture() {
@@ -41,24 +47,74 @@ export function adoptionFixture() {
   return {record,context,baseline,baselineSha256:jsonHash(baseline)};
 }
 
+export function adoptionFixture67d3318() {
+  const approval={...approvalFixture(),oldReleaseSha:oldSha67,oldArtifactSha256:original67,
+    oldCatalog:catalog67,targetCatalog:catalog67};
+  const databaseIdentity={clusterId:'1',databaseName:'servora_med_test_adoption',databaseOid:'1',role:'servora_app',host:'127.0.0.1',port:5432};
+  const profile={machineId:'1'.repeat(32),databaseIdentity};
+  const baseline={formatVersion:1,kind:'RECOVERY_BASELINE_NOT_ORIGINAL_ARTIFACT',
+    baselineId:'20261110T090000Z-ops-r4-002-67d3318',createdAtUTC:approval.issuedAtUTC,completedAtUTC:approval.issuedAtUTC,
+    machineId:profile.machineId,sourceReleaseSha:oldSha67,originalArtifactSha256:original67,
+    installedContentManifestSha256:contentManifest67,databaseIdentity,catalog:catalog67,restoreAcceptance:false,
+    verifications:{dumpList:true,dumpCatalogExact:true,adoptedArchiveComparedToInstalled:true,configurationArchiveCompared:true,
+      originalObservationAndMarkerUnchanged:true,appPidUnchanged:true},
+    files:Object.fromEntries(['database.dump','installed-old-release.adopted.tar.gz','configuration.tar.gz',
+      'database-metadata.json','installed-old-content.sha256'].map(name=>[name,{name,sha256:'6'.repeat(64),bytes:10}]))};
+  baseline.files['installed-old-content.sha256'].sha256=contentManifest67;
+  baseline.files['installed-old-release.adopted.tar.gz'].sha256=reconstructed67;
+  const context={approval,approvalSha256:'4'.repeat(64),profile};
+  const record={formatVersion:1,kind:'ADOPTED_INSTALLED_OLD_OPS_R4_002',attemptId:approval.attemptId,
+    approvalSha256:context.approvalSha256,profileSha256:approval.profileSha256,machineId:profile.machineId,
+    oldReleaseSha:oldSha67,originalArtifactSha256:original67,oldCatalogSha256:jsonHash(catalog67),
+    oldContentManifestSha256:contentManifest67,targetReleaseSha:approval.releaseSha,
+    targetTreeSha:approval.treeSha,targetArtifactSha256:approval.artifactSha256,
+    baselineId:baseline.baselineId,baselineManifestSha256:jsonHash(baseline),
+    adoptedArchiveSha256:reconstructed67,
+    databaseDumpSha256:baseline.files['database.dump'].sha256,attestedTime:timeEvidenceAt()};
+  return {record,context,baseline,baselineSha256:jsonHash(baseline)};
+}
+
 export async function adoptionHost(f) {
   const files=new Map(),directories=new Map([['/',0o755],[state,0o700]]),fds=new Map(),commands=[];
+  const symlinks=new Map(),lstatErrors=new Map(),owners=new Map();
   let nextFd=10;
-  const add=(path,data,mode=0o600)=>{
-    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1});
+  const ensureParents=path=>{
     let parent=path.slice(0,path.lastIndexOf('/'));
     while(parent){if(!directories.has(parent))directories.set(parent,parent.startsWith(state+'/')?0o700:0o755);parent=parent.slice(0,parent.lastIndexOf('/'));}
   };
-  const info=path=>{
+  const add=(path,data,mode=0o600)=>{
+    files.set(path,{data:Buffer.from(data),mode,uid:0,gid:0,nlink:1,
+      mtimeNs:'1762770600000000000'});
+    ensureParents(path);
+  };
+  const addSymlink=(path,target)=>{
     path=posix.normalize(path);
-    const file=files.get(path),dir=directories.has(path);
-    if(!file&&!dir)throw Object.assign(new Error('not found'),{code:'ENOENT'});
-    return {uid:0,gid:0,nlink:1,dev:1,ino:parseInt(hash(path).slice(0,8),16),mode:dir?directories.get(path):file.mode,size:file?.data.length??0,
-      isDirectory:()=>dir,isFile:()=>!dir,isSymbolicLink:()=>false,...file};
+    symlinks.set(path,target);
+    ensureParents(path);
+  };
+  const info=(path,bigint=false)=>{
+    path=posix.normalize(path);
+    const errorCode=lstatErrors.get(path);
+    if(errorCode)throw Object.assign(new Error(errorCode),{code:errorCode});
+    const file=files.get(path),dir=directories.has(path),link=symlinks.get(path);
+    if(!file&&!dir&&link===undefined)throw Object.assign(new Error('not found'),{code:'ENOENT'});
+    const ino=file?.ino??parseInt(hash(path).slice(0,8),16);
+    const isLink=link!==undefined;
+    const mode=isLink?0o777:dir?directories.get(path):file.mode;
+    const size=isLink?link.length:file?.data.length??0;
+    const mtimeNs=BigInt(file?.mtimeNs??'1762770600000000000');
+    const owner=file??owners.get(path)??{uid:0,gid:0};
+    const uid=owner.uid??0,gid=owner.gid??0,nlink=file?.nlink??1;
+    if(bigint)return {uid:BigInt(uid),gid:BigInt(gid),nlink:BigInt(nlink),dev:1n,ino:BigInt(ino),
+      mode:BigInt(mode),size:BigInt(size),mtimeNs,isDirectory:()=>false===isLink&&dir,
+      isFile:()=>!isLink&&!dir,isSymbolicLink:()=>isLink};
+    return {uid,gid,nlink,dev:1,ino,mode,size,mtimeNs,
+      isDirectory:()=>!isLink&&dir,isFile:()=>!isLink&&!dir,isSymbolicLink:()=>isLink,...file};
   };
   const children=path=>{
     path=posix.normalize(path);
-    return [...new Set([...files.keys(),...directories.keys()].filter(p=>p.startsWith(path+'/'))
+    return [...new Set([...files.keys(),...directories.keys(),...symlinks.keys()]
+      .filter(p=>p.startsWith(path+'/'))
       .map(p=>p.slice(path.length+1).split('/')[0]))].sort();
   };
   const root='/opt/servora-med/releases/'+f.context.approval.oldReleaseSha;
@@ -84,6 +140,10 @@ export async function adoptionHost(f) {
     timeModuleSha256:['/usr/local/libexec/servora-med/trusted-time.mjs',0o644],
     timeConfigSha256:['/etc/chrony/chrony.conf',0o644]};
   for(const [path,mode] of Object.values(contractFiles))add(path,'reviewed contract',mode);
+  // The controller pins this module's exact bytes; the fixture supplies the real
+  // repository bytes so the pin is exercised, not bypassed.
+  add('/usr/local/libexec/servora-med/historical-recovery-evidence.mjs',
+    fs.readFileSync(new URL('../scripts/historical-recovery-evidence.mjs',import.meta.url)),0o644);
   f.context.profile={...f.context.profile,formatVersion:2,fqdn:'synthetic.example',envBaselineSha256:hash(''),
     contracts:Object.fromEntries(Object.keys(contractFiles).map(key=>[key,hash('reviewed contract')]))};
   f.context.approval.profileSha256=hash(json(f.context.profile));
@@ -104,10 +164,38 @@ export async function adoptionHost(f) {
   const key='adoption-host-'+randomUUID();
   add(state+'/host.lock','');fds.set(9,state+'/host.lock');
   const forbidden=()=>{throw new Error('unexpected host filesystem mutation');};
+  const assertFile=file=>{if(!file)throw Object.assign(new Error('missing'),{code:'ENOENT'});};
   const fakeFs={...fs,
-    mkdirSync:forbidden,renameSync:forbidden,unlinkSync:forbidden,linkSync:forbidden,
+    // Explicit opt-in only for admission persistence tests. Existing issuance
+    // fixtures continue to refuse these operations, so stray writes are caught.
+    mkdirSync:(path,options)=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      if(directories.has(path)||files.has(path))throw Object.assign(new Error('exists'),{code:'EEXIST'});
+      directories.set(path,options.mode);
+    },
+    linkSync:(source,target)=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      if(files.has(target))throw Object.assign(new Error('exists'),{code:'EEXIST'});
+      const file=files.get(source);assertFile(file);
+      file.ino??=parseInt(hash(source).slice(0,8),16);file.nlink++;
+      files.set(target,file);
+    },
+    unlinkSync:path=>{
+      if(!host.allowAdmissionWrites)forbidden();
+      const file=files.get(path);assertFile(file);file.nlink--;files.delete(path);
+    },
+    renameSync:forbidden,
     symlinkSync:forbidden,fchownSync:forbidden,fchmodSync:forbidden,writeSync:forbidden,
-    lstatSync:info,fstatSync:fd=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});return info(fds.get(fd));},
+    existsSync:path=>{const normalized=posix.normalize(path);
+      // Native existsSync follows symlinks; lstatSync still sees dangling ones.
+      if(symlinks.has(normalized)){
+        const target=symlinks.get(normalized);
+        return files.has(target)||directories.has(target);
+      }
+      return files.has(normalized)||directories.has(normalized);},
+    lstatSync:(path,options)=>info(path,Boolean(options?.bigint)),
+    fstatSync:(fd,options)=>{if(!fds.has(fd))throw Object.assign(new Error('bad fd'),{code:'EBADF'});
+      return info(fds.get(fd),Boolean(options?.bigint));},
     readdirSync:children,realpathSync:path=>path==='/opt/servora-med/current'?root:path,
     openSync:(path,flags)=>{
       path=posix.normalize(path);
@@ -115,7 +203,7 @@ export async function adoptionHost(f) {
       if(flags&fs.constants.O_CREAT)add(path,'');else info(path);
       const fd=nextFd++;fds.set(fd,path);return fd;
     },
-    closeSync:fd=>fds.delete(fd),fsyncSync:()=>{},
+    closeSync:fd=>fds.delete(fd),fsyncSync:fd=>{host.onFsync?.(fds.get(fd));},
     readFileSync:(path,encoding)=>{const value=files.get(typeof path==='number'?fds.get(path):posix.normalize(path))?.data;
       if(!value)throw Object.assign(new Error('missing'),{code:'ENOENT'});return encoding?value.toString():Buffer.from(value);},
     writeFileSync:(fd,data)=>{
@@ -130,7 +218,7 @@ export async function adoptionHost(f) {
     FragmentPath:'/etc/systemd/system/servora-med.service',DropInPaths:'',
     ExecStart:'{ path=/usr/bin/node ; argv[]=/usr/bin/node dist/index.js ; ignore_errors=no ; mock=yes }',
     EnvironmentFiles:'/etc/servora-med/servora-med.env (ignore_errors=no)',NeedDaemonReload:'no',Restart:'on-failure'};
-  const host={fs:fakeFs,fds,properties,process:{...process,getuid:()=>0},commands,files,directories,add,root,names,types,failCommand:null};
+  const host={fs:fakeFs,fds,properties,process:{...process,getuid:()=>0},commands,files,directories,symlinks,lstatErrors,owners,add,addSymlink,root,names,types,failCommand:null};
   host.dumpLedger='COPY public.schema_migrations (version, applied_at) FROM stdin;\n'
     +f.context.approval.oldCatalog.map(entry=>entry.version+'\t2026-10-12 09:00:00+00').join('\n')+'\n\\.\n';
   host.child={spawn:()=>{throw new Error('unexpected subprocess');},execFileSync:(file,args,options)=>{
@@ -154,7 +242,11 @@ export async function adoptionHost(f) {
   const clockUrl=mockModule('clock',host.clock);
   const scripts=new URL('../scripts/',import.meta.url);
   const rewrite=(name,extra={})=>{
-    const source=fs.readFileSync(new URL(name,scripts),'utf8').replace(/from '([^']+)'/g,(whole,path)=>{
+    let source=fs.readFileSync(new URL(name,scripts),'utf8');
+    // Test-only source transformation for synthetic pinned payloads. Production
+    // CLIs have no equivalent selector. Default fixtures use unmodified pins.
+    if(name==='deployment-controller.mjs'&&host.rewriteController)source=host.rewriteController(source);
+    source=source.replace(/from '([^']+)'/g,(whole,path)=>{
       const target=extra[path]??(path==='node:fs'?fsUrl:path==='node:child_process'?childUrl:
         path==='./trusted-time.mjs'?clockUrl:path.startsWith('.')?new URL(path,scripts).href:path);
       return `from '${target}'`;
@@ -162,11 +254,16 @@ export async function adoptionHost(f) {
     return url(`const process=globalThis[${JSON.stringify(key)}].process;\n`+source
       +`\n// instance ${randomUUID()}\n//# sourceURL=servora-test/${name}\n`);
   };
-  host.restart=()=>import(rewrite('deployment-controller.mjs',{'./deployment-attempt.mjs':rewrite('deployment-attempt.mjs')}));
+  host.restart=()=>import(rewrite('deployment-controller.mjs',{
+    './deployment-attempt.mjs':rewrite('deployment-attempt.mjs'),
+    './historical-recovery-evidence.mjs':rewrite('historical-recovery-evidence.mjs')
+  }));
   host.controller=await host.restart();
   host.rootAttempt=await import(rewrite('deployment-attempt.mjs'));
   host.cleanup=()=>delete globalThis[key];
   host.recordFile=state+'/installed-old-adoption.json';
+  host.oldRecordFile=host.recordFile;
+  host.recordFile67d3318=state+'/installed-old-adoption-67d3318.json';
   // The returned pure lifecycle functions are the real reviewed implementation.
   host.attempt=attempt;
   return host;

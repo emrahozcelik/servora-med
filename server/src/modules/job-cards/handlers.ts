@@ -24,6 +24,8 @@ import {
 } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 import { parseJobCardInvalidationInput } from './invalidation-input.js';
+import { parseWeeklyReportRemovalInput } from '../weekly-reports/removal-input.js';
+import type { WeeklyReportDetail } from '../weekly-reports/types.js';
 
 type Params = { id: string; itemId?: string };
 
@@ -87,6 +89,16 @@ function includeMetContactCapability(raw: unknown) {
 function saleCapability(raw: unknown) {
   return !!raw && typeof raw === 'object' && !Array.isArray(raw)
     && (raw as Record<string, unknown>).includeSaleCapability === 'true';
+}
+function removalCapability(raw: unknown) {
+  return !!raw && typeof raw === 'object'
+    && (raw as Record<string, unknown>).includeWeeklyReportRemovalCapability === 'true';
+}
+
+function weeklyReportResponse(report: WeeklyReportDetail, query: unknown) {
+  if (removalCapability(query)) return report;
+  const { removal: _removal, canRemove: _canRemove, ...legacy } = report;
+  return legacy;
 }
 function requireSaleCapability(request: FastifyRequest) {
   if (!saleCapability(request.query)) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -169,16 +181,20 @@ export function createJobCardHandlers(service: JobCardService) {
         parseWeeklyReportBulkRequestInput(request.body),
       )),
     getWeeklyReport: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.getWeeklyReport(actor(request), request.params.id, saleCapability(request.query)),
+      weeklyReportResponse(await service.getWeeklyReport(actor(request), request.params.id, saleCapability(request.query)),request.query),
+    weeklyReportRemovalPreview: (request: FastifyRequest<{ Params: Params }>) =>
+      service.weeklyReportRemovalPreview(actor(request),uuidString(request.params.id,'id')),
+    removeWeeklyReport: (request: FastifyRequest<{ Params: Params }>) =>
+      service.removeWeeklyReport(actor(request),uuidString(request.params.id,'id'),parseWeeklyReportRemovalInput(request.body)),
     getWeeklyReportReference: async (request: FastifyRequest) =>
       service.weeklyReportReference(actor(request)),
     updateWeeklyReportDraft: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.updateWeeklyReportDraft(
+      weeklyReportResponse(await service.updateWeeklyReportDraft(
         actor(request),
         request.params.id,
         parseWeeklyReportDraftPatch(request.body),
         saleCapability(request.query),
-      ),
+      ),request.query),
     listWeeklyReportSubmissions: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listWeeklyReportSubmissions(actor(request), request.params.id, saleCapability(request.query)),
     downloadWeeklyReportSubmissionPdf: async (

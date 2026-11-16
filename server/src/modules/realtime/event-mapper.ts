@@ -19,6 +19,7 @@ type MappingInput = Readonly<{
 }>;
 
 const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
+  WEEKLY_REPORT_REMOVED: 'job.updated',
   SALE_FROM_VISIT_CREATED: 'job.updated',
   SALE_DETAILS_UPDATED: 'job.updated',
   SALE_ITEM_ADDED: 'job.updated',

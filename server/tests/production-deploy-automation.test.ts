@@ -165,16 +165,36 @@ function runRunnerSidecarCheck(artifact: string) {
 }
 
 function runCiContractFixture(serverConclusion: string, webConclusion: string, listOutput = '123') {
+  const run = {
+    databaseId: 123,
+    attempt: 1,
+    workflowName: 'CI',
+    headSha: TEST_SHA,
+    headBranch: 'main',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    jobs: [
+      { name: 'Auth KDF benchmark smoke', databaseId: 100, status: 'completed', conclusion: 'success' },
+      { name: 'server', databaseId: 101, status: 'completed', conclusion: serverConclusion },
+      { name: 'web', databaseId: 102, status: 'completed', conclusion: webConclusion },
+    ],
+  };
   return runSourced(
     runner,
     `SHA="${TEST_SHA}"
 GH_TOKEN=fixture-token
 gh() {
   if [[ "$1" == run && "$2" == list ]]; then printf '%s\\n' "${listOutput}"; return 0; fi
-  if [[ "$1" == run && "$2" == view ]]; then printf '[{"name":"server","conclusion":"${serverConclusion}"},{"name":"web","conclusion":"${webConclusion}"}]\\n'; return 0; fi
+  if [[ "$1" == run && "$2" == view ]]; then cat <<'CI_JSON'
+${JSON.stringify(run)}
+CI_JSON
+    return 0
+  fi
   return 1
 }
-verify_exact_main_ci`,
+verify_exact_main_ci
+printf 'GITHUB_CI_STATUS=%s\\n' "$CI_STATUS"`,
   );
 }
 
@@ -816,8 +836,10 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('--event push');
     expect(content).toContain('--commit "$SHA"');
     expect(content).toContain('EXACT_MAIN_CI_NOT_GREEN');
-    expect(content).toContain('EXACT_MAIN_CI_SERVER_NOT_GREEN');
-    expect(content).toContain('EXACT_MAIN_CI_WEB_NOT_GREEN');
+    expect(content).toContain('GITHUB_CI_PROOF_INVALID');
+    expect(content).toContain('github-ci-evidence.mjs');
+    expect(content).toContain('--run-id "$run_id"');
+    expect(content).toContain('--require-package');
     expect(content).not.toContain('StrictHostKeyChecking=no');
     expect(content).not.toContain('git pull');
   });
@@ -922,7 +944,9 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('deploy_sha:');
     expect(content).toMatch(/deploy_sha:\n\s+description: Deploy this exact canonical main SHA/);
     expect(content).toMatch(/deploy_sha:[\s\S]*?required: true[\s\S]*?type: string/);
-    expect(content).toMatch(/allow_migrations:[\s\S]*?required: true[\s\S]*?type: boolean[\s\S]*?default: false/);
+    expect(content).not.toContain('allow_migrations');
+    expect(content).toMatch(/attempt_id:[\s\S]*?required: true[\s\S]*?type: string/);
+    expect(content).toMatch(/ci_run_id:[\s\S]*?required: true[\s\S]*?type: string/);
     expect(content).not.toContain('main_ref:');
     expect(content).not.toContain('ref: ${{ inputs.main_ref }}');
     expect(content).not.toContain('ref: main');
@@ -937,6 +961,10 @@ describe('controlled production deployment automation contract', () => {
     expect(validationBlock).toContain('[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]');
     expect(validationBlock).toContain('[[ "$GITHUB_REF" == "refs/heads/main" ]]');
     expect(validationBlock).toContain('[[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]]');
+    expect(validationBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
+    expect(validationBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
+    expect(validationBlock).toContain('ATTEMPT_ID_REQUIRED');
+    expect(validationBlock).toContain('CI_RUN_ID_REQUIRED');
     expect(content).toContain('ref: ${{ inputs.deploy_sha }}');
 
     const checkoutVerificationBlock = content.slice(checkoutVerificationIndex, deployIndex);
@@ -946,9 +974,14 @@ describe('controlled production deployment automation contract', () => {
 
     const deployBlock = content.slice(deployStepIndex);
     expect(deployBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
-    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA")');
+    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA"');
     expect(deployBlock).not.toContain('deploy_args=(--sha "$GITHUB_SHA")');
-    expect(deployBlock).toContain('ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}');
+    expect(deployBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
+    expect(deployBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
+    expect(deployBlock).toContain('--allow-migrations --attempt-id "$ATTEMPT_ID"');
+    expect(deployBlock).toContain('--ci-mode github --ci-run-id "$CI_RUN_ID"');
+    expect(deployBlock).toContain('--artifact "$RUNNER_TEMP/servora-release/');
+    expect(deployBlock).not.toContain('ALLOW_MIGRATIONS');
   });
 
   it('documents the environment approval and one-time host bootstrap boundary', () => {
@@ -1210,13 +1243,17 @@ describe('controlled production deployment automation contract', () => {
     expect(stale.status).not.toBe(0);
     expect(`${stale.stdout}${stale.stderr}`).toContain('EXACT_MAIN_CI_NOT_GREEN');
 
+    const successful = runCiContractFixture('success', 'success');
+    expect(successful.status).toBe(0);
+    expect(successful.stdout).toContain('GITHUB_CI_STATUS=PASS');
+
     const serverFailed = runCiContractFixture('failure', 'success');
     expect(serverFailed.status).not.toBe(0);
-    expect(`${serverFailed.stdout}${serverFailed.stderr}`).toContain('EXACT_MAIN_CI_SERVER_NOT_GREEN');
+    expect(`${serverFailed.stdout}${serverFailed.stderr}`).toContain('GITHUB_CI_PROOF_INVALID');
 
     const webFailed = runCiContractFixture('success', 'failure');
     expect(webFailed.status).not.toBe(0);
-    expect(`${webFailed.stdout}${webFailed.stderr}`).toContain('EXACT_MAIN_CI_WEB_NOT_GREEN');
+    expect(`${webFailed.stdout}${webFailed.stderr}`).toContain('GITHUB_CI_PROOF_INVALID');
   });
 
   it('excludes explicit secret artifact names while retaining legitimate source names', () => {

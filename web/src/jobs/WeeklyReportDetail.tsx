@@ -60,6 +60,7 @@ import {
   type WeeklyReportSubmission,
 } from './weekly-report-api';
 import { saveBlobAs } from '../services/file-download';
+import { WeeklyReportRemovalAction } from './WeeklyReportRemovalAction';
 
 type LoadState =
   | { kind: 'loading' }
@@ -231,6 +232,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [removalBusy,setRemovalBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [actionError, setActionError] = useState('');
   /**
@@ -367,8 +369,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   const selected = history.find((entry) => entry.seqNo === selectedSeq) ?? null;
   const latestSubmission = history.length > 0 ? history[history.length - 1]! : null;
   const frozenReview = latestSubmission !== null
-    && (loadedJob.status === 'WAITING_APPROVAL' || loadedJob.status === 'COMPLETED');
-  const frozenPrimary = frozenReview && (managementReview || loadedJob.status === 'COMPLETED');
+    && (loadedJob.status === 'WAITING_APPROVAL' || loadedJob.status === 'COMPLETED' || loadedReport.removal!==null);
+  const frozenPrimary = frozenReview && (managementReview || loadedJob.status === 'COMPLETED' || loadedReport.removal!==null);
 
   const formDirty = isFormDirty(loadedForm);
   const conflict = loadedForm.baseline.version !== loadedReport.version;
@@ -385,7 +387,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
   ];
   const blockedCommands = new Set<LifecycleCommand>();
   if (submitBlockedReason !== null) blockedCommands.add('SUBMIT_FOR_APPROVAL');
-  if (saving || ambiguous) {
+  if (saving || ambiguous || removalBusy) {
     for (const command of presentationCommands) blockedCommands.add(command);
   }
 
@@ -621,7 +623,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
     presentation.primaryTransition || presentation.secondaryTransitions.length > 0,
   );
   const hasWorkflowMain = Boolean(showRequirements || hasDecision);
-  const hasRail = Boolean(managementReview || hasWorkflowMain);
+  const hasRail = Boolean(managementReview || hasWorkflowMain || loadedReport.canRemove || removalBusy);
   const showFrozenReport = frozenPrimary && latestSubmission !== null;
 
   const reportFacts: RecordDescriptionItem[] = [
@@ -728,6 +730,9 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
         />
       </div>
     )}
+
+    {loadedReport.removal!==null && !removalBusy && <WeeklyReportRemovalAction key={`removed-${jobCardId}`} report={loadedReport}
+      disabled={pending || saving || ambiguous} onRemoved={refresh} onBusyChange={setRemovalBusy} />}
 
     <div className={hasRail ? 'job-detail-content job-detail-content--rail' : 'job-detail-content'}>
       <div className="job-detail-main">
@@ -907,7 +912,7 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
                   primary={presentation.primaryTransition}
                   secondary={presentation.secondaryTransitions}
                   recordEditAction={null}
-                  pending={pending}
+                  pending={pending || removalBusy}
                   startLocationCaptureEnabled={startLocationCaptureEnabled}
                   submitLocationCaptureEnabled={submitLocationCaptureEnabled}
                   disabledCommands={[...blockedCommands]}
@@ -916,6 +921,8 @@ export function WeeklyReportDetail({ jobCardId, user }: { jobCardId: string; use
               </div>
             </div>
           )}
+          {(loadedReport.canRemove || removalBusy) && <WeeklyReportRemovalAction key={jobCardId} report={loadedReport}
+            disabled={pending || saving || ambiguous} onRemoved={refresh} onBusyChange={setRemovalBusy} />}
         </aside>
       )}
     </div>

@@ -80,6 +80,7 @@ export type WeeklyReportSubmissionSummary = {
  * submission summaries (full frozen payloads via the history read).
  */
 export type WeeklyReportDetail = WeeklyReport & {
+  canRemove: boolean;
   jobStatus: JobCardStatus;
   jobVersion: number;
   dueDate: string | null;
@@ -107,6 +108,7 @@ export type WeeklyReport = {
   version: number;
   createdAt: string;
   updatedAt: string;
+  removal: { removedAt: string; removedBy: string; reason: string } | null;
 };
 
 export type WeeklyReportSubmission = {

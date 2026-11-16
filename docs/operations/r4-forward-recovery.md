@@ -62,7 +62,13 @@ integrity and bind the request, not cryptographic independent CI authenticity.
 
 The existing wrapper additionally accepts `--attempt-id UUID`. A migration
 requires an explicit grant **and** `--allow-migrations`. Attempt-bound mode
-requires local CI and a prebuilt artifact; it cannot rebuild a Mac runtime.
+requires a prebuilt Linux release artifact. CI evidence may be either a verified
+local bundle (`--ci-mode local`) **or** an exact-main successful GitHub Actions
+push CI receipt (`--ci-mode github --ci-run-id RUN`) with a successful
+`release-package` job. Both bind a genuine 64-hex evidence digest into the
+separately issued root approval; neither the deploy CLI nor the GitHub workflow
+may issue or synthesize an approval. The full contract is documented in
+`docs/operations/production-deployment.md`.
 Before transfer the fixed host `attempt-preflight` phase checks the
 OLD database/release and returns a non-secret approved SHA/tree/artifact/CI/host
 projection. The operator compares every field against verified local inputs.
@@ -419,6 +425,32 @@ not by itself proof that operational rollback to the v1 reader is healthy.
 Migration intent/commit still has its existing abort/forward-only rules; the
 fresh candidate PRE backup, scheduled v2 event and postdeploy acceptance remain
 mandatory. This recovery baseline does not replace any of those receipts.
+
+### OPS-R4-002 — separate 67d3318 recovery
+
+The missing original archive for the later OLD release `67d33183…` has its own
+separate one-time contract and baseline pattern in
+[OPS-R4-002 67d3318 installed-OLD recovery](./ops-r4-002-67d3318-installed-old-recovery.md).
+It does not change, renew or reuse the OPS-R4-001 `71ae6df6…` record or slot.
+The recovered archive `ddf12049…` is a content-equivalent reconstruction and is
+never accepted as the missing original `a1db5a8d…`.
+
+For the **future unused** 67d3318 path, OPS-B1-004 explicitly permits a separate
+[B1-03 identity/plan attestation](./b1-03-cutover-attestation.md) and fresh genuine
+approval before any admission footprint. The same-grant-only rule above remains
+binding for OPS-R4-001 and every legacy grant-bound OPS-R4-002 record. No existing
+record is renewed, converted or overwritten. Confirmed admission still consumes
+the exception once, even at zero starts; another UUID cannot reset its budgets.
+
+### OPS-R4-003 — historical disposition and archive gate
+
+The consumed, nonterminal OPS-R4-001 attempt `6ce4cff0…` has a separate,
+no-argument historical disposition and a sealed-archive precondition for
+OPS-R4-002 issuance in
+[OPS-R4-003 historical recovery disposition](./ops-r4-003-historical-recovery-disposition.md).
+It classifies the attempt `ABANDONED_SUPERSEDED`; it never turns it into
+`COMPLETED` or `ACCEPTED`. The OPS-R4-001 policy remains unchanged and does not
+depend on the new gate.
 
 
 ### OPS-TT-003 source-policy transition (not production authorization)
