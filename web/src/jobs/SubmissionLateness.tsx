@@ -176,12 +176,23 @@ type HistoryState =
   | { kind: 'ready'; items: OverdueIncidentHistoryItem[]; total: number }
   | { kind: 'error'; message: string; retryable: boolean };
 
-function historyDetail(item: OverdueIncidentHistoryItem): string {
+/**
+ * The first-late boundary means something different per delay type. The
+ * recovery label stays neutral: the history DTO does not say which command
+ * (start, submit, approve, cancel…) closed the incident, so it is not guessed.
+ */
+const DEADLINE_LABELS = {
+  LATE_START: 'Planlanan bitiş',
+  LATE_SUBMISSION: 'Son gönderim zamanı',
+  APPROVAL_WAIT: 'Onay süresi sonu',
+} as const;
+
+export function historyDetail(item: OverdueIncidentHistoryItem): string {
   const parts: string[] = [];
-  parts.push(`Son gönderim zamanı: ${formatInstant(item.deadlineAt)}`);
+  parts.push(`${DEADLINE_LABELS[item.delayType]}: ${formatInstant(item.deadlineAt)}`);
   parts.push(`Gecikme başlangıcı: ${formatInstant(item.breachedAt)}`);
   if (item.recoveredAt) {
-    parts.push(`Onaya gönderim: ${formatInstant(item.recoveredAt)}`);
+    parts.push(`Gecikme bitişi: ${formatInstant(item.recoveredAt)}`);
   } else {
     parts.push('Devam eden gecikme');
   }
@@ -249,6 +260,9 @@ export function OverdueIncidentHistorySection({ jobId }: {
   return (
     <section aria-label="Gecikme geçmişi" data-overdue-history="ready">
       <h2>Gecikme geçmişi</h2>
+      {state.total > state.items.length && (
+        <p>Son {state.items.length} kayıt gösteriliyor (toplam {state.total}).</p>
+      )}
       <ul>
         {state.items.map((item) => (
           <li key={item.id} data-overdue-history-item={item.delayType}>
@@ -294,12 +308,33 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   useEffect(() => { void refresh(); }, [refresh]);
   useRealtimeInvalidation(['overview', 'job-list'], () => { void refresh(); });
 
-  if (state.kind === 'loading' || state.kind === 'error') return null;
+  if (state.kind === 'loading') return null;
+  // A failed load must never look like "nothing is late".
+  if (state.kind === 'error') {
+    return (
+      <section className="overview-section" aria-label="Onaya göndermesi geciken işler" data-open-submission-late="error">
+        <ResultState
+          status="error"
+          title="Gecikme listesi yüklenemedi"
+          description={state.message}
+          headingLevel={2}
+          action={(
+            <button className="secondary-button" type="button" onClick={() => void refresh()}>
+              Tekrar dene
+            </button>
+          )}
+        />
+      </section>
+    );
+  }
   if (state.items.length === 0) return null;
 
   return (
     <section className="overview-section" aria-labelledby="submission-late-title" data-open-submission-late="true">
       <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
+      {state.total > state.items.length && (
+        <p>En uzun süredir geciken {state.items.length} iş gösteriliyor (toplam {state.total}).</p>
+      )}
       <div className="overview-card-stack">
         {state.items.map((item) => (
           <OperationalCard
