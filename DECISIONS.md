@@ -2557,3 +2557,44 @@ bootstrap fence, re-seal and current admission budgets remain unchanged.
 
 Contract and evidence limits:
 [B1-03 cutover attestation](docs/operations/b1-03-cutover-attestation.md).
+
+## OPS-DEPLOY-001 — Single approved production deployment workflow
+
+Status: owner explicitly selected the single approved flow ("Tek onaylı akış")
+on 2026-11-16. Source implementation, focused tests and Draft PR review only.
+No production dispatch, approval, attestation, admission, migration, backup,
+host helper/profile change or deployment is authorized by this record.
+
+- `.github/workflows/deploy-production.yml` has exactly one deployment path.
+  Every workflow release requires `deploy_sha`, a previously issued genuine
+  root-owned approval UUID (`attempt_id`), and the exact successful exact-main
+  `ci_run_id`; it always downloads the prebuilt
+  `servora-med-release-<sha>` artifact and its `.sha256` sidecar before any
+  transfer.
+- The advertised `allow_migrations=false` workflow branch and its `inputs`
+  boolean are removed. A migration denial is never translated into the route
+  selector: an approval whose exact catalog has no pending SQL is the ordinary
+  same-catalog release, and a pending migration without matching approval stops
+  at the host migration gate. No workflow deployment omits the attempt, CI, or
+  artifact scope.
+- The surviving invocation always passes `--allow-migrations`, which selects
+  the existing guarded attempt-bound host route. It is not an approval.
+  Permitted SQL remains bounded by the genuine root approval's exact catalogs;
+  an identical catalog applies zero SQL. `PREFIX_WITH_PENDING` still requires
+  that approval, and divergent/ahead/duplicate/invalid catalogs still stop.
+- Root issuance remains separate and per deployment, binding the exact SHA and
+  tree, catalog, CI run/digest, artifact and host profile. The workflow creates
+  no approval, renewal, force/skip switch or broader host privilege.
+- Unchanged: TT-A/Chrony/NTS bootstrap, the 24-hour approval TTL, admission
+  window and start budgets; host helper/controller/guard/lock/time modules;
+  `ops/deploy-production.sh` runtime logic; migrations; systemd units; bootstrap
+  manifest/profile schema; the local operator path; and the manual `production`
+  environment reviewer gate.
+- The OPS-R4-002 `67d3318` installed-OLD cutover attestation remains a one-time
+  identity/plan record for the missing-original-artifact case. It is not a
+  workflow input and does not create another deployment mode.
+
+This supersedes only the workflow's advertised migration-false branch. Earlier
+local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
+unchanged. Owning runbook:
+[docs/operations/production-deployment.md](docs/operations/production-deployment.md).
