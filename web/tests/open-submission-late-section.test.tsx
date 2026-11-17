@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -144,11 +144,11 @@ const historyRows: OverdueIncidentHistoryItem[] = Array.from({ length: 13 }, (_,
   postReminderDelaySeconds: null,
 }));
 
-async function mountView(view: React.ReactNode) {
+async function mountView(view: ReactNode) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const render = async (next: React.ReactNode) => {
+  const render = async (next: ReactNode) => {
     await act(async () => {
       root.render(
         <ServoraAntProvider>
@@ -172,7 +172,7 @@ async function mountView(view: React.ReactNode) {
 
 describe('OVR-4 canonical six-record paging', () => {
   it('pages open-late jobs 6/6/1 using server limit and offset, hiding a one-page pager', async () => {
-    const load = vi.fn(async ({ limit = 6, offset = 0 } = {}) => ({
+    const load = vi.fn(async ({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
       items: openRows.slice(offset, offset + limit),
       total: openRows.length,
       limit, offset,
@@ -203,7 +203,7 @@ describe('OVR-4 canonical six-record paging', () => {
   });
 
   it('pages incident history without losing delay-type labels', async () => {
-    const load = vi.fn(async (_jobId: string, { limit = 6, offset = 0 } = {}) => ({
+    const load = vi.fn(async (_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
       items: historyRows.slice(offset, offset + limit),
       total: historyRows.length,
       limit, offset,
@@ -224,7 +224,7 @@ describe('OVR-4 canonical six-record paging', () => {
 
   it('moves to the last valid page when the dataset shrinks', async () => {
     let count = 13;
-    const load = vi.fn(async ({ limit = 6, offset = 0 } = {}) => ({
+    const load = vi.fn(async ({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
       items: openRows.slice(0, count).slice(offset, offset + limit),
       total: count, limit, offset,
     }));
