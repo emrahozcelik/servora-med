@@ -1,0 +1,297 @@
+{
+  "source": "real React component fixture, not App/AppShell",
+  "browser": "140.0.7339.186",
+  "fixedTime": "2026-11-17T09:00:00.000Z",
+  "locale": "tr-TR",
+  "timezone": "Europe/Istanbul",
+  "mocked": [
+    "synthetic list functions",
+    "EventSource disabled",
+    "no auth/backend"
+  ],
+  "checks": [
+    {
+      "name": "open-page-1-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-2-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-last-page-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-1-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-2-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-last-page-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-1-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-2-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-last-page-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-1-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-2-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-last-page-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-1-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-page-2-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-last-page-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-text-growth-390",
+      "baseline": [
+        {
+          "selector": ".submission-late-card .servora-operational-card__title a",
+          "pixels": 16
+        },
+        {
+          "selector": ".submission-late-card span",
+          "pixels": 16
+        }
+      ],
+      "enlarged": [
+        {
+          "selector": ".submission-late-card .servora-operational-card__title a",
+          "pixels": 32
+        },
+        {
+          "selector": ".submission-late-card span",
+          "pixels": 32
+        }
+      ]
+    },
+    {
+      "name": "open-200percent-text-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-keyboard-space-next-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-keyboard-enter-prev-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-keyboard-clamped-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-keyboard-clamped-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-empty-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "open-error-390",
+      "overflow": false,
+      "alertCount": 1
+    },
+    {
+      "name": "open-retry-success-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-1-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-2-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-last-page-320",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-1-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-2-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-last-page-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-1-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-2-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-last-page-768",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-1-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-2-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-last-page-1024",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-1-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-page-2-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-last-page-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-text-growth-390",
+      "baseline": [
+        {
+          "selector": "[data-overdue-history-item] strong",
+          "pixels": 16
+        },
+        {
+          "selector": "[data-overdue-history-item] span",
+          "pixels": 16
+        }
+      ],
+      "enlarged": [
+        {
+          "selector": "[data-overdue-history-item] strong",
+          "pixels": 32
+        },
+        {
+          "selector": "[data-overdue-history-item] span",
+          "pixels": 32
+        }
+      ]
+    },
+    {
+      "name": "history-200percent-text-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-keyboard-space-next-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-keyboard-enter-prev-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-keyboard-clamped-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-keyboard-clamped-1440",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-empty-390",
+      "overflow": false,
+      "alertCount": 0
+    },
+    {
+      "name": "history-error-390",
+      "overflow": false,
+      "alertCount": 1
+    },
+    {
+      "name": "history-retry-success-390",
+      "overflow": false,
+      "alertCount": 0
+    }
+  ],
+  "errors": [],
+  "unexpected": [],
+  "limits": [
+    "Chromium only",
+    "320px reflow and scoped 200% record text simulation, not 400% zoom",
+    "no full AppShell/role authorization verification"
+  ]
+}
