@@ -63,6 +63,9 @@ async function runCase(browser, engine, scenario, width, height) {
     if (scenario === 'detail-manager') {
       assert.equal(await page.getByRole('button', { name: 'Yeniden etkinleştir' }).count(), 1);
     }
+    if (scenario === 'detail-manager-active') {
+      assert.equal(await page.getByRole('button', { name: 'Devre dışı bırak' }).count(), 1);
+    }
     await page.screenshot({ path: resolve(out, engine + '-' + scenario + '-' + width + '.png'), fullPage: true });
 
     if (scenario === 'users') {
@@ -83,6 +86,21 @@ async function runCase(browser, engine, scenario, width, height) {
       assert.equal(await page.locator('.people-list > li').count(), 0, 'stale staff rows hidden while loading');
       await page.locator('.people-list > li').first().waitFor();
       assert.equal(await page.locator('.people-list > li').count(), 1);
+    }
+    if (scenario === 'detail-manager-active') {
+      await page.getByRole('button', { name: 'Devre dışı bırak' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      assert.equal(await page.evaluate(() => window.__peopleRequests.length), 0, 'opening modal must not mutate');
+      await page.screenshot({ path: resolve(out, engine + '-deactivate-confirm-' + width + '.png'), fullPage: true });
+      await dialog.getByRole('button', { name: 'Devre dışı bırak' }).click();
+      assert.equal(await dialog.getAttribute('aria-busy'), 'true', 'dialog busy while saving');
+      assert.equal(await dialog.getByRole('button', { name: /Devre dışı bırakılıyor/ }).isDisabled(), true);
+      assert.equal(await page.evaluate(() => window.__peopleRequests.length), 1);
+      await page.evaluate(() => window.__releasePeopleAction());
+      await dialog.waitFor({ state: 'hidden' });
+      await page.getByText('Kullanıcı devre dışı bırakıldı.').waitFor();
+      assert.equal(await page.evaluate(() => window.__peopleRequests.length), 1);
     }
     if (scenario === 'detail-manager') {
       const action = page.getByRole('button', { name: 'Yeniden etkinleştir' });
@@ -108,11 +126,12 @@ try {
         ['users', 390, 844], ['users', 1440, 900],
         ['staff', 390, 844], ['staff', 1440, 900],
         ['detail-manager', 390, 844], ['detail-manager', 1440, 900],
+        ['detail-manager-active', 390, 844], ['detail-manager-active', 1440, 900],
         ['detail-staff', 390, 844], ['users-empty', 390, 844],
         ['staff-manager', 390, 844], ['staff-loading', 390, 844],
       ]) await runCase(browser, engine, scenario, width, height);
       if (engine === 'chromium') {
-        for (const scenario of ['users', 'staff', 'detail-manager']) {
+        for (const scenario of ['users', 'staff', 'detail-manager', 'detail-manager-active']) {
           await runCase(browser, engine, scenario, 320, 700);
         }
       }

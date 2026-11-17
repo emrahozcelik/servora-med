@@ -32,6 +32,7 @@ function makeUser(index: number, active: boolean, role: ManagedUser['role'] = 'S
 const activeUsers = Array.from({ length: 8 }, (_, index) => makeUser(index + 1, true));
 const inactiveStaff = makeUser(90, false);
 const inactiveManager = makeUser(91, false, 'MANAGER');
+const activeManager = makeUser(92, true, 'MANAGER');
 const users = [...activeUsers, inactiveStaff, inactiveManager];
 const profiles: StaffProfile[] = users.filter((user) => user.role === 'STAFF').map((user) => ({
   id: 'profile-' + user.id, user, title: 'Saha uzmanı', phone: null, region: 'Ankara',
@@ -51,6 +52,13 @@ Object.defineProperty(window, 'fetch', {
   configurable: true,
   value: async (input: RequestInfo | URL) => {
     const url = new URL(typeof input === 'string' ? input : input.toString(), window.location.origin);
+    if (url.pathname === '/api/users/' + activeManager.id + '/deactivate') {
+      window.__peopleRequests.push(url.pathname);
+      await new Promise<void>((resolve) => { releaseAction = resolve; });
+      return new Response(JSON.stringify({ ...activeManager, isActive: false, version: 2 }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }
     if (url.pathname === '/api/users/' + inactiveManager.id + '/activate') {
       window.__peopleRequests.push(url.pathname);
       await new Promise<void>((resolve) => { releaseAction = resolve; });
@@ -90,6 +98,9 @@ function Fixture() {
   }
   if (view === 'detail-manager') {
     return <UserDetailView user={inactiveManager} viewer={admin} onChanged={() => {}} />;
+  }
+  if (view === 'detail-manager-active') {
+    return <UserDetailView user={activeManager} viewer={admin} onChanged={() => {}} />;
   }
   throw new Error('Unknown people fixture view: ' + view);
 }
