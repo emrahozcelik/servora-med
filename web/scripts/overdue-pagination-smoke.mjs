@@ -83,7 +83,8 @@ try {
         await capture(page, `${kind}-page-1-${width}`);
         await page.locator('.servora-ant-pagination-next button').click();
         await page.waitForFunction(() => document.documentElement.dataset.overdueOffset === '6'
-          && document.querySelectorAll('[data-overdue-history-item],.submission-late-card').length === 6);
+          && document.querySelectorAll('[data-overdue-history-item],.submission-late-card').length === 6
+          && document.querySelector('.servora-list-pagination')?.textContent?.includes('Sayfa 2 / 3'));
         assert.match(await page.locator('.servora-list-pagination').innerText(), /Sayfa 2 \/ 3/);
         await capture(page, `${kind}-page-2-${width}`);
         await page.locator('.servora-ant-pagination-next button').click();
