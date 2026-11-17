@@ -1,0 +1,41 @@
+name: Temporary security lockfile refresh
+on:
+  pull_request:
+    paths:
+      - .github/workflows/security-lockfile-refresh-temporary.yml
+      - web/package.json
+      - server/package.json
+permissions:
+  contents: read
+jobs:
+  refresh:
+    if: github.head_ref == 'chore/security-audit-patch-20261117'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Generate NPM-verified lockfiles without installing scripts or changing Git
+        run: |
+          set -Eeuo pipefail
+          npm install --prefix web --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm install --prefix server --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Print package-lock only as bounded base64 chunks for audited import
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const part of ['web', 'server']) {
+            const json = fs.readFileSync(part + '/package-lock.json', 'utf8');
+            JSON.parse(json);
+            const encoded = Buffer.from(json).toString('base64');
+            console.log('SERVORA_LOCK_START_' + part.toUpperCase());
+            for (let i = 0; i < encoded.length; i += 1200) {
+              console.log('SERVORA_LOCK_CHUNK_' + part.toUpperCase() + '=' + encoded.slice(i, i + 1200));
+            }
+            console.log('SERVORA_LOCK_END_' + part.toUpperCase());
+          }
+          NODE
