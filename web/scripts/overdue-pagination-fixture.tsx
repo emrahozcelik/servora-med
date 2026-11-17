@@ -15,6 +15,9 @@ let openLoads = 0;
 let historyLoads = 0;
 const empty = scenario.endsWith('-empty');
 const delayed = new URLSearchParams(location.search).get('delay') === '120';
+// Explicit paging stress response; no backend or persisted history is mutated.
+const shrinkOnLastPage = new URLSearchParams(location.search).get('shrink') === '7';
+let shrunk = false;
 const fixedTime = Date.parse('2026-11-17T09:00:00.000Z');
 const daySeconds = 86400;
 const instant = (milliseconds: number) => new Date(milliseconds).toISOString();
@@ -53,6 +56,9 @@ const historyItems: OverdueIncidentHistoryItem[] = Array.from({ length: empty ? 
   manualReminderCount: 0,
   postReminderDelaySeconds: null,
 }));
+// Match the history API's breached_at DESC ordering before selecting a page.
+historyItems.reverse();
+document.documentElement.dataset.overdueHistoryBreaches = JSON.stringify(historyItems.map(item => item.breachedAt));
 
 const loadOpen: typeof import('../src/jobs/jobs-api').listOpenSubmissionLate = async (page = {}) => {
   const offset = page.offset ?? 0;
@@ -60,8 +66,10 @@ const loadOpen: typeof import('../src/jobs/jobs-api').listOpenSubmissionLate = a
   document.documentElement.dataset.overdueLimit = String(limit);
   document.documentElement.dataset.overdueOffset = String(offset);
   if (scenario === 'open-retry' && openLoads++ === 0) throw new Error('Sentetik bağlantı hatası');
-  if (delayed && offset > 0) await new Promise(resolve => setTimeout(resolve, 120));
-  return { items: openItems.slice(offset, offset + limit), total: openItems.length, limit, offset };
+  if (delayed) await new Promise(resolve => setTimeout(resolve, 120));
+  if (shrinkOnLastPage && offset === 12) shrunk = true;
+  const items = shrunk ? openItems.slice(0, 7) : openItems;
+  return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
 };
 const loadHistory: typeof import('../src/jobs/jobs-api').listOverdueIncidents = async (_jobId, page = {}) => {
   const offset = page.offset ?? 0;
@@ -69,8 +77,10 @@ const loadHistory: typeof import('../src/jobs/jobs-api').listOverdueIncidents = 
   document.documentElement.dataset.overdueLimit = String(limit);
   document.documentElement.dataset.overdueOffset = String(offset);
   if (scenario === 'history-retry' && historyLoads++ === 0) throw new Error('Sentetik bağlantı hatası');
-  if (delayed && offset > 0) await new Promise(resolve => setTimeout(resolve, 120));
-  return { items: historyItems.slice(offset, offset + limit), total: historyItems.length, limit, offset };
+  if (delayed) await new Promise(resolve => setTimeout(resolve, 120));
+  if (shrinkOnLastPage && offset === 12) shrunk = true;
+  const items = shrunk ? historyItems.slice(0, 7) : historyItems;
+  return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
 };
 
 createRoot(document.getElementById('root')!).render(

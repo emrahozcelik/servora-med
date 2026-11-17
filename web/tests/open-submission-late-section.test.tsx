@@ -316,3 +316,43 @@ describe('OVR-4 keyboard focus with deferred page responses', () => {
     } finally { await view.dispose(); }
   });
 });
+
+describe('OVR-4 keyboard focus after a shrinking total', () => {
+  it.each(['open', 'history'] as const)('restores %s focus to the clamped page after a deferred response', async (kind) => {
+    let total = 13;
+    let completeNext!: () => void;
+    type PageQuery = Partial<{ limit: number; offset: number }>;
+    function loadPage<T>(items: T[], { limit = 6, offset = 0 }: PageQuery = {}) {
+      const page = () => ({ items: items.slice(0, total).slice(offset, offset + limit), total, limit, offset });
+      if (offset === 12) {
+        return new Promise<ReturnType<typeof page>>((resolve) => {
+          completeNext = () => resolve(page());
+        });
+      }
+      return Promise.resolve(page());
+    }
+    const loadOpen = vi.fn((page: PageQuery = {}) => loadPage(openRows, page));
+    const loadHistory = vi.fn((_jobId: string, page: PageQuery = {}) => loadPage(historyRows, page));
+    const view = await mountView(kind === 'open'
+      ? <OpenSubmissionLateSection load={loadOpen} />
+      : <OverdueIncidentHistorySection jobId="test-job" load={loadHistory} />);
+    try {
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      total = 7;
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => { completeNext(); });
+      expect(view.container.textContent).toContain('Sayfa 2 / 2');
+      const itemSelector = kind === 'open' ? '.submission-late-card' : '[data-overdue-history-item]';
+      expect(view.container.querySelectorAll(itemSelector)).toHaveLength(1);
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+});

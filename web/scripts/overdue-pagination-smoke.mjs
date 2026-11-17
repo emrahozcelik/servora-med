@@ -77,6 +77,9 @@ try {
         assert.equal(await page.locator('html').getAttribute('data-overdue-offset'), '0');
         assert.match(await page.locator('.servora-list-pagination').innerText(), /Sayfa 1 \/ 3/);
         if (kind === 'history') {
+          const breaches = JSON.parse(await page.locator('html').getAttribute('data-overdue-history-breaches'));
+          assert.equal(breaches.length, 13);
+          assert.deepEqual(breaches, [...breaches].sort().reverse(), 'history fixture must be newest first before paging');
           assert.match(await page.locator(ready).innerText(), /Planlanan bitiş/);
           assert.match(await page.locator(ready).innerText(), /Onay süresi sonu/);
         }
@@ -141,6 +144,24 @@ try {
       await capture(keyboard, `${kind}-keyboard-enter-prev-390`);
     } finally { await keyboard.close(); }
 
+    for (const [width, height] of [[390, 844], [1440, 960]]) {
+      const shrinking = await visit(kind, width, height, '&delay=120&shrink=7');
+      try {
+        await shrinking.locator(ready).waitFor();
+        await shrinking.locator('.servora-ant-pagination-next').focus();
+        await shrinking.keyboard.press('Space');
+        await shrinking.waitForFunction(() => document.querySelector('.servora-list-pagination')?.textContent?.includes('Sayfa 2 / 3')
+          && document.activeElement?.classList.contains('servora-list-pagination'));
+        await shrinking.locator('.servora-ant-pagination-next').focus();
+        await shrinking.keyboard.press('Space');
+        await shrinking.waitForFunction(() => document.documentElement.dataset.overdueOffset === '6'
+          && document.querySelector('.servora-list-pagination')?.textContent?.includes('Sayfa 2 / 2')
+          && document.activeElement?.classList.contains('servora-list-pagination'));
+        assert.equal(await shrinking.locator(selector).count(), 1);
+        await capture(shrinking, `${kind}-keyboard-clamped-${width}`);
+      } finally { await shrinking.close(); }
+    }
+
     const emptyPage = await visit(`${kind}-empty`, 390, 844);
     try {
       await emptyPage.locator('main h1').waitFor();
@@ -171,7 +192,8 @@ try {
     checks, errors, unexpected,
     limits: ['Chromium only', '320px reflow and scoped 200% record text simulation, not 400% zoom', 'no full AppShell/role authorization verification'],
   }, null, 2));
-  console.log(`PASS overdue visual: ${checks.length} viewport captures; six-row server paging, retry and no overflow`);
+  const captureCount = checks.filter(check => 'overflow' in check).length;
+  console.log(`PASS overdue visual: ${captureCount} screenshots; six-row server paging, keyboard focus, retry and no overflow`);
 } catch (error) {
   writeFileSync(resolve(out, 'failure.json'), JSON.stringify({ error: String(error), errors, unexpected, checks }, null, 2));
   throw error;
