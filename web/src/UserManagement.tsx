@@ -14,6 +14,7 @@ import {
   validateNewPasswordPolicy,
 } from './ui/password-policy';
 import { PageHeader } from './ui/PageHeader';
+import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
@@ -132,7 +133,10 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [deletePending, setDeletePending] = useState(false);
   const [lifecyclePending, setLifecyclePending] = useState(false);
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
   const lifecycleBusy = useRef(false);
+  const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   async function run(action: () => Promise<ManagedUser>, message: string) {
     setError('');
     try {
@@ -148,6 +152,11 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
     try { await run(action, message); }
     finally { lifecycleBusy.current = false; setLifecyclePending(false); }
   }
+  async function confirmDeactivate() {
+    if (lifecycleBusy.current || !deactivateOpen || !canDeactivate) return;
+    await runLifecycle(() => deactivateUser(user.id, user.version), 'Kullanıcı devre dışı bırakıldı.');
+    setDeactivateOpen(false);
+  }
   async function permanentlyDelete() {
     if (user.canPermanentlyDelete !== true || deletePending) return;
     if (!window.confirm('Bu kullanıcıda operasyon geçmişi bulunmuyor. Kullanıcı kalıcı olarak silinsin mi? Bu işlem geri alınamaz.')) return;
@@ -162,7 +171,7 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
   return <main className="people-form"><PageHeader eyebrow="Kullanıcı" fallbackTitle={user.name} />
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <section><h2>Temel bilgiler</h2><form onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get('name') ?? ''); void run(() => updateUser(user.id, { expectedVersion: user.version, name }), 'Ad güncellendi.'); }}>
-      <Field id="detail-name" label="Ad soyad"><input id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
+      <Field id="detail-name" label="Ad soyad"><input ref={nameInputRef} id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
     <section className="security-section"><h2>Rol ve erişim</h2>{user.role !== 'STAFF' && <form onSubmit={(e) => { e.preventDefault(); const role = String(new FormData(e.currentTarget).get('role')) as 'ADMIN' | 'MANAGER'; void run(() => changeUserRole(user.id, { expectedVersion: user.version, role }), 'Rol güncellendi.'); }}>
       <Field id="detail-role" label="Rol"><select id="detail-role" name="role" defaultValue={user.role}><option value="ADMIN">Sistem yöneticisi</option><option value="MANAGER">Yönetici</option></select></Field><button className="primary-button">Rolü değiştir</button></form>}
       <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); const policyIssue = validateNewPasswordPolicy(temporaryPassword); if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; } if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
@@ -178,8 +187,17 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
             setUser(inactive); onChanged(inactive);
           });
         }} />}
-      {canDeactivate && <button className="secondary-button command-button" type="button" disabled={lifecyclePending} aria-busy={lifecyclePending}
-        onClick={() => { if (!lifecycleBusy.current && window.confirm('Kullanıcı devre dışı bırakılsın ve tüm oturumları kapatılsın mı?')) void runLifecycle(() => deactivateUser(user.id, user.version), 'Kullanıcı devre dışı bırakıldı.'); }}>Devre dışı bırak</button>}
+      {canDeactivate && <button ref={deactivateTriggerRef} className="secondary-button command-button" type="button"
+        disabled={lifecyclePending} aria-busy={lifecyclePending}
+        onClick={() => { if (!lifecycleBusy.current) setDeactivateOpen(true); }}>Devre dışı bırak</button>}
+      <ConfirmationAction open={deactivateOpen && canDeactivate}
+        title="Kullanıcı devre dışı bırakılsın mı?"
+        description="Bu kullanıcının tüm aktif oturumları kapatılacak. Gerektiğinde yeniden etkinleştirilebilir."
+        confirmLabel="Devre dışı bırak" pending={lifecyclePending} destructive
+        pendingLabel="Devre dışı bırakılıyor…"
+        onConfirm={() => void confirmDeactivate()}
+        onCancel={() => setDeactivateOpen(false)}
+        returnFocusRef={deactivateTriggerRef} fallbackFocusRef={nameInputRef} />
       {canReactivate && <button className="secondary-button command-button" type="button" disabled={lifecyclePending} aria-busy={lifecyclePending}
         onClick={() => void runLifecycle(() => activateUser(user.id, user.version), 'Kullanıcı yeniden etkinleştirildi.')}>Yeniden etkinleştir</button>}
       {user.role === 'STAFF' && !user.isActive && <div className="lifecycle-notice" role="status">

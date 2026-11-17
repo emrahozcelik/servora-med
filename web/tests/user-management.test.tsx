@@ -307,25 +307,47 @@ describe('User status filter and activation commands', () => {
     expect(container.textContent).toContain('Aktif kullanıcı yok');
   });
 
-  it('deactivates an active Manager after confirmation using the expected version', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    people.deactivateUser.mockResolvedValue({ ...manager, isActive: false, version: 2 });
+  it('deactivates an active Manager only after owned confirmation using the expected version', async () => {
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    people.deactivateUser.mockResolvedValue({ ...manager, isActive: false, version: 4 });
     await renderDetail({ ...manager, version: 3 });
-    expect(button('Yeniden etkinleştir')).toBeUndefined();
     await act(async () => button('Devre dışı bırak')!.click());
-    expect(confirm).toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('true');
+    expect(people.deactivateUser).not.toHaveBeenCalled();
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="dialog"] .destructive-button')!.click());
     expect(people.deactivateUser).toHaveBeenCalledWith('manager-1', 3);
     expect(container.textContent).toContain('Kullanıcı devre dışı bırakıldı.');
     expect(button('Yeniden etkinleştir')).toBeDefined();
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
-  it('does not deactivate when the confirmation is declined and hides the command for the own account', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
+  it('cancels deactivation without writing and hides self-deactivation', async () => {
     await renderDetail(manager);
     await act(async () => button('Devre dışı bırak')!.click());
     expect(people.deactivateUser).not.toHaveBeenCalled();
+    await act(async () => button('Vazgeç')!.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(people.deactivateUser).not.toHaveBeenCalled();
     await renderDetail({ ...manager, id: admin.id, role: 'ADMIN' });
     expect(button('Devre dışı bırak')).toBeUndefined();
+  });
+
+  it('prevents duplicate pending deactivations and restores focus', async () => {
+    let finish!: (value: ManagedUser) => void;
+    people.deactivateUser.mockImplementation(() => new Promise<ManagedUser>((resolve) => { finish = resolve; }));
+    await renderDetail({ ...manager, version: 3 });
+    await act(async () => button('Devre dışı bırak')!.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.destructive-button')!.click());
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(dialog.querySelector<HTMLButtonElement>('.destructive-button')!.disabled).toBe(true);
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.destructive-button')!.click());
+    expect(people.deactivateUser).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ ...manager, isActive: false, version: 4 }));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => { await Promise.resolve(); });
+    expect(document.activeElement).toBe(container.querySelector('#detail-name'));
   });
 
   it('reactivates an inactive Manager and surfaces backend errors', async () => {
