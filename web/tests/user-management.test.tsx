@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserCreateForm, UserListView, UserDetailView, UserDetailScreen } from '../src/UserManagement';
 import type { ManagedUser } from '../src/services/people-api';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
+stubDesktopMatchMedia();
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const people = vi.hoisted(() => ({
@@ -350,4 +353,37 @@ describe('User status filter and activation commands', () => {
     await renderDetail(inactiveManager, { id: 'm-viewer', organizationId: 'org-1', role: 'MANAGER' });
     expect(button('Yeniden etkinleştir')).toBeUndefined();
   });
+
+  it('uses six-row pagination and resets to page one when the status filter changes', async () => {
+    const manyActive = Array.from({ length: 8 }, (_, index) => ({
+      ...user, id: \`active-\${index}\`, name: \`Aktif \${index}\`,
+    }));
+    await act(async () => root.render(<MemoryRouter><UserListView users={[...manyActive, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    expect(names()).toHaveLength(6);
+    expect(container.textContent).toContain('Sayfa 1 / 2');
+    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"]')!.click());
+    expect(names()).toHaveLength(2);
+    expect(container.textContent).toContain('Sayfa 2 / 2');
+    await act(async () => tab('Pasif').click());
+    expect(names()).toEqual(['Pasif Yönetici']);
+    expect(container.querySelector('.servora-list-pagination')).toBeNull();
+    await act(async () => tab('Aktif').click());
+    expect(names()).toHaveLength(6);
+    expect(names()[0]).toBe('Aktif 0');
+  });
+
+  it('locks repeated reactivation clicks until the first request completes', async () => {
+    let complete!: (value: ManagedUser) => void;
+    people.activateUser.mockImplementation(() => new Promise<ManagedUser>((resolve) => { complete = resolve; }));
+    await renderDetail({ ...inactiveManager, version: 4 });
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    const pending = button('Yeniden etkinleştir')!;
+    expect(pending.disabled).toBe(true);
+    expect(pending.getAttribute('aria-busy')).toBe('true');
+    await act(async () => pending.click());
+    expect(people.activateUser).toHaveBeenCalledTimes(1);
+    await act(async () => complete({ ...inactiveManager, isActive: true, version: 5 }));
+    expect(button('Devre dışı bırak')).toBeDefined();
+  });
+
 });

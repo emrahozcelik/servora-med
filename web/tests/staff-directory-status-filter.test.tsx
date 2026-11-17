@@ -8,6 +8,9 @@ import { StaffProfilesScreen } from '../src/StaffProfiles';
 import type { CurrentUser } from '../src/services/api';
 import type { StaffProfile } from '../src/services/people-api';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
+stubDesktopMatchMedia();
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({ listStaff: vi.fn(), listUsers: vi.fn(), getStaffProfile: vi.fn(), getOwnStaffProfile: vi.fn() }));
@@ -87,4 +90,38 @@ describe('Staff directory status filter', () => {
     expect(container.textContent).toContain('Bora Ayrılan');
     expect(container.querySelector('[role="tablist"][aria-label="Personel durumu"]')).toBeNull();
   });
+
+  it('shows six staff per page and resets the page after a status switch', async () => {
+    const many = Array.from({ length: 8 }, (_, index) => make(\`s-\${index}\`, \`Personel \${index}\`, true));
+    api.listStaff.mockImplementation(async (status: string) => status === 'inactive' ? [leftStaff] : many);
+    await mount('ADMIN');
+    expect(names()).toHaveLength(6);
+    expect(container.textContent).toContain('Sayfa 1 / 2');
+    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"]')!.click());
+    expect(names()).toHaveLength(2);
+    await act(async () => tab('Pasif').click());
+    expect(names()).toEqual(['Bora Ayrılan']);
+    expect(container.querySelector('.servora-list-pagination')).toBeNull();
+    await act(async () => tab('Aktif').click());
+    expect(names()[0]).toBe('Personel 0');
+    expect(names()).toHaveLength(6);
+  });
+
+  it('keeps the tabs visible while hiding previous-filter rows until the new response arrives', async () => {
+    let deliver!: (items: StaffProfile[]) => void;
+    api.listStaff.mockImplementation((status: string) =>
+      status === 'inactive' ? new Promise<StaffProfile[]>((resolve) => { deliver = resolve; }) : Promise.resolve([activeStaff]));
+    await mount('ADMIN');
+    const activeTab = tab('Aktif');
+    activeTab.focus();
+    await act(async () => tab('Pasif').click());
+    expect(tab('Pasif').getAttribute('aria-selected')).toBe('true');
+    expect(names()).toEqual([]);
+    expect(container.textContent).toContain('Seçilen personel listesi yükleniyor');
+    expect(container.querySelector('.servora-list-pagination')).toBeNull();
+    await act(async () => deliver([leftStaff]));
+    expect(names()).toEqual(['Bora Ayrılan']);
+    expect(container.textContent).not.toContain('Seçilen personel listesi yükleniyor');
+  });
+
 });

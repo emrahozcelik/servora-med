@@ -20,6 +20,8 @@ import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import type { CurrentUser } from './services/api';
 import { PeopleStatusFilterTabs, type PeopleStatusFilter } from './ui/PeopleStatusFilterTabs';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from './ui/pagination';
 import { StaffOffboardingWorkflow } from './people/StaffOffboardingWorkflow';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
@@ -37,15 +39,17 @@ export function UserListView({ users, onCreate, onOpen, notice }: {
   users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void; notice?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState<PeopleStatusFilter>('active');
+  const [pageOffset, setPageOffset] = useState(0);
   const visibleUsers = users.filter((item) => statusFilter === 'all' || item.isActive === (statusFilter === 'active'));
+  const boundedOffset = Math.min(pageOffset, lastListPageOffset(visibleUsers.length));
   return <main className="workspace"><PageHeader eyebrow="Yönetim" fallbackTitle="Kullanıcılar"
     actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button>} />
     {notice && <div className="success-message" role="status">{notice}</div>}
-    {users.length > 0 && <PeopleStatusFilterTabs value={statusFilter} onChange={setStatusFilter} label="Kullanıcı durumu" />}
+    {users.length > 0 && <PeopleStatusFilterTabs value={statusFilter} onChange={(next) => { setPageOffset(0); setStatusFilter(next); }} label="Kullanıcı durumu" />}
     {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
       : visibleUsers.length === 0 ? <EmptyState title={statusFilter === 'active' ? 'Aktif kullanıcı yok' : 'Pasif kullanıcı yok'}
         description={statusFilter === 'active' ? 'Pasif kullanıcıları görmek için Pasif veya Tümü seçin.' : 'Pasif kullanıcı bulunmuyor.'} />
-      : <ul className="people-list">{visibleUsers.map((user) => <li key={user.id}>
+      : <ul className="people-list">{visibleUsers.slice(boundedOffset, boundedOffset + DEFAULT_LIST_PAGE_SIZE).map((user) => <li key={user.id}>
         <article className="people-row people-list-card" data-user-id={user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, user.id)}>
           <div className="people-identity">
@@ -54,6 +58,7 @@ export function UserListView({ users, onCreate, onOpen, notice }: {
           </div>
         </article>
       </li>)}</ul>}
+    <ServoraListPagination total={visibleUsers.length} offset={boundedOffset} label="Kullanıcı sayfaları" itemName="kullanıcı" onOffsetChange={setPageOffset} />
   </main>;
 }
 
@@ -126,6 +131,8 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
 }) {
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [deletePending, setDeletePending] = useState(false);
+  const [lifecyclePending, setLifecyclePending] = useState(false);
+  const lifecycleBusy = useRef(false);
   async function run(action: () => Promise<ManagedUser>, message: string) {
     setError('');
     try {
@@ -133,6 +140,13 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
       const merged = { ...user, ...next };
       setUser(merged); onChanged(merged); setNotice(message);
     } catch (e) { setError(e instanceof Error ? e.message : 'İşlem tamamlanamadı.'); }
+  }
+  async function runLifecycle(action: () => Promise<ManagedUser>, message: string) {
+    if (lifecycleBusy.current) return;
+    lifecycleBusy.current = true;
+    setLifecyclePending(true);
+    try { await run(action, message); }
+    finally { lifecycleBusy.current = false; setLifecyclePending(false); }
   }
   async function permanentlyDelete() {
     if (user.canPermanentlyDelete !== true || deletePending) return;
@@ -164,10 +178,10 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
             setUser(inactive); onChanged(inactive);
           });
         }} />}
-      {canDeactivate && <button className="secondary-button command-button" type="button"
-        onClick={() => { if (window.confirm('Kullanıcı devre dışı bırakılsın ve tüm oturumları kapatılsın mı?')) void run(() => deactivateUser(user.id, user.version), 'Kullanıcı devre dışı bırakıldı.'); }}>Devre dışı bırak</button>}
-      {canReactivate && <button className="secondary-button command-button" type="button"
-        onClick={() => void run(() => activateUser(user.id, user.version), 'Kullanıcı yeniden etkinleştirildi.')}>Yeniden etkinleştir</button>}
+      {canDeactivate && <button className="secondary-button command-button" type="button" disabled={lifecyclePending} aria-busy={lifecyclePending}
+        onClick={() => { if (!lifecycleBusy.current && window.confirm('Kullanıcı devre dışı bırakılsın ve tüm oturumları kapatılsın mı?')) void runLifecycle(() => deactivateUser(user.id, user.version), 'Kullanıcı devre dışı bırakıldı.'); }}>Devre dışı bırak</button>}
+      {canReactivate && <button className="secondary-button command-button" type="button" disabled={lifecyclePending} aria-busy={lifecyclePending}
+        onClick={() => void runLifecycle(() => activateUser(user.id, user.version), 'Kullanıcı yeniden etkinleştirildi.')}>Yeniden etkinleştir</button>}
       {user.role === 'STAFF' && !user.isActive && <div className="lifecycle-notice" role="status">
         Bu personel ayrıldı ve yeniden etkinleştirilemez.
       </div>}
