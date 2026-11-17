@@ -21,6 +21,7 @@ import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
+import { PeopleStatusFilterTabs, type PeopleStatusFilter } from './ui/PeopleStatusFilterTabs';
 
 const counterLabels = { open: 'Açık işler', waitingApproval: 'Onay bekliyor', revisionRequested: 'Düzeltme istendi', completedThisMonth: 'Bu ay tamamlandı', overdue: 'Geciken' } as const;
 
@@ -189,19 +190,25 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function StaffDirectoryView({ profiles, onOpen }: {
+export function StaffDirectoryView({ profiles, onOpen, statusFilter = 'active', onStatusFilterChange }: {
   profiles: StaffProfile[];
   onOpen: (id: string) => void;
+  statusFilter?: PeopleStatusFilter;
+  /** Provided for Admin only; Manager is limited to active staff by the server. */
+  onStatusFilterChange?: (next: PeopleStatusFilter) => void;
 }) {
+  const emptyCopy = statusFilter === 'inactive' ? 'Pasif personel profili yok.'
+    : statusFilter === 'all' ? 'Personel profili yok.' : 'Aktif personel profili yok.';
   return <main className="workspace">
     <PageHeader eyebrow="Ekip" fallbackTitle="Personel" />
-    {profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description="Aktif personel profili yok." />
+    {onStatusFilterChange && <PeopleStatusFilterTabs value={statusFilter} onChange={onStatusFilterChange} label="Personel durumu" />}
+    {profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description={emptyCopy} />
       : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}>
         <article className="people-row people-list-card" data-staff-id={profile.user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, profile.user.id)}>
           <div className="people-identity">
             <h2><Link className="people-title-link" to={paths.staffProfile(profile.user.id)}>{profile.user.name}</Link></h2>
-            <p>{profile.title || 'Unvan belirtilmedi'} · {profile.managerName || 'Yönetici atanmadı'}</p>
+            <p>{profile.title || 'Unvan belirtilmedi'} · {profile.managerName || 'Yönetici atanmadı'}{profile.user.isActive ? '' : ' · Pasif'}</p>
           </div>
         </article>
       </li>)}</ul>}
@@ -253,22 +260,30 @@ export function StaffProfilesScreen({ user, initialStaffUserId, onOpenProfile, o
   }, [setRouteRuntimeLabel, own?.user.name, selected?.user.name]);
   const [managers, setManagers] = useState<ManagedUser[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<PeopleStatusFilter>('active');
+  // A filter change keeps the directory (and the focused tab) mounted while reloading.
+  const filterChangeRef = useRef(false);
   const realtimeResourceKeys = user.role === 'STAFF'
     ? [`staff-profile:${user.id}`]
     : initialStaffUserId
       ? [`staff-profile:${initialStaffUserId}`]
       : profiles.map((profile) => `staff-profile:${profile.user.id}`);
-  useEffect(() => { setLoading(true); setError('');
+  useEffect(() => {
+    let cancelled = false;
+    if (!filterChangeRef.current) setLoading(true);
+    filterChangeRef.current = false; setError('');
     if (user.role === 'STAFF') getOwnStaffProfile().then(setOwn).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')).finally(() => setLoading(false));
-    else Promise.all([listStaff('active'), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
+    else Promise.all([listStaff(user.role === 'ADMIN' ? statusFilter : 'active'), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
       initialStaffUserId ? getStaffProfile(initialStaffUserId) : Promise.resolve(null)])
-      .then(([items, allUsers, initialProfile]) => { setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); setSelected(initialProfile); }).catch((e) => setError(e instanceof Error ? e.message : 'Personel yüklenemedi.')).finally(() => setLoading(false));
-  }, [user, initialStaffUserId, reload]);
+      .then(([items, allUsers, initialProfile]) => { if (cancelled) return; setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); setSelected(initialProfile); }).catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Personel yüklenemedi.'); }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user, initialStaffUserId, reload, statusFilter]);
   useRealtimeInvalidation(realtimeResourceKeys, () => { setReload((value) => value + 1); });
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><ResultState status="error" title="Personel bilgileri yüklenemedi" description={error} headingLevel={1} /></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} actor={user} />;
   if (selected) return <StaffProfileEditRoute profile={selected} actor={user} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} onOpenReport={onOpenReport ? () => onOpenReport(selected.user.id) : undefined} />;
-  return <StaffDirectoryView profiles={profiles}
+  return <StaffDirectoryView profiles={profiles} statusFilter={statusFilter}
+    onStatusFilterChange={user.role === 'ADMIN' ? (next) => { filterChangeRef.current = true; setStatusFilter(next); } : undefined}
     onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }

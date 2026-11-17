@@ -106,6 +106,7 @@ USER_PERMANENT_DELETE_BLOCKED
 SELF_DELETE_FORBIDDEN
 DEMO_USER_DELETE_FORBIDDEN
 OFFBOARDING_REQUIRED
+OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN
 OFFBOARDING_UNAVAILABLE
 OFFBOARDING_TARGET_NOT_STAFF
 OFFBOARDING_TERMINAL_FOLLOW_UP_REQUIRES_REVIEW
@@ -267,7 +268,7 @@ PATCH and the ordinary named user commands require `expectedVersion`, perform an
 
 Permanent deletion is Admin-only and succeeds only for a pristine `BUSINESS` user with no meaningful business or operational history and no blocking active responsibilities. The server computes `permanentDeleteBlockers` from `SELF`, `LAST_ADMIN`, `HAS_BUSINESS_HISTORY`, `HAS_ACTIVE_RESPONSIBILITIES`, and `DEMO_USER`; the UI must not infer eligibility. Self-delete, deletion of the last active Admin, Demo-user deletion, and deletion with business blockers return their corresponding `409` error codes, including `USER_PERMANENT_DELETE_BLOCKED` where applicable. Technical login/session history alone does not create a business-history blocker. A successful deletion writes the `USER_DELETED` audit event with `metadata.deletionMode=PERMANENT` and returns no user payload.
 
-Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. Generic deactivation of a Staff user returns `409 OFFBOARDING_REQUIRED`; history-bearing Staff users must use the dedicated offboarding flow. Offboarding revokes the target's sessions, resolves explicitly planned jobs, customers, calendar assignments, follow-ups, and reminders, deactivates the Staff user, preserves historical attribution, and appends `USER_OFFBOARDED`.
+Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. Generic deactivation of a Staff user returns `409 OFFBOARDING_REQUIRED`; history-bearing Staff users must use the dedicated offboarding flow. Activating an inactive (offboarded) Staff user returns `409 OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN`; Admin and Manager users can still be reactivated. Offboarding revokes the target's sessions, resolves explicitly planned jobs, customers, calendar assignments, follow-ups, and reminders, deactivates the Staff user, preserves historical attribution, and appends `USER_OFFBOARDED`.
 
 `POST /api/users/:userId/offboarding/preview` is Admin-only and accepts `{}`. It returns the current plan and its `planHash`. The Admin then submits that exact plan to the idempotent, serializable execute command:
 

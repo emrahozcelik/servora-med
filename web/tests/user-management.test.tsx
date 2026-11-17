@@ -11,11 +11,13 @@ import type { ManagedUser } from '../src/services/people-api';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const people = vi.hoisted(() => ({
-  getUser: vi.fn(), permanentlyDeleteUser: vi.fn(), createUser: vi.fn(), resetUserPassword: vi.fn(),
+  getUser: vi.fn(), activateUser: vi.fn(), deactivateUser: vi.fn(), permanentlyDeleteUser: vi.fn(), createUser: vi.fn(), resetUserPassword: vi.fn(),
 }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/services/people-api')>(),
   getUser: (...args: unknown[]) => people.getUser(...args),
+  activateUser: (...args: unknown[]) => people.activateUser(...args),
+  deactivateUser: (...args: unknown[]) => people.deactivateUser(...args),
   permanentlyDeleteUser: (...args: unknown[]) => people.permanentlyDeleteUser(...args),
   createUser: (...args: unknown[]) => people.createUser(...args),
   resetUserPassword: (...args: unknown[]) => people.resetUserPassword(...args),
@@ -32,7 +34,6 @@ describe('Admin user management views', () => {
     expect(html).toContain('/users/staff-1');
     expect(html).toContain('people-title-link');
     expect(html).not.toContain('Ayrıntıyı aç');
-    expect(html).not.toContain('Aktif'); expect(html).not.toContain('Pasif');
     expect(html).not.toMatch(/password|token|session/i);
   });
 
@@ -254,5 +255,99 @@ describe('User detail route race protection', () => {
     expect(people.permanentlyDeleteUser).toHaveBeenCalledWith('staff-1', 1);
     expect(onDeleted).toHaveBeenCalledTimes(1);
     confirm.mockRestore();
+  });
+});
+
+describe('User status filter and activation commands', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const admin = { id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' } as const;
+  const manager: ManagedUser = { ...user, id: 'manager-1', name: 'Murat', email: 'manager@example.com', role: 'MANAGER' };
+  const inactiveStaff: ManagedUser = { ...user, id: 'staff-2', name: 'Bora Ayrılan', isActive: false };
+  const inactiveManager: ManagedUser = { ...manager, id: 'manager-2', name: 'Pasif Yönetici', isActive: false };
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    people.activateUser.mockReset(); people.deactivateUser.mockReset();
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+  const tab = (label: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((el) => el.textContent === label)!;
+  const button = (label: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((el) => el.textContent === label);
+  const names = () => Array.from(container.querySelectorAll('.people-title-link')).map((el) => el.textContent);
+  const renderDetail = (target: ManagedUser, viewer: { id: string; organizationId: string; role: 'ADMIN' | 'MANAGER' | 'STAFF' } = admin) =>
+    act(async () => root.render(<MemoryRouter><UserDetailView key={target.id + viewer.role} viewer={viewer} user={target} onChanged={() => {}} /></MemoryRouter>));
+
+  it('defaults to active users and reveals inactive users through Pasif and Tümü', async () => {
+    await act(async () => root.render(<MemoryRouter><UserListView users={[user, manager, inactiveStaff, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    expect(tab('Aktif').getAttribute('aria-selected')).toBe('true');
+    expect(names()).toEqual(['Ayşe', 'Murat']);
+    await act(async () => tab('Pasif').click());
+    expect(tab('Pasif').getAttribute('aria-selected')).toBe('true');
+    expect(names()).toEqual(['Bora Ayrılan', 'Pasif Yönetici']);
+    expect(container.textContent).toContain('· Pasif');
+    expect(container.textContent).not.toContain('Devre dışı');
+    await act(async () => tab('Tümü').click());
+    expect(names()).toHaveLength(4);
+  });
+
+  it('uses empty-state copy that matches the selected filter', async () => {
+    await act(async () => root.render(<MemoryRouter><UserListView users={[user]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    await act(async () => tab('Pasif').click());
+    expect(container.textContent).toContain('Pasif kullanıcı yok');
+    await act(async () => root.render(<MemoryRouter><UserListView users={[inactiveStaff]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    await act(async () => tab('Aktif').click());
+    expect(container.textContent).toContain('Aktif kullanıcı yok');
+  });
+
+  it('deactivates an active Manager after confirmation using the expected version', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    people.deactivateUser.mockResolvedValue({ ...manager, isActive: false, version: 2 });
+    await renderDetail({ ...manager, version: 3 });
+    expect(button('Yeniden etkinleştir')).toBeUndefined();
+    await act(async () => button('Devre dışı bırak')!.click());
+    expect(confirm).toHaveBeenCalled();
+    expect(people.deactivateUser).toHaveBeenCalledWith('manager-1', 3);
+    expect(container.textContent).toContain('Kullanıcı devre dışı bırakıldı.');
+    expect(button('Yeniden etkinleştir')).toBeDefined();
+  });
+
+  it('does not deactivate when the confirmation is declined and hides the command for the own account', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await renderDetail(manager);
+    await act(async () => button('Devre dışı bırak')!.click());
+    expect(people.deactivateUser).not.toHaveBeenCalled();
+    await renderDetail({ ...manager, id: admin.id, role: 'ADMIN' });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+  });
+
+  it('reactivates an inactive Manager and surfaces backend errors', async () => {
+    people.activateUser.mockRejectedValueOnce(new Error('Sürüm çakışması'));
+    await renderDetail({ ...inactiveManager, version: 4 });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    expect(people.activateUser).toHaveBeenCalledWith('manager-2', 4);
+    expect(container.textContent).toContain('Sürüm çakışması');
+    people.activateUser.mockResolvedValueOnce({ ...inactiveManager, isActive: true, version: 5 });
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    expect(container.textContent).toContain('Kullanıcı yeniden etkinleştirildi.');
+  });
+
+  it('shows a notice and no reactivate command for an inactive Staff user', async () => {
+    await renderDetail(inactiveStaff);
+    expect(container.querySelector('.lifecycle-notice')?.textContent).toContain('yeniden etkinleştirilemez');
+    expect(button('Yeniden etkinleştir')).toBeUndefined();
+    expect(button('Devre dışı bırak')).toBeUndefined();
+  });
+
+  it('offers no activation commands to non-Admin viewers', async () => {
+    await renderDetail(manager, { id: 'm-viewer', organizationId: 'org-1', role: 'MANAGER' });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+    await renderDetail(inactiveManager, { id: 'm-viewer', organizationId: 'org-1', role: 'MANAGER' });
+    expect(button('Yeniden etkinleştir')).toBeUndefined();
   });
 });
