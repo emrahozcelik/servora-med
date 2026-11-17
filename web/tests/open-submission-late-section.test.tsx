@@ -262,3 +262,57 @@ describe('OVR-4 canonical six-record paging', () => {
     } finally { await view.dispose(); }
   });
 });
+
+describe('OVR-4 keyboard focus with deferred page responses', () => {
+  it('restores open-late paging focus after a delayed page load', async () => {
+    let completeNext!: (page: { items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }) => void;
+    const load = vi.fn(({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      offset === 0
+        ? Promise.resolve({ items: openRows.slice(0, limit), total: 13, limit, offset })
+        : new Promise<{ items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }>(
+          resolve => { completeNext = resolve; },
+        )
+    ));
+    const view = await mountView(<OpenSubmissionLateSection load={load} />);
+    try {
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(load).toHaveBeenLastCalledWith({ limit: 6, offset: 6 });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => {
+        completeNext({ items: openRows.slice(6, 12), total: 13, limit: 6, offset: 6 });
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+
+  it('restores incident-history paging focus after a delayed page load', async () => {
+    let completeNext!: (page: { items: OverdueIncidentHistoryItem[]; total: number; limit: number; offset: number }) => void;
+    const load = vi.fn((_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      offset === 0
+        ? Promise.resolve({ items: historyRows.slice(0, limit), total: 13, limit, offset })
+        : new Promise<{ items: OverdueIncidentHistoryItem[]; total: number; limit: number; offset: number }>(
+          resolve => { completeNext = resolve; },
+        )
+    ));
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={load} />);
+    try {
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(load).toHaveBeenLastCalledWith('test-job', { limit: 6, offset: 6 });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => {
+        completeNext({ items: historyRows.slice(6, 12), total: 13, limit: 6, offset: 6 });
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+});
