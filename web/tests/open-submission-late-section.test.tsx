@@ -77,4 +77,13 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
     expect(link?.textContent).not.toContain('Denetim Personeli');
     expect(link?.textContent).not.toContain('gecikti');
   });
+
+  it('renders an accessible retry state when the late-submission request fails', async () => {
+    const load = vi.fn().mockRejectedValue(new Error('Sunucu yanıt vermedi.'));
+    const { section, html } = await renderHtml(load);
+    expect(section?.getAttribute('data-open-submission-late')).toBe('error');
+    expect(html).toContain('Gecikme listesi yüklenemedi');
+    expect(html).toContain('Sunucu yanıt vermedi.');
+    expect(html).toContain('Tekrar dene');
+  });
 });

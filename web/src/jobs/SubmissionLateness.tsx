@@ -279,7 +279,7 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   const [state, setState] = useState<OpenListState>({ kind: 'loading' });
 
   const refresh = useCallback(async () => {
-    setState({ kind: 'loading' });
+    setState((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     try {
       const page = await load({ limit: 20, offset: 0 });
       setState({ kind: 'ready', items: [...page.items], total: page.total });
@@ -294,27 +294,46 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   useEffect(() => { void refresh(); }, [refresh]);
   useRealtimeInvalidation(['overview', 'job-list'], () => { void refresh(); });
 
-  if (state.kind === 'loading' || state.kind === 'error') return null;
+  if (state.kind === 'loading') return null;
+  if (state.kind === 'error') {
+    return (
+      <section className="overview-section" aria-labelledby="submission-late-title" data-open-submission-late="error">
+        <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
+        <ResultState
+          status="error"
+          title="Gecikme listesi yüklenemedi"
+          description={state.message}
+          headingLevel={3}
+          action={
+            <button className="secondary-button" type="button" onClick={() => void refresh()}>
+              Tekrar dene
+            </button>
+          }
+        />
+      </section>
+    );
+  }
   if (state.items.length === 0) return null;
 
   return (
     <section className="overview-section" aria-labelledby="submission-late-title" data-open-submission-late="true">
       <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
-      <div className="overview-card-stack">
+      <ul className="overview-card-stack">
         {state.items.map((item) => (
-          <OperationalCard
-            key={`${item.jobCardId}:${item.episodeNo}`}
-            title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
-            tone="overdue"
-            statusLabel="Gönderim gecikti"
-            className="submission-late-card"
-          >
-            <span>
-              {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
-            </span>
-          </OperationalCard>
+          <li key={`${item.jobCardId}:${item.episodeNo}`}>
+            <OperationalCard
+              title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
+              tone="overdue"
+              statusLabel="Gönderim gecikti"
+              className="submission-late-card"
+            >
+              <span>
+                {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
+              </span>
+            </OperationalCard>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

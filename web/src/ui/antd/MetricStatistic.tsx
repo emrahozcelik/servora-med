@@ -1,6 +1,6 @@
 import { Statistic } from 'antd';
+import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import type { ReactNode } from 'react';
 
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { StateHeading } from './state-heading';
@@ -33,7 +33,11 @@ export function MetricStatistic({
   tone = 'default',
   statusPhrase,
 }: MetricStatisticProps): ReactNode {
-  const toneClass = tone !== 'default' ? ` ${toneModifier[tone]}` : '';
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+  const valueId = `${baseId}-value`;
+  const statusId = `${baseId}-status`;
+  const toneClass = tone !== 'default' && toneModifier[tone] ? ` ${toneModifier[tone]}` : '';
   const fallbackPhrase = tone === 'attention'
     ? 'İnceleme veya müdahale bekliyor'
     : tone === 'warning'
@@ -41,6 +45,8 @@ export function MetricStatistic({
       : tone === 'success'
         ? 'Tamamlanan kayıtlar'
         : '';
+  const resolvedStatus = statusPhrase ?? fallbackPhrase;
+  const hasStatus = Boolean((tone !== 'default' || statusPhrase) && resolvedStatus);
 
   if (loading) {
     return (
@@ -53,18 +59,28 @@ export function MetricStatistic({
   return (
     <div className={`servora-metric-statistic${toneClass}`}>
       <Statistic
-        title={<StateHeading level={3}>{title}</StateHeading>}
+        title={<StateHeading level={3}><span id={titleId}>{title}</span></StateHeading>}
         value={value as string | number}
         prefix={prefix}
         suffix={suffix}
         formatter={
           linkTo
-            ? (displayValue) => <Link to={linkTo}>{displayValue}</Link>
+            ? (displayValue) => (
+                <Link
+                  to={linkTo}
+                  id={valueId}
+                  className="servora-metric-statistic__link"
+                  aria-labelledby={`${titleId} ${valueId}`}
+                  aria-describedby={hasStatus ? statusId : undefined}
+                >
+                  {displayValue}
+                </Link>
+              )
             : undefined
         }
       />
-      {(tone !== 'default' || statusPhrase) && (
-        <p className="servora-metric-statistic__status">{statusPhrase ?? fallbackPhrase}</p>
+      {hasStatus && (
+        <p id={statusId} className="servora-metric-statistic__status">{resolvedStatus}</p>
       )}
     </div>
   );

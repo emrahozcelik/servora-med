@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { ServoraAntProvider } from '../src/ui/antd/ServoraAntProvider';
@@ -62,6 +63,26 @@ describe('Ant prefix and operational two-channel contract', () => {
     expect(html).toContain('Termin süresi aşıldı');
     expect(html).toContain('servora-metric-statistic__status');
     expect(css).toContain('.servora-metric-statistic .servora-ant-statistic-title h3');
+    expect(css).toContain('.servora-metric-statistic .servora-ant-statistic-content a');
+  });
+
+  it('associates linked MetricStatistic title and status phrase with the value link', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <ServoraAntProvider>
+          <MetricStatistic
+            title="Geciken"
+            value={2}
+            linkTo="/jobs?overdue=true"
+            tone="attention"
+            statusPhrase="Termin süresi aşıldı"
+          />
+        </ServoraAntProvider>
+      </MemoryRouter>,
+    );
+    expect(html).toContain('servora-metric-statistic__link');
+    expect(html).toMatch(/aria-labelledby="[^"]+-title [^"]+-value"/);
+    expect(html).toMatch(/aria-describedby="[^"]+-status"/);
   });
 
   it('keeps headerless cards free of an empty card head when rendering a tone cue', () => {

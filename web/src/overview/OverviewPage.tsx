@@ -86,16 +86,64 @@ export function OverviewPage({
 
   const kpis = isStaff
     ? [
-        { label: 'Açık işler', value: overview.openJobCards, href: `${paths.jobs}?status=active`, tone: 'default' as const, statusPhrase: 'Açık görev kayıtları' },
-        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: `${paths.jobs}?status=WAITING_APPROVAL`, tone: 'attention' as const, statusPhrase: 'Yönetici değerlendirmesinde' },
-        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const, statusPhrase: 'Düzeltme bekleyen kayıtlar' },
-        { label: 'Tamamlanan', value: overview.completedInPeriod, href: `${paths.jobs}?status=COMPLETED`, tone: 'success' as const, statusPhrase: 'Bu dönemde tamamlandı' },
+        {
+          label: 'Açık işler',
+          value: overview.openJobCards,
+          href: `${paths.jobs}?status=active`,
+          tone: 'default' as const,
+          statusPhrase: 'Açık görev kayıtları',
+        },
+        {
+          label: 'Kontrol bekleyen',
+          value: overview.waitingApproval,
+          href: `${paths.jobs}?status=WAITING_APPROVAL`,
+          tone: overview.waitingApproval > 0 ? ('attention' as const) : ('default' as const),
+          statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
+        },
+        {
+          label: 'Düzeltme gereken',
+          value: overview.revisionRequested,
+          href: `${paths.jobs}?status=REVISION_REQUESTED`,
+          tone: overview.revisionRequested > 0 ? ('warning' as const) : ('default' as const),
+          statusPhrase: overview.revisionRequested > 0 ? 'Düzeltme bekleyen kayıtlar' : 'Düzeltme bekleyen iş yok',
+        },
+        {
+          label: 'Tamamlanan',
+          value: overview.completedInPeriod,
+          href: `${paths.jobs}?status=COMPLETED`,
+          tone: overview.completedInPeriod > 0 ? ('success' as const) : ('default' as const),
+          statusPhrase: overview.completedInPeriod > 0 ? 'Bu dönemde tamamlandı' : 'Bu dönemde tamamlanan iş yok',
+        },
       ]
     : [
-        { label: 'Aktif işler', value: overview.active, href: `${paths.jobs}?status=active`, tone: 'default' as const, statusPhrase: 'Devam eden işler' },
-        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?overdue=true`, tone: 'attention' as const, statusPhrase: 'Termin süresi aşıldı' },
-        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: paths.approvalReports, tone: 'attention' as const, statusPhrase: 'Yönetici değerlendirmesinde' },
-        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const, statusPhrase: 'Düzeltme bekleyen kayıtlar' },
+        {
+          label: 'Aktif işler',
+          value: overview.active,
+          href: `${paths.jobs}?status=active`,
+          tone: 'default' as const,
+          statusPhrase: 'Devam eden işler',
+        },
+        {
+          label: 'Geciken',
+          value: overview.overdue,
+          href: `${paths.jobs}?overdue=true`,
+          tone: overview.overdue > 0 ? ('attention' as const) : ('default' as const),
+          statusPhrase: overview.overdue > 0 ? 'Termin süresi aşıldı' : 'Geciken iş yok',
+        },
+        {
+          label: 'Kontrol bekleyen',
+          value: overview.waitingApproval,
+          href: paths.approvalReports,
+          tone: overview.waitingApproval > 0 ? ('attention' as const) : ('default' as const),
+          statusPhrase: overview.waitingApproval > 0 ? 'Yönetici değerlendirmesinde' : 'Bekleyen onay yok',
+        },
+        {
+          label: 'Düzeltme gereken',
+          value: overview.revisionRequested,
+          href: `${paths.jobs}?status=REVISION_REQUESTED`,
+          tone: overview.revisionRequested > 0 ? ('warning' as const) : ('default' as const),
+          statusPhrase: overview.revisionRequested > 0 ? 'Düzeltme bekleyen kayıtlar' : 'Düzeltme bekleyen iş yok',
+        },
       ];
 
   return (
@@ -106,7 +154,8 @@ export function OverviewPage({
         description={`${user.name} · ${formatOverviewDate(overview.range.from)} – ${formatOverviewDate(overview.range.to)}`}
       />
 
-      <div className="overview-kpis" aria-label="Dönem özeti">
+      <h2 id="overview-kpis-title" className="sr-only">Dönem özeti</h2>
+      <div className="overview-kpis" role="region" aria-labelledby="overview-kpis-title">
         {kpis.map((kpi) => (
           <MetricStatistic
             key={kpi.label}
@@ -140,17 +189,18 @@ export function OverviewPage({
             <h2 id="upcoming-work-title">Yaklaşan işler</h2>
             {overview.upcomingWork.items.length === 0
               ? <EmptyState title="Yaklaşan iş bulunmuyor" />
-              : <div className="overview-card-stack">
+              : <ul className="overview-card-stack">
                   {overview.upcomingWork.items.map((item) => (
-                    <OperationalCard
-                      key={`${item.source}:${item.id}`}
-                      title={<Link to={item.path}>{item.title}</Link>}
-                      tone="upcoming"
-                    >
-                      <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
-                    </OperationalCard>
+                    <li key={`${item.source}:${item.id}`}>
+                      <OperationalCard
+                        title={<Link to={item.path}>{item.title}</Link>}
+                        tone="upcoming"
+                      >
+                        <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
+                      </OperationalCard>
+                    </li>
                   ))}
-                </div>
+                </ul>
             }
           </section>
         )}
@@ -159,17 +209,18 @@ export function OverviewPage({
           <h2 id="recent-work-title">Son tamamlanan işler</h2>
           {overview.recentCompletedWork.length === 0
             ? <EmptyState title="Bu dönemde tamamlanan iş bulunmuyor" />
-            : <div className="overview-card-stack">
+            : <ul className="overview-card-stack">
                 {overview.recentCompletedWork.map((item) => (
-                  <OperationalCard
-                    key={item.id}
-                    title={<Link to={paths.job(item.id)}>{item.title}</Link>}
-                    tone="success"
-                  >
-                    <span>{item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}</span>
-                  </OperationalCard>
+                  <li key={item.id}>
+                    <OperationalCard
+                      title={<Link to={paths.job(item.id)}>{item.title}</Link>}
+                      tone="success"
+                    >
+                      <span>{item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}</span>
+                    </OperationalCard>
+                  </li>
                 ))}
-              </div>
+              </ul>
           }
         </section>
 
@@ -179,18 +230,19 @@ export function OverviewPage({
           <h2 id="recent-notes-title">Son notlar</h2>
           {overview.recentNotes.length === 0
             ? <EmptyState title="Yakın tarihli not bulunmuyor" />
-            : <div className="overview-card-stack">
+            : <ul className="overview-card-stack">
                 {overview.recentNotes.map((note) => (
-                  <OperationalCard
-                    key={note.id}
-                    title={<Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>}
-                    tone="default"
-                  >
-                    <p>Operasyon notu eklendi</p>
-                    <span>{note.authorName} · {new Date(note.createdAt).toLocaleString('tr-TR')}</span>
-                  </OperationalCard>
+                  <li key={note.id}>
+                    <OperationalCard
+                      title={<Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>}
+                      tone="default"
+                    >
+                      <p>Operasyon notu eklendi</p>
+                      <span>{note.authorName} · {new Date(note.createdAt).toLocaleString('tr-TR')}</span>
+                    </OperationalCard>
+                  </li>
                 ))}
-              </div>
+              </ul>
           }
         </section>
 
@@ -220,13 +272,19 @@ export function OverviewPage({
             <h2 id="message-summary-title">Okunmamış mesaj</h2>
             <OperationalCard
               title={
-                overview.messageUnreadSummary.unreadTotal > 0
-                  ? <Link to={paths.messages}>{overview.messageUnreadSummary.unreadTotal} okunmamış mesaj</Link>
-                  : <span>Okunmamış mesaj yok</span>
+                <Link to={paths.messages}>
+                  {overview.messageUnreadSummary.unreadTotal > 0
+                    ? `${overview.messageUnreadSummary.unreadTotal} okunmamış mesaj`
+                    : 'Okunmamış mesaj yok'}
+                </Link>
               }
               tone={overview.messageUnreadSummary.unreadTotal > 0 ? 'attention' : 'default'}
             >
-              <span>Yeni operasyon mesajı</span>
+              <span>
+                {overview.messageUnreadSummary.unreadTotal > 0
+                  ? 'Yeni operasyon mesajı'
+                  : 'Tüm operasyon mesajları okundu'}
+              </span>
             </OperationalCard>
           </section>
         )}

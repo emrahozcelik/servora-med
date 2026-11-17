@@ -37,8 +37,8 @@ function CountList({ count, labels }: {
   </dl>;
 }
 
-function CardTitle({ children }: { children: string }) {
-  return <h2 className="data-management-card-title">{children}</h2>;
+function CardTitle({ id, children }: { id?: string; children: string }) {
+  return <h2 id={id} className="data-management-card-title">{children}</h2>;
 }
 
 export function DataManagementPage({ user, load = getDataManagementSummary }: DataManagementPageProps) {
@@ -158,8 +158,11 @@ export function DataManagementPage({ user, load = getDataManagementSummary }: Da
     </section>
 
     {user.capabilities?.backup === true && <section className="data-management-infrastructure" aria-labelledby="data-management-infrastructure-title">
-      <OperationalCard title={<CardTitle>Yedekleme ve Kurtarma</CardTitle>}>
-        <h3 id="data-management-infrastructure-title" className="sr-only">Altyapı yönetimi</h3>
+      <OperationalCard
+        tone="upcoming"
+        statusLabel="Altyapı yönetimi"
+        title={<CardTitle id="data-management-infrastructure-title">Yedekleme ve Kurtarma</CardTitle>}
+      >
         <p className="data-management-card-copy">
           Bu alan kuruluş kayıtlarının yaşam döngüsünden ayrı, installation-level altyapı yedekleme durumunu gösterir.
         </p>

@@ -170,6 +170,24 @@ describe('OverviewPage', () => {
     expect(html).not.toContain('Europe/Istanbul');
   });
 
+  it('resets zero-count KPI tones to default and updates zero-unread message copy', async () => {
+    const html = await render({
+      ...managementOverview,
+      overdue: 0,
+      waitingApproval: 0,
+      revisionRequested: 0,
+      messageUnreadSummary: { unreadTotal: 0 },
+    });
+    expect(html).toContain('Geciken iş yok');
+    expect(html).toContain('Bekleyen onay yok');
+    expect(html).toContain('Düzeltme bekleyen iş yok');
+    expect(html).not.toContain('Termin süresi aşıldı');
+    expect(html).toContain('Okunmamış mesaj yok');
+    expect(html).toContain('Tüm operasyon mesajları okundu');
+    expect(html).not.toContain('Yeni operasyon mesajı');
+    expect(html).toContain('href="/messages"');
+  });
+
   it('renders OperationalCards for recent notes', async () => {
     const html = await render(staffOverview);
     expect(html).toContain('Operasyon notu eklendi');
