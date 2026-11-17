@@ -356,7 +356,7 @@ describe('User status filter and activation commands', () => {
 
   it('uses six-row pagination and resets to page one when the status filter changes', async () => {
     const manyActive = Array.from({ length: 8 }, (_, index) => ({
-      ...user, id: \`active-\${index}\`, name: \`Aktif \${index}\`,
+      ...user, id: `active-${index}`, name: `Aktif ${index}`,
     }));
     await act(async () => root.render(<MemoryRouter><UserListView users={[...manyActive, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
     expect(names()).toHaveLength(6);

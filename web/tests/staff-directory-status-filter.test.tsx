@@ -92,7 +92,7 @@ describe('Staff directory status filter', () => {
   });
 
   it('shows six staff per page and resets the page after a status switch', async () => {
-    const many = Array.from({ length: 8 }, (_, index) => make(\`s-\${index}\`, \`Personel \${index}\`, true));
+    const many = Array.from({ length: 8 }, (_, index) => make(`s-${index}`, `Personel ${index}`, true));
     api.listStaff.mockImplementation(async (status: string) => status === 'inactive' ? [leftStaff] : many);
     await mount('ADMIN');
     expect(names()).toHaveLength(6);
