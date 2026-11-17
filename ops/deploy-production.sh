@@ -538,6 +538,9 @@ get_tar_portability_args() {
   fi
 }
 
+# The reviewed root-only profile re-seal tool is intentionally not shipped in
+# the release artifact. It is transferred and hash-pinned separately during
+# bootstrap; keep this exclusion until a separately approved release decision.
 package_artifact() {
   local output="$1"
   local -a tar_extra_args=()
@@ -550,6 +553,10 @@ package_artifact() {
     --directory "$REPO_ROOT" \
     --exclude='./.git' \
     --exclude='./host.md' \
+    --exclude='./ops/recovery-tools' \
+    --exclude='./ops/recovery-tools/*' \
+    --exclude='ops/recovery-tools' \
+    --exclude='ops/recovery-tools/*' \
     --exclude='*/.env' \
     --exclude='*/.env.*' \
     --exclude='*/credentials/*' \

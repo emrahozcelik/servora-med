@@ -10,6 +10,7 @@
  * normal deployment controller and grants no observation/acceptance authority.
  */
 import {createHash} from 'node:crypto';
+import {assertBootstrapManagementAllowed} from './bootstrap-fence.mjs';
 import {existsSync, readdirSync, writeFileSync, openSync, fsyncSync, closeSync, constants} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
@@ -39,6 +40,7 @@ function argument(name) {
 
 export async function issue() {
   assertRoot();
+  assertBootstrapManagementAllowed('emergency-handoff');
   ensureEmergencyRoot();
   const parentId = argument('--parent');
   const minutes = Number(argument('--expires-minutes') ?? '45');
@@ -112,6 +114,7 @@ export async function issue() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     assertRoot();
+    assertBootstrapManagementAllowed('emergency-handoff');
     withHostLock(process.argv.slice(2));
     issue().then(result => process.stdout.write(JSON.stringify(result) + '\n'))
       .catch(error => { process.stderr.write((error.message || 'EMERGENCY_HANDOFF_FAILED') + '\n'); process.exitCode = 1; });

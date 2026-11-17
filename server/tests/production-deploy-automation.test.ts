@@ -944,7 +944,9 @@ describe('controlled production deployment automation contract', () => {
     expect(content).toContain('deploy_sha:');
     expect(content).toMatch(/deploy_sha:\n\s+description: Deploy this exact canonical main SHA/);
     expect(content).toMatch(/deploy_sha:[\s\S]*?required: true[\s\S]*?type: string/);
-    expect(content).toMatch(/allow_migrations:[\s\S]*?required: true[\s\S]*?type: boolean[\s\S]*?default: false/);
+    expect(content).not.toContain('allow_migrations');
+    expect(content).toMatch(/attempt_id:[\s\S]*?required: true[\s\S]*?type: string/);
+    expect(content).toMatch(/ci_run_id:[\s\S]*?required: true[\s\S]*?type: string/);
     expect(content).not.toContain('main_ref:');
     expect(content).not.toContain('ref: ${{ inputs.main_ref }}');
     expect(content).not.toContain('ref: main');
@@ -959,6 +961,10 @@ describe('controlled production deployment automation contract', () => {
     expect(validationBlock).toContain('[[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]');
     expect(validationBlock).toContain('[[ "$GITHUB_REF" == "refs/heads/main" ]]');
     expect(validationBlock).toContain('[[ "$GITHUB_SHA" == "$DEPLOY_SHA" ]]');
+    expect(validationBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
+    expect(validationBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
+    expect(validationBlock).toContain('ATTEMPT_ID_REQUIRED');
+    expect(validationBlock).toContain('CI_RUN_ID_REQUIRED');
     expect(content).toContain('ref: ${{ inputs.deploy_sha }}');
 
     const checkoutVerificationBlock = content.slice(checkoutVerificationIndex, deployIndex);
@@ -968,9 +974,14 @@ describe('controlled production deployment automation contract', () => {
 
     const deployBlock = content.slice(deployStepIndex);
     expect(deployBlock).toContain('DEPLOY_SHA: ${{ inputs.deploy_sha }}');
-    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA")');
+    expect(deployBlock).toContain('deploy_args=(--sha "$DEPLOY_SHA"');
     expect(deployBlock).not.toContain('deploy_args=(--sha "$GITHUB_SHA")');
-    expect(deployBlock).toContain('ALLOW_MIGRATIONS: ${{ inputs.allow_migrations }}');
+    expect(deployBlock).toContain('ATTEMPT_ID: ${{ inputs.attempt_id }}');
+    expect(deployBlock).toContain('CI_RUN_ID: ${{ inputs.ci_run_id }}');
+    expect(deployBlock).toContain('--allow-migrations --attempt-id "$ATTEMPT_ID"');
+    expect(deployBlock).toContain('--ci-mode github --ci-run-id "$CI_RUN_ID"');
+    expect(deployBlock).toContain('--artifact "$RUNNER_TEMP/servora-release/');
+    expect(deployBlock).not.toContain('ALLOW_MIGRATIONS');
   });
 
   it('documents the environment approval and one-time host bootstrap boundary', () => {

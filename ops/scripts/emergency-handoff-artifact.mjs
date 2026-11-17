@@ -12,6 +12,7 @@ import {join} from 'node:path';
 
 export const EMERGENCY_ARTIFACT_KIND = 'EMERGENCY_HANDOFF_TOOL_ARTIFACT';
 export const EMERGENCY_ARTIFACT_ENTRIES = Object.freeze([
+  Object.freeze({path: 'bootstrap-fence.mjs', mode: 0o644}),
   Object.freeze({path: 'emergency-handoff-artifact.mjs', mode: 0o644}),
   Object.freeze({path: 'emergency-handoff.mjs', mode: 0o644}),
   Object.freeze({path: 'emergency-handoff-host.mjs', mode: 0o755}),
