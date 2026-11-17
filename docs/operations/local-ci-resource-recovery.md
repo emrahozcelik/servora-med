@@ -195,6 +195,13 @@ local mode requires all 27 mandatory checks and the exact-source verifier;
 hosted mode requires successful exact-main CI. Never treat skipped Actions as
 PASS. This policy creates no scheduled service and does not change `run.sh`.
 
+Since the 2026-11-03 GitHub Actions handoff, ordinary feature/bugfix work uses
+hosted CI by default. Successful exact-head/exact-main hosted CI does not require
+a duplicate full Local CI run after every merge. Select local fallback or
+host-specific disposable acceptance only for its authorized need; hosted CI
+does not prove real systemd/collector behavior. The retirement review below
+remains mandatory whenever resources are considered for deletion.
+
 The checklist may close with explicit per-resource **HOLD** entries, but those
 resources remain deferred, not successfully retired. No missing ownership,
 quiescence, evidence, or protected-data proof may be waived to reclaim space.
