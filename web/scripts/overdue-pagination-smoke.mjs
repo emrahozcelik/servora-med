@@ -37,7 +37,7 @@ const errors = [];
 const unexpected = [];
 const fixedTime = '2026-11-17T09:00:00.000Z';
 
-async function visit(kind, width, height) {
+async function visit(kind, width, height, query = '') {
   const page = await browser.newPage({
     viewport: { width, height },
     locale: 'tr-TR', timezoneId: 'Europe/Istanbul',
@@ -50,7 +50,7 @@ async function visit(kind, width, height) {
     unexpected.push(`${kind}-${width}: ${route.request().url()}`);
     return route.abort();
   });
-  await page.goto(`${origin}/?kind=${kind}`);
+  await page.goto(`${origin}/?kind=${kind}${query}`);
   return page;
 }
 
@@ -97,9 +97,49 @@ try {
     const page = await visit(kind, 390, 844);
     try {
       await page.locator(ready).waitFor();
-      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      // The app uses fixed px sizes for record text; html font-size alone
+      // does not enlarge those records. Apply a measured 2x text-only probe.
+      const selectors = kind === 'open'
+        ? ['.submission-late-card .servora-operational-card__title a', '.submission-late-card span']
+        : ['[data-overdue-history-item] strong', '[data-overdue-history-item] span'];
+      const baseline = await page.evaluate((paths) => paths.map(selector => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing text measurement target: ${selector}`);
+        return { selector, pixels: Number.parseFloat(getComputedStyle(element).fontSize) };
+      }), selectors);
+      assert.ok(baseline.every(row => Number.isFinite(row.pixels) && row.pixels > 0));
+      await page.addStyleTag({ content: [
+        'html { font-size: 200% !important; }',
+        ...baseline.map(row => `${row.selector} { font-size: ${row.pixels * 2}px !important; line-height: 1.4 !important; }`),
+      ].join('\n') });
+      const enlarged = await page.evaluate((rows) => rows.map(row => ({
+        selector: row.selector,
+        pixels: Number.parseFloat(getComputedStyle(document.querySelector(row.selector)).fontSize),
+      })), baseline);
+      for (let i = 0; i < baseline.length; i++) {
+        assert.ok(Math.abs(enlarged[i].pixels - baseline[i].pixels * 2) < 0.1,
+          `${kind}: ${baseline[i].selector} did not double`);
+      }
+      checks.push({ name: `${kind}-text-growth-390`, baseline, enlarged });
       await capture(page, `${kind}-200percent-text-390`);
     } finally { await page.close(); }
+
+    // Reproduce the independent review's 120ms in-flight paging case with
+    // real keyboard events, not an instantly resolved API fixture.
+    const keyboard = await visit(kind, 390, 844, '&delay=120');
+    try {
+      await keyboard.locator(ready).waitFor();
+      await keyboard.locator('.servora-ant-pagination-next').focus();
+      await keyboard.keyboard.press('Space');
+      await keyboard.waitForFunction(() => document.querySelector('.servora-list-pagination')?.textContent?.includes('Sayfa 2 / 3')
+        && document.activeElement?.classList.contains('servora-list-pagination'));
+      await capture(keyboard, `${kind}-keyboard-space-next-390`);
+      await keyboard.locator('.servora-ant-pagination-prev').focus();
+      await keyboard.keyboard.press('Enter');
+      await keyboard.waitForFunction(() => document.querySelector('.servora-list-pagination')?.textContent?.includes('Sayfa 1 / 3')
+        && document.activeElement?.classList.contains('servora-list-pagination'));
+      await capture(keyboard, `${kind}-keyboard-enter-prev-390`);
+    } finally { await keyboard.close(); }
 
     const emptyPage = await visit(`${kind}-empty`, 390, 844);
     try {
@@ -129,7 +169,7 @@ try {
     browser: browser.version(), fixedTime, locale: 'tr-TR', timezone: 'Europe/Istanbul',
     mocked: ['synthetic list functions', 'EventSource disabled', 'no auth/backend'],
     checks, errors, unexpected,
-    limits: ['Chromium only', '320px reflow and 200% text simulation, not 400% zoom', 'no full AppShell/role authorization verification'],
+    limits: ['Chromium only', '320px reflow and scoped 200% record text simulation, not 400% zoom', 'no full AppShell/role authorization verification'],
   }, null, 2));
   console.log(`PASS overdue visual: ${checks.length} viewport captures; six-row server paging, retry and no overflow`);
 } catch (error) {
