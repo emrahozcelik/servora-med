@@ -126,7 +126,7 @@ const openRows = Array.from({ length: 13 }, (_, i): OpenSubmissionLateItem => ({
 
 const historyRows: OverdueIncidentHistoryItem[] = Array.from({ length: 13 }, (_, i) => ({
   id: `history-${i + 1}`,
-  delayType: (['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT'] as const)[i % 3],
+  delayType: (['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT'] as const)[i % 3]!,
   episodeNo: i + 1,
   scheduleRevisionNo: 1,
   deadlineAt: '2026-10-06T03:57:35.103Z',
