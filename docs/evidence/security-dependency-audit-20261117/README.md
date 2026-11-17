@@ -17,21 +17,52 @@ Lockfiles generated on an isolated read-only GitHub Actions runner with Node 24 
 
 The `ip-address` entry was updated on 18 November with `npm update ip-address --package-lock-only --ignore-scripts --no-audit` (npm 11.20.0); the only lockfile change is that package's version, `resolved` and `integrity`.
 
-## Known unresolved security risk — not waived
+## Owner-approved temporary picomatch security exception (18 November 2026)
 
-- `picomatch` advisory GHSA-fc5q-39xc-vjpf (high severity ReDoS) affects <=4.0.7. As of 18 November 2026, an official fixed npm version is not published (latest is 4.0.7; GitHub advisory lists no patched version). In both lockfiles `picomatch` is a dev-only dependency (Vite/Vitest tooling), but that does not waive the gate.
-- The lockfile can still contain an affected `picomatch` release via Vite/Vitest. Do **not** mark the npm security gate PASS merely because the direct package versions were updated.
-- Do not use `npm audit --omit=dev`, advisory ignore lists, false package metadata, or unconditional `continue-on-error` to bypass high-severity checks. If upstream has not shipped a verified fix, keep the PR blocked and request an explicit separately reviewed security decision.
-- Security test gate remains unchanged.
+Owner approved the exception on 18 November 2026. It is a **risk acceptance,
+not a vulnerability fix**.
+
+- Only GitHub advisory `GHSA-fc5q-39xc-vjpf` (picomatch ReDoS, HIGH) may be
+  excepted, including HIGH npm entries whose `via` chain contains only that
+  same advisory: `picomatch`, `fdir`, `tinyglobby`, `vite`, `vitest`,
+  `@vitest/mocker`, and (web only) `@vitejs/plugin-react`.
+- Each affected package must be explicitly `dev: true` in the committed npm
+  lockfile. Any extra direct advisory, missing or malformed graph, missing
+  lockfile, new HIGH/CRITICAL, or production marking fails closed.
+- Both server and web additionally run an **unexcepted**
+  `npm audit --omit=dev --json`, and enforce zero production HIGH/CRITICAL.
+  This checks the deployed dependency graph separately; it does not replace the
+  full audit. The server production dependency packaging smoke stays unchanged.
+- Valid from 18 November through the **end of 2 December 2026, Istanbul time**.
+  The exception automatically fails at `2026-12-03T00:00:00+03:00` using the
+  CI runner clock. No environment override of expiry is allowed.
+- All audit entries are still validated for structure, metadata and counts.
+  A run passing this control must explicitly say
+  `PASS WITH TEMPORARY SECURITY EXCEPTION` and must not be described as
+  zero vulnerabilities.
+- Reasoned risk: the affected picomatch glob pattern is selected by repository
+  development/test tooling, not an untrusted application request. CI supply
+  chain and malicious repository content risks remain; approval is temporary,
+  restricted, and subject to CI reviewers and expiry.
+- If an upstream patch is published, update lockfiles and remove this exception
+  without waiting for expiry. If a package appears in production, a new advisory
+  is reported, or the provenance cannot be proven, CI must return FAIL.
+- This approval does not authorize PR merges, deployment, additional audit
+  suppressions or future renewals.
+
+Implementation: `web/scripts/audit-picomatch-exception.mjs`,
+`web/scripts/audit-high-policy-lib.mjs`,
+`web/scripts/audit-high-policy.mjs` and 18 targeted tests in
+`web/tests/audit-high-policy.test.ts`.
 
 ## Required validation
 
 1. `npm ci` in web and server using canonical Node 22.
 2. Web `build`, `bundle:check`, `npm test -- --run`, production-dist/responsive smoke, and browser acceptance including both overdue pagination and people lifecycle on the integrated PR #441 in a later independent check.
 3. Server build, database migrations/schema checks, unit/integration/ops tests, and production dependency smoke.
-4. `npm run audit:high` (web) and `npm audit --audit-level=high` (server). Record every surviving high or critical advisory; zero suppressed findings.
+4. Web `npm run audit:high` and server `node ../web/scripts/audit-high-policy.mjs --workspace server`: unexcepted production audit plus the single explicit, expiring dev-only picomatch exception. Record every remaining HIGH/CRITICAL; no other suppressions.
 5. Exact-head PR CI and independent reviewer, then explicit merge authorization. Following merge, verify resulting-main CI.
 
 ## Current status
 
-Draft security PR under review. The previous successful `main` CI run predates the fresh npm advisory surfaced later on 17 November; it is not proof of a clean current audit.
+Draft security PR under review. The approved exception does not count as a fully remediated advisory. The previous successful `main` CI run predates the fresh npm advisory surfaced later on 17 November; it is not proof of a clean current audit.
