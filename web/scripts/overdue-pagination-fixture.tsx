@@ -14,6 +14,10 @@ const scenario = new URLSearchParams(location.search).get('kind') ?? 'open';
 let openLoads = 0;
 let historyLoads = 0;
 const empty = scenario.endsWith('-empty');
+const delayed = new URLSearchParams(location.search).get('delay') === '120';
+const fixedTime = Date.parse('2026-11-17T09:00:00.000Z');
+const daySeconds = 86400;
+const instant = (milliseconds: number) => new Date(milliseconds).toISOString();
 
 const openItems: OpenSubmissionLateItem[] = Array.from({ length: empty ? 0 : 13 }, (_, i) => ({
   jobCardId: `visual-job-${i + 1}`,
@@ -21,9 +25,10 @@ const openItems: OpenSubmissionLateItem[] = Array.from({ length: empty ? 0 : 13 
     ? 'Ataşehir bölgesi klinik ziyaret turu ve ürün tanıtım planı hazırlığı çalışması'
     : `Dental Klinik ${i + 1} — geciken iş`,
   episodeNo: i + 1,
-  deadlineAt: '2026-11-05T08:00:00.000Z',
-  breachedAt: '2026-11-05T08:00:00.000Z',
-  elapsedSeconds: 86400 * (i + 1),
+  // Open-late API sorts by longest overdue first; durations agree with the fixed clock.
+  deadlineAt: instant(fixedTime - daySeconds * (13 - i) * 1000),
+  breachedAt: instant(fixedTime - daySeconds * (13 - i) * 1000),
+  elapsedSeconds: daySeconds * (13 - i),
   staff: { id: 'visual-staff', name: 'Örnek Personel' },
   customer: { id: 'visual-customer', name: 'Örnek Ağız ve Diş Sağlığı Merkezi' },
   jobPath: `/jobs/visual-job-${i + 1}`,
@@ -34,16 +39,16 @@ const historyItems: OverdueIncidentHistoryItem[] = Array.from({ length: empty ? 
   delayType: (['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT'] as const)[i % 3]!,
   episodeNo: i + 1,
   scheduleRevisionNo: 1,
-  deadlineAt: '2026-11-05T08:00:00.000Z',
-  breachedAt: '2026-11-05T08:00:00.000Z',
-  accountableRole: 'STAFF',
-  accountableSource: 'ASSIGNMENT_AT_BREACH',
-  accountableUser: { id: 'visual-staff', name: 'Örnek Personel' },
+  deadlineAt: instant(fixedTime - daySeconds * (26 - 2 * i) * 1000),
+  breachedAt: instant(fixedTime - daySeconds * (26 - 2 * i) * 1000),
+  accountableRole: i % 3 === 2 ? 'MANAGEMENT' : 'STAFF',
+  accountableSource: i % 3 === 2 ? 'ROLE_POLICY' : 'ASSIGNMENT_AT_BREACH',
+  accountableUser: i % 3 === 2 ? null : { id: 'visual-staff', name: 'Örnek Personel' },
   source: 'SCANNER',
-  recordedAt: '2026-11-05T08:01:00.000Z',
-  recoveredAt: i % 2 === 0 ? '2026-11-06T08:00:00.000Z' : null,
+  recordedAt: instant(fixedTime - daySeconds * (26 - 2 * i) * 1000 + 60000),
+  recoveredAt: i % 2 === 0 ? instant(fixedTime - daySeconds * (25 - 2 * i) * 1000) : null,
   recoveryActor: null,
-  totalDelaySeconds: i % 2 === 0 ? 86400 : null,
+  totalDelaySeconds: i % 2 === 0 ? daySeconds : null,
   manualReminderSentAt: null,
   manualReminderCount: 0,
   postReminderDelaySeconds: null,
@@ -55,6 +60,7 @@ const loadOpen: typeof import('../src/jobs/jobs-api').listOpenSubmissionLate = a
   document.documentElement.dataset.overdueLimit = String(limit);
   document.documentElement.dataset.overdueOffset = String(offset);
   if (scenario === 'open-retry' && openLoads++ === 0) throw new Error('Sentetik bağlantı hatası');
+  if (delayed && offset > 0) await new Promise(resolve => setTimeout(resolve, 120));
   return { items: openItems.slice(offset, offset + limit), total: openItems.length, limit, offset };
 };
 const loadHistory: typeof import('../src/jobs/jobs-api').listOverdueIncidents = async (_jobId, page = {}) => {
@@ -63,6 +69,7 @@ const loadHistory: typeof import('../src/jobs/jobs-api').listOverdueIncidents = 
   document.documentElement.dataset.overdueLimit = String(limit);
   document.documentElement.dataset.overdueOffset = String(offset);
   if (scenario === 'history-retry' && historyLoads++ === 0) throw new Error('Sentetik bağlantı hatası');
+  if (delayed && offset > 0) await new Promise(resolve => setTimeout(resolve, 120));
   return { items: historyItems.slice(offset, offset + limit), total: historyItems.length, limit, offset };
 };
 
