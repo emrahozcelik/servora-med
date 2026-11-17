@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { OpenSubmissionLateSection } from '../src/jobs/SubmissionLateness';
+import { OpenSubmissionLateSection, historyDetail } from '../src/jobs/SubmissionLateness';
 import type { OpenSubmissionLateItem } from '../src/jobs/jobs-api';
 import { RealtimeProvider } from '../src/realtime/RealtimeProvider';
 
@@ -67,6 +67,39 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
     expect(text).toContain('Denetim Personeli');
     expect(text).toContain(LONG_CUSTOMER);
     expect(text).toContain('gecikti');
+  });
+
+  it('shows an error state instead of hiding a failed load', async () => {
+    const { section, html } = await renderHtml(vi.fn().mockRejectedValue(new Error('Sunucuya ulaşılamadı.')));
+    expect(section?.getAttribute('data-open-submission-late')).toBe('error');
+    expect(html).toContain('Gecikme listesi yüklenemedi');
+    expect(html).toContain('Sunucuya ulaşılamadı.');
+    expect(html).toContain('Tekrar dene');
+  });
+
+  it('says when more jobs are late than the list shows', async () => {
+    const { section } = await renderHtml(vi.fn().mockResolvedValue({ items: [item], total: 34 }));
+    expect(section?.textContent).toContain('toplam 34');
+  });
+
+  it('labels history rows by delay type and keeps the recovery label neutral', () => {
+    const base = {
+      id: 'i', episodeNo: 1, scheduleRevisionNo: 1,
+      deadlineAt: '2026-10-06T03:57:35.103Z', breachedAt: '2026-10-06T03:57:35.103Z',
+      accountableRole: 'STAFF', accountableSource: 'ASSIGNMENT_AT_BREACH', accountableUser: null,
+      source: 'SCANNER', recordedAt: '2026-10-06T03:58:00.000Z',
+      recoveredAt: '2026-10-06T05:00:00.000Z', recoveryActor: null,
+      totalDelaySeconds: 3745, manualReminderSentAt: null, manualReminderCount: 0,
+      postReminderDelaySeconds: null,
+    } as const;
+    const start = historyDetail({ ...base, delayType: 'LATE_START' });
+    expect(start).toContain('Planlanan bitiş:');
+    expect(start).toContain('Gecikme bitişi:');
+    expect(start).not.toContain('gönderim');
+    const approval = historyDetail({ ...base, delayType: 'APPROVAL_WAIT' });
+    expect(approval).toContain('Onay süresi sonu:');
+    expect(approval).not.toContain('gönderim');
+    expect(historyDetail({ ...base, delayType: 'LATE_SUBMISSION' })).toContain('Son gönderim zamanı:');
   });
 
   it('keeps title and metadata in distinct elements', async () => {
