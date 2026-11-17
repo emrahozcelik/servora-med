@@ -291,7 +291,13 @@ export function OverdueIncidentHistorySection({ jobId, load = listOverdueInciden
         offset={offset}
         label="Gecikme geçmişi sayfaları"
         itemName="gecikme kaydı"
-        onOffsetChange={setOffset}
+        onOffsetChange={(nextOffset) => {
+          // Hide the focused pager in the same event as the offset change.
+          // Otherwise an intermediate render consumes its keyboard-focus ticket
+          // before the async page arrives and focus falls back to document.body.
+          setState({ kind: 'loading' });
+          setOffset(nextOffset);
+        }}
       />
     </section>
   );
@@ -385,7 +391,13 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
         offset={offset}
         label="Onaya gönderme gecikmesi sayfaları"
         itemName="geciken iş"
-        onOffsetChange={setOffset}
+        onOffsetChange={(nextOffset) => {
+          // Hide the focused pager in the same event as the offset change.
+          // Otherwise an intermediate render consumes its keyboard-focus ticket
+          // before the async page arrives and focus falls back to document.body.
+          setState({ kind: 'loading' });
+          setOffset(nextOffset);
+        }}
       />
     </section>
   );
