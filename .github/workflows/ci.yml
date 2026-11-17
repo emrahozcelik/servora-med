@@ -299,6 +299,18 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
+      - name: Overdue six-row pagination visual acceptance
+        run: node scripts/overdue-pagination-smoke.mjs
+        env:
+          OVERDUE_CAPTURE_DIR: ${{ runner.temp }}/servora-overdue-ui
+      - name: Upload overdue visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overdue-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/servora-overdue-ui/
+          if-no-files-found: warn
+          retention-days: 14
       - name: People lifecycle rendered UI acceptance
         run: node scripts/people-lifecycle-ui-smoke.mjs
         env:

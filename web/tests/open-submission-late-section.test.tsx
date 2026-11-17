@@ -1,14 +1,17 @@
 /** @vitest-environment jsdom */
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { OpenSubmissionLateSection, historyDetail } from '../src/jobs/SubmissionLateness';
-import type { OpenSubmissionLateItem } from '../src/jobs/jobs-api';
+import { OpenSubmissionLateSection, OverdueIncidentHistorySection, historyDetail } from '../src/jobs/SubmissionLateness';
+import { ServoraAntProvider } from '../src/ui/antd/ServoraAntProvider';
+import { stubDesktopMatchMedia } from './antd-match-media';
+import type { OpenSubmissionLateItem, OverdueIncidentHistoryItem } from '../src/jobs/jobs-api';
 import { RealtimeProvider } from '../src/realtime/RealtimeProvider';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+stubDesktopMatchMedia();
 
 const LONG_TITLE = 'Ataşehir bölgesi klinik ziyaret turu ve ürün tanıtım planı hazırlığı çalışması';
 const LONG_CUSTOMER = 'Özel Akademik Ağız ve Diş Sağlığı Merkezi Ataşehir Şubesi ve Çene Cerrahisi Kliniği';
@@ -31,11 +34,13 @@ async function renderHtml(load = vi.fn().mockResolvedValue({ items: [item], tota
   const root = createRoot(container);
   await act(async () => {
     root.render(
-      <MemoryRouter>
-        <RealtimeProvider>
-          <OpenSubmissionLateSection load={load} />
-        </RealtimeProvider>
-      </MemoryRouter>,
+      <ServoraAntProvider>
+        <MemoryRouter>
+          <RealtimeProvider>
+            <OpenSubmissionLateSection load={load} />
+          </RealtimeProvider>
+        </MemoryRouter>
+      </ServoraAntProvider>,
     );
   });
   await act(async () => { await Promise.resolve(); });
@@ -79,7 +84,7 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
 
   it('says when more jobs are late than the list shows', async () => {
     const { section } = await renderHtml(vi.fn().mockResolvedValue({ items: [item], total: 34 }));
-    expect(section?.textContent).toContain('toplam 34');
+    expect(section?.textContent).toContain('Toplam 34 geciken iş');
   });
 
   it('labels history rows by delay type and keeps the recovery label neutral', () => {
@@ -109,5 +114,245 @@ describe('OpenSubmissionLateSection (UI polish slice A)', () => {
     // The title link must not swallow the metadata line.
     expect(link?.textContent).not.toContain('Denetim Personeli');
     expect(link?.textContent).not.toContain('gecikti');
+  });
+});
+
+const openRows = Array.from({ length: 13 }, (_, i): OpenSubmissionLateItem => ({
+  ...item,
+  jobCardId: `late-${i + 1}`,
+  jobTitle: `Geciken iş ${i + 1}`,
+  jobPath: `/jobs/late-${i + 1}`,
+}));
+
+const historyRows: OverdueIncidentHistoryItem[] = Array.from({ length: 13 }, (_, i) => ({
+  id: `history-${i + 1}`,
+  delayType: (['LATE_START', 'LATE_SUBMISSION', 'APPROVAL_WAIT'] as const)[i % 3]!,
+  episodeNo: i + 1,
+  scheduleRevisionNo: 1,
+  deadlineAt: '2026-10-06T03:57:35.103Z',
+  breachedAt: '2026-10-06T03:57:35.103Z',
+  accountableRole: 'STAFF',
+  accountableSource: 'ASSIGNMENT_AT_BREACH',
+  accountableUser: null,
+  source: 'SCANNER',
+  recordedAt: '2026-10-06T03:58:00.000Z',
+  recoveredAt: null,
+  recoveryActor: null,
+  totalDelaySeconds: null,
+  manualReminderSentAt: null,
+  manualReminderCount: 0,
+  postReminderDelaySeconds: null,
+}));
+
+async function mountView(view: ReactNode) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const render = async (next: ReactNode) => {
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <MemoryRouter>
+            <RealtimeProvider>{next}</RealtimeProvider>
+          </MemoryRouter>
+        </ServoraAntProvider>,
+      );
+    });
+  };
+  await render(view);
+  return {
+    container,
+    render,
+    async dispose() {
+      await act(async () => root.unmount());
+      container.remove();
+    },
+  };
+}
+
+describe('OVR-4 canonical six-record paging', () => {
+  it('pages open-late jobs 6/6/1 using server limit and offset, hiding a one-page pager', async () => {
+    const load = vi.fn(async ({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
+      items: openRows.slice(offset, offset + limit),
+      total: openRows.length,
+      limit, offset,
+    }));
+    const view = await mountView(<OpenSubmissionLateSection load={load} />);
+    try {
+      expect(load).toHaveBeenNthCalledWith(1, { limit: 6, offset: 0 });
+      expect(view.container.querySelectorAll('.submission-late-card')).toHaveLength(6);
+      expect(view.container.textContent).toContain('Sayfa 1 / 3');
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(load).toHaveBeenLastCalledWith({ limit: 6, offset: 6 });
+      expect(view.container.querySelectorAll('.submission-late-card')).toHaveLength(6);
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(load).toHaveBeenLastCalledWith({ limit: 6, offset: 12 });
+      expect(view.container.querySelectorAll('.submission-late-card')).toHaveLength(1);
+      expect(view.container.textContent).toContain('Sayfa 3 / 3');
+    } finally { await view.dispose(); }
+
+    const one = await mountView(<OpenSubmissionLateSection load={vi.fn().mockResolvedValue({
+      items: [item], total: 1, limit: 6, offset: 0,
+    })} />);
+    try { expect(one.container.querySelector('.servora-list-pagination')).toBeNull(); }
+    finally { await one.dispose(); }
+  });
+
+  it('pages incident history without losing delay-type labels', async () => {
+    const load = vi.fn(async (_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
+      items: historyRows.slice(offset, offset + limit),
+      total: historyRows.length,
+      limit, offset,
+    }));
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={load} />);
+    try {
+      expect(load).toHaveBeenNthCalledWith(1, 'test-job', { limit: 6, offset: 0 });
+      expect(view.container.querySelectorAll('[data-overdue-history-item]')).toHaveLength(6);
+      expect(view.container.textContent).toContain('Planlanan bitiş');
+      expect(view.container.textContent).toContain('Onay süresi sonu');
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(load).toHaveBeenLastCalledWith('test-job', { limit: 6, offset: 6 });
+      expect(view.container.querySelectorAll('[data-overdue-history-item]')).toHaveLength(6);
+    } finally { await view.dispose(); }
+  });
+
+  it('moves to the last valid page when the dataset shrinks', async () => {
+    let count = 13;
+    const load = vi.fn(async ({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => ({
+      items: openRows.slice(0, count).slice(offset, offset + limit),
+      total: count, limit, offset,
+    }));
+    const view = await mountView(<OpenSubmissionLateSection load={load} />);
+    try {
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      count = 7;
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(load).toHaveBeenCalledWith({ limit: 6, offset: 12 });
+      expect(load).toHaveBeenLastCalledWith({ limit: 6, offset: 6 });
+      expect(view.container.querySelectorAll('.submission-late-card')).toHaveLength(1);
+      expect(view.container.textContent).toContain('Sayfa 2 / 2');
+    } finally { await view.dispose(); }
+  });
+
+  it('ignores obsolete in-flight results after a new source refresh', async () => {
+    let resolveOld!: (value: { items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }) => void;
+    const oldLoad = vi.fn(() => new Promise<{
+      items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number;
+    }>(resolve => { resolveOld = resolve; }));
+    const freshLoad = vi.fn().mockResolvedValue({ items: [openRows[1]], total: 1, limit: 6, offset: 0 });
+    const view = await mountView(<OpenSubmissionLateSection load={oldLoad} />);
+    try {
+      await view.render(<OpenSubmissionLateSection load={freshLoad} />);
+      expect(view.container.textContent).toContain('Geciken iş 2');
+      await act(async () => {
+        resolveOld({ items: [openRows[0]], total: 1, limit: 6, offset: 0 });
+      });
+      expect(view.container.textContent).toContain('Geciken iş 2');
+      expect(view.container.textContent).not.toContain('Geciken iş 1');
+    } finally { await view.dispose(); }
+  });
+});
+
+describe('OVR-4 keyboard focus with deferred page responses', () => {
+  it('restores open-late paging focus after a delayed page load', async () => {
+    let completeNext!: (page: { items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }) => void;
+    const load = vi.fn(({ limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      offset === 0
+        ? Promise.resolve({ items: openRows.slice(0, limit), total: 13, limit, offset })
+        : new Promise<{ items: OpenSubmissionLateItem[]; total: number; limit: number; offset: number }>(
+          resolve => { completeNext = resolve; },
+        )
+    ));
+    const view = await mountView(<OpenSubmissionLateSection load={load} />);
+    try {
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(load).toHaveBeenLastCalledWith({ limit: 6, offset: 6 });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => {
+        completeNext({ items: openRows.slice(6, 12), total: 13, limit: 6, offset: 6 });
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+
+  it('restores incident-history paging focus after a delayed page load', async () => {
+    let completeNext!: (page: { items: OverdueIncidentHistoryItem[]; total: number; limit: number; offset: number }) => void;
+    const load = vi.fn((_jobId: string, { limit = 6, offset = 0 }: { limit?: number; offset?: number } = {}) => (
+      offset === 0
+        ? Promise.resolve({ items: historyRows.slice(0, limit), total: 13, limit, offset })
+        : new Promise<{ items: OverdueIncidentHistoryItem[]; total: number; limit: number; offset: number }>(
+          resolve => { completeNext = resolve; },
+        )
+    ));
+    const view = await mountView(<OverdueIncidentHistorySection jobId="test-job" load={load} />);
+    try {
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(load).toHaveBeenLastCalledWith('test-job', { limit: 6, offset: 6 });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => {
+        completeNext({ items: historyRows.slice(6, 12), total: 13, limit: 6, offset: 6 });
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
+  });
+});
+
+describe('OVR-4 keyboard focus after a shrinking total', () => {
+  it.each(['open', 'history'] as const)('restores %s focus to the clamped page after a deferred response', async (kind) => {
+    let total = 13;
+    let completeNext!: () => void;
+    type PageQuery = Partial<{ limit: number; offset: number }>;
+    function loadPage<T>(items: T[], { limit = 6, offset = 0 }: PageQuery = {}) {
+      const page = () => ({ items: items.slice(0, total).slice(offset, offset + limit), total, limit, offset });
+      if (offset === 12) {
+        return new Promise<ReturnType<typeof page>>((resolve) => {
+          completeNext = () => resolve(page());
+        });
+      }
+      return Promise.resolve(page());
+    }
+    const loadOpen = vi.fn((page: PageQuery = {}) => loadPage(openRows, page));
+    const loadHistory = vi.fn((_jobId: string, page: PageQuery = {}) => loadPage(historyRows, page));
+    const view = await mountView(kind === 'open'
+      ? <OpenSubmissionLateSection load={loadOpen} />
+      : <OverdueIncidentHistorySection jobId="test-job" load={loadHistory} />);
+    try {
+      await act(async () => {
+        view.container.querySelector<HTMLButtonElement>('.servora-ant-pagination-next button')!.click();
+      });
+      expect(view.container.textContent).toContain('Sayfa 2 / 3');
+      total = 7;
+      const next = view.container.querySelector<HTMLElement>('.servora-ant-pagination-next')!;
+      await act(async () => {
+        next.focus();
+        next.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      });
+      expect(view.container.querySelector('.servora-list-pagination')).toBeNull();
+      await act(async () => { completeNext(); });
+      expect(view.container.textContent).toContain('Sayfa 2 / 2');
+      const itemSelector = kind === 'open' ? '.submission-late-card' : '[data-overdue-history-item]';
+      expect(view.container.querySelectorAll(itemSelector)).toHaveLength(1);
+      expect(document.activeElement).toBe(view.container.querySelector('.servora-list-pagination'));
+    } finally { await view.dispose(); }
   });
 });
