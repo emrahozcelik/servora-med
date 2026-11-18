@@ -458,8 +458,11 @@ production install+import) instead of consulting GitHub CI.
 `--ci-mode github` (default) preserves the previous behavior for restoration.
 An explicitly selected missing, empty or symlinked evidence path is refused;
 only an omitted `--evidence` option selects the default evidence root.
-There is no `--skip-ci`, `--force` or `--unsafe` bypass. Atomic `mkdir`
-acquires the local deployment lock. Every existing lock is rejected,
+There is no `--skip-ci`, `--force` or `--unsafe` bypass. `mkdir` plus an
+exclusive (`O_EXCL`, bash noclobber) creation of the `pid` claim acquires the
+local deployment lock; mkdir's exit status alone is not trusted, because
+uutils coreutils mkdir (Ubuntu 26.04 default) can report success for a
+directory a concurrent racer created. Every existing lock is rejected,
 including stale or malformed claims; there is no automatic rename/remove
 recovery. Normal release requires an exact owner claim. Remote serialization
 remains host-helper owned. Local mode requires neither `gh` nor `jq`;
