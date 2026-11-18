@@ -78,6 +78,7 @@ import {
   type NormalizedJobCardCreateInput,
   type ProductDeliveryCreateInput,
   type JobCardPriority,
+  type MeetingOutcome,
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
   type PaginatedOverdueIncidentHistory,
@@ -192,8 +193,8 @@ import {
   defaultFollowUpInstructions,
   defaultFollowUpType,
   earliestFollowUpAllowedAt,
+  followUpTargetInstant,
   requiresMandatoryFollowUpProposal,
-  suggestedFollowUpInstant,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
 import {
@@ -3874,6 +3875,10 @@ export class JobCardService {
                 definition.followUpProposal,
                 undefined,
                 lockedAssignees,
+                {
+                  outcome: submissionMeetingDetails?.outcome ?? null,
+                  nextFollowUpAt: submissionMeetingDetails?.nextFollowUpAt ?? null,
+                },
               )
               : await this.validateFollowUpProposal(
                 actor,
@@ -4072,7 +4077,8 @@ export class JobCardService {
         if (approval) {
           const source = await tx.getFollowUpSource(actor.organizationId, jobCardId);
           if (!source) followUpInvariantViolation();
-          await this.assertFollowUpDepth(tx, source);
+          // JOB-008: the approval-created child is never blocked by chain
+          // length; the 10-level cap applies to manual createFollowUp only.
           const childTitle = Array.from(`Takip: ${updated.title.trim()}`).slice(0, 250).join('');
           const child = await this.createFollowUpChild(tx, actor, {
             sourceJobCardId: jobCardId,
@@ -4824,6 +4830,10 @@ export class JobCardService {
     input?: FollowUpProposalInput,
     preferredAt?: Date,
     lockedAssignees?: ReadonlyMap<string, JobCardAssignee>,
+    targetContext: {
+      outcome: MeetingOutcome | null;
+      nextFollowUpAt: string | null;
+    } = { outcome: null, nextFollowUpAt: null },
   ): Promise<ValidatedFollowUpProposal> {
     const type = input?.type ?? defaultFollowUpType(job.type);
     if (!(JOB_CARD_TYPES as readonly string[]).includes(type) || type !== 'SALES_MEETING') {
@@ -4861,15 +4871,17 @@ export class JobCardService {
     const timezone = await tx.getOrganizationTimezone(actor.organizationId);
     // Target-first automatic scheduling (TARGET_TOLERANCE=NONE): the desired
     // start is the persisted SYSTEM target when re-running at Manager
-    // approval, otherwise the +7-day policy target. The effective start never
-    // precedes the 15-minute floor, and the 30-day horizon stays anchored to
-    // the floor so target-first search cannot shift the envelope forward.
+    // approval, otherwise the JOB-008 target (Staff nextFollowUpAt, else +7 /
+    // +14 calendar days by outcome). The effective start never precedes the
+    // 15-minute floor; the search horizon is resolved below.
     const desiredTargetAt = preferredAt
-      ?? suggestedFollowUpInstant({
+      ?? followUpTargetInstant({
         evaluatedAt: requestTime,
         sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
         timezone,
         durationMs: canonicalScheduledDurationMs(type),
+        outcome: targetContext.outcome,
+        nextFollowUpAt: targetContext.nextFollowUpAt,
       });
     const effectiveTargetAt = desiredTargetAt.valueOf() > policyEarliestAt.valueOf()
       ? desiredTargetAt
@@ -4886,17 +4898,17 @@ export class JobCardService {
         'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
       );
     }
-    const horizonAt = resolveFollowUpSearchHorizonAt(policyEarliestAt, timezone);
-    if (effectiveTargetAt.valueOf() >= horizonAt.valueOf()) {
-      throw new AppError(
-        'FOLLOW_UP_PROPOSAL_INVALID',
-        409,
-        'Otomatik takip zamanı bulunamadı. Lütfen tarihi manuel seçin.',
-      );
-    }
+    // JOB-008: the 30-day envelope stays anchored at the lead floor; a
+    // target beyond it (e.g. a distant Staff nextFollowUpAt) gets its own
+    // envelope anchored at the target instead of failing outright.
+    const floorHorizonAt = resolveFollowUpSearchHorizonAt(policyEarliestAt, timezone);
+    const horizonAnchorAt = effectiveTargetAt.valueOf() >= floorHorizonAt.valueOf()
+      ? effectiveTargetAt
+      : policyEarliestAt;
+    const horizonAt = resolveFollowUpSearchHorizonAt(horizonAnchorAt, timezone);
     const slotCandidates = iterateFollowUpSlotCandidates({
       earliestAllowedAt: effectiveTargetAt,
-      horizonAnchorAt: policyEarliestAt,
+      horizonAnchorAt,
       type,
       timezone,
     });
@@ -5004,11 +5016,13 @@ export class JobCardService {
     }
     const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
     const defaultFields: FollowUpProposalFields = {
-      scheduledAt: suggestedFollowUpInstant({
+      scheduledAt: followUpTargetInstant({
         evaluatedAt: this.now(),
         sourceScheduledAt: detail.scheduledAt ? new Date(detail.scheduledAt) : null,
         timezone,
         durationMs: canonicalScheduledDurationMs(defaultFollowUpType(detail.type)),
+        outcome: meetingDetails?.outcome ?? null,
+        nextFollowUpAt: meetingDetails?.nextFollowUpAt ?? null,
       }),
       type: defaultFollowUpType(detail.type),
       assignedTo: detail.assignedTo,

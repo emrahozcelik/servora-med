@@ -12,6 +12,7 @@ import { PostgresCalendarRepository } from '../src/modules/calendar/repository.j
 import { CalendarService } from '../src/modules/calendar/service.js';
 import { canonicalScheduledEnd, canonicalScheduledDurationMs } from '../src/modules/job-cards/job-card-duration.js';
 import { suggestedFollowUpInstant } from '../src/modules/job-cards/follow-up-policy.js';
+import { findEarliestFollowUpSlot } from '../src/modules/job-cards/follow-up-auto-scheduler.js';
 import {
   baselineAlignedToGrid,
   baselineIso,
@@ -58,18 +59,32 @@ const dayFloorIso = (iso: string) =>
   new Date(Math.floor(Date.parse(iso) / DAY_MS) * DAY_MS).toISOString();
 
 /**
- * The +7-day policy target for a fixture parent slot, computed with the same
+ * First automatic slot on a free calendar for a +N-day policy target: the same
  * policy function and inputs (business instant, source slot, org timezone,
- * canonical duration) the production auto-scheduler uses.
+ * canonical duration) the production auto-scheduler uses, then the JOB-008
+ * 08:00-19:00 working window. This keeps expectations independent of the hour
+ * at which the DB clock baseline happens to fall.
  */
-function targetFor(parentScheduledAtIso: string): string {
-  return suggestedFollowUpInstant({
+function systemSlotFor(parentScheduledAtIso: string, intervalDays = 7): string {
+  const target = suggestedFollowUpInstant({
     evaluatedAt: BASELINE,
     sourceScheduledAt: new Date(parentScheduledAtIso),
     timezone: 'Europe/Istanbul',
     durationMs: canonicalScheduledDurationMs('SALES_MEETING'),
-  }).toISOString();
+    intervalDays,
+  });
+  const slot = findEarliestFollowUpSlot({
+    earliestAllowedAt: target,
+    horizonAnchorAt: target,
+    type: 'SALES_MEETING',
+    timezone: 'Europe/Istanbul',
+    blockers: [],
+  });
+  if (!slot) throw new Error('Expected an automatic follow-up slot on a free calendar.');
+  return slot.startsAt.toISOString();
 }
+
+const targetFor = (parentScheduledAtIso: string) => systemSlotFor(parentScheduledAtIso);
 
 /**
  * Same wall-clock slot on the first non-Sunday day after `iso`. Europe/Istanbul
@@ -223,12 +238,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     CLOCK = BASELINE;
     PARENT_SCHEDULED_AT = atBase(-HOUR_MS);
     MEETING_AT = atBase(-HOUR_MS - 30 * MINUTE_MS);
-    PROPOSAL_AT = suggestedFollowUpInstant({
-      evaluatedAt: BASELINE,
-      sourceScheduledAt: new Date(PARENT_SCHEDULED_AT),
-      timezone: 'Europe/Istanbul',
-      durationMs: canonicalScheduledDurationMs('SALES_MEETING'),
-    }).toISOString();
+    PROPOSAL_AT = systemSlotFor(PARENT_SCHEDULED_AT);
     const proposalEndsAt = canonicalScheduledEnd('SALES_MEETING', PROPOSAL_AT);
     if (proposalEndsAt === null) {
       throw new Error('SALES_MEETING canonical duration is required for follow-up fixtures');
@@ -615,8 +625,9 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
   it('D1-3/D1-8: non-visit Sales Meeting kinds submit without recursive proposal requirements', async () => {
     await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      // JOB-008: FOLLOW_UP visits continue the cycle and are covered below.
       for (const [index, engagementKind] of [
-        'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'FOLLOW_UP', 'OTHER',
+        'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'OTHER',
       ].entries() as IterableIterator<[number, JobCardEngagementKind]>) {
         const scheduledAt = new Date('2026-07-31T10:00:00.000Z');
         scheduledAt.setUTCDate(scheduledAt.getUTCDate() - index);
@@ -641,6 +652,99 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         });
         expect(approved.status).toBe('COMPLETED');
         expect(approved.followUpProposal).toBeNull();
+      }
+    });
+  });
+
+  it('JOB-008: a POSITIVE Customer Visit proposes a +14-day SYSTEM follow-up', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        outcome: 'POSITIVE',
+        title: 'Olumlu ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Olumlu ziyaret tamamlandı.',
+      });
+      expect(submitted.followUpProposal).toMatchObject({
+        scheduledAt: systemSlotFor(PARENT_SCHEDULED_AT, 14),
+        type: 'SALES_MEETING',
+        assignedTo: staffA.id,
+        origin: 'SYSTEM',
+      });
+    });
+  });
+
+  it('JOB-008: a FOLLOW_UP visit continues the cycle and approval ignores chain length', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, customerId, createInProgressJob,
+    }) => {
+      for (const [index, meeting] of [
+        { outcome: 'POSITIVE' as const, unsuccessfulReason: undefined, days: 14 },
+        { outcome: 'FOLLOW_UP_REQUIRED' as const, unsuccessfulReason: 'CONTACT_NOT_AVAILABLE' as const, days: 7 },
+      ].entries()) {
+        const job = await createInProgressJob({
+          type: 'SALES_MEETING',
+          engagementKind: 'FOLLOW_UP',
+          outcome: meeting.outcome,
+          unsuccessfulReason: meeting.unsuccessfulReason,
+          title: `Takip ziyareti ${index}`,
+          assignedTo: staffA.id,
+          scheduledAt: atBase(-(index + 1) * 3 * HOUR_MS),
+        });
+        // A long-running cycle: ten completed ancestors above this visit.
+        let ancestorId: string | null = null;
+        for (let depth = 0; depth < 10; depth += 1) {
+          const ancestor = (await pool.query<{ id: string }>(
+            `INSERT INTO job_cards (
+               organization_id, type, status, title, customer_id, assigned_to, created_by,
+               source_job_card_id, follow_up_instructions,
+               started_at, staff_completed_at, staff_completed_by,
+               manager_approved_at, manager_approved_by
+             ) VALUES ($1, 'GENERAL_TASK', 'COMPLETED', $2, $3, $4, $5, $6, $7,
+               now(), now(), $4, now(), $5)
+             RETURNING id`,
+            [
+              manager.organizationId, `Önceki halka ${index}-${depth}`, customerId,
+              staffA.id, manager.id, ancestorId, ancestorId === null ? null : 'Takip',
+            ],
+          )).rows[0]!.id;
+          ancestorId = ancestor;
+        }
+        await pool.query(
+          `UPDATE job_cards SET source_job_card_id = $2, follow_up_instructions = 'Takip'
+            WHERE id = $1`,
+          [job.id, ancestorId],
+        );
+        const current = await service.detail(staffA, job.id);
+
+        const submitted = await service.submitForApproval(staffA, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: current.version,
+          note: 'Takip ziyareti tamamlandı.',
+        });
+        expect(submitted.followUpProposal).toMatchObject({
+          scheduledAt: systemSlotFor(job.scheduledAt!, meeting.days),
+          origin: 'SYSTEM',
+        });
+
+        const approved = await service.approve(manager, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        }) as JobCard & { followUpJobCardId: string };
+        expect(approved.status).toBe('COMPLETED');
+        const child = await service.detail(manager, approved.followUpJobCardId);
+        expect(child).toMatchObject({
+          type: 'SALES_MEETING',
+          engagementKind: 'FOLLOW_UP',
+          customerId,
+          scheduledAt: systemSlotFor(job.scheduledAt!, meeting.days),
+        });
+        expect(child.followUpContext).toMatchObject({ sourceJobCardId: job.id });
       }
     });
   });
@@ -1498,11 +1602,14 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
          VALUES ($1, 'İkinci Klinik', 'clinic', 'active') RETURNING id`,
         [organizationId],
       )).rows[0]!.id;
-      // Distinct parent slots one grid hour apart, derived from the DB
-      // baseline: the +7-day targets inherit the parent wall-clock times and
-      // serialize into non-overlapping child slots.
-      const firstParentAt = atBase(-2 * HOUR_MS);
-      const secondParentAt = atBase(-HOUR_MS);
+      // Distinct, already elapsed parent slots one hour apart at fixed
+      // in-window local times (13:00 / 14:00 Europe/Istanbul): the +7-day
+      // targets inherit those wall-clock times and serialize into
+      // non-overlapping child slots at any DB clock hour.
+      const firstParentDate = new Date(BASELINE.getTime() - DAY_MS);
+      firstParentDate.setUTCHours(10, 0, 0, 0);
+      const firstParentAt = firstParentDate.toISOString();
+      const secondParentAt = baselineIso(firstParentDate, HOUR_MS);
       const firstJob = await createInProgressJob({
         type: 'SALES_MEETING', title: 'İlk otomatik takip', assignedTo: staffA.id,
         scheduledAt: firstParentAt,
