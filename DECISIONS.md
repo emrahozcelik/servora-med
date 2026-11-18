@@ -2658,3 +2658,69 @@ GitHub CI security-audit acceptance gate, not production or deploy authority.
 
 Evidence, test matrices and implementation:
 [Security maintenance / approved exception](docs/evidence/security-dependency-audit-20261117/README.md).
+
+## JOB-008 — Continuous Customer Visit follow-up loop
+
+- **Date:** 2026-11-18
+- **Status:** Accepted (owner decision in the follow-up cycle review, 2026-11-18)
+- **Scope:** mandatory follow-up proposal predicate, automatic target and slot
+  selection, approval-created follow-up chain depth
+- **Supersedes in part:**
+  - DOM-007 sentence "No automatic follow-up JobCard … scheduler … is created by
+    this decision" for the outcomes below. The already implemented
+    submit-proposal / approve-child mechanics, which had no decision record, are
+    hereby recorded as accepted.
+  - Linked follow-up design D5 / §7.4 depth cap **only** for children created by
+    the approval command; manual `createFollowUp` keeps the cap.
+
+### Context
+
+Field review showed the visit cycle stopped silently. Only a Customer Visit with
+`FOLLOW_UP_REQUIRED` produced a follow-up; the generated child carries
+`engagementKind = FOLLOW_UP`, so it never produced the next one. `POSITIVE`
+visits left the cycle, Staff's optional `nextFollowUpAt` was ignored, and the
+automatic slot search scanned all 24 hours, so a busy target or a late approval
+could place a visit in the evening or at night.
+
+### Decision
+
+1. **Mandatory predicate.** A `SALES_MEETING` whose `engagementKind` is
+   `CUSTOMER_VISIT` or `FOLLOW_UP` requires a follow-up proposal at submission
+   when its outcome is `POSITIVE`, or `FOLLOW_UP_REQUIRED` with a structured
+   unsuccessful reason. A completed follow-up therefore produces the next one,
+   keeping the customer in a continuous visit cycle with the responsible Staff.
+   `NO_DECISION`, `NOT_INTERESTED` and other engagement kinds are unchanged and
+   deferred to a later decision.
+2. **Mechanics unchanged.** The proposal is computed and persisted at
+   `SUBMIT_FOR_APPROVAL`; the child is created only inside `APPROVE`. Revision
+   and withdrawal do not create a child; resubmission recomputes the proposal.
+   The child stays `SALES_MEETING` / `FOLLOW_UP`, same customer, accepted when
+   the proposer is the assignee. Server and web share one predicate meaning.
+3. **Target instant.** Organization-local evaluation date plus **7** calendar
+   days for `FOLLOW_UP_REQUIRED` and **14** calendar days for `POSITIVE`,
+   preserving the source clock time; Sunday advances as today. When the meeting
+   result has a valid `nextFollowUpAt`, that instant is the target instead. The
+   target never precedes the 15-minute lead floor.
+4. **Working-hours window for automatic slots.** Automatically selected
+   (`SYSTEM`) follow-up slots start at or after **08:00** and end at or before
+   **19:00** organization-local time, on the existing 15-minute grid, never on
+   Sunday. A target outside the window, or one already in the past at a late
+   approval, moves to the first free in-window slot. Human-chosen schedules
+   (Staff no-slot fallback, Manager override, reschedule) are not restricted,
+   matching the Sunday human-choice rule.
+5. **Search horizon.** The 30-day horizon stays anchored at the lead floor; a
+   target beyond that envelope (for example a distant `nextFollowUpAt`) gets its
+   own 30-day envelope anchored at the target. No free slot inside the envelope
+   still returns the existing manual-selection error.
+6. **Approval is never blocked by chain length.** The approval-created child
+   skips the 10-level ancestor cap so a long-running customer cycle cannot make
+   an otherwise valid approval fail. Manual post-hoc `createFollowUp` keeps the
+   cap and its `FOLLOW_UP_MAX_DEPTH_REACHED` error.
+
+### Consequences
+
+- More approvals create a follow-up; managers can still change the date, type,
+  assignee or instructions at approval exactly as before.
+- Cancelled follow-ups, a manager view of customers without an active plan and
+  a "move to now and start" shortcut are separate follow-up PRs.
+- No migration, vocabulary, report or calendar-display change.

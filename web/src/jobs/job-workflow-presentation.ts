@@ -165,9 +165,14 @@ export function requiresMandatoryFollowUpProposal(
   job: Pick<JobCard, 'type' | 'engagementKind'>,
   meetingDetails?: Pick<MeetingDetails, 'outcome' | 'unsuccessfulReason'> | null,
 ): boolean {
-  return job.type === 'SALES_MEETING'
-    && job.engagementKind === 'CUSTOMER_VISIT'
-    && meetingDetails?.outcome === 'FOLLOW_UP_REQUIRED'
+  // Mirrors server JOB-008: Customer Visits and their follow-ups continue the
+  // cycle on POSITIVE, or on FOLLOW_UP_REQUIRED with an unsuccessful reason.
+  if (job.type !== 'SALES_MEETING'
+    || (job.engagementKind !== 'CUSTOMER_VISIT' && job.engagementKind !== 'FOLLOW_UP')) {
+    return false;
+  }
+  if (meetingDetails?.outcome === 'POSITIVE') return true;
+  return meetingDetails?.outcome === 'FOLLOW_UP_REQUIRED'
     && meetingDetails.unsuccessfulReason !== null
     && meetingDetails.unsuccessfulReason !== undefined;
 }

@@ -53,12 +53,12 @@ describe('findEarliestFollowUpSlot', () => {
     expect(generalSlot).toBeNull();
   });
 
-  it('skips nonexistent spring-forward wall clocks', () => {
+  it('starts at the working-window opening on a spring-forward day', () => {
     // Asia/Jerusalem springs forward on Friday 2026-03-27 — a working day, so
     // the WORKING-DAY V1 Sunday rule cannot mask this behaviour. Local
-    // 02:00-02:59 does not exist; the 02:xx grid slots resolve outside that wall
-    // clock and are skipped rather than silently shifted, so the first real
-    // candidate is 03:00 IDT = 2026-03-27T00:00Z.
+    // 02:00-02:59 does not exist; it lies before the JOB-008 08:00 window, so
+    // the first real candidate is 08:00 IDT = 2026-03-27T05:00Z, never a
+    // silently shifted night slot.
     const slot = findEarliestFollowUpSlot({
       earliestAllowedAt: new Date('2026-03-26T23:58:00.000Z'),
       type: 'SALES_MEETING',
@@ -66,7 +66,7 @@ describe('findEarliestFollowUpSlot', () => {
       blockers: [],
     });
 
-    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T00:00:00.000Z');
+    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T05:00:00.000Z');
   });
 
   it('resolves repeated fall-back wall clocks deterministically with increasing UTC candidates', () => {
@@ -223,10 +223,10 @@ describe('target-first search with floor-anchored horizon', () => {
     expect(slot).toBeNull();
   });
 
-  it('skips nonexistent spring-forward wall clocks from a target start', () => {
+  it('resumes at the working-window opening on a spring-forward day from a target start', () => {
     // Asia/Jerusalem springs forward on Friday 2026-03-27: local 02:00-02:59
-    // does not exist. From a target start the 02:xx grid slots resolve outside
-    // that wall clock, so the stream resumes at 03:00 local.
+    // does not exist and lies before the JOB-008 08:00 window, so the stream
+    // resumes at 08:00 local (05:00Z) on the 15-minute grid.
     const input = {
       earliestAllowedAt: new Date('2026-03-26T23:58:00.000Z'),
       horizonAnchorAt: new Date('2026-03-20T23:58:00.000Z'),
@@ -236,15 +236,15 @@ describe('target-first search with floor-anchored horizon', () => {
     };
     const slot = findEarliestFollowUpSlot(input);
 
-    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T00:00:00.000Z');
+    expect(slot?.startsAt.toISOString()).toBe('2026-03-27T05:00:00.000Z');
     expect(
       generateFollowUpSlotCandidates(input)
         .slice(0, 3)
         .map((candidate) => candidate.startsAt.toISOString()),
     ).toEqual([
-      '2026-03-27T00:00:00.000Z',
-      '2026-03-27T00:15:00.000Z',
-      '2026-03-27T00:30:00.000Z',
+      '2026-03-27T05:00:00.000Z',
+      '2026-03-27T05:15:00.000Z',
+      '2026-03-27T05:30:00.000Z',
     ]);
   });
 
@@ -286,12 +286,13 @@ describe('iterateFollowUpSlotCandidates', () => {
       timezone: 'UTC',
     };
     const materialized = expectIteratorParity(input);
-    // 2880 unfiltered candidates minus the WORKING-DAY V1 exclusions:
-    //   5 whole Sundays (08-02, 08-09, 08-16, 08-23, 08-30) x 96 slots = 480
-    //   5 Saturdays x 3 late slots each (23:15/23:30/23:45 spill into Sunday;
-    //     23:00 ends exactly at Sunday 00:00 and stays allowed)     =  15
-    // 2880 - 480 - 15 = 2385.
-    expect(materialized.length).toBe(2385);
+    // JOB-008 working window: a 60-minute meeting starts 08:00..18:00 local,
+    // i.e. 41 grid slots per working day; Sundays are skipped entirely.
+    //   2026-08-01 (Sat) from the 10:15 grid point to 18:00     =  32
+    //   24 working days 08-02..08-30 (5 Sundays excluded) x 41   = 984
+    //   2026-08-31 (Mon) 08:00..10:00, before the 10:07 horizon  =   9
+    // 32 + 984 + 9 = 1025.
+    expect(materialized.length).toBe(1025);
 
     const iterator = iterateFollowUpSlotCandidates(input);
     const first = iterator.next();
@@ -418,5 +419,55 @@ describe('isFollowUpSlotBlocked', () => {
 
   it('reports clear when nothing overlaps', () => {
     expect(isFollowUpSlotBlocked(candidate, [])).toBe(false);
+  });
+});
+
+describe('JOB-008 automatic working window', () => {
+  function localMinutes(instant: Date, timezone: string): number {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(instant);
+    const hour = Number(parts.find((part) => part.type === 'hour')!.value);
+    const minute = Number(parts.find((part) => part.type === 'minute')!.value);
+    return hour * 60 + minute;
+  }
+
+  for (const [type, lastStart] of [
+    ['SALES_MEETING', '18:00'],
+    ['PRODUCT_DELIVERY', '18:30'],
+  ] as const) {
+    it(`keeps every ${type} candidate inside 08:00-19:00 local time`, () => {
+      const timezone = 'Europe/Istanbul';
+      const candidates = generateFollowUpSlotCandidates({
+        earliestAllowedAt: new Date('2026-08-03T04:07:00.000Z'),
+        type,
+        timezone,
+      });
+      expect(candidates.length).toBeGreaterThan(0);
+      for (const candidate of candidates) {
+        expect(localMinutes(candidate.startsAt, timezone)).toBeGreaterThanOrEqual(8 * 60);
+        expect(localMinutes(candidate.endsAt, timezone)).toBeLessThanOrEqual(19 * 60);
+        expect(candidate.endsAt.toISOString().slice(0, 10))
+          .toBe(candidate.startsAt.toISOString().slice(0, 10));
+      }
+      const starts = new Set(candidates.map((candidate) => {
+        const minutes = localMinutes(candidate.startsAt, timezone);
+        return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+      }));
+      expect(starts.has('08:00')).toBe(true);
+      expect(starts.has(lastStart)).toBe(true);
+    });
+  }
+
+  it('moves an evening earliest start to the next working morning', () => {
+    const slot = findEarliestFollowUpSlot({
+      // 2026-08-04 18:50 Europe/Istanbul (Tuesday)
+      earliestAllowedAt: new Date('2026-08-04T15:50:00.000Z'),
+      type: 'SALES_MEETING',
+      timezone: 'Europe/Istanbul',
+      blockers: [],
+    });
+    // Wednesday 08:00 local = 05:00Z.
+    expect(slot?.startsAt.toISOString()).toBe('2026-08-05T05:00:00.000Z');
   });
 });

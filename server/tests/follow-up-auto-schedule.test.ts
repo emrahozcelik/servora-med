@@ -95,6 +95,7 @@ type Proposal = { scheduledAt: Date; type: string; assignedTo: string };
 async function autoSchedule(
   tx: CountingTransaction,
   preferredAt?: Date,
+  targetContext?: { outcome: 'POSITIVE' | 'FOLLOW_UP_REQUIRED' | null; nextFollowUpAt: string | null },
 ): Promise<Proposal> {
   const service = new JobCardService({} as never, () => REQUEST_TIME);
   return (service as unknown as {
@@ -108,11 +109,12 @@ async function autoSchedule(
       input: { type: 'SALES_MEETING'; assignedTo: string; followUpInstructions: string },
       preferredAt?: Date,
       lockedAssignees?: ReadonlyMap<string, typeof assignee>,
+      targetContext?: { outcome: string | null; nextFollowUpAt: string | null },
     ): Promise<Proposal>;
   }).autoScheduleFollowUpProposal(
     tx.asTx(), actor, makeJob(), REQUEST_TIME, MEETING_AT, false,
     { type: 'SALES_MEETING', assignedTo: 'staff-1', followUpInstructions: 'Ara' },
-    preferredAt, new Map([['staff-1', assignee]]),
+    preferredAt, new Map([['staff-1', assignee]]), targetContext,
   );
 }
 
@@ -219,13 +221,67 @@ describe('autoScheduleFollowUpProposal lazy selection', () => {
     expect(proposal.scheduledAt.toISOString()).toBe('2026-08-10T10:00:00.000Z');
   });
 
-  it('performs no snapshot reads when the target is beyond the horizon', async () => {
+  it('anchors a dedicated 30-day envelope at a target beyond the floor horizon (JOB-008)', async () => {
     const tx = new CountingTransaction();
-    await expect(autoSchedule(tx, new Date('2026-12-01T10:00:00.000Z')))
-      .rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_INVALID', statusCode: 409 });
+    const proposal = await autoSchedule(tx, new Date('2026-12-01T10:00:00.000Z'));
+
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-12-01T10:00:00.000Z');
+    expect(tx.counts.listAssigneeCalendarIntervals).toBe(1);
+    expect(tx.ranges.listAssigneeCalendarIntervals?.[0]).toEqual([
+      '2026-12-01T10:00:00.000Z',
+      '2026-12-31T11:00:00.000Z',
+    ]);
     expect(tx.counts.listActiveOnSiteJobs ?? 0).toBe(0);
     expect(tx.counts.listRecentOnSiteVisits ?? 0).toBe(0);
-    expect(tx.counts.listAssigneeCalendarIntervals ?? 0).toBe(0);
+  });
+
+  it('targets +14 calendar days for a POSITIVE visit (JOB-008)', async () => {
+    const tx = new CountingTransaction();
+    const proposal = await autoSchedule(tx, undefined, { outcome: 'POSITIVE', nextFollowUpAt: null });
+
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-15T09:30:00.000Z');
+  });
+
+  it('keeps +7 calendar days for FOLLOW_UP_REQUIRED (JOB-008)', async () => {
+    const tx = new CountingTransaction();
+    const proposal = await autoSchedule(tx, undefined, {
+      outcome: 'FOLLOW_UP_REQUIRED', nextFollowUpAt: null,
+    });
+
+    expect(proposal.scheduledAt.toISOString()).toBe(FIRST_GRID_AT);
+  });
+
+  it('uses the Staff nextFollowUpAt as the target over the outcome interval (JOB-008)', async () => {
+    const tx = new CountingTransaction();
+    const proposal = await autoSchedule(tx, undefined, {
+      outcome: 'POSITIVE', nextFollowUpAt: '2026-08-05T13:10:00.000Z',
+    });
+
+    // Snapped up to the 15-minute grid inside the working window.
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-05T13:15:00.000Z');
+  });
+
+  it('moves an out-of-hours nextFollowUpAt to the next in-window slot (JOB-008)', async () => {
+    const tx = new CountingTransaction();
+    const proposal = await autoSchedule(tx, undefined, {
+      outcome: 'FOLLOW_UP_REQUIRED', nextFollowUpAt: '2026-08-05T20:30:00.000Z',
+    });
+
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-06T08:00:00.000Z');
+  });
+
+  it('moves a past SYSTEM target at a late approval into the working window (JOB-008)', async () => {
+    // Persisted target already elapsed; the request clock is 2026-08-01T09:00Z
+    // (Saturday) so the first in-window slot after the 15-minute floor is used.
+    const tx = new CountingTransaction([], [], [{
+      startsAt: '2026-08-01T09:00:00.000Z',
+      endsAt: '2026-08-01T18:30:00.000Z',
+    }]);
+    const proposal = await autoSchedule(tx, new Date('2026-07-25T09:30:00.000Z'));
+
+    // Saturday is blocked until 18:30 (a 60-minute slot cannot end by 19:00),
+    // Sunday is skipped, so Monday 08:00 is the first valid automatic slot.
+    expect(proposal.scheduledAt.toISOString()).toBe('2026-08-03T08:00:00.000Z');
   });
 
   it('reports fully blocked horizons with the existing conflict error', async () => {

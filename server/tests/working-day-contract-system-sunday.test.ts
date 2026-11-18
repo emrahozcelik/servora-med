@@ -111,7 +111,8 @@ describe('WORKING-DAY contract — SYSTEM: the automatic follow-up candidate ite
       timezone: 'UTC',
       blockers: [],
     });
-    expect(first?.startsAt.toISOString()).toBe(`${MON}T00:00:00.000Z`);
+    // JOB-008: Monday at the 08:00 working-window opening.
+    expect(first?.startsAt.toISOString()).toBe(`${MON}T08:00:00.000Z`);
   });
 
   it('8b: never yields a Sunday candidate anywhere in the generated horizon', () => {
@@ -163,7 +164,8 @@ describe('WORKING-DAY contract — SYSTEM: the automatic alternative-slot search
       timezone: 'UTC',
       blockers: [],
     });
-    expect(alternative?.startsAt.toISOString()).toBe(`${MON}T00:00:00.000Z`);
+    // JOB-008: Monday at the 08:00 working-window opening.
+    expect(alternative?.startsAt.toISOString()).toBe(`${MON}T08:00:00.000Z`);
   });
 
   it('10b: skips past a fully blocked Saturday to Monday instead of proposing Sunday', () => {
@@ -176,7 +178,7 @@ describe('WORKING-DAY contract — SYSTEM: the automatic alternative-slot search
         endsAt: new Date(`${SUN}T00:00:00.000Z`),
       }],
     });
-    expect(alternative?.startsAt.toISOString()).toBe(`${MON}T00:00:00.000Z`);
+    expect(alternative?.startsAt.toISOString()).toBe(`${MON}T08:00:00.000Z`);
   });
 
   it('10c: keeps the reserved suggestedAlternativeAt projection free of Sunday', async () => {
@@ -205,20 +207,27 @@ describe('WORKING-DAY contract — SYSTEM: the automatic alternative-slot search
 });
 
 describe('WORKING-DAY contract — SYSTEM: an automatic interval spilling from Saturday into Sunday is skipped', () => {
-  it('11: drops every late-Saturday candidate whose duration crosses local midnight', () => {
+  it('11: never yields a late-Saturday candidate that could cross local midnight', () => {
     const candidates = generateFollowUpSlotCandidates({
-      earliestAllowedAt: new Date(`${SAT}T23:00:00.000Z`),
-      horizonAnchorAt: new Date(`${SAT}T23:00:00.000Z`),
+      earliestAllowedAt: new Date(`${SAT}T17:00:00.000Z`),
+      horizonAnchorAt: new Date(`${SAT}T17:00:00.000Z`),
       type: 'SALES_MEETING',
       timezone: 'UTC',
     });
     const lateSaturday = candidates.filter(
       (candidate) => localDateKey(candidate.startsAt, 'UTC') === SAT,
     );
-    // 23:00 -> 00:00 is half-open and still inside Saturday; the 23:15/23:30/
-    // 23:45 grid points spill past local midnight and are all skipped.
+    // JOB-008 working window: the last Saturday start is 18:00 (ends 19:00),
+    // so no automatic interval can approach or cross into Sunday.
     expect(lateSaturday.map((candidate) => candidate.startsAt.toISOString()))
-      .toEqual([`${SAT}T23:00:00.000Z`]);
-    expect(lateSaturday[0]!.endsAt.toISOString()).toBe(`${SUN}T00:00:00.000Z`);
+      .toEqual([
+        `${SAT}T17:00:00.000Z`,
+        `${SAT}T17:15:00.000Z`,
+        `${SAT}T17:30:00.000Z`,
+        `${SAT}T17:45:00.000Z`,
+        `${SAT}T18:00:00.000Z`,
+      ]);
+    expect(lateSaturday.at(-1)!.endsAt.toISOString()).toBe(`${SAT}T19:00:00.000Z`);
+    expect(candidates.some((candidate) => localDateKey(candidate.startsAt, 'UTC') === SUN)).toBe(false);
   });
 });

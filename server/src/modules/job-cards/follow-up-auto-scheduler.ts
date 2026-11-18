@@ -7,7 +7,11 @@ import {
   localDateKey,
 } from './local-calendar.js';
 import { canonicalScheduledDurationMs } from './job-card-duration.js';
-import { FOLLOW_UP_SEARCH_HORIZON_DAYS } from './follow-up-policy.js';
+import {
+  FOLLOW_UP_AUTO_WINDOW_END_MINUTE,
+  FOLLOW_UP_AUTO_WINDOW_START_MINUTE,
+  FOLLOW_UP_SEARCH_HORIZON_DAYS,
+} from './follow-up-policy.js';
 import { occupiesNonWorkingDay } from './working-day-policy.js';
 import type { JobCardType } from './types.js';
 
@@ -38,6 +42,12 @@ function representsWallClock(
   return localDateKey(instant, timezone) === dateKey
     && clock.hour === hour
     && clock.minute === minute;
+}
+
+function endsWithinWorkingWindow(endsAt: Date, dateKey: string, timezone: string): boolean {
+  if (localDateKey(endsAt, timezone) !== dateKey) return false;
+  const clock = localClockParts(endsAt, timezone);
+  return clock.hour * 60 + clock.minute <= FOLLOW_UP_AUTO_WINDOW_END_MINUTE;
 }
 
 export function generateFollowUpSlotCandidates(
@@ -83,6 +93,10 @@ export function resolveFollowUpSearchHorizonAt(anchorAt: Date, timezone: string)
  * Laziness, the 15-minute grid, DST handling, the floor-anchored horizon and
  * the zero-query-per-candidate property are all preserved: the skip is pure
  * arithmetic with no additional snapshot reads.
+ *
+ * JOB-008: candidates also stay inside the organization-local working window
+ * (start >= 08:00, end <= 19:00 on the same local date). The window is applied
+ * by narrowing each day's grid, so no extra candidates or reads are produced.
  */
 export function* iterateFollowUpSlotCandidates(
   input: Omit<FindEarliestFollowUpSlotInput, 'blockers'>,
@@ -102,8 +116,12 @@ export function* iterateFollowUpSlotCandidates(
     const dateKey = addCalendarDaysToDateKey(firstDateKey, day);
     // A date that is entirely Sunday can never hold a valid candidate.
     if (isSundayDateKey(dateKey)) continue;
-    const startMinute = day === 0 ? firstGridMinute : 0;
+    const startMinute = Math.max(
+      day === 0 ? firstGridMinute : 0,
+      FOLLOW_UP_AUTO_WINDOW_START_MINUTE,
+    );
     for (let minuteOfDay = startMinute; minuteOfDay < 24 * 60; minuteOfDay += AUTO_SCHEDULER_GRID_MINUTES) {
+      if (minuteOfDay * 60_000 + durationMs > FOLLOW_UP_AUTO_WINDOW_END_MINUTE * 60_000) break;
       const hour = Math.floor(minuteOfDay / 60);
       const minute = minuteOfDay % 60;
       const startsAt = instantFromLocal(dateKey, hour, minute, input.timezone);
@@ -112,6 +130,8 @@ export function* iterateFollowUpSlotCandidates(
       if (startsAt.valueOf() >= horizonAt.valueOf()) return;
 
       const endsAt = new Date(startsAt.valueOf() + durationMs);
+      // A DST shift inside the window could move the real end past 19:00.
+      if (!endsWithinWorkingWindow(endsAt, dateKey, input.timezone)) continue;
       // The date itself is not Sunday, but a late Saturday start can still
       // spill its canonical duration across local midnight into Sunday.
       if (occupiesNonWorkingDay({ startsAt, endsAt, timezone: input.timezone })) continue;
