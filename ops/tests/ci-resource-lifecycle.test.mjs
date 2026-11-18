@@ -141,13 +141,15 @@ function writeNonExclusiveMkdir(bin) {
 }
 
 for (const nonExclusiveMkdir of [false, true]) {
-  for (const holder of ['pid=2147483647 nonce=stale', `pid=${process.pid} nonce=live`]) {
-    test(`existing lock fails closed: ${holder} (non-exclusive mkdir=${nonExclusiveMkdir})`, (t) => {
+  // null: an empty claim-less directory left by a run killed between mkdir
+  // and its claim. It is never adopted, whatever mkdir reports.
+  for (const holder of ['pid=2147483647 nonce=stale', `pid=${process.pid} nonce=live`, null]) {
+    test(`existing lock fails closed: ${holder ?? 'empty claim-less dir'} (non-exclusive mkdir=${nonExclusiveMkdir})`, (t) => {
       const fx = fixture(t);
       if (nonExclusiveMkdir) writeNonExclusiveMkdir(path.join(fx.root, 'bin'));
       const lock = path.join(fx.root, 'servora-med-local-ci.lock');
       fs.mkdirSync(lock);
-      fs.writeFileSync(path.join(lock, 'pid'), holder + '\n');
+      if (holder !== null) fs.writeFileSync(path.join(lock, 'pid'), holder + '\n');
       fs.mkdirSync(fx.bundle, { recursive: true });
       fs.writeFileSync(path.join(fx.bundle, 'sentinel'), 'original evidence');
       const result = fx.run();
@@ -155,8 +157,13 @@ for (const nonExclusiveMkdir of [false, true]) {
       assert.match(result.stderr, /LOCAL_CI_ALREADY_RUNNING/);
       // A co-winner never arms cleanup: the owner's claim and lock survive.
       assert.doesNotMatch(result.stderr, /ownership unknown/);
-      assert.deepEqual(fs.readdirSync(lock), ['pid']);
-      assert.equal(fs.readFileSync(path.join(lock, 'pid'), 'utf8'), holder + '\n');
+      if (holder === null) {
+        assert.match(result.stderr, /holder=unknown/);
+        assert.deepEqual(fs.readdirSync(lock), []);
+      } else {
+        assert.deepEqual(fs.readdirSync(lock), ['pid']);
+        assert.equal(fs.readFileSync(path.join(lock, 'pid'), 'utf8'), holder + '\n');
+      }
       assert.equal(fs.readFileSync(path.join(fx.bundle, 'sentinel'), 'utf8'), 'original evidence');
       assert.ok(!fs.existsSync(path.join(fx.evidence, 'previous')));
       assert.equal(fx.state().container, undefined);

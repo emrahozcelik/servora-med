@@ -70,9 +70,13 @@ ci_finalize_cleanup_evidence() {
 # can report success for a directory a concurrent racer created, so several
 # processes can "win" mkdir. Bash noclobber opens a missing file with
 # O_CREAT|O_EXCL, so exactly one co-winner creates the claim; every other one
-# fails closed without touching the owner's claim. No stale-lock recovery.
+# fails closed without touching the owner's claim. Any pre-existing path,
+# including an empty claim-less directory left by a run killed between mkdir
+# and its claim, is an existing lock even if mkdir would report success for
+# it. No stale-lock recovery.
 ci_acquire_lock() {
   local lock_dir="$1" claim="$2" pid_file="$1/pid"
+  [[ ! -e "$lock_dir" && ! -L "$lock_dir" ]] || return 1
   mkdir "$lock_dir" 2>/dev/null || return 1
   ( set -o noclobber; printf '%s\n' "$claim" >"$pid_file" ) 2>/dev/null || return 1
   [[ -f "$pid_file" && ! -L "$pid_file" ]] || return 1
