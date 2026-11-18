@@ -2598,3 +2598,94 @@ This supersedes only the workflow's advertised migration-false branch. Earlier
 local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
 unchanged. Owning runbook:
 [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
+
+## U3-A — Offboarded Staff cannot be reactivated
+
+Status: accepted by the owner on 2026-11-17 ("Ayrılan personel yeniden
+etkinleştirilemez"). Extends the U3 User/Staff lifecycle record; earlier
+records are not rewritten.
+
+- An inactive `STAFF` user is by construction an offboarded one: generic
+  deactivation of Staff is already rejected with `OFFBOARDING_REQUIRED`, so the
+  only path to an inactive Staff user is the offboarding flow.
+- `activate` on an inactive `STAFF` user is rejected with
+  `409 OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN`. No state change and no audit
+  event occur. Activating an already-active user stays an idempotent no-op.
+- Activation and deactivation of `ADMIN` and `MANAGER` users are unchanged.
+- No schema change and no migration: the rule is derived from `role` and
+  `is_active`. Offboarding behavior is unchanged.
+- User email uniqueness is unchanged, so a returning person's old email stays
+  bound to the historical account; the historical account is not reused.
+- UI: the Admin user detail offers deactivate/reactivate only for non-Staff
+  users and shows a notice instead of a reactivate command for inactive Staff.
+  The user list and the Admin staff directory filter Aktif / Pasif / Tümü.
+  The backend remains the authority.
+
+## SEC-2026-11-18 — Expiring dev-only picomatch GHSA exception
+
+Status: **owner-approved 18 November 2026**, conditional, temporary, and
+**automatically expires after 2 December 2026 (Europe/Istanbul)**. This
+decision does not assert vulnerability remediation. It changes only the
+GitHub CI security-audit acceptance gate, not production or deploy authority.
+
+- Exception identity: the single HIGH-severity npm advisory
+  `https://github.com/advisories/GHSA-fc5q-39xc-vjpf` affecting `picomatch`
+  and its explicitly verified transitive-only HIGH descendants.
+- Allowlisted dependency *chain* is restricted to `picomatch`, `fdir`,
+  `tinyglobby`, `vite`, `vitest`, `@vitest/mocker` and
+  `@vitejs/plugin-react`; no other advisory or HIGH/CRITICAL finding is
+  accepted, even on one of these packages.
+- Each high-severity entry MUST prove an unbroken string-`via` path to the
+  exact picomatch GHSA and `dev: true` in the repository lockfile. The
+  picomatch root MUST have exactly one direct advisory. Unexpected `via`
+  objects, broken/missing paths, cycles, malformed audit metadata, missing
+  package markers and non-dev production copies fail closed.
+- **Both web and server production audits remain strict:** a separate
+  `npm audit --omit=dev --json` is evaluated without any exception, with no
+  HIGH/CRITICAL allowed. The existing release packaging and dependency
+  smoke are not relaxed.
+- The start boundary is `2026-11-18T00:00:00+03:00`; the exact
+  expiry is `2026-12-03T00:00:00+03:00`. Unusable clock/expiry fails.
+- The audit emits a prominent `PASS WITH TEMPORARY SECURITY EXCEPTION`
+  rather than claiming an all-clean audit. The residual risk includes CI
+  tooling's handling of repository-controlled glob patterns.
+- On the first published upstream patch, update both lockfiles and delete the
+  exception. New/high critical advisories, production exposure, or expiry
+  must stop CI; a renewal requires separate explicit owner approval.
+- Owner authorized **only the narrow policy change**. PR #444 remains Draft
+  until exact-head CI and independent security review pass; PR #441 is separate.
+  Neither PR is implicitly approved for merge or deployment.
+
+Evidence, test matrices and implementation:
+[Security maintenance / approved exception](docs/evidence/security-dependency-audit-20261117/README.md).
+
+## JOB-007 — Staff submission releases the remaining calendar occupancy
+
+Status: accepted by the owner on 2026-11-18 ("önerilerine katılıyorum", "biz
+ilk işi yapalım"). Field feedback: Staff who finish a visit early (for example
+`CONTACT_NOT_AVAILABLE`) could not open or start work at another customer
+until the earlier job's planned end, unless a Manager had already approved it.
+Calendar availability therefore depended on how quickly a Manager approved.
+Extends JOB-006; earlier records are not rewritten.
+
+- A JobCard occupies its assignee's calendar over `[scheduled_at, occupied end)`.
+  For `WAITING_APPROVAL` the occupied end is
+  `LEAST(scheduled_ends_at, staff_completed_at)`; for every other active status
+  it stays `scheduled_ends_at`. Terminal statuses keep occupying nothing.
+  An empty occupied interval occupies nothing.
+- "Staff finished" (`SUBMIT_FOR_APPROVAL`) releases the assignee; "Manager
+  approved" (`APPROVE`) closes the work. Approval, revision, cancellation and
+  reporting rules are unchanged.
+- The planned interval is never rewritten. `scheduled_at`/`scheduled_ends_at`,
+  the 60/30-minute canonical durations, lateness measurement, reports, history
+  and the calendar display keep their current meaning.
+- One server-side SQL expression (`JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL`) is used
+  by every assignee occupancy reader: JobCard create/reschedule conflicts, the
+  available-slot search, manual calendar event conflicts, and offboarding
+  replacement checks. A job-backed conflict reports its occupied end.
+- `WITHDRAW_FROM_APPROVAL` and `REQUEST_REVISION` restore the full planned
+  interval. They do not re-check calendar conflicts, so an overlap with work
+  created after the submission is tolerated and never auto-resolved; the
+  planned interval has usually already passed by then.
+- Out of scope here: showing Staff the conflicting interval or earliest free
+  time, and a "move to now and start" shortcut for a planned visit.

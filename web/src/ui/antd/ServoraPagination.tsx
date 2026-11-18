@@ -44,10 +44,12 @@ export function ServoraListPagination({
   const keyboardActivation = useRef(false);
 
   useEffect(() => {
-    if (pendingPageFocus.get(label) !== current) return;
+    const requestedPage = pendingPageFocus.get(label);
+    // A shrinking total can move the requested page to the last valid page.
+    if (requestedPage === undefined || Math.min(requestedPage, pageCount) !== current) return;
     pendingPageFocus.delete(label);
     navRef.current?.focus({ preventScroll: true });
-  }, [current, label]);
+  }, [current, label, pageCount]);
 
   // Ant's simple pager leaves Next without a tabIndex on page 1. Restore the
   // native button semantics and a Turkish name on the focusable item.

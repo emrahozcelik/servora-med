@@ -392,7 +392,12 @@ verify_local_evidence() {
 
 acquire_deploy_lock() {
   PHASE=LOCK
-  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
+  # Any existing path — including an empty, claim-less directory left by a
+  # process killed between mkdir and its claim — is an existing lock, even if
+  # a non-exclusive mkdir(1) would report success for it (see
+  # write_lock_claim). Concurrent creators are serialized by the claim.
+  if [[ ! -e "$DEPLOY_LOCK_DIR" && ! -L "$DEPLOY_LOCK_DIR" ]] \
+      && mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
     write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
     return 0
   fi
@@ -422,11 +427,22 @@ acquire_deploy_lock() {
 # Record this process as the lock owner and re-read the claim: if the
 # directory was stolen between mkdir and write, the write fails or the
 # re-read mismatches and acquisition fails closed.
+#
+# Ownership is the exclusive creation of the claim file, not mkdir's exit
+# status alone. mkdir(1) exclusivity is implementation-defined: uutils
+# coreutils (default on Ubuntu 26.04) reports success for a directory another
+# racer created concurrently, so several processes can "win" mkdir. Bash's
+# noclobber redirection opens a missing file with O_CREAT|O_EXCL in the shell
+# itself, so exactly one co-winner creates the claim; every other one fails
+# closed without touching the winner's lock.
 write_lock_claim() {
   local pid_file="$DEPLOY_LOCK_DIR/pid"
-  LOCK_CLAIM="pid=$$ nonce=$$-$RANDOM-$RANDOM time=$(date +%s)"
-  printf '%s\n' "$LOCK_CLAIM" >"$pid_file" || return 1
-  [[ "$(cat -- "$pid_file" 2>/dev/null || true)" == "$LOCK_CLAIM" ]] || return 1
+  local claim
+  claim="pid=$$ nonce=$$-$RANDOM-$RANDOM time=$(date +%s)"
+  ( set -o noclobber; printf '%s\n' "$claim" >"$pid_file" ) 2>/dev/null || return 1
+  [[ -f "$pid_file" && ! -L "$pid_file" ]] || return 1
+  [[ "$(cat -- "$pid_file" 2>/dev/null || true)" == "$claim" ]] || return 1
+  LOCK_CLAIM="$claim"
 }
 
 release_deploy_lock() {

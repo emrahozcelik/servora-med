@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { ApiError, type CurrentUser } from '../services/api';
 import { OperationalCard } from '../ui/antd/OperationalCard';
+import { ServoraListPagination } from '../ui/antd/ServoraPagination';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from '../ui/pagination';
 import { ResultState } from '../ui/antd/ResultState';
 import { formatDurationSeconds } from '../ui/duration';
 import {
@@ -214,25 +216,40 @@ export function historyDetail(item: OverdueIncidentHistoryItem): string {
  * timing and post-reminder delay appear only when proven (never guessed for
  * legacy history).
  */
-export function OverdueIncidentHistorySection({ jobId }: {
+export function OverdueIncidentHistorySection({ jobId, load = listOverdueIncidents }: {
   jobId: string;
+  load?: typeof listOverdueIncidents;
 }) {
   const [state, setState] = useState<HistoryState>({ kind: 'loading' });
+  const [offset, setOffset] = useState(0);
+  const requestId = useRef(0);
 
   const refresh = useCallback(async () => {
+    const id = ++requestId.current;
     setState({ kind: 'loading' });
     try {
-      const page = await listOverdueIncidents(jobId, { limit: 25, offset: 0 });
+      const page = await load(jobId, { limit: DEFAULT_LIST_PAGE_SIZE, offset });
+      if (id !== requestId.current) return;
+      const lastOffset = lastListPageOffset(page.total);
+      if (offset > lastOffset) {
+        setOffset(lastOffset);
+        return;
+      }
       setState({ kind: 'ready', items: page.items, total: page.total });
     } catch (caught) {
+      if (id !== requestId.current) return;
       const error = caught instanceof ApiError
         ? caught
         : new ApiError(0, 'UNKNOWN_ERROR', 'Gecikme geçmişi yüklenemedi.', true);
       setState({ kind: 'error', message: error.message, retryable: error.retryable });
     }
-  }, [jobId]);
+  }, [jobId, load, offset]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { setOffset(0); }, [jobId]);
+  useEffect(() => {
+    void refresh();
+    return () => { requestId.current += 1; };
+  }, [refresh]);
   useRealtimeInvalidation([`job-detail:${jobId}`], () => { void refresh(); });
 
   if (state.kind === 'loading') return null;
@@ -260,9 +277,6 @@ export function OverdueIncidentHistorySection({ jobId }: {
   return (
     <section aria-label="Gecikme geçmişi" data-overdue-history="ready">
       <h2>Gecikme geçmişi</h2>
-      {state.total > state.items.length && (
-        <p>Son {state.items.length} kayıt gösteriliyor (toplam {state.total}).</p>
-      )}
       <ul>
         {state.items.map((item) => (
           <li key={item.id} data-overdue-history-item={item.delayType}>
@@ -272,6 +286,19 @@ export function OverdueIncidentHistorySection({ jobId }: {
           </li>
         ))}
       </ul>
+      <ServoraListPagination
+        total={state.total}
+        offset={offset}
+        label="Gecikme geçmişi sayfaları"
+        itemName="gecikme kaydı"
+        onOffsetChange={(nextOffset) => {
+          // Hide the focused pager in the same event as the offset change.
+          // Otherwise an intermediate render consumes its keyboard-focus ticket
+          // before the async page arrives and focus falls back to document.body.
+          setState({ kind: 'loading' });
+          setOffset(nextOffset);
+        }}
+      />
     </section>
   );
 }
@@ -291,21 +318,34 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   load?: typeof listOpenSubmissionLate;
 }) {
   const [state, setState] = useState<OpenListState>({ kind: 'loading' });
+  const [offset, setOffset] = useState(0);
+  const requestId = useRef(0);
 
   const refresh = useCallback(async () => {
+    const id = ++requestId.current;
     setState((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     try {
-      const page = await load({ limit: 20, offset: 0 });
+      const page = await load({ limit: DEFAULT_LIST_PAGE_SIZE, offset });
+      if (id !== requestId.current) return;
+      const lastOffset = lastListPageOffset(page.total);
+      if (offset > lastOffset) {
+        setOffset(lastOffset);
+        return;
+      }
       setState({ kind: 'ready', items: [...page.items], total: page.total });
     } catch (error) {
+      if (id !== requestId.current) return;
       setState({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Gecikme listesi yüklenemedi.',
       });
     }
-  }, [load]);
+  }, [load, offset]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => { requestId.current += 1; };
+  }, [refresh]);
   useRealtimeInvalidation(['overview', 'job-list'], () => { void refresh(); });
 
   if (state.kind === 'loading') return null;
@@ -332,9 +372,6 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   return (
     <section className="overview-section" aria-labelledby="submission-late-title" data-open-submission-late="true">
       <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
-      {state.total > state.items.length && (
-        <p>En uzun süredir geciken {state.items.length} iş gösteriliyor (toplam {state.total}).</p>
-      )}
       <ul className="overview-card-stack">
         {state.items.map((item) => (
           <li key={`${item.jobCardId}:${item.episodeNo}`}>
@@ -351,6 +388,19 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
           </li>
         ))}
       </ul>
+      <ServoraListPagination
+        total={state.total}
+        offset={offset}
+        label="Onaya gönderme gecikmesi sayfaları"
+        itemName="geciken iş"
+        onOffsetChange={(nextOffset) => {
+          // Hide the focused pager in the same event as the offset change.
+          // Otherwise an intermediate render consumes its keyboard-focus ticket
+          // before the async page arrives and focus falls back to document.body.
+          setState({ kind: 'loading' });
+          setOffset(nextOffset);
+        }}
+      />
     </section>
   );
 }

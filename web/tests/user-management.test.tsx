@@ -8,14 +8,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserCreateForm, UserListView, UserDetailView, UserDetailScreen } from '../src/UserManagement';
 import type { ManagedUser } from '../src/services/people-api';
 
+import { stubDesktopMatchMedia } from './antd-match-media';
+
+stubDesktopMatchMedia();
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const people = vi.hoisted(() => ({
-  getUser: vi.fn(), permanentlyDeleteUser: vi.fn(), createUser: vi.fn(), resetUserPassword: vi.fn(),
+  getUser: vi.fn(), activateUser: vi.fn(), deactivateUser: vi.fn(), permanentlyDeleteUser: vi.fn(), createUser: vi.fn(), resetUserPassword: vi.fn(),
 }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/services/people-api')>(),
   getUser: (...args: unknown[]) => people.getUser(...args),
+  activateUser: (...args: unknown[]) => people.activateUser(...args),
+  deactivateUser: (...args: unknown[]) => people.deactivateUser(...args),
   permanentlyDeleteUser: (...args: unknown[]) => people.permanentlyDeleteUser(...args),
   createUser: (...args: unknown[]) => people.createUser(...args),
   resetUserPassword: (...args: unknown[]) => people.resetUserPassword(...args),
@@ -32,7 +37,6 @@ describe('Admin user management views', () => {
     expect(html).toContain('/users/staff-1');
     expect(html).toContain('people-title-link');
     expect(html).not.toContain('Ayrıntıyı aç');
-    expect(html).not.toContain('Aktif'); expect(html).not.toContain('Pasif');
     expect(html).not.toMatch(/password|token|session/i);
   });
 
@@ -255,4 +259,153 @@ describe('User detail route race protection', () => {
     expect(onDeleted).toHaveBeenCalledTimes(1);
     confirm.mockRestore();
   });
+});
+
+describe('User status filter and activation commands', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const admin = { id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' } as const;
+  const manager: ManagedUser = { ...user, id: 'manager-1', name: 'Murat', email: 'manager@example.com', role: 'MANAGER' };
+  const inactiveStaff: ManagedUser = { ...user, id: 'staff-2', name: 'Bora Ayrılan', isActive: false };
+  const inactiveManager: ManagedUser = { ...manager, id: 'manager-2', name: 'Pasif Yönetici', isActive: false };
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    people.activateUser.mockReset(); people.deactivateUser.mockReset();
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+  const tab = (label: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((el) => el.textContent === label)!;
+  const button = (label: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((el) => el.textContent === label);
+  const names = () => Array.from(container.querySelectorAll('.people-title-link')).map((el) => el.textContent);
+  const renderDetail = (target: ManagedUser, viewer: { id: string; organizationId: string; role: 'ADMIN' | 'MANAGER' | 'STAFF' } = admin) =>
+    act(async () => root.render(<MemoryRouter><UserDetailView key={target.id + viewer.role} viewer={viewer} user={target} onChanged={() => {}} /></MemoryRouter>));
+
+  it('defaults to active users and reveals inactive users through Pasif and Tümü', async () => {
+    await act(async () => root.render(<MemoryRouter><UserListView users={[user, manager, inactiveStaff, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    expect(tab('Aktif').getAttribute('aria-selected')).toBe('true');
+    expect(names()).toEqual(['Ayşe', 'Murat']);
+    await act(async () => tab('Pasif').click());
+    expect(tab('Pasif').getAttribute('aria-selected')).toBe('true');
+    expect(names()).toEqual(['Bora Ayrılan', 'Pasif Yönetici']);
+    expect(container.textContent).toContain('· Pasif');
+    expect(container.textContent).not.toContain('Devre dışı');
+    await act(async () => tab('Tümü').click());
+    expect(names()).toHaveLength(4);
+  });
+
+  it('uses empty-state copy that matches the selected filter', async () => {
+    await act(async () => root.render(<MemoryRouter><UserListView users={[user]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    await act(async () => tab('Pasif').click());
+    expect(container.textContent).toContain('Pasif kullanıcı yok');
+    await act(async () => root.render(<MemoryRouter><UserListView users={[inactiveStaff]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    await act(async () => tab('Aktif').click());
+    expect(container.textContent).toContain('Aktif kullanıcı yok');
+  });
+
+  it('deactivates an active Manager only after owned confirmation using the expected version', async () => {
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    people.deactivateUser.mockResolvedValue({ ...manager, isActive: false, version: 4 });
+    await renderDetail({ ...manager, version: 3 });
+    await act(async () => button('Devre dışı bırak')!.click());
+    expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('true');
+    expect(people.deactivateUser).not.toHaveBeenCalled();
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="dialog"] .destructive-button')!.click());
+    expect(people.deactivateUser).toHaveBeenCalledWith('manager-1', 3);
+    expect(container.textContent).toContain('Kullanıcı devre dışı bırakıldı.');
+    expect(button('Yeniden etkinleştir')).toBeDefined();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+  });
+
+  it('cancels deactivation without writing and hides self-deactivation', async () => {
+    await renderDetail(manager);
+    await act(async () => button('Devre dışı bırak')!.click());
+    expect(people.deactivateUser).not.toHaveBeenCalled();
+    await act(async () => button('Vazgeç')!.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(people.deactivateUser).not.toHaveBeenCalled();
+    await renderDetail({ ...manager, id: admin.id, role: 'ADMIN' });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+  });
+
+  it('prevents duplicate pending deactivations and restores focus', async () => {
+    let finish!: (value: ManagedUser) => void;
+    people.deactivateUser.mockImplementation(() => new Promise<ManagedUser>((resolve) => { finish = resolve; }));
+    await renderDetail({ ...manager, version: 3 });
+    await act(async () => button('Devre dışı bırak')!.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.destructive-button')!.click());
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(dialog.querySelector<HTMLButtonElement>('.destructive-button')!.disabled).toBe(true);
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.destructive-button')!.click());
+    expect(people.deactivateUser).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ ...manager, isActive: false, version: 4 }));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => { await Promise.resolve(); });
+    expect(document.activeElement).toBe(container.querySelector('#detail-name'));
+  });
+
+  it('reactivates an inactive Manager and surfaces backend errors', async () => {
+    people.activateUser.mockRejectedValueOnce(new Error('Sürüm çakışması'));
+    await renderDetail({ ...inactiveManager, version: 4 });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    expect(people.activateUser).toHaveBeenCalledWith('manager-2', 4);
+    expect(container.textContent).toContain('Sürüm çakışması');
+    people.activateUser.mockResolvedValueOnce({ ...inactiveManager, isActive: true, version: 5 });
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    expect(container.textContent).toContain('Kullanıcı yeniden etkinleştirildi.');
+  });
+
+  it('shows a notice and no reactivate command for an inactive Staff user', async () => {
+    await renderDetail(inactiveStaff);
+    expect(container.querySelector('.lifecycle-notice')?.textContent).toContain('yeniden etkinleştirilemez');
+    expect(button('Yeniden etkinleştir')).toBeUndefined();
+    expect(button('Devre dışı bırak')).toBeUndefined();
+  });
+
+  it('offers no activation commands to non-Admin viewers', async () => {
+    await renderDetail(manager, { id: 'm-viewer', organizationId: 'org-1', role: 'MANAGER' });
+    expect(button('Devre dışı bırak')).toBeUndefined();
+    await renderDetail(inactiveManager, { id: 'm-viewer', organizationId: 'org-1', role: 'MANAGER' });
+    expect(button('Yeniden etkinleştir')).toBeUndefined();
+  });
+
+  it('uses six-row pagination and resets to page one when the status filter changes', async () => {
+    const manyActive = Array.from({ length: 8 }, (_, index) => ({
+      ...user, id: `active-${index}`, name: `Aktif ${index}`,
+    }));
+    await act(async () => root.render(<MemoryRouter><UserListView users={[...manyActive, inactiveManager]} onCreate={() => {}} onOpen={() => {}} /></MemoryRouter>));
+    expect(names()).toHaveLength(6);
+    expect(container.textContent).toContain('Sayfa 1 / 2');
+    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"]')!.click());
+    expect(names()).toHaveLength(2);
+    expect(container.textContent).toContain('Sayfa 2 / 2');
+    await act(async () => tab('Pasif').click());
+    expect(names()).toEqual(['Pasif Yönetici']);
+    expect(container.querySelector('.servora-list-pagination')).toBeNull();
+    await act(async () => tab('Aktif').click());
+    expect(names()).toHaveLength(6);
+    expect(names()[0]).toBe('Aktif 0');
+  });
+
+  it('locks repeated reactivation clicks until the first request completes', async () => {
+    let complete!: (value: ManagedUser) => void;
+    people.activateUser.mockImplementation(() => new Promise<ManagedUser>((resolve) => { complete = resolve; }));
+    await renderDetail({ ...inactiveManager, version: 4 });
+    await act(async () => button('Yeniden etkinleştir')!.click());
+    const pending = button('Yeniden etkinleştir')!;
+    expect(pending.disabled).toBe(true);
+    expect(pending.getAttribute('aria-busy')).toBe('true');
+    await act(async () => pending.click());
+    expect(people.activateUser).toHaveBeenCalledTimes(1);
+    await act(async () => complete({ ...inactiveManager, isActive: true, version: 5 }));
+    expect(button('Devre dışı bırak')).toBeDefined();
+  });
+
 });

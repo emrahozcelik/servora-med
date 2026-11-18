@@ -55,6 +55,12 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - name: Persistent bootstrap fence contracts
         run: node --test ../ops/tests/bootstrap-fence.test.mjs ../ops/tests/bootstrap-fence-reader.test.mjs ../ops/tests/bootstrap-fence-coverage.test.mjs
+      # Fake Docker fixture only (no daemon); exercises the single-run lock
+      # with the runner's own mkdir, whose implementation is logged first.
+      - name: Local CI lock and resource lifecycle contracts
+        run: |
+          mkdir --version | head -n 1
+          node --test ../ops/tests/ci-resource-lifecycle.test.mjs
       - name: Persistent bootstrap fence isolated Linux acceptance
         run: |
           docker run --rm --network none \
@@ -275,7 +281,8 @@ jobs:
       - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs ../ops/recovery-tools/profile-reseal.test.mjs ../ops/recovery-tools/profile-reseal-failures.test.mjs ../ops/recovery-tools/profile-reseal-cli.test.mjs ../ops/recovery-tools/profile-reseal-lock.test.mjs ../ops/recovery-tools/packaging-exclusion.test.mjs ../ops/recovery-tools/profile-reseal-wrapper.test.mjs ../ops/recovery-tools/profile-reseal-e2e.test.mjs
       - name: forward-only contract and adapter regressions
         run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
-      - run: npm audit --audit-level=high
+      - name: Security audit (production strict; temporary picomatch dev exception)
+        run: node ../web/scripts/audit-high-policy.mjs --workspace server
 
   web:
     # Playwright 1.55.1 has browser/dependency builds for Ubuntu 24.04.
@@ -299,12 +306,37 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
+      - name: Overdue six-row pagination visual acceptance
+        run: node scripts/overdue-pagination-smoke.mjs
+        env:
+          OVERDUE_CAPTURE_DIR: ${{ runner.temp }}/servora-overdue-ui
+      - name: Upload overdue visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overdue-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/servora-overdue-ui/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: People lifecycle rendered UI acceptance
+        run: node scripts/people-lifecycle-ui-smoke.mjs
+        env:
+          PEOPLE_CAPTURE_DIR: ${{ runner.temp }}/servora-people-ui
+      - name: Upload people lifecycle UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-people-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-people-ui/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Reports overview and staff browser acceptance
         run: node scripts/reports-ui-smoke.mjs
         env:
           REPORTS_CAPTURE_DIR: ${{ runner.temp }}/servora-reports-ui
       - run: node scripts/follow-up-dialog-geometry.mjs
-      - run: npm run audit:high
+      - name: Security audit (production strict; temporary picomatch dev exception)
+        run: npm run audit:high
 
   release-package:
     name: release-package

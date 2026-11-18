@@ -238,6 +238,23 @@ describe('PeopleService policy', () => {
     expect(repository.audits).toEqual([]);
   });
 
+  it('rejects reactivating an offboarded Staff user without state change or audit', async () => {
+    const { repository, service: people } = service();
+    repository.users.find((item) => item.id === 'staff-1')!.isActive = false;
+    await expect(people.activate(admin, 'staff-1', 1))
+      .rejects.toMatchObject({ code: 'OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN', statusCode: 409 });
+    expect(repository.users.find((item) => item.id === 'staff-1')).toMatchObject({ isActive: false, version: 1 });
+    expect(repository.audits).toEqual([]);
+  });
+
+  it('still reactivates an inactive Manager and keeps activation of an active Staff idempotent', async () => {
+    const { repository, service: people } = service();
+    repository.users.find((item) => item.id === 'manager-1')!.isActive = false;
+    await expect(people.activate(admin, 'manager-1', 1)).resolves.toMatchObject({ isActive: true, version: 2 });
+    expect(repository.audits).toEqual([expect.objectContaining({ eventType: 'USER_ACTIVATED' })]);
+    await expect(people.activate(admin, 'staff-1', 1)).resolves.toMatchObject({ isActive: true, version: 1 });
+  });
+
   it('rolls back non-Staff state and sessions when audit fails', async () => {
     const { repository, service: people } = service(); repository.failAudit = true;
     await expect(people.deactivate(admin, 'manager-1', 1)).rejects.toThrow('audit failed');
