@@ -1533,10 +1533,12 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         service.detail(manager, firstApproved.followUpJobCardId),
         service.detail(manager, secondApproved.followUpJobCardId),
       ]);
+      // Approval completion order is nondeterministic. Assert the same two
+      // non-overlapping slots regardless of the order Promise.all settles.
       expect(children.map((child) => child.scheduledAt).sort()).toEqual([
         targetFor(firstParentAt),
         targetFor(secondParentAt),
-      ]);
+      ].sort());
     });
   });
 
