@@ -46,6 +46,7 @@ let CLOCK: Date = BASELINE;
 let PARENT_SCHEDULED_AT = '2026-08-01T10:00:00.000Z';
 let MEETING_AT = '2026-08-01T09:30:00.000Z';
 let PROPOSAL_AT = '2026-08-08T10:00:00.000Z';
+let SUGGESTION_AT = '2026-08-08T10:00:00.000Z';
 let PROPOSAL_ENDS_AT = '2026-08-08T11:00:00.000Z';
 let EARLY_EXPLICIT_AT = '2026-08-03T10:00:00.000Z';
 let EXPLICIT_LATER_AT = '2026-08-10T10:00:00.000Z';
@@ -85,6 +86,21 @@ function systemSlotFor(parentScheduledAtIso: string, intervalDays = 7): string {
 }
 
 const targetFor = (parentScheduledAtIso: string) => systemSlotFor(parentScheduledAtIso);
+
+/**
+ * Raw +7-day policy target that getFollowUpSuggestion returns as a human form
+ * prefill. JOB-008's 08:00-19:00 window applies only to automatic SYSTEM slot
+ * selection, so this differs from systemSlotFor whenever the parent slot falls
+ * outside the window in organization-local time.
+ */
+function suggestionTargetFor(parentScheduledAtIso: string): string {
+  return suggestedFollowUpInstant({
+    evaluatedAt: BASELINE,
+    sourceScheduledAt: new Date(parentScheduledAtIso),
+    timezone: 'Europe/Istanbul',
+    durationMs: canonicalScheduledDurationMs('SALES_MEETING'),
+  }).toISOString();
+}
 
 /**
  * Same wall-clock slot on the first non-Sunday day after `iso`. Europe/Istanbul
@@ -239,6 +255,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     PARENT_SCHEDULED_AT = atBase(-HOUR_MS);
     MEETING_AT = atBase(-HOUR_MS - 30 * MINUTE_MS);
     PROPOSAL_AT = systemSlotFor(PARENT_SCHEDULED_AT);
+    SUGGESTION_AT = suggestionTargetFor(PARENT_SCHEDULED_AT);
     const proposalEndsAt = canonicalScheduledEnd('SALES_MEETING', PROPOSAL_AT);
     if (proposalEndsAt === null) {
       throw new Error('SALES_MEETING canonical duration is required for follow-up fixtures');
@@ -573,7 +590,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
       const suggestion = await service.getFollowUpSuggestion(manager, job.id);
       expect(suggestion).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
       });
@@ -756,7 +773,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       const suggestion = await service.getFollowUpSuggestion(staffA, job.id);
       expect(suggestion).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
         followUpInstructions: 'Takip: Kontrol görüşmesi',
@@ -776,7 +793,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       expect(submitted.status).toBe('WAITING_APPROVAL');
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
         origin: 'STAFF_ADJUSTED',
@@ -1464,37 +1481,37 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at, started_at, cancelled_at, cancelled_by, cancel_reason)
          VALUES ($1, 'PRODUCT_DELIVERY', 'CANCELLED', 'İptal teslim', $2, $3, $4, $5, NOW(), NOW(), $4, 'İptal')`,
-        [organizationId, customerId, staffB.id, manager.id, PROPOSAL_AT],
+        [organizationId, customerId, staffB.id, manager.id, SUGGESTION_AT],
       );
       // A GENERAL_TASK for the same Customer on the base day does not block (CSI-4).
       await pool.query(
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at)
          VALUES ($1, 'GENERAL_TASK', 'NEW', 'Uzaktan görev', $2, $3, $4, $5)`,
-        [organizationId, customerId, staffB.id, manager.id, PROPOSAL_AT],
+        [organizationId, customerId, staffB.id, manager.id, SUGGESTION_AT],
       );
       let suggestion = await service.getFollowUpSuggestion(staffA, job.id);
-      expect(suggestion.scheduledAt).toBe(PROPOSAL_AT);
+      expect(suggestion.scheduledAt).toBe(SUGGESTION_AT);
 
       // Another Staff member's ON_SITE job on the base day forces a skip (CSI-1/2/8/9).
       await pool.query(
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at)
          VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'Başka personelin teslimi', $2, $3, $4, $5)`,
-        [organizationId, customerId, staffB.id, manager.id, baselineIso(new Date(PROPOSAL_AT), -HOUR_MS)],
+        [organizationId, customerId, staffB.id, manager.id, baselineIso(new Date(SUGGESTION_AT), -HOUR_MS)],
       );
       suggestion = await service.getFollowUpSuggestion(staffA, job.id);
       // The base day is occupied by another Staff's ON_SITE job: the
       // suggestion advances one calendar day at a time, skipping the
       // organization-local Sunday, preserving the wall-clock slot.
-      expect(suggestion.scheduledAt).toBe(PROPOSAL_AT);
+      expect(suggestion.scheduledAt).toBe(SUGGESTION_AT);
       expect(suggestion.evaluation.safeMessage).toBeNull();
       // Staff projection leaks no conflict details (CSI-7).
       expect(suggestion.evaluation.conflicts).toEqual([]);
       expect(suggestion.evaluation.recentVisit).toBeNull();
 
       // Manager receives rich conflict details (CSI-6).
-      const evaluation = await service.getFollowUpSuggestion(manager, job.id, PROPOSAL_AT);
+      const evaluation = await service.getFollowUpSuggestion(manager, job.id, SUGGESTION_AT);
       expect(evaluation.evaluation.level).toBe('CLEAR');
       expect(evaluation.evaluation.conflicts).toEqual([]);
       expect(evaluation.evaluation.suggestedAlternativeAt).toBeNull();
