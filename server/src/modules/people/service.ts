@@ -259,6 +259,9 @@ export class PeopleService {
       const target = await this.requireUser(tx, actor, userId);
       if (target.version !== expectedVersion) throw userVersionConflict();
       if (target.isActive === active) return safe(target);
+      if (active && target.role === 'STAFF') {
+        throw new AppError('OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN', 409, 'Ayrılan personel yeniden etkinleştirilemez.');
+      }
       if (!active) {
         if (target.role === 'STAFF') {
           throw new AppError('OFFBOARDING_REQUIRED', 409, 'Personel pasifleştirme işlemi offboarding akışıyla yapılmalıdır.');

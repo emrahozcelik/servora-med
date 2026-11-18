@@ -312,6 +312,18 @@ jobs:
           path: ${{ runner.temp }}/servora-overdue-ui/
           if-no-files-found: warn
           retention-days: 14
+      - name: People lifecycle rendered UI acceptance
+        run: node scripts/people-lifecycle-ui-smoke.mjs
+        env:
+          PEOPLE_CAPTURE_DIR: ${{ runner.temp }}/servora-people-ui
+      - name: Upload people lifecycle UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-people-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-people-ui/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Reports overview and staff browser acceptance
         run: node scripts/reports-ui-smoke.mjs
         env:

@@ -2599,6 +2599,27 @@ local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
 unchanged. Owning runbook:
 [docs/operations/production-deployment.md](docs/operations/production-deployment.md).
 
+## U3-A — Offboarded Staff cannot be reactivated
+
+Status: accepted by the owner on 2026-11-17 ("Ayrılan personel yeniden
+etkinleştirilemez"). Extends the U3 User/Staff lifecycle record; earlier
+records are not rewritten.
+
+- An inactive `STAFF` user is by construction an offboarded one: generic
+  deactivation of Staff is already rejected with `OFFBOARDING_REQUIRED`, so the
+  only path to an inactive Staff user is the offboarding flow.
+- `activate` on an inactive `STAFF` user is rejected with
+  `409 OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN`. No state change and no audit
+  event occur. Activating an already-active user stays an idempotent no-op.
+- Activation and deactivation of `ADMIN` and `MANAGER` users are unchanged.
+- No schema change and no migration: the rule is derived from `role` and
+  `is_active`. Offboarding behavior is unchanged.
+- User email uniqueness is unchanged, so a returning person's old email stays
+  bound to the historical account; the historical account is not reused.
+- UI: the Admin user detail offers deactivate/reactivate only for non-Staff
+  users and shows a notice instead of a reactivate command for inactive Staff.
+  The user list and the Admin staff directory filter Aktif / Pasif / Tümü.
+  The backend remains the authority.
 
 ## SEC-2026-11-18 — Expiring dev-only picomatch GHSA exception
 
