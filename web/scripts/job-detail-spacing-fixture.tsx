@@ -78,14 +78,16 @@ function LateCardCase() {
           <div className="overview-card-stack" id="late-stack">
             <OperationalCard
               title={<a href="/jobs/fixture-late-1">{LONG_TITLE}</a>}
-              tone="attention"
+              tone="overdue"
+              statusLabel="Gönderim gecikti"
               className="submission-late-card"
             >
               <span>{`Denetim Personeli · ${LONG_CUSTOMER} · 1 gün 2 saat gecikti`}</span>
             </OperationalCard>
             <OperationalCard
               title={<a href="/jobs/fixture-late-2">Kısa başlık</a>}
-              tone="attention"
+              tone="overdue"
+              statusLabel="Gönderim gecikti"
               className="submission-late-card"
             >
               <span>Denetim Personeli · Müşteri belirtilmedi · 3 saat gecikti</span>

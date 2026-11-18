@@ -323,7 +323,7 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
 
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
-    setState({ kind: 'loading' });
+    setState((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     try {
       const page = await load({ limit: DEFAULT_LIST_PAGE_SIZE, offset });
       if (id !== requestId.current) return;
@@ -372,20 +372,22 @@ export function OpenSubmissionLateSection({ load = listOpenSubmissionLate }: {
   return (
     <section className="overview-section" aria-labelledby="submission-late-title" data-open-submission-late="true">
       <h2 id="submission-late-title">Onaya göndermesi geciken işler</h2>
-      <div className="overview-card-stack">
+      <ul className="overview-card-stack">
         {state.items.map((item) => (
-          <OperationalCard
-            key={`${item.jobCardId}:${item.episodeNo}`}
-            title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
-            tone="attention"
-            className="submission-late-card"
-          >
-            <span>
-              {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
-            </span>
-          </OperationalCard>
+          <li key={`${item.jobCardId}:${item.episodeNo}`}>
+            <OperationalCard
+              title={<Link to={item.jobPath}>{item.jobTitle}</Link>}
+              tone="overdue"
+              statusLabel="Gönderim gecikti"
+              className="submission-late-card"
+            >
+              <span>
+                {item.staff.name} · {item.customer?.name ?? 'Müşteri belirtilmedi'} · {formatDurationSeconds(item.elapsedSeconds)} gecikti
+              </span>
+            </OperationalCard>
+          </li>
         ))}
-      </div>
+      </ul>
       <ServoraListPagination
         total={state.total}
         offset={offset}

@@ -1627,7 +1627,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-filter-checkbox input {
   min-height: 0;
 }
-.job-filter-checkbox .ant-checkbox-wrapper {
+.job-filter-checkbox .servora-ant-checkbox-wrapper {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -3686,6 +3686,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .report-customer-work-types { width: 100%; }
 }
 
+.overview-workspace {
+  container-type: inline-size;
+}
 .overview-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3694,15 +3697,19 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .overview-main-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 1.5rem;
 }
+.overview-main-column {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 1.5rem;
+}
+/* Sections are headings/grouping only; the contained record card owns its surface. */
 .overview-section {
   min-width: 0;
-  padding: 1.15rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-raised);
-  background: var(--paper);
+  padding: 0;
 }
 .overview-section h2,
 .content-list h2,
@@ -3715,6 +3722,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   display: grid;
   gap: 0.65rem;
   grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .overview-card-stack > * {
@@ -3722,10 +3732,39 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .overview-section a,
 .settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
-.overview-section li span,
-.overview-section li p,
+.overview-section .servora-operational-card__body > span,
+.overview-section .servora-operational-card__body > p,
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .overview-trend { margin-block: 1rem; }
+.overview-distribution-list {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overview-distribution-label {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+}
+.overview-distribution-label strong { color: var(--ink); overflow-wrap: anywhere; }
+.overview-distribution-label span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.overview-distribution-track {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: var(--radius-chip);
+  background: var(--canvas);
+}
+.overview-distribution-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
 
 .content-list { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 .content-list > article { min-width: 0; }
@@ -3900,7 +3939,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .data-management-card-actions .inline-action { margin-top: 0; }
 .data-management-empty { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; overflow-wrap: anywhere; }
 .data-management-infrastructure { margin-top: 1rem; }
-.data-management-infrastructure .servora-operational-card { border-inline-start: 3px solid var(--info); }
 .demo-data-layout { display: grid; grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.6fr); gap: 1rem; align-items: start; }
 .demo-data-layout > *, .demo-data-preview-stack > *, .demo-data-detail-region { min-width: 0; }
 .demo-data-preview-stack, .demo-data-detail-region { display: grid; gap: 1rem; }
@@ -4024,6 +4062,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .backup-fact-list--wide { max-width: 48rem; }
 
 @media (max-width: 64rem) {
+  .overview-main-grid { grid-template-columns: 1fr; }
   .backup-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .backup-history-row { grid-template-columns: minmax(10rem, 1fr) minmax(7rem, 0.8fr) minmax(12rem, 1.2fr); }
 }
@@ -4050,6 +4089,29 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .backup-history-secondary strong { margin-top: 0; }
   .backup-detail-heading { align-items: stretch; flex-direction: column; }
   .backup-detail-heading .ghost-button { align-self: start; }
+}
+
+/* Only the narrowest phones (320px class) stack KPIs; 360/390px keep two columns.
+   Container queries also reflow KPIs and columns when root font-size scales to 200%. */
+@media (max-width: 22rem) {
+  .overview-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (max-width: 48rem) {
+  .overview-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (max-width: 21rem) {
+  .overview-kpis {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4335,8 +4397,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 
 /* ── OperationalCard adapter styles ── */
+/* Tone selectors use two classes so they beat Ant's bordered-card rule by
+   specificity alone, independent of runtime style-injection order. */
 
 .servora-operational-card {
+  container-type: inline-size;
   border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
 }
@@ -4356,29 +4421,101 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-wrap: anywhere;
 }
 
-.servora-operational-card .ant-card-head {
+.servora-operational-card .servora-ant-card-head {
   border-bottom: none;
   min-height: auto;
   padding: 0.5rem 0.75rem;
 }
 
-.servora-operational-card .ant-card-body {
+.servora-operational-card .servora-ant-card-body {
   padding: 0.75rem;
 }
 
-.servora-operational-card .ant-card-actions {
+.servora-operational-card .servora-ant-card-actions {
   border-top: 1px solid var(--rule);
   padding: 0.5rem 0.75rem;
 }
 
-.servora-operational-card .ant-card-actions > li {
+.servora-operational-card .servora-ant-card-actions > li {
   margin: 0;
 }
 
-.servora-operational-card--selected {
+.servora-operational-card.servora-operational-card--new { border-color: var(--accent); }
+.servora-operational-card.servora-operational-card--upcoming { border-color: var(--info); }
+.servora-operational-card.servora-operational-card--attention { border-color: var(--warning); }
+.servora-operational-card.servora-operational-card--overdue { border-color: var(--warning); }
+.servora-operational-card.servora-operational-card--success { border-color: var(--success); }
+.servora-operational-card.servora-operational-card--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--info-soft);
 }
+.servora-operational-card__body-status {
+  margin-bottom: 0.4rem;
+}
+.servora-operational-card__status-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 100%;
+}
+/* At compact widths a semantic status chip must not compress the title.
+   Give the title its own line and keep the extra/status in normal flow,
+   including inside multi-column grids and at 200% text scaling. */
+@media (max-width: 40rem) {
+  .servora-operational-card .servora-ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+  }
+  .servora-operational-card .servora-operational-card__title {
+    flex: none;
+    width: 100%;
+  }
+  .servora-operational-card .servora-operational-card__extra {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  .servora-operational-card__status-group {
+    justify-content: flex-start;
+  }
+}
+@container (max-width: 22rem) {
+  .servora-operational-card .servora-ant-card-head-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+  }
+  .servora-operational-card .servora-operational-card__title {
+    flex: none;
+    width: 100%;
+  }
+  .servora-operational-card .servora-operational-card__extra {
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  .servora-operational-card__status-group {
+    justify-content: flex-start;
+  }
+}
+.servora-tone-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-chip);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.servora-tone-chip.servora-tone-chip--new,
+.servora-tone-chip.servora-tone-chip--selected { color: var(--accent); background: var(--accent-soft); }
+.servora-tone-chip.servora-tone-chip--upcoming { color: var(--info); background: var(--info-soft); }
+.servora-tone-chip.servora-tone-chip--attention,
+.servora-tone-chip.servora-tone-chip--overdue { color: var(--warning); background: var(--warning-soft); }
+.servora-tone-chip.servora-tone-chip--success { color: var(--success); background: var(--success-soft); }
 
 /* Calendar event card inside agenda */
 .calendar-event-card {
@@ -4765,105 +4902,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .calendar-form-times > * {
     width: 100%;
   }
-}
-/* ── Form (inside drawer) ── */
-
-.calendar-form {
-  display: grid;
-  gap: 1rem;
-}
-
-.calendar-form-times > * {
-  flex: 1 1 14rem;
-}
-
-.calendar-help {
-  margin: 0;
-}
-
-/* ── Form drawer ── */
-
-.form-drawer-root {
-  display: contents;
-}
-
-.form-drawer-backdrop {
-  background: oklch(0% 0 0deg / 0.35);
-  border: none;
-  inset: 0;
-  min-height: 0;
-  position: fixed;
-  width: 100%;
-  z-index: 100;
-}
-
-.form-drawer {
-  background: var(--paper);
-  bottom: 0;
-  box-shadow: var(--shadow-raised);
-  display: grid;
-  gap: 1rem;
-  grid-template-rows: auto 1fr;
-  max-height: 100dvh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 1rem;
-  position: fixed;
-  right: 0;
-  top: 0;
-  width: min(30rem, 90vw);
-  z-index: 101;
-}
-
-.form-drawer-header {
-  align-items: center;
-  border-bottom: 1px solid var(--rule);
-  display: flex;
-  justify-content: space-between;
-  min-width: 0;
-  gap: 0.75rem;
-  padding-bottom: 0.75rem;
-}
-
-.form-drawer-header h2 {
-  font-size: 1.15rem;
-  font-weight: 700;
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.form-drawer-header .compact-button {
-  min-width: var(--control-height);
-}
-
-.form-drawer-body {
-  min-height: 0;
-}
-
-/* Mobile: near-full-width drawer */
-@media (max-width: 40rem) {
-  .form-drawer {
-    width: min(100vw, 30rem);
-    max-height: 90dvh;
-    border-radius: 0.75rem 0.75rem 0 0;
-    bottom: 0;
-    top: auto;
-  }
-
-  .calendar-form-times > * {
-    width: 100%;
-  }
-}
-
-/* Agenda compact */
-@media (max-width: 40rem) {
-  .calendar-toolbar > *,
-  .calendar-toolbar label,
-  .calendar-event-actions > *,
-  .calendar-form-times > * {
-    width: 100%;
-  }
 
   .calendar-event {
     grid-template-columns: minmax(0, 1fr);
@@ -4873,38 +4911,71 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 /* ── Workspace adapters ── */
 
 .servora-metric-statistic {
+  position: relative;
   background: var(--paper);
+  border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
   padding: 1rem;
 }
-.servora-metric-statistic .ant-statistic-title {
+.servora-metric-statistic .servora-ant-statistic-title,
+.servora-metric-statistic .servora-ant-statistic-header .servora-ant-statistic-title {
   color: var(--muted);
   font-size: 0.8125rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
-.servora-metric-statistic .ant-statistic-content {
+.servora-metric-statistic .servora-ant-statistic-title h3 {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.servora-metric-statistic .servora-ant-statistic-content {
   color: var(--ink);
   font-weight: 720;
+}
+.servora-metric-statistic .servora-ant-statistic-content a {
+  display: inline-flex;
+  align-items: center;
+  min-inline-size: 1.5rem;
+  min-block-size: 1.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+.servora-metric-statistic .servora-ant-statistic-content a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 .servora-metric-statistic--attention {
   /* Full outline follows the card radius; a left-only stripe on a rounded,
      borderless card renders as a detached curved fragment (UX audit VIS-02). */
   border: 1px solid var(--warning);
 }
-.servora-metric-statistic--attention .ant-statistic-content {
+.servora-metric-statistic--attention .servora-ant-statistic-content {
   color: var(--warning);
 }
 .servora-metric-statistic--success {
   border: 1px solid var(--success);
 }
-.servora-metric-statistic--success .ant-statistic-content {
+.servora-metric-statistic--success .servora-ant-statistic-content {
   color: var(--success);
 }
 .servora-metric-statistic--warning {
   border: 1px solid var(--warning);
 }
-.servora-metric-statistic--warning .ant-statistic-content {
+.servora-metric-statistic--warning .servora-ant-statistic-content {
   color: var(--warning);
+}
+.servora-metric-statistic__status {
+  margin: 0.55rem 0 0;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .servora-user-avatar {

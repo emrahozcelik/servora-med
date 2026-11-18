@@ -103,7 +103,7 @@ try {
       // The app uses fixed px sizes for record text; html font-size alone
       // does not enlarge those records. Apply a measured 2x text-only probe.
       const selectors = kind === 'open'
-        ? ['.submission-late-card .servora-operational-card__title a', '.submission-late-card span']
+        ? ['.submission-late-card .servora-operational-card__title a', '.submission-late-card .servora-operational-card__body > span']
         : ['[data-overdue-history-item] strong', '[data-overdue-history-item] span'];
       const baseline = await page.evaluate((paths) => paths.map(selector => {
         const element = document.querySelector(selector);

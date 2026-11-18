@@ -179,11 +179,19 @@ function OverviewSection({
   return (
     <div className="backup-section-stack">
       <div className="backup-overview-grid">
-        <OperationalCard tone={health?.status === 'ok' && overview.lastVerifiedBackup ? 'success' : 'attention'} title="Yedekleme sağlığı">
+        <OperationalCard
+          tone={health?.status === 'ok' && overview.lastVerifiedBackup ? 'success' : 'attention'}
+          statusLabel={health?.status === 'ok' && overview.lastVerifiedBackup ? 'Olumlu' : 'İnceleme gerekli'}
+          title="Yedekleme sağlığı"
+        >
           <strong className="backup-card-value">{healthLabel}</strong>
           <p className="backup-muted-copy">{healthDescription}</p>
         </OperationalCard>
-        <OperationalCard tone={overview.lastVerifiedBackup ? 'success' : 'default'} title="Son doğrulanmış yedek">
+        <OperationalCard
+          tone={overview.lastVerifiedBackup ? 'success' : 'default'}
+          statusLabel={overview.lastVerifiedBackup ? 'Doğrulandı' : undefined}
+          title="Son doğrulanmış yedek"
+        >
           {overview.lastVerifiedBackup ? (
             <>
               <dl className="backup-fact-list">
@@ -203,7 +211,17 @@ function OverviewSection({
             </dl>
           ) : <p className="backup-muted-copy">{policy.enabled ? 'Sonraki zamanlanmış çalışma şu anda hesaplanamıyor.' : 'Zamanlanmış yedeklemeler kapalı.'}</p>}
         </OperationalCard>
-        <OperationalCard tone={storageUnavailable ? 'attention' : storage.enabled && storage.lastConnectionTestOk === true ? 'success' : 'default'} title="Depolama bağlantısı">
+        <OperationalCard
+          tone={storageUnavailable ? 'attention' : storage.enabled && storage.lastConnectionTestOk === true ? 'success' : 'default'}
+          statusLabel={
+            storageUnavailable
+              ? 'İnceleme gerekli'
+              : storage.enabled && storage.lastConnectionTestOk === true
+                ? 'Hazır'
+                : undefined
+          }
+          title="Depolama bağlantısı"
+        >
           <strong className="backup-card-value">{storageUnavailable ? 'Durum alınamadı' : storageStateLabel(storage)}</strong>
           <p className="backup-muted-copy">{storageUnavailable ? 'Depolama durumu sunucudan okunamadı.' : storage.bucketAlias || 'Cloudflare R2 yönetici yapılandırması'}</p>
         </OperationalCard>
