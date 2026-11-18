@@ -1,9 +1,10 @@
 import { Select } from 'antd';
 import type { SelectProps } from 'antd';
+import type { ComponentRef, Ref } from 'react';
 
 import { getServoraPopupContainer } from './ServoraAntProvider';
 
-export type ServoraSelectProps = SelectProps;
+export type ServoraSelectProps = SelectProps & { ref?: Ref<ComponentRef<typeof Select>> };
 
 /**
  * Owned antd Select adapter. Feature code must not import 'antd' directly

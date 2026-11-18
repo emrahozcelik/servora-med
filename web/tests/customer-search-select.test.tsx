@@ -354,6 +354,33 @@ describe('CustomerSearchSelect shared remote selector', () => {
     expect(document.body.textContent ?? '').not.toContain('KOPYA');
   });
 
+  it('returns focus to the search input when the focused load-more button is removed', async () => {
+    const first = Array.from({ length: 20 }, (_, index) => makeSummary(index + 1));
+    let resolveNextPage!: (result: ReturnType<typeof page>) => void;
+    const nextPage = new Promise<ReturnType<typeof page>>((resolve) => { resolveNextPage = resolve; });
+    crm.listCustomers.mockImplementation(({ offset }: { offset: number }) =>
+      offset === 0 ? Promise.resolve(page(first, 21)) : nextPage,
+    );
+    await renderSelector();
+    await open();
+    const input = host.querySelector('#customer-search');
+    const loadMore = document.querySelector<HTMLButtonElement>('.customer-search-more button');
+    expect(input).not.toBeNull();
+    expect(loadMore).not.toBeNull();
+
+    await act(async () => {
+      loadMore!.focus();
+      expect(document.activeElement).toBe(loadMore);
+      loadMore!.click();
+    });
+    expect(document.body.textContent).toContain('Daha fazla müşteri yükleniyor…');
+    expect(document.activeElement).toBe(input);
+
+    await act(async () => { resolveNextPage(page([makeSummary(21)], 21, 20)); });
+    expect(document.body.textContent).not.toContain('Daha fazla müşteri yükleniyor…');
+    expect(document.activeElement).toBe(input);
+  });
+
   it('resolves an initial customer through direct lookup without a catalog fetch', async () => {
     const summary = makeSummary(5, { name: 'Kayıtlı Müşteri' });
     crm.getCustomer.mockResolvedValue(summary);

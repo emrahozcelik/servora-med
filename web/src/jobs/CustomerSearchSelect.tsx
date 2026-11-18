@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type UIEvent } from 'react';
+import { useEffect, useRef, useState, type ComponentRef, type MouseEvent as ReactMouseEvent, type ReactNode, type UIEvent } from 'react';
 
 import { ApiError } from '../services/api';
 import { getCustomer, listCustomers, type CustomerSummary } from '../services/crm-api';
@@ -89,6 +89,7 @@ export function CustomerSearchSelect({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [initialState, setInitialState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [resolveAttempt, setResolveAttempt] = useState(0);
+  const selectRef = useRef<ComponentRef<typeof ServoraSelect>>(null);
   const searchGate = useRef(createRequestGate());
   const resolveGate = useRef(createRequestGate());
   const loadedQueryRef = useRef<string | null>(null);
@@ -315,6 +316,7 @@ export function CustomerSearchSelect({
   return (
     <>
       <ServoraSelect
+        ref={selectRef}
         className="customer-search-select"
         id={id}
         showSearch
@@ -346,6 +348,10 @@ export function CustomerSearchSelect({
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      // Loading replaces the button. Return its focus before it unmounts.
+                      if (document.activeElement === event.currentTarget) {
+                        selectRef.current?.focus({ preventScroll: true });
+                      }
                       loadNextPage();
                     }}>
                     Daha fazla yükle ({total - results.length})

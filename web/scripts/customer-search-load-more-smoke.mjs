@@ -66,6 +66,7 @@ try {
       });
       const errors = [];
       const requests = [];
+      let pendingKeyboardPage = Promise.resolve();
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => {
         if (message.type() !== 'error') return;
@@ -81,6 +82,7 @@ try {
         const offset = Number(url.searchParams.get('offset'));
         const q = url.searchParams.get('q') ?? '';
         requests.push({ limit, offset, q });
+        if (offset === 20) await pendingKeyboardPage;
         const rows = pageItems(offset).filter(item => q === '' || item.name.includes(q));
         return route.fulfill({ json: { items: rows, total: allCustomers.length, limit, offset } });
       });
@@ -124,29 +126,68 @@ try {
       evidence.checks.push({ engine, width, mode: 'pointer', offsets: requests.map(item => item.offset), selected: 'customer-21' });
       requests.length = 0;
 
-      // Keyboard path: open → keyboard load-more → arrow to the 21st row → Enter.
-      await open('keyboard');
-      await loadMore.focus();
-      const keyboardPageTwo = page.waitForResponse(response => new URL(response.url()).pathname === '/api/customers'
-        && new URL(response.url()).searchParams.get('offset') === '20');
-      await page.keyboard.press('Enter');
-      await keyboardPageTwo;
-      await page.locator('#customer-search').focus();
-      // Move the active row with the keyboard until the page-two target is
-      // active (the first ArrowDown keeps the initial row). A realistic
-      // key-repeat interval keeps each native key event in its own task.
-      let activeRow = '';
-      for (let index = 0; index < 30; index += 1) {
-        activeRow = (await page.locator('.servora-ant-select-item-option-active').innerText()).split('\n')[0];
-        if (activeRow === 'Sentetik Klinik 21') break;
+      const focusTarget = () => page.evaluate(() => {
+        const active = document.activeElement;
+        return { tag: active?.tagName, id: active?.id, text: active instanceof HTMLButtonElement ? active.textContent.trim() : null };
+      });
+      const searchFocus = { tag: 'INPUT', id: 'customer-search', text: null };
+      const loading = page.getByText('Daha fazla müşteri yükleniyor…', { exact: true });
+      for (const mode of ['keyboard', 'focused-load-more']) {
+        await page.goto(`${origin}/?mode=${mode}`);
+        await page.getByRole('combobox', { name: 'Müşteri' }).waitFor();
+        await page.waitForFunction(() => !document.querySelector('.servora-ant-select-loading'));
+        await page.keyboard.press('Tab');
+        assert.deepEqual(await focusTarget(), searchFocus);
         await page.keyboard.press('ArrowDown');
-        await page.waitForTimeout(30);
+        await loadMore.waitFor();
+
+        // Exercise activation of an already focused popup button separately
+        // from the native combobox path. The tester never restores focus.
+        if (mode === 'focused-load-more') {
+          await loadMore.focus();
+          assert.equal((await focusTarget()).tag, 'BUTTON');
+        }
+        const before = await focusTarget();
+        let releasePage;
+        pendingKeyboardPage = new Promise(resolve => { releasePage = resolve; });
+        let during;
+        try {
+          if (mode === 'focused-load-more') {
+            await page.keyboard.press('Enter');
+          } else {
+            for (let index = 0; index < 25 && !requests.some(item => item.offset === 20); index += 1) {
+              await page.keyboard.press('ArrowDown');
+              await page.waitForTimeout(35);
+            }
+          }
+          await loading.waitFor();
+          during = await focusTarget();
+          assert.deepEqual(during, searchFocus, `${engine}/${width}/${mode}: focus while loading`);
+        } finally {
+          releasePage();
+        }
+        await loading.waitFor({ state: 'hidden' });
+        const after = await focusTarget();
+        assert.deepEqual(after, searchFocus, `${engine}/${width}/${mode}: focus after loading`);
+        assert.deepEqual(requests.map(item => item.offset), [0, 20]);
+
+        const activeOption = page.locator('.servora-ant-select-item-option-active');
+        let activeRow = '';
+        for (let index = 0; index < 45; index += 1) {
+          activeRow = (await activeOption.allInnerTexts())[0]?.split('\n')[0];
+          if (activeRow === 'Sentetik Klinik 21') break;
+          await page.keyboard.press('ArrowDown');
+          await page.waitForTimeout(35);
+        }
+        assert.equal(activeRow, 'Sentetik Klinik 21', `${engine}/${width}/${mode}: ArrowDown must reach page-two row`);
+        await page.keyboard.press('Enter');
+        await page.locator('[data-fixture-selected]').filter({ hasText: 'Seçili: customer-21 — Sentetik Klinik 21' }).waitFor();
+        const afterSelection = await focusTarget();
+        assert.deepEqual(afterSelection, searchFocus, `${engine}/${width}/${mode}: focus after selection`);
+        evidence.checks.push({ engine, width, mode, offsets: requests.map(item => item.offset), selected: 'customer-21',
+          focus: { before, during, after, afterSelection } });
+        requests.length = 0;
       }
-      assert.equal(activeRow, 'Sentetik Klinik 21', `${engine}/${width}: ArrowDown must reach page-two row`);
-      await page.keyboard.press('Enter');
-      await page.locator('[data-fixture-selected]').filter({ hasText: 'Seçili: customer-21 — Sentetik Klinik 21' }).waitFor();
-      evidence.checks.push({ engine, width, mode: 'keyboard', offsets: requests.map(item => item.offset), selected: 'customer-21' });
-      requests.length = 0;
 
       // Deduplicated paging: second page contains duplicate ids; the next page
       // must be requested at the deduplicated length (38) and total stays 45.
