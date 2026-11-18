@@ -17,6 +17,20 @@ export function canonicalScheduledEnd(type: JobCardType, scheduledAt: string): s
   return new Date(Date.parse(scheduledAt) + durationMs).toISOString();
 }
 
+/**
+ * JOB-007 calendar occupancy: SQL expression for the instant a `job_cards`
+ * row aliased `j` stops occupying its assignee's calendar. A job waiting for
+ * manager approval is released at the staff submission instant
+ * (`staff_completed_at`), never later than its planned end; every other status
+ * keeps the planned `scheduled_ends_at`. The planned interval itself is never
+ * rewritten, so lateness, reports and history keep reading it unchanged.
+ * Callers still require `j.scheduled_ends_at IS NOT NULL` (LEAST skips NULLs).
+ */
+export const JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL = `(CASE
+  WHEN j.status = 'WAITING_APPROVAL' AND j.staff_completed_at IS NOT NULL
+    THEN LEAST(j.scheduled_ends_at, j.staff_completed_at)
+  ELSE j.scheduled_ends_at END)`;
+
 export function persistedScheduledDurationMs(
   scheduledAt: string | null,
   scheduledEndsAt: string | null,

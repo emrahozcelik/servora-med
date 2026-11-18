@@ -2658,3 +2658,34 @@ GitHub CI security-audit acceptance gate, not production or deploy authority.
 
 Evidence, test matrices and implementation:
 [Security maintenance / approved exception](docs/evidence/security-dependency-audit-20261117/README.md).
+
+## JOB-007 — Staff submission releases the remaining calendar occupancy
+
+Status: accepted by the owner on 2026-11-18 ("önerilerine katılıyorum", "biz
+ilk işi yapalım"). Field feedback: Staff who finish a visit early (for example
+`CONTACT_NOT_AVAILABLE`) could not open or start work at another customer
+until the earlier job's planned end, unless a Manager had already approved it.
+Calendar availability therefore depended on how quickly a Manager approved.
+Extends JOB-006; earlier records are not rewritten.
+
+- A JobCard occupies its assignee's calendar over `[scheduled_at, occupied end)`.
+  For `WAITING_APPROVAL` the occupied end is
+  `LEAST(scheduled_ends_at, staff_completed_at)`; for every other active status
+  it stays `scheduled_ends_at`. Terminal statuses keep occupying nothing.
+  An empty occupied interval occupies nothing.
+- "Staff finished" (`SUBMIT_FOR_APPROVAL`) releases the assignee; "Manager
+  approved" (`APPROVE`) closes the work. Approval, revision, cancellation and
+  reporting rules are unchanged.
+- The planned interval is never rewritten. `scheduled_at`/`scheduled_ends_at`,
+  the 60/30-minute canonical durations, lateness measurement, reports, history
+  and the calendar display keep their current meaning.
+- One server-side SQL expression (`JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL`) is used
+  by every assignee occupancy reader: JobCard create/reschedule conflicts, the
+  available-slot search, manual calendar event conflicts, and offboarding
+  replacement checks. A job-backed conflict reports its occupied end.
+- `WITHDRAW_FROM_APPROVAL` and `REQUEST_REVISION` restore the full planned
+  interval. They do not re-check calendar conflicts, so an overlap with work
+  created after the submission is tolerated and never auto-resolved; the
+  planned interval has usually already passed by then.
+- Out of scope here: showing Staff the conflicting interval or earliest free
+  time, and a "move to now and start" shortcut for a planned visit.

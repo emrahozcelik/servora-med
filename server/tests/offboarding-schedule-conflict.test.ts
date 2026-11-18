@@ -433,6 +433,81 @@ describe.skipIf(!databaseUrl)('offboarding schedule conflict', () => {
     });
   });
 
+  it('JOB-007: replacement job submitted early no longer blocks the rest of its planned interval', async () => {
+    await withFixture(async ({ pool, organizationId, admin, target, replacement, customerId }) => {
+      const submitted = await insertJob(pool, {
+        organizationId,
+        assignedTo: replacement.id,
+        createdBy: admin.id,
+        status: 'WAITING_APPROVAL',
+        scheduledAt: new Date('2026-09-10T10:00:00.000Z'),
+        scheduledEndsAt: new Date('2026-09-10T11:00:00.000Z'),
+      });
+      await pool.query(
+        `UPDATE job_cards SET started_at = $2, staff_completed_at = $3 WHERE id = $1`,
+        [submitted, '2026-09-10T10:00:00.000Z', '2026-09-10T10:20:00.000Z'],
+      );
+      const jobToTransfer = await insertJob(pool, {
+        organizationId,
+        assignedTo: target.id,
+        createdBy: admin.id,
+        scheduledAt: new Date('2026-09-10T10:30:00.000Z'),
+        scheduledEndsAt: new Date('2026-09-10T11:30:00.000Z'),
+      });
+      const service = new PostgresStaffOffboardingService(pool);
+      const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+      const plan = await service.preview(adminUser, target.id);
+      const res = await service.execute(adminUser, target.id, {
+        clientActionId: randomUUID(),
+        planHash: plan.planHash,
+        reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+        jobDecisions: [{ jobCardId: jobToTransfer, replacementUserId: replacement.id }],
+        calendarDecisions: [],
+        followUpDecisions: [],
+        customerDecisions: [{ customerId, action: 'REASSIGN' as const, replacementUserId: replacement.id }],
+        reminderDecisions: [],
+      });
+      expect(res.status).toBe('OFFBOARDED');
+    });
+  });
+
+  it('JOB-007: replacement job submitted early still blocks the part that happened', async () => {
+    await withFixture(async ({ pool, organizationId, admin, target, replacement, customerId }) => {
+      const submitted = await insertJob(pool, {
+        organizationId,
+        assignedTo: replacement.id,
+        createdBy: admin.id,
+        status: 'WAITING_APPROVAL',
+        scheduledAt: new Date('2026-09-10T10:00:00.000Z'),
+        scheduledEndsAt: new Date('2026-09-10T11:00:00.000Z'),
+      });
+      await pool.query(
+        `UPDATE job_cards SET started_at = $2, staff_completed_at = $3 WHERE id = $1`,
+        [submitted, '2026-09-10T10:00:00.000Z', '2026-09-10T10:40:00.000Z'],
+      );
+      const jobToTransfer = await insertJob(pool, {
+        organizationId,
+        assignedTo: target.id,
+        createdBy: admin.id,
+        scheduledAt: new Date('2026-09-10T10:30:00.000Z'),
+        scheduledEndsAt: new Date('2026-09-10T11:30:00.000Z'),
+      });
+      const service = new PostgresStaffOffboardingService(pool);
+      const adminUser = { id: admin.id, organizationId, role: 'ADMIN' } as any;
+      const plan = await service.preview(adminUser, target.id);
+      await expect(service.execute(adminUser, target.id, {
+        clientActionId: randomUUID(),
+        planHash: plan.planHash,
+        reasonCode: 'OTHER_ADMINISTRATIVE' as const,
+        jobDecisions: [{ jobCardId: jobToTransfer, replacementUserId: replacement.id }],
+        calendarDecisions: [],
+        followUpDecisions: [],
+        customerDecisions: [{ customerId, action: 'REASSIGN' as const, replacementUserId: replacement.id }],
+        reminderDecisions: [],
+      })).rejects.toMatchObject({ code: 'CALENDAR_CONFLICT' });
+    });
+  });
+
   it('rejects multi-job batch internal overlap', async () => {
     await withFixture(async ({ pool, organizationId, admin, target, replacement, customerId }) => {
       const j1 = await insertJob(pool, {

@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import { JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from '../job-cards/job-card-duration.js';
 import { isTerminalJobStatus } from '../job-cards/policy.js';
 import { materializeLateStartIfBreached, overdueRevisionMissingError } from '../job-cards/overdue-breach-producer.js';
 import { PostgresJobCardTransaction } from '../job-cards/repository.js';
@@ -517,14 +518,23 @@ export class PostgresStaffOffboardingService {
       const replacementForJob = jobDecision.get(jobId);
       const previousJob = currentJobs.get(jobId);
       if (replacementForJob) {
-        const jobInterval = await client.query<{ scheduled_at: Date | null; scheduled_ends_at: Date | null }>(
-          `SELECT scheduled_at, scheduled_ends_at FROM job_cards WHERE organization_id = $1 AND id = $2`,
+        const jobInterval = await client.query<{
+          scheduled_at: Date | null; scheduled_ends_at: Date | null; occupied_ends_at: Date | null;
+        }>(
+          `SELECT j.scheduled_at, j.scheduled_ends_at,
+                  ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL} AS occupied_ends_at
+             FROM job_cards j WHERE j.organization_id = $1 AND j.id = $2`,
           [actor.organizationId, jobId],
         );
         const row = jobInterval.rows[0];
         const scheduledAt = row?.scheduled_at ? row.scheduled_at.toISOString() : null;
         const scheduledEndsAt = row?.scheduled_ends_at ? row.scheduled_ends_at.toISOString() : null;
-        await this.assertJobCardAssignmentAvailable(client, actor.organizationId, replacementForJob, jobId, scheduledAt, scheduledEndsAt);
+        // JOB-007: the replacement is checked against the transferred job's
+        // occupied interval; lateness below keeps the planned end.
+        const occupiedEndsAt = row?.scheduled_ends_at && row.occupied_ends_at
+          && row.scheduled_at && row.occupied_ends_at > row.scheduled_at
+          ? row.occupied_ends_at.toISOString() : null;
+        await this.assertJobCardAssignmentAvailable(client, actor.organizationId, replacementForJob, jobId, scheduledAt, occupiedEndsAt);
         if (previousJob?.status === 'ACCEPTED' && previousJob.assignedTo !== replacementForJob) {
           // Preserve an already-breached commitment against the old ownership
           // history before the current acceptance is cleared (JOB-006 / OVR-2).
@@ -743,7 +753,8 @@ export class PostgresStaffOffboardingService {
          WHERE j.organization_id = $1 AND j.assigned_to = $2
            AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
            AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-           AND j.scheduled_at < $5 AND $4 < j.scheduled_ends_at
+           AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
+           AND j.scheduled_at < $5 AND $4 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
         LIMIT 1`,
       [organizationId, replacementUserId, event.id, event.startsAt, event.endsAt],
     );
@@ -772,7 +783,8 @@ export class PostgresStaffOffboardingService {
          WHERE j.organization_id = $1 AND j.assigned_to = $2
            AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
            AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+           AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
+           AND j.id <> $5 AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
         LIMIT 1`,
       [organizationId, replacementUserId, scheduledAt, scheduledEndsAt, jobCardId],
     );

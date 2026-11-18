@@ -1,7 +1,7 @@
 import { PostgresSaleReader, type SaleReadPort } from './sale-reader.js';
 import { PostgresSaleTransaction, selectSaleSubmission, type SaleTransaction, type SaleSubmissionSnapshot } from './sale-repository.js';
 import { FREQUENCY_ENGAGEMENT_KINDS, type CustomerVisitDuplicateInput, type CustomerVisitDuplicate } from './customer-schedule.js';
-import { canonicalScheduledDurationMs } from './job-card-duration.js';
+import { canonicalScheduledDurationMs, JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from './job-card-duration.js';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_STATUSES,
@@ -2607,14 +2607,15 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
           AND e.status = 'ACTIVE'
           AND e.starts_at < $4 AND $3 < e.ends_at
        UNION ALL
-       SELECT j.scheduled_at, j.scheduled_ends_at
+       SELECT j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
          FROM job_cards j
         WHERE j.organization_id = $1 AND j.assigned_to = $2
           AND ($5::uuid IS NULL OR j.id <> $5)
           AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
         AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+          AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
+          AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
         ORDER BY starts_at ASC, ends_at ASC`,
       [organizationId, assignedUserId, from, to, excludeJobId],
     );
@@ -3254,7 +3255,7 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
        WHERE e.organization_id = $1 AND e.assigned_user_id = $2
          AND e.status = 'ACTIVE' AND e.starts_at < $4 AND $3 < e.ends_at
        UNION ALL
-       SELECT 'JOB', j.id, j.title, j.scheduled_at, j.scheduled_ends_at,
+       SELECT 'JOB', j.id, j.title, j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL},
          u.name, '/jobs/' || j.id::text
        FROM job_cards j
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
@@ -3263,7 +3264,8 @@ export class PostgresJobCardTransaction implements JobCardTransaction {
          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
          AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-         AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+         AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
+         AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
        ORDER BY starts_at ASC, id ASC LIMIT 10`,
       [
         input.organizationId,
