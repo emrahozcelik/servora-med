@@ -1,11 +1,14 @@
 // @ts-check
 
+import { checkPicomatchException } from './audit-picomatch-exception.mjs';
+
 /**
  * audit-high-policy-lib.mjs
  *
  * Generic npm audit high/critical gate. Fail-closed.
- * There are no advisory allowlists and no exceptions: any HIGH or CRITICAL
- * entry fails, and any malformed report fails.
+ * The sole owner-approved picomatch ReDoS exception requires explicit context,
+ * exact advisory verification, dev-only lockfile proof, production re-audit
+ * and an expiring deadline. All other HIGH/CRITICAL entries fail.
  */
 
 /**
@@ -55,9 +58,10 @@ function validateVulnShape(vuln) {
  * metadata high/critical consistency → high/critical decision.
  *
  * @param {string} auditJson - Raw JSON from `npm audit --json`
+ * @param {{picomatchException?: boolean, lockfile?: unknown, now?: Date}} [options]
  * @returns {AuditResult}
  */
-export function evaluateAudit(auditJson) {
+export function evaluateAudit(auditJson, options = {}) {
   /** @type {any} */
   let report;
   try {
@@ -103,6 +107,7 @@ export function evaluateAudit(auditJson) {
   let criticalCount = 0;
   const highNames = [];
   const criticalNames = [];
+  const severityCounts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
 
   for (const [key, vuln] of Object.entries(report.vulnerabilities)) {
     const shapeErr = validateVulnShape(vuln);
@@ -112,6 +117,7 @@ export function evaluateAudit(auditJson) {
     if (vuln.name !== key) {
       return fail(`FAIL: vulnerability key/name mismatch: key=${key}, name=${vuln.name}`);
     }
+    severityCounts[vuln.severity]++;
     if (vuln.severity === 'high') {
       highCount++;
       highNames.push(key);
@@ -128,11 +134,29 @@ export function evaluateAudit(auditJson) {
     return fail(`FAIL: metadata critical=${counters.critical} but actual critical=${criticalCount}`);
   }
 
-  if (highCount > 0) {
-    return fail(`FAIL: high severity advisory bulundu: ${highNames.join(', ')}`);
+  for (const key of ['info', 'low', 'moderate']) {
+    if (counters[key] !== severityCounts[key]) {
+      return fail('FAIL: metadata ' + key + ' count mismatch — fail-closed');
+    }
   }
+  if (counters.total !== Object.keys(report.vulnerabilities).length) {
+    return fail('FAIL: metadata total count mismatch — fail-closed');
+  }
+
+  // CRITICAL always blocks; the single approved exception is HIGH-only.
   if (criticalCount > 0) {
     return fail(`FAIL: critical severity advisory bulundu: ${criticalNames.join(', ')}`);
+  }
+  if (highCount > 0) {
+    if (options.picomatchException === true) {
+      const result = checkPicomatchException(report.vulnerabilities, options.lockfile, options.now);
+      if (result.allowed) {
+        return { pass: true, exitCode: 0, message: 'PASS WITH TEMPORARY SECURITY EXCEPTION: ' + result.reason };
+      }
+      return fail('FAIL: high severity advisory bulundu: ' + highNames.join(', ')
+        + '; exception denied: ' + result.reason);
+    }
+    return fail(`FAIL: high severity advisory bulundu: ${highNames.join(', ')}`);
   }
 
   return { pass: true, exitCode: 0, message: 'PASS: high/critical vulnerability yok' };

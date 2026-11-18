@@ -2620,3 +2620,41 @@ records are not rewritten.
   users and shows a notice instead of a reactivate command for inactive Staff.
   The user list and the Admin staff directory filter Aktif / Pasif / Tümü.
   The backend remains the authority.
+
+## SEC-2026-11-18 — Expiring dev-only picomatch GHSA exception
+
+Status: **owner-approved 18 November 2026**, conditional, temporary, and
+**automatically expires after 2 December 2026 (Europe/Istanbul)**. This
+decision does not assert vulnerability remediation. It changes only the
+GitHub CI security-audit acceptance gate, not production or deploy authority.
+
+- Exception identity: the single HIGH-severity npm advisory
+  `https://github.com/advisories/GHSA-fc5q-39xc-vjpf` affecting `picomatch`
+  and its explicitly verified transitive-only HIGH descendants.
+- Allowlisted dependency *chain* is restricted to `picomatch`, `fdir`,
+  `tinyglobby`, `vite`, `vitest`, `@vitest/mocker` and
+  `@vitejs/plugin-react`; no other advisory or HIGH/CRITICAL finding is
+  accepted, even on one of these packages.
+- Each high-severity entry MUST prove an unbroken string-`via` path to the
+  exact picomatch GHSA and `dev: true` in the repository lockfile. The
+  picomatch root MUST have exactly one direct advisory. Unexpected `via`
+  objects, broken/missing paths, cycles, malformed audit metadata, missing
+  package markers and non-dev production copies fail closed.
+- **Both web and server production audits remain strict:** a separate
+  `npm audit --omit=dev --json` is evaluated without any exception, with no
+  HIGH/CRITICAL allowed. The existing release packaging and dependency
+  smoke are not relaxed.
+- The start boundary is `2026-11-18T00:00:00+03:00`; the exact
+  expiry is `2026-12-03T00:00:00+03:00`. Unusable clock/expiry fails.
+- The audit emits a prominent `PASS WITH TEMPORARY SECURITY EXCEPTION`
+  rather than claiming an all-clean audit. The residual risk includes CI
+  tooling's handling of repository-controlled glob patterns.
+- On the first published upstream patch, update both lockfiles and delete the
+  exception. New/high critical advisories, production exposure, or expiry
+  must stop CI; a renewal requires separate explicit owner approval.
+- Owner authorized **only the narrow policy change**. PR #444 remains Draft
+  until exact-head CI and independent security review pass; PR #441 is separate.
+  Neither PR is implicitly approved for merge or deployment.
+
+Evidence, test matrices and implementation:
+[Security maintenance / approved exception](docs/evidence/security-dependency-audit-20261117/README.md).

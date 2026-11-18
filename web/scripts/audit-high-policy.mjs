@@ -1,54 +1,64 @@
 #!/usr/bin/env node
 
 /**
- * audit-high-policy.mjs
- *
- * Runs npm audit --json and applies a generic high/critical gate.
- * Any HIGH or CRITICAL finding fails. Any malformed, inconsistent, or
- * unusable audit result fails closed.
- *
- * Usage:
- *   node scripts/audit-high-policy.mjs
+ * Fail-closed security audit for web/server.
+ * A single owner-approved, expiring picomatch advisory may pass ONLY when
+ * it is dev-only and an independent production dependency audit is clean.
+ * Usage from web: node scripts/audit-high-policy.mjs
+ * Usage from server: node ../web/scripts/audit-high-policy.mjs --workspace server
  */
-
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateAudit } from './audit-high-policy-lib.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, '..');
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+if (args.length !== 0 && !(args.length === 2 && args[0] === '--workspace' && args[1] === 'server')) {
+  console.error('FAIL: unsupported audit workspace arguments — fail-closed');
+  process.exit(1);
+}
+const workspace = args.length === 0 ? 'web' : 'server';
+const repoRoot = resolve(scriptDir, '..', '..', workspace);
 
-function run() {
-  // Run npm audit --json
-  let auditJson;
+function audit(command) {
   try {
-    auditJson = execSync('npm audit --json', {
+    return execSync(command, {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 10 * 1024 * 1024,
     });
-  } catch (err) {
-    // npm audit exits non-zero when finding vulnerabilities
-    // Capture stdout (JSON output) from the error object
-    auditJson = /** @type {Error & {stdout?: string}} */ (err).stdout || '';
-    if (!auditJson) {
-      console.error('FAIL: npm audit komutu basarisiz — JSON ciktisi alinamadi');
-      if (err.message) console.error(err.message);
-      process.exit(1);
-    }
+  } catch (error) {
+    // npm audit itself exits nonzero on vulnerabilities; require a valid JSON
+    // report rather than accepting command failure or a truncated response.
+    const value = /** @type {Error & {stdout?: string}} */ (error).stdout;
+    if (typeof value === 'string' && value.trim()) return value;
+    throw new Error('audit command failed without usable JSON: ' + command);
   }
-
-  const result = evaluateAudit(auditJson);
-
-  console.log(result.message);
-
-  if (!result.pass) {
-    process.exit(result.exitCode);
-  }
-
-  process.exit(0);
 }
 
-run();
+try {
+  const productionReport = evaluateAudit(audit('npm audit --omit=dev --json'));
+  if (!productionReport.pass) {
+    console.error('FAIL: ' + workspace + ' production dependency audit: ' + productionReport.message);
+    process.exit(1);
+  }
+  console.log('PASS: ' + workspace + ' production HIGH/CRITICAL audit — no exception applied');
+
+  // The lockfile must be committed and installed. A missing/malformed file
+  // fails closed before any exception can be considered.
+  const lockfile = JSON.parse(readFileSync(resolve(repoRoot, 'package-lock.json'), 'utf8'));
+  const result = evaluateAudit(audit('npm audit --json'), {
+    picomatchException: true,
+    lockfile,
+    now: new Date(), // CI runner clock; deliberately not overrideable by env
+  });
+  console.log(result.message);
+  if (!result.pass) process.exit(result.exitCode);
+} catch (error) {
+  console.error('FAIL: audit execution or lockfile validation failed — fail-closed');
+  if (error instanceof Error) console.error(error.message);
+  process.exit(1);
+}
