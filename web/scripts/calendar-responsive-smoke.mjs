@@ -128,6 +128,11 @@ async function measure(page) {
         && rect.top >= calendarFrame.top - 1
         && rect.bottom <= calendarFrame.bottom + 1;
     });
+    // UI audit F-10: month/today controls keep a 44 × 44 CSS px target.
+    const headerButtonMinSize = headerButtons.length === 0 ? 0 : Math.min(...headerButtons.flatMap((button) => {
+      const rect = button.getBoundingClientRect();
+      return [rect.width, rect.height];
+    }));
     const personnelFilterUsable = Boolean(personnelFilter && !personnelFilter.disabled
       && personnelFilterFrame && personnelFilterFrame.width > 0
       && personnelFilterFrame.left >= 0
@@ -159,6 +164,7 @@ async function measure(page) {
       countDateOverlap,
       headerButtons: headerButtons.length,
       headerButtonsInFrame,
+      headerButtonMinSize,
       personnelFilterUsable,
       agendaReachable,
       desktopSummaries,
@@ -184,6 +190,9 @@ function contractFailures(measurement, viewport) {
   }
   if (measurement.headerButtons !== 3 || !measurement.headerButtonsInFrame) {
     failures.push('calendar header controls leave the frame');
+  }
+  if (measurement.headerButtonMinSize < 44) {
+    failures.push(`calendar header control below 44px target (${measurement.headerButtonMinSize.toFixed(1)}px)`);
   }
   if (!measurement.personnelFilterUsable) failures.push('personnel filter is not usable');
   if (!measurement.agendaReachable) failures.push('agenda is not reachable');

@@ -48,6 +48,18 @@ export const servoraAntTheme: ThemeConfig = {
 
     motion: true,
   },
+  components: {
+    // Select keyboard focus uses the Servora outline from the ServoraSelect
+    // adapter class (styles.css, UI audit F-02). Ant's own focus ring is a
+    // box-shadow that fades in over motionDurationSlow and is dropped in
+    // forced-colors mode, so it is switched off here for every status to keep
+    // the two indicators from stacking. Border colors still mark focus/status.
+    Select: {
+      activeOutlineColor: 'transparent',
+      colorErrorOutline: 'transparent',
+      colorWarningOutline: 'transparent',
+    },
+  },
 } satisfies ThemeConfig;
 
 export const servoraAntSemanticBackgrounds = {

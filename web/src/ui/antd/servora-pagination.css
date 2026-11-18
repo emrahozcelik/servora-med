@@ -19,6 +19,24 @@
   max-width: 100%;
 }
 
+/* Prev/next are the only targets in the read-only simple pager (UI audit
+   F-10, WCAG 2.5.8). Sized from this wrapper with min-* constraints so the
+   44 px target holds whether Ant renders the target as the li (6.5) or as a
+   button inside it, and without depending on Ant's internal size variables.
+   The li qualifier chain (0-3-1) beats Ant's :where()-scoped display rule. */
+nav.servora-list-pagination .servora-ant-pagination .servora-ant-pagination-prev,
+nav.servora-list-pagination .servora-ant-pagination .servora-ant-pagination-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+}
+nav.servora-list-pagination :is(.servora-ant-pagination-prev, .servora-ant-pagination-next) button {
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+}
+
 @media (max-width: 480px) {
   .servora-list-pagination {
     align-items: stretch;
