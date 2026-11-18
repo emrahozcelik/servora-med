@@ -294,24 +294,25 @@ export function StaffOperationalReportScreen({
   useRealtimeInvalidation(['reports'], () => { void load(); });
 
   const content = <>
+    {/* PageHeader (or the embedding page) owns the single h1 (UI audit F-18). */}
     {!embedded && <PageHeader fallbackTitle="Personel raporu" />}
     {loading && <LoadingSkeleton
       title="Personel operasyon raporu yükleniyor"
-      headingLevel={embedded ? 2 : 1}
+      headingLevel={2}
       rows={2}
     />}
     {!loading && error && <ResultState
       status="error"
       title="Personel operasyon raporu yüklenemedi"
       description={error}
-      headingLevel={embedded ? 2 : 1}
+      headingLevel={2}
       action={<button className="secondary-button" type="button" onClick={() => void load()}>
         Tekrar dene
       </button>}
     />}
     {!loading && !error && report && <>
       {!embedded && <header className="staff-report-identity">
-        <h1>{report.staff.name}</h1>
+        <h2>{report.staff.name}</h2>
         <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
       </header>}
       <StaffOperationalReport report={report} showCurrentWorkloadMetrics={showCurrentWorkloadMetrics} />

@@ -123,6 +123,20 @@ describe('application routes', () => {
     expect(html).toContain('Bağlantı değişmiş veya sayfa kaldırılmış olabilir.');
   });
 
+  it.each([
+    ['/unknown', manager, 'Sayfa bulunamadı', 'No Found'],
+    ['/users', staff, 'Erişim yetkiniz yok', 'Unauthorized'],
+  ] as const)('gives the %s result view one Turkish h1 and hides the stock illustration', async (path, user, heading, stockTitle) => {
+    const host = document.createElement('div');
+    host.innerHTML = await render(path, user);
+    const headings = host.querySelectorAll('h1');
+    expect(headings).toHaveLength(1);
+    expect(headings[0]!.textContent).toBe(heading);
+    const illustration = host.querySelector('.servora-result-state svg');
+    expect(illustration?.querySelector('title')?.textContent).toBe(stockTitle);
+    expect(illustration?.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
   it('redirects an authenticated user away from the sign-in route', async () => {
     const html = await render('/login');
     expect(html).not.toContain('Sayfa bulunamadı');

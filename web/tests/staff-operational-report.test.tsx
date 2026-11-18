@@ -11,6 +11,7 @@ import {
 } from '../src/reports/StaffOperationalReport';
 import { getOwnStaffReport, getStaffReport } from '../src/reports/reports-api';
 import type { StaffReportResponse } from '../src/reports/report-types';
+import { renderWithRoute } from './route-test-helpers';
 
 vi.mock('../src/reports/reports-api', () => ({
   getOwnStaffReport: vi.fn(),
@@ -210,6 +211,30 @@ describe('Staff operational report', () => {
 
     expect(getStaffReport).toHaveBeenCalledWith(STAFF_ID, requestedRange);
     expect(container.querySelector('.page-header')).toBeTruthy();
+  });
+
+  it('keeps exactly one h1 on the management report route in every state', async () => {
+    let resolveReport!: (value: StaffReportResponse) => void;
+    vi.mocked(getStaffReport).mockReturnValue(new Promise((resolve) => { resolveReport = resolve; }));
+    await renderWithRoute(root, `/staff/${STAFF_ID}/reports`,
+      <StaffOperationalReportScreen staffUserId={STAFF_ID} />);
+    expect(Array.from(container.querySelectorAll('h1')).map((heading) => heading.textContent))
+      .toEqual(['Personel raporu']);
+
+    await act(async () => resolveReport(report));
+    expect(Array.from(container.querySelectorAll('h1')).map((heading) => heading.textContent))
+      .toEqual(['Personel raporu']);
+    expect(container.querySelector('.staff-report-identity h2')?.textContent).toBe('Emrah Demir');
+  });
+
+  it('keeps exactly one h1 when the management report fails', async () => {
+    vi.mocked(getStaffReport).mockRejectedValue(new Error('Personel profili bulunamadı.'));
+    await renderWithRoute(root, `/staff/${STAFF_ID}/reports`,
+      <StaffOperationalReportScreen staffUserId={STAFF_ID} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(Array.from(container.querySelectorAll('h1')).map((heading) => heading.textContent))
+      .toEqual(['Personel raporu']);
   });
 
   it('ignores stale detail success after a newer range request', async () => {

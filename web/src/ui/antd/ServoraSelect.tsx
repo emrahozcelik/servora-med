@@ -8,11 +8,20 @@ export type ServoraSelectProps = SelectProps;
 /**
  * Owned antd Select adapter. Feature code must not import 'antd' directly
  * (see tests/antd-boundary.test.ts); this adapter pins the application-wide
- * popup-container convention while forwarding all Select behavior.
+ * popup-container convention and the owned `servora-select` focus class while
+ * forwarding all Select behavior.
  */
 export function ServoraSelect({
   getPopupContainer = getServoraPopupContainer,
+  className,
   ...props
 }: ServoraSelectProps) {
-  return <Select {...props} getPopupContainer={getPopupContainer} />;
+  // `servora-select` is the owned hook for the shared focus outline (F-02).
+  return (
+    <Select
+      {...props}
+      className={className ? `servora-select ${className}` : 'servora-select'}
+      getPopupContainer={getPopupContainer}
+    />
+  );
 }
