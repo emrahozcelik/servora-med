@@ -462,7 +462,8 @@ There is no `--skip-ci`, `--force` or `--unsafe` bypass. `mkdir` plus an
 exclusive (`O_EXCL`, bash noclobber) creation of the `pid` claim acquires the
 local deployment lock; mkdir's exit status alone is not trusted, because
 uutils coreutils mkdir (Ubuntu 26.04 default) can report success for a
-directory a concurrent racer created. Every existing lock is rejected,
+directory a concurrent racer created. Any pre-existing lock path, including an
+empty claim-less directory, is checked before mkdir. Every existing lock is rejected,
 including stale or malformed claims; there is no automatic rename/remove
 recovery. Normal release requires an exact owner claim. Remote serialization
 remains host-helper owned. Local mode requires neither `gh` nor `jq`;

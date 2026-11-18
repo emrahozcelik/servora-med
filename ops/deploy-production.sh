@@ -392,7 +392,12 @@ verify_local_evidence() {
 
 acquire_deploy_lock() {
   PHASE=LOCK
-  if mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
+  # Any existing path — including an empty, claim-less directory left by a
+  # process killed between mkdir and its claim — is an existing lock, even if
+  # a non-exclusive mkdir(1) would report success for it (see
+  # write_lock_claim). Concurrent creators are serialized by the claim.
+  if [[ ! -e "$DEPLOY_LOCK_DIR" && ! -L "$DEPLOY_LOCK_DIR" ]] \
+      && mkdir "$DEPLOY_LOCK_DIR" 2>/dev/null; then
     write_lock_claim || fail CONCURRENT_DEPLOYMENT_ACTIVE
     return 0
   fi

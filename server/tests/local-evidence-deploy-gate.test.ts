@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -587,6 +588,33 @@ describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
     expect(results.filter((outcome) => outcome === 'ACQUIRED')).toHaveLength(1);
     expect(results.filter((outcome) => outcome === 'REJECTED')).toHaveLength(11);
   }, 30000);
+
+  // A process killed between mkdir and its claim leaves an empty directory.
+  // It must stay a fail-closed stale lock even when mkdir would report
+  // success for an existing directory; it is never silently adopted.
+  it('keeps an empty claim-less lock directory stale under a non-exclusive mkdir', () => {
+    const fixture = createDeployFixture();
+    const lockBase = temporaryDirectory('lock-empty');
+    try {
+      const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
+      mkdirSync(lockDir);
+      for (const path of [fixture.env.PATH, nonExclusiveMkdirPath(fixture.root, fixture.env.PATH)]) {
+        const adopted = runSourced(
+          fixture.script,
+          'DEPLOY_LOCK_DIR="$2"; acquire_deploy_lock; echo ACQUIRED',
+          [lockDir],
+          { ...fixture.env, PATH: path },
+        );
+        expect(adopted.status).toBe(1);
+        expect(adopted.stdout).not.toContain('ACQUIRED');
+        expect(adopted.stderr).toContain('STALE_DEPLOY_LOCK');
+        expect(readdirSync(lockDir)).toEqual([]);
+      }
+    } finally {
+      fixture.cleanup();
+      rmSync(lockBase, { recursive: true, force: true });
+    }
+  });
 
   it('rejects a non-exclusive mkdir co-winner without touching the owner claim', () => {
     const fixture = createDeployFixture();
