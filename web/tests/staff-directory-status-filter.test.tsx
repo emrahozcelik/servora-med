@@ -97,7 +97,8 @@ describe('Staff directory status filter', () => {
     await mount('ADMIN');
     expect(names()).toHaveLength(6);
     expect(container.textContent).toContain('Sayfa 1 / 2');
-    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"]')!.click());
+    // Ant 6.7 moved activation to the nested full-size button.
+    await act(async () => container.querySelector<HTMLElement>('[class*="pagination-next"] button')!.click());
     expect(names()).toHaveLength(2);
     await act(async () => tab('Pasif').click());
     expect(names()).toEqual(['Bora Ayrılan']);

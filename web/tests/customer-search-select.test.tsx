@@ -157,9 +157,18 @@ describe('CustomerSearchSelect shared remote selector', () => {
 
   function scrollDropdownToBottom() {
     const dropdown = document.querySelector('.ant-select-dropdown') as HTMLElement;
-    const scroller = (dropdown.querySelector('[class*="virtual-list-holder"]') as HTMLElement) ?? dropdown;
-    // jsdom reports zero scroll metrics, so any positive scrollTop reads as "near bottom".
-    scroller.scrollTop = 9999;
+    // Ant Design 6.7 renamed the virtual-list classes (no `rc-virtual-list-*`);
+    // keep the old selector as a fallback for earlier versions.
+    const scroller = dropdown.querySelector<HTMLElement>('.ant-select-dropdown-list-holder')
+      ?? dropdown.querySelector<HTMLElement>('[class*="virtual-list-holder"]')
+      ?? dropdown;
+    // jsdom has no layout, so its scrollTop is never clamped. Keep the offset
+    // inside the rendered content height; an out-of-range value makes the
+    // virtual list fall back to the first rows instead of scrolling.
+    const filler = scroller.firstElementChild as HTMLElement | null;
+    const contentHeight = Number.parseFloat(filler?.style.height ?? '0');
+    const viewportHeight = Number.parseFloat(scroller.style.maxHeight || '0');
+    scroller.scrollTop = Math.max(0, contentHeight - viewportHeight);
     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
   }
 
@@ -336,7 +345,8 @@ describe('CustomerSearchSelect shared remote selector', () => {
     // Appended page is reachable …
     expect(document.body.textContent ?? '').toContain('Müşteri 21');
     // … while duplicate ids keep their first occurrence (no KOPYA rows rendered).
-    const scroller = document.querySelector('.ant-select-dropdown [class*="virtual-list-holder"]')
+    const scroller = document.querySelector('.ant-select-dropdown .ant-select-dropdown-list-holder')
+      ?? document.querySelector<HTMLElement>('.ant-select-dropdown [class*="virtual-list-holder"]')
       ?? document.querySelector('.ant-select-dropdown') as HTMLElement;
     (scroller as HTMLElement).scrollTop = 0;
     await act(async () => { (scroller as HTMLElement).dispatchEvent(new Event('scroll', { bubbles: true })); });
