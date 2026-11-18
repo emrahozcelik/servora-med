@@ -55,6 +55,12 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - name: Persistent bootstrap fence contracts
         run: node --test ../ops/tests/bootstrap-fence.test.mjs ../ops/tests/bootstrap-fence-reader.test.mjs ../ops/tests/bootstrap-fence-coverage.test.mjs
+      # Fake Docker fixture only (no daemon); exercises the single-run lock
+      # with the runner's own mkdir, whose implementation is logged first.
+      - name: Local CI lock and resource lifecycle contracts
+        run: |
+          mkdir --version | head -n 1
+          node --test ../ops/tests/ci-resource-lifecycle.test.mjs
       - name: Persistent bootstrap fence isolated Linux acceptance
         run: |
           docker run --rm --network none \
