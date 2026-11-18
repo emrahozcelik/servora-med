@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -149,6 +150,77 @@ function createDeployFixture() {
     env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GH_TOKEN: 'fixture-token', GITHUB_REF: 'refs/heads/main' },
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
+}
+
+/**
+ * Prepend a mkdir that reports success when creation fails but the target is
+ * a directory, as uutils coreutils mkdir does when another racer created it.
+ * Every contender then "wins" mkdir, deterministically on every platform.
+ */
+function nonExclusiveMkdirPath(root: string, path = process.env.PATH ?? '') {
+  const realMkdir = execFileSync('sh', ['-c', 'command -v mkdir'], { encoding: 'utf8' }).trim();
+  const shimDir = join(root, '.non-exclusive-mkdir-bin');
+  mkdirSync(shimDir, { recursive: true });
+  writeFileSync(join(shimDir, 'mkdir'),
+    `#!/bin/sh\nfor target; do :; done\n"${realMkdir}" "$@" 2>/dev/null || [ -d "$target" ]\n`,
+    { mode: 0o755 });
+  return `${shimDir}:${path}`;
+}
+
+/**
+ * Race 12 sourced acquire_deploy_lock calls behind a start gate and return
+ * each process outcome. Each winner holds its lock until every contender has
+ * finished, so a sequential re-acquisition can never look like a second owner.
+ */
+async function raceForDeployLock(nonExclusiveMkdir: boolean) {
+  const fixture = createDeployFixture();
+  const lockBase = temporaryDirectory('lock-race');
+  const gate = join(lockBase, 'start-gate');
+  const releaseGate = join(lockBase, 'release-gate');
+  const childrenDone: Promise<void>[] = [];
+  try {
+    const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
+    const env = { ...process.env, ...fixture.env };
+    if (nonExclusiveMkdir) env.PATH = nonExclusiveMkdirPath(fixture.root, fixture.env.PATH);
+    const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve, reject) => {
+      const hold = [
+        'while [ ! -e "$3" ]; do sleep 0.02; done',
+        'acquire_deploy_lock >/dev/null 2>&1',
+        'echo ACQUIRED',
+        'while [ ! -e "$4" ]; do sleep 0.02; done',
+        'release_deploy_lock',
+      ].join('; ');
+      const child = spawn('bash', ['-c',
+        `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
+        'lock-race', fixture.script, lockDir, gate, releaseGate,
+      ], { env });
+      let acquired = false;
+      let stdout = '';
+      child.stdout.on('data', (data) => {
+        stdout += String(data);
+        if (!acquired && stdout.includes('ACQUIRED')) {
+          acquired = true;
+          resolve('ACQUIRED');
+        }
+      });
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (!acquired) resolve(code === 1 ? 'REJECTED' : `UNEXPECTED_EXIT_${code}`);
+      });
+      childrenDone.push(new Promise<void>((done) => child.on('close', () => done())));
+    }));
+    const pending = Promise.all(racers);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    writeFileSync(gate, 'go\n');
+    return await pending;
+  } finally {
+    // Release a waiting winner even when acquisition or an assertion fails.
+    writeFileSync(gate, 'go\n');
+    writeFileSync(releaseGate, 'go\n');
+    await Promise.all(childrenDone);
+    fixture.cleanup();
+    rmSync(lockBase, { recursive: true, force: true });
+  }
 }
 
 // A verifier invocation starts many Node processes for the 27-check policy.
@@ -502,62 +574,71 @@ describe('deploy-production.sh local evidence gate', { timeout: 60000 }, () => {
   });
 
   it('grants a racing fresh-lock acquisition to exactly one process', async () => {
+    const results = await raceForDeployLock(false);
+    expect(results.filter((outcome) => outcome === 'ACQUIRED')).toHaveLength(1);
+    expect(results.filter((outcome) => outcome === 'REJECTED')).toHaveLength(11);
+  }, 30000);
+
+  // uutils coreutils mkdir (Ubuntu 26.04 default) can report success for a
+  // directory a concurrent racer created. Reproduce that deterministically
+  // with a mkdir that always succeeds on an existing directory, so mutual
+  // exclusion must come from the exclusive claim, not from mkdir's status.
+  it('grants exactly one owner even when mkdir is not exclusive', async () => {
+    const results = await raceForDeployLock(true);
+    expect(results.filter((outcome) => outcome === 'ACQUIRED')).toHaveLength(1);
+    expect(results.filter((outcome) => outcome === 'REJECTED')).toHaveLength(11);
+  }, 30000);
+
+  // A process killed between mkdir and its claim leaves an empty directory.
+  // It must stay a fail-closed stale lock even when mkdir would report
+  // success for an existing directory; it is never silently adopted.
+  it('keeps an empty claim-less lock directory stale under a non-exclusive mkdir', () => {
     const fixture = createDeployFixture();
-    const lockBase = temporaryDirectory('lock-race');
-    const gate = join(lockBase, 'start-gate');
-    const releaseGate = join(lockBase, 'release-gate');
-    const childrenDone: Promise<void>[] = [];
+    const lockBase = temporaryDirectory('lock-empty');
     try {
       const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
-      const { spawn } = await import('node:child_process');
-      // Keep the winner's lock until every contender has attempted acquisition.
-      // A fixed sleep allows late-scheduled contenders to acquire sequentially
-      // after the winner releases, producing a false simultaneous-owner result.
-      rmSync(lockDir, { recursive: true, force: true });
-      rmSync(gate, { force: true });
-      rmSync(releaseGate, { force: true });
-      const racers = Array.from({ length: 12 }, () => new Promise<string>((resolve, reject) => {
-        const hold = [
-          'while [ ! -e "$3" ]; do sleep 0.02; done',
-          'acquire_deploy_lock >/dev/null 2>&1',
-          'echo ACQUIRED',
-          'while [ ! -e "$4" ]; do sleep 0.02; done',
-          'release_deploy_lock',
-        ].join('; ');
-        const child = spawn('bash', ['-c',
-          `source "$1"\nDEPLOY_LOCK_DIR="$2"; ${hold}`,
-          'lock-race', fixture.script, lockDir, gate, releaseGate,
-        ], { env: { ...process.env, ...fixture.env } });
-        let acquired = false;
-        let stdout = '';
-        child.stdout.on('data', (data) => {
-          stdout += String(data);
-          if (!acquired && stdout.includes('ACQUIRED')) {
-            acquired = true;
-            resolve('ACQUIRED');
-          }
-        });
-        child.on('error', reject);
-        child.on('close', (code) => {
-          if (!acquired) resolve(code === 1 ? 'REJECTED' : `UNEXPECTED_EXIT_${code}`);
-        });
-        childrenDone.push(new Promise<void>((done) => child.on('close', () => done())));
-      }));
-      const pending = Promise.all(racers);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      writeFileSync(gate, 'go\n');
-      const results = await pending;
-      expect(results.filter((outcome) => outcome === 'ACQUIRED')).toHaveLength(1);
-      expect(results.filter((outcome) => outcome === 'REJECTED')).toHaveLength(11);
+      mkdirSync(lockDir);
+      for (const path of [fixture.env.PATH, nonExclusiveMkdirPath(fixture.root, fixture.env.PATH)]) {
+        const adopted = runSourced(
+          fixture.script,
+          'DEPLOY_LOCK_DIR="$2"; acquire_deploy_lock; echo ACQUIRED',
+          [lockDir],
+          { ...fixture.env, PATH: path },
+        );
+        expect(adopted.status).toBe(1);
+        expect(adopted.stdout).not.toContain('ACQUIRED');
+        expect(adopted.stderr).toContain('STALE_DEPLOY_LOCK');
+        expect(readdirSync(lockDir)).toEqual([]);
+      }
     } finally {
-      // Release a waiting winner even when an assertion fails.
-      writeFileSync(gate, 'go\n');
-      writeFileSync(releaseGate, 'go\n');
-      await Promise.all(childrenDone);
       fixture.cleanup();
       rmSync(lockBase, { recursive: true, force: true });
     }
-  }, 30000);
+  });
+
+  it('rejects a non-exclusive mkdir co-winner without touching the owner claim', () => {
+    const fixture = createDeployFixture();
+    const lockBase = temporaryDirectory('lock-cowinner');
+    try {
+      const lockDir = join(lockBase, 'servora-med-production-deploy.lock');
+      mkdirSync(lockDir);
+      const ownerClaim = `pid=${process.pid} nonce=owner time=1\n`;
+      writeFileSync(join(lockDir, 'pid'), ownerClaim);
+      const coWinner = runSourced(
+        fixture.script,
+        'DEPLOY_LOCK_DIR="$2"; acquire_deploy_lock; echo ACQUIRED',
+        [lockDir],
+        { ...fixture.env, PATH: nonExclusiveMkdirPath(fixture.root, fixture.env.PATH) },
+      );
+      expect(coWinner.status).toBe(1);
+      expect(coWinner.stdout).not.toContain('ACQUIRED');
+      expect(coWinner.stderr).toContain('CONCURRENT_DEPLOYMENT_ACTIVE');
+      expect(readFileSync(join(lockDir, 'pid'), 'utf8')).toBe(ownerClaim);
+    } finally {
+      fixture.cleanup();
+      rmSync(lockBase, { recursive: true, force: true });
+    }
+  });
   it('never releases a lock owned by a different process', () => {
     const fixture = createDeployFixture();
     const lockBase = temporaryDirectory('lock-other');

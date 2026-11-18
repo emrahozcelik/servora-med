@@ -30,6 +30,7 @@ trusted_file "$library" 644
   a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e ]] \
   || fail RECOVERY_HISTORICAL_STAGE_TOOL_UNTRUSTED
 for file in deployment-controller.mjs historical-archive-preflight.mjs historical-archive-stage.mjs \
+  historical-recovery-evidence.mjs \
   deployment-attempt.mjs deployment-db-guard.mjs migration-reconciliation.mjs trusted-time.mjs; do
   trusted_file "/usr/local/libexec/servora-med/$file" 644
 done

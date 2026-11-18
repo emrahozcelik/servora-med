@@ -129,20 +129,90 @@ test('--keep-containers retains container, network and all volumes on failure', 
   assert.equal(fs.readFileSync(path.join(fx.bundle, 'logs/aux/cleanup.status'), 'utf8'), 'PASS\n');
 });
 
-for (const holder of ['pid=2147483647 nonce=stale', `pid=${process.pid} nonce=live`]) {
-  test(`existing lock fails closed: ${holder}`, (t) => {
+// uutils coreutils mkdir (Ubuntu 26.04 default) can report success for a
+// directory a concurrent racer created. This shim does so deterministically on
+// every platform, so exclusion must come from the exclusive pid claim.
+function writeNonExclusiveMkdir(bin) {
+  const realMkdir = spawnSync('/bin/sh', ['-c', 'command -v mkdir'], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(realMkdir, 'mkdir must be resolvable');
+  fs.writeFileSync(path.join(bin, 'mkdir'),
+    `#!/bin/sh\nfor target; do :; done\n${shellQuote(realMkdir)} "$@" 2>/dev/null || [ -d "$target" ]\n`,
+    { mode: 0o755 });
+}
+
+for (const nonExclusiveMkdir of [false, true]) {
+  // null: an empty claim-less directory left by a run killed between mkdir
+  // and its claim. It is never adopted, whatever mkdir reports.
+  for (const holder of ['pid=2147483647 nonce=stale', `pid=${process.pid} nonce=live`, null]) {
+    test(`existing lock fails closed: ${holder ?? 'empty claim-less dir'} (non-exclusive mkdir=${nonExclusiveMkdir})`, (t) => {
+      const fx = fixture(t);
+      if (nonExclusiveMkdir) writeNonExclusiveMkdir(path.join(fx.root, 'bin'));
+      const lock = path.join(fx.root, 'servora-med-local-ci.lock');
+      fs.mkdirSync(lock);
+      if (holder !== null) fs.writeFileSync(path.join(lock, 'pid'), holder + '\n');
+      fs.mkdirSync(fx.bundle, { recursive: true });
+      fs.writeFileSync(path.join(fx.bundle, 'sentinel'), 'original evidence');
+      const result = fx.run();
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /LOCAL_CI_ALREADY_RUNNING/);
+      // A co-winner never arms cleanup: the owner's claim and lock survive.
+      assert.doesNotMatch(result.stderr, /ownership unknown/);
+      if (holder === null) {
+        assert.match(result.stderr, /holder=unknown/);
+        assert.deepEqual(fs.readdirSync(lock), []);
+      } else {
+        assert.deepEqual(fs.readdirSync(lock), ['pid']);
+        assert.equal(fs.readFileSync(path.join(lock, 'pid'), 'utf8'), holder + '\n');
+      }
+      assert.equal(fs.readFileSync(path.join(fx.bundle, 'sentinel'), 'utf8'), 'original evidence');
+      assert.ok(!fs.existsSync(path.join(fx.evidence, 'previous')));
+      assert.equal(fx.state().container, undefined);
+      assert.equal(fx.state().network, undefined);
+    });
+  }
+}
+
+// Race sourced ci_acquire_lock calls behind a start gate. Each winner holds
+// the lock until every contender has finished, so a sequential
+// re-acquisition can never look like a second owner.
+for (const nonExclusiveMkdir of [false, true]) {
+  test(`racing lock acquisition grants exactly one owner (non-exclusive mkdir=${nonExclusiveMkdir})`, async (t) => {
     const fx = fixture(t);
+    if (nonExclusiveMkdir) writeNonExclusiveMkdir(path.join(fx.root, 'bin'));
     const lock = path.join(fx.root, 'servora-med-local-ci.lock');
-    fs.mkdirSync(lock);
-    fs.writeFileSync(path.join(lock, 'pid'), holder + '\n');
-    fs.mkdirSync(fx.bundle, { recursive: true });
-    fs.writeFileSync(path.join(fx.bundle, 'sentinel'), 'original evidence');
-    const result = fx.run();
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /LOCAL_CI_ALREADY_RUNNING/);
-    assert.equal(fs.readFileSync(path.join(lock, 'pid'), 'utf8'), holder + '\n');
-    assert.equal(fs.readFileSync(path.join(fx.bundle, 'sentinel'), 'utf8'), 'original evidence');
-    assert.equal(fx.state().container, undefined);
+    const gate = path.join(fx.root, 'start-gate');
+    const releaseGate = path.join(fx.root, 'release-gate');
+    const body = `source "$1"
+while [ ! -e "$3" ]; do sleep 0.02; done
+claim="pid=$$ nonce=$RANDOM-$RANDOM"
+ci_acquire_lock "$2" "$claim" || exit 1
+echo ACQUIRED
+while [ ! -e "$4" ]; do sleep 0.02; done
+[[ "$(cat -- "$2/pid")" == "$claim" ]] || exit 3
+rm -- "$2/pid" && rmdir -- "$2"`;
+    const children = Array.from({ length: 12 }, () => spawn('/bin/bash',
+      ['-c', body, 'lock-race', path.join(fx.repo, 'ops/local-ci/run.sh'), lock, gate, releaseGate],
+      { env: fx.env, stdio: ['ignore', 'pipe', 'ignore'] }));
+    const finished = children.map((child) => new Promise((resolve) => {
+      let stdout = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk; });
+      child.once('close', (code) => resolve({ code, acquired: stdout.includes('ACQUIRED') }));
+    }));
+    t.after(() => { for (const child of children) if (child.exitCode === null) child.kill(); });
+    await delay(1000);
+    fs.writeFileSync(gate, 'go');
+    // Wait until every contender either acquired or exited before releasing.
+    const settled = children.map((child) => new Promise((resolve) => {
+      child.stdout.on('data', (chunk) => { if (String(chunk).includes('ACQUIRED')) resolve(); });
+      child.once('close', resolve);
+    }));
+    await Promise.all(settled);
+    fs.writeFileSync(releaseGate, 'go');
+    const results = await Promise.all(finished);
+    assert.equal(results.filter((r) => r.acquired).length, 1, JSON.stringify(results));
+    assert.equal(results.filter((r) => !r.acquired && r.code === 1).length, 11, JSON.stringify(results));
+    assert.ok(results.filter((r) => r.acquired).every((r) => r.code === 0), JSON.stringify(results));
+    assert.ok(!fs.existsSync(lock));
   });
 }
 

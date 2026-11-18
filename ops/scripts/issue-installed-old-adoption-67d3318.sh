@@ -27,7 +27,7 @@ readonly library=/usr/local/libexec/servora-med/host-operation-lock.sh
 trusted_file "$library" 644
 [[ "$(sha256sum "$library" | awk '{print $1}')" == a5564b6e82256fed8260a86d8c3d582c009c6fac4f2ad4216a61e566bb5f500e ]] \
   || fail RECOVERY_ADOPTION_TOOL_UNTRUSTED
-for module in deployment-attempt deployment-controller deployment-db-guard migration-reconciliation trusted-time; do
+for module in deployment-attempt deployment-controller deployment-db-guard migration-reconciliation trusted-time historical-recovery-evidence; do
   trusted_file "/usr/local/libexec/servora-med/$module.mjs" 644
 done
 node_path="$(realpath -e /usr/bin/node)"
@@ -39,6 +39,7 @@ trusted_file "$node_path" 755
 # shellcheck source=host-operation-lock.sh
 source "$library"
 servora_acquire_host_lock
+/usr/local/libexec/servora-med/bootstrap-fence adoption "$1" >/dev/null
 exec /usr/bin/env -i PATH="$PATH" LANG=C LC_ALL=C "$node_path" --input-type=module --eval '
   import {issueInstalledOldAdoption67d3318} from "/usr/local/libexec/servora-med/deployment-controller.mjs";
   try {

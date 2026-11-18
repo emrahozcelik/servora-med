@@ -12,6 +12,7 @@ import { PostgresCalendarRepository } from '../src/modules/calendar/repository.j
 import { CalendarService } from '../src/modules/calendar/service.js';
 import { canonicalScheduledEnd, canonicalScheduledDurationMs } from '../src/modules/job-cards/job-card-duration.js';
 import { suggestedFollowUpInstant } from '../src/modules/job-cards/follow-up-policy.js';
+import { findEarliestFollowUpSlot } from '../src/modules/job-cards/follow-up-auto-scheduler.js';
 import {
   baselineAlignedToGrid,
   baselineIso,
@@ -45,6 +46,7 @@ let CLOCK: Date = BASELINE;
 let PARENT_SCHEDULED_AT = '2026-08-01T10:00:00.000Z';
 let MEETING_AT = '2026-08-01T09:30:00.000Z';
 let PROPOSAL_AT = '2026-08-08T10:00:00.000Z';
+let SUGGESTION_AT = '2026-08-08T10:00:00.000Z';
 let PROPOSAL_ENDS_AT = '2026-08-08T11:00:00.000Z';
 let EARLY_EXPLICIT_AT = '2026-08-03T10:00:00.000Z';
 let EXPLICIT_LATER_AT = '2026-08-10T10:00:00.000Z';
@@ -58,11 +60,40 @@ const dayFloorIso = (iso: string) =>
   new Date(Math.floor(Date.parse(iso) / DAY_MS) * DAY_MS).toISOString();
 
 /**
- * The +7-day policy target for a fixture parent slot, computed with the same
+ * First automatic slot on a free calendar for a +N-day policy target: the same
  * policy function and inputs (business instant, source slot, org timezone,
- * canonical duration) the production auto-scheduler uses.
+ * canonical duration) the production auto-scheduler uses, then the JOB-008
+ * 08:00-19:00 working window. This keeps expectations independent of the hour
+ * at which the DB clock baseline happens to fall.
  */
-function targetFor(parentScheduledAtIso: string): string {
+function systemSlotFor(parentScheduledAtIso: string, intervalDays = 7): string {
+  const target = suggestedFollowUpInstant({
+    evaluatedAt: BASELINE,
+    sourceScheduledAt: new Date(parentScheduledAtIso),
+    timezone: 'Europe/Istanbul',
+    durationMs: canonicalScheduledDurationMs('SALES_MEETING'),
+    intervalDays,
+  });
+  const slot = findEarliestFollowUpSlot({
+    earliestAllowedAt: target,
+    horizonAnchorAt: target,
+    type: 'SALES_MEETING',
+    timezone: 'Europe/Istanbul',
+    blockers: [],
+  });
+  if (!slot) throw new Error('Expected an automatic follow-up slot on a free calendar.');
+  return slot.startsAt.toISOString();
+}
+
+const targetFor = (parentScheduledAtIso: string) => systemSlotFor(parentScheduledAtIso);
+
+/**
+ * Raw +7-day policy target that getFollowUpSuggestion returns as a human form
+ * prefill. JOB-008's 08:00-19:00 window applies only to automatic SYSTEM slot
+ * selection, so this differs from systemSlotFor whenever the parent slot falls
+ * outside the window in organization-local time.
+ */
+function suggestionTargetFor(parentScheduledAtIso: string): string {
   return suggestedFollowUpInstant({
     evaluatedAt: BASELINE,
     sourceScheduledAt: new Date(parentScheduledAtIso),
@@ -223,12 +254,8 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     CLOCK = BASELINE;
     PARENT_SCHEDULED_AT = atBase(-HOUR_MS);
     MEETING_AT = atBase(-HOUR_MS - 30 * MINUTE_MS);
-    PROPOSAL_AT = suggestedFollowUpInstant({
-      evaluatedAt: BASELINE,
-      sourceScheduledAt: new Date(PARENT_SCHEDULED_AT),
-      timezone: 'Europe/Istanbul',
-      durationMs: canonicalScheduledDurationMs('SALES_MEETING'),
-    }).toISOString();
+    PROPOSAL_AT = systemSlotFor(PARENT_SCHEDULED_AT);
+    SUGGESTION_AT = suggestionTargetFor(PARENT_SCHEDULED_AT);
     const proposalEndsAt = canonicalScheduledEnd('SALES_MEETING', PROPOSAL_AT);
     if (proposalEndsAt === null) {
       throw new Error('SALES_MEETING canonical duration is required for follow-up fixtures');
@@ -563,7 +590,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
       const suggestion = await service.getFollowUpSuggestion(manager, job.id);
       expect(suggestion).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
       });
@@ -615,8 +642,9 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
   it('D1-3/D1-8: non-visit Sales Meeting kinds submit without recursive proposal requirements', async () => {
     await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      // JOB-008: FOLLOW_UP visits continue the cycle and are covered below.
       for (const [index, engagementKind] of [
-        'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'FOLLOW_UP', 'OTHER',
+        'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'OTHER',
       ].entries() as IterableIterator<[number, JobCardEngagementKind]>) {
         const scheduledAt = new Date('2026-07-31T10:00:00.000Z');
         scheduledAt.setUTCDate(scheduledAt.getUTCDate() - index);
@@ -645,6 +673,99 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
+  it('JOB-008: a POSITIVE Customer Visit proposes a +14-day SYSTEM follow-up', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        outcome: 'POSITIVE',
+        title: 'Olumlu ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Olumlu ziyaret tamamlandı.',
+      });
+      expect(submitted.followUpProposal).toMatchObject({
+        scheduledAt: systemSlotFor(PARENT_SCHEDULED_AT, 14),
+        type: 'SALES_MEETING',
+        assignedTo: staffA.id,
+        origin: 'SYSTEM',
+      });
+    });
+  });
+
+  it('JOB-008: a FOLLOW_UP visit continues the cycle and approval ignores chain length', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, customerId, createInProgressJob,
+    }) => {
+      for (const [index, meeting] of [
+        { outcome: 'POSITIVE' as const, unsuccessfulReason: undefined, days: 14 },
+        { outcome: 'FOLLOW_UP_REQUIRED' as const, unsuccessfulReason: 'CONTACT_NOT_AVAILABLE' as const, days: 7 },
+      ].entries()) {
+        const job = await createInProgressJob({
+          type: 'SALES_MEETING',
+          engagementKind: 'FOLLOW_UP',
+          outcome: meeting.outcome,
+          unsuccessfulReason: meeting.unsuccessfulReason,
+          title: `Takip ziyareti ${index}`,
+          assignedTo: staffA.id,
+          scheduledAt: atBase(-(index + 1) * 3 * HOUR_MS),
+        });
+        // A long-running cycle: ten completed ancestors above this visit.
+        let ancestorId: string | null = null;
+        for (let depth = 0; depth < 10; depth += 1) {
+          const ancestor = (await pool.query<{ id: string }>(
+            `INSERT INTO job_cards (
+               organization_id, type, status, title, customer_id, assigned_to, created_by,
+               source_job_card_id, follow_up_instructions,
+               started_at, staff_completed_at, staff_completed_by,
+               manager_approved_at, manager_approved_by
+             ) VALUES ($1, 'GENERAL_TASK', 'COMPLETED', $2, $3, $4, $5, $6, $7,
+               now(), now(), $4, now(), $5)
+             RETURNING id`,
+            [
+              manager.organizationId, `Önceki halka ${index}-${depth}`, customerId,
+              staffA.id, manager.id, ancestorId, ancestorId === null ? null : 'Takip',
+            ],
+          )).rows[0]!.id;
+          ancestorId = ancestor;
+        }
+        await pool.query(
+          `UPDATE job_cards SET source_job_card_id = $2, follow_up_instructions = 'Takip'
+            WHERE id = $1`,
+          [job.id, ancestorId],
+        );
+        const current = await service.detail(staffA, job.id);
+
+        const submitted = await service.submitForApproval(staffA, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: current.version,
+          note: 'Takip ziyareti tamamlandı.',
+        });
+        expect(submitted.followUpProposal).toMatchObject({
+          scheduledAt: systemSlotFor(job.scheduledAt!, meeting.days),
+          origin: 'SYSTEM',
+        });
+
+        const approved = await service.approve(manager, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        }) as JobCard & { followUpJobCardId: string };
+        expect(approved.status).toBe('COMPLETED');
+        const child = await service.detail(manager, approved.followUpJobCardId);
+        expect(child).toMatchObject({
+          type: 'SALES_MEETING',
+          engagementKind: 'FOLLOW_UP',
+          customerId,
+          scheduledAt: systemSlotFor(job.scheduledAt!, meeting.days),
+        });
+        expect(child.followUpContext).toMatchObject({ sourceJobCardId: job.id });
+      }
+    });
+  });
+
   it('FUP-M2/M3: preserves explicit Staff scheduling as a manually adjusted proposal', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
@@ -652,7 +773,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       const suggestion = await service.getFollowUpSuggestion(staffA, job.id);
       expect(suggestion).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
         followUpInstructions: 'Takip: Kontrol görüşmesi',
@@ -672,7 +793,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
       expect(submitted.status).toBe('WAITING_APPROVAL');
       expect(submitted.followUpProposal).toMatchObject({
-        scheduledAt: PROPOSAL_AT,
+        scheduledAt: SUGGESTION_AT,
         type: 'SALES_MEETING',
         assignedTo: staffA.id,
         origin: 'STAFF_ADJUSTED',
@@ -1360,37 +1481,37 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at, started_at, cancelled_at, cancelled_by, cancel_reason)
          VALUES ($1, 'PRODUCT_DELIVERY', 'CANCELLED', 'İptal teslim', $2, $3, $4, $5, NOW(), NOW(), $4, 'İptal')`,
-        [organizationId, customerId, staffB.id, manager.id, PROPOSAL_AT],
+        [organizationId, customerId, staffB.id, manager.id, SUGGESTION_AT],
       );
       // A GENERAL_TASK for the same Customer on the base day does not block (CSI-4).
       await pool.query(
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at)
          VALUES ($1, 'GENERAL_TASK', 'NEW', 'Uzaktan görev', $2, $3, $4, $5)`,
-        [organizationId, customerId, staffB.id, manager.id, PROPOSAL_AT],
+        [organizationId, customerId, staffB.id, manager.id, SUGGESTION_AT],
       );
       let suggestion = await service.getFollowUpSuggestion(staffA, job.id);
-      expect(suggestion.scheduledAt).toBe(PROPOSAL_AT);
+      expect(suggestion.scheduledAt).toBe(SUGGESTION_AT);
 
       // Another Staff member's ON_SITE job on the base day forces a skip (CSI-1/2/8/9).
       await pool.query(
         `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
            scheduled_at)
          VALUES ($1, 'PRODUCT_DELIVERY', 'NEW', 'Başka personelin teslimi', $2, $3, $4, $5)`,
-        [organizationId, customerId, staffB.id, manager.id, baselineIso(new Date(PROPOSAL_AT), -HOUR_MS)],
+        [organizationId, customerId, staffB.id, manager.id, baselineIso(new Date(SUGGESTION_AT), -HOUR_MS)],
       );
       suggestion = await service.getFollowUpSuggestion(staffA, job.id);
       // The base day is occupied by another Staff's ON_SITE job: the
       // suggestion advances one calendar day at a time, skipping the
       // organization-local Sunday, preserving the wall-clock slot.
-      expect(suggestion.scheduledAt).toBe(PROPOSAL_AT);
+      expect(suggestion.scheduledAt).toBe(SUGGESTION_AT);
       expect(suggestion.evaluation.safeMessage).toBeNull();
       // Staff projection leaks no conflict details (CSI-7).
       expect(suggestion.evaluation.conflicts).toEqual([]);
       expect(suggestion.evaluation.recentVisit).toBeNull();
 
       // Manager receives rich conflict details (CSI-6).
-      const evaluation = await service.getFollowUpSuggestion(manager, job.id, PROPOSAL_AT);
+      const evaluation = await service.getFollowUpSuggestion(manager, job.id, SUGGESTION_AT);
       expect(evaluation.evaluation.level).toBe('CLEAR');
       expect(evaluation.evaluation.conflicts).toEqual([]);
       expect(evaluation.evaluation.suggestedAlternativeAt).toBeNull();
@@ -1448,23 +1569,31 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     await withFixture(async ({
       service, calendar, manager, staffA, createInProgressJob,
     }) => {
+      // Keep this one-hour conflict case away from local midnight. After a
+      // target ending at Sunday 00:00 is blocked, reselection skips to Monday,
+      // so target + 1h is not valid at every DB clock hour. Sunday boundaries have
+      // their own working-day contract tests; the DB clock stays untouched.
+      const parentAt = new Date(BASELINE.getTime() - DAY_MS);
+      parentAt.setUTCHours(10, 0, 0, 0); // 13:00 Europe/Istanbul, already elapsed.
+      const targetAt = targetFor(parentAt.toISOString());
       const job = await createInProgressJob({
         type: 'SALES_MEETING', title: 'Otomatik takip', assignedTo: staffA.id,
+        scheduledAt: parentAt.toISOString(),
       });
       const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: job.version,
         note: 'Görüşme tamamlandı.',
       });
-      expect(submitted.followUpProposal?.scheduledAt).toBe(PROPOSAL_AT);
+      expect(submitted.followUpProposal?.scheduledAt).toBe(targetAt);
 
       await calendar.create(manager, {
         clientActionId: randomUUID(),
         assignedUserId: staffA.id,
         title: 'Sonradan oluşan engel',
         description: null,
-        startsAt: PROPOSAL_AT,
-        endsAt: PROPOSAL_ENDS_AT,
+        startsAt: targetAt,
+        endsAt: baselineIso(new Date(targetAt), HOUR_MS),
         timezone: 'Europe/Istanbul',
       });
 
@@ -1474,10 +1603,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
       // Approval re-runs from the persisted target (not approvalTime + 7d):
-      // the blocked target moves forward one grid slot, never backward,
+      // the target moves past the one-hour blocker, never backward,
       // and never a second +7 days out.
-      expect(child.scheduledAt).toBe(baselineIso(new Date(PROPOSAL_AT), HOUR_MS));
-      expect(child.scheduledEndsAt).toBe(baselineIso(new Date(PROPOSAL_AT), 2 * HOUR_MS));
+      expect(child.scheduledAt).toBe(baselineIso(new Date(targetAt), HOUR_MS));
+      expect(child.scheduledEndsAt).toBe(baselineIso(new Date(targetAt), 2 * HOUR_MS));
     });
   });
 
@@ -1490,11 +1619,14 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
          VALUES ($1, 'İkinci Klinik', 'clinic', 'active') RETURNING id`,
         [organizationId],
       )).rows[0]!.id;
-      // Distinct parent slots one grid hour apart, derived from the DB
-      // baseline: the +7-day targets inherit the parent wall-clock times and
-      // serialize into non-overlapping child slots.
-      const firstParentAt = atBase(-2 * HOUR_MS);
-      const secondParentAt = atBase(-HOUR_MS);
+      // Distinct, already elapsed parent slots one hour apart at fixed
+      // in-window local times (13:00 / 14:00 Europe/Istanbul): the +7-day
+      // targets inherit those wall-clock times and serialize into
+      // non-overlapping child slots at any DB clock hour.
+      const firstParentDate = new Date(BASELINE.getTime() - DAY_MS);
+      firstParentDate.setUTCHours(10, 0, 0, 0);
+      const firstParentAt = firstParentDate.toISOString();
+      const secondParentAt = baselineIso(firstParentDate, HOUR_MS);
       const firstJob = await createInProgressJob({
         type: 'SALES_MEETING', title: 'İlk otomatik takip', assignedTo: staffA.id,
         scheduledAt: firstParentAt,
@@ -1525,10 +1657,12 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         service.detail(manager, firstApproved.followUpJobCardId),
         service.detail(manager, secondApproved.followUpJobCardId),
       ]);
+      // Approval completion order is nondeterministic. Assert the same two
+      // non-overlapping slots regardless of the order Promise.all settles.
       expect(children.map((child) => child.scheduledAt).sort()).toEqual([
         targetFor(firstParentAt),
         targetFor(secondParentAt),
-      ]);
+      ].sort());
     });
   });
 

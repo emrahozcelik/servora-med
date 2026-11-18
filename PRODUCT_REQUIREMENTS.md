@@ -49,6 +49,9 @@ All permissions are enforced by the backend. Hiding an action in the UI is not a
   is offboarded/deactivated instead: active responsibilities are explicitly
   resolved, sessions are revoked, no new assignments are allowed, and the
   historical attribution of jobs, messages, reports, and audit records remains.
+- An offboarded (inactive) Staff user cannot be reactivated; the server rejects
+  it with `OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN`. Admin and Manager users can
+  be deactivated and reactivated.
 - Demo users are deleted only as part of complete Demo dataset purge; they are
   not deleted through the ordinary User endpoint.
 - Self-delete is forbidden, and the last active Admin cannot be deleted or

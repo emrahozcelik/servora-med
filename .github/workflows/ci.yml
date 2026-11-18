@@ -53,6 +53,46 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
+      - name: Persistent bootstrap fence contracts
+        run: node --test ../ops/tests/bootstrap-fence.test.mjs ../ops/tests/bootstrap-fence-reader.test.mjs ../ops/tests/bootstrap-fence-coverage.test.mjs
+      # Fake Docker fixture only (no daemon); exercises the single-run lock
+      # with the runner's own mkdir, whose implementation is logged first.
+      - name: Local CI lock and resource lifecycle contracts
+        run: |
+          mkdir --version | head -n 1
+          node --test ../ops/tests/ci-resource-lifecycle.test.mjs
+      - name: Persistent bootstrap fence isolated Linux acceptance
+        run: |
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_FENCE_CONTAINER_TEST=1 \
+            node:22-bookworm node --test ops/tests/bootstrap-fence-linux.test.mjs
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env SERVORA_R4_ISOLATED_CLI_TEST=1 \
+            node:22-bookworm node --test ops/tests/installed-old-adoption-cli-root.test.mjs
+      - name: Bootstrap sudo quarantine contracts
+        run: node --test ../ops/recovery-tools/bootstrap-delegation-quarantine.test.mjs ../ops/recovery-tools/bootstrap-delegation-quarantine-cli.test.mjs
+      - name: Bootstrap sudo quarantine isolated Linux acceptance
+        run: |
+          docker build --tag "servora-bootstrap-quarantine:$GITHUB_SHA" - < ../ops/recovery-tools/bootstrap-quarantine.Dockerfile
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --workdir /source --env BOOTSTRAP_QUARANTINE_CONTAINER_TEST=1 \
+            "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-delegation-quarantine-linux.test.mjs
+      - name: Bootstrap CLOSED installation and release contracts
+        run: node --test ../ops/recovery-tools/bootstrap-transition.test.mjs ../ops/recovery-tools/bootstrap-transition-host.test.mjs
+      - name: Installed OLD cutover identity and admission separation
+        run: node --test ../ops/tests/installed-old-cutover-attestation.test.mjs ../ops/tests/cutover-attestation-host.test.mjs ../ops/tests/cutover-attestation-faults.test.mjs ../ops/tests/cutover-attestation-cli.test.mjs
+      - name: Bootstrap transition isolated Linux acceptance
+        run: |
+          for scenario in install crash release; do
+            docker run --rm --network none \
+              --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+              --workdir /source --env BOOTSTRAP_TRANSITION_CONTAINER_TEST=1 \
+              --env "BOOTSTRAP_TRANSITION_SCENARIO=$scenario" \
+              "servora-bootstrap-quarantine:$GITHUB_SHA" node --test ops/recovery-tools/bootstrap-transition-linux.test.mjs
+          done
       - name: interrupted RETIRE real adapter RED and GREEN
         run: |
           set -Eeuo pipefail
@@ -80,6 +120,7 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
             ../ops/scripts/issue-installed-old-adoption.sh \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
@@ -99,11 +140,23 @@ jobs:
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
             ../ops/launchd/run-backup-worker.sh.example \
-            ../ops/launchd/run-alerting.sh.example
+            ../ops/launchd/run-alerting.sh.example \
+            ../ops/recovery-tools/profile-reseal \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
+            ../ops/recovery-tools/bootstrap-transition
           node --check ../ops/scripts/backup-observation.mjs
+          node --check ../ops/scripts/bootstrap-fence.mjs
           node --check ../ops/scripts/backup-observation-writer.mjs
           node --check ../ops/scripts/migration-state.mjs
           node --check ../ops/scripts/migration-reconciliation.mjs
+          node --check ../ops/recovery-tools/profile-reseal.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine-host.mjs
+          node --check ../ops/recovery-tools/bootstrap-delegation-quarantine.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition.mjs
+          node --check ../ops/recovery-tools/bootstrap-transition-host.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e-fixture.mjs
+          node --check ../ops/recovery-tools/profile-reseal-e2e.test.mjs
           node --check ../web/scripts/production-browser-smoke.mjs
       - name: shellcheck ops scripts
         run: |
@@ -117,7 +170,12 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/deploy-production.sh \
             ../ops/scripts/deploy-production-host.sh \
+            ../ops/scripts/bootstrap-fence.sh \
+            ../ops/recovery-tools/profile-reseal \
             ../ops/scripts/issue-installed-old-adoption.sh \
+            ../ops/recovery-tools/bootstrap-delegation-quarantine \
+            ../ops/recovery-tools/attest-installed-old-cutover-67d3318 \
+            ../ops/recovery-tools/bootstrap-transition \
             ../ops/scripts/issue-installed-old-adoption-67d3318.sh \
             ../ops/scripts/issue-historical-recovery-disposition-6ce4cff0.sh \
             ../ops/scripts/stage-historical-recovery-6ce4cff0.sh \
@@ -220,10 +278,11 @@ jobs:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
           PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
           PSQL_BIN: /usr/lib/postgresql/17/bin/psql
-      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs
+      - run: node --test ../ops/tests/trusted-time.test.mjs ../ops/tests/restricted-chrony-reader.test.mjs ../ops/tests/trusted-approval.test.mjs ../ops/tests/installed-old-adoption.test.mjs ../ops/tests/installed-old-adoption-67d3318.test.mjs ../ops/tests/historical-recovery-disposition.test.mjs ../ops/tests/historical-archive-preflight.test.mjs ../ops/tests/historical-archive-stage.test.mjs ../ops/tests/historical-stage-readback.test.mjs ../ops/tests/historical-in-place-preservation.test.mjs ../ops/tests/recovery-doc-contract.test.mjs ../ops/tests/installed-old-adoption-tools.test.mjs ../ops/tests/deploy-workflow-runner.test.mjs ../ops/tests/github-ci-evidence.test.mjs ../ops/recovery-tools/profile-reseal.test.mjs ../ops/recovery-tools/profile-reseal-failures.test.mjs ../ops/recovery-tools/profile-reseal-cli.test.mjs ../ops/recovery-tools/profile-reseal-lock.test.mjs ../ops/recovery-tools/packaging-exclusion.test.mjs ../ops/recovery-tools/profile-reseal-wrapper.test.mjs ../ops/recovery-tools/profile-reseal-e2e.test.mjs
       - name: forward-only contract and adapter regressions
         run: node --test ../ops/tests/forward-transition.test.mjs ../ops/tests/forward-host.test.mjs ../ops/tests/forward-host-recovery.test.mjs ../ops/tests/forward-continuity.test.mjs
-      - run: npm audit --audit-level=high
+      - name: Security audit (production strict; temporary picomatch dev exception)
+        run: node ../web/scripts/audit-high-policy.mjs --workspace server
 
   web:
     # Playwright 1.55.1 has browser/dependency builds for Ubuntu 24.04.
@@ -247,12 +306,37 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run smoke:production-dist
       - run: npm run smoke:responsive
+      - name: Overdue six-row pagination visual acceptance
+        run: node scripts/overdue-pagination-smoke.mjs
+        env:
+          OVERDUE_CAPTURE_DIR: ${{ runner.temp }}/servora-overdue-ui
+      - name: Upload overdue visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overdue-visual-${{ github.sha }}
+          path: ${{ runner.temp }}/servora-overdue-ui/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: People lifecycle rendered UI acceptance
+        run: node scripts/people-lifecycle-ui-smoke.mjs
+        env:
+          PEOPLE_CAPTURE_DIR: ${{ runner.temp }}/servora-people-ui
+      - name: Upload people lifecycle UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: servora-people-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/servora-people-ui/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Reports overview and staff browser acceptance
         run: node scripts/reports-ui-smoke.mjs
         env:
           REPORTS_CAPTURE_DIR: ${{ runner.temp }}/servora-reports-ui
       - run: node scripts/follow-up-dialog-geometry.mjs
-      - run: npm run audit:high
+      - name: Security audit (production strict; temporary picomatch dev exception)
+        run: npm run audit:high
 
   release-package:
     name: release-package

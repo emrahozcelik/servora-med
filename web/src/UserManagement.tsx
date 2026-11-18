@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import {
-  changeUserRole, createUser, getUser, listUsers,
+  activateUser, changeUserRole, createUser, deactivateUser, getUser, listUsers,
   permanentlyDeleteUser, resetUserPassword, updateUser, type ManagedUser, type ManagedUserDetails,
 } from './services/people-api';
 import {
@@ -14,11 +14,15 @@ import {
   validateNewPasswordPolicy,
 } from './ui/password-policy';
 import { PageHeader } from './ui/PageHeader';
+import { ConfirmationAction } from './ui/antd/ConfirmationAction';
 import { useSetRouteRuntimeLabel } from './shell/resolved-identity';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import type { CurrentUser } from './services/api';
+import { PeopleStatusFilterTabs, type PeopleStatusFilter } from './ui/PeopleStatusFilterTabs';
+import { ServoraListPagination } from './ui/antd/ServoraPagination';
+import { DEFAULT_LIST_PAGE_SIZE, lastListPageOffset } from './ui/pagination';
 import { StaffOffboardingWorkflow } from './people/StaffOffboardingWorkflow';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
@@ -35,19 +39,27 @@ function openCardIfEmpty(
 export function UserListView({ users, onCreate, onOpen, notice }: {
   users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void; notice?: string;
 }) {
+  const [statusFilter, setStatusFilter] = useState<PeopleStatusFilter>('active');
+  const [pageOffset, setPageOffset] = useState(0);
+  const visibleUsers = users.filter((item) => statusFilter === 'all' || item.isActive === (statusFilter === 'active'));
+  const boundedOffset = Math.min(pageOffset, lastListPageOffset(visibleUsers.length));
   return <main className="workspace"><PageHeader eyebrow="Yönetim" fallbackTitle="Kullanıcılar"
     actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button>} />
     {notice && <div className="success-message" role="status">{notice}</div>}
+    {users.length > 0 && <PeopleStatusFilterTabs value={statusFilter} onChange={(next) => { setPageOffset(0); setStatusFilter(next); }} label="Kullanıcı durumu" />}
     {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
-      : <ul className="people-list">{users.map((user) => <li key={user.id}>
+      : visibleUsers.length === 0 ? <EmptyState title={statusFilter === 'active' ? 'Aktif kullanıcı yok' : 'Pasif kullanıcı yok'}
+        description={statusFilter === 'active' ? 'Pasif kullanıcıları görmek için Pasif veya Tümü seçin.' : 'Pasif kullanıcı bulunmuyor.'} />
+      : <ul className="people-list">{visibleUsers.slice(boundedOffset, boundedOffset + DEFAULT_LIST_PAGE_SIZE).map((user) => <li key={user.id}>
         <article className="people-row people-list-card" data-user-id={user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, user.id)}>
           <div className="people-identity">
             <h2><Link className="people-title-link" to={paths.user(user.id)}>{user.name}</Link></h2>
-            <p>{user.email} · {roleLabel[user.role]}{user.isActive ? '' : ' · Devre dışı'}</p>
+            <p>{user.email} · {roleLabel[user.role]}{user.isActive ? '' : ' · Pasif'}</p>
           </div>
         </article>
       </li>)}</ul>}
+    <ServoraListPagination total={visibleUsers.length} offset={boundedOffset} label="Kullanıcı sayfaları" itemName="kullanıcı" onOffsetChange={setPageOffset} />
   </main>;
 }
 
@@ -120,6 +132,11 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
 }) {
   const [user, setUser] = useState<UserDetailRecord>(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [deletePending, setDeletePending] = useState(false);
+  const [lifecyclePending, setLifecyclePending] = useState(false);
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const lifecycleBusy = useRef(false);
+  const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   async function run(action: () => Promise<ManagedUser>, message: string) {
     setError('');
     try {
@@ -127,6 +144,18 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
       const merged = { ...user, ...next };
       setUser(merged); onChanged(merged); setNotice(message);
     } catch (e) { setError(e instanceof Error ? e.message : 'İşlem tamamlanamadı.'); }
+  }
+  async function runLifecycle(action: () => Promise<ManagedUser>, message: string) {
+    if (lifecycleBusy.current) return;
+    lifecycleBusy.current = true;
+    setLifecyclePending(true);
+    try { await run(action, message); }
+    finally { lifecycleBusy.current = false; setLifecyclePending(false); }
+  }
+  async function confirmDeactivate() {
+    if (lifecycleBusy.current || !deactivateOpen || !canDeactivate) return;
+    await runLifecycle(() => deactivateUser(user.id, user.version), 'Kullanıcı devre dışı bırakıldı.');
+    setDeactivateOpen(false);
   }
   async function permanentlyDelete() {
     if (user.canPermanentlyDelete !== true || deletePending) return;
@@ -137,10 +166,12 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
     finally { setDeletePending(false); }
   }
   const deleteUnavailable = permanentDeleteUnavailableMessage(user);
+  const canDeactivate = viewer.role === 'ADMIN' && user.role !== 'STAFF' && user.isActive && viewer.id !== user.id;
+  const canReactivate = viewer.role === 'ADMIN' && user.role !== 'STAFF' && !user.isActive;
   return <main className="people-form"><PageHeader eyebrow="Kullanıcı" fallbackTitle={user.name} />
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <section><h2>Temel bilgiler</h2><form onSubmit={(e) => { e.preventDefault(); const name = String(new FormData(e.currentTarget).get('name') ?? ''); void run(() => updateUser(user.id, { expectedVersion: user.version, name }), 'Ad güncellendi.'); }}>
-      <Field id="detail-name" label="Ad soyad"><input id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
+      <Field id="detail-name" label="Ad soyad"><input ref={nameInputRef} id="detail-name" name="name" defaultValue={user.name} required /></Field><button className="primary-button">Bilgileri kaydet</button></form></section>
     <section className="security-section"><h2>Rol ve erişim</h2>{user.role !== 'STAFF' && <form onSubmit={(e) => { e.preventDefault(); const role = String(new FormData(e.currentTarget).get('role')) as 'ADMIN' | 'MANAGER'; void run(() => changeUserRole(user.id, { expectedVersion: user.version, role }), 'Rol güncellendi.'); }}>
       <Field id="detail-role" label="Rol"><select id="detail-role" name="role" defaultValue={user.role}><option value="ADMIN">Sistem yöneticisi</option><option value="MANAGER">Yönetici</option></select></Field><button className="primary-button">Rolü değiştir</button></form>}
       <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); const policyIssue = validateNewPasswordPolicy(temporaryPassword); if (policyIssue) { setError(newPasswordPolicyMessage(policyIssue)); return; } if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
@@ -156,6 +187,22 @@ export function UserDetailView({ user: initial, viewer, onChanged, onDeleted, st
             setUser(inactive); onChanged(inactive);
           });
         }} />}
+      {canDeactivate && <button ref={deactivateTriggerRef} className="secondary-button command-button" type="button"
+        disabled={lifecyclePending} aria-busy={lifecyclePending}
+        onClick={() => { if (!lifecycleBusy.current) setDeactivateOpen(true); }}>Devre dışı bırak</button>}
+      <ConfirmationAction open={deactivateOpen && canDeactivate}
+        title="Kullanıcı devre dışı bırakılsın mı?"
+        description="Bu kullanıcının tüm aktif oturumları kapatılacak. Gerektiğinde yeniden etkinleştirilebilir."
+        confirmLabel="Devre dışı bırak" pending={lifecyclePending} destructive
+        pendingLabel="Devre dışı bırakılıyor…"
+        onConfirm={() => void confirmDeactivate()}
+        onCancel={() => setDeactivateOpen(false)}
+        returnFocusRef={deactivateTriggerRef} fallbackFocusRef={nameInputRef} />
+      {canReactivate && <button className="secondary-button command-button" type="button" disabled={lifecyclePending} aria-busy={lifecyclePending}
+        onClick={() => void runLifecycle(() => activateUser(user.id, user.version), 'Kullanıcı yeniden etkinleştirildi.')}>Yeniden etkinleştir</button>}
+      {user.role === 'STAFF' && !user.isActive && <div className="lifecycle-notice" role="status">
+        Bu personel ayrıldı ve yeniden etkinleştirilemez.
+      </div>}
       {viewer.role === 'ADMIN' && user.canPermanentlyDelete === true && <div className="danger-command-section">
         <h3>Kalıcı kullanıcı silme</h3>
         <p>Bu işlem yalnızca operasyon geçmişi olmayan gerçek kullanıcılar için kullanılabilir. Bu işlem geri alınamaz.</p>

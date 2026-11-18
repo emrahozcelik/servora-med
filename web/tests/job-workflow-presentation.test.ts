@@ -75,22 +75,35 @@ function jobAt(status: JobCardStatus, lifecycle: JobLifecycleFacts) {
 }
 
 describe('deriveJobWorkflowPresentation', () => {
-  it('requires a proposal only for unsuccessful CUSTOMER_VISIT sales meetings', () => {
-    expect(requiresMandatoryFollowUpProposal({
-      type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
-    }, { outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER' })).toBe(true);
-    expect(requiresMandatoryFollowUpProposal({
-      type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
-    }, { outcome: 'POSITIVE', unsuccessfulReason: null })).toBe(false);
+  it('requires a proposal for POSITIVE or unsuccessful visit-cycle sales meetings (JOB-008)', () => {
+    for (const engagementKind of ['CUSTOMER_VISIT', 'FOLLOW_UP'] as const) {
+      const job = { type: 'SALES_MEETING' as const, engagementKind };
+      expect(requiresMandatoryFollowUpProposal(job, {
+        outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+      })).toBe(true);
+      expect(requiresMandatoryFollowUpProposal(job, {
+        outcome: 'POSITIVE', unsuccessfulReason: null,
+      })).toBe(true);
+      expect(requiresMandatoryFollowUpProposal(job, {
+        outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: null,
+      })).toBe(false);
+      for (const outcome of ['NO_DECISION', 'NOT_INTERESTED'] as const) {
+        expect(requiresMandatoryFollowUpProposal(job, { outcome, unsuccessfulReason: null })).toBe(false);
+      }
+      expect(requiresMandatoryFollowUpProposal(job)).toBe(false);
+    }
     for (const input of [
       { type: 'SALES_MEETING' as const, engagementKind: 'TRAINING' as const },
       { type: 'SALES_MEETING' as const, engagementKind: 'PRODUCT_DEMO' as const },
-      { type: 'SALES_MEETING' as const, engagementKind: 'FOLLOW_UP' as const },
+      { type: 'SALES_MEETING' as const, engagementKind: 'SALES_MEETING' as const },
       { type: 'SALES_MEETING' as const, engagementKind: 'OTHER' as const },
       { type: 'GENERAL_TASK' as const, engagementKind: null },
       { type: 'PRODUCT_DELIVERY' as const, engagementKind: null },
     ]) {
       expect(requiresMandatoryFollowUpProposal(input)).toBe(false);
+      expect(requiresMandatoryFollowUpProposal(input, {
+        outcome: 'POSITIVE', unsuccessfulReason: null,
+      })).toBe(false);
     }
   });
 
@@ -385,6 +398,19 @@ describe('deriveJobWorkflowPresentation', () => {
     expect(visit.primaryTransition?.confirmation?.details).toContain(
       'Takip işi planı işle birlikte yöneticiye iletilir',
     );
+    const positiveFollowUp = derive(jobWith({
+      type: 'SALES_MEETING',
+      engagementKind: 'FOLLOW_UP',
+      status: 'IN_PROGRESS',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL'],
+      }),
+    }), staff, {
+      jobCardId: 'job-1', meetingAt: '2026-07-17T10:00:00.000Z',
+      outcome: 'POSITIVE', unsuccessfulReason: null,
+      meetingSummary: 'Olumlu görüşme.', nextFollowUpAt: null, jobCardVersion: 1,
+    });
+    expect(positiveFollowUp.primaryTransition?.consequence).toContain('Takip işi planı zorunludur.');
 
     for (const job of [
       jobWith({ type: 'PRODUCT_DELIVERY', engagementKind: null }),

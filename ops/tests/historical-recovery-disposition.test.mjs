@@ -415,13 +415,13 @@ test('a complete record that claims terminal success is rejected',async t=>{
     /RECOVERY_HISTORICAL_ARCHIVE/);
 });
 
-test('OPS-R4-002 issuance calls the archive gate before any adoption publication',async t=>{
+test('OPS-R4-002 issuance calls the historical preservation gate before any adoption publication',async t=>{
   const f=adoptionFixture();
   const host=await adoptionHost(f);
   t.after(host.cleanup);
   for(const name of ['attempts','initializations','admission-proofs','backups','logs'])host.directories.set(STATE+'/'+name,0o700);
   assert.throws(()=>host.controller.issueInstalledOldAdoption67d3318(
-    f.context.approval.attemptId,f.baseline.baselineId),/RECOVERY_HISTORICAL_(ARCHIVE|DISPOSITION)/);
+    f.context.approval.attemptId,f.baseline.baselineId),/RECOVERY_HISTORICAL_(ARCHIVE|DISPOSITION|PRESERVATION)/);
   assert.equal(host.files.has(STATE+'/installed-old-adoption-67d3318.json'),false);
 });
 

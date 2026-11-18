@@ -4,6 +4,7 @@
  * Pure orchestration and evidence validators also run against synthetic ports;
  * this CLI always constructs the real Linux adapter below. */
 import {createHash, randomUUID} from 'node:crypto';
+import {assertBootstrapManagementAllowed} from './bootstrap-fence.mjs';
 import {constants, existsSync, lstatSync, fstatSync, openSync, closeSync, fsyncSync,
   readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync, unlinkSync,
   mkdirSync, renameSync, symlinkSync, fchmodSync, fchownSync} from 'node:fs';
@@ -47,7 +48,7 @@ export const TOOL_FILES = Object.freeze([
   'forward-host.mjs', 'forward-host-driver.mjs', 'forward-host-storage.mjs', 'forward-host-evidence.mjs',
   'forward-host-probe.mjs', 'forward-host-recovery.mjs', 'forward-host-continuity.mjs',
   'forward-transition.mjs', 'emergency-handoff.mjs',
-  'migration-reconciliation.mjs', 'deployment-db-guard.mjs', 'trusted-time.mjs', 'required-checks.txt',
+  'migration-reconciliation.mjs', 'deployment-db-guard.mjs', 'trusted-time.mjs', 'bootstrap-fence.mjs', 'required-checks.txt',
 ]);
 const UNIT_NAME = 'servora-med.service';
 const HEAD = '060_crm_duplicate_review_decisions';
@@ -985,10 +986,15 @@ async function main() {
   if (process.argv.length !== 3) fail('FORWARD_HOST_ARGUMENTS_INVALID');
   if (command === 'start-gate') { await startGate(); return; }
   if (!['preflight', 'status', 'apply', 'smoke', 'observe', 'finish', 'recover', 'recovery-status'].includes(command)) fail('FORWARD_HOST_COMMAND_INVALID');
+  const readOnly = ['preflight', 'status', 'recovery-status'].includes(command);
+  if (!readOnly) assertBootstrapManagementAllowed('forward');
   verifyTool(); checkDirectory(PATHS.root);
   const a = protectedJson(PATHS.root + '/authorization.json'); validateForwardAuthorizationStructure(a);
-  const readOnly = ['preflight', 'status', 'recovery-status'].includes(command);
-  if (!readOnly) lockedReexec([command]);
+  if (!readOnly) {
+    assertBootstrapManagementAllowed('forward', a.attemptId);
+    lockedReexec([command]);
+    assertBootstrapManagementAllowed('forward', a.attemptId);
+  }
   // Artifact, CI, import closure and authority checks precede loading even
   // service-UID candidate dependencies with access to the database credential.
   let guardedCheck = async () => {};
@@ -1024,6 +1030,6 @@ async function main() {
   process.stdout.write(canonical(result));
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => {
-  process.stderr.write((/^(?:FORWARD_HOST|FORWARD_TRANSITION|EMERGENCY_HANDOFF|RECOVERY|ATTEMPT|TRUSTED_TIME)_[A-Z_]+$/.test(error.message) ? error.message : 'FORWARD_HOST_FAILED') + '\n');
+  process.stderr.write((/^(?:BOOTSTRAP_FENCE|FORWARD_HOST|FORWARD_TRANSITION|EMERGENCY_HANDOFF|RECOVERY|ATTEMPT|TRUSTED_TIME)_[A-Z_]+$/.test(error.message) ? error.message : 'FORWARD_HOST_FAILED') + '\n');
   process.exitCode = 1;
 });

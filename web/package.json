@@ -16,7 +16,7 @@
     "acceptance:r2b-demo-data": "node scripts/r2b-demo-data-acceptance.mjs",
     "acceptance:r3b-invalidation": "node scripts/r3b-jobcard-invalidation-acceptance.mjs",
     "acceptance:r4b-offboarding": "node scripts/r4b-staff-offboarding-acceptance.mjs",
-    "smoke:responsive": "node scripts/responsive-smoke.mjs && node scripts/calendar-responsive-smoke.mjs && node scripts/jobs-control-surface-geometry.mjs && node scripts/shell-brand-geometry.mjs && node scripts/weekly-report-question-geometry.mjs && node scripts/weekly-report-detail-layout.mjs && node scripts/job-detail-spacing-geometry.mjs",
+    "smoke:responsive": "node scripts/responsive-smoke.mjs && node scripts/calendar-responsive-smoke.mjs && node scripts/jobs-control-surface-geometry.mjs && node scripts/shell-brand-geometry.mjs && node scripts/weekly-report-question-geometry.mjs && node scripts/weekly-report-detail-layout.mjs && node scripts/job-detail-spacing-geometry.mjs && node scripts/focus-target-geometry.mjs",
     "smoke:weekly-report": "node scripts/weekly-report-question-geometry.mjs && node scripts/weekly-report-detail-layout.mjs",
     "smoke:shell": "node scripts/shell-brand-geometry.mjs",
     "smoke:production-dist": "node scripts/production-dist-smoke.mjs",
@@ -39,7 +39,7 @@
     "jsdom": "28.1.0",
     "playwright": "^1.55.1",
     "typescript": "5.9.3",
-    "vite": "8.1.6",
-    "vitest": "4.1.11"
+    "vite": "8.1.7",
+    "vitest": "4.1.12"
   }
 }

@@ -54,11 +54,22 @@ export function RouteNavigationProvider({
   }
   const ancestorLabels = ancestorState.scopeKey === scopeKey ? (ancestorState.labels ?? {}) : {};
 
+  // Stable per scope: pages call this from effects that list it as a
+  // dependency, so its identity must not change when labels change (F-01).
+  // An unchanged merge keeps the previous state object, so React bails out.
   const setAncestorLabels = useCallback(
     (labels: AncestorLabels) => {
-      setAncestorState({ scopeKey, labels: { ...(ancestorState.labels ?? {}), ...labels } });
+      setAncestorState((previous) => {
+        const base = previous.scopeKey === scopeKey ? (previous.labels ?? {}) : {};
+        const merged: AncestorLabels = { ...base, ...labels };
+        const unchanged = previous.scopeKey === scopeKey
+          && previous.labels !== undefined
+          && Object.keys(merged).length === Object.keys(base).length
+          && (Object.keys(merged) as (keyof AncestorLabels)[]).every((key) => merged[key] === base[key]);
+        return unchanged ? previous : { scopeKey, labels: merged };
+      });
     },
-    [scopeKey, ancestorState.labels],
+    [scopeKey],
   );
 
   const value = useMemo<RouteNavigationValue>(() => {

@@ -2437,3 +2437,321 @@ No physical deletion, historical reassignment, terminal reopening or general
 Admin permission expansion is authorized.
 
 Contract: [Admin Weekly Report removal](docs/features/weekly-report-removal.md).
+
+## OPS-B1-001 — Persistent bootstrap management fence
+
+Status: Owner-authorized B1-01 source implementation and synthetic testing scope,
+2026-11-12. Draft PR/security review and exact-head hosted CI remain gates.
+Production installation, first activation and release are not authorized.
+
+The accepted A+ direction adds a durable, root-owned, hash-bound management
+fence alongside the existing stable host lock. Missing, closed or uncertain
+state refuses normal management. Process death, elapsed time and reboot do not
+release it. RELEASED requires separate owner authority and verified tooling,
+profile and host evidence; it is only a prerequisite to existing R4/forward/
+emergency authorizations. Attempt-less deployment, legacy rollback and legacy
+in-place restore on an installed production host remain disabled after release.
+
+The fence does not alter ordinary application runtime, scheduled backup, TT-A
+collection, historical OPS-R4-002/003/005/006 meanings, re-seal behavior or
+adoption policy. Root deliberately overriding management policy is outside its
+threat model. Old tools require separately reviewed durable delegation quarantine
+and quiescence before the first canonical tool write; a new marker or flock
+alone does not protect that initial window. B1-01 supplies no production
+record/release writer and no production sudoers/systemd change.
+
+Contract, source inventory, first-activation prerequisites and evidence limits:
+[B1-01 persistent bootstrap fence](docs/operations/b1-01-persistent-bootstrap-fence.md).
+
+## OPS-B1-002 — Observed deployment-account sudo quarantine
+
+Status: source implementation/review scope following the owner's 2026-11-13
+authorization to retain a production backup and continue toward migration 061.
+This entry authorizes no production permission change, installation or release.
+
+Read-only host evidence shows four sudoers files grant direct application,
+backup and Caddy management in addition to the helper. The single-helper
+candidate in OPS-B1-001 is therefore insufficient on this host. A narrow
+root-only component can replace those four exact policies with comment-only
+files only after all originals pass the supported simple positive-grant grammar.
+Restrictive rules, includes, aliases, Defaults and unsupported syntax refuse
+before reservation; hash-bound owner authority alone cannot override that
+check. This is not a general monotonicity claim for arbitrary sudoers policy.
+The operation runs under independent hash-bound owner authority, retaining all
+original bytes and refusing uncertain/repeated operations. Its receipt proves
+sudo closure only, never all-route closure, CLOSED, RELEASED or install/deploy
+authority. Existing application runtime, scheduled backup, historical recovery,
+profile and adoption contracts stay in force. The full B1-02 installer/release
+and adoption interruption work remain open.
+
+Contract: [B1-02 deployment-account sudo quarantine](docs/operations/b1-02-delegation-quarantine.md).
+
+## OPS-B1-003 — Separate CLOSED installation and RELEASED issuance
+
+Status: owner-authorized source implementation/review scope following PR #436's
+merge on 2026-11-13 and the request to continue the remaining A+ components.
+Production installation, activation, delegation changes and deployment remain
+unauthorized. No historical recovery or profile re-seal policy is superseded.
+
+A separately provisioned root-only transition CLI consumes a hash-bound
+installation manifest and independent owner permission. The four-policy sudo
+receipt is insufficient: a separate same-boot operator authorization must bind
+all-route quarantine, independently usable root access and drained management
+processes. These are protected operator attestations, not automatically inferred
+Linux facts or caller-supplied verification flags. The CLI never issues them.
+
+Before canonical tools change, the writer durably retains originals and
+publishes the existing B1-01 CLOSED/manifest envelopes. Partial installation
+remains externally quarantined and CLOSED; uncertain state refuses replay,
+repair and rollback. Content-addressed toolsets remain immutable inputs owned
+by their existing factory. Runtime, scheduled backup, shared 0755 libexec,
+current release, profile and historical sources are preserved.
+
+Release uses a different owner authorization and fresh phase-specific evidence.
+The private external permission and operator witnesses bind the operation phase
+and a review UUID; release requires a distinct review UUID and the completed
+installation receipt hash. Copying installation permission cannot grant release.
+It rechecks the eight existing conditions, including all nine profile contract
+hashes and the canonical TT-A v2 reader, before publishing RELEASED last.
+Installation authority cannot authorize release. No sudo grant, approval,
+adoption, backup, migration or deployment is issued by either operation.
+Existing approval/attempt gates and disabled legacy mutation paths remain in
+force after release. The B1-01 record schemas and accepted guard states are
+unchanged; manifest validation and check names are shared with the producer.
+
+Producer protocol, attestation boundaries and remaining production gates:
+[B1-02 transition writer](docs/operations/b1-02-bootstrap-transition.md).
+
+## OPS-B1-004 — Separate installed-OLD plan evidence from execution authority
+
+Status: owner accepted the identity/plan versus time-limited approval separation
+on 2026-11-14; source implementation and Draft PR review scope only. No production
+installation, issuance, backup, bootstrap, migration or deployment is authorized.
+
+For the future, unused OPS-R4-002 `67d3318` recovery path, a distinct permanent
+root-only cutover attestation can bind the immutable OLD/baseline, exact TARGET/
+tree/artifact/catalog/CI, host profile/database identity and scope ceilings. It
+is explicitly `IDENTITY_AND_PLAN_ONLY_NOT_EXECUTION`. It neither grants execution
+nor extends, rewrites or renews an approval. Existing OPS-R4-001 and grant-bound
+OPS-R4-002 records keep their original same-grant-only semantics. They cannot be
+converted; a legacy OPS-R4-002 record and this new attestation cannot coexist.
+
+Before any admission footprint exists, a newly issued genuine root approval may
+use that same fixed plan after expiry or reboot. Its own current TT-A evidence,
+maximum 24-hour TTL and full 3600-second admission window remain mandatory.
+Scope/budget ceilings may narrow, never widen. The unchanged exact historical
+preservation gate proves no new attempt/initializer/proof/backup/log or pending
+operation, under the same stable host lock, before initialization writes.
+
+Confirmed admission consumes the exception even with zero starts. Only the
+same UUID and unchanged approval may continue through the existing confirmed
+attempt protocol; terminal/abort or missing active-owner state does not reset
+the exception. Unconfirmed or torn admission refuses automatic continuation
+under this exception and cannot be bypassed with another approval. No new
+claim/succession journal or general renewal protocol is introduced.
+
+This narrowly supersedes the same-grant-only requirement **only for the new
+attestation kind and unused path**, not for any already sealed adoption. All
+original/recovered provenance pins, historical OPS-R4-003/005/006 meanings,
+bootstrap fence, re-seal and current admission budgets remain unchanged.
+
+Contract and evidence limits:
+[B1-03 cutover attestation](docs/operations/b1-03-cutover-attestation.md).
+
+## OPS-DEPLOY-001 — Single approved production deployment workflow
+
+Status: owner explicitly selected the single approved flow ("Tek onaylı akış")
+on 2026-11-16. Source implementation, focused tests and Draft PR review only.
+No production dispatch, approval, attestation, admission, migration, backup,
+host helper/profile change or deployment is authorized by this record.
+
+- `.github/workflows/deploy-production.yml` has exactly one deployment path.
+  Every workflow release requires `deploy_sha`, a previously issued genuine
+  root-owned approval UUID (`attempt_id`), and the exact successful exact-main
+  `ci_run_id`; it always downloads the prebuilt
+  `servora-med-release-<sha>` artifact and its `.sha256` sidecar before any
+  transfer.
+- The advertised `allow_migrations=false` workflow branch and its `inputs`
+  boolean are removed. A migration denial is never translated into the route
+  selector: an approval whose exact catalog has no pending SQL is the ordinary
+  same-catalog release, and a pending migration without matching approval stops
+  at the host migration gate. No workflow deployment omits the attempt, CI, or
+  artifact scope.
+- The surviving invocation always passes `--allow-migrations`, which selects
+  the existing guarded attempt-bound host route. It is not an approval.
+  Permitted SQL remains bounded by the genuine root approval's exact catalogs;
+  an identical catalog applies zero SQL. `PREFIX_WITH_PENDING` still requires
+  that approval, and divergent/ahead/duplicate/invalid catalogs still stop.
+- Root issuance remains separate and per deployment, binding the exact SHA and
+  tree, catalog, CI run/digest, artifact and host profile. The workflow creates
+  no approval, renewal, force/skip switch or broader host privilege.
+- Unchanged: TT-A/Chrony/NTS bootstrap, the 24-hour approval TTL, admission
+  window and start budgets; host helper/controller/guard/lock/time modules;
+  `ops/deploy-production.sh` runtime logic; migrations; systemd units; bootstrap
+  manifest/profile schema; the local operator path; and the manual `production`
+  environment reviewer gate.
+- The OPS-R4-002 `67d3318` installed-OLD cutover attestation remains a one-time
+  identity/plan record for the missing-original-artifact case. It is not a
+  workflow input and does not create another deployment mode.
+
+This supersedes only the workflow's advertised migration-false branch. Earlier
+local/operator `allow_migrations`/`--allow-migrations` semantics are otherwise
+unchanged. Owning runbook:
+[docs/operations/production-deployment.md](docs/operations/production-deployment.md).
+
+## U3-A — Offboarded Staff cannot be reactivated
+
+Status: accepted by the owner on 2026-11-17 ("Ayrılan personel yeniden
+etkinleştirilemez"). Extends the U3 User/Staff lifecycle record; earlier
+records are not rewritten.
+
+- An inactive `STAFF` user is by construction an offboarded one: generic
+  deactivation of Staff is already rejected with `OFFBOARDING_REQUIRED`, so the
+  only path to an inactive Staff user is the offboarding flow.
+- `activate` on an inactive `STAFF` user is rejected with
+  `409 OFFBOARDED_STAFF_REACTIVATION_FORBIDDEN`. No state change and no audit
+  event occur. Activating an already-active user stays an idempotent no-op.
+- Activation and deactivation of `ADMIN` and `MANAGER` users are unchanged.
+- No schema change and no migration: the rule is derived from `role` and
+  `is_active`. Offboarding behavior is unchanged.
+- User email uniqueness is unchanged, so a returning person's old email stays
+  bound to the historical account; the historical account is not reused.
+- UI: the Admin user detail offers deactivate/reactivate only for non-Staff
+  users and shows a notice instead of a reactivate command for inactive Staff.
+  The user list and the Admin staff directory filter Aktif / Pasif / Tümü.
+  The backend remains the authority.
+
+## SEC-2026-11-18 — Expiring dev-only picomatch GHSA exception
+
+Status: **owner-approved 18 November 2026**, conditional, temporary, and
+**automatically expires after 2 December 2026 (Europe/Istanbul)**. This
+decision does not assert vulnerability remediation. It changes only the
+GitHub CI security-audit acceptance gate, not production or deploy authority.
+
+- Exception identity: the single HIGH-severity npm advisory
+  `https://github.com/advisories/GHSA-fc5q-39xc-vjpf` affecting `picomatch`
+  and its explicitly verified transitive-only HIGH descendants.
+- Allowlisted dependency *chain* is restricted to `picomatch`, `fdir`,
+  `tinyglobby`, `vite`, `vitest`, `@vitest/mocker` and
+  `@vitejs/plugin-react`; no other advisory or HIGH/CRITICAL finding is
+  accepted, even on one of these packages.
+- Each high-severity entry MUST prove an unbroken string-`via` path to the
+  exact picomatch GHSA and `dev: true` in the repository lockfile. The
+  picomatch root MUST have exactly one direct advisory. Unexpected `via`
+  objects, broken/missing paths, cycles, malformed audit metadata, missing
+  package markers and non-dev production copies fail closed.
+- **Both web and server production audits remain strict:** a separate
+  `npm audit --omit=dev --json` is evaluated without any exception, with no
+  HIGH/CRITICAL allowed. The existing release packaging and dependency
+  smoke are not relaxed.
+- The start boundary is `2026-11-18T00:00:00+03:00`; the exact
+  expiry is `2026-12-03T00:00:00+03:00`. Unusable clock/expiry fails.
+- The audit emits a prominent `PASS WITH TEMPORARY SECURITY EXCEPTION`
+  rather than claiming an all-clean audit. The residual risk includes CI
+  tooling's handling of repository-controlled glob patterns.
+- On the first published upstream patch, update both lockfiles and delete the
+  exception. New/high critical advisories, production exposure, or expiry
+  must stop CI; a renewal requires separate explicit owner approval.
+- Owner authorized **only the narrow policy change**. PR #444 remains Draft
+  until exact-head CI and independent security review pass; PR #441 is separate.
+  Neither PR is implicitly approved for merge or deployment.
+
+Evidence, test matrices and implementation:
+[Security maintenance / approved exception](docs/evidence/security-dependency-audit-20261117/README.md).
+
+## JOB-007 — Staff submission releases the remaining calendar occupancy
+
+Status: accepted by the owner on 2026-11-18 ("önerilerine katılıyorum", "biz
+ilk işi yapalım"). Field feedback: Staff who finish a visit early (for example
+`CONTACT_NOT_AVAILABLE`) could not open or start work at another customer
+until the earlier job's planned end, unless a Manager had already approved it.
+Calendar availability therefore depended on how quickly a Manager approved.
+Extends JOB-006; earlier records are not rewritten.
+
+- A JobCard occupies its assignee's calendar over `[scheduled_at, occupied end)`.
+  For `WAITING_APPROVAL` the occupied end is
+  `LEAST(scheduled_ends_at, staff_completed_at)`; for every other active status
+  it stays `scheduled_ends_at`. Terminal statuses keep occupying nothing.
+  An empty occupied interval occupies nothing.
+- "Staff finished" (`SUBMIT_FOR_APPROVAL`) releases the assignee; "Manager
+  approved" (`APPROVE`) closes the work. Approval, revision, cancellation and
+  reporting rules are unchanged.
+- The planned interval is never rewritten. `scheduled_at`/`scheduled_ends_at`,
+  the 60/30-minute canonical durations, lateness measurement, reports, history
+  and the calendar display keep their current meaning.
+- One server-side SQL expression (`JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL`) is used
+  by every assignee occupancy reader: JobCard create/reschedule conflicts, the
+  available-slot search, manual calendar event conflicts, and offboarding
+  replacement checks. A job-backed conflict reports its occupied end.
+- `WITHDRAW_FROM_APPROVAL` and `REQUEST_REVISION` restore the full planned
+  interval. They do not re-check calendar conflicts, so an overlap with work
+  created after the submission is tolerated and never auto-resolved; the
+  planned interval has usually already passed by then.
+- Out of scope here: showing Staff the conflicting interval or earliest free
+  time, and a "move to now and start" shortcut for a planned visit.
+
+## JOB-008 — Continuous Customer Visit follow-up loop
+
+- **Date:** 2026-11-18
+- **Status:** Accepted (owner decision in the follow-up cycle review, 2026-11-18)
+- **Scope:** mandatory follow-up proposal predicate, automatic target and slot
+  selection, approval-created follow-up chain depth
+- **Supersedes in part:**
+  - DOM-007 sentence "No automatic follow-up JobCard … scheduler … is created by
+    this decision" for the outcomes below. The already implemented
+    submit-proposal / approve-child mechanics, which had no decision record, are
+    hereby recorded as accepted.
+  - Linked follow-up design D5 / §7.4 depth cap **only** for children created by
+    the approval command; manual `createFollowUp` keeps the cap.
+
+### Context
+
+Field review showed the visit cycle stopped silently. Only a Customer Visit with
+`FOLLOW_UP_REQUIRED` produced a follow-up; the generated child carries
+`engagementKind = FOLLOW_UP`, so it never produced the next one. `POSITIVE`
+visits left the cycle, Staff's optional `nextFollowUpAt` was ignored, and the
+automatic slot search scanned all 24 hours, so a busy target or a late approval
+could place a visit in the evening or at night.
+
+### Decision
+
+1. **Mandatory predicate.** A `SALES_MEETING` whose `engagementKind` is
+   `CUSTOMER_VISIT` or `FOLLOW_UP` requires a follow-up proposal at submission
+   when its outcome is `POSITIVE`, or `FOLLOW_UP_REQUIRED` with a structured
+   unsuccessful reason. A completed follow-up therefore produces the next one,
+   keeping the customer in a continuous visit cycle with the responsible Staff.
+   `NO_DECISION`, `NOT_INTERESTED` and other engagement kinds are unchanged and
+   deferred to a later decision.
+2. **Mechanics unchanged.** The proposal is computed and persisted at
+   `SUBMIT_FOR_APPROVAL`; the child is created only inside `APPROVE`. Revision
+   and withdrawal do not create a child; resubmission recomputes the proposal.
+   The child stays `SALES_MEETING` / `FOLLOW_UP`, same customer, accepted when
+   the proposer is the assignee. Server and web share one predicate meaning.
+3. **Target instant.** Organization-local evaluation date plus **7** calendar
+   days for `FOLLOW_UP_REQUIRED` and **14** calendar days for `POSITIVE`,
+   preserving the source clock time; Sunday advances as today. When the meeting
+   result has a valid `nextFollowUpAt`, that instant is the target instead. The
+   target never precedes the 15-minute lead floor.
+4. **Working-hours window for automatic slots.** Automatically selected
+   (`SYSTEM`) follow-up slots start at or after **08:00** and end at or before
+   **19:00** organization-local time, on the existing 15-minute grid, never on
+   Sunday. A target outside the window, or one already in the past at a late
+   approval, moves to the first free in-window slot. Human-chosen schedules
+   (Staff no-slot fallback, Manager override, reschedule) are not restricted,
+   matching the Sunday human-choice rule.
+5. **Search horizon.** The 30-day horizon stays anchored at the lead floor; a
+   target beyond that envelope (for example a distant `nextFollowUpAt`) gets its
+   own 30-day envelope anchored at the target. No free slot inside the envelope
+   still returns the existing manual-selection error.
+6. **Approval is never blocked by chain length.** The approval-created child
+   skips the 10-level ancestor cap so a long-running customer cycle cannot make
+   an otherwise valid approval fail. Manual post-hoc `createFollowUp` keeps the
+   cap and its `FOLLOW_UP_MAX_DEPTH_REACHED` error.
+
+### Consequences
+
+- More approvals create a follow-up; managers can still change the date, type,
+  assignee or instructions at approval exactly as before.
+- Cancelled follow-ups, a manager view of customers without an active plan and
+  a "move to now and start" shortcut are separate follow-up PRs.
+- No migration, vocabulary, report or calendar-display change.

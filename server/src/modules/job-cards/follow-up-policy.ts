@@ -20,6 +20,15 @@ import { advanceToWorkingDay } from './working-day-policy.js';
  * (a per-type record) deliberately leaves that door open.
  */
 export const FOLLOW_UP_DEFAULT_INTERVAL_DAYS = 7;
+/** JOB-008: a POSITIVE Customer Visit returns two weeks later. */
+export const FOLLOW_UP_POSITIVE_INTERVAL_DAYS = 14;
+/**
+ * JOB-008: automatically selected (SYSTEM) follow-up slots stay inside the
+ * organization-local working window [08:00, 19:00]. Human-chosen schedules are
+ * not restricted by this window.
+ */
+export const FOLLOW_UP_AUTO_WINDOW_START_MINUTE = 8 * 60;
+export const FOLLOW_UP_AUTO_WINDOW_END_MINUTE = 19 * 60;
 export const FOLLOW_UP_MIN_LEAD_MINUTES = 15;
 export const FOLLOW_UP_SEARCH_HORIZON_DAYS = 30;
 export const RECENT_VISIT_WARNING_DAYS = 7;
@@ -86,17 +95,33 @@ export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
   return FOLLOW_UP_TYPE_DEFAULTS[sourceType];
 }
 
+const LOOP_ENGAGEMENT_KINDS: readonly JobCardEngagementKind[] = ['CUSTOMER_VISIT', 'FOLLOW_UP'];
+
+/**
+ * JOB-008: Customer Visits and the follow-ups they generate keep the customer
+ * in a continuous cycle. POSITIVE always continues the cycle; FOLLOW_UP_REQUIRED
+ * continues it once its structured unsuccessful reason is present.
+ */
 export function requiresMandatoryFollowUpProposal(input: {
   type: JobCardType;
   engagementKind: JobCardEngagementKind | null;
   outcome?: MeetingOutcome | null;
   unsuccessfulReason?: UnsuccessfulVisitReasonCode | null;
 }): boolean {
-  return input.type === 'SALES_MEETING'
-    && input.engagementKind === 'CUSTOMER_VISIT'
-    && input.outcome === 'FOLLOW_UP_REQUIRED'
+  if (input.type !== 'SALES_MEETING'
+    || input.engagementKind === null
+    || !LOOP_ENGAGEMENT_KINDS.includes(input.engagementKind)) return false;
+  if (input.outcome === 'POSITIVE') return true;
+  return input.outcome === 'FOLLOW_UP_REQUIRED'
     && input.unsuccessfulReason !== null
     && input.unsuccessfulReason !== undefined;
+}
+
+/** JOB-008 calendar-day interval for the automatic follow-up target. */
+export function followUpIntervalDays(outcome: MeetingOutcome | null | undefined): number {
+  return outcome === 'POSITIVE'
+    ? FOLLOW_UP_POSITIVE_INTERVAL_DAYS
+    : FOLLOW_UP_DEFAULT_INTERVAL_DAYS;
 }
 
 /**
@@ -122,12 +147,14 @@ export function suggestedFollowUpInstant(input: {
    * check. Omit for a degenerate occupied point (GENERAL_TASK).
    */
   durationMs?: number | null;
+  /** Calendar-day interval; defaults to FOLLOW_UP_DEFAULT_INTERVAL_DAYS. */
+  intervalDays?: number;
 }): Date {
   const preferred = input.sourceScheduledAt ?? input.evaluatedAt;
   const clock = localClockParts(preferred, input.timezone);
   const baseDate = addCalendarDaysToDateKey(
     localDateKey(input.evaluatedAt, input.timezone),
-    FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
+    input.intervalDays ?? FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
   );
   const base = instantFromLocal(baseDate, clock.hour, clock.minute, input.timezone);
   const durationMs = input.durationMs ?? null;
@@ -137,6 +164,33 @@ export function suggestedFollowUpInstant(input: {
     timezone: input.timezone,
   });
   return advanced?.startsAt ?? base;
+}
+
+/**
+ * JOB-008 automatic target: a valid Staff-recorded `nextFollowUpAt` wins;
+ * otherwise the outcome interval (7 or 14 calendar days) is applied by
+ * {@link suggestedFollowUpInstant}. Slot search later enforces the lead floor,
+ * the working window and Sunday.
+ */
+export function followUpTargetInstant(input: {
+  evaluatedAt: Date;
+  sourceScheduledAt: Date | null;
+  timezone: string;
+  durationMs?: number | null;
+  outcome?: MeetingOutcome | null;
+  nextFollowUpAt?: string | null;
+}): Date {
+  if (input.nextFollowUpAt !== null && input.nextFollowUpAt !== undefined) {
+    const requested = new Date(input.nextFollowUpAt);
+    if (!Number.isNaN(requested.valueOf())) return requested;
+  }
+  return suggestedFollowUpInstant({
+    evaluatedAt: input.evaluatedAt,
+    sourceScheduledAt: input.sourceScheduledAt,
+    timezone: input.timezone,
+    durationMs: input.durationMs,
+    intervalDays: followUpIntervalDays(input.outcome),
+  });
 }
 
 /** Advance a candidate by one organization-local calendar day, preserving the clock time. */

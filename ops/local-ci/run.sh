@@ -64,6 +64,25 @@ ci_finalize_cleanup_evidence() {
   node "$SCRIPT_DIR/assemble-manifest.mjs" --finalize-cleanup "$BUNDLE" --cleanup-mode "$mode"
 }
 
+# ci_acquire_lock <lock-dir> <claim>: take the single-run lock and record
+# <claim> as its owner. Ownership is the exclusive creation of the pid claim,
+# not mkdir's exit status alone: uutils coreutils mkdir (Ubuntu 26.04 default)
+# can report success for a directory a concurrent racer created, so several
+# processes can "win" mkdir. Bash noclobber opens a missing file with
+# O_CREAT|O_EXCL, so exactly one co-winner creates the claim; every other one
+# fails closed without touching the owner's claim. Any pre-existing path,
+# including an empty claim-less directory left by a run killed between mkdir
+# and its claim, is an existing lock even if mkdir would report success for
+# it. No stale-lock recovery.
+ci_acquire_lock() {
+  local lock_dir="$1" claim="$2" pid_file="$1/pid"
+  [[ ! -e "$lock_dir" && ! -L "$lock_dir" ]] || return 1
+  mkdir "$lock_dir" 2>/dev/null || return 1
+  ( set -o noclobber; printf '%s\n' "$claim" >"$pid_file" ) 2>/dev/null || return 1
+  [[ -f "$pid_file" && ! -L "$pid_file" ]] || return 1
+  [[ "$(cat -- "$pid_file" 2>/dev/null || true)" == "$claim" ]] || return 1
+}
+
 cleanup() {
   local ci_status=$?
   trap - EXIT
@@ -139,12 +158,15 @@ CLEANUP_LOG=""
 # Resources have per-run names; stale lock recovery requires supervised
 # quiescence, as documented in production-deployment.md.
 LOCAL_CI_LOCK_DIR="${TMPDIR:-/tmp}/servora-med-local-ci.lock"
-if ! mkdir "$LOCAL_CI_LOCK_DIR" 2>/dev/null; then
+RUN_ID="$$-$RANDOM-$RANDOM"
+# A co-winner of a non-exclusive mkdir exits here before arming cleanup, so
+# it can neither overwrite nor release the owner's lock.
+if ! ci_acquire_lock "$LOCAL_CI_LOCK_DIR" "pid=$$ nonce=$RUN_ID"; then
   holder_pid="$(cat -- "$LOCAL_CI_LOCK_DIR/pid" 2>/dev/null || echo unknown)"
   echo "LOCAL_CI_FAILED reason=LOCAL_CI_ALREADY_RUNNING holder=${holder_pid} recovery=supervised_only" >&2
   exit 1
 fi
-RUN_ID="$$-$RANDOM-$RANDOM"
+# shellcheck disable=SC2034 # Owner check in lib/resource-cleanup.sh.
 LOCAL_CI_LOCK_CLAIM="pid=$$ nonce=$RUN_ID"
 # shellcheck disable=SC2034 # Names read by lifecycle creation / recovery.
 NET="servora-localci-$RUN_ID" PG="servora-localci-pg-$RUN_ID"
@@ -152,7 +174,6 @@ NET="servora-localci-$RUN_ID" PG="servora-localci-pg-$RUN_ID"
 # failure (node/docker/network/PG provisioning) releases the lock and never
 # strands later invocations.
 trap cleanup EXIT
-printf '%s\n' "$LOCAL_CI_LOCK_CLAIM" >"$LOCAL_CI_LOCK_DIR/pid"
 # Archive the whole previous bundle under this lock; never destroy failed
 # evidence or mix old check results into a retry of the same SHA.
 if [[ -e "$BUNDLE" ]]; then

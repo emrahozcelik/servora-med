@@ -216,6 +216,7 @@ function ForbiddenView() {
       <ResultState
         status="403"
         title="Erişim yetkiniz yok"
+        headingLevel={1}
         description="Bu alana erişim yetkiniz bulunmuyor. Yetkili olduğunuz alanlara dönebilirsiniz."
         action={<Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>}
       />
@@ -229,6 +230,7 @@ function NotFoundView() {
       <ResultState
         status="404"
         title="Sayfa bulunamadı"
+        headingLevel={1}
         description="Bağlantı değişmiş veya sayfa kaldırılmış olabilir."
         action={<Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>}
       />

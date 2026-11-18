@@ -17,6 +17,7 @@ import {
   manualEventCreateRequestHash,
   manualEventPatchRequestHash,
 } from './request-hash.js';
+import { JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL } from '../job-cards/job-card-duration.js';
 import { resolveSourceAccess } from '../job-cards/policy.js';
 import { acquireRealtimeOrderingLock } from '../realtime/ordering.js';
 
@@ -514,7 +515,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
          AND e.id <> COALESCE($5::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
          AND e.starts_at < $4 AND $3 < e.ends_at
        UNION ALL
-       SELECT 'JOB', j.id, j.title, j.scheduled_at, j.scheduled_ends_at,
+       SELECT 'JOB', j.id, j.title, j.scheduled_at, ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL},
          u.name, '/jobs/' || j.id::text
        FROM job_cards j
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
@@ -522,7 +523,8 @@ export class PostgresCalendarRepository implements CalendarRepository {
          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
          AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-         AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+         AND j.scheduled_at < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
+         AND j.scheduled_at < $4 AND $3 < ${JOB_CALENDAR_OCCUPIED_ENDS_AT_SQL}
        ORDER BY starts_at ASC, id ASC LIMIT 10`,
       [organizationId, assignedUserId, startsAt, endsAt, excludedEventId],
     );

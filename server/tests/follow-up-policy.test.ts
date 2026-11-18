@@ -11,6 +11,8 @@ import {
   defaultFollowUpInstructions,
   defaultFollowUpType,
   deriveProposalOrigin,
+  followUpIntervalDays,
+  followUpTargetInstant,
   requiresMandatoryFollowUpProposal,
   suggestedFollowUpInstant,
   isFollowUpMinimumLeadSatisfied,
@@ -101,41 +103,74 @@ describe('follow-up policy V1 constants', () => {
     expect(defaultFollowUpType('GENERAL_TASK')).toBe('GENERAL_TASK');
   });
 
-  it('requires a proposal only for unsuccessful CUSTOMER_VISIT sales meetings', () => {
-    const nonMandatoryCases = [
+  it('requires a proposal for POSITIVE or unsuccessful visit-cycle sales meetings (JOB-008)', () => {
+    for (const engagementKind of ['CUSTOMER_VISIT', 'FOLLOW_UP'] as const) {
+      expect(requiresMandatoryFollowUpProposal({
+        type: 'SALES_MEETING',
+        engagementKind,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: 'CONTACT_NOT_AVAILABLE',
+      })).toBe(true);
+      expect(requiresMandatoryFollowUpProposal({
+        type: 'SALES_MEETING',
+        engagementKind,
+        outcome: 'POSITIVE',
+        unsuccessfulReason: null,
+      })).toBe(true);
+      expect(requiresMandatoryFollowUpProposal({
+        type: 'SALES_MEETING',
+        engagementKind,
+        outcome: 'FOLLOW_UP_REQUIRED',
+        unsuccessfulReason: null,
+      })).toBe(false);
+      for (const outcome of ['NO_DECISION', 'NOT_INTERESTED'] as const) {
+        expect(requiresMandatoryFollowUpProposal({
+          type: 'SALES_MEETING', engagementKind, outcome, unsuccessfulReason: null,
+        })).toBe(false);
+      }
+      expect(requiresMandatoryFollowUpProposal({ type: 'SALES_MEETING', engagementKind })).toBe(false);
+    }
+
+    const nonLoopCases = [
       { type: 'SALES_MEETING', engagementKind: 'SALES_MEETING' },
       { type: 'SALES_MEETING', engagementKind: 'PRODUCT_DEMO' },
       { type: 'SALES_MEETING', engagementKind: 'TRAINING' },
-      { type: 'SALES_MEETING', engagementKind: 'FOLLOW_UP' },
       { type: 'SALES_MEETING', engagementKind: 'OTHER' },
+      { type: 'SALES_MEETING', engagementKind: null },
       { type: 'GENERAL_TASK', engagementKind: null },
       { type: 'PRODUCT_DELIVERY', engagementKind: null },
     ] satisfies Array<{
       type: JobCardType;
       engagementKind: JobCardEngagementKind | null;
     }>;
-
-    expect(requiresMandatoryFollowUpProposal({
-      type: 'SALES_MEETING',
-      engagementKind: 'CUSTOMER_VISIT',
-      outcome: 'FOLLOW_UP_REQUIRED',
-      unsuccessfulReason: 'REQUESTED_LATER',
-    })).toBe(true);
-
-    expect(requiresMandatoryFollowUpProposal({
-      type: 'SALES_MEETING',
-      engagementKind: 'CUSTOMER_VISIT',
-      outcome: 'POSITIVE',
-      unsuccessfulReason: null,
-    })).toBe(false);
-    expect(requiresMandatoryFollowUpProposal({
-      type: 'SALES_MEETING',
-      engagementKind: 'CUSTOMER_VISIT',
-    })).toBe(false);
-
-    for (const input of nonMandatoryCases) {
-      expect(requiresMandatoryFollowUpProposal(input)).toBe(false);
+    for (const input of nonLoopCases) {
+      expect(requiresMandatoryFollowUpProposal({ ...input, outcome: 'POSITIVE' })).toBe(false);
+      expect(requiresMandatoryFollowUpProposal({
+        ...input, outcome: 'FOLLOW_UP_REQUIRED', unsuccessfulReason: 'REQUESTED_LATER',
+      })).toBe(false);
     }
+  });
+
+  it('maps outcomes to the JOB-008 calendar-day intervals', () => {
+    expect(followUpIntervalDays('FOLLOW_UP_REQUIRED')).toBe(7);
+    expect(followUpIntervalDays('POSITIVE')).toBe(14);
+    expect(followUpIntervalDays(null)).toBe(7);
+  });
+
+  it('prefers a valid nextFollowUpAt over the outcome interval', () => {
+    const base = {
+      evaluatedAt: instant('2026-08-03T09:00:00.000Z'),
+      sourceScheduledAt: instant('2026-08-03T09:00:00.000Z'),
+      timezone: 'UTC',
+      durationMs: 60 * 60_000,
+    };
+    expect(followUpTargetInstant({ ...base, outcome: 'POSITIVE' }).toISOString())
+      .toBe('2026-08-17T09:00:00.000Z');
+    expect(followUpTargetInstant({ ...base, outcome: 'FOLLOW_UP_REQUIRED' }).toISOString())
+      .toBe('2026-08-10T09:00:00.000Z');
+    expect(followUpTargetInstant({
+      ...base, outcome: 'POSITIVE', nextFollowUpAt: '2026-08-05T13:00:00.000Z',
+    }).toISOString()).toBe('2026-08-05T13:00:00.000Z');
   });
 });
 
