@@ -152,8 +152,8 @@ describe('temporary password policy', () => {
     expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a non-compliant reset password without calling the API', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('rejects a non-compliant reset password without opening a confirmation or calling the API', async () => {
+    const confirm = vi.spyOn(window, 'confirm');
     await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
       onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
     fill(container.querySelector('#reset-password'), 'Server1');
@@ -164,7 +164,9 @@ describe('temporary password policy', () => {
       await Promise.resolve();
     });
     expect(container.textContent).toContain('en az bir sembol');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(people.resetUserPassword).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
 });
@@ -213,11 +215,17 @@ describe('User detail route race protection', () => {
     root = createRoot(container);
     people.getUser.mockReset();
     people.permanentlyDeleteUser.mockReset();
+    people.resetUserPassword.mockReset();
   });
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  function fill(input: HTMLInputElement | null, value: string) {
+    expect(input).not.toBeNull();
+    input!.value = value;
+  }
 
   it('ignores a late response for a previous user id', async () => {
     let resolveFirst!: (value: ManagedUser) => void;
@@ -244,20 +252,86 @@ describe('User detail route race protection', () => {
     expect(container.textContent).not.toContain('Ayşe');
   });
 
-  it('confirms and completes a pristine-user permanent deletion', async () => {
+  it('confirms and completes a pristine-user permanent deletion through the owned dialog', async () => {
     const onDeleted = vi.fn();
     people.permanentlyDeleteUser.mockResolvedValue(undefined);
     const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
     await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={eligible}
       onBack={() => {}} onChanged={() => {}} onDeleted={onDeleted} /></MemoryRouter>));
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, 'confirm');
     const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Kalıcı olarak sil')) as HTMLButtonElement;
     expect(button).toBeDefined();
     await act(async () => { button.click(); await Promise.resolve(); });
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('geri alınamaz'));
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.textContent).toContain('geri alınamaz');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(people.permanentlyDeleteUser).not.toHaveBeenCalled();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.destructive-button')!.click());
     expect(people.permanentlyDeleteUser).toHaveBeenCalledWith('staff-1', 1);
     expect(onDeleted).toHaveBeenCalledTimes(1);
-    confirm.mockRestore();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    nativeConfirm.mockRestore();
+  });
+
+  it('cancels permanent deletion with Escape and restores focus to the trigger', async () => {
+    people.permanentlyDeleteUser.mockResolvedValue(undefined);
+    const eligible = { ...user, role: 'MANAGER' as const, canPermanentlyDelete: true as const, permanentDeleteBlockers: [] as const };
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={eligible}
+      onBack={() => {}} onChanged={() => {}} onDeleted={() => {}} /></MemoryRouter>));
+    const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === 'Kalıcı olarak sil')!;
+    trigger.focus();
+    await act(async () => { trigger.click(); await Promise.resolve(); });
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => {
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(people.permanentlyDeleteUser).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('resets a password only after the owned confirmation and keeps the pending state', async () => {
+    let finish!: (value: ManagedUser) => void;
+    people.resetUserPassword.mockImplementation(() => new Promise<ManagedUser>((resolve) => { finish = resolve; }));
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Serv1!');
+    const resetForm = Array.from(container.querySelectorAll('form')).find((form) => form.querySelector('#reset-password'))!;
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Parola sıfırlanacak ve bu kullanıcının tüm açık oturumları kapatılacak.');
+    expect(people.resetUserPassword).not.toHaveBeenCalled();
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.primary-button')!.click());
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(dialog.querySelector<HTMLButtonElement>('.primary-button')!.disabled).toBe(true);
+    await act(async () => dialog.querySelector<HTMLButtonElement>('.primary-button')!.click());
+    expect(people.resetUserPassword).toHaveBeenCalledTimes(1);
+    expect(people.resetUserPassword).toHaveBeenCalledWith('staff-1', { expectedVersion: 1, temporaryPassword: 'Serv1!' });
+    await act(async () => { finish({ ...user, version: 2 }); await Promise.resolve(); });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.textContent).toContain('Geçici parola kaydedildi.');
+  });
+
+  it('cancels a password reset without writing', async () => {
+    await act(async () => root.render(<MemoryRouter><UserDetailView viewer={{ id: 'admin-a', organizationId: 'org-1', role: 'ADMIN' }} user={user}
+      onBack={() => {}} onChanged={() => {}} /></MemoryRouter>));
+    fill(container.querySelector('#reset-password'), 'Serv1!');
+    const resetForm = Array.from(container.querySelectorAll('form')).find((form) => form.querySelector('#reset-password'))!;
+    await act(async () => {
+      resetForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="dialog"] .secondary-button')!.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(people.resetUserPassword).not.toHaveBeenCalled();
   });
 });
 

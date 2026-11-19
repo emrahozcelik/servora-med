@@ -222,7 +222,13 @@ export function StaffDirectoryView({ profiles, onOpen, statusFilter = 'active', 
   </main>;
 }
 
-export function StaffProfileEditView({ profile: initial, actor, managers, onBack, onChanged, onOpenReport }: { profile: StaffProfile; actor?: CurrentUser; managers: ManagedUser[]; onBack: () => void; onChanged: (profile: StaffProfile) => void; onOpenReport?: () => void }) {
+/**
+ * `onBack` stays in the public props for the routed callers, but the hierarchy
+ * return is owned by PageHeader's ReturnLink (`‹ Personel`); the legacy
+ * `Listeye dön` button was a duplicate of it (UI audit F-13, DESIGN.md
+ * "Mobile ReturnLink").
+ */
+export function StaffProfileEditView({ profile: initial, actor, managers, onChanged, onOpenReport }: { profile: StaffProfile; actor?: CurrentUser; managers: ManagedUser[]; onBack?: () => void; onChanged: (profile: StaffProfile) => void; onOpenReport?: () => void }) {
   const [profile, setProfile] = useState(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [pending, setPending] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setError(''); const data = new FormData(event.currentTarget);
     try { const updated = await updateStaffProfile(profile.user.id, { expectedVersion: profile.version, title: String(data.get('title') ?? '') || null,
@@ -235,7 +241,7 @@ export function StaffProfileEditView({ profile: initial, actor, managers, onBack
       <label className="field-group">Telefon<input name="phone" type="tel" defaultValue={profile.phone ?? ''} disabled={pending} /></label>
       <label className="field-group">Bölge<input name="region" defaultValue={profile.region ?? ''} disabled={pending} /></label>
       <label className="field-group">Yönetici<select name="managerUserId" defaultValue={profile.managerUserId ?? ''} disabled={pending}><option value="">Atanmadı</option>{managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-      <div className="form-actions"><button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button>
+      <div className="form-actions">
       <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></div></form>
     {actor && actor.role !== 'STAFF' && <StaffConfidentialNotesSection staffUserId={profile.user.id} actor={actor} />}
     {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}
