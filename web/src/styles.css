@@ -5437,7 +5437,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
    F-09). Native selects join the DESIGN.md FormControl contract with the same
    44px height, FormControl border, control radius and 16px value text, and the
    owned Ant Select stops being a visually different outlier in the same form
-   (it keeps its status/error border). Tokens only: no raw colours. */
+   (it keeps its status/error border). The two colour literals are the existing
+   FormControl border pair already declared for `.field-group input/select/
+   textarea` above; no new palette value is introduced. */
 .field-group select,
 .calendar-toolbar select,
 .report-filters select,
