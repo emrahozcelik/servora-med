@@ -117,11 +117,12 @@ describe('MessagingPage per-user archive behavior', () => {
 
     const header = container.querySelector('.messaging-sidebar-header');
     const headingRow = header?.querySelector('.messaging-sidebar-heading-row');
-    const heading = headingRow?.querySelector('.messaging-sidebar-heading');
     const viewTabs = header?.querySelector('.conversation-view-tabs');
     const newConversation = headingRow?.querySelector('button[aria-label="Yeni konuşma"]');
 
-    expect(heading?.textContent).toBe('Mesajlar');
+    // No second visible "Mesajlar": the route identity owns the title.
+    expect(container.querySelector('.messaging-sidebar-heading')).toBeNull();
+    expect(container.querySelector('.messaging-sidebar')?.getAttribute('aria-label')).toBe('Konuşmalar');
     expect(headingRow).not.toBeNull();
     expect(viewTabs).not.toBeNull();
     expect(newConversation).not.toBeNull();

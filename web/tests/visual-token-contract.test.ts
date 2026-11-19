@@ -103,23 +103,8 @@ describe('Servora visual token contract', () => {
   it('keeps CSS :root block values aligned with the TypeScript token contract', () => {
     const { color, control, elevation } = servoraVisualTokens;
     const expected: Array<[string, string]> = [
-      [color.ink.cssVariable, color.ink.cssValue],
-      [color.muted.cssVariable, color.muted.cssValue],
-      [color.paper.cssVariable, color.paper.cssValue],
-      [color.canvas.cssVariable, color.canvas.cssValue],
-      [color.rule.cssVariable, color.rule.cssValue],
-      [color.accent.cssVariable, color.accent.cssValue],
-      [color.accentHover.cssVariable, color.accentHover.cssValue],
-      [color.accentSoft.cssVariable, color.accentSoft.cssValue],
-      [color.focus.cssVariable, color.focus.cssValue],
-      [color.information.cssVariable, color.information.cssValue],
-      [color.informationSoft.cssVariable, color.informationSoft.cssValue],
-      [color.success.cssVariable, color.success.cssValue],
-      [color.successSoft.cssVariable, color.successSoft.cssValue],
-      [color.warning.cssVariable, color.warning.cssValue],
-      [color.warningSoft.cssVariable, color.warningSoft.cssValue],
-      [color.error.cssVariable, color.error.cssValue],
-      [color.errorSoft.cssVariable, color.errorSoft.cssValue],
+      // Every color token must be declared once with its canonical value.
+      ...Object.values(color).map((token): [string, string] => [token.cssVariable, token.cssValue]),
       ['--control-height', control.heightCss],
       ['--focus-width', control.focusWidthCss],
       ['--radius-control', control.radiusControlCss],
@@ -127,10 +112,13 @@ describe('Servora visual token contract', () => {
       ['--radius-raised', control.radiusRaisedCss],
       ['--radius-chip', control.radiusChipCss],
       ['--shadow-raised', elevation.raised],
+      ['--shadow-overlay', elevation.overlay],
+      ['--shadow-drawer', elevation.drawer],
     ];
 
     for (const [variable, value] of expected) {
       const allValues = declarationsForVariable(stylesCss, variable);
+      expect(allValues, variable).toHaveLength(1);
       expect(allValues[0], variable).toBe(value);
     }
   });

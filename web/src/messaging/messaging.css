@@ -1,5 +1,8 @@
 .messaging-workspace {
-  padding: 0;
+  /* Full-bleed application workspace (M1) that still uses the shared page
+     gutter, so the page header and panes align with every other workspace
+     (UI audit F-08). */
+  padding: 0 1rem;
   width: 100%;
   max-width: none;
   margin: 0;
@@ -12,6 +15,21 @@
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+/* The page owns its own viewport-fit scroll box on mobile: the generic shell
+   reserve for scrolling pages would otherwise push the composer under the
+   fixed bottom navigation (UI audit F-08). */
+.authenticated-shell--mobile .shell-content:has(> .messaging-workspace) {
+  padding-bottom: 0;
+}
+
+.authenticated-shell--mobile .messaging-workspace {
+  /* Visible band = viewport − sticky top bar − shell top rhythm − bottom nav. */
+  height: calc(
+    100dvh - 4.5rem - 0.5rem - 3.75rem
+    - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+  );
 }
 
 .messaging-container.composing {
@@ -38,7 +56,9 @@
 
 .messaging-sidebar {
   --conversation-action-width: 2.75rem;
-  width: clamp(320px, 30%, 360px);
+  /* Wider list column keeps conversation titles readable at 1440 while the
+     thread pane stays the dominant surface (visual review, C1 follow-up). */
+  width: clamp(340px, 32%, 380px);
   min-width: 0;
   flex-shrink: 0;
   border-right: 1px solid var(--rule);
@@ -59,21 +79,9 @@
 .messaging-sidebar-heading-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.75rem;
   min-width: 0;
-}
-
-.messaging-sidebar-heading {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0;
-  flex: 1 1 auto;
-  min-width: 0;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  overflow-wrap: break-word;
 }
 
 .messaging-new-button {
@@ -91,7 +99,8 @@
 }
 
 .conversation-view-tab {
-  min-height: 36px;
+  min-height: var(--control-height);
+  min-width: 2.75rem;
   padding: 0.35rem 0.65rem;
   border: 0;
   border-radius: 6px;
@@ -116,9 +125,10 @@
 .archive-error {
   margin: 0.65rem 1rem 0;
   padding: 0.55rem 0.7rem;
-  border-left: 3px solid var(--danger, oklch(55% 0.2 25deg));
-  background: var(--paper);
-  color: var(--danger, oklch(45% 0.18 25deg));
+  border: 1px solid var(--border-error);
+  border-radius: var(--radius-control);
+  background: var(--error-soft);
+  color: var(--error);
   font-size: 0.8rem;
 }
 
@@ -139,10 +149,10 @@
 
 .conversation-item {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 4.5rem;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  column-gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -155,13 +165,18 @@
 }
 
 .conversation-item:hover {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 .conversation-item.selected {
   background: var(--accent-soft);
-  border-left: 3px solid var(--accent);
-  padding-left: calc(1rem - 3px);
+}
+
+/* The row owns the selection ring so the item and its action rail read as one
+   record (visual review, C1 follow-up). Outline paints above row content. */
+.conversation-row:has(.conversation-item.selected) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .conversation-item.unread {
@@ -216,7 +231,7 @@
   border: 1px solid var(--rule);
   border-radius: 8px;
   background: var(--paper);
-  box-shadow: 0 0.5rem 1.5rem oklch(20% 0.03 245deg / 16%);
+  box-shadow: var(--shadow-raised);
 }
 
 .conversation-action-menu button {
@@ -258,26 +273,39 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.conversation-name-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation-context {
   font-size: 0.8rem;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .disabled-badge {
-  font-size: 0.7rem;
-  background: oklch(65% 0.1 85deg);
-  color: #fff;
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--border-warning);
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .conversation-activity {
@@ -286,8 +314,8 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 0.25rem;
-  width: 4.5rem;
-  min-width: 0;
+  width: auto;
+  min-width: 3.25rem;
   overflow: hidden;
 }
 
@@ -302,11 +330,11 @@
 
 .unread-count {
   background: var(--accent);
-  color: #fff;
-  font-size: 0.7rem;
+  color: var(--paper);
+  font-size: 0.75rem;
   font-weight: 700;
-  min-width: 1.25rem;
-  height: 1.25rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -393,13 +421,13 @@
 .message-bubble.own {
   align-self: flex-end;
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   border-bottom-right-radius: 0.25rem;
 }
 
 .message-bubble.other {
   align-self: flex-start;
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
   color: var(--ink);
   border-bottom-left-radius: 0.25rem;
 }
@@ -416,7 +444,7 @@
 
 .message-sender {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.35;
   margin-bottom: 0.15rem;
@@ -426,7 +454,7 @@
 
 .message-time {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   margin-top: 0.2rem;
   opacity: 0.7;
 }
@@ -554,7 +582,7 @@
 }
 
 .required-mark {
-  color: var(--danger, oklch(55% 0.2 25deg));
+  color: var(--error);
 }
 
 .create-search {
@@ -606,13 +634,12 @@
 }
 
 .create-option:hover {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 .create-option.selected {
   background: var(--accent-soft);
-  border-left: 3px solid var(--accent);
-  padding-left: calc(0.7rem - 3px);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .create-option-title {
@@ -680,7 +707,7 @@
 .create-error {
   margin: 0.25rem 0 0;
   font-size: 0.8rem;
-  color: var(--danger, oklch(55% 0.2 25deg));
+  color: var(--error);
 }
 
 .create-actions {
@@ -774,7 +801,7 @@
 .context-chip {
   display: inline-flex;
   align-items: center;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--accent);
@@ -786,8 +813,21 @@
 }
 
 .conversation-participants {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversation-participants-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-participants-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .empty-recipients,
@@ -800,7 +840,7 @@
 }
 
 .conversation-row:has(.conversation-item:hover) .conversation-actions {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 /* Desktop: messaging is an application workspace, not a document column.
@@ -811,6 +851,8 @@
     width: 100%;
     max-width: none;
     margin: 0;
+    /* Align with the desktop shell top-bar gutter. */
+    padding-inline: clamp(1rem, 3vw, 2.5rem);
     height: calc(100dvh - 4.75rem);
   }
 
@@ -870,12 +912,6 @@
   flex-wrap: wrap;
 }
 
-.messaging-workspace.messaging-stacked .messaging-sidebar-heading {
-  flex-basis: 100%;
-  white-space: normal;
-  overflow: visible;
-}
-
 .messaging-workspace.messaging-stacked .messaging-thread.active {
   display: flex;
 }
@@ -883,9 +919,5 @@
 @media (max-width: 22rem) {
   .messaging-sidebar-heading-row {
     flex-wrap: wrap;
-  }
-
-  .messaging-sidebar-heading {
-    flex-basis: 100%;
   }
 }

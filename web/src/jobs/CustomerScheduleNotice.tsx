@@ -49,6 +49,7 @@ export function CustomerScheduleNotice({
 
       {mode === 'manager' && evaluation.safeMessage && (
         <div className="follow-up-frequency-warning" role="status">
+          <p className="follow-up-frequency-warning-label">Uyarı</p>
           <p className="follow-up-recent-visit-title">Yakın dönem müşteri teması</p>
           <p className="form-help">{evaluation.safeMessage}</p>
         </div>

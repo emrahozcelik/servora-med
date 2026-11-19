@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
 import { calendarScreenshotPath } from './calendar-responsive-screenshot-path.mjs';
+import { assertNoSubMinimumText, collectSubMinimumText } from './min-text-size.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
@@ -156,6 +157,53 @@ async function measure(page) {
       && agendaFrame.top >= 0
       && agendaFrame.bottom <= Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) + 1);
     const desktopSummaries = smokeRoot?.querySelectorAll('.servora-calendar-event-summary').length ?? 0;
+    // Visual review (C1 follow-up): 12px chips must still show the time, a
+    // visible source cue and about ten title characters without becoming
+    // 44px pills inside the month cell.
+    const eventChips = [...(smokeRoot?.querySelectorAll('.servora-calendar-event-summary') ?? [])].map((chip) => {
+      const chipRect = chip.getBoundingClientRect();
+      const label = chip.querySelector('.servora-calendar-event-label');
+      const labelRect = label?.getBoundingClientRect();
+      const labelText = label?.textContent ?? '';
+      const probeLength = Math.min(10, labelText.length);
+      let tenCharsOnOneLine = true;
+      if (label && probeLength >= 10 && label.firstChild?.nodeType === 3) {
+        const range = document.createRange();
+        range.setStart(label.firstChild, 0);
+        range.setEnd(label.firstChild, probeLength);
+        const rects = [...range.getClientRects()];
+        tenCharsOnOneLine = rects.length === 1 && rects[0].width <= (labelRect?.width ?? 0) + 1;
+      }
+      return {
+        kind: chip.querySelector('.servora-calendar-event-kind')?.textContent?.trim() ?? null,
+        kindTruncated: (() => {
+          const kind = chip.querySelector('.servora-calendar-event-kind');
+          return kind ? kind.scrollWidth > kind.clientWidth + 1 : true;
+        })(),
+        accessibleName: chip.getAttribute('aria-label'),
+        chipHeight: Number(chipRect.height.toFixed(2)),
+        minHeight: getComputedStyle(chip).minHeight,
+        labelWidth: labelRect ? Number(labelRect.width.toFixed(2)) : 0,
+        labelFontPixels: label ? Number.parseFloat(getComputedStyle(label).fontSize) : 0,
+        lineClamp: label ? getComputedStyle(label).webkitLineClamp : null,
+        tenCharsOnOneLine,
+      };
+    });
+    // A taller chip must not be clipped by the cell's overflow.
+    const clippedEventCells = [...(smokeRoot?.querySelectorAll('.servora-calendar-cell') ?? [])]
+      .filter((cell) => {
+        const events = cell.querySelector('.servora-calendar-events');
+        if (!events) return false;
+        const eventsRect = events.getBoundingClientRect();
+        const cellRect = cell.getBoundingClientRect();
+        return eventsRect.bottom > cellRect.bottom + 1;
+      })
+      .map((cell) => cell.getAttribute('data-date'));
+    const dateButtons = [...(smokeRoot?.querySelectorAll('.servora-calendar-date') ?? [])];
+    const maxDateButtonHeight = dateButtons.length
+      ? Math.max(...dateButtons.map((button) => button.getBoundingClientRect().height))
+      : 0;
+    const dateButtonMinHeight = dateButtons.length ? getComputedStyle(dateButtons[0]).minHeight : null;
     const compactNativeDates = smokeRoot?.querySelectorAll('[class*="picker-calendar-date"]').length ?? 0;
     const nativeDateValues = smokeRoot?.querySelectorAll('[class*="picker-calendar-date-value"]').length ?? 0;
 
@@ -186,6 +234,10 @@ async function measure(page) {
       personnelFilterLabelVisible,
       agendaReachable,
       desktopSummaries,
+      eventChips,
+      maxDateButtonHeight: Number(maxDateButtonHeight.toFixed(2)),
+      dateButtonMinHeight,
+      clippedEventCells,
       compactNativeDates,
       nativeDateValues,
       selectedKey: smokeRoot?.querySelector('[data-calendar-state]')?.getAttribute('data-calendar-selected') ?? null,
@@ -237,6 +289,32 @@ function contractFailures(measurement, viewport) {
     failures.push('desktop rich event summaries missing');
   }
 
+  if (!viewport.compact && measurement.desktopSummaries >= 3) {
+    // The global 44px button floor must not stretch in-cell controls.
+    if (measurement.dateButtonMinHeight !== '0px') {
+      failures.push(`day number keeps a min-height floor (${measurement.dateButtonMinHeight})`);
+    }
+    if (measurement.maxDateButtonHeight > 24) {
+      failures.push(`day number stretched into a ${measurement.maxDateButtonHeight}px pill`);
+    }
+    for (const chip of measurement.eventChips) {
+      if (chip.minHeight !== '0px') failures.push(`event chip keeps a min-height floor (${chip.minHeight})`);
+      if (chip.chipHeight > 50) failures.push(`event chip grew into a ${chip.chipHeight}px block`);
+      if (chip.labelFontPixels < 12) failures.push(`event label type below 12px (${chip.labelFontPixels}px)`);
+      if (!['İş', 'Özel'].includes(chip.kind)) failures.push('event source cue missing from the chip');
+      if (chip.kindTruncated) failures.push('event source cue is truncated in the chip');
+      if (!/İş|Kişisel plan/.test(chip.accessibleName ?? '')) failures.push('event source missing from the accessible name');
+      if (chip.lineClamp !== '2') failures.push('event label is not two-line clamped');
+    }
+    // Wide desktop is the reviewed surface: about ten title characters must stay visible.
+    if (viewport.width >= 1440 && measurement.eventChips.some((chip) => !chip.tenCharsOnOneLine)) {
+      failures.push('event label shows fewer than ten characters at 1440');
+    }
+    if (measurement.clippedEventCells.length > 0) {
+      failures.push(`event chips clipped by their cell (${measurement.clippedEventCells.join(', ')})`);
+    }
+  }
+
   return failures;
 }
 
@@ -272,6 +350,14 @@ async function runViewport(browser, baseUrl, viewport, failures) {
     failures.push(...viewportFailures.map((failure) => `${viewport.name}: ${failure}`));
 
     await page.screenshot({ path: calendarScreenshotPath(viewport.name), fullPage: true });
+    try {
+      assertNoSubMinimumText(
+        await page.evaluate(collectSubMinimumText, { min: 12 }),
+        `${viewport.name}: calendar text floor`,
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
 
     if (viewport.compact) {
       await exerciseSelection(page, measurement.targetKey);

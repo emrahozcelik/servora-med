@@ -97,13 +97,40 @@ function formatMessageTime(iso: string): string {
 /**
  * Context-first participant summary. Newer contexts carry the full
  * participants collection; legacy rows fall back to participantName.
+ * The overflow count is returned separately so the list can keep "+ N kişi"
+ * visible while the leading name ellipsizes (visual review, C1 follow-up).
  */
-function participantSummary(conversation: Conversation, selfId: string): string {
+function participantSummaryParts(
+  conversation: Conversation,
+  selfId: string,
+): { primary: string; extra: number } {
   const others = (conversation.participants ?? []).filter((p) => p.userId !== selfId);
-  if (others.length === 0) return conversation.participantName || '';
-  if (others.length === 1) return others[0].name;
-  if (others.length === 2) return `${others[0].name}, ${others[1].name}`;
-  return `${others[0].name} + ${others.length - 1} kişi`;
+  if (others.length === 0) return { primary: conversation.participantName || '', extra: 0 };
+  if (others.length === 1) return { primary: others[0].name, extra: 0 };
+  if (others.length === 2) return { primary: `${others[0].name}, ${others[1].name}`, extra: 0 };
+  return { primary: others[0].name, extra: others.length - 1 };
+}
+
+function participantSummary(conversation: Conversation, selfId: string): string {
+  const { primary, extra } = participantSummaryParts(conversation, selfId);
+  return extra > 0 ? `${primary} + ${extra} kişi` : primary;
+}
+
+/** Conversation-row participant line: the count never shrinks, the name does. */
+function ConversationParticipants({
+  conversation,
+  selfId,
+}: {
+  conversation: Conversation;
+  selfId: string;
+}) {
+  const { primary, extra } = participantSummaryParts(conversation, selfId);
+  return (
+    <span className="conversation-participants">
+      <span className="conversation-participants-name">{primary}</span>
+      {extra > 0 && <span className="conversation-participants-count">{` + ${extra} kişi`}</span>}
+    </span>
+  );
 }
 
 function firstOtherParticipant(conversation: Conversation, selfId: string): string {
@@ -822,10 +849,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     <main className="workspace messaging-workspace">
       <PageHeader fallbackTitle="Mesajlar" />
       <div className={`messaging-container${createOpen ? ' composing' : ''}`} ref={containerRef}>
-        <aside className="messaging-sidebar">
+        <aside className="messaging-sidebar" aria-label="Konuşmalar">
           <header className="messaging-sidebar-header" hidden={createOpen}>
             <div className="messaging-sidebar-heading-row">
-              <p className="messaging-sidebar-heading">Mesajlar</p>
               {canCreate && (
                 <button type="button" ref={createTriggerRef} className="secondary-button messaging-new-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
               )}
@@ -1067,23 +1093,23 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                     <UserAvatar name={firstOtherParticipant(conv, user.id)} size="default" />
                     {conv.contextType === 'JOB' && conv.jobTitle ? (
                       <span className="conversation-meta">
-                        <span className="conversation-name">{conv.jobTitle}</span>
-                        <span className="conversation-context"><span className="context-chip">İş</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                        <span className="conversation-name"><span className="conversation-name-text">{conv.jobTitle}</span></span>
+                        <span className="conversation-context"><span className="context-chip">İş</span><ConversationParticipants conversation={conv} selfId={user.id} /></span>
                       </span>
                     ) : conv.contextType === 'CUSTOMER' && conv.title ? (
                       <span className="conversation-meta">
-                        <span className="conversation-name">{conv.title}</span>
-                        <span className="conversation-context"><span className="context-chip">Müşteri</span><span className="conversation-participants">{conv.customerName ?? ''}</span></span>
+                        <span className="conversation-name"><span className="conversation-name-text">{conv.title}</span></span>
+                        <span className="conversation-context"><span className="context-chip">Müşteri</span><span className="conversation-participants"><span className="conversation-participants-name">{conv.customerName ?? ''}</span></span></span>
                       </span>
                     ) : conv.title ? (
                       <span className="conversation-meta">
-                        <span className="conversation-name">{conv.title}</span>
-                        <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                        <span className="conversation-name"><span className="conversation-name-text">{conv.title}</span></span>
+                        <span className="conversation-context"><span className="context-chip">Genel</span><ConversationParticipants conversation={conv} selfId={user.id} /></span>
                       </span>
                     ) : (
                       <span className="conversation-meta">
-                        <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
-                        <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                        <span className="conversation-name"><span className="conversation-name-text">{conv.participantName}</span>{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
+                        <span className="conversation-context"><span className="context-chip">Genel</span><ConversationParticipants conversation={conv} selfId={user.id} /></span>
                       </span>
                     )}
                     <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
@@ -1191,13 +1217,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               <div className="composer-hint">{selected.participantIsActive ? `Enter: gönder • Shift+Enter: alt satır • ${composerText.length}/4000` : 'Alıcı pasif durumda • Mesaj gönderilemez'}</div>
             </div>
           </>) : (
-            <div className="thread-empty">
-              {conversations.length === 0 ? (
-                <EmptyState title="Henüz konuşma yok" description={emptyDescription} />
-              ) : (
+            conversations.length > 0 ? (
+              <div className="thread-empty">
                 <EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." />
-              )}
-            </div>
+              </div>
+            ) : null
           )}
         </section>}
       </div>

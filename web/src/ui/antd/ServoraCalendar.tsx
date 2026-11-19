@@ -115,18 +115,22 @@ export function ServoraCalendar({
                   type="button"
                   data-event-id={event.id}
                   className={`servora-calendar-event-summary servora-calendar-event-summary--${event.source.toLowerCase()}`}
+                  aria-label={`${new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} · ${event.source === 'JOB' ? 'İş' : 'Kişisel plan'} · ${event.title}`}
                   onClick={() => {
                     onDateSelect(fromDayjs(current));
                     onEventSelect?.(event.id);
                   }}
                 >
-                  <span className="servora-calendar-event-time">
-                    {new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  <span className="servora-calendar-event-meta">
+                    <span className="servora-calendar-event-time">
+                      {new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {/* Visible type cue: colour is never the only channel (DESIGN.md two-channel rule). */}
+                    <span className="servora-calendar-event-kind" aria-hidden="true">
+                      {event.source === 'JOB' ? 'İş' : 'Özel'}
+                    </span>
                   </span>
-                  <span className="servora-calendar-event-label">{event.title}</span>
-                  <span className="sr-only">
-                    {event.source === 'JOB' ? 'İş' : 'Kişisel plan'}
-                  </span>
+                  <span className="servora-calendar-event-label" aria-hidden="true">{event.title}</span>
                 </button>
               ))}
               {dayEvents.length > maxVisibleEventsPerDay && (

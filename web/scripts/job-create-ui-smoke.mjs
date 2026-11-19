@@ -116,6 +116,17 @@ async function capture(ctx, name, expectedAlerts = false) {
     labels: [...document.querySelectorAll('main label, main .field-label')].filter(el => el.getClientRects().length).map(el => ({ text: el.textContent, y: Math.round(el.getBoundingClientRect().top) })),
     alerts: [...document.querySelectorAll('[role="alert"]')].filter(el => el.getClientRects().length).map(el => el.textContent),
     submit: [...document.querySelectorAll('main button[type="submit"]')].map(el => ({ text: el.textContent, y: Math.round(el.getBoundingClientRect().top), disabled: el.disabled })),
+    pressedProduct: (() => {
+      const element = document.querySelector('.product-select-list button[aria-pressed="true"]');
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      return {
+        borderStyle: style.borderStyle,
+        borderLeftWidth: style.borderLeftWidth,
+        borderRightWidth: style.borderRightWidth,
+        boxShadow: style.boxShadow,
+      };
+    })(),
   }));
   const file = `${name}-${role.toLowerCase()}-${width}`;
   await page.screenshot({ path: resolve(out, `${file}-viewport.png`) });
@@ -127,6 +138,13 @@ async function capture(ctx, name, expectedAlerts = false) {
   assert.equal(metrics.overflow, false, `${file}: document overflow`);
   assert.deepEqual(metrics.selectedNames.filter(el => el.clipped), [], `${file}: clipped customer name`);
   assert.deepEqual(metrics.smallTargets, [], `${file}: short controls`);
+  if (metrics.pressedProduct) {
+    // Visual review (C1 follow-up): the pressed product row is a bounded
+    // selection, never a one-sided inset stripe.
+    assert.equal(metrics.pressedProduct.borderStyle, 'solid', `${file}: pressed product row must draw a full border`);
+    assert.equal(metrics.pressedProduct.borderLeftWidth, metrics.pressedProduct.borderRightWidth, `${file}: pressed product row border must be symmetric`);
+    assert.equal(metrics.pressedProduct.boxShadow, 'none', `${file}: pressed product row must not fake a side stripe`);
+  }
   captures.push({ name, role, width, viewportHeight: width < 768 ? 844 : 960, files: [`${file}-viewport.png`, `${file}-full.png`], errors, unexpected, calls: [...calls], ...metrics });
   console.log(`${file}: height=${metrics.height}, overflow=${metrics.overflow}`);
 }
@@ -166,6 +184,12 @@ async function fill(ctx, name) {
               await page.locator(`[data-product-id="${product.id}"]`).click();
               await page.locator(`#delivery-quantity-${product.id}`).fill(product === products[0] ? '3' : '2');
             }
+            // Re-search a selected product so the pressed/“Eklendi” row is on
+            // screen, and verify it uses a full selection boundary instead of a
+            // one-sided inset stripe (visual review, C1 follow-up).
+            await page.locator('.product-select-search input').fill(products[0].sku);
+            await page.getByRole('button', { name: 'Ürün ara', exact: true }).click();
+            await page.locator(`[data-product-id="${products[0].id}"][aria-pressed="true"]`).waitFor();
             await page.locator('#delivery-scheduled-at').fill('2026-11-06T10:00');
             await page.locator('#delivery-note').fill('Teslimat öncesinde klinik sorumlusuna haber ver.');
           }

@@ -717,10 +717,18 @@ describe('CalendarPage', () => {
     confirmSpy.mockRestore();
   });
 
-  it('sr-only source text exists for screen readers', async () => {
+  it('names the event source in visible text, not only in colour', async () => {
     await render();
-    const srTexts = container.querySelectorAll('.sr-only');
-    expect(srTexts.length).toBeGreaterThan(0);
+    const kinds = Array.from(container.querySelectorAll('.servora-calendar-event-kind'))
+      .map((element) => element.textContent);
+    expect(kinds.length).toBeGreaterThan(0);
+    for (const kind of kinds) {
+      expect(['İş', 'Özel']).toContain(kind);
+    }
+    // The visible cue is inside the event button, so it is announced too.
+    expect(container.querySelector('.servora-calendar-event-summary .servora-calendar-event-kind')).toBeTruthy();
+    // The full source phrase stays in the accessible name for screen readers.
+    expect(container.querySelector('.servora-calendar-event-summary')?.getAttribute('aria-label')).toMatch(/İş|Kişisel plan/);
   });
 
   describe('calendar keyboard accessibility', () => {

@@ -119,7 +119,7 @@ describe('shared visual language adoption (T1B)', () => {
     expect(selectorBlockContains(
       stylesCss,
       '.destructive-button',
-      /border:\s*1px solid oklch\(68% 0\.1 28deg\)/,
+      /border:\s*1px solid var\(--border-error-strong\)/,
     )).toBe(true);
     expect(selectorBlockContains(
       stylesCss,
@@ -205,11 +205,36 @@ describe('shared visual language adoption (T1B)', () => {
     expect(bothSides.outsideRoot.split(sampleValue).length - 1).toBe(2);
   });
 
-  it('preserves unique feature palette and non-canonical border tints', () => {
-    expect(outsideRoot).toMatch(/oklch\(72% 0\.018 240deg\)/);
-    expect(outsideRoot).toMatch(/oklch\(78% 0\.07 28deg\)/);
-    expect(outsideRoot).toMatch(/oklch\(68% 0\.1 28deg\)/);
-    expect(outsideRoot).toMatch(/oklch\(96% 0\.02 70deg\)/); // revision chip soft (not warning-soft)
+  it('forbids raw color literals outside the :root token block (UI audit F-07)', () => {
+    const rawColor = /(?:oklch|rgba?|hsla?)\([^)]*\)|#[0-9a-fA-F]{3,8}\b/;
+    const offenders = outsideRoot
+      .split('\n')
+      .map((line, index) => ({ line: line.trim(), index }))
+      .filter((entry) => rawColor.test(entry.line))
+      .map((entry) => entry.line);
+    expect(offenders).toEqual([]);
+  });
+
+  it('declares and consumes the F-07 border, scrim and chart tokens', () => {
+    for (const variable of [
+      '--border-control',
+      '--border-control-hover',
+      '--border-accent',
+      '--border-error',
+      '--border-warning',
+      '--border-success',
+      '--border-error-strong',
+      '--border-error-emphasis',
+      '--scrim',
+      '--chart-good',
+      '--chart-caution',
+      '--chart-warning',
+      '--chart-alert',
+      '--chart-critical',
+    ]) {
+      expect(root).toContain(`${variable}:`);
+      expect(outsideRoot).toContain(`var(${variable})`);
+    }
   });
 
   it('groups shared page-heading geometry without inventing type scale', () => {

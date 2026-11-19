@@ -333,6 +333,7 @@ export function FollowUpProposalSection({
 
           {evaluation?.safeMessage && evaluation.level === 'WARNING' && (
             <div className="follow-up-frequency-warning" role="status">
+              <p className="follow-up-frequency-warning-label">Uyarı</p>
               <p className="form-help">{evaluation.safeMessage}</p>
             </div>
           )}
