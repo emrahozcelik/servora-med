@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
+import { assertNoSubMinimumText, collectSubMinimumText } from './min-text-size.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.env.REPORTS_CAPTURE_DIR ?? '../.impeccable/review');
 mkdirSync(out, { recursive: true });
@@ -56,6 +58,10 @@ try {
     await page.locator(staff ? '.staff-performance-comparison' : '[data-report-kpi]').first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({ path: resolve(out, `${name}.png`), fullPage: true });
+    assertNoSubMinimumText(
+      await page.evaluate(collectSubMinimumText, { min: 12 }),
+      `${name}: reports text floor`,
+    );
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
     if (overflow) throw new Error(`${name}: document overflow`);
     if (staff) {

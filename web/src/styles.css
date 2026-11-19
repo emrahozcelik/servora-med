@@ -96,7 +96,7 @@ html .servora-select:has(:focus-visible) {
 .text-muted { color: var(--muted); }
 
 .brand-lockup { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; }
-.dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.68rem; font-weight: 700; }
+.dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.75rem; font-weight: 700; }
 .dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
 .dunya-dental-brand--login-hero { margin-inline-start: -0.75rem; }
 .dunya-dental-brand--login-hero img {
@@ -121,13 +121,13 @@ html .servora-select:has(:focus-visible) {
   text-align: center;
   margin-top: 0.65rem;
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: 0.75rem;
 }
 /* Release identity: secondary build metadata (sidebar, drawer). */
 .build-identity {
   margin: 0;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -440,7 +440,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-filters input, .report-filters select { min-width: 0; min-height: var(--control-height); padding: 0.6rem 0.7rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); }
 .report-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--rule); }
 .report-metrics div { padding: 1.15rem 0.75rem; border-bottom: 1px solid var(--rule); }
-.report-metrics dt { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.8125rem; }.report-metrics dt span { font-size: 0.72rem; }
+.report-metrics dt { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.8125rem; }.report-metrics dt span { font-size: 0.75rem; }
 .report-metrics dd { margin: 0.4rem 0 0; font-size: 1.5rem; font-weight: 740; font-variant-numeric: tabular-nums; }
 .report-executive-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .report-executive-metrics div { min-width: 0; padding-inline: 0.85rem; }
@@ -632,7 +632,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .staff-performance-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
 .staff-performance-compared-metric { display: inline-grid; justify-items: end; gap: 0.12rem; min-width: 0; }
 .staff-performance-compared-metric > strong { font: inherit; font-weight: 750; font-variant-numeric: tabular-nums; }
-.staff-performance-compared-metric > small { color: var(--muted); font-size: 0.7rem; font-weight: 500; line-height: 1.25; white-space: normal; }
+.staff-performance-compared-metric > small { color: var(--muted); font-size: 0.75rem; font-weight: 500; line-height: 1.25; white-space: normal; }
 .staff-performance-expand { display: inline-grid; width: 2rem; height: 2rem; place-items: center; padding: 0; border: 1px solid var(--rule); border-radius: 50%; color: var(--accent-hover); background: var(--paper); font-size: 1.1rem; font-weight: 700; cursor: pointer; }
 .staff-performance-expand:hover { border-color: var(--accent); background: var(--accent-soft); }
 .staff-performance-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1.25rem 1.5rem; padding: 0.35rem 0.25rem; }
@@ -656,7 +656,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .staff-performance-mobile-metrics dt { color: var(--muted); font-size: 0.75rem; }
 .staff-performance-mobile-metrics dd { margin: 0.2rem 0 0; font-size: 1.15rem; font-weight: 740; font-variant-numeric: tabular-nums; }
 .staff-performance-mobile-metrics .staff-performance-compared-metric { justify-items: start; }
-.staff-performance-mobile-metrics .staff-performance-compared-metric > small { max-width: 12rem; font-size: 0.68rem; }
+.staff-performance-mobile-metrics .staff-performance-compared-metric > small { max-width: 12rem; font-size: 0.75rem; }
 .staff-performance-mobile-record summary { display: inline-flex; min-height: 2.5rem; align-items: center; color: var(--accent-hover); font-weight: 700; cursor: pointer; }
 .staff-performance-mobile-record .staff-performance-context { margin-top: 0.75rem; padding-top: 0.85rem; border-top: 1px solid var(--rule); }
 .staff-performance-statistics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 1.5rem 0 1rem; border-block: 1px solid var(--rule); }
@@ -1154,7 +1154,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .shell-nav { display: grid; gap: 1.15rem; }
 .shell-nav-section { display: grid; gap: 0.35rem; min-width: 0; }
-.shell-nav-section h2 { margin: 0; padding-inline: 0.75rem; color: var(--muted); font-size: 0.7rem; font-weight: 740; letter-spacing: 0.065em; text-transform: uppercase; }
+.shell-nav-section h2 { margin: 0; padding-inline: 0.75rem; color: var(--muted); font-size: 0.75rem; font-weight: 740; letter-spacing: 0.065em; text-transform: uppercase; }
 .shell-nav-links { display: grid; gap: 0.25rem; min-width: 0; }
 .shell-nav a { display: flex; align-items: center; padding: 0.65rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.9rem; font-weight: 680; text-decoration: none; }
 .shell-nav a:hover { color: var(--ink); background: var(--paper); }
@@ -3275,7 +3275,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--border-accent); border-radius: 0.6rem; background: var(--accent-soft); }
 .follow-up-proposal-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .follow-up-proposal-heading h3 { margin: 0; font-size: 1rem; }
-.follow-up-proposal-badge { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--accent); color: var(--paper); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.follow-up-proposal-badge { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--accent); color: var(--paper); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .follow-up-proposal-summary { margin: 0.5rem 0 0; font-weight: 650; line-height: 1.45; }
 .follow-up-proposal-notice { margin-top: 0.35rem; }
 .follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
@@ -3440,7 +3440,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-history-row a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; overflow-wrap: anywhere; }
 .job-history-row p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.8rem; }
 .job-history-row time { flex: 0 0 auto; color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
-.follow-up-badge, .calendar-follow-up-badge { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.15rem 0.45rem; border: 1px solid var(--accent); border-radius: var(--radius-chip); color: var(--accent-hover); font-size: 0.7rem; font-weight: 700; }
+.follow-up-badge, .calendar-follow-up-badge { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.15rem 0.45rem; border: 1px solid var(--accent); border-radius: var(--radius-chip); color: var(--accent-hover); font-size: 0.75rem; font-weight: 700; }
 .pagination-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1rem; }
 .calendar-follow-up-badge { margin: 0 0 0 0.45rem; }
 .calendar-follow-up-context { display: grid; gap: 0.35rem; margin: 0.7rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--rule); }
@@ -3736,7 +3736,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .responsive-report-table, .responsive-report-table tbody, .responsive-report-table tr, .responsive-report-table th, .responsive-report-table td { display: block; width: 100%; }
   .responsive-report-table tr { display: block; padding-block: 0.75rem; border-bottom: 1px solid var(--rule); }
   .responsive-report-table th, .responsive-report-table td { border: 0; }
-  .responsive-report-table th::before, .responsive-report-table td::before { display: block; margin-bottom: 0.2rem; color: var(--muted); content: attr(data-label); font-size: 0.72rem; font-weight: 650; }
+  .responsive-report-table th::before, .responsive-report-table td::before { display: block; margin-bottom: 0.2rem; color: var(--muted); content: attr(data-label); font-size: 0.75rem; font-weight: 650; }
   .servora-operational-table__desktop { display: none; }
   .servora-operational-table__mobile {
     display: grid;
@@ -4562,7 +4562,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 .servora-calendar-date--selected {
   background: var(--accent);
-  color: var(--on-accent);
+  color: var(--paper);
 }
 
 .servora-calendar-date:focus-visible,
@@ -4576,7 +4576,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 
 .servora-calendar-cell--today .servora-calendar-date--selected {
-  color: var(--on-accent);
+  color: var(--paper);
 }
 
 .servora-calendar-events {
@@ -4595,7 +4595,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   cursor: pointer;
   display: flex;
   font: inherit;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   gap: 0.25rem;
   line-height: 1.25;
   overflow: hidden;
@@ -4628,7 +4628,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 .servora-calendar-overflow {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   padding: 0 0.3rem;
 }
 
@@ -4639,9 +4639,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border-radius: 999px;
   color: var(--accent);
   display: inline-flex;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  height: 1.2rem;
+  height: 1.35rem;
   justify-content: center;
   min-width: 1.2rem;
   padding: 0 0.25rem;
@@ -4655,9 +4655,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
   .servora-calendar--compact .servora-calendar-count {
     bottom: 0.2rem;
-    font-size: 0.6rem;
-    height: 1rem;
-    min-width: 1rem;
+    font-size: 0.75rem;
+    height: 1.3rem;
+    min-width: 1.3rem;
     pointer-events: none;
     position: absolute;
     right: 0.2rem;

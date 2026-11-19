@@ -266,19 +266,23 @@
 .conversation-context {
   font-size: 0.8rem;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .disabled-badge {
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   background: var(--warning-soft);
   color: var(--warning);
   border: 1px solid var(--border-warning);
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .conversation-activity {
@@ -304,10 +308,10 @@
 .unread-count {
   background: var(--accent);
   color: var(--paper);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  min-width: 1.25rem;
-  height: 1.25rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -417,7 +421,7 @@
 
 .message-sender {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.35;
   margin-bottom: 0.15rem;
@@ -427,7 +431,7 @@
 
 .message-time {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   margin-top: 0.2rem;
   opacity: 0.7;
 }
@@ -774,7 +778,7 @@
 .context-chip {
   display: inline-flex;
   align-items: center;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--accent);
@@ -786,6 +790,7 @@
 }
 
 .conversation-participants {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

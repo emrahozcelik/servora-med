@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
 import { calendarScreenshotPath } from './calendar-responsive-screenshot-path.mjs';
+import { assertNoSubMinimumText, collectSubMinimumText } from './min-text-size.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
@@ -247,6 +248,14 @@ async function runViewport(browser, baseUrl, viewport, failures) {
     failures.push(...viewportFailures.map((failure) => `${viewport.name}: ${failure}`));
 
     await page.screenshot({ path: calendarScreenshotPath(viewport.name), fullPage: true });
+    try {
+      assertNoSubMinimumText(
+        await page.evaluate(collectSubMinimumText, { min: 12 }),
+        `${viewport.name}: calendar text floor`,
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
 
     if (viewport.compact) {
       await exerciseSelection(page, measurement.targetKey);
