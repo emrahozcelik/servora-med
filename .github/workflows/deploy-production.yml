@@ -89,9 +89,9 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
 
-      # Ubuntu's default apt mirrors can be down for hours; the Azure mirror
-      # with bounded retries keeps --with-deps fast, and the timeout fails it
-      # early instead of stalling the deployment.
+      # Ubuntu's default apt mirrors can be down for hours; an Azure fallback
+      # mirror with bounded retries keeps --with-deps working, and the timeout
+      # fails it early instead of stalling the deployment.
       - name: Install browsers for production smoke
         working-directory: web
         timeout-minutes: 15

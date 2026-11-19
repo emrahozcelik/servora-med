@@ -308,7 +308,7 @@ jobs:
           VITE_SERVORA_BUILD_SHA: ${{ github.sha }}
       - run: npm run bundle:check
       - run: npm test -- --run
-      # release-package needs this job; use the same Azure apt mirror guard.
+      # release-package needs this job; use the same Azure apt fallback guard.
       - name: Install Playwright browsers
         timeout-minutes: 15
         run: |
@@ -373,7 +373,7 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
-      # Same Azure-mirror/retry/timeout guard as the Production Deploy workflow.
+      # Same Azure fallback mirror/retry/timeout guard as Production Deploy.
       - name: Install browsers for exact-Linux package smoke
         working-directory: web
         timeout-minutes: 15
