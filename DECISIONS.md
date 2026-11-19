@@ -144,6 +144,67 @@ This adds a review method to UI-001 without replacing its design direction,
 skill precedence or accessibility requirements. It authorizes no new UI framework,
 domain policy, blanket redesign or implementation of audit recommendations.
 
+## UI-004: Single mobile navigation entry
+
+- **Date:** 2026-11-19
+- **Status:** Accepted by the product owner
+- **Scope:** Authenticated shell below the 64rem breakpoint (mobile and tablet)
+
+### Decision
+
+Mobile and tablet (`< 64rem`) expose exactly **one** `Menü` control, and it lives
+in the bottom navigation. The single mobile top bar keeps the resolved route
+title and the notifications affordance only; it no longer owns a menu trigger.
+
+The panel opens from the **right** edge, the same side as its trigger, and keeps
+the existing interaction contract: focus enters the panel, focus is trapped while
+it is open, Escape and the close control close it, and focus returns to the
+trigger.
+
+Menu content order is fixed:
+
+1. account row — user name, role, and `Oturumu kapat`;
+2. destinations in two groups: `Çalışma` (operational destinations) and
+   `Hesap ve destek` (settings, documentation, help, backup);
+3. no large brand block: the panel carries no logo, so the heading/close
+   control, the account row, the grouped destinations, and the build label are
+   the whole menu content.
+
+The bottom navigation holds at most five slots. Each destination shows a small
+inline SVG icon above an always-visible text label; the glyph is `aria-hidden`
+and no icon library is introduced. Every target stays at least `44 × 44` CSS px.
+One centered `Yeni iş` action opens the existing `NewJobMenu` sheet for the roles
+that could already create jobs, replacing the jobs-list sticky create bar; it is
+the only mobile create entry and it is reachable on every mobile route.
+
+Bottom destinations, the menu panel, and the create action all derive from
+`buildNavigationModel`. The previous `full`/`overflow` drawer split, the second
+top-bar trigger, and the sticky jobs-list create bar are removed. Desktop
+(`>= 64rem`) keeps the sidebar and its destination sections unchanged.
+
+This record supersedes the conflicting lines of `DESIGN.md`:
+
+- `Layout` → `Shell`: "drawer overflow" as part of mobile chrome;
+- `Mobile top bar`: the Menu affordance and its target-size sentence;
+- `New job control`: the mobile part that allowed a sticky jobs-list control in
+  addition to the bottom-navigation entry;
+- `Bottom navigation and Menü`: the overflow-drawer model and the
+  "Overflow holds lower-frequency items" sentence;
+- `Brand`: "Mobile/tablet (<1024px): the top bar shows no brand; the drawer
+  shows brand" (the mobile menu now carries no brand);
+- `Shell responsibility matrix` → `MobileTopBar`: the Menu affordance;
+- `Preserved shell systems`: "bottom/overflow navigation behavior".
+
+### Consequences
+
+- `buildNavigationModel` owns placement for both the bottom navigation and the
+  grouped menu panel; no shell component keeps a second role list.
+- `AppShell` keeps one drawer mode and one trigger, so `aria-expanded` /
+  `aria-controls` describe a single control per viewport.
+- Removing the drawer brand keeps the account row and sign-out reachable without
+  scrolling on small phones; the desktop sidebar brand and the login hero brand
+  are unchanged.
+
 ## DOM-001: Delivery purpose without financial tracking
 
 - **Date:** 2026-07-10
