@@ -16,8 +16,12 @@ describe('App', () => {
     expect(html).toContain('<main');
     expect(html).toContain('>Hesabınıza giriş yapın</h1>');
     expect(html).toContain('İş ve operasyon yönetimi');
-    expect(html).toContain('Günlük işlerinizi tek yerden yönetin.');
-    expect(html).toContain('Müşterileri, işleri, teslimatları, takvimi ve ekip süreçlerini tek bir çalışma alanında takip edin.');
+    // One centred column: the marketing intro band and its duplicate brand
+    // sentence are gone (UI audit F-16).
+    expect(html).not.toContain('Günlük işlerinizi tek yerden yönetin.');
+    expect(html).not.toContain('Dünya Dental — iş ve operasyon yönetimi');
+    expect(html).not.toContain('Güvenli erişim');
+    expect((html.match(/class="eyebrow"/g) ?? []).length).toBe(1);
     expect(html).toContain('aria-describedby="login-help"');
     expect(html).not.toContain('Medikal ve dental ekipler');
     expect(html).not.toContain('Saha operasyonları');
@@ -25,7 +29,22 @@ describe('App', () => {
     expect(html).toContain('<label for="password">Parola</label>');
     expect(html).toContain('type="email"');
     expect(html).toContain('type="password"');
+    expect(html).toContain('autoComplete="current-password"');
     expect(html).not.toContain('dashboard');
+  });
+
+  it('offers a labeled password visibility toggle and keeps build metadata off the login screen', () => {
+    const html = renderApp(<App initialUser={null} />);
+
+    expect(html).toContain('class="password-toggle"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('aria-label="Parolayı göster"');
+    expect(html).toContain('>Göster</button>');
+    expect(html).toContain('id="password-caps-hint"');
+    expect(html).toContain('role="status"');
+    // Release identity remains in the authenticated shell only.
+    expect(html).not.toContain('build-identity');
+    expect(html).not.toContain('Servora Med');
   });
 
   it('renders a backend-derived protected shell without fake metrics', () => {

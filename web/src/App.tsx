@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 
 import { AppRouter } from './AppRouter';
 import { AppShell } from './AppShell';
-import { BuildIdentity } from './BuildIdentity';
 import { setDocumentTitle } from './document-title';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
@@ -34,15 +40,34 @@ function LoadingScreen() {
   );
 }
 
+/** Desktop-only initial focus; below this width focus would open the mobile
+ * software keyboard and shift the whole auth composition before the user acts. */
+const LOGIN_INITIAL_FOCUS_QUERY = '(min-width: 721px)';
+
 function LoginScreen({ onAuthenticated, initialError = '' }: {
   onAuthenticated: (user: CurrentUser) => void;
   initialError?: string;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(initialError);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+
+  // Mount-only on purpose: focusing when a submit error clears would steal
+  // focus while the user is retrying.
+  useEffect(() => {
+    if (initialError) return;
+    if (typeof window.matchMedia !== 'function') return;
+    if (window.matchMedia(LOGIN_INITIAL_FOCUS_QUERY).matches) emailRef.current?.focus();
+  }, []);
+
+  function syncCapsLock(event: ReactKeyboardEvent<HTMLInputElement>) {
+    setCapsLockOn(event.getModifierState('CapsLock'));
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,41 +84,66 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   }
 
   return (
-    <main className="login-layout">
-      <section className="login-introduction" aria-labelledby="product-title">
-        <DunyaDentalBrand variant="login-hero" />
-        <div className="login-context">
-          <p className="eyebrow">İş ve operasyon yönetimi</p>
-          <h2 id="product-title">Günlük işlerinizi tek yerden yönetin.</h2>
-          <p>Müşterileri, işleri, teslimatları, takvimi ve ekip süreçlerini tek bir çalışma alanında takip edin.</p>
+    <main className="login-panel" aria-labelledby="login-title">
+      <section className="login-form-wrap">
+        <div className="login-brand">
+          <DunyaDentalBrand variant="login-hero" />
         </div>
-        <p className="context-note">Dünya Dental — iş ve operasyon yönetimi</p>
-      </section>
+        <p className="eyebrow">İş ve operasyon yönetimi</p>
+        <h1 id="login-title">Hesabınıza giriş yapın</h1>
 
-      <section className="login-panel" aria-labelledby="login-title">
-        <div className="login-form-wrap">
-          <p className="eyebrow">Güvenli erişim</p>
-          <h1 id="login-title">Hesabınıza giriş yapın</h1>
-          <p className="form-intro">Firmanız tarafından tanımlanan bilgilerle devam edin.</p>
+        {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
 
-          {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
-
-          <form onSubmit={submit} aria-describedby="login-help">
-            <div className="field-group">
-              <label htmlFor="email">E-posta</label>
-              <input id="email" name="email" type="email" autoComplete="username" inputMode="email" required disabled={pending} />
+        <form onSubmit={submit} aria-describedby="login-help">
+          <div className="field-group">
+            <label htmlFor="email">E-posta</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username"
+              inputMode="email"
+              required
+              disabled={pending}
+              ref={emailRef}
+            />
+          </div>
+          <div className="field-group">
+            <label htmlFor="password">Parola</label>
+            <div className="password-field">
+              <input
+                id="password"
+                name="password"
+                type={passwordVisible ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+                disabled={pending}
+                aria-describedby="password-caps-hint"
+                onKeyDown={syncCapsLock}
+                onKeyUp={syncCapsLock}
+                onBlur={() => setCapsLockOn(false)}
+              />
+              <button
+                className="password-toggle"
+                type="button"
+                aria-pressed={passwordVisible}
+                aria-controls="password"
+                aria-label={passwordVisible ? 'Parolayı gizle' : 'Parolayı göster'}
+                onClick={() => setPasswordVisible((visible) => !visible)}
+                disabled={pending}
+              >
+                {passwordVisible ? 'Gizle' : 'Göster'}
+              </button>
             </div>
-            <div className="field-group">
-              <label htmlFor="password">Parola</label>
-              <input id="password" name="password" type="password" autoComplete="current-password" required disabled={pending} />
-            </div>
-            <button className="primary-button" type="submit" disabled={pending}>
-              {pending ? 'Giriş yapılıyor…' : 'Giriş yap'}
-            </button>
-            <p className="form-help" id="login-help">Erişim sorunu yaşıyorsanız sistem yöneticinizle iletişime geçin.</p>
-          </form>
-          <BuildIdentity />
-        </div>
+            <p id="password-caps-hint" className="field-hint password-caps-hint" role="status">
+              {capsLockOn ? 'Caps Lock açık.' : ''}
+            </p>
+          </div>
+          <button className="primary-button" type="submit" disabled={pending}>
+            {pending ? 'Giriş yapılıyor…' : 'Giriş yap'}
+          </button>
+          <p className="form-help" id="login-help">Erişim sorunu yaşıyorsanız sistem yöneticinizle iletişime geçin.</p>
+        </form>
       </section>
     </main>
   );

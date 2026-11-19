@@ -12,7 +12,7 @@ export type MetricStatisticProps = {
   suffix?: string;
   loading?: boolean;
   linkTo?: string;
-  tone?: 'default' | 'attention' | 'success' | 'warning';
+  tone?: 'default' | 'attention' | 'success' | 'warning' | 'overdue';
   /** Readable second channel for a colored operational KPI. */
   statusPhrase?: string;
 };
@@ -21,6 +21,7 @@ const toneModifier: Record<string, string> = {
   attention: 'servora-metric-statistic--attention',
   success: 'servora-metric-statistic--success',
   warning: 'servora-metric-statistic--warning',
+  overdue: 'servora-metric-statistic--overdue',
 };
 
 export function MetricStatistic({
@@ -38,7 +39,7 @@ export function MetricStatistic({
   const valueId = `${baseId}-value`;
   const statusId = `${baseId}-status`;
   const toneClass = tone !== 'default' && toneModifier[tone] ? ` ${toneModifier[tone]}` : '';
-  const fallbackPhrase = tone === 'attention'
+  const fallbackPhrase = tone === 'attention' || tone === 'overdue'
     ? 'İnceleme veya müdahale bekliyor'
     : tone === 'warning'
       ? 'Düzeltme gerekiyor'

@@ -82,7 +82,7 @@ html .servora-select:has(:focus-visible) {
 .dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
 .dunya-dental-brand--login-hero { margin-inline-start: -0.75rem; }
 .dunya-dental-brand--login-hero img {
-  width: clamp(13rem, 15vw, 14rem);
+  width: clamp(8rem, 18vw, 12rem);
   height: auto;
   max-width: 100%;
 }
@@ -105,17 +105,13 @@ html .servora-select:has(:focus-visible) {
   color: var(--muted);
   font-size: 0.6rem;
 }
-/* Release identity: secondary build metadata (login, sidebar, drawer). */
+/* Release identity: secondary build metadata (sidebar, drawer). */
 .build-identity {
   margin: 0;
   color: var(--muted);
   font-size: 0.7rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-.login-form-wrap .build-identity {
-  margin-top: 1.25rem;
-  text-align: center;
 }
 .shell-sidebar-footer .build-identity {
   text-align: center;
@@ -170,15 +166,17 @@ html .servora-select:has(:focus-visible) {
 .apple-install-guidance-dismiss:hover { border-color: var(--accent); color: var(--accent-hover); }
 .eyebrow { margin: 0 0 0.85rem; color: var(--accent); font-size: 0.8125rem; font-weight: 720; letter-spacing: 0.035em; text-transform: uppercase; overflow-wrap: anywhere; }
 
-.login-layout { display: grid; grid-template-columns: minmax(19rem, 0.82fr) minmax(26rem, 1.18fr); min-height: 100vh; }
-.login-introduction { display: flex; flex-direction: column; justify-content: space-between; padding: clamp(1.5rem, 4vw, 3.75rem); border-right: 1px solid var(--rule); background: var(--canvas); }
-.login-context { max-width: 29rem; margin-block: 5rem; }
-.login-context h2 { max-width: 15ch; margin: 0; font-size: 2.25rem; line-height: 1.12; letter-spacing: -0.035em; }
-.login-context > p:last-child { max-width: 46ch; margin: 1.25rem 0 0; color: var(--muted); line-height: 1.65; }
-.context-note { margin: 0; color: var(--muted); font-size: 0.875rem; }
-
-.login-panel { display: grid; place-items: center; padding: clamp(1.5rem, 6vw, 5rem); background: var(--paper); }
-.login-form-wrap { width: min(100%, 27rem); }
+.login-panel {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: clamp(1rem, 5vh, 3rem) 1rem;
+  background: var(--canvas);
+}
+/* Auto margins centre the column without ever clipping an overflowing
+   first line (forced-password-change forms on short screens). */
+.login-form-wrap { width: min(100%, 25rem); margin: auto; }
+.login-brand { margin-bottom: clamp(0.75rem, 2.2vh, 1.25rem); }
 .login-form-wrap h1, .workspace-empty h1 { margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.025em; }
 .form-intro { margin: 0.75rem 0 2rem; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
 .field-group { display: grid; gap: 0.5rem; margin-top: 1.25rem; }
@@ -198,6 +196,31 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .field-group input:hover, .field-group select:hover, .field-group textarea:hover, .form-control:hover { border-color: oklch(60% 0.03 240deg); }
 .field-group input:focus, .field-group select:focus, .field-group textarea:focus, .form-control:focus { border-color: var(--accent); }
 .field-group input:disabled, .field-group select:disabled, .field-group textarea:disabled, .form-control:disabled { background: var(--canvas); }
+/* Password visibility toggle (UI audit F-16): a real 44px control inside the
+   field row, joined to the same border/radius/focus language as inputs. */
+.password-field {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.password-field input { flex: 1 1 auto; min-width: 0; }
+.password-toggle {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  min-height: var(--control-height);
+  padding: 0 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-button);
+  background: var(--paper);
+  color: var(--accent-hover);
+  font-size: 0.875rem;
+  font-weight: 680;
+}
+.password-toggle:hover:not(:disabled) { background: var(--canvas); border-color: var(--accent); }
+/* aria-pressed is the programmatic channel; the toggle text is the second one. */
+.password-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.password-caps-hint { color: var(--warning); }
 .field-hint,
 .form-help {
   color: var(--muted);
@@ -485,7 +508,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-trend-bars--density-compact span { min-width: 1px; max-width: none; }
 .report-trend-bars--density-dense { gap: 0; }
 .report-trend-bars--density-dense span { min-width: 0; max-width: none; border-radius: 0; }
-.report-trend-bars span[data-zero="true"] { opacity: 0.35; background: var(--rule); }
+.report-trend-bars span[data-zero="true"] {
+  /* Zero days keep a visible baseline tick instead of vanishing into the axis
+     rule (UI audit F-17). */
+  height: 0.35rem;
+  background: var(--rule);
+  opacity: 1;
+}
+.report-trend-figure { min-width: 0; }
+.report-trend-range {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
 .report-preset-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .approval-list h2 a { color: inherit; text-decoration: none; }
 .approval-list h2 a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -3605,13 +3644,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 
 @media (max-width: 720px) {
-  .login-layout { display: block; }
-  .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
   .dunya-dental-brand--login-hero { margin-inline-start: -0.25rem; }
-  .dunya-dental-brand--login-hero img { width: clamp(8rem, 35vw, 9rem); height: auto; }
-  .login-context { display: none; }
-  .context-note { margin-block: 0.4rem 0; }
-  .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
+  .dunya-dental-brand--login-hero img { width: clamp(7rem, 30vw, 9rem); height: auto; }
   .primary-button, .secondary-button, .destructive-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .create-heading > div, .delivery-heading > div, .brand-lockup { min-width: 0; }
   .create-heading h1, .delivery-heading h1, .brand-lockup span { overflow-wrap: anywhere; }
@@ -3905,6 +3939,55 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 
 .overview-card-stack > * {
   min-width: 0;
+}
+/* Overview lists are plain rows inside one card per section: no per-item
+   frame and no per-item chip repeating the section name (UI audit F-17). */
+.overview-row-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overview-row {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  padding-block: 0.7rem;
+}
+.overview-row:first-child { padding-top: 0; }
+.overview-row:last-child { padding-bottom: 0; }
+.overview-row + .overview-row { border-top: 1px solid var(--rule); }
+.overview-row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.overview-row-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.overview-queue-count,
+.overview-queue-wait {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.overview-queue-count { color: var(--ink); }
+.overview-queue-count strong {
+  font-size: 1.5rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+.overview-queue-wait { margin-top: 0.15rem; }
+.overview-queue-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  margin-top: 0.35rem;
 }
 .overview-section a,
 .settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
@@ -5142,6 +5225,15 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   border: 1px solid var(--warning);
 }
 .servora-metric-statistic--warning .servora-ant-statistic-content {
+  color: var(--warning);
+}
+/* Overdue is the loudest KPI tone: amber outline plus tonal fill. Revision
+   stays an outline-only warning so the two do not read as the same state. */
+.servora-metric-statistic--overdue {
+  border: 1px solid var(--warning);
+  background: var(--warning-soft);
+}
+.servora-metric-statistic--overdue .servora-ant-statistic-content {
   color: var(--warning);
 }
 .servora-metric-statistic__status {

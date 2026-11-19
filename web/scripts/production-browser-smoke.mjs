@@ -75,7 +75,11 @@ async function smokeRoute(browser, routePath) {
 
   const rootHtml = await page.locator('#root').innerHTML().catch(() => '');
   const loginVisible = await page.locator('#login-title').isVisible().catch(() => false);
-  const buildIdentity = page.locator('.build-identity').first();
+  // Anonymous release marker on <html>; login keeps no visible build metadata.
+  const documentIdentity = await page.evaluate(() => ({
+    sha: document.documentElement.dataset.buildSha ?? null,
+    label: document.documentElement.dataset.buildLabel ?? null,
+  })).catch(() => ({ sha: null, label: null }));
   const actionableConsoleErrors = consoleErrors.filter((message) => !(
     auth401Observed && /401\s*\(Unauthorized\)|responded with a status of 401/i.test(message)
   ));
@@ -84,8 +88,8 @@ async function smokeRoute(browser, routePath) {
     documentStatus,
     rootNonEmpty: rootHtml.trim().length > 0,
     loginVisible,
-    frontendBuildSha: await buildIdentity.getAttribute('data-build-sha').catch(() => null),
-    frontendBuildLabel: (await buildIdentity.textContent().catch(() => null))?.trim() ?? null,
+    frontendBuildSha: documentIdentity.sha,
+    frontendBuildLabel: documentIdentity.label,
     pageErrors,
     consoleErrors: actionableConsoleErrors,
     failedRequests,
