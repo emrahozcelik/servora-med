@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -218,6 +218,17 @@ const baseReport: SalesFollowUpReportResponse = {
   relationships: {
     directFollowUpLinks: 7,
     currentCustomerDivergence: 2,
+  },
+};
+
+// Two server-paged queues. The API contract is limit/offset paging at ten
+// records per page, so the owned pager must keep that page size (six pages).
+const reportWithLargeTotal: SalesFollowUpReportResponse = {
+  ...baseReport,
+  current: {
+    salesMeetings: { ...baseReport.current.salesMeetings, total: 55, limit: 10, offset: 0, items: baseReport.current.salesMeetings.items.slice(0, 1) },
+    proposalQueue: { ...baseReport.current.proposalQueue, total: 55, limit: 10, offset: 0, items: baseReport.current.proposalQueue.items.slice(0, 1) },
+    followUpChildren: baseReport.current.followUpChildren,
   },
 };
 
@@ -673,19 +684,111 @@ describe('Sales follow-up timezone presentation', () => {
     expect(formatProposedAt('2026-08-10T21:30:00.000Z', 'Europe/Istanbul')).toContain('00:30');
   });
 
-  it('renders Ant Design pagination with pageSize 10 for both queues', () => {
-    const reportWithLargeTotal: SalesFollowUpReportResponse = {
-      ...baseReport,
-      current: {
-        salesMeetings: { ...baseReport.current.salesMeetings, total: 55, limit: 10, offset: 0, items: baseReport.current.salesMeetings.items.slice(0, 1) },
-        proposalQueue: { ...baseReport.current.proposalQueue, total: 55, limit: 10, offset: 0, items: baseReport.current.proposalQueue.items.slice(0, 1) },
-        followUpChildren: baseReport.current.followUpChildren,
-      },
-    };
+  it('renders the owned list pagination with the server page size for both queues', () => {
     const html = viewMarkup(reportWithLargeTotal, 0, 0);
-    expect(html).toContain('ant-pagination');
     expect(html).toContain('data-pager="sales-meeting"');
     expect(html).toContain('data-pager="proposal"');
+    // Ant table pagination is disabled: 55 rows at 10 per page is six owned pages.
+    expect(html).not.toContain('ant-table-pagination');
+    expect(html.match(/class="servora-list-pagination"/g)).toHaveLength(2);
+    expect(html.match(/Sayfa 1 \/ 6/g)).toHaveLength(2);
+    expect(html).toContain('Toplam 55 satış görüşmesi işi');
+    expect(html).toContain('Toplam 55 takip önerisi');
+    expect(html).toContain('aria-label="Önceki sayfa"');
+    expect(html).toContain('aria-label="Sonraki sayfa"');
+  });
+
+  it('gives every pager control a Turkish accessible name and no numbered page items', () => {
+    const { container, root } = renderSalesViewDom(reportWithLargeTotal);
+    act(() => {});
+    act(() => {});
+    // The audit F-10 defect was a 33×33 table pager with Ant's own arrow labels
+    // instead of the owned, Turkish-labelled 44 px controls.
+    const pagerButtons = [...container.querySelectorAll<HTMLButtonElement>('.servora-list-pagination button')];
+    expect(pagerButtons.length).toBeGreaterThanOrEqual(4);
+    for (const button of pagerButtons) {
+      expect(
+        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim(),
+        `pager button "${button.outerHTML.slice(0, 120)}" needs an accessible name`,
+      ).not.toBe('');
+    }
+    for (const button of container.querySelectorAll<HTMLButtonElement>('.servora-list-pagination button')) {
+      expect(button.hasAttribute('aria-hidden')).toBe(true);
+      expect(button.getAttribute('role')).toBe('presentation');
+    }
+    expect(container.querySelectorAll('li[class*="pagination-item"]').length).toBe(0);
+    expect(container.querySelector('[aria-current="page"]')).toBeNull();
+    for (const nav of container.querySelectorAll<HTMLElement>('nav.servora-list-pagination')) {
+      expect(nav.getAttribute('aria-label')).toBeTruthy();
+      const prev = nav.querySelector<HTMLElement>('[class*="pagination-prev"]')!;
+      const next = nav.querySelector<HTMLElement>('[class*="pagination-next"]')!;
+      expect(prev.getAttribute('role')).toBe('button');
+      expect(next.getAttribute('aria-label')).toBe('Sonraki sayfa');
+      expect(prev.getAttribute('aria-label')).toBe('Önceki sayfa');
+      expect(prev.getAttribute('aria-disabled')).toBe('true');
+      expect(prev.tabIndex).toBe(-1);
+      expect(next.getAttribute('aria-disabled')).toBe('false');
+      expect(next.tabIndex).toBe(0);
+    }
+    act(() => { root.unmount(); });
+    container.remove();
+  });
+
+  it('pages each queue through the owned pager with pointer and keyboard, offset by 10', async () => {
+    function Harness() {
+      const [offset, setOffset] = useState(0);
+      const [proposalOffset, setProposalOffset] = useState(0);
+      return (
+        <MemoryRouter>
+          <SalesFollowUpReportView
+            report={reportWithLargeTotal}
+            offset={offset}
+            proposalOffset={proposalOffset}
+            onSalesMeetingPage={setOffset}
+            onProposalPage={setProposalOffset}
+          />
+        </MemoryRouter>
+      );
+    }
+    setViewportWidth(1024);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const salesSection = () => container.querySelector<HTMLElement>('[aria-labelledby="sales-queue-title"]')!;
+    const proposalSection = () => container.querySelector<HTMLElement>('[aria-labelledby="proposal-queue-title"]')!;
+    try {
+      await act(async () => { root.render(<Harness />); });
+      await act(async () => {});
+      expect(salesSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 1 / 6');
+      expect(proposalSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 1 / 6');
+
+      await act(async () => {
+        salesSection().querySelector<HTMLButtonElement>('[class*="pagination-next"] button')!.click();
+      });
+      expect(salesSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 2 / 6');
+      expect(proposalSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 1 / 6');
+
+      // Keyboard paging matches ServoraListPagination: Enter on the next item
+      // activates it once and returns focus to the nav landmark.
+      const nextItem = salesSection().querySelector<HTMLElement>('[class*="pagination-next"]')!;
+      await act(async () => {
+        nextItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      });
+      expect(salesSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 3 / 6');
+      expect(document.activeElement).toBe(salesSection().querySelector('.servora-list-pagination'));
+
+      await act(async () => {
+        proposalSection().querySelector<HTMLButtonElement>('[class*="pagination-next"] button')!.click();
+      });
+      await act(async () => {
+        proposalSection().querySelector<HTMLButtonElement>('[class*="pagination-next"] button')!.click();
+      });
+      expect(proposalSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 3 / 6');
+      expect(salesSection().querySelector('.servora-list-pagination__summary')?.textContent).toContain('Sayfa 3 / 6');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 
   it('configures mutually exclusive responsive contracts on every column', () => {

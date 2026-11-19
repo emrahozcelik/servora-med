@@ -259,7 +259,11 @@ exact-main `push` CI run **including `server`, `web` and `release-package`**
 SHA-256 sidecar before any SSH. The workflow has `contents: read` and
 `actions: read` permissions, uses the `production-deploy` concurrency group,
 does not cancel an in-flight deployment and has a 60-minute timeout. Playwright
-browsers are cached between runs.
+browsers are cached between runs. Before `--with-deps` installs system packages,
+`ops/ci/use-azure-apt-mirror.sh` adds `azure.archive.ubuntu.com` as a fallback
+next to the runner's existing Ubuntu mirrors (they stay first) and sets bounded
+apt retries/timeouts, and the install step has a 15-minute timeout; the CI `web`
+and `release-package` jobs use the same guard.
 
 Without `allow_migrations`, a release whose catalog has pending migrations stops
 at the host gate with `PENDING_MIGRATIONS_REQUIRE_EXPLICIT_AUTHORIZATION`
