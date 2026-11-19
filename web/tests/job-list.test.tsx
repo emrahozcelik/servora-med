@@ -401,6 +401,18 @@ describe('routed JobCard workspace', () => {
     expect(container.textContent).not.toContain('Onay kuyruğu');
   });
 
+  it('wraps the quick-view strip in an overflow-affordance shell', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    const shell = container.querySelector('.job-quick-views-shell');
+    expect(shell).not.toBeNull();
+    expect(shell?.querySelector('[data-job-quick-views="true"]')).not.toBeNull();
+    // jsdom reports zero box widths, so the strip cannot overflow here; the
+    // rendered affordance itself is verified in Chromium (jobs-control-surface).
+    expect(shell?.getAttribute('data-quick-views-overflow')).toBe('false');
+  });
+
   it('renders the Geciken quick view with the server-owned overdue=true query', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     await mount('/jobs', load, manager); await act(async () => { await Promise.resolve(); });

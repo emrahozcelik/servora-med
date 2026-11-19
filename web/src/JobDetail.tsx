@@ -229,6 +229,32 @@ function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
 }
 
+/**
+ * Narrow job-detail composition: the same 64rem gate as the shell. When the
+ * environment has no `matchMedia` (server rendering, non-browser tests) this
+ * falls back to the narrow composition, matching `useDesktopShell` in the
+ * `WorkflowSteps` adapter.
+ */
+function useNarrowDetail(): boolean {
+  const query = '(min-width: 64rem)';
+  const [narrow, setNarrow] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? !window.matchMedia(query).matches
+      : true
+  ));
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia(query);
+    const onChange = (event: MediaQueryListEvent) => setNarrow(!event.matches);
+    setNarrow(!media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  return narrow;
+}
+
 function formatDeliveredAt(value: string | null): string {
   if (!value) return 'Henüz kaydedilmedi';
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
@@ -475,7 +501,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, submissionLateness, onCreateFollowUp, existingChildrenCount, messagingAction,
+  pendingLabel, continuity, submissionLateness, overdueHistory, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false, invalidationAction, mutationLocked = false,
 }: {
   job: JobCard;
@@ -504,6 +530,9 @@ export function JobDetailPanel({
   children?: ReactNode;
   continuity?: ReactNode;
   submissionLateness?: ReactNode;
+  /** Manager-only lateness history: above the workflow on desktop, a collapsed
+   *  disclosure below the record details on mobile (DECISIONS.md UI-005). */
+  overdueHistory?: ReactNode;
   onCreateFollowUp?: () => void;
   existingChildrenCount?: number | null;
   messagingAction?: ReactNode;
@@ -601,6 +630,7 @@ export function JobDetailPanel({
     && onCreateFollowUp !== undefined
     && !showFollowUpRecommendation;
   const localMutationPending = pending || mutationLocked;
+  const narrow = useNarrowDetail();
   const showRequirements = !managementReview
     && presentation.terminalState === null
     && presentation.requirements.length > 0;
@@ -626,49 +656,27 @@ export function JobDetailPanel({
       onRecordEdit={onRecordEdit}
     />
   ) : null;
-  const hasWorkflowMain = Boolean(requirements || decision);
+  // Below 1024px the primary command belongs to the responsibility region and
+  // renders above the compact lifecycle summary; desktop keeps it in the rail.
+  const railDecision = narrow ? null : decision;
+  const hasWorkflowMain = Boolean(requirements || railDecision);
   const hasRail = Boolean(
     managementReview || hasWorkflowMain || notes || messagingActionVisible || invalidationAction,
   );
 
-  return (
-    <main className="job-detail" data-job-detail="true">
-      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions → notes → timeline */}
-      <div data-job-detail-section="heading">
-        <PageHeader eyebrow={typeLabel} fallbackTitle={job.title} />
-        <div className="detail-heading-meta" data-job-detail-meta="true">
-        <StatusChip status={job.status} />
-        <PriorityChip priority={job.priority} longLabel />
-        <FollowUpBadge visible={job.followUpContext !== null} />
-        </div>
-      </div>
-      {message && (
-        <div
-          ref={feedbackRef}
-          className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
-          role={messageIsError ? 'alert' : 'status'}
-          tabIndex={-1}
-          data-job-detail-section="feedback"
-        >
-          {message}
-        </div>
-      )}
-      {realtimeStaleNotice}
-      {continuity}
-      {submissionLateness}
-      {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
-        <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
-      )}
-      {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
-      <div data-job-detail-section="lifecycle">
-        <WorkflowSteps
-          items={presentation.phaseItems.map((item) => ({
-            key: item.phase, label: item.label, state: item.state,
-          }))}
-          currentKey={presentation.currentPhase}
-        />
-      </div>
+  const lifecycleSection = (
+    <div data-job-detail-section="lifecycle">
+      <WorkflowSteps
+        items={presentation.phaseItems.map((item) => ({
+          key: item.phase, label: item.label, state: item.state,
+        }))}
+        currentKey={presentation.currentPhase}
+      />
+    </div>
+  );
 
+  const workflowContextSections = (
+    <>
       <FollowUpSourcePanel job={job} />
       {showFollowUpRecommendation && onCreateFollowUp && (
         <FollowUpRecommendation
@@ -695,10 +703,68 @@ export function JobDetailPanel({
           <TerminalJobBanner details={presentation.terminalDetails} />
         </div>
       )}
-      {presentation.terminalState === null && (
-        <div data-job-detail-section="responsibility">
-          <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
+    </>
+  );
+
+  const responsibilitySection = presentation.terminalState === null ? (
+    <div data-job-detail-section="responsibility">
+      <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
+    </div>
+  ) : null;
+
+  const narrowDecisionSection = narrow && decision ? (
+    <div data-job-detail-section="actions">{decision}</div>
+  ) : null;
+
+  return (
+    <main className="job-detail" data-job-detail="true">
+      {/* DOM/keyboard: heading → feedback → lateness signal → responsibility →
+          primary commands (narrow) → lifecycle → revision|terminal → facts →
+          type content → management review → actions → notes → timeline.
+          Desktop keeps lifecycle → follow-up/revision/terminal → responsibility
+          (DECISIONS.md UI-005). */}
+      <div data-job-detail-section="heading">
+        <PageHeader eyebrow={typeLabel} fallbackTitle={job.title} />
+        <div className="detail-heading-meta" data-job-detail-meta="true">
+        <StatusChip status={job.status} />
+        <PriorityChip priority={job.priority} longLabel />
+        <FollowUpBadge visible={job.followUpContext !== null} />
         </div>
+      </div>
+      {message && (
+        <div
+          ref={feedbackRef}
+          className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
+          role={messageIsError ? 'alert' : 'status'}
+          tabIndex={-1}
+          data-job-detail-section="feedback"
+        >
+          {message}
+        </div>
+      )}
+      {realtimeStaleNotice}
+      {continuity}
+      {submissionLateness}
+      {!narrow && overdueHistory}
+      {job.followUpProposal?.origin === 'SYSTEM' && job.status === 'WAITING_APPROVAL' && (
+        <SystemSelectedFollowUpNotice proposal={job.followUpProposal} />
+      )}
+      {/* DOM order (mobile, UI-005): heading → feedback → lateness signal →
+          responsibility → primary commands → compact lifecycle → details/history.
+          Desktop keeps lifecycle → follow-up/revision/terminal → responsibility. */}
+      {narrow ? (
+        <>
+          {responsibilitySection}
+          {narrowDecisionSection}
+          {lifecycleSection}
+          {workflowContextSections}
+        </>
+      ) : (
+        <>
+          {lifecycleSection}
+          {workflowContextSections}
+          {responsibilitySection}
+        </>
       )}
       <div className={hasRail ? 'job-detail-content job-detail-content--rail' : 'job-detail-content'}>
         <div className="job-detail-main">
@@ -794,7 +860,7 @@ export function JobDetailPanel({
                 <div className="job-detail-workflow-main">
                   <h2 className="job-detail-rail-heading">İşlemler</h2>
                   {requirements}
-                  {decision}
+                  {railDecision}
                 </div>
               </div>
             )}
@@ -814,6 +880,15 @@ export function JobDetailPanel({
           </aside>
         )}
       </div>
+
+      {narrow && overdueHistory && (
+        <div
+          className="job-detail-lateness-history"
+          data-job-detail-section="lateness-history"
+        >
+          {overdueHistory}
+        </div>
+      )}
 
       {timeline && (
         <div className="job-detail-timeline" data-job-detail-section="timeline">
@@ -942,6 +1017,9 @@ function nextSessionToken() {
 
 function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
+  // The lateness history is a collapsed disclosure below the workflow for
+  // managers below the 64rem gate (DECISIONS.md UI-005).
+  const narrowDetail = useNarrowDetail();
   const setRouteRuntimeLabel = useSetRouteRuntimeLabel();
   useEffect(() => {
     setRouteRuntimeLabel(state.kind === 'ready' ? state.detail.job.title : undefined);
@@ -2261,18 +2339,18 @@ function JobDetailSessionScreen({ jobId, user, onChanged, onCreateFollowUp, onOp
     submissionLateness={
       detail.job.status === 'IN_PROGRESS' || detail.job.status === 'REVISION_REQUESTED' || isManagementUser(user)
         ? (
-          <>
-            <SubmissionLatenessSection
-              jobId={jobId}
-              jobVersion={detail.job.version}
-              user={user}
-              onReminded={() => setTimelineKey((value) => value + 1)}
-            />
-            {isManagementUser(user) && <OverdueIncidentHistorySection jobId={jobId} />}
-          </>
+          <SubmissionLatenessSection
+            jobId={jobId}
+            jobVersion={detail.job.version}
+            user={user}
+            onReminded={() => setTimelineKey((value) => value + 1)}
+          />
         )
         : undefined
     }
+    overdueHistory={isManagementUser(user) ? (
+      <OverdueIncidentHistorySection jobId={jobId} collapsible={narrowDetail} />
+    ) : undefined}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
     onRecordEdit={(action, trigger) => {

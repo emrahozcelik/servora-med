@@ -33,6 +33,25 @@ describe('follow-up dialog layering contract', () => {
     expect(ruleBody('.mobile-bottom-nav', true)).toMatch(/z-index:\s*20/);
   });
 
+  it('keeps the create sheet on its own global layer, outside the bottom nav', () => {
+    // The declared layers only apply globally when the sheet is not nested in
+    // the fixed bottom-nav stacking context (z 20), which would cap them.
+    expect(ruleBody('.new-job-menu-backdrop', true)).toMatch(/z-index:\s*45/);
+    expect(ruleBody('.new-job-menu-panel--sheet', true)).toMatch(/z-index:\s*50/);
+    expect(Number(/z-index:\s*(\d+)/.exec(ruleBody('.new-job-menu-panel--sheet', true))?.[1]))
+      .toBeGreaterThan(Number(/z-index:\s*(\d+)/.exec(ruleBody('.mobile-bottom-nav', true))?.[1]));
+    expect(Number(/z-index:\s*(\d+)/.exec(ruleBody('.new-job-menu-backdrop', true))?.[1]))
+      .toBeGreaterThan(Number(/z-index:\s*(\d+)/.exec(ruleBody('.shell-drawer-backdrop', true))?.[1]));
+    const menuSource = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../src/jobs/NewJobMenu.tsx'),
+      'utf8',
+    );
+    // The declared layers only reach the page when the sheet is portaled to the
+    // document body instead of being rendered inside the fixed bottom nav.
+    expect(menuSource).toContain('createPortal');
+    expect(menuSource).toContain('document.body');
+  });
+
   it('reserves the mobile bottom-nav footprint in dialog max-height', () => {
     const mobileRule = '.authenticated-shell--mobile .reason-dialog';
     expect(css).toContain(mobileRule);
@@ -82,6 +101,9 @@ describe('follow-up dialog layering contract', () => {
   it('leaves neighboring overlay layers untouched', () => {
     expect(ruleBody('.shell-drawer-backdrop', true)).toMatch(/z-index:\s*30/);
     expect(ruleBody('.filter-sheet-root', true)).toMatch(/z-index:\s*55/);
-    expect(ruleBody('.sticky-new-job', true)).toMatch(/z-index:\s*22/);
+    // UI-004: the create sheet replaces the sticky bar and still layers above
+    // the bottom navigation that now hosts its trigger.
+    expect(ruleBody('.new-job-menu-panel--sheet', true)).toMatch(/z-index:\s*50/);
+    expect(ruleBody('.mobile-bottom-nav', true)).toMatch(/z-index:\s*20/);
   });
 });

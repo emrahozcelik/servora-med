@@ -90,7 +90,7 @@ layout:
 
 **Workspace.** Default operational content sits in a readable column capped near `{layout.workspace-max}`. The JobCard board may use a wider usable region when the board gate is open, but density must remain scannable, not ERP-compressed.
 
-**Shell.** At `{layout.shell-sidebar-min}` and above, navigation uses a persistent sidebar. Below that threshold, navigation is mobile chrome (single top bar, drawer overflow, and bottom destinations). The 768–1023 band intentionally keeps mobile chrome; there is no separate tablet shell in this contract. Layout decisions should prefer **usable content width** after chrome is accounted for, not raw viewport alone.
+**Shell.** At `{layout.shell-sidebar-min}` and above, navigation uses a persistent sidebar. Below that threshold, navigation is mobile chrome (single top bar, bottom destinations, and one menu panel). The 768–1023 band intentionally keeps mobile chrome; there is no separate tablet shell in this contract. Layout decisions should prefer **usable content width** after chrome is accounted for, not raw viewport alone.
 
 **Responsive structure.**
 
@@ -299,15 +299,15 @@ Both are required for operational scanning. Soft fill + visible Turkish label (a
 
 ### New job control
 
-One primary **Yeni iş** control. Desktop: disclosure menu without focus trap; Escape returns focus. Mobile: bottom sheet with focus containment when presented as a modal layer. Routes remain the existing create flows.
+One primary **Yeni iş** control. Desktop: disclosure menu without focus trap; Escape returns focus. Mobile/tablet (`<1024px`): the single create entry is the centered bottom-navigation action, which opens the existing bottom sheet with focus containment while it is modal; it is available on every mobile route for the roles that could already create jobs. The former jobs-list sticky create bar is removed. Routes remain the existing create flows.
 
 ### Mobile top bar
 
-A **single** sticky top bar: resolved route title from the single route-identity source, notification affordance, Menu affordance. The top bar MUST NOT contain brand chrome below 1024px (brand lives in the drawer), MUST NOT contain breadcrumb or return logic (return renders through the PageHeader region), and MUST NOT repeat the route title as a second visible copy in content. Bell and Menu usable target sizes MUST NOT be reduced to recover title space. Common static section names MUST remain readable at supported widths (named regression: at 320px `Genel Bakış` MUST NOT degrade to a meaningless clip); long dynamic entity names MAY ellipsize. Readability is judged by rendered geometry, never by character counts.
+A **single** sticky top bar: resolved route title from the single route-identity source and the notification affordance. The top bar MUST NOT contain a menu trigger (the single Menü entry is the bottom-navigation control), MUST NOT contain brand chrome below 1024px, MUST NOT contain breadcrumb or return logic (return renders through the PageHeader region), and MUST NOT repeat the route title as a second visible copy in content. The notification target size MUST NOT be reduced to recover title space. Common static section names MUST remain readable at supported widths (named regression: at 320px `Genel Bakış` MUST NOT degrade to a meaningless clip); long dynamic entity names MAY ellipsize. Readability is judged by rendered geometry, never by character counts.
 
 ### Route identity and navigation registries
 
-Navigation and route identity are coordinated but separate systems. The navigation model owns destinations, role/capability filtering, bottom/overflow placement, and landing/home policy. The route identity registry owns static route identity, the generic fallback title, deterministic hierarchy, param-aware parent location, and breadcrumb semantics. Authorization and home policy MUST NOT be duplicated into route identity.
+Navigation and route identity are coordinated but separate systems. The navigation model owns destinations, role/capability filtering, bottom-navigation and menu-panel placement, and landing/home policy. The route identity registry owns static route identity, the generic fallback title, deterministic hierarchy, param-aware parent location, and breadcrumb semantics. Authorization and home policy MUST NOT be duplicated into route identity.
 
 Every distinct static route with a different canonical title, hierarchy position, or document-title identity MUST have its own route identity key. Umbrella ids covering multiple differently titled static routes are prohibited. Dynamic instances sharing one semantic pattern share one id and use a runtime label overlay.
 
@@ -357,7 +357,7 @@ The unified rule is `{resolved route title} · Dünya Dental`, applied consisten
 
 Approved brand variants are `full` and `login-hero`. A compact variant is future work and MUST NOT be required. The brand component owns the canonical variant-to-asset mapping, accessible branding semantics, the rendered sizing contract, and linked/non-linked rendering based on the supplied target. It MUST NOT inspect user role, choose role-aware landing, or import authorization/navigation policy; shell/navigation policy resolves home and passes `to`.
 
-Placement is normative. Desktop (≥1024px): sidebar shows the full brand; the top bar shows no brand. Mobile/tablet (<1024px): the top bar shows no brand; the drawer shows brand. Login shows the login hero brand. At most one prominent shell brand is visible in the active shell context. Small-screen title pressure MUST NOT be solved by resizing the wordmark.
+Placement is normative. Desktop (≥1024px): sidebar shows the full brand; the top bar shows no brand. Mobile/tablet (<1024px): the top bar shows no brand and the mobile menu carries no brand block. Login shows the login hero brand. At most one prominent shell brand is visible in the active shell context. Small-screen title pressure MUST NOT be solved by resizing the wordmark.
 
 ### Home
 
@@ -365,12 +365,12 @@ Role-aware home remains navigation policy: overview when eligible/enabled, other
 
 ### Shell responsibility matrix
 
-- **Navigation model:** destinations, role/capability filtering, bottom/overflow placement, landing/home policy. MUST NOT own identity facts or title strings.
+- **Navigation model:** destinations, role/capability filtering, bottom-navigation and menu-panel placement, landing/home policy. MUST NOT own identity facts or title strings.
 - **Route identity registry:** static identity, generic titles, deterministic param-aware hierarchy, breadcrumb semantics. MUST NOT own authorization, home policy, fetching, or domain types.
 - **Resolved-identity layer:** the single combination of static identity, params, and runtime label. MUST NOT fetch or render.
 - **AppShell:** viewport switch, drawer with focus trap/restore, topbar/bottom-nav/content composition, document-title wiring from the resolved identity, home-target resolution passed to Brand. MUST NOT recompute titles or return targets.
 - **PageHeader:** H1, eyebrow, description, breadcrumb region, return-context region, actions passthrough. MUST NOT own authorization, business actions, tabs, filters, or data fetching.
-- **MobileTopBar:** resolved route title, notification affordance, Menu affordance. MUST NOT own breadcrumb, hierarchy, return logic, or brand.
+- **MobileTopBar:** resolved route title, notification affordance. MUST NOT own a menu trigger, breadcrumb, hierarchy, return logic, or brand.
 - **Brand component:** variant-to-asset mapping, accessible semantics, sizing contract, linked/non-linked rendering from supplied target. MUST NOT own role, home, or authorization policy.
 - **Page/route:** business content, actions with pending states, tabs, filters, entity loading, plain-string runtime label supply, flow-local back. MUST NOT hand-roll hierarchy chrome, bespoke hierarchy back buttons, document-title strings, or per-surface title fallbacks.
 
@@ -378,11 +378,13 @@ No layer SHOULD recompute another layer's identity or policy facts.
 
 ### Preserved shell systems
 
-This contract integrates with, and MUST NOT replace: role-aware navigation filtering, the navigation destination source of truth, drawer focus trap and restore, `aria-current`, bottom/overflow navigation behavior, forms and destructive confirmations, the Slice 2 focus contract, Slice 1 responsive chart systems, and the 64rem shell breakpoint.
+This contract integrates with, and MUST NOT replace: role-aware navigation filtering, the navigation destination source of truth, drawer focus trap and restore, `aria-current`, bottom-navigation and single-menu-panel behavior, forms and destructive confirmations, the Slice 2 focus contract, Slice 1 responsive chart systems, and the 64rem shell breakpoint.
 
 ### Bottom navigation and Menü
 
-Destinations come from one navigation model shared with sidebar and drawer. Manager/Admin **Menü** is a **button** that opens the existing drawer (not a route). Overflow holds lower-frequency items (Personel, Kullanıcılar, Oturumu kapat). Closing restores focus to the Menü trigger.
+Destinations come from one navigation model shared with sidebar and menu panel. Exactly one mobile **Menü** control exists, in the bottom navigation; the mobile top bar has none. The panel opens from the right edge and shows the account row (name, role, `Oturumu kapat`) first, then destinations in two groups: `Çalışma` (operational destinations) and `Hesap ve destek` (settings, documentation, help, backup). It carries no brand block. Closing restores focus to the Menü trigger.
+
+The bottom navigation holds at most five slots. Every destination shows an `aria-hidden` inline SVG icon above an always-visible text label, interaction targets stay at least 44 × 44 CSS px, and one centered `Yeni iş` action opens the create sheet for the roles that could already create jobs.
 
 ### Job lifecycle guidance (detail-first)
 
@@ -395,8 +397,16 @@ use the owned Ant Design boundary in later implementation PRs.
   (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
   Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
   attention (revision loop), and upcoming states use text/icon semantics plus restrained
-  color—never color alone. Mobile: vertical. Desktop: five-column when space permits;
-  fall back to compact vertical without horizontal page scroll.
+  color—never color alone. Attention is Delay Amber with explicit text; it is never
+  Critical Red and never Ant's `error` status. Desktop: five-column when space permits;
+  fall back to compact vertical without horizontal page scroll. Mobile: a one-line
+  compact summary (`3 / 5 · Uygulanıyor`) that expands into the full vertical stepper
+  through a native disclosure (UI-005).
+- **Mobile job detail order** (UI-005, below 1024px): title and status chips →
+  responsibility panel with its primary command(s) → compact lifecycle summary →
+  requirements, record details, notes and history. Manager-only lateness history is a
+  collapsed disclosure below the workflow; the open lateness signal keeps its place.
+  Desktop keeps the stepper above the record and the decision group in the work rail.
 - **Responsibility panel**: calm Surface grouping that states who should act next and what
   consequence follows the primary command. Management intervention outside review stays
   secondary even when allowed.
@@ -414,6 +424,10 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Compact workflow summary** (list/board): ordinal phase string such as
   `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
   chip; never replaces board column status labels.
+- **Jobs list control surface** (below 1024px): search stays visible; filters and the
+  Liste/Pano view switch live in the existing filter sheet so the first record is
+  reachable in the first screen. The status quick-view strip never clips without a
+  visible overflow affordance (UI-005).
 - **Accessibility / responsive**: ≥ 44×44 CSS px targets, visible focus, 200% text and 400%
   reflow without clipped meaning or horizontal task scroll, `prefers-reduced-motion`
   disables optional workflow motion, one primary action per responsibility region on mobile.

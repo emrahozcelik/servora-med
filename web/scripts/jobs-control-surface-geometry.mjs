@@ -74,6 +74,7 @@ async function measure(page, viewport, fixtureCase, role = 'manager') {
       return { width: bounds.width, height: bounds.height };
     });
     const strip = document.querySelector('[data-job-quick-views]');
+    const stripShell = document.querySelector('.job-quick-views-shell');
     const firstResultY = result?.getBoundingClientRect().top ?? null;
     return {
       case: currentCase,
@@ -97,6 +98,9 @@ async function measure(page, viewport, fixtureCase, role = 'manager') {
         .filter(Boolean).map((target) => Math.round(target.getBoundingClientRect().bottom)),
       modeHeight: mode?.getBoundingClientRect().height ?? null,
       firstResultY,
+      firstResultFraction: firstResultY === null
+        ? null
+        : Number((firstResultY / window.innerHeight).toFixed(3)),
       viewportFraction: firstResultY === null ? null : Number((firstResultY / window.innerHeight).toFixed(3)),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       overflowers: [...document.querySelectorAll('body *')]
@@ -109,16 +113,39 @@ async function measure(page, viewport, fixtureCase, role = 'manager') {
         .slice(0, 12),
       stripClientWidth: strip?.clientWidth ?? null,
       stripScrollWidth: strip?.scrollWidth ?? null,
+      stripScrollLeft: strip?.scrollLeft ?? null,
+      stripOverflowState: stripShell?.getAttribute('data-quick-views-overflow') ?? null,
+      stripFade: stripShell
+        ? getComputedStyle(stripShell, '::after').backgroundImage
+        : null,
       minTargetWidth: targets.length ? Math.min(...targets.map((target) => target.width)) : null,
       minTargetHeight: targets.length ? Math.min(...targets.map((target) => target.height)) : null,
     };
   }, { fixtureCase, role });
 }
 
+/** The Liste/Pano switch lives in the filter sheet on narrow shells (UI-005). */
+async function inspectFilterSheet(page) {
+  await page.locator('.filter-sheet-trigger').click();
+  await page.locator('[role="dialog"]').waitFor();
+  const result = await page.evaluate(() => {
+    const switchInChrome = document.querySelector('[data-job-view-switcher]');
+    return {
+      viewSwitchInSheet: document.querySelector('[role="dialog"] [data-job-view-switcher]') !== null,
+      listOnlyInSheet: document.querySelector('[role="dialog"] [data-job-view-list-only]') !== null,
+      viewSwitchInChrome: switchInChrome !== null && switchInChrome.closest('[role="dialog"]') === null,
+    };
+  });
+  await page.keyboard.press('Escape');
+  await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+  return result;
+}
+
 function verifyMobile(row) {
   invariant(row.quickRows === 1, `${row.width}px ${row.case}: quick views wrapped to ${row.quickRows} rows`);
-  invariant(row.persistentControlRows === 3,
-    `${row.width}px ${row.case}: expected 3 persistent control rows, got ${row.persistentControlRows}`);
+  invariant(row.persistentControlRows === 2,
+    `${row.width}px ${row.case}: expected 2 persistent control rows (quick views + search), `
+      + `got ${row.persistentControlRows}`);
   invariant(Math.max(...row.searchControlBottoms) - Math.min(...row.searchControlBottoms) <= 1,
     `${row.width}px ${row.case}: search/submit/filter controls are not one row ${row.searchControlBottoms}`);
   invariant(row.pageOverflow <= 1,
@@ -128,10 +155,24 @@ function verifyMobile(row) {
   if (row.width <= 430) {
     invariant(row.stripScrollWidth > row.stripClientWidth,
       `${row.width}px ${row.case}: quick-view strip should own horizontal overflow`);
+    // UI-005: clipping must always carry an overflow affordance.
+    const atEnd = row.stripScrollLeft + row.stripClientWidth >= row.stripScrollWidth - 2;
+    if (row.stripOverflowState === 'true') {
+      invariant((row.stripFade ?? 'none') !== 'none',
+        `${row.width}px ${row.case}: quick-view strip fade is missing (${row.stripFade})`);
+    } else {
+      invariant(atEnd,
+        `${row.width}px ${row.case}: overflow affordance hidden while ${row.stripScrollWidth - row.stripClientWidth}px remains clipped`);
+    }
   }
   if ([360, 390, 430].includes(row.width)) {
     invariant(row.firstResultY < row.height,
       `${row.width}px ${row.case}: first result starts below the viewport (${row.firstResultY}px)`);
+    // The list composition (not the board lanes) owns the UI-005 first-screen budget.
+    if (row.case === 'active-list' || row.case === 'closed' || row.case === 'overdue') {
+      invariant(row.firstResultFraction <= 0.55,
+        `${row.width}px ${row.case}: first result starts at ${row.firstResultFraction} of the first screen`);
+    }
   }
   if (row.width === 320) {
     invariant(row.viewportFraction < 0.9,
@@ -157,6 +198,21 @@ try {
   const staffRow = await measure(page, { width: 390, height: 844 }, 'active-list', 'staff');
   rows.push(staffRow);
   verifyMobile(staffRow);
+
+  // UI-005: the view switch lives in the filter sheet on narrow shells.
+  const boardMemberships = new Set(['active-list', 'active-board', 'approval-board']);
+  for (const fixtureCase of ['active-list', 'active-board', 'approval-board', 'closed', 'overdue']) {
+    await measure(page, { width: 390, height: 844 }, fixtureCase);
+    const sheet = await inspectFilterSheet(page);
+    rows.push({ case: fixtureCase, sheet });
+    if (boardMemberships.has(fixtureCase)) {
+      invariant(sheet.viewSwitchInSheet, `${fixtureCase}@390: view switch missing from the filter sheet`);
+      invariant(!sheet.viewSwitchInChrome, `${fixtureCase}@390: view switch still occupies the chrome`);
+    } else {
+      invariant(sheet.listOnlyInSheet, `${fixtureCase}@390: list-only notice missing from the filter sheet`);
+      invariant(!sheet.viewSwitchInSheet, `${fixtureCase}@390: list-only membership offered a view switch`);
+    }
+  }
 } finally {
   await chromiumBrowser.close();
 }

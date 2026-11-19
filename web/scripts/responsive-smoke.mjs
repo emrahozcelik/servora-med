@@ -34,14 +34,18 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
     </div>
     <div class="mobile-top-bar-actions">
       <button class="shell-notification-trigger" type="button" aria-label="Bildirimler"><svg class="shell-notification-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /></svg></button>
-      <button class="shell-menu-button" type="button">Menü</button>
     </div>
   </header>
   <nav class="mobile-bottom-nav" id="mobile-bottom-nav" style="display:none" aria-label="Mobil ana navigasyon">
-    <a class="mobile-bottom-nav-item mobile-bottom-nav-item--active" href="/jobs" aria-current="page">İşler</a>
-    <a class="mobile-bottom-nav-item" href="/customers">Müşteriler</a>
-    <a class="mobile-bottom-nav-item" href="/products">Ürünler</a>
-    <a class="mobile-bottom-nav-item" href="/staff">Profilim</a>
+    <a class="mobile-bottom-nav-item mobile-bottom-nav-item--active" href="/jobs" aria-current="page"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16" /></svg><span class="mobile-bottom-nav-label">İşler</span></a>
+    <a class="mobile-bottom-nav-item" href="/customers"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16" /></svg><span class="mobile-bottom-nav-label">Müşt.</span></a>
+    <div class="mobile-bottom-nav-create" id="mobile-bottom-nav-create">
+      <div class="new-job-menu">
+        <button type="button" class="primary-button compact-button new-job-menu-trigger" aria-expanded="false"><span class="new-job-menu-trigger-icon" aria-hidden="true"><svg class="mobile-nav-icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span><span class="new-job-menu-trigger-label">Yeni iş</span></button>
+      </div>
+    </div>
+    <a class="mobile-bottom-nav-item" href="/products"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16" /></svg><span class="mobile-bottom-nav-label">Ürün.</span></a>
+    <button class="mobile-bottom-nav-item mobile-bottom-nav-menu" type="button" aria-controls="drawer" aria-expanded="false"><svg class="mobile-nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></svg><span class="mobile-bottom-nav-label">Menü</span></button>
   </nav>
   <div class="shell-content">
     <main class="workspace" style="width:min(100% - 2rem,68rem);margin:1rem auto;">
@@ -130,16 +134,6 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Geniş kayıt alanı responsive fixture" data-smoke-desc-wide>
         <div class="detail-summary surface"><div id="responsive-descriptions-wide-root"></div></div>
       </section>
-      <div class="sticky-new-job" id="sticky-create" style="display:none">
-        <div class="new-job-menu">
-          <button type="button" class="primary-button compact-button new-job-menu-trigger">Yeni iş</button>
-          <div class="new-job-menu-panel surface-raised new-job-menu-panel--sheet" id="sticky-panel" style="display:none">
-            <button type="button" class="new-job-menu-item">Yeni görüşme</button>
-            <button type="button" class="new-job-menu-item">Yeni görev</button>
-            <button type="button" class="new-job-menu-item">Yeni teslim</button>
-          </div>
-        </div>
-      </div>
     </main>
   </div>
 </div>
@@ -151,8 +145,6 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
     const sidebar = document.getElementById('sidebar');
     const desktopTopbar = document.getElementById('desktop-topbar');
     const mobileTopbar = document.getElementById('mobile-topbar');
-    const sticky = document.getElementById('sticky-create');
-    const panel = document.getElementById('sticky-panel');
     const bottomNav = document.getElementById('mobile-bottom-nav');
     if (desktop) {
       shell.classList.add('authenticated-shell--desktop');
@@ -161,8 +153,6 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       desktopTopbar.style.display = 'flex';
       mobileTopbar.style.display = 'none';
       if (bottomNav) bottomNav.style.display = 'none';
-      sticky.style.display = 'none';
-      panel.style.display = 'none';
     } else {
       shell.classList.remove('authenticated-shell--desktop');
       shell.classList.add('authenticated-shell--mobile');
@@ -170,10 +160,6 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       desktopTopbar.style.display = 'none';
       mobileTopbar.style.display = 'flex';
       if (bottomNav) bottomNav.style.display = 'grid';
-      sticky.style.display = 'flex';
-      // sticky always uses sheet presentation when open in product; open for measure at tablet
-      if (w >= 641 && w < 1024) panel.style.display = 'grid';
-      else panel.style.display = 'none';
     }
   }
   applyLayout();
@@ -551,7 +537,6 @@ async function measure(page) {
     const topbarActionRect = topbarAction?.getBoundingClientRect();
     const topbarIconRect = topbarAction?.querySelector('.shell-notification-icon')?.getBoundingClientRect();
     const topbarMenu = activeTopbar?.querySelector('.shell-menu-button');
-    const topbarMenuRect = topbarMenu?.getBoundingClientRect();
     const topbarTitle = activeTopbar?.querySelector('.mobile-shell-title');
     const topbarTitleRect = topbarTitle?.getBoundingClientRect();
     const topbarActions = activeTopbar?.querySelector('.mobile-top-bar-actions');
@@ -580,7 +565,7 @@ async function measure(page) {
       && (
         activeTopbar !== mobileTopbar
         || (
-          rectInViewport(topbarMenuRect)
+          !topbarMenu
           && topbarTitleRect
           && topbarTitleRect.width > 0
           && topbarActionsRect
@@ -594,22 +579,28 @@ async function measure(page) {
       && bottomNav.style.display !== 'none',
     );
     const bottomNavRect = bottomNavVisible ? bottomNav.getBoundingClientRect() : null;
-    const stickyCreate = document.getElementById('sticky-create');
-    const stickyCreateVisible = Boolean(
-      stickyCreate
-      && stickyCreate.style.display !== 'none'
-      && getComputedStyle(stickyCreate).display !== 'none',
-    );
-    const stickyCreateRect = stickyCreateVisible ? stickyCreate.getBoundingClientRect() : null;
+    const bottomMenuRect = bottomNav?.querySelector('.mobile-bottom-nav-menu')?.getBoundingClientRect() ?? null;
+    const bottomNavItems = bottomNav ? [...bottomNav.querySelectorAll('.mobile-bottom-nav-item, .new-job-menu-trigger')] : [];
+    const bottomNavTargets = bottomNavItems.map((item) => {
+      const r = item.getBoundingClientRect();
+      return { width: r.width, height: r.height };
+    });
+    const bottomNavFontSizes = bottomNavItems
+      .map((item) => item.querySelector('.mobile-bottom-nav-label, .new-job-menu-trigger-label'))
+      .filter(Boolean)
+      .map((label) => Number.parseFloat(getComputedStyle(label).fontSize));
+    const bottomNavIconCount = bottomNav
+      ? bottomNav.querySelectorAll('.mobile-nav-icon').length
+      : 0;
     const mobileChromeContract = activeTopbar !== mobileTopbar || Boolean(
       topbarContract
       && bottomNavVisible
       && rectInViewport(bottomNavRect)
-      && (
-        !stickyCreateVisible
-        || (stickyCreateRect && bottomNavRect && stickyCreateRect.bottom <= bottomNavRect.top + 2
-          && !rectsIntersect(stickyCreateRect, bottomNavRect))
-      ),
+      && bottomNavItems.length <= 5
+      && bottomNavIconCount === bottomNavItems.length
+      && bottomNavTargets.every((target) => target.width >= 44 && target.height >= 44)
+      && bottomNavFontSizes.length === bottomNavItems.length
+      && bottomNavFontSizes.every((size) => size >= 12)
     );
     let laneCardCols = 0;
     let visiblePreviewCards = 0;
@@ -743,14 +734,6 @@ async function measure(page) {
       && articleRect.left >= timelineRect.left - 2 && articleRect.right <= timelineRect.right + 2);
     const timelineRailIntact = Boolean(timelineRail
       && getComputedStyle(timelineRail).position === 'absolute');
-    const stickyPanel = document.getElementById('sticky-panel');
-    let stickyVisible = false;
-    let stickyInViewport = true;
-    if (stickyPanel && stickyPanel.style.display !== 'none') {
-      stickyVisible = true;
-      const r = stickyPanel.getBoundingClientRect();
-      stickyInViewport = r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.left >= 0 && r.right <= window.innerWidth + 1;
-    }
     const sidebar = document.getElementById('sidebar');
     const sidebarVisible = sidebar && getComputedStyle(sidebar).display !== 'none';
     const sidebarRect = sidebar?.getBoundingClientRect();
@@ -990,8 +973,6 @@ async function measure(page) {
       descriptionsUseFullWidth,
       timelineAdapterFits,
       timelineRailIntact,
-      stickyVisible,
-      stickyInViewport,
       sidebarVisible,
       sidebarBrandFitted,
       reportPresent: Boolean(reportRoot),
@@ -1097,11 +1078,13 @@ async function measure(page) {
       topbarContract,
       mobileChromeContract,
       mobileTitleWidth: topbarTitleRect?.width ?? 0,
-      mobileMenuInViewport: activeTopbar !== mobileTopbar || rectInViewport(topbarMenuRect),
+      mobileMenuInViewport: activeTopbar !== mobileTopbar || rectInViewport(bottomMenuRect),
       mobileBottomNavInViewport: activeTopbar !== mobileTopbar || rectInViewport(bottomNavRect),
-      stickyClearOfBottomNav: activeTopbar !== mobileTopbar || !stickyCreateVisible
-        || Boolean(stickyCreateRect && bottomNavRect && stickyCreateRect.bottom <= bottomNavRect.top + 2
-          && !rectsIntersect(stickyCreateRect, bottomNavRect)),
+      mobileBottomNavItemCount: bottomNavItems.length,
+      mobileBottomNavIconCount: bottomNavIconCount,
+      mobileBottomNavMinTarget: bottomNavTargets.length
+        ? Math.min(...bottomNavTargets.map((target) => Math.min(target.width, target.height)))
+        : 0,
       notificationSettingsPresent: Boolean(notificationSection?.querySelector('.notification-settings')),
       notificationManualGuidance: (() => {
         const text = notificationSection?.textContent ?? '';
@@ -1531,8 +1514,11 @@ try {
     if (m.visiblePreviewCards !== expectedPreviewCards) {
       failures.push(`${vp.name}: expected ${expectedPreviewCards} visible preview cards (visible=${m.visiblePreviewCards})`);
     }
-    if (vp.width >= 641 && vp.width < 1024 && m.stickyVisible && !m.stickyInViewport) {
-      failures.push(`${vp.name}: sticky Yeni iş sheet panel outside viewport`);
+    if (vp.width < 1024 && m.mobileBottomNavItemCount > 5) {
+      failures.push(`${vp.name}: bottom navigation has ${m.mobileBottomNavItemCount} slots (max 5)`);
+    }
+    if (vp.width < 1024 && m.mobileBottomNavMinTarget < 44) {
+      failures.push(`${vp.name}: bottom navigation target below 44px (${m.mobileBottomNavMinTarget})`);
     }
     if (!m.chartsPresent) {
       failures.push(`${vp.name}: chart fixture section missing`);
@@ -1590,7 +1576,8 @@ try {
         + ` titleW=${m.mobileTitleWidth}`
         + ` menuIn=${m.mobileMenuInViewport}`
         + ` bottomIn=${m.mobileBottomNavInViewport}`
-        + ` stickyClear=${m.stickyClearOfBottomNav}`,
+        + ` bottomTargets=${m.mobileBottomNavMinTarget}`
+        + ` bottomSlots=${m.mobileBottomNavItemCount}`,
       );
     }
     if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
@@ -1872,7 +1859,8 @@ try {
         + ` titleW=${m.mobileTitleWidth}`
         + ` menuIn=${m.mobileMenuInViewport}`
         + ` bottomIn=${m.mobileBottomNavInViewport}`
-        + ` stickyClear=${m.stickyClearOfBottomNav}`,
+        + ` bottomTargets=${m.mobileBottomNavMinTarget}`
+        + ` bottomSlots=${m.mobileBottomNavItemCount}`,
       );
     }
     await page.click('[data-smoke-notification] .notification-settings-trigger');

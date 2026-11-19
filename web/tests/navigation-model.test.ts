@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildNavigationModel,
-  isJobsListPath,
+  groupNavigationBySection,
+  groupNavigationForMenu,
   resolveHomePath,
   resolveIdentityTitle,
 } from '../src/shell/navigation-model';
@@ -36,8 +37,9 @@ describe('buildNavigationModel', () => {
     expect(model.destinations.map((d) => d.section)).toEqual([
       'Operasyon', 'Operasyon', 'Operasyon', 'Ekip', 'Destek', 'Destek', 'Hesap',
     ]);
-    expect(model.bottom.map((d) => d.label)).toEqual(['İşler', 'Müşteriler', 'Ürünler', 'Menü']);
-    expect(model.overflow.map((d) => d.label)).toContain('Profilim');
+    expect(model.bottom.map((d) => d.label)).toEqual([
+      'İşler', 'Müşteriler', 'Yeni iş', 'Ürünler', 'Menü',
+    ]);
   });
 
   it('puts Menü as a non-link action for manager bottom nav', () => {
@@ -53,18 +55,27 @@ describe('buildNavigationModel', () => {
     expect(model.bottom.map((d) => ({ kind: d.kind, label: d.label }))).toEqual([
       { kind: 'link', label: 'İşler' },
       { kind: 'link', label: 'Müşteriler' },
+      { kind: 'create', label: 'Yeni iş' },
       { kind: 'link', label: 'Raporlar' },
       { kind: 'menu', label: 'Menü' },
     ]);
-    expect(model.overflow.map((d) => d.label)).toContain('Personel');
-    expect(model.overflow.map((d) => d.label)).toContain('Ürünler');
   });
 
-  it('includes Kullanıcılar for admin destinations and overflow', () => {
+  it('keeps the create action in the middle slot of at most five bottom-nav items', () => {
+    const model = buildNavigationModel(admin);
+    expect(model.bottom).toHaveLength(5);
+    expect(model.bottom[2]).toMatchObject({ kind: 'create', id: 'new-job', label: 'Yeni iş' });
+    expect(model.bottom.at(-1)).toMatchObject({ kind: 'menu', id: 'menu' });
+    expect(model.bottom.filter((item) => item.kind === 'link').length).toBe(3);
+  });
+
+  it('includes Kullanıcılar for admin destinations', () => {
     const model = buildNavigationModel(admin);
     expect(model.destinations.map((d) => d.label)).toContain('Kullanıcılar');
-    expect(model.overflow.map((d) => d.label)).toContain('Kullanıcılar');
     expect(model.destinations.find((d) => d.label === 'Kullanıcılar')?.section).toBe('Ekip');
+    expect(model.bottom).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Kullanıcılar' })]),
+    );
   });
 
   it('keeps Veri Yönetimi under Settings instead of adding a top-level destination', () => {
@@ -92,7 +103,7 @@ describe('buildNavigationModel', () => {
       .not.toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Yedekleme ve Kurtarma' })]));
   });
 
-  it('shows overview only when enabled and keeps support/account in a four-item mobile model', () => {
+  it('shows overview only when enabled and keeps support/account reachable from the menu model', () => {
     const enabled = buildNavigationModel({
       ...staff,
       capabilities: { ...staff.capabilities, overviewDashboard: true },
@@ -101,13 +112,13 @@ describe('buildNavigationModel', () => {
     expect(enabled.destinations.map((item) => item.label)).toContain('Dokümantasyon');
     expect(enabled.destinations.map((item) => item.label)).toContain('Yardım Merkezi');
     expect(enabled.destinations.map((item) => item.label)).toContain('Ayarlar');
-    expect(enabled.bottom).toHaveLength(4);
+    expect(enabled.bottom).toHaveLength(5);
     expect(enabled.bottom.at(-1)).toMatchObject({ kind: 'menu', label: 'Menü' });
     expect(buildNavigationModel(staff).destinations.map((item) => item.label))
       .not.toContain('Genel Bakış');
   });
 
-  it('shows Takvim only with capability and keeps it in the four-control mobile model', () => {
+  it('shows Takvim only with capability and keeps it in the bottom-nav model', () => {
     const enabled = buildNavigationModel({
       ...staff,
       capabilities: {
@@ -118,10 +129,47 @@ describe('buildNavigationModel', () => {
     });
     expect(enabled.destinations.map((item) => item.label)).toContain('Takvim');
     expect(enabled.bottom.map((item) => item.label))
-      .toEqual(['Genel Bakış', 'İşler', 'Takvim', 'Menü']);
+      .toEqual(['Genel Bakış', 'İşler', 'Yeni iş', 'Takvim', 'Menü']);
     expect(buildNavigationModel(staff).destinations.map((item) => item.label))
       .not.toContain('Takvim');
     expect(resolveIdentityTitle(getRouteIdentity('calendar'), 'STAFF')).toBe('Takvim');
+  });
+});
+
+describe('navigation grouping (DECISIONS.md UI-004)', () => {
+  it('keeps the five sidebar sections in model order', () => {
+    const groups = groupNavigationBySection(buildNavigationModel(manager).destinations);
+    expect(groups.map((group) => group.label)).toEqual([
+      'Operasyon', 'Analiz', 'Ekip', 'Destek', 'Hesap',
+    ]);
+    expect(groups.flatMap((group) => group.items).map((item) => item.label)).toEqual(
+      buildNavigationModel(manager).destinations.map((item) => item.label),
+    );
+  });
+
+  it('groups the mobile menu as Çalışma then Hesap ve destek', () => {
+    const groups = groupNavigationForMenu(buildNavigationModel(manager).destinations);
+    expect(groups.map((group) => group.label)).toEqual(['Çalışma', 'Hesap ve destek']);
+    expect(groups[0].items.map((item) => item.label)).toEqual([
+      'İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel',
+    ]);
+    expect(groups[1].items.map((item) => item.label)).toEqual([
+      'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar',
+    ]);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(
+      buildNavigationModel(manager).destinations.length,
+    );
+  });
+
+  it('keeps backup inside Hesap ve destek for an enabled admin', () => {
+    const groups = groupNavigationForMenu(buildNavigationModel({
+      ...admin,
+      capabilities: { ...admin.capabilities, backup: true },
+    }).destinations);
+    expect(groups.map((group) => group.label)).toEqual(['Çalışma', 'Hesap ve destek']);
+    expect(groups[1].items.map((item) => item.label)).toEqual([
+      'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar', 'Yedekleme ve Kurtarma',
+    ]);
   });
 });
 
@@ -133,8 +181,9 @@ describe('legacy shell-back removal (Slice 3B)', () => {
     expect(MobileTopBar.toString()).not.toContain('Geri');
   });
 
-  it('keeps jobs list path helper', () => {
-    expect(isJobsListPath('/jobs')).toBe(true);
-    expect(isJobsListPath('/jobs/abc')).toBe(false);
+  it('removes the top-bar menu affordance (DECISIONS.md UI-004)', () => {
+    expect(MobileTopBar.toString()).not.toContain('onOpenMenu');
+    expect(MobileTopBar.toString()).not.toContain('menuExpanded');
+    expect(MobileTopBar.toString()).not.toContain('Menü');
   });
 });
