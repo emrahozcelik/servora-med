@@ -38,17 +38,36 @@ describe('403 and 404 result states', () => {
   it.each([
     ['403', 'Erişim yetkiniz yok'],
     ['404', 'Sayfa bulunamadı'],
-  ] as const)('renders one Turkish h1 and hides the %s artwork from assistive technology', async (status, title) => {
+  ] as const)('renders one Turkish h1 and no decorative artwork for %s', async (status, title) => {
     await mount(status, title);
     const headings = Array.from(host.querySelectorAll('h1')).map((heading) => heading.textContent);
     expect(headings).toEqual([title]);
+    // Ant's stock 403/404 cartoons must not appear in the product surface.
+    expect(host.querySelector('.servora-result-state__icon')).toBeNull();
+    expect(host.querySelector('.servora-result-state svg')).toBeNull();
+    expect(host.querySelector('.servora-result-state img')).toBeNull();
+    expect(host.querySelector('[data-servora-result-state]')?.getAttribute('data-result-status'))
+      .toBe(status);
+    expect(host.textContent).toContain('Açıklama');
+    expect(host.querySelector('a[href="/jobs"]')?.textContent).toBe('İşlere dön');
+    expect(host.querySelector('[data-servora-result-state]')?.getAttribute('role')).toBe('alert');
+  });
+
+  it('keeps the 500 illustration out of the accessibility tree', async () => {
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <main className="workspace">
+            <ResultState status="500" title="Sunucu hatası" headingLevel={1} description="Açıklama" />
+          </main>
+        </ServoraAntProvider>,
+      );
+    });
     const icon = host.querySelector('.servora-result-state__icon');
     expect(icon).not.toBeNull();
     expect(icon?.getAttribute('aria-hidden')).toBe('true');
-    // Every nested label-bearing node is inside the hidden artwork slot.
     for (const labelled of Array.from(icon!.querySelectorAll('[aria-label], title'))) {
       expect(labelled.closest('[aria-hidden="true"]')).toBe(icon);
     }
-    expect(host.querySelector('[data-servora-result-state]')?.getAttribute('role')).toBe('alert');
   });
 });

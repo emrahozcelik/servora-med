@@ -62,7 +62,6 @@ function ProductFacts({ product }: { product: Product }) {
     <div><dt>Model</dt><dd>{absent(product.model)}</dd></div>
     <div><dt>Birim</dt><dd>{absent(product.unit)}</dd></div>
     <div><dt>Referans fiyat</dt><dd>{absent(product.referencePrice)}</dd></div>
-    <div><dt>Sürüm</dt><dd>{product.version}</dd></div>
     <div><dt>Son güncelleme</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' }).format(new Date(product.updatedAt))}</dd></div>
   </dl>;
 }
@@ -188,8 +187,8 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
 
   if (editing) return <>
     {conflictVersion !== undefined && <div className="conflict-actions product-edit-conflict" role="alert">
-      <p>Ürün başka bir kullanıcı tarafından güncellendi. Formdaki değişiklikleriniz korunuyor.
-        {conflictVersion !== null && <> Güncel sürüm: {conflictVersion}.</>}{error && <> {error}</>}</p>
+      <p>Ürün sizin düzenlemeye başladığınızdan sonra güncellendi. Formdaki değişiklikleriniz korunuyor.
+        {error && <> {error}</>}</p>
       <button className="secondary-button" type="button" onClick={() => void reloadCurrentValues()} disabled={pending}>Güncel değerleri yükle</button>
     </div>}
     <ProductForm key={formKey} pending={pending} fieldErrors={fieldErrors} error={conflictVersion === undefined ? error : ''} errorRef={editErrorRef}
@@ -202,7 +201,6 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     <PageHeader
       eyebrow="Ürün kataloğu"
       fallbackTitle={product.name}
-      actions={<span className="product-version">Sürüm {product.version}</span>}
     />
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {error && <div className="detail-feedback detail-feedback-error" role="alert">{error}</div>}
@@ -231,7 +229,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       open={deleteConfirmOpen}
       title="Ürün kalıcı olarak silinsin mi?"
       description="Bu işlem geri alınamaz. Yalnız kullanılmamış ürünler silinebilir."
-      details={[`Ürün: ${product.name}`, `SKU: ${product.sku ?? '—'}`, `Sürüm: ${product.version}`]}
+      details={[`Ürün: ${product.name}`, `SKU: ${product.sku ?? '—'}`]}
       confirmLabel="Kalıcı olarak sil"
       pending={deletePending}
       pendingLabel="Siliniyor…"

@@ -21,6 +21,15 @@ const alertStatuses: ReadonlySet<ResultStateStatus> = new Set([
   '500',
 ]);
 
+/**
+ * Statuses that must not print Ant's decorative exception artwork (UI audit
+ * F-12). Ant 6.7 always paints its own multi-colour illustration for the
+ * `403`/`404`/`500` result statuses and ignores the `icon` prop for them, so
+ * these are rendered through the calm, icon-free informational variant while
+ * the real status stays on `data-result-status` for tests and tooling.
+ */
+const calmStatuses: ReadonlySet<ResultStateStatus> = new Set(['403', '404']);
+
 /** Feature owns state and actions; this adapter owns accessible result presentation. */
 export function ResultState({
   status,
@@ -30,11 +39,10 @@ export function ResultState({
   headingLevel = 2,
 }: ResultStateProps): ReactNode {
   const sectionRef = useRef<HTMLElement>(null);
-  // The status icon is decorative: the heading carries the meaning. Ant's
-  // 403/404/500 illustrations embed English SVG <title>s ("Unauthorized",
-  // "No Found") and status icons carry English aria-labels; Ant ignores the
-  // `icon` prop for exception statuses and forwards no attributes to the icon
-  // slot, so hide that slot from assistive technology here (UI audit F-18).
+  const calm = calmStatuses.has(status);
+  // A remaining exception illustration (500) embeds English SVG <title>s
+  // ("Sorry, something went wrong.") and Ant forwards no attributes to the
+  // icon slot, so hide that slot from assistive technology here (F-18).
   useLayoutEffect(() => {
     sectionRef.current?.querySelectorAll('.servora-result-state__icon')
       .forEach((icon) => icon.setAttribute('aria-hidden', 'true'));
@@ -45,12 +53,14 @@ export function ResultState({
       ref={sectionRef}
       className="servora-result-state"
       data-servora-result-state="true"
+      data-result-status={status}
       role={alertStatuses.has(status) ? 'alert' : 'status'}
     >
       <Result
         className="servora-result-state__content"
         classNames={{ icon: 'servora-result-state__icon' }}
-        status={status}
+        status={calm ? 'info' : status}
+        icon={calm ? null : undefined}
         title={<StateHeading level={headingLevel}>{title}</StateHeading>}
         subTitle={description}
         extra={action}
