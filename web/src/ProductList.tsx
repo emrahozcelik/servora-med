@@ -1,14 +1,13 @@
 import {
-  useEffect, useRef, useState, type MouseEvent, type RefObject,
+  useEffect, useState, type MouseEvent,
 } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  deleteProduct, listProducts, type Paginated, type Product, type ProductFilters,
+  listProducts, type Paginated, type Product, type ProductFilters,
 } from './services/products-api';
-import { ConfirmationAction } from './ui/antd';
 import { PageHeader } from './ui/PageHeader';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
@@ -63,7 +62,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct, onRequestDelete, feedback = '', actionError = '' }: {
+export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct }: {
   state: ProductListState;
   user: CurrentUser;
   filters?: ProductFilterValues;
@@ -72,9 +71,6 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onRetry: () => void;
   onOffsetChange?: (offset: number) => void;
   onOpenProduct?: (productId: string) => void;
-  onRequestDelete?: (product: Product, trigger: HTMLButtonElement) => void;
-  feedback?: string;
-  actionError?: string;
 }) {
   const canManage = user.role !== 'STAFF';
 
@@ -87,24 +83,20 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
       actions={canManage ? <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link> : undefined}
     />
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
-    <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div className="form-error" role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">
       <h2 className="sr-only">Ürünler yükleniyor</h2><div className="product-loading" aria-hidden="true"><span /><span /><span /></div>
     </div> : state.kind === 'error' ? <div className="product-results"><ResultState status="error" title="Ürünler yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
-    /></div> : <ProductResults page={state.page} canManage={canManage} hasFilters={hasFilters}
-      onOffsetChange={onOffsetChange} onOpenProduct={onOpenProduct} onRequestDelete={onRequestDelete} />}
+    /></div> : <ProductResults page={state.page} hasFilters={hasFilters}
+      onOffsetChange={onOffsetChange} onOpenProduct={onOpenProduct} />}
   </main>;
 }
 
-function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenProduct, onRequestDelete }: {
+function ProductResults({ page, hasFilters, onOffsetChange, onOpenProduct }: {
   page: Paginated<Product>;
-  canManage: boolean;
   hasFilters: boolean;
   onOffsetChange?: (offset: number) => void;
   onOpenProduct?: (productId: string) => void;
-  onRequestDelete?: (product: Product, trigger: HTMLButtonElement) => void;
 }) {
   return <div className="product-results">
     {page.items.length === 0 ? <EmptyState
@@ -118,13 +110,6 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
             <h2><Link className="product-title-link" to={paths.product(product.id)}>{product.name}</Link></h2>
             <p>{product.brand ?? 'Marka belirtilmedi'}{product.model ? ` · ${product.model}` : ''}</p></div>
           <dl className="product-facts"><div><dt>SKU</dt><dd>{product.sku ?? 'Belirtilmedi'}</dd></div><div><dt>Birim</dt><dd>{product.unit ?? 'Belirtilmedi'}</dd></div></dl>
-          {canManage && <div className="product-row-commands">
-            <Link className="secondary-button" to={paths.product(product.id)}
-              aria-label={`${product.name} ürününü düzenle`}>Düzenle</Link>
-            <button className="secondary-button product-delete-action" type="button"
-              aria-label={`${product.name} ürününü sil`}
-              onClick={(event) => onRequestDelete?.(product, event.currentTarget)}>Sil</button>
-          </div>}
         </article></li>)}</ul>}
     {page.total > page.limit && <div className="product-pagination">
       <ServoraListPagination label="Ürün sayfaları" itemName="ürün"
@@ -134,21 +119,15 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
   </div>;
 }
 
-export function ProductListScreen({ user, load = listProducts, remove = deleteProduct }: {
+export function ProductListScreen({ user, load = listProducts }: {
   user: CurrentUser;
   load?: typeof listProducts;
-  remove?: typeof deleteProduct;
 }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const filters = productFiltersFromParams(params);
   const [state, setState] = useState<ProductListState>({ kind: 'loading' });
   const [reload, setReload] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [actionError, setActionError] = useState('');
-  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const queryKey = params.toString();
 
   useEffect(() => {
@@ -178,51 +157,10 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, queryKey, reload]);
 
-  function requestDelete(product: Product, trigger: HTMLButtonElement) {
-    if (deletePending) return;
-    deleteTriggerRef.current = trigger;
-    setActionError('');
-    setDeleteTarget(product);
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget || deletePending) return;
-    setDeletePending(true);
-    setActionError('');
-    try {
-      await remove(deleteTarget.id, deleteTarget.version);
-      const name = deleteTarget.name;
-      deleteTriggerRef.current = null;
-      setDeleteTarget(null);
-      setFeedback(`${name} silindi.`);
-      setReload((value) => value + 1);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Ürün silinemedi.');
-      setDeleteTarget(null);
-    } finally {
-      setDeletePending(false);
-    }
-  }
-
   const hasFilters = Boolean(filters.q);
-  return <>
-    <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
-      onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
-      onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
-      onRetry={() => setReload((value) => value + 1)}
-      onOpenProduct={(productId) => navigate(paths.product(productId))}
-      onRequestDelete={requestDelete} feedback={feedback} actionError={actionError} />
-    <ConfirmationAction
-      open={deleteTarget !== null}
-      title={deleteTarget ? `${deleteTarget.name} ürününü sil` : 'Ürünü sil'}
-      description="Bu işlem geri alınamaz. Ürün katalogdan kalıcı olarak silinir."
-      confirmLabel="Sil"
-      pending={deletePending}
-      pendingLabel="Siliniyor…"
-      destructive
-      returnFocusRef={deleteTriggerRef}
-      onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
-      onConfirm={() => { void confirmDelete(); }}
-    />
-  </>;
+  return <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
+    onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
+    onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
+    onRetry={() => setReload((value) => value + 1)}
+    onOpenProduct={(productId) => navigate(paths.product(productId))} />;
 }
