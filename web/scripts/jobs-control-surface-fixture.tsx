@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -68,7 +68,6 @@ function useDesktop() {
 
 function Shell() {
   const desktop = useDesktop();
-  const menuRef = useRef<HTMLButtonElement>(null);
   return (
     <div className={`authenticated-shell authenticated-shell--${desktop ? 'desktop' : 'mobile'}`}>
       {desktop ? (
@@ -88,11 +87,6 @@ function Shell() {
       ) : (
         <MobileTopBar
           title={role === 'STAFF' ? 'İşlerim' : 'İşler'}
-          backTo={null}
-          menuExpanded={false}
-          menuControlsId="fixture-menu"
-          onOpenMenu={() => undefined}
-          menuTriggerRef={menuRef}
           notifications={<button className="shell-notification-trigger" type="button" aria-label="Bildirimler">B</button>}
         />
       )}
@@ -104,15 +98,34 @@ function Shell() {
         />
       </div>
       {!desktop && (
-        <>
-          <div className="sticky-new-job"><button className="primary-button" type="button">Yeni iş</button></div>
-          <nav className="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
-            <a className="mobile-bottom-nav-item mobile-bottom-nav-item--active" href="/jobs" aria-current="page">İşler</a>
-            <a className="mobile-bottom-nav-item" href="/customers">Müşteriler</a>
-            <a className="mobile-bottom-nav-item" href="/products">Ürünler</a>
-            <button className="mobile-bottom-nav-item mobile-bottom-nav-menu" type="button">Menü</button>
-          </nav>
-        </>
+        <nav className="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
+          <a className="mobile-bottom-nav-item mobile-bottom-nav-item--active" href="/jobs" aria-current="page">
+            <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /></svg>
+            <span className="mobile-bottom-nav-label">İşler</span>
+          </a>
+          <a className="mobile-bottom-nav-item" href="/customers">
+            <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /></svg>
+            <span className="mobile-bottom-nav-label">Müşt.</span>
+          </a>
+          <div className="mobile-bottom-nav-create">
+            <div className="new-job-menu">
+              <button type="button" className="primary-button compact-button new-job-menu-trigger">
+                <span className="new-job-menu-trigger-icon" aria-hidden="true">
+                  <svg className="mobile-nav-icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                </span>
+                <span className="new-job-menu-trigger-label">Yeni iş</span>
+              </button>
+            </div>
+          </div>
+          <a className="mobile-bottom-nav-item" href="/products">
+            <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16" /></svg>
+            <span className="mobile-bottom-nav-label">Ürün.</span>
+          </a>
+          <button className="mobile-bottom-nav-item mobile-bottom-nav-menu" type="button">
+            <svg className="mobile-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            <span className="mobile-bottom-nav-label">Menü</span>
+          </button>
+        </nav>
       )}
     </div>
   );

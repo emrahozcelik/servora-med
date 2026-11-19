@@ -774,14 +774,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   justify-content: flex-end;
   min-width: 0;
 }
-.mobile-top-bar .shell-menu-button {
-  min-width: min(2.75rem, 44px);
-  max-width: min(6rem, 96px);
-  padding-inline: min(0.85rem, 12px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .mobile-top-bar .shell-notification-trigger {
   flex: 0 0 min(2.75rem, 44px);
   width: min(2.75rem, 44px);
@@ -803,10 +795,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   white-space: nowrap;
 }
 .authenticated-shell--mobile .shell-content {
+  /* Own the mobile top rhythm so page-container margins cannot escape as a
+     blank band above the PageHeader ReturnLink (audit F-14). */
+  padding-top: 0.5rem;
   padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
 }
-.authenticated-shell--mobile.authenticated-shell:has(.sticky-new-job) .shell-content {
-  padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px));
+/* The page container owns no mobile top margin: a leading banner (for example
+   the offboarding return nav) must not push a blank band above the PageHeader,
+   and the shell content owns the single top rhythm instead (audit F-14). */
+.authenticated-shell--mobile .shell-content > :first-child,
+.authenticated-shell--mobile .shell-content > main {
+  margin-top: 0;
 }
 .mobile-bottom-nav {
   position: fixed;
@@ -824,9 +823,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--canvas);
 }
 .mobile-bottom-nav-item {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.15rem;
   min-width: 0;
   max-width: 100%;
   min-height: var(--control-height);
@@ -845,6 +846,17 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   hyphens: auto;
   cursor: pointer;
 }
+.mobile-bottom-nav-label {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+/* Inline decorative glyph; the visible label remains the accessible name. */
+.mobile-nav-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
 
 @media (max-width: 22rem) {
   .mobile-bottom-nav {
@@ -852,7 +864,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   }
   .mobile-bottom-nav-item {
     padding: 0.35rem 0.15rem;
-    font-size: 0.72rem;
+    /* 12px floor: labels must never shrink below the minimum text size. */
+    font-size: 0.75rem;
+  }
+  .mobile-nav-icon {
+    width: 1.125rem;
+    height: 1.125rem;
   }
 }
 /* Active destination uses accent soft + weight (not color alone). */
@@ -863,20 +880,50 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--accent-soft);
   font-weight: 760;
 }
-.sticky-new-job {
-  position: fixed;
-  z-index: 22;
-  right: 1rem;
-  bottom: calc(4.35rem + env(safe-area-inset-bottom, 0px));
-  left: 1rem;
+/* Centered create slot: reuses the NewJobMenu sheet trigger as a nav item. */
+.mobile-bottom-nav-create {
   display: flex;
-  justify-content: stretch;
+  min-width: 0;
 }
-.sticky-new-job .new-job-menu,
-.sticky-new-job .new-job-menu-trigger {
+.mobile-bottom-nav .mobile-bottom-nav-create .new-job-menu {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mobile-bottom-nav .mobile-bottom-nav-create .new-job-menu-trigger {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
   width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 0.35rem 0.2rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: var(--accent-hover);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.15;
 }
-/* One primary create: hide toolbar Yeni iş when sticky mobile create is present. */
+.mobile-bottom-nav .mobile-bottom-nav-create .new-job-menu-trigger:hover:not(:disabled),
+.mobile-bottom-nav .mobile-bottom-nav-create .new-job-menu-trigger[aria-expanded="true"] {
+  background: var(--accent-soft);
+}
+.new-job-menu-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.new-job-menu-trigger-icon .mobile-nav-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+/* One primary create on mobile: the bottom-nav action owns it (UI-004). */
 @media (width < 64rem) {
   .workspace-create-actions.workspace-create-actions--toolbar {
     display: none;
@@ -884,6 +931,11 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .authenticated-shell--mobile .workspace-heading h1 {
     font-size: 1.05rem;
     letter-spacing: -0.015em;
+  }
+}
+@media (max-width: 22rem) {
+  .mobile-bottom-nav-create .new-job-menu-trigger {
+    font-size: 0.75rem;
   }
 }
 
@@ -1026,9 +1078,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
     display: none;
   }
 }
-.shell-menu-button, .shell-nav a, .shell-signout, .drawer-close { min-width: 2.75rem; min-height: var(--control-height); }
-.shell-menu-button, .shell-signout, .drawer-close { display: inline-flex; align-items: center; justify-content: center; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
-.shell-menu-button:hover:not(:disabled), .shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
+.shell-nav a, .shell-signout, .drawer-close { min-width: 2.75rem; min-height: var(--control-height); }
+.shell-signout, .drawer-close { display: inline-flex; align-items: center; justify-content: center; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
+.shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
 /* Shared nav/account baseline (sidebar + mobile drawer). T2A polish is scoped under .shell-sidebar. */
 .shell-sidebar {
   min-height: 100vh;
@@ -1066,8 +1118,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .shell-sidebar-footer .shell-copyright {
   margin-top: 0.15rem;
 }
-.shell-drawer-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; background: oklch(26% 0.016 246deg / 48%); }
-/* T2B drawer visual polish only — interaction/focus contracts unchanged. */
+.shell-drawer-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
+/* T2B drawer visual polish only — interaction/focus contracts unchanged.
+   UI-004: the panel opens from the right edge, the same side as its trigger. */
 .shell-drawer {
   display: flex;
   flex-direction: column;
@@ -1078,12 +1131,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   overflow-y: auto;
   padding:
     calc(1rem + env(safe-area-inset-top, 0px))
-    1rem
-    calc(1.15rem + env(safe-area-inset-bottom, 0px));
-  padding-left: calc(1rem + env(safe-area-inset-left, 0px));
-  border-right: 1px solid var(--rule);
+    calc(1rem + env(safe-area-inset-right, 0px))
+    calc(1.15rem + env(safe-area-inset-bottom, 0px))
+    calc(1rem + env(safe-area-inset-left, 0px));
+  border-left: 1px solid var(--rule);
   background: var(--paper);
-  box-shadow: 0.75rem 0 2rem oklch(26% 0.016 246deg / 18%);
+  box-shadow: -0.75rem 0 2rem oklch(26% 0.016 246deg / 18%);
 }
 .drawer-heading {
   display: flex;
@@ -1104,14 +1157,6 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.shell-drawer-brand {
-  flex: 0 0 auto;
-  margin-top: 1rem;
-  justify-content: flex-start;
-}
-.shell-drawer-brand .dunya-dental-brand--full {
-  justify-content: flex-start;
-}
 .shell-drawer .shell-nav {
   flex: 1 1 auto;
   min-width: 0;
@@ -1122,10 +1167,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* UI-004: account row (name, role, sign out) comes before the destinations. */
 .shell-drawer .shell-account {
   flex: 0 0 auto;
   min-width: 0;
-  margin-top: auto;
+  margin-top: 0.85rem;
+  padding-top: 0;
+  border-top: 0;
 }
 .shell-drawer .shell-identity,
 .shell-drawer .shell-identity strong,
