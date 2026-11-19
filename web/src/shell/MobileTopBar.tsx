@@ -1,18 +1,14 @@
-import type { ReactNode, RefObject } from 'react';
+import type { ReactNode } from 'react';
 
+/**
+ * Mobile route identity bar: resolved title + notifications only.
+ * The single Menü control belongs to the bottom navigation (DECISIONS.md UI-004).
+ */
 export function MobileTopBar({
   title,
-  menuExpanded,
-  menuControlsId,
-  onOpenMenu,
-  menuTriggerRef,
   notifications,
 }: {
   title: string;
-  menuExpanded: boolean;
-  menuControlsId: string;
-  onOpenMenu: (opener: HTMLElement) => void;
-  menuTriggerRef: RefObject<HTMLButtonElement | null>;
   notifications?: ReactNode;
 }) {
   return (
@@ -22,18 +18,6 @@ export function MobileTopBar({
       </div>
       <div className="mobile-top-bar-actions">
         {notifications}
-        <button
-          ref={menuTriggerRef}
-          className="shell-menu-button"
-          type="button"
-          aria-label="Menüyü aç"
-          aria-haspopup="dialog"
-          aria-expanded={menuExpanded}
-          aria-controls={menuControlsId}
-          onClick={(event) => onOpenMenu(event.currentTarget)}
-        >
-          Menü
-        </button>
       </div>
     </header>
   );

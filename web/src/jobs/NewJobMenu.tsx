@@ -5,6 +5,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 
 export type NewJobMenuProps = {
@@ -12,17 +13,19 @@ export type NewJobMenuProps = {
   onCreateTask?: () => void;
   onCreateDelivery?: () => void;
   onCreateWeeklyReport?: () => void;
-  /** When true, hide this control (e.g. sticky mobile create is shown elsewhere). */
+  /** Decorative leading glyph for compact mobile triggers (bottom navigation). */
+  triggerIcon?: ReactNode;
+  /** When true, hide this control (e.g. mobile create is shown elsewhere). */
   hidden?: boolean;
   /**
-   * Explicit presentation. Sticky shell create must use `sheet` for all <64rem.
-   * Toolbar desktop uses `popover`. Do not guess from viewport alone for sticky.
+   * Explicit presentation. The bottom-navigation create must use `sheet` for all
+   * <64rem. Toolbar desktop uses `popover`. Do not guess from viewport alone.
    */
   presentation?: 'popover' | 'sheet';
 };
 
 export function NewJobMenu({
-  onCreateMeeting, onCreateTask, onCreateDelivery, onCreateWeeklyReport, hidden = false, presentation = 'popover',
+  onCreateMeeting, onCreateTask, onCreateDelivery, onCreateWeeklyReport, triggerIcon, hidden = false, presentation = 'popover',
 }: NewJobMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -136,7 +139,8 @@ export function NewJobMenu({
         onClick={() => setOpen((value) => !value)}
         onKeyDown={onTriggerKey}
       >
-        Yeni iş
+        {triggerIcon ? <span className="new-job-menu-trigger-icon" aria-hidden="true">{triggerIcon}</span> : null}
+        <span className="new-job-menu-trigger-label">Yeni iş</span>
       </button>
       {open && isSheet && (
         <button
