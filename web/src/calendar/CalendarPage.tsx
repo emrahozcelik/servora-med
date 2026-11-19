@@ -685,7 +685,6 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   return (
     <main className="workspace calendar-workspace">
       <PageHeader
-        eyebrow="Aylık planlama"
         fallbackTitle="Takvim"
         description="İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün."
         actions={(

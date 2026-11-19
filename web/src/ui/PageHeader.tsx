@@ -29,7 +29,13 @@ export function PageHeader({
   fallbackTitle,
   fallbackEyebrow,
 }: {
-  /** Overrides the default section eyebrow; preserves a page's existing eyebrow copy. */
+  /**
+   * Optional page-supplied eyebrow. It must add information the route title,
+   * breadcrumb and navigation cannot (for example the JobCard type on a job
+   * detail). The registry `section` is deliberately NOT a default: repeating a
+   * sidebar group above every H1 is navigation chrome, not identity
+   * (UI audit F-14). Passing `''` renders no eyebrow.
+   */
   eyebrow?: string;
   description?: ReactNode;
   actions?: ReactNode;
@@ -118,7 +124,7 @@ export function PageHeader({
       ) : null}
     </>
   ) : null);
-  const eyebrowText = eyebrow ?? resolved.identity.section;
+  const eyebrowText = eyebrow;
   return (
     <header className="page-header" data-page-header={resolved.identity.id}>
       {breadcrumbNode}

@@ -43,7 +43,7 @@ export function UserListView({ users, onCreate, onOpen, notice }: {
   const [pageOffset, setPageOffset] = useState(0);
   const visibleUsers = users.filter((item) => statusFilter === 'all' || item.isActive === (statusFilter === 'active'));
   const boundedOffset = Math.min(pageOffset, lastListPageOffset(visibleUsers.length));
-  return <main className="workspace"><PageHeader eyebrow="Yönetim" fallbackTitle="Kullanıcılar"
+  return <main className="workspace"><PageHeader fallbackTitle="Kullanıcılar"
     actions={<button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button>} />
     {notice && <div className="success-message" role="status">{notice}</div>}
     {users.length > 0 && <PeopleStatusFilterTabs value={statusFilter} onChange={(next) => { setPageOffset(0); setStatusFilter(next); }} label="Kullanıcı durumu" />}

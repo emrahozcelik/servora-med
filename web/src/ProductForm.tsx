@@ -51,7 +51,7 @@ export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, o
   const describedBy = (field: ProductField, help?: string) => [help, fieldErrors[field] ? `product-${field === 'referencePrice' ? 'reference-price' : field}-error` : ''].filter(Boolean).join(' ') || undefined;
   void useCreateHeading; void title;
   return <main className="product-create">
-    <PageHeader eyebrow="Ürün kataloğu" description={intro} fallbackTitle="Yeni ürün" />
+    <PageHeader description={intro} fallbackTitle="Yeni ürün" />
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="product-form" noValidate onSubmit={onSubmit}>
       <p className="sr-only" role="status" aria-live="polite">{pending ? pendingAnnouncement : ''}</p>

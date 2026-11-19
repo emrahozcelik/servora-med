@@ -38,15 +38,12 @@ function ProductLoadError({ state, onRetry }: {
   onRetry: () => void;
 }) {
   if (state.code === 'PRODUCT_NOT_FOUND') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="404" title="Ürün bulunamadı" description="Bu ürün kaldırılmış veya bağlantı değişmiş olabilir." headingLevel={1} />
   </main>;
   if (state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="403" title="Bu ürünü görüntüleme yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
   return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="error" title="Ürün yüklenemedi" description={state.message} headingLevel={1}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
     />
@@ -111,7 +108,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   }, [load, productId, reload]);
 
   if (state.kind === 'loading') return <main className="workspace product-workspace" aria-busy="true" aria-live="polite">
-    <p className="eyebrow">Ürün kataloğu</p><h1>Ürün detayı yükleniyor</h1>
+    <h1>Ürün detayı yükleniyor</h1>
   </main>;
   if (state.kind === 'error') return <ProductLoadError state={state} onRetry={() => setReload((value) => value + 1)} />;
 
@@ -198,10 +195,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   </>;
 
   return <main className="product-detail">
-    <PageHeader
-      eyebrow="Ürün kataloğu"
-      fallbackTitle={product.name}
-    />
+    <PageHeader fallbackTitle={product.name} />
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {error && <div className="detail-feedback detail-feedback-error" role="alert">{error}</div>}
     <section className="record-section" aria-labelledby="product-info-title"><h2 id="product-info-title">Ürün bilgileri</h2><ProductFacts product={product} /></section>

@@ -205,7 +205,7 @@ export function StaffDirectoryView({ profiles, onOpen, statusFilter = 'active', 
   const emptyCopy = statusFilter === 'inactive' ? 'Pasif personel profili yok.'
     : statusFilter === 'all' ? 'Personel profili yok.' : 'Aktif personel profili yok.';
   return <main className="workspace">
-    <PageHeader eyebrow="Ekip" fallbackTitle="Personel" />
+    <PageHeader fallbackTitle="Personel" />
     {onStatusFilterChange && <PeopleStatusFilterTabs value={statusFilter} onChange={(next) => { setPageOffset(0); onStatusFilterChange(next); }} label="Personel durumu" />}
     {isFiltering ? <p role="status" aria-live="polite" aria-busy="true" className="muted-copy">Seçilen personel listesi yükleniyor…</p>
       : profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description={emptyCopy} />
