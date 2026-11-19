@@ -2,6 +2,8 @@
   --ink: oklch(23% 0.018 250deg);
   --muted: oklch(44% 0.02 250deg);
   --paper: oklch(99% 0.002 245deg);
+  --frame: oklch(97.5% 0.006 235deg);
+  --surface-hover: oklch(97% 0.005 245deg);
   --canvas: oklch(94% 0.01 245deg);
   --rule: oklch(83% 0.014 238deg);
   --accent: oklch(41% 0.13 242deg);
@@ -15,6 +17,20 @@
   --warning-soft: oklch(94% 0.028 78deg);
   --error: oklch(36% 0.16 28deg);
   --error-soft: oklch(94% 0.028 28deg);
+  --border-control: oklch(72% 0.018 240deg);
+  --border-control-hover: oklch(60% 0.03 240deg);
+  --border-accent: oklch(78% 0.04 238deg);
+  --border-error: oklch(78% 0.07 28deg);
+  --border-warning: oklch(78% 0.06 70deg);
+  --border-success: oklch(77% 0.065 150deg);
+  --border-error-strong: oklch(68% 0.1 28deg);
+  --border-error-emphasis: oklch(60% 0.14 28deg);
+  --scrim: oklch(26% 0.016 246deg / 48%);
+  --chart-good: oklch(62% 0.12 145deg);
+  --chart-caution: oklch(70% 0.12 95deg);
+  --chart-warning: oklch(68% 0.14 70deg);
+  --chart-alert: oklch(68% 0.14 55deg);
+  --chart-critical: oklch(58% 0.16 25deg);
   --focus: oklch(53% 0.15 242deg);
   --focus-width: 3px;
   --control-height: 2.75rem;
@@ -23,11 +39,13 @@
   --radius-raised: 0.75rem;
   --radius-chip: 999px;
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
+  --shadow-overlay: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%);
+  --shadow-drawer: -0.75rem 0 2rem oklch(26% 0.016 246deg / 18%);
   --record-description-label-min-width: 200px;
   --record-description-label-min-width-narrow: 112px;
 
   color: var(--ink);
-  background: oklch(97.5% 0.006 235deg);
+  background: var(--frame);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -188,12 +206,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   width: 100%;
   min-height: var(--control-height);
   padding: 0.72rem 0.85rem;
-  border: 1px solid oklch(72% 0.018 240deg);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--ink);
   background: var(--paper);
 }
-.field-group input:hover, .field-group select:hover, .field-group textarea:hover, .form-control:hover { border-color: oklch(60% 0.03 240deg); }
+.field-group input:hover, .field-group select:hover, .field-group textarea:hover, .form-control:hover { border-color: var(--border-control-hover); }
 .field-group input:focus, .field-group select:focus, .field-group textarea:focus, .form-control:focus { border-color: var(--accent); }
 .field-group input:disabled, .field-group select:disabled, .field-group textarea:disabled, .form-control:disabled { background: var(--canvas); }
 /* Password visibility toggle (UI audit F-16): a real 44px control inside the
@@ -251,7 +269,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .primary-button.btn-full { width: 100%; }
 .secondary-button { border: 1px solid var(--rule); color: var(--ink); background: var(--paper); }
-.secondary-button:hover:not(:disabled) { background: var(--canvas); border-color: oklch(72% 0.018 240deg); }
+.secondary-button:hover:not(:disabled) { background: var(--canvas); border-color: var(--border-control); }
 .secondary-button.btn-full { width: 100%; }
 .available-slots-list {
   display: grid;
@@ -275,7 +293,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   text-align: left;
 }
 .available-slot-option:hover:not(:disabled) {
-  border-color: oklch(72% 0.018 240deg);
+  border-color: var(--border-control);
   background: var(--canvas);
 }
 .available-slot-option--selected {
@@ -305,7 +323,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .ghost-button { border: 1px solid transparent; color: var(--accent); background: transparent; min-width: 0; }
 .destructive-button {
-  border: 1px solid oklch(68% 0.1 28deg);
+  border: 1px solid var(--border-error-strong);
   color: var(--error);
   background: var(--paper);
 }
@@ -314,13 +332,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 /* T3E: decision panel scoped destructive hierarchy */
 .review-buttons .destructive-button {
-  background: oklch(97% 0.012 28deg);
-  border-color: oklch(72% 0.12 28deg);
+  background: var(--error-soft);
+  border-color: var(--border-error-strong);
   font-weight: 700;
 }
 .review-buttons .destructive-button:hover:not(:disabled) {
   background: var(--error-soft);
-  border-color: oklch(65% 0.14 28deg);
+  border-color: var(--border-error-emphasis);
 }
 .destructive-button.compact-button {
   min-width: 7.5rem;
@@ -430,7 +448,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-executive-metrics dd { font-size: clamp(1.5rem, 2.5vw, 2rem); }
 .report-metrics-primary { margin-bottom: 1rem; }
 .report-metrics-secondary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.report-metric-card--warning dd { color: oklch(45% 0.12 55deg); }
+.report-metric-card--warning dd { color: var(--warning); }
 .report-metric-card--danger dd { color: var(--error); }
 .report-section { margin-top: 2.5rem; }.report-section h2 { font-size: 1.25rem; margin: 0 0 0.5rem; }
 .report-section-hint { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; line-height: 1.45; max-width: 48rem; }
@@ -571,16 +589,16 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .report-meter-label strong { font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .report-meter-track { height: 0.55rem; border-radius: 999px; background: var(--rule); overflow: hidden; }
 .report-meter-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); min-width: 0; }
-.report-meter--warning .report-meter-track span { background: oklch(68% 0.14 70deg); }
+.report-meter--warning .report-meter-track span { background: var(--chart-warning); }
 .report-meter--danger .report-meter-track span { background: var(--error); }
 .report-segmented-bar { margin-top: 0.75rem; }
 .report-segmented-track { display: flex; height: 0.85rem; border-radius: 999px; overflow: hidden; background: var(--rule); }
 .report-segmented-empty { flex: 1; background: var(--rule); }
 .report-segmented-fill { display: block; height: 100%; min-width: 2px; }
-.report-segmented-fill--under2 { background: oklch(62% 0.12 145deg); }
-.report-segmented-fill--between2And8 { background: oklch(70% 0.12 95deg); }
-.report-segmented-fill--between8And24 { background: oklch(68% 0.14 55deg); }
-.report-segmented-fill--over24 { background: oklch(58% 0.16 25deg); }
+.report-segmented-fill--under2 { background: var(--chart-good); }
+.report-segmented-fill--between2And8 { background: var(--chart-caution); }
+.report-segmented-fill--between8And24 { background: var(--chart-alert); }
+.report-segmented-fill--over24 { background: var(--chart-critical); }
 .report-segmented-legend { list-style: none; margin: 0.85rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 1rem; }
 .report-segmented-legend li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.45rem; font-size: 0.875rem; }
 .report-segmented-legend strong { font-variant-numeric: tabular-nums; }
@@ -762,7 +780,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .approval-list { padding: 0; margin: 1.5rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .approval-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0.25rem; border-bottom: 1px solid var(--rule); }
 .approval-list h2 { margin: 0.35rem 0; font-size: 1rem; }.approval-list p, .approval-list span { margin: 0; color: var(--muted); font-size: 0.8125rem; }
-.form-error { margin: 1.25rem 0; padding: 0.8rem 0.9rem; border: 1px solid oklch(78% 0.07 28deg); border-radius: 0.6rem; color: var(--error); background: var(--error-soft); font-size: 0.9rem; line-height: 1.45; }
+.form-error { margin: 1.25rem 0; padding: 0.8rem 0.9rem; border: 1px solid var(--border-error); border-radius: 0.6rem; color: var(--error); background: var(--error-soft); font-size: 0.9rem; line-height: 1.45; }
 .form-error h2 { margin: 0; font-size: 1rem; }
 .form-error p { margin: 0.35rem 0 0; }
 
@@ -983,7 +1001,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   position: absolute;
   inset: 0;
   border: 0;
-  background: oklch(26% 0.02 246deg / 0.4);
+  background: var(--scrim);
 }
 .filter-sheet {
   position: relative;
@@ -1072,7 +1090,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-view-switcher button[aria-pressed="true"] {
   color: var(--accent-hover);
   background: var(--accent-soft);
-  border-color: oklch(78% 0.04 238deg);
+  border-color: var(--border-accent);
   font-weight: 760;
 }
 .job-view-switcher button[data-state="current"] {
@@ -1120,7 +1138,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .shell-nav a, .shell-signout, .drawer-close { min-width: 2.75rem; min-height: var(--control-height); }
 .shell-signout, .drawer-close { display: inline-flex; align-items: center; justify-content: center; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
-.shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
+.shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: var(--border-control); background: var(--canvas); }
 /* Shared nav/account baseline (sidebar + mobile drawer). T2A polish is scoped under .shell-sidebar. */
 .shell-sidebar {
   min-height: 100vh;
@@ -1158,7 +1176,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .shell-sidebar-footer .shell-copyright {
   margin-top: 0.15rem;
 }
-.shell-drawer-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
+.shell-drawer-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; justify-content: flex-end; background: var(--scrim); }
 /* T2B drawer visual polish only — interaction/focus contracts unchanged.
    UI-004: the panel opens from the right edge, the same side as its trigger. */
 .shell-drawer {
@@ -1176,7 +1194,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
     calc(1rem + env(safe-area-inset-left, 0px));
   border-left: 1px solid var(--rule);
   background: var(--paper);
-  box-shadow: -0.75rem 0 2rem oklch(26% 0.016 246deg / 18%);
+  box-shadow: var(--shadow-drawer);
 }
 .drawer-heading {
   display: flex;
@@ -1250,7 +1268,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   height: 1.2rem;
   flex: 0 0 auto;
 }
-.shell-notification-trigger:hover { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
+.shell-notification-trigger:hover { border-color: var(--border-control); background: var(--canvas); }
 /* Absolute badge must not expand trigger geometry or shift the bell. */
 .notification-center-badge {
   display: inline-flex;
@@ -1267,9 +1285,9 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   padding-inline: 0.25rem;
   border: 2px solid var(--canvas);
   border-radius: var(--radius-chip);
-  color: white;
+  color: var(--paper);
   background: var(--accent-hover);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 740;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -1281,7 +1299,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .notification-center-desktop-layer, .notification-center-backdrop { position: fixed; z-index: 40; inset: 0; }
 /* Desktop outside-click layer must receive pointer events; the panel re-enables them. */
 .notification-center-desktop-layer { pointer-events: auto; }
-.notification-center-backdrop { display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
+.notification-center-backdrop { display: flex; justify-content: flex-end; background: var(--scrim); }
 .notification-center-backdrop-button { position: absolute; inset: 0; border: 0; background: transparent; }
 .notification-center-panel {
   position: absolute;
@@ -1416,7 +1434,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   display: grid;
   gap: 0.65rem;
   padding: 0.85rem 0.9rem;
-  border: 1px solid oklch(78% 0.07 28deg);
+  border: 1px solid var(--border-error);
   border-radius: var(--radius-control);
   color: var(--error);
   background: var(--error-soft);
@@ -1456,7 +1474,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--canvas);
 }
 .notification-center-item:hover:not(:disabled) {
-  border-color: oklch(72% 0.018 240deg);
+  border-color: var(--border-control);
   background: var(--paper);
 }
 .notification-center-dismiss {
@@ -1639,7 +1657,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-quick-views a[aria-current="page"] {
   color: var(--accent-hover);
   background: var(--accent-soft);
-  border-color: oklch(78% 0.04 238deg);
+  border-color: var(--border-accent);
   font-weight: 760;
 }
 .job-quick-views a[data-state="current"] {
@@ -1824,7 +1842,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   align-items: center;
   min-height: 1.75rem;
   padding: 0.2rem 0.65rem;
-  border: 1px solid oklch(80% 0.05 28deg);
+  border: 1px solid var(--border-error);
   border-radius: var(--radius-chip);
   font-size: 0.8125rem;
   font-weight: 700;
@@ -1850,7 +1868,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .status-chip--waiting_approval, .priority-chip--high, .priority-chip--urgent {
   color: var(--warning);
-  border-color: oklch(78% 0.05 70deg);
+  border-color: var(--border-warning);
   background: var(--warning-soft);
 }
 .status-chip--in_progress {
@@ -1860,23 +1878,23 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .status-chip--completed {
   color: var(--success);
-  border-color: oklch(77% 0.065 150deg);
+  border-color: var(--border-success);
   background: var(--success-soft);
 }
 .status-chip--revision_requested {
   color: var(--warning);
-  border-color: oklch(78% 0.05 70deg);
-  background: oklch(96% 0.02 70deg);
+  border-color: var(--border-warning);
+  background: var(--warning-soft);
 }
 .status-chip--cancelled {
   color: var(--error);
-  border-color: oklch(80% 0.05 28deg);
+  border-color: var(--border-error);
   background: var(--error-soft);
 }
 .priority-chip--urgent {
-  color: oklch(40% 0.12 28deg);
-  border-color: oklch(80% 0.05 28deg);
-  background: oklch(96% 0.02 28deg);
+  color: var(--error);
+  border-color: var(--border-error);
+  background: var(--error-soft);
 }
 .job-status-waiting_approval, .job-priority-high, .job-priority-urgent { color: var(--warning); }
 .job-status-in_progress { color: var(--accent-hover); }
@@ -2129,8 +2147,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   .workflow-lane-cards > li:nth-child(n) { display: block; }
 }
 .shell-error { width: min(100% - 2rem, 68rem); margin: 0 auto 2rem; }
-.success-message { margin-bottom: 1.5rem; padding: 0.8rem 0.9rem; border: 1px solid oklch(77% 0.065 150deg); border-radius: 0.6rem; color: var(--success); background: var(--success-soft); }
-.conflict-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; padding: 0.9rem; border: 1px solid oklch(78% 0.07 80deg); border-radius: 0.6rem; background: oklch(96% 0.025 80deg); }
+.success-message { margin-bottom: 1.5rem; padding: 0.8rem 0.9rem; border: 1px solid var(--border-success); border-radius: 0.6rem; color: var(--success); background: var(--success-soft); }
+.conflict-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; padding: 0.9rem; border: 1px solid var(--border-warning); border-radius: 0.6rem; background: var(--warning-soft); }
 .conflict-actions p { margin: 0; color: var(--text); line-height: 1.5; }
 .record-commands:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
 .delivery-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
@@ -2357,7 +2375,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   align-items: center;
   min-height: 1.65rem;
   padding: 0.2rem 0.55rem;
-  border: 1px solid oklch(72% 0.08 238deg);
+  border: 1px solid var(--border-accent);
   border-radius: 999px;
   color: var(--accent-hover);
   background: var(--accent-soft);
@@ -2470,7 +2488,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   inset: 0;
   z-index: 45;
   border: 0;
-  background: oklch(26% 0.02 246deg / 0.35);
+  background: var(--scrim);
 }
 .new-job-menu-panel--sheet {
   position: fixed;
@@ -2562,7 +2580,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   gap: 0.9rem;
   min-width: 0;
   padding: 1rem;
-  border: 1px solid oklch(78% 0.08 28deg);
+  border: 1px solid var(--border-error);
   border-left: 4px solid var(--error);
   background: var(--error-soft);
 }
@@ -2586,7 +2604,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .job-invalidation-form {
   min-width: 0;
   padding-top: 0.85rem;
-  border-top: 1px solid oklch(78% 0.08 28deg);
+  border-top: 1px solid var(--border-error);
 }
 .job-invalidation-form fieldset {
   min-width: 0;
@@ -2605,7 +2623,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   gap: 0.75rem;
   min-width: 0;
   padding-top: 0.85rem;
-  border-top: 1px solid oklch(78% 0.08 28deg);
+  border-top: 1px solid var(--border-error);
 }
 .job-invalidation-recovery .field-status { margin: 0; }
 .job-invalidation-recovery .review-buttons { justify-content: flex-start; }
@@ -2736,7 +2754,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   justify-items: start;
   margin: 0 0 0.75rem;
   padding: 0.7rem 0.8rem;
-  border: 1px solid oklch(78% 0.07 28deg);
+  border: 1px solid var(--border-error);
   border-radius: var(--radius-control);
   color: var(--error);
   background: var(--error-soft);
@@ -2849,7 +2867,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .detail-feedback {
   margin: 0 0 1.15rem;
   padding: 0.8rem 0.9rem;
-  border: 1px solid oklch(78% 0.055 238deg);
+  border: 1px solid var(--border-accent);
   border-radius: var(--radius-control);
   color: var(--accent-hover);
   background: var(--accent-soft);
@@ -2857,7 +2875,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .detail-feedback-error {
   color: var(--error);
-  border-color: oklch(78% 0.07 28deg);
+  border-color: var(--border-error);
   background: var(--error-soft);
 }
 .detail-summary {
@@ -3014,13 +3032,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .compact-workflow--attention {
   padding: 0.45rem 0.55rem;
-  border: 1px solid oklch(78% 0.06 55deg);
+  border: 1px solid var(--border-warning);
   border-radius: 0.5rem;
-  background: oklch(97% 0.02 85deg);
-  color: oklch(40% 0.08 50deg);
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 .compact-workflow--attention p {
-  color: oklch(34% 0.08 45deg);
+  color: var(--warning);
 }
 .job-row-mobile-primary .primary-button,
 .job-row-mobile-primary .secondary-button {
@@ -3095,8 +3113,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   background: var(--accent-soft);
 }
 .revision-loop {
-  border-color: oklch(78% 0.07 70deg);
-  background: oklch(97% 0.02 85deg);
+  border-color: var(--border-warning);
+  background: var(--warning-soft);
 }
 .revision-loop-reason {
   display: grid;
@@ -3136,12 +3154,12 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .revision-loop-facts dd,
 .completed-job-facts dd { margin: 0; overflow-wrap: anywhere; }
 .completed-job-banner {
-  border-color: oklch(78% 0.06 150deg);
+  border-color: var(--border-success);
   background: var(--success-soft);
 }
 .cancelled-job-banner {
-  border-color: oklch(82% 0.04 60deg);
-  background: oklch(97% 0.01 60deg);
+  border-color: var(--rule);
+  background: var(--canvas);
 }
 .cancelled-job-facts {
   display: grid;
@@ -3188,13 +3206,13 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 .workflow-requirement-met .workflow-requirement-icon {
   color: var(--accent-hover);
-  border-color: oklch(78% 0.055 238deg);
+  border-color: var(--border-accent);
   background: var(--accent-soft);
 }
 .workflow-requirement-missing .workflow-requirement-icon,
 .workflow-requirement-invalid .workflow-requirement-icon {
   color: var(--error);
-  border-color: oklch(78% 0.07 28deg);
+  border-color: var(--border-error);
   background: var(--error-soft);
 }
 .workflow-requirement-label {
@@ -3244,8 +3262,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .timeline-reason strong { font-weight: 650; }
 .job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
-.dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
-.reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
+.dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
+.reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: var(--shadow-overlay); }
 /* Mobile shell: reserve the fixed bottom-nav footprint (mirrors
    .mobile-bottom-nav min-height + safe-area) so overflowing workflow dialogs
    never slide their primary CTA underneath the navigation bar. */
@@ -3262,7 +3280,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
 .follow-up-edit .field-group { margin-top: 0.5rem; }
 .follow-up-proposal-fields { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); }
-.follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid oklch(55% 0.12 85deg); border-radius: 0.45rem; }
+.follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--border-warning); border-radius: 0.45rem; }
 .follow-up-recent-visit-title { margin: 0 0 0.25rem; font-weight: 700; }
 .follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }
 .workflow-dialog .review-buttons button, .reason-dialog .review-buttons button { min-height: var(--control-height); }
@@ -3486,7 +3504,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .product-version { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .product-detail .product-detail-facts { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .product-edit-conflict { width: min(100% - 2rem, 48rem); margin: 1.5rem auto 0; }
-.product-dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(26% 0.016 246deg / 45%); }
+.product-dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: var(--scrim); }
 .product-dialog { width: min(100%, 30rem); padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.7rem; background: var(--paper); }
 .product-dialog h2 { margin: 0; font-size: 1.25rem; }
 .product-dialog p { color: var(--muted); line-height: 1.55; }
@@ -3497,8 +3515,8 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 .product-select-search { display: grid; gap: 0.5rem; }
 .product-select-search > label { font-size: 0.9rem; font-weight: 680; }
 .product-select-search-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; }
-.product-select-search input { width: 100%; padding: 0.72rem 0.85rem; border: 1px solid oklch(72% 0.018 240deg); border-radius: var(--radius-control); color: var(--ink); background: var(--paper); }
-.product-select-search input:hover { border-color: oklch(60% 0.03 240deg); }
+.product-select-search input { width: 100%; padding: 0.72rem 0.85rem; border: 1px solid var(--border-control); border-radius: var(--radius-control); color: var(--ink); background: var(--paper); }
+.product-select-search input:hover { border-color: var(--border-control-hover); }
 .product-select-search input:focus { border-color: var(--accent); }
 .product-select-search input:disabled { background: var(--canvas); }
 .product-select-current { display: grid; gap: 0.25rem; padding: 0.85rem 1rem; border-left: 3px solid var(--accent); background: var(--accent-soft); min-width: 0; }
@@ -4040,7 +4058,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
   width: 100%;
   min-height: var(--control-height);
   padding: 0.72rem 0.85rem;
-  border: 1px solid oklch(72% 0.018 240deg);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--ink);
   background: var(--paper);
@@ -4859,7 +4877,7 @@ label.field-group > input, label.field-group > select, label.field-group > texta
 }
 
 .form-drawer-backdrop {
-  background: oklch(0% 0 0deg / 0.35);
+  background: var(--scrim);
   border: none;
   inset: 0;
   min-height: 0;

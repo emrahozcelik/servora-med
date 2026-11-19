@@ -715,7 +715,7 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-top/);
     expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-bottom/);
     expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-right/);
-    expect(exactRuleBody('.shell-drawer')).toMatch(/box-shadow:\s*-0\.75rem/);
+    expect(exactRuleBody('.shell-drawer')).toMatch(/box-shadow:\s*var\(--shadow-drawer\)/);
     expect(exactRuleBody('.shell-drawer')).toMatch(/border-left:/);
     expect(exactRuleBody('.shell-drawer-backdrop')).toMatch(/justify-content:\s*flex-end/);
     expect(exactRuleBody('.shell-drawer .shell-nav')).toMatch(/(?:margin-top:\s*1\.15rem|flex:\s*1\s+1\s+auto)/);

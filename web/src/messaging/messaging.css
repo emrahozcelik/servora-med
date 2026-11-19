@@ -116,9 +116,9 @@
 .archive-error {
   margin: 0.65rem 1rem 0;
   padding: 0.55rem 0.7rem;
-  border-left: 3px solid var(--danger, oklch(55% 0.2 25deg));
+  border-left: 3px solid var(--border-error);
   background: var(--paper);
-  color: var(--danger, oklch(45% 0.18 25deg));
+  color: var(--error);
   font-size: 0.8rem;
 }
 
@@ -155,7 +155,7 @@
 }
 
 .conversation-item:hover {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 .conversation-item.selected {
@@ -216,7 +216,7 @@
   border: 1px solid var(--rule);
   border-radius: 8px;
   background: var(--paper);
-  box-shadow: 0 0.5rem 1.5rem oklch(20% 0.03 245deg / 16%);
+  box-shadow: var(--shadow-raised);
 }
 
 .conversation-action-menu button {
@@ -273,8 +273,9 @@
 
 .disabled-badge {
   font-size: 0.7rem;
-  background: oklch(65% 0.1 85deg);
-  color: #fff;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--border-warning);
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
   font-weight: 500;
@@ -302,7 +303,7 @@
 
 .unread-count {
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   font-size: 0.7rem;
   font-weight: 700;
   min-width: 1.25rem;
@@ -393,13 +394,13 @@
 .message-bubble.own {
   align-self: flex-end;
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   border-bottom-right-radius: 0.25rem;
 }
 
 .message-bubble.other {
   align-self: flex-start;
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
   color: var(--ink);
   border-bottom-left-radius: 0.25rem;
 }
@@ -554,7 +555,7 @@
 }
 
 .required-mark {
-  color: var(--danger, oklch(55% 0.2 25deg));
+  color: var(--border-error);
 }
 
 .create-search {
@@ -606,7 +607,7 @@
 }
 
 .create-option:hover {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 .create-option.selected {
@@ -680,7 +681,7 @@
 .create-error {
   margin: 0.25rem 0 0;
   font-size: 0.8rem;
-  color: var(--danger, oklch(55% 0.2 25deg));
+  color: var(--border-error);
 }
 
 .create-actions {
@@ -800,7 +801,7 @@
 }
 
 .conversation-row:has(.conversation-item:hover) .conversation-actions {
-  background: oklch(97% 0.005 245deg);
+  background: var(--surface-hover);
 }
 
 /* Desktop: messaging is an application workspace, not a document column.
